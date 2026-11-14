@@ -57,6 +57,11 @@ type Server struct {
 	accountState *accountState
 	// web serves the web's search and pages; nil when the control plane gave none.
 	web *websearch.Service
+	// imageClient waits longer for an answer than chat's client: an image
+	// answers once it is made (images.go); imageRests are the image models
+	// of accounts that rest.
+	imageClient *http.Client
+	imageRests  *imageRests
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
@@ -70,6 +75,9 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 	//nolint:forcetypeassert // the standard library's own type
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = responseHeaderTimeout
+
+	imageTransport := transport.Clone()
+	imageTransport.ResponseHeaderTimeout = imageHeaderTimeout
 
 	if cfg.CodexBaseURL == "" {
 		cfg.CodexBaseURL = codexBaseURL
@@ -91,6 +99,8 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		antigravity:    newAntigravityState(cfg.AntigravityManifestURL, svc.clock.Now),
 		accountState:   newAccountState(),
 		web:            cfg.Web,
+		imageClient:    &http.Client{Transport: imageTransport},
+		imageRests:     newImageRests(),
 	}
 }
 
@@ -107,6 +117,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/web/fetch", longAnswer(s.webFetch))
 	// Codex's standalone search, at <base URL>/alpha/search (alpha_search.go).
 	mux.HandleFunc("POST /v1/alpha/search", longAnswer(s.alphaSearch))
+	// Images (issue #431): one is made in a minute or more, longer than the write timeout.
+	mux.HandleFunc("POST /v1/images/generations", longAnswer(s.imageGenerations))
+	mux.HandleFunc("POST /v1/images/edits", longAnswer(s.imageEdits))
 }
 
 // longAnswer lifts the server's write timeout for a model's answer, which streams for as long as the model works:

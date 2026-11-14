@@ -65,10 +65,11 @@ UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
 -- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
-                           account_id, error, cache_write_tokens, cost_micros, priced_model, created_at)
+                           account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
+                           created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
-        @account_id, @error, @cache_write_tokens, @cost_micros, @priced_model, @now);
+        @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model, @now);
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
@@ -171,3 +172,27 @@ DELETE FROM gateway_search_usage WHERE day < @before;
 
 -- name: ListGatewaySearchUsage :many
 SELECT * FROM gateway_search_usage WHERE day >= @since ORDER BY provider, key, day;
+
+-- What the owner set on Settings, Gateway, Images (issue #431).
+-- name: ListGatewayImageProviders :many
+SELECT * FROM gateway_image_providers ORDER BY provider;
+
+-- name: SetGatewayImageOff :exec
+INSERT INTO gateway_image_providers (provider, off, updated_at) VALUES (@provider, @off, @now)
+ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at;
+
+-- name: SetGatewayImageModel :exec
+INSERT INTO gateway_image_providers (provider, model, updated_at) VALUES (@provider, @model, @now)
+ON CONFLICT (provider) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at;
+
+-- name: SetGatewayImagePosition :exec
+INSERT INTO gateway_image_providers (provider, position, updated_at) VALUES (@provider, @position, @now)
+ON CONFLICT (provider) DO UPDATE SET position = excluded.position, updated_at = excluded.updated_at;
+
+-- Each image provider's requests since a moment: what answered and what failed, for the Images page.
+-- name: CountGatewayImageCalls :many
+SELECT provider,
+       CAST(SUM(outcome = 'ok') AS INTEGER) AS answered,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed
+FROM gateway_usage WHERE model LIKE 'image/%' AND created_at >= @since
+GROUP BY provider ORDER BY provider;

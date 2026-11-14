@@ -18,6 +18,12 @@ Each adapted file names its source.
   (https://github.com/vercel/ai-elements, Apache License 2.0), OpenMausBot's src/components/AttachmentGallery.tsx
   (Apache License 2.0) and assistant-ui's packages/ui/src/components/react/assistant-ui/elements/message-attachment.tsx
   (MIT, Copyright (c) 2026 AgentbaseAI Inc.).
+- A chat's draft kept in the browser (`src/features/chat/drafts.ts`, issue #433) follows t3code's
+  apps/web/src/composerDraftStore.ts (MIT, Copyright (c) 2026 T3 Tools Inc.) and OpenMausBot's src/lib/drafts.ts
+  (Apache License 2.0): a draft a chat with its uploaded files, saved a moment after a write and when the page hides.
+  ↑ in the composer bringing back what the chat sent (`src/features/chat/recall.ts`) is adapted from opencode
+  (https://github.com/anomalyco/opencode, packages/app/src/composer/suggestions/machine.ts, stepHistory and
+  canNavigateHistory), MIT, Copyright (c) 2025 opencode.
 - The chat's Runs docked above its composer (`src/features/chat/docked-work.tsx`, `dock-state.ts`) are adapted
   from Orca's src/renderer/src/components/native-chat/tools/tasks/NativeChatDockedTaskList.tsx and
   NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast Inc.): the strip that opens to its list, its "n of m"
@@ -102,11 +108,16 @@ Each adapted file names its source.
 - Artifacts (`src/features/artifacts`): the locked frame's policy and document (`frame-document.ts`) are adapted
   from OpenMausBot's shared/app-frame/csp.ts and document.ts (Apache License 2.0, Copyright 2026 Milind Soni and
   OpenMausBot contributors); the panel's header (`artifact-panel.tsx`) from AI Elements' packages/elements/src/
-  artifact.tsx (https://github.com/vercel/ai-elements, Apache License 2.0, Copyright 2023 Vercel, Inc.); the PDF
-  view (`pdf-view.tsx`) from Omnigent's web/src/shell/PdfViewer.tsx (Apache License 2.0); the image's zoom and the
-  file to download from Onyx's web/src/sections/modals/PreviewModal/variants (MIT, Copyright (c) 2023-present
-  DanswerAI, Inc.). The PDF is drawn by react-pdf (MIT) and pdf.js (pdfjs-dist, Apache License 2.0, Copyright
-  Mozilla Foundation).
+  artifact.tsx (https://github.com/vercel/ai-elements, Apache License 2.0, Copyright 2023 Vercel, Inc.).
+- The file preview of Artifacts and the Files panel (`src/features/preview`) is copied from MemoryOS, the owner's
+  own project (web/src/features/preview), itself after Onyx's web/src/sections/modals/PreviewModal and its variants
+  (MIT, Copyright (c) 2023-present DanswerAI, Inc.); each file names its MemoryOS source and what was changed. A PDF
+  is drawn by react-pdf (MIT, Copyright (c) 2017–2026 Wojciech Maj) and pdf.js (pdfjs-dist, Apache License 2.0,
+  Copyright Mozilla Foundation and contributors), whose image decoders (JBIG2, OpenJPEG) ship under their own
+  licences in pdfjs-dist/wasm; a Word document by docx-preview (Apache License 2.0, Copyright Volodymyr
+  Baydalka), its output sanitized by DOMPurify (Apache License 2.0 or MPL 2.0, Copyright Cure53 and other
+  contributors). The control plane reads a workbook with excelize (github.com/xuri/excelize, BSD 3-Clause,
+  Copyright (c) 2016-2026 The excelize Authors, Copyright (c) 2011-2017 Geoffrey J. Teale).
 - The YAML editor of an agent (`src/features/agents/yaml-editor.tsx`, `monaco-environment.ts`, `yaml.worker.js`)
   is adapted from Omnara (frontend/apps/web/src/components/agents/AgentConfigYamlEditor.tsx,
   monacoEnvironment.ts, yaml.worker.js, and src/styles/editor.ts), Apache License 2.0.
@@ -119,6 +130,32 @@ t3code's license:
 MIT License
 
 Copyright (c) 2026 T3 Tools Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## opencode
+
+```text
+MIT License
+
+Copyright (c) 2025 opencode
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

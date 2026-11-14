@@ -204,9 +204,13 @@ export const isMarkdown = (path: string) => ["md", "markdown", "mdx"].includes(e
 
 // useImage is an image's bytes as an object URL, for as long as it is shown (Orca's useLocalImageSrc, Omnigent's
 // CodeViewer: bytes, a Blob, a URL revoked after).
+// rawKey is the query of a file's bytes, which an event does not refresh (isFileQuery).
+export const rawKey = (chat: string, workspace: string, path: string) =>
+  key(chat, workspace, "raw", path)
+
 export function useImage(chat: string, workspace: string, path: string, enabled = true) {
   return useQuery({
-    queryKey: key(chat, workspace, "raw", path),
+    queryKey: rawKey(chat, workspace, path),
     queryFn: async () => {
       const bytes = (
         await readWorkspaceRaw({

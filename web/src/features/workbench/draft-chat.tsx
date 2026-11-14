@@ -9,14 +9,26 @@ import { ChatModelControls } from "@/features/chat/chat-model-picker"
 import { useDraftChoice } from "@/features/chat/chat-model-state"
 import { newChatId } from "@/features/chat/chat-id"
 import { Composer } from "@/features/chat/composer"
+import { readDraft, tabDraft } from "@/features/chat/drafts"
 import { useStartChat } from "@/features/chat/start-chat"
 
 // DraftChat is a new chat in a pane's tab (issue #235): the composer of the New chat page, with the Bot picked
 // from "+". Its first message makes the chat, which then takes this tab's place. As the New chat page, it chooses
-// its chat's id when it opens and takes files before the chat is made (issue #357).
-export function DraftChat({ bot, onStarted }: { bot: string; onStarted: (chat: string) => void }) {
-  const [chatId] = useState(newChatId)
-  const attachments = useAttachments(chatId, bot || firstBot)
+// its chat's id when it opens and takes files before the chat is made (issue #357). Its draft is kept by the tab's
+// id, with the chat's id, as the New chat page keeps its own (issue #433).
+export function DraftChat({
+  id,
+  bot,
+  onStarted,
+}: {
+  id: string
+  bot: string
+  onStarted: (chat: string) => void
+}) {
+  const key = tabDraft(id)
+  const [saved] = useState(() => readDraft(key))
+  const [chatId] = useState(() => saved.chat ?? newChatId())
+  const attachments = useAttachments(chatId, bot || firstBot, saved)
   const [model, setModel] = useDraftChoice(bot || firstBot)
   const start = useStartChat(chatId, bot || undefined, model, (chat: Chat) => onStarted(chat.id))
 
@@ -36,6 +48,7 @@ export function DraftChat({ bot, onStarted }: { bot: string; onStarted: (chat: s
           onStop={() => {}}
           working={false}
           attachments={attachments}
+          draft={{ key, chat: chatId, bot: bot || firstBot }}
           controls={<ChatModelControls bot={bot || firstBot} choice={model} onChange={setModel} />}
         />
       </div>

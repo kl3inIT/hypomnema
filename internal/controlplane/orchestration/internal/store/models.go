@@ -277,6 +277,14 @@ type Event struct {
 	CreatedAt  int64
 }
 
+type GatewayImageProvider struct {
+	Provider  string
+	Off       int64
+	Position  sql.NullInt64
+	Model     sql.NullString
+	UpdatedAt int64
+}
+
 type GatewayKey struct {
 	ID         string
 	Name       string
@@ -321,27 +329,28 @@ type GatewaySearchUsage struct {
 }
 
 type GatewayUsage struct {
-	ID               string
-	KeyID            string
-	Model            string
-	Provider         string
-	UpstreamModel    string
-	Stream           int64
-	Attempts         int64
-	Outcome          string
-	Status           int64
-	PromptTokens     int64
-	CompletionTokens int64
-	CachedTokens     int64
-	ReasoningTokens  int64
-	Estimated        int64
-	DurationMs       int64
-	CreatedAt        int64
-	AccountID        string
-	Error            string
-	CacheWriteTokens int64
-	CostMicros       sql.NullInt64
-	PricedModel      string
+	ID                 string
+	KeyID              string
+	Model              string
+	Provider           string
+	UpstreamModel      string
+	Stream             int64
+	Attempts           int64
+	Outcome            string
+	Status             int64
+	PromptTokens       int64
+	CompletionTokens   int64
+	CachedTokens       int64
+	ReasoningTokens    int64
+	Estimated          int64
+	DurationMs         int64
+	CreatedAt          int64
+	AccountID          string
+	Error              string
+	CacheWriteTokens   int64
+	CostMicros         sql.NullInt64
+	PricedModel        string
+	CacheWrite1hTokens int64
 }
 
 type GitHost struct {

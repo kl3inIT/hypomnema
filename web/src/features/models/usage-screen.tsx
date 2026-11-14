@@ -626,7 +626,11 @@ function RequestSheet({
                 <Detail label="Reasoning" value={request.reasoning_tokens.toLocaleString()} />
                 <Detail
                   label="Written to cache"
-                  value={request.cache_write_tokens.toLocaleString()}
+                  value={
+                    request.cache_write_1h_tokens > 0
+                      ? `${request.cache_write_tokens.toLocaleString()}, ${request.cache_write_1h_tokens.toLocaleString()} for an hour`
+                      : request.cache_write_tokens.toLocaleString()
+                  }
                 />
                 <Detail
                   label="API cost"

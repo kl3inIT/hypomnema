@@ -49,7 +49,7 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 
 	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
 
-	channels, err := s.LarkChannels(ctx)
+	channels, err := s.Channels().LarkChannels(ctx)
 	require.NoError(t, err)
 	require.Len(t, channels, 1)
 
@@ -62,22 +62,22 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 		WebLink: true,
 	}, main)
 
-	people, err := s.LarkChannelPeople(ctx, "main")
+	people, err := s.Channels().LarkChannelPeople(ctx, "main")
 	require.NoError(t, err)
 	require.Len(t, people, 1)
 	assert.Equal(t, "linh@example.com", people[0].Email)
 
-	chats, err := s.LarkChannelChats(ctx, "main")
+	chats, err := s.Channels().LarkChannelChats(ctx, "main")
 	require.NoError(t, err)
 	assert.Equal(t, []LarkChannelChat{{
 		Channel: "main", LarkChatID: "oc_owner_dm", OpenID: "ou_owner", ChatID: "cht_1", Bot: DefaultBot, SentSeq: 4,
 	}}, chats)
 
-	first, err := s.TakeLarkMessage(ctx, "main", "om_1")
+	first, err := s.Channels().TakeLarkMessage(ctx, "main", "om_1")
 	require.NoError(t, err)
 	assert.False(t, first, "a message taken before the migration is not taken again")
 
-	card, err := s.LarkQuestionCardByMessage(ctx, "main", "om_card_1")
+	card, err := s.Channels().LarkQuestionCardByMessage(ctx, "main", "om_card_1")
 	require.NoError(t, err)
 	assert.Equal(t, LarkQuestionCard{QuestionID: "q_1", Channel: "main", CardID: "card_1", MessageID: "om_card_1", Seq: 2},
 		card)
@@ -121,7 +121,7 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	}
 
 	for _, c := range []LarkChannel{main, maps} {
-		_, err := w.s.SetLarkChannel(ctx, c)
+		_, err := w.s.Channels().SetLarkChannel(ctx, c)
 		require.NoError(t, err)
 	}
 
@@ -133,21 +133,21 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 		"starts with ou_":  {Name: "third", AppID: "cli_x", Secret: "s", Bot: DefaultBot, Mode: LarkChannelOwner, OwnerOpenID: "linh"},
 		"names the bot it": {Name: "third", AppID: "cli_x", Secret: "s", Mode: LarkChannelOwner, OwnerOpenID: "ou_o"},
 	} {
-		_, err := w.s.SetLarkChannel(ctx, c)
+		_, err := w.s.Channels().SetLarkChannel(ctx, c)
 		require.ErrorContains(t, err, want)
 	}
 
-	_, err = w.s.SetLarkChannel(ctx, LarkChannel{
+	_, err = w.s.Channels().SetLarkChannel(ctx, LarkChannel{
 		Name: "third", AppID: "cli_maps", Secret: "s", Bot: DefaultBot, Mode: LarkChannelOwner, OwnerOpenID: "ou_o",
 	})
 	require.ErrorIs(t, err, ErrConflict, "an app that is another Channel's")
 
 	// The same person is another open_id in each app, so on each Channel apart.
-	_, err = w.s.AddLarkChannelPerson(ctx, "maps", LarkChannelPerson{OpenID: "ou_linh_in_maps", Name: "Linh"})
+	_, err = w.s.Channels().AddLarkChannelPerson(ctx, "maps", LarkChannelPerson{OpenID: "ou_linh_in_maps", Name: "Linh"})
 	require.NoError(t, err)
-	_, err = w.s.LarkChannelPerson(ctx, "main", "ou_linh_in_maps")
+	_, err = w.s.Channels().LarkChannelPerson(ctx, "main", "ou_linh_in_maps")
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = w.s.AddLarkChannelPerson(ctx, "nowhere", LarkChannelPerson{OpenID: "ou_linh"})
+	_, err = w.s.Channels().AddLarkChannelPerson(ctx, "nowhere", LarkChannelPerson{OpenID: "ou_linh"})
 	require.ErrorIs(t, err, ErrNotFound)
 
 	chat, err := w.s.LarkChannelChatFor(ctx, "maps", "oc_dm_in_maps", "ou_owner_in_maps", "")
@@ -157,19 +157,19 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	fromMaps, err := w.s.CreateRun(ctx, NewRun{Objective: "add the depot", CreatedBy: "vmap", ChatID: chat.ChatID})
 	require.NoError(t, err)
 
-	via, err := w.s.LarkChannelForRun(ctx, fromMaps.ID)
+	via, err := w.s.Channels().LarkChannelForRun(ctx, fromMaps.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "maps", via, "the Channel its chat came in through")
 
-	via, err = w.s.LarkChannelForRun(ctx, w.run.ID)
+	via, err = w.s.Channels().LarkChannelForRun(ctx, w.run.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "maps", via, "main is off, so the oldest Channel that is on")
 
 	main.Enabled = true
-	_, err = w.s.SetLarkChannel(ctx, main)
+	_, err = w.s.Channels().SetLarkChannel(ctx, main)
 	require.NoError(t, err)
 
-	via, err = w.s.LarkChannelForRun(ctx, w.run.ID)
+	via, err = w.s.Channels().LarkChannelForRun(ctx, w.run.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "main", via, "a Run started elsewhere asks through the first Channel")
 
@@ -177,10 +177,10 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "Lark channels talk to bot vmap")
 
-	require.NoError(t, w.s.RemoveLarkChannel(ctx, "maps"))
-	require.ErrorIs(t, w.s.RemoveLarkChannel(ctx, "maps"), ErrNotFound)
+	require.NoError(t, w.s.Channels().RemoveLarkChannel(ctx, "maps"))
+	require.ErrorIs(t, w.s.Channels().RemoveLarkChannel(ctx, "maps"), ErrNotFound)
 
-	people, err := w.s.LarkChannelPeople(ctx, "maps")
+	people, err := w.s.Channels().LarkChannelPeople(ctx, "maps")
 	require.NoError(t, err)
 	assert.Empty(t, people, "its people go with it")
 
@@ -188,7 +188,7 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "vmap", kept.Bot, "the chat stays")
 
-	via, err = w.s.LarkChannelForRun(ctx, fromMaps.ID)
+	via, err = w.s.Channels().LarkChannelForRun(ctx, fromMaps.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "main", via, "its Channel is gone, so the first one")
 

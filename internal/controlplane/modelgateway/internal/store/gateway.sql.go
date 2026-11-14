@@ -10,6 +10,44 @@ import (
 	"database/sql"
 )
 
+const countGatewayImageCalls = `-- name: CountGatewayImageCalls :many
+SELECT provider,
+       CAST(SUM(outcome = 'ok') AS INTEGER) AS answered,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed
+FROM gateway_usage WHERE model LIKE 'image/%' AND created_at >= ?1
+GROUP BY provider ORDER BY provider
+`
+
+type CountGatewayImageCallsRow struct {
+	Provider string
+	Answered int64
+	Failed   int64
+}
+
+// Each image provider's requests since a moment: what answered and what failed, for the Images page.
+func (q *Queries) CountGatewayImageCalls(ctx context.Context, since int64) ([]CountGatewayImageCallsRow, error) {
+	rows, err := q.db.QueryContext(ctx, countGatewayImageCalls, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountGatewayImageCallsRow{}
+	for rows.Next() {
+		var i CountGatewayImageCallsRow
+		if err := rows.Scan(&i.Provider, &i.Answered, &i.Failed); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countGatewaySearch = `-- name: CountGatewaySearch :exec
 INSERT INTO gateway_search_usage (provider, key, day, answered, failed, cost_micros)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -230,34 +268,36 @@ func (q *Queries) InsertGatewayModelTarget(ctx context.Context, arg InsertGatewa
 const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
-                           account_id, error, cache_write_tokens, cost_micros, priced_model, created_at)
+                           account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
+                           created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
         ?10, ?11, ?12, ?13, ?14, ?15,
-        ?16, ?17, ?18, ?19, ?20, ?21)
+        ?16, ?17, ?18, ?19, ?20, ?21, ?22)
 `
 
 type InsertGatewayUsageParams struct {
-	ID               string
-	KeyID            string
-	Model            string
-	Provider         string
-	UpstreamModel    string
-	Stream           int64
-	Attempts         int64
-	Outcome          string
-	Status           int64
-	PromptTokens     int64
-	CompletionTokens int64
-	CachedTokens     int64
-	ReasoningTokens  int64
-	Estimated        int64
-	DurationMs       int64
-	AccountID        string
-	Error            string
-	CacheWriteTokens int64
-	CostMicros       sql.NullInt64
-	PricedModel      string
-	Now              int64
+	ID                 string
+	KeyID              string
+	Model              string
+	Provider           string
+	UpstreamModel      string
+	Stream             int64
+	Attempts           int64
+	Outcome            string
+	Status             int64
+	PromptTokens       int64
+	CompletionTokens   int64
+	CachedTokens       int64
+	ReasoningTokens    int64
+	Estimated          int64
+	DurationMs         int64
+	AccountID          string
+	Error              string
+	CacheWriteTokens   int64
+	CacheWrite1hTokens int64
+	CostMicros         sql.NullInt64
+	PricedModel        string
+	Now                int64
 }
 
 func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsageParams) error {
@@ -280,6 +320,7 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.AccountID,
 		arg.Error,
 		arg.CacheWriteTokens,
+		arg.CacheWrite1hTokens,
 		arg.CostMicros,
 		arg.PricedModel,
 		arg.Now,
@@ -304,6 +345,40 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 			return nil, err
 		}
 		items = append(items, dispatch_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGatewayImageProviders = `-- name: ListGatewayImageProviders :many
+SELECT provider, off, position, model, updated_at FROM gateway_image_providers ORDER BY provider
+`
+
+// What the owner set on Settings, Gateway, Images (issue #431).
+func (q *Queries) ListGatewayImageProviders(ctx context.Context) ([]GatewayImageProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayImageProviders)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GatewayImageProvider{}
+	for rows.Next() {
+		var i GatewayImageProvider
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Off,
+			&i.Position,
+			&i.Model,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -516,33 +591,34 @@ func (q *Queries) ListGatewaySearchUsage(ctx context.Context, since string) ([]G
 }
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?1
 `
 
 type ListGatewayUsageRow struct {
-	ID               string
-	KeyID            string
-	Model            string
-	Provider         string
-	UpstreamModel    string
-	Stream           int64
-	Attempts         int64
-	Outcome          string
-	Status           int64
-	PromptTokens     int64
-	CompletionTokens int64
-	CachedTokens     int64
-	ReasoningTokens  int64
-	Estimated        int64
-	DurationMs       int64
-	CreatedAt        int64
-	AccountID        string
-	Error            string
-	CacheWriteTokens int64
-	CostMicros       sql.NullInt64
-	PricedModel      string
-	KeyName          string
+	ID                 string
+	KeyID              string
+	Model              string
+	Provider           string
+	UpstreamModel      string
+	Stream             int64
+	Attempts           int64
+	Outcome            string
+	Status             int64
+	PromptTokens       int64
+	CompletionTokens   int64
+	CachedTokens       int64
+	ReasoningTokens    int64
+	Estimated          int64
+	DurationMs         int64
+	CreatedAt          int64
+	AccountID          string
+	Error              string
+	CacheWriteTokens   int64
+	CostMicros         sql.NullInt64
+	PricedModel        string
+	CacheWrite1hTokens int64
+	KeyName            string
 }
 
 func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListGatewayUsageRow, error) {
@@ -576,6 +652,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 			&i.CacheWriteTokens,
 			&i.CostMicros,
 			&i.PricedModel,
+			&i.CacheWrite1hTokens,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -592,7 +669,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 }
 
 const listUsageRequests = `-- name: ListUsageRequests :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= ?1
   AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?4 OFFSET ?3
@@ -606,28 +683,29 @@ type ListUsageRequestsParams struct {
 }
 
 type ListUsageRequestsRow struct {
-	ID               string
-	KeyID            string
-	Model            string
-	Provider         string
-	UpstreamModel    string
-	Stream           int64
-	Attempts         int64
-	Outcome          string
-	Status           int64
-	PromptTokens     int64
-	CompletionTokens int64
-	CachedTokens     int64
-	ReasoningTokens  int64
-	Estimated        int64
-	DurationMs       int64
-	CreatedAt        int64
-	AccountID        string
-	Error            string
-	CacheWriteTokens int64
-	CostMicros       sql.NullInt64
-	PricedModel      string
-	KeyName          string
+	ID                 string
+	KeyID              string
+	Model              string
+	Provider           string
+	UpstreamModel      string
+	Stream             int64
+	Attempts           int64
+	Outcome            string
+	Status             int64
+	PromptTokens       int64
+	CompletionTokens   int64
+	CachedTokens       int64
+	ReasoningTokens    int64
+	Estimated          int64
+	DurationMs         int64
+	CreatedAt          int64
+	AccountID          string
+	Error              string
+	CacheWriteTokens   int64
+	CostMicros         sql.NullInt64
+	PricedModel        string
+	CacheWrite1hTokens int64
+	KeyName            string
 }
 
 func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsParams) ([]ListUsageRequestsRow, error) {
@@ -666,6 +744,7 @@ func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsPa
 			&i.CacheWriteTokens,
 			&i.CostMicros,
 			&i.PricedModel,
+			&i.CacheWrite1hTokens,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -751,6 +830,54 @@ func (q *Queries) RevokeGatewayKeysOfDispatch(ctx context.Context, arg RevokeGat
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setGatewayImageModel = `-- name: SetGatewayImageModel :exec
+INSERT INTO gateway_image_providers (provider, model, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at
+`
+
+type SetGatewayImageModelParams struct {
+	Provider string
+	Model    sql.NullString
+	Now      int64
+}
+
+func (q *Queries) SetGatewayImageModel(ctx context.Context, arg SetGatewayImageModelParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayImageModel, arg.Provider, arg.Model, arg.Now)
+	return err
+}
+
+const setGatewayImageOff = `-- name: SetGatewayImageOff :exec
+INSERT INTO gateway_image_providers (provider, off, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at
+`
+
+type SetGatewayImageOffParams struct {
+	Provider string
+	Off      int64
+	Now      int64
+}
+
+func (q *Queries) SetGatewayImageOff(ctx context.Context, arg SetGatewayImageOffParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayImageOff, arg.Provider, arg.Off, arg.Now)
+	return err
+}
+
+const setGatewayImagePosition = `-- name: SetGatewayImagePosition :exec
+INSERT INTO gateway_image_providers (provider, position, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET position = excluded.position, updated_at = excluded.updated_at
+`
+
+type SetGatewayImagePositionParams struct {
+	Provider string
+	Position sql.NullInt64
+	Now      int64
+}
+
+func (q *Queries) SetGatewayImagePosition(ctx context.Context, arg SetGatewayImagePositionParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayImagePosition, arg.Provider, arg.Position, arg.Now)
+	return err
 }
 
 const setGatewaySearchOff = `-- name: SetGatewaySearchOff :exec

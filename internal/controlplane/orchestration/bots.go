@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 )
@@ -247,7 +248,11 @@ func (s *Service) ForceDeleteBot(ctx context.Context, name string) error {
 					Now: sql.NullInt64{Int64: now, Valid: true}, Bot: bot,
 				})
 			},
-			q.DeleteSetupChangesOfChatsOfBot, q.DeleteLarkChannelChatsOfBot, q.DeleteChatMessagesOfBot,
+			q.DeleteSetupChangesOfChatsOfBot,
+			func(ctx context.Context, bot string) error {
+				return channelstore.DeleteLarkChannelChatsOfBotTx(ctx, q, bot)
+			},
+			q.DeleteChatMessagesOfBot,
 			q.DeleteChatsOfBot, q.DeleteBot,
 		}
 		for _, step := range steps {
@@ -290,7 +295,7 @@ func botRemovable(ctx context.Context, q *store.Queries, row store.Bot) error {
 
 // botLive refuses to remove a Bot that Routines or Lark Channels use, even with its chats.
 func botLive(ctx context.Context, q *store.Queries, name string) error {
-	channels, err := q.CountLarkChannelsOfBot(ctx, name)
+	channels, err := channelstore.CountLarkChannelsOfBotTx(ctx, q, name)
 	if err != nil {
 		return err
 	}

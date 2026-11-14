@@ -10,6 +10,7 @@ import {
   artifactKey,
   isPhone,
   revisionOf,
+  typeLabel,
   useArtifact,
   useArtifactFile,
   useImageSource,
@@ -17,8 +18,6 @@ import {
 } from "./artifact-state"
 import { frameDocument, frameSandbox } from "./frame-document"
 import { useOpenArtifact } from "./open-artifact-context"
-
-const typeName = { html: "Page", pdf: "PDF", image: "Image", file: "File" } as const
 
 // ArtifactCard is an artifact in the chat (issue #402, row 4): a compact card with a small live thumbnail of a page
 // or an image, an icon for the rest, its title, its revision and when it was updated, as Open Canvas's chip and
@@ -30,6 +29,9 @@ export function ArtifactCard({ card }: { card: Card }) {
   const open = useOpenArtifact()
   const [full, setFull] = useState(false)
   const [rev, setRev] = useState<number | undefined>()
+  // The revision shown, once read: it names the file's kind as its viewer will show it.
+  const artifact = useArtifact(card.id)
+  const revision = artifact.data && revisionOf(artifact.data)
 
   useEffect(() => {
     const kept = queryClient.getQueryData<Artifact>(artifactKey(card.id))
@@ -55,8 +57,9 @@ export function ArtifactCard({ card }: { card: Card }) {
             v{card.revision} · Updated {since(card.updated_at)}
           </span>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <ArtifactIcon type={card.type} className="size-3" />
-            {typeName[card.type]} · {isPhone() || !open ? "Tap to open" : "Click to open"}
+            <ArtifactIcon type={card.type} revision={revision} className="size-3" />
+            {typeLabel(card.type, revision)} ·{" "}
+            {isPhone() || !open ? "Tap to open" : "Click to open"}
           </span>
         </span>
       </button>
@@ -84,7 +87,9 @@ function Thumbnail({ card }: { card: Card }) {
   if (revision?.type === "html") return <PageThumbnail id={card.id} revision={revision} />
   if (revision?.type === "image") return <ImageThumbnail id={card.id} revision={revision} />
 
-  return <ArtifactIcon type={card.type} className="size-6 text-muted-foreground" />
+  return (
+    <ArtifactIcon type={card.type} revision={revision} className="size-6 text-muted-foreground" />
+  )
 }
 
 // A page is laid out at a desktop's width and scaled to the card, so it looks as it will open.

@@ -1,16 +1,19 @@
 import { code } from "@streamdown/code"
+import { useQuery } from "@tanstack/react-query"
 import { Streamdown } from "streamdown"
 import "streamdown/styles.css"
 
-import { inFolder, useImage, useObjectURL } from "./files-state"
+import { InlineSvg } from "@/features/preview/image-view"
+
+import { fileKey, imageType, inFolder, useImage, useObjectURL } from "./files-state"
 
 const plugins = { code }
 const controls = { table: true, code: { copy: true, download: false } } as const
 
 // FilePreview shows a Markdown file of a chat's folder as it reads (issue #297), with the renderer of the chat
 // (markdown.tsx, Streamdown, which keeps HTML to a safe set). An image the file names by a path of the folder is
-// read through the file API and shown from a blob: URL, as Orca's useLocalImageSrc.ts does; one at an http(s) or
-// data: address is left to the browser.
+// read through the file API and shown from a blob: URL, as Orca's useLocalImageSrc.ts does, an SVG from its text
+// in the locked frame instead; one at an http(s) or data: address is left to the browser.
 export default function FilePreview({
   chat,
   workspace,
@@ -63,9 +66,17 @@ function FolderImage({
 }) {
   const local = inFolder(from, src)
   const image = useImage(chat, workspace, local ?? "", local !== null)
-  const url = useObjectURL(image.data)
+  // An SVG is never given a blob: address (issue #422, row 4): it is drawn from its text in the locked frame.
+  const svg = local !== null && imageType(local) === "image/svg+xml"
+  const markup = useQuery({
+    queryKey: [...fileKey(chat, workspace, local ?? ""), "svg"],
+    queryFn: () => (image.data as Blob).text(),
+    enabled: svg && image.data !== undefined,
+  })
+  const url = useObjectURL(svg ? undefined : image.data)
 
   if (local === null) return <img src={src} alt={alt} className="max-w-full" />
+  if (svg && markup.data !== undefined) return <InlineSvg markup={markup.data} alt={alt} />
   if (!url) return <span className="text-xs text-muted-foreground">[{alt || local}]</span>
 
   return <img src={url} alt={alt} className="max-w-full" />

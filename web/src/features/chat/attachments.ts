@@ -29,7 +29,8 @@ export const attachmentsDir = (chat: string) => `attachments/${chat}`
 
 export type Attachment = {
   id: string
-  file: File
+  // file is the file's bytes; a file brought back with a draft (issue #433) has none, only its place in the folder.
+  file?: File
   // name is the file's name as the owner picked it; path is where it goes in the Bot's folder, once named.
   name: string
   path: string
@@ -169,6 +170,23 @@ export class AttachmentDraft {
     return there
   }
 
+  // restore puts back the files of a draft kept in the browser (issue #433): they are up in the folder already.
+  restore(files: readonly ChatAttachment[]) {
+    if (files.length === 0) return
+    this.set([
+      ...this.items,
+      ...files.map((file): Attachment => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        path: file.path,
+        size: file.size,
+        type: file.type ?? "",
+        sent: file.size,
+        state: "done",
+      })),
+    ])
+  }
+
   private start(item: Attachment) {
     const controller = new AbortController()
     const settled = this.send(item, controller.signal, this.folder)
@@ -195,6 +213,10 @@ export class AttachmentDraft {
   }
 
   private async send(item: Attachment, signal: AbortSignal, folder: Folder) {
+    const file = item.file
+    // A file brought back with a draft cannot go up again: its bytes are not here (t3code's
+    // composerFileNeedsReattach).
+    if (!file) throw { message: `${item.name} is in the other Bot's folder. Attach it again.` }
     const there = await this.names()
 
     for (let attempt = 1; ; attempt++) {
@@ -205,7 +227,7 @@ export class AttachmentDraft {
       this.update(item.id, { path, sent: 0 })
 
       try {
-        await folder.upload(path, item.file, (sent) => this.update(item.id, { sent }), signal)
+        await folder.upload(path, file, (sent) => this.update(item.id, { sent }), signal)
         // Stopped while it was put in its place: the copy is not this draft's any more.
         if (signal.aborted) {
           void folder.remove(path).catch(() => undefined)
@@ -323,10 +345,20 @@ function botFolderOf(chat: string, bot?: string): Folder {
 }
 
 // useAttachments is a composer's files, and why the last file picked, dropped or pasted was not taken. A chat not
-// made yet names the Bot picked for it; when another is picked, the files move to its folder.
-export function useAttachments(chat: string, bot?: string) {
-  const [draft] = useState(() => new AttachmentDraft(chat, botFolderOf(chat, bot)))
-  const placed = useRef(bot)
+// made yet names the Bot picked for it; when another is picked, the files move to its folder. restored are the
+// files of the draft kept for the composer (issue #433), with the Bot whose folder they are in.
+export function useAttachments(
+  chat: string,
+  bot?: string,
+  restored?: { files: readonly ChatAttachment[]; bot?: string },
+) {
+  const [draft] = useState(() => {
+    const made = new AttachmentDraft(chat, botFolderOf(chat, restored?.bot ?? bot))
+    made.restore(restored?.files ?? [])
+
+    return made
+  })
+  const placed = useRef(restored?.bot ?? bot)
   useEffect(() => {
     if (placed.current === bot) return
     placed.current = bot

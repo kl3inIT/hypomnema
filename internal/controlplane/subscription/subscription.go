@@ -71,6 +71,8 @@ type Token struct {
 	AccessToken string
 	// Project is the vendor's project the account works in, when it has one.
 	Project string
+	// Plan is the account's plan as its login read it (Codex: chatgpt_plan_type).
+	Plan string
 	// Version is the version of the account's secret the token is from.
 	Version int
 }
@@ -657,7 +659,7 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, 
 
 	return Token{
 		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: access,
-		Project: a.Project, Version: opened.Version,
+		Project: a.Project, Plan: a.Plan, Version: opened.Version,
 	}, nil
 }
 

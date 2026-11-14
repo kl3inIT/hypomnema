@@ -162,23 +162,27 @@ func (b botWeb) Fetch(ctx context.Context, chatID, url string) (websearch.Page, 
 }
 
 func (b botWeb) chatKey(chatID string) func(context.Context) (string, bool) {
-	return func(ctx context.Context) (string, bool) {
-		if chatID == "" {
-			return "", false
-		}
+	return func(ctx context.Context) (string, bool) { return chatKeyID(ctx, b.gateway, b.chats, chatID) }
+}
 
-		secret, ok := b.chats.Key(chatID)
-		if !ok {
-			return "", false
-		}
-
-		k, err := b.gateway.Authenticate(ctx, secret)
-		if err != nil {
-			return "", false
-		}
-
-		return k.ID, true
+// chatKeyID is the id of the gateway key of a chat's running pi; false for no
+// chat, or a chat whose pi runs no more.
+func chatKeyID(ctx context.Context, gateway *modelgateway.Service, chats chatKeyHolder, chatID string) (string, bool) {
+	if chatID == "" {
+		return "", false
 	}
+
+	secret, ok := chats.Key(chatID)
+	if !ok {
+		return "", false
+	}
+
+	k, err := gateway.Authenticate(ctx, secret)
+	if err != nil {
+		return "", false
+	}
+
+	return k.ID, true
 }
 
 // dispatchRuntime is the runtime a Dispatch's worker runs: its

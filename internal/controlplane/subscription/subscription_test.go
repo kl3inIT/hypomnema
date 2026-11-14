@@ -492,8 +492,8 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 	first, err := w.subs.Token(t.Context(), "codex", "")
 	require.NoError(t, err)
 	assert.Equal(t, subscription.Token{
-		AccountID: a.ID, ExternalID: chatGPTAccount, AccessToken: "access-1", Version: 1,
-	}, first)
+		AccountID: a.ID, ExternalID: chatGPTAccount, AccessToken: "access-1", Plan: "plus", Version: 1,
+	}, first, "with the plan, by which an image skips a free account (issue #431)")
 
 	w.clock.advance(time.Hour - 30*time.Second)
 

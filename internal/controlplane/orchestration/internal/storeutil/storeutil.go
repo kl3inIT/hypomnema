@@ -58,3 +58,14 @@ func NotFound(err error, kind, id string) error {
 
 // Millis is a stored time, milliseconds since the epoch, in UTC.
 func Millis(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
+
+// OptionalMillis is a stored time that may be missing; nil when it is.
+func OptionalMillis(v sql.NullInt64) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+
+	t := Millis(v.Int64)
+
+	return &t
+}

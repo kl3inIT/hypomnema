@@ -72,6 +72,9 @@ type Server struct {
 	web Web
 	// webSearch is the web search chain and its switches (issue #354); nil when the control plane wired none.
 	webSearch WebSearchSettings
+	// images makes images and imageSettings are the Images page's (issue #431); nil when the control plane wired none.
+	images        Images
+	imageSettings ImageSettings
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
 	now    func() time.Time
@@ -289,6 +292,10 @@ func bodyLimit(r *http.Request) int64 {
 
 	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/artifacts" {
 		return artifactpack.MaxBody
+	}
+
+	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/images/generations" {
+		return modelgateway.MaxImageRequestBytes
 	}
 
 	return maxBodyBytes

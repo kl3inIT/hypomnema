@@ -344,7 +344,7 @@ func (s *Supervisor) botArgs(ctx context.Context, chatID string,
 
 	// The chat of a Lark group is not given the Bot's memory, which holds what the owner's chats taught it, and
 	// is told who writes there (issue #246; OpenClaw leaves MEMORY.md out of a group session's prompt).
-	group, err := s.svc.IsLarkGroupChat(ctx, chatID)
+	group, err := s.svc.Channels().IsLarkGroupChat(ctx, chatID)
 	if err != nil {
 		return nil, "", none, err
 	}

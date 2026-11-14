@@ -51,9 +51,10 @@ type Model struct {
 func (m Model) priced() bool { return m.Input != nil && m.Output != nil }
 
 // Tokens are a request's counts. Input includes what was read from and
-// written to the cache, as the gateway records it.
+// written to the cache, as the gateway records it. CacheWrite1h is the part of
+// CacheWrite written for an hour (issue #448), as Anthropic reports it.
 type Tokens struct {
-	Input, CacheRead, CacheWrite, Output int64
+	Input, CacheRead, CacheWrite, CacheWrite1h, Output int64
 }
 
 var (
@@ -150,6 +151,13 @@ func find(kind string, keep func(Model) bool, models []string) (Model, bool) {
 // from or written to the cache at the input price, the cache's at its own (the
 // input price when the vendor gives none), and the output, reasoning
 // included, at the output price.
+//
+// A write for an hour costs twice the input at Anthropic, the rest of the
+// writes the book's cache_write, its five-minute rate (issue #448). models.dev
+// has no one-hour rate; the multiplier is Anthropic's, as LiteLLM's catalog
+// has it (cache_creation_input_token_cost_above_1hr), and the writes are
+// split as LiteLLM splits them (calculate_cache_writing_cost). Other vendors
+// report no one-hour part and price every write at cache_write.
 func Cost(p Price, t Tokens) int64 {
 	input, output := val(p.Input), val(p.Output)
 	read, write := input, input
@@ -162,8 +170,14 @@ func Cost(p Price, t Tokens) int64 {
 		write = *p.CacheWrite
 	}
 
+	written := t.CacheWrite * write
+
+	if p.Vendor == "anthropic" && t.CacheWrite1h > 0 {
+		written = max(t.CacheWrite-t.CacheWrite1h, 0)*write + t.CacheWrite1h*2*input
+	}
+
 	uncached := max(t.Input-t.CacheRead-t.CacheWrite, 0)
-	total := uncached*input + t.CacheRead*read + t.CacheWrite*write + t.Output*output
+	total := uncached*input + t.CacheRead*read + written + t.Output*output
 
 	// Prices are a million tokens'; round to the nearest micro-dollar.
 	return (total + 500_000) / 1_000_000
