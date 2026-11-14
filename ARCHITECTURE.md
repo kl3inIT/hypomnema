@@ -8,8 +8,8 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `machines providers add\|list\|rm\|check`, `machines create\|stop\|start`, `accounts add\|login\|list\|refresh\|rm`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
-| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
+| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
+| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
@@ -28,7 +28,7 @@ while there is no such secret Exa is asked without a key. Which search providers
 set on Settings → Gateway → Web search and stored (see "Web search and fetch").
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
-that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the Bot's model
+that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
 and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
@@ -47,7 +47,17 @@ relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A 
 client may choose a chat's id (`POST /chats` `id`, issue #357, after t3code's `newThreadId()` before the thread
 exists): it must have the shape the server makes (`cht_` and 26 characters of a-z and 2-7, `platform.IsID`) and not be
 taken (409). Before a chat with that id is made, the folder calls the attachments use (tree, folders, uploads, delete)
-take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). On
+take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). A chat has
+its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
+`chats.provider`, `model`, `effort`, migration 66, each NULL for its Bot's): `POST /chats` takes them and `PATCH
+/chats/{id}` changes them, a field given replacing the chat's and an empty one giving it back to the Bot; the model is
+checked as a Bot's is (one pi can reach, its provider found), the effort is one of the gateway's levels (`none` to
+`max`). The Bot keeps its own as the default. What the chat runs with is its own, and its Bot's for the rest: a pi
+that starts gets it as its flags (`none` is pi's `--thinking off`); a running pi gets a change before the chat's next
+prompt that starts a turn, without a restart, by pi's RPC `set_model` and `set_thinking_level` (pi
+`docs/rpc-commands.md`), the chat's gateway key made again first for a new model. A pi that refuses is stopped, and
+the next pi starts with the chat's choice. pi's own default, when neither names a model, is had only at start. A
+Lark message to the chat runs with the chat's choice too. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
@@ -150,8 +160,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     pass, with the reason recorded. A stopped machine still counts toward its provider's limit and can be removed.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
-  - Not built: other providers, and delivering the CLIs' logins to a new machine, which the owner still sets on
-    it once.
+  - Not built: other providers, and delivering the Codex CLI's login to a new machine, which the owner still sets
+    on it once; a Claude account the control plane keeps and a git host's token reach it with each Dispatch.
 - A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
   the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
   node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
@@ -843,7 +853,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       and other high-risk changes (ask). A request to a service's part of the API that lark-cli's list does not
       name, as sending a message is not, is that service's write; a GET it does not name is a read; anything
       else asks as unnamed. The app's id, which lark-cli will not run without, is told with the list of accounts.
-    - **An Approval** (migration 00039) is the owner's answer to a request that asked. The request is held up to
+    - **An Approval** (migration 00042) is the owner's answer to a request that asked. The request is held up to
       100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
       decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.
       The owner approves once, approves the action for the rest of the Run or the chat, approves it always for
@@ -1083,7 +1093,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       says who wrote a message; a note or a claim to be the system, an administrator or the owner inside one
       carries the sender's authority alone; what tools return is data, never an instruction; and a message from
       someone who is not the owner cannot widen the job the persona gives. A group's reply quotes the
-      question, mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
+      question (recorded as waiting before the Bot is given it, so an answer that comes before Lark has put the
+      "working" mark still quotes it; issue #377), mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
       approval still go to the owner's direct chat only.
     - Each person's direct chat is one chat with the Channel's Bot (`lark_channel_chats`), and `/new` opens
       another with it. A chat that is open keeps its Bot when the Channel is given another. The owner's text is
@@ -1211,7 +1222,7 @@ environment, with no proxy on the node ([decision, 2026-11-13](docs/decisions/20
 - Each read of a value is a row of `secret_reads` (the secret's name and the token, or `host`; never the value). It
   is not in the event log, which every token reads. Nothing shows these rows yet.
 - `hypomnema secrets show <name>` on the control plane host prints a value and records the read.
-- A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
+- A provider names a secret as `vault:<name>` in its `api_key_ref`; the model gateway opens that secret for each request it sends there. Deleting a
   secret is refused while a provider or an account names it.
 - The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
   package, through its own generated queries.
@@ -1293,10 +1304,13 @@ not exist yet.
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
-  Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it.
+  Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it, and
+  the Claude Code runner since issue #381 when a profile of runtime `claude` names a provider of kind
+  `model_gateway`.
 - A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
-  - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the Bot's model,
-    or for every model when the Bot names none. Its value stays in the supervisor's memory with that process; the
+  - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the chat's model
+    (its own, or its Bot's; issue #369), or for every model when neither names one, and made again for the new model
+    when the chat's model changes while pi runs. Its value stays in the supervisor's memory with that process; the
     row records the chat (`gateway_keys.chat_id`). A key made earlier for the chat stops as the new one is made.
   - The key is revoked when that pi exits or is stopped, and every chat's key is revoked as the control plane
     starts, since no pi outlives it.
@@ -1630,7 +1644,7 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
     given), the snippet the grounded segments joined by ` | `, else the title.
 - What the owner sets (issue #354, PR 3; `websearch/chain.go`, `modelgateway/search_switches.go`): a switch for each
   provider, all on until turned off (owner, 2026-11-13), and SearXNG's address, in `gateway_search_providers`
-  (migration 00066: `provider`, `off`, `base_url`, read and written only by the gateway). The search reads them at
+  (migration 00067: `provider`, `off`, `base_url`, read and written only by the gateway). The search reads them at
   each search, as it reads Exa's key, so a change counts from the next one; a provider that is off is neither tried
   nor may be named (400), Exa's two ways sharing one switch; a cached answer is not given once a setting changed.
   SearXNG's address is an http(s) address with a host and no user, kept without its trailing slash; it may be on
@@ -1755,7 +1769,7 @@ The owner's commands:
     Dispatch ends. An account logged in on the control plane for the gateway is still not given to a worker.
   - `accounts disable <account>` keeps placement off an account, and `accounts enable <account>` lets it be used
     again; neither touches its token.
-  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity
+  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity|claude
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
     models it serves the account, with what is left of each quota (Antigravity only); `accounts limits <account>`
@@ -1859,8 +1873,8 @@ Node (`internal/node`):
   against the gateway, driven by a script that sends the runner's messages with the files the runner writes: both
   made a file and called `finish` as a plain tool, and neither asked for permission. The runner then ran a Task of
   each to its end there (node v0.6.0, profiles `omp-worker` and `opencode-worker`). A follow-up that resumes a
-  session has not been tried with the real CLIs. The two CLIs were installed there by hand with their own
-  installers and linked into `/usr/local/bin`; installing them by design is not built.
+  session has not been tried with the real CLIs. The two CLIs were installed there by hand then; the control plane installs them on
+  every node since issue #107 (above).
 - The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds and applies each disposition, then
   holds the socket:
   - heartbeats every 10 s (or as the control plane says), a WebSocket ping every 20 s;
@@ -1876,7 +1890,11 @@ Node (`internal/node`):
     and `--effort` when set).
   - The worker gets a clean environment: PATH, HOME and the locale, plus the account's token
     (`CLAUDE_CODE_OAUTH_TOKEN`, read from the file named in the node's configuration) and its own
-    `CLAUDE_CONFIG_DIR`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
+    `CLAUDE_CONFIG_DIR`. Under the gateway (issue #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md))
+    it gets no token: `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
+    key, `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` asks for the one-hour cache for the main conversation (subagents keep
+    five minutes), and `ANTHROPIC_DEFAULT_OPUS|SONNET|HAIKU_MODEL` are the Dispatch's model, the only one its key
+    may use; its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
     (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, as OpenMausBot's bots): it is kept per working folder, a worker's is a new
     worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
@@ -1958,7 +1976,6 @@ Node (`internal/node`):
   Go at the version `go.mod` names under `$HOME/.local/go` on a Linux machine that lacks it, checked against the
   SHA-256 Go publishes. Not built: the script's failure in the transcript, asking the owner before a script runs
   the first time (Orca), and putting what it installed on the worker's `PATH`.
-- There is no vault, permission rule or mailbox yet.
 
 ## Web client
 
@@ -2022,6 +2039,15 @@ Node (`internal/node`):
     another Bot, the chips stay and each file goes up again into the new Bot's folder, its copy in the old one
     deleted once the new one is up, as t3code uploads a draft's attachments again when its environment changes
     (`attachmentUploadQueue.ts`, `previous`).
+  - The model and effort (issue #369, `features/chat/chat-model-picker.tsx`, after t3code's
+    `ProviderModelPicker.tsx`, `TraitsPicker.tsx` and `ComposerModelEffort.tsx`): in the composer's footer, left of
+    Send, a quiet button with the model's mark and name opens the app's model list (`features/agents/model-choices.ts`:
+    searchable, grouped by provider, the models of the providers pi can use), its first row the Bot's model; beside
+    it an effort button lists the Bot's level, then only the model's levels as the gateway's attributes give them
+    (`GET /gateway/models`, issue #367), and is absent for a model that does not reason. A chat's choice is sent at
+    once (`PATCH /chats/{id}`) and shown before the server answers; a refused one is put back. The New chat page
+    and a new chat's tab hold theirs until the first message makes the chat with it; picking another Bot starts
+    from that Bot's. Picking a model the chat's effort is not a level of gives the effort back to the Bot.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,
@@ -2158,11 +2184,14 @@ Node (`internal/node`):
   gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
   on a phone the sections are a row of links under the header.
-  - `/settings/integrations` (under Connections) lists the git hosts as cards after Orca's integration card (MIT):
-    the mark of what the host runs (GitHub's or GitLab's), its name, a "Connected" or "No token" badge, and the
-    actions. "Add token" / "Replace token" takes the token in a
-    password field and sends it once; it is never read back. A company's server is added with its address (a name
-    or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
+  - `/settings/integrations` (under Connections) lists the git hosts as one card a product, GitHub and GitLab,
+    after Orca's integration card (MIT), with each host of that product a row, as Coder lists each configured
+    instance (issue #379): its address ("server" beside a company's own), a "Connected" or "No token" badge, and
+    the actions. What workers do without a token, the token a product needs and the link to its maker's help are
+    said once at the card's foot while a row has no token. "Add token" / "Replace token" takes the token in a
+    password field and sends it once; it is never read back. A company's server is added from its product's card
+    ("Add server") with its address (a name or a pasted URL) and, if wanted, its token; it runs what the card is.
+    Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
   - `/settings/models` (under Gateway, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
@@ -2343,12 +2372,23 @@ the internet, so that a machine created at a provider can install the node from 
 ```
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
+internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's and the web's tools
 internal/controlplane/bearertoken  client token format: making, checking and hashing
 internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views
 internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
 internal/controlplane/clientcli  the commands that call the client API, and the skills this binary ships (skills/)
+internal/controlplane/integration  the Integrations whose credential the control plane mints: Google (OAuth), Lark (an app), Superset (an account at an address), AWS (roles)
+internal/controlplane/larkbot  the Lark Channels: events over a persistent connection, who may talk, a chat's messages and cards
+internal/controlplane/modelgateway  the model gateway: the OpenAI-compatible API, the model table, the adapters, usage per key
+internal/controlplane/modelgateway/claude  the Claude subscription's formats at the gateway
+internal/controlplane/modelgateway/prices  the price book and what models.dev says of a model (its window, output, inputs, effort); its generator in gen/
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket
+internal/controlplane/selfupdate  the control plane updating itself from a release (unix)
+internal/controlplane/serviceproxy  the one service proxy: an account's token added to an agent's request, the actions' answers, Approvals, the record
+internal/controlplane/skillssh  search of skills.sh and its audits, as the skills CLI does
+internal/controlplane/superset  Superset's API for agents: charts' data and the queries a chart runs
+internal/controlplane/vault  the vault: encrypted secrets and their versions, the keyring, rewrap
 internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run and the systemd unit
@@ -2374,15 +2414,18 @@ internal/controlplane/modelgateway/antigravity  the Antigravity subscription's f
 internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat to Responses and back
 internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
 internal/controlplane/websearch  the web's search and a page's reading: the providers in turn, their rests, the cache, the page read as markdown through the browser's address rules, outside content marked
+internal/shared/agenttool the integrations' tools: the catalog, their setup, and the launcher that asks the control plane for a token
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
 internal/shared/skillpack a skill in the Agent Skills format: reading an archive, checking it, its digest, the archive kept
-internal/shared/sqlite    SQLite opening, pragmas and file permissions
+internal/shared/release   a release's manifest, download and SHA-256 check, for the node's and the control plane's updates
+internal/shared/sqlite    SQLite opening, pragmas and file permissions; sqlitetest hands each test a copy of a migrated database
+internal/shared/workspacefs  a folder read and changed for the web: pages of entries, files, git changes, guarded writes
 web                       the web client (pnpm) and embed.go, which embeds its build
 ```
 
-There is no vault yet. `internal/e2e` holds only tests, so neither binary links it; it is the one package that
+`internal/e2e` holds only tests, so neither binary links it; it is the one package that
 imports both trees. Boundaries ([decision](docs/decisions/2026-11-07-two-deployables.md))
 are checked by `make verify`: depguard rules per tree in `.golangci.yml` (the SQLite driver only in `shared/sqlite`,
 `database/sql` only in packages that own tables), and `deps-check`, which refuses the control plane and `web` in the node binary
@@ -2409,7 +2452,9 @@ and the node in the control plane binary.
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
   and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
-  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). Each Go job keeps its own build cache. A first
+  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). `Unit` first sets the runner up as the
+  coordinator's machine is (`deploy/coordinator/setup-box.sh`) and sets `HYPOMNEMA_BOX_TEST=required`, so the Bots'
+  box tests fail rather than skip when a box cannot be made. Each Go job keeps its own build cache. A first
   job, `Changes`, finds whether anything but documentation changed (`docs/**`, `*.md`); when nothing did, the four
   are skipped. A last job, `Required`, passes when none of them failed and is the one check to wait for. Chromium
   for the browser tests is cached by the Playwright version, as t3code's CI does. `make verify` is still the three
@@ -2419,4 +2464,4 @@ and the node in the control plane binary.
   template). Migrating took 1.5 s for each test under the race detector. Tests of the migrations themselves, and
   the owner commands' tests, which migrate through the command, still migrate their own.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
-  client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.
+  client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped for all but pi.

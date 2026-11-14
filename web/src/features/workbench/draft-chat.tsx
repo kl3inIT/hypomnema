@@ -5,6 +5,8 @@ import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { firstBot } from "@/features/bots/bots-state"
 import { AttachDrop } from "@/features/chat/attach-drop"
 import { useAttachments } from "@/features/chat/attachments"
+import { ChatModelControls } from "@/features/chat/chat-model-picker"
+import { useDraftChoice } from "@/features/chat/chat-model-state"
 import { newChatId } from "@/features/chat/chat-id"
 import { Composer } from "@/features/chat/composer"
 import { useStartChat } from "@/features/chat/start-chat"
@@ -15,7 +17,8 @@ import { useStartChat } from "@/features/chat/start-chat"
 export function DraftChat({ bot, onStarted }: { bot: string; onStarted: (chat: string) => void }) {
   const [chatId] = useState(newChatId)
   const attachments = useAttachments(chatId, bot || firstBot)
-  const start = useStartChat(chatId, bot || undefined, (chat: Chat) => onStarted(chat.id))
+  const [model, setModel] = useDraftChoice(bot || firstBot)
+  const start = useStartChat(chatId, bot || undefined, model, (chat: Chat) => onStarted(chat.id))
 
   return (
     <AttachDrop
@@ -33,6 +36,7 @@ export function DraftChat({ bot, onStarted }: { bot: string; onStarted: (chat: s
           onStop={() => {}}
           working={false}
           attachments={attachments}
+          controls={<ChatModelControls bot={bot || firstBot} choice={model} onChange={setModel} />}
         />
       </div>
     </AttachDrop>

@@ -1026,6 +1026,54 @@ func TestOnlyTheOwnerChats(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
 }
 
+// Scenario: the owner chooses a chat's model and effort (issue #369): on the New chat page, then in the composer.
+// The chat says only what it chose; a refused choice is the server's words; only the owner chooses.
+func TestTheOwnerChoosesAChatsModel(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	_, err := w.svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
+	require.NoError(t, err)
+
+	sol, high := "gpt-sol", "high"
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Model: &sol, Effort: &high})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	assert.Equal(t, []string{"gateway", "gpt-sol", "high"},
+		[]string{val(created.JSON201.Provider), val(created.JSON201.Model), val(created.JSON201.Effort)})
+
+	id := created.JSON201.Id
+	luna := "gpt-luna"
+
+	changed, err := owner.UpdateChatWithResponse(ctx, id, openapi.ChatChange{Model: &luna})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
+	assert.Equal(t, "gpt-luna", val(changed.JSON200.Model))
+	assert.Equal(t, "high", val(changed.JSON200.Effort), "a field left out stays")
+
+	empty := ""
+	changed, err = owner.UpdateChatWithResponse(ctx, id, openapi.ChatChange{Model: &empty, Effort: &empty})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
+	assert.Nil(t, changed.JSON200.Model, "the Bot's model again")
+	assert.Nil(t, changed.JSON200.Effort)
+
+	huge := "huge"
+	refused, err := owner.UpdateChatWithResponse(ctx, id, openapi.ChatChange{Effort: &huge})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, refused.StatusCode())
+	assert.Contains(t, string(refused.Body), "unknown effort")
+
+	forbidden, err := pi.UpdateChatWithResponse(ctx, id, openapi.ChatChange{Model: &luna})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, forbidden.StatusCode())
+}
+
 // Scenario: the owner sends a message with files uploaded into the Bot's folder (issue #343). The answer and the
 // chat's messages carry them; a message of files alone is taken, a path outside the chat's attachments folder is
 // refused in the server's words, and a message with neither text nor files is refused.

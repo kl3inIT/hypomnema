@@ -47,6 +47,16 @@ func fakeClaude(mode string) int {
 	//nolint:gosec // a fixed name in the cwd
 	_ = os.WriteFile("token.txt", []byte(os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")), 0o600)
 
+	var gateway []string
+
+	for _, name := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_PROMPT_CACHE_TTL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+		gateway = append(gateway, name+"="+os.Getenv(name))
+	}
+
+	//nolint:gosec // a fixed name in the cwd
+	_ = os.WriteFile("gateway.txt", []byte(strings.Join(gateway, "\n")), 0o600)
+
 	out := json.NewEncoder(os.Stdout)
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 64<<10), 4<<20)
@@ -595,6 +605,34 @@ func TestWorkerRunsUnderTheOffersToken(t *testing.T) {
 		"the node has no credentials for account acc_nowhere")
 }
 
+// Scenario: the gateway serves the worker's model (issue #381). The worker
+// calls the control plane with its Dispatch's key, asks for the one-hour
+// cache, names no other model, and gets no account's token.
+func TestWorkerReachesClaudeThroughTheGateway(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "success")
+	g.runner.URL = "https://cp.example/"
+	d := g.dispatch("dsp_1")
+	d.Offer.AccountRef, d.Offer.ModelKey, d.Offer.Model = "gateway", "hyp_gateway_v1_dispatch", "claude-sonnet-5-5"
+
+	r := newReporter("dsp_1")
+	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	r.wait(t)
+
+	require.Len(t, r.finished, 1)
+	assert.Empty(t, r.finished[0].Class)
+	assert.Empty(t, g.file("token.txt"), "no account's token")
+	assert.Equal(t, "ANTHROPIC_BASE_URL=https://cp.example\nANTHROPIC_AUTH_TOKEN=hyp_gateway_v1_dispatch\n"+
+		"CLAUDE_CODE_PROMPT_CACHE_TTL=1h\nANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-5-5\n"+
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-5-5", g.file("gateway.txt"))
+
+	keyless := g.dispatch("dsp_2")
+	keyless.Offer.AccountRef = "gateway"
+	require.ErrorContains(t, g.runner.Start(t.Context(), keyless, newReporter("dsp_2")),
+		"the offer carries no key of the model gateway")
+}
+
 // Scenario: the offer gives the worker a skill the node has kept. Claude Code
 // is given a plugin folder of the Dispatch's own that holds it (issue #21).
 func TestTheWorkersSkillsAreAPluginOfItsOwn(t *testing.T) {
@@ -643,5 +681,5 @@ func TestPromptCarriesTheMemories(t *testing.T) {
 	d.Offer.AgentKey = "the-dispatch's-key"
 	assert.Contains(t, Prompt(d), "Keep in memory, with the `memory` tool")
 
-	assert.Contains(t, g.runner.env("dir", "token"), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+	assert.Contains(t, g.runner.env("dir", nil), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 }

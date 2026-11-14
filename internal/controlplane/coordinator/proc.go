@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // proc is one running pi in RPC mode for one chat.
@@ -22,11 +24,13 @@ type proc struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	done   chan struct{}
+	mu     sync.Mutex
 	// keys are the model gateway's key this pi asks for and its token; each
-	// is empty when the supervisor makes none.
+	// is empty when the supervisor makes none. The key is made again for
+	// another model when the chat's choice changes (model.go).
 	keys gatewayKey
-
-	mu         sync.Mutex
+	// model is the model and effort pi was started or last set with.
+	model      orchestration.ChatModel
 	working    bool
 	lastActive time.Time
 	nextID     int
@@ -188,7 +192,7 @@ func (p *proc) read(ctx context.Context, stdout io.Reader) {
 
 		p.setWorking(false)
 		close(p.done)
-		p.s.revoke(ctx, p.chatID, p.keys)
+		p.s.revoke(ctx, p.chatID, p.gatewayKey())
 		p.s.cfg.Logger.InfoContext(ctx, "pi exited", slog.String("event", "coordinator.exited"),
 			slog.String("chat_id", p.chatID), slog.String("stderr", p.stderrTail()))
 		p.s.settled()
@@ -300,6 +304,13 @@ func (p *proc) stopSettled() {
 	p.mu.Lock()
 	p.stopAsked, p.stopKept = false, false
 	p.mu.Unlock()
+}
+
+func (p *proc) gatewayKey() gatewayKey {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.keys
 }
 
 func (p *proc) isWorking() bool {

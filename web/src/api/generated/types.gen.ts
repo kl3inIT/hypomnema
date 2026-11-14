@@ -2201,6 +2201,36 @@ export type NewChat = {
    * The Bot the chat talks with; `coordinator` when left out.
    */
   bot?: string;
+  /**
+   * Where the model is found; the provider that offers it when left out.
+   */
+  provider?: string;
+  /**
+   * The chat's own model, chosen on the New chat page (issue
+   */
+  model?: string;
+  /**
+   * The chat's own effort, one of the model gateway's levels; its Bot's when left out.
+   */
+  effort?: string;
+};
+
+/**
+ * A change of the model and effort a chat runs with; a field left out stays as it is.
+ */
+export type ChatChange = {
+  /**
+   * Where the model is found, given with the model; the provider that offers it when empty.
+   */
+  provider?: string;
+  /**
+   * The model; empty for its Bot's.
+   */
+  model?: string;
+  /**
+   * The effort, one of none, minimal, low, medium, high, xhigh and max; empty for its Bot's.
+   */
+  effort?: string;
 };
 
 export type WorkspaceList = {
@@ -2360,6 +2390,18 @@ export type Chat = {
    * The Bot the chat talks with.
    */
   bot: string;
+  /**
+   * Where the chat's own model is found; absent with the model.
+   */
+  provider?: string;
+  /**
+   * The chat's own model (issue
+   */
+  model?: string;
+  /**
+   * The chat's own effort, one of the model gateway's levels; absent when it is its Bot's.
+   */
+  effort?: string;
   /**
    * The coordinator is working on a turn of this chat.
    */
@@ -6645,6 +6687,33 @@ export type GetChatResponses = {
 };
 
 export type GetChatResponse = GetChatResponses[keyof GetChatResponses];
+
+export type UpdateChatData = {
+  body: ChatChange;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}';
+};
+
+export type UpdateChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateChatError = UpdateChatErrors[keyof UpdateChatErrors];
+
+export type UpdateChatResponses = {
+  /**
+   * The chat.
+   */
+  200: Chat;
+};
+
+export type UpdateChatResponse = UpdateChatResponses[keyof UpdateChatResponses];
 
 export type StreamChatData = {
   body?: never;

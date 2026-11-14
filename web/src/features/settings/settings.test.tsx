@@ -253,36 +253,59 @@ const card = (name: string) =>
     return found
   })
 
-// Scenario: github.com has a token and gitlab.com has none. Each card says so; the one without a token says what
-// workers do meanwhile and where to make a token, and only the one with a token offers to remove it.
-test("a host says whether it has a token", async () => {
-  server({ hosts: [known("github.com", "github", true), known("gitlab.com", "gitlab")] })
+// row is the row of a host in its product's card.
+const row = (kind: string, host: string) => screen.findByLabelText(`${kind} host ${host}`)
+
+// Scenario: github.com has a token; gitlab.com and the company's GitLab server have none. There is a card a
+// product with a row a host, each row saying whether it has a token. The GitLab card says once, at its foot, what
+// workers do without a token and where to make one; the GitHub card, whose hosts all have one, does not say it.
+test("a product's card lists its hosts and says once how to connect them", async () => {
+  server({
+    hosts: [
+      known("github.com", "github", true),
+      known("gitlab.com", "gitlab"),
+      { ...known("git.company.example", "gitlab"), known: false },
+    ],
+  })
   await open(IntegrationsScreen, "Integrations")
 
   const github = within(await card("GitHub"))
-  expect(github.getByText("Connected")).toBeInTheDocument()
-  expect(github.getByRole("button", { name: "Replace token" })).toBeInTheDocument()
-  expect(github.getByRole("button", { name: "Remove token" })).toBeInTheDocument()
-  expect(github.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument()
+  expect(screen.getAllByTestId("integration-card")).toHaveLength(2)
+  const githubCom = within(await row("GitHub", "github.com"))
+  expect(githubCom.getByText("Connected")).toBeInTheDocument()
+  expect(githubCom.getByRole("button", { name: "Replace token" })).toBeInTheDocument()
+  expect(githubCom.getByRole("button", { name: "Remove token" })).toBeInTheDocument()
+  expect(githubCom.queryByRole("button", { name: /^Remove github/ })).not.toBeInTheDocument()
+  expect(github.queryByText(/use the login of the machine/)).not.toBeInTheDocument()
 
   const gitlab = within(await card("GitLab"))
-  expect(gitlab.getByText("No token")).toBeInTheDocument()
-  expect(gitlab.getByText(/use the login of the machine/)).toBeInTheDocument()
+  const gitlabCom = within(await row("GitLab", "gitlab.com"))
+  const company = within(await row("GitLab", "git.company.example"))
+  expect(gitlabCom.getByText("No token")).toBeInTheDocument()
+  expect(gitlabCom.queryByRole("button", { name: "Remove token" })).not.toBeInTheDocument()
+  expect(gitlabCom.queryByText("server")).not.toBeInTheDocument()
+  expect(company.getByText("No token")).toBeInTheDocument()
+  expect(company.getByText("server")).toBeInTheDocument()
+  expect(company.getByRole("button", { name: "Remove git.company.example" })).toBeInTheDocument()
+
+  expect(gitlab.getAllByText(/use the login of the machine/)).toHaveLength(1)
+  expect(gitlab.getAllByRole("link", { name: "How to create a token" })).toHaveLength(1)
   expect(gitlab.getByRole("link", { name: "How to create a token" })).toHaveAttribute(
     "href",
     expect.stringContaining("docs.gitlab.com"),
   )
-  expect(gitlab.queryByRole("button", { name: "Remove token" })).not.toBeInTheDocument()
 })
 
 // Scenario: the owner gives gitlab.com a token. It is typed into a password field, sent once without the spaces
-// around it, and the card then says Connected; the token is nowhere on the page.
+// around it, and its row then says Connected; the token is nowhere on the page.
 test("the owner gives a host its token", async () => {
   const user = userEvent.setup()
   const requests = server({})
   await open(IntegrationsScreen, "Integrations")
 
-  await user.click(within(await card("GitLab")).getByRole("button", { name: "Add token" }))
+  await user.click(
+    within(await row("GitLab", "gitlab.com")).getByRole("button", { name: "Add token" }),
+  )
 
   const dialog = within(await screen.findByRole("dialog"))
   const field = dialog.getByLabelText("Access token")
@@ -296,7 +319,9 @@ test("the owner gives a host its token", async () => {
   await user.type(field, " glpat-typed ")
   await user.click(dialog.getByRole("button", { name: "Save token" }))
 
-  expect(await within(await card("GitLab")).findByText("Connected")).toBeInTheDocument()
+  expect(
+    await within(await row("GitLab", "gitlab.com")).findByText("Connected"),
+  ).toBeInTheDocument()
   expect(requests).toEqual([
     { call: "PUT /hosts/gitlab.com/token", body: { token: "glpat-typed" } },
   ])
@@ -310,7 +335,9 @@ test("a refused token is explained in the dialog", async () => {
   server({}, { "PUT /hosts/github.com/token": "the vault has no key" })
   await open(IntegrationsScreen, "Integrations")
 
-  await user.click(within(await card("GitHub")).getByRole("button", { name: "Add token" }))
+  await user.click(
+    within(await row("GitHub", "github.com")).getByRole("button", { name: "Add token" }),
+  )
 
   const dialog = within(await screen.findByRole("dialog"))
   await user.type(dialog.getByLabelText("Access token"), "ghp_x")
@@ -319,41 +346,49 @@ test("a refused token is explained in the dialog", async () => {
   expect(await dialog.findByRole("alert")).toHaveTextContent("the vault has no key")
 })
 
-// Scenario: the owner adds the company's GitLab server from a URL copied from the browser, with its token, then
-// takes the token away, then removes the server. Each removal asks first.
-test("the owner adds a company's server, removes its token and removes it", async () => {
+// Scenario: the owner adds the company's GitHub Enterprise server from the GitHub card, from a URL copied from the
+// browser, with its token: it runs what the card is, so the dialog does not ask. Then the owner takes the token
+// away and removes the server. Each removal asks first.
+test("the owner adds a company's server to its product, removes its token and removes it", async () => {
   const user = userEvent.setup()
   const requests = server({})
   await open(IntegrationsScreen, "Integrations")
 
-  await user.click(screen.getByRole("button", { name: "Add a git server" }))
+  await user.click(within(await card("GitHub")).getByRole("button", { name: "Add server" }))
 
   let dialog = within(await screen.findByRole("dialog"))
+  expect(
+    dialog.getByRole("heading", { name: "Add a GitHub Enterprise server" }),
+  ).toBeInTheDocument()
+  expect(dialog.queryByRole("combobox")).not.toBeInTheDocument()
   await user.type(dialog.getByLabelText("Address"), "https://Git.Company.example/team/app")
-  await user.type(dialog.getByLabelText("Access token"), "glpat-company")
+  await user.type(dialog.getByLabelText("Access token"), "ghp_company")
   await user.click(dialog.getByRole("button", { name: "Add" }))
 
-  const company = await card("git.company.example")
-  expect(company).toHaveTextContent("GitLab server")
+  const company = await row("GitHub", "git.company.example")
+  expect(within(await card("GitHub")).getByLabelText("GitHub host git.company.example")).toBe(
+    company,
+  )
+  expect(company).toHaveTextContent("server")
   expect(await within(company).findByText("Connected")).toBeInTheDocument()
 
   await user.click(within(company).getByRole("button", { name: "Remove token" }))
   dialog = within(await screen.findByRole("alertdialog"))
   expect(dialog.getByText(/keeps the token it started with/)).toBeInTheDocument()
   await user.click(dialog.getByRole("button", { name: "Remove token" }))
-  expect(await within(await card("git.company.example")).findByText("No token")).toBeInTheDocument()
+  expect(
+    await within(await row("GitHub", "git.company.example")).findByText("No token"),
+  ).toBeInTheDocument()
   await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument())
 
-  await user.click(
-    within(await card("git.company.example")).getByRole("button", { name: "Remove" }),
-  )
+  await user.click(screen.getByRole("button", { name: "Remove git.company.example" }))
   dialog = within(await screen.findByRole("alertdialog"))
   await user.click(dialog.getByRole("button", { name: "Remove host" }))
   await waitFor(() => expect(screen.queryByText("git.company.example")).not.toBeInTheDocument())
 
   expect(requests).toEqual([
-    { call: "PUT /hosts/git.company.example", body: { kind: "gitlab" } },
-    { call: "PUT /hosts/git.company.example/token", body: { token: "glpat-company" } },
+    { call: "PUT /hosts/git.company.example", body: { kind: "github" } },
+    { call: "PUT /hosts/git.company.example/token", body: { token: "ghp_company" } },
     { call: "DELETE /hosts/git.company.example/token", body: undefined },
     { call: "DELETE /hosts/git.company.example", body: undefined },
   ])

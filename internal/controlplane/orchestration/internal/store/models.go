@@ -98,6 +98,9 @@ type Chat struct {
 	UpdatedAt int64
 	Bot       string
 	LarkGroup int64
+	Provider  sql.NullString
+	Model     sql.NullString
+	Effort    sql.NullString
 }
 
 type ChatMessage struct {

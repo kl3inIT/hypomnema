@@ -22,10 +22,10 @@ stored data. In Hypomnema these families exist from the start:
 
 | Function | Implementations |
 |---|---|
-| Runtime (drive a worker) | `claude-cli`, `codex`, `pi` |
-| Machine provider (later) | EC2, Hetzner, Modal, Daytona, E2B… |
-| Model provider for the coordinator | per provider |
-| Channel | web chat, later Telegram, Lark |
+| Runtime (drive a worker) | `claude`, `codex`, `omp`, `opencode` |
+| Machine provider | `aws` (EC2); later Hetzner, Modal, Daytona, E2B… |
+| Model provider of the gateway | per kind of provider |
+| Channel | Lark; later Telegram (the web chat is the client API itself) |
 
 - One interface per function, named after the function (`Runtime`, `Channel`); one type per implementation, named
   after the vendor and function (`CodexRuntime`, `TelegramChannel`), inside the owning module.
@@ -81,9 +81,9 @@ keeps one flat `internal/` with a storage package behind named methods.
 
 ```
 cmd/hypomnema, cmd/hypomnema-node   entry points
-internal/controlplane/...   flat packages: orchestration, vault, coordinator, clientapi, policy, channel/<provider>, httpapi…
-internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
-internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), sqlite, nodeproto
+internal/controlplane/...   flat packages: orchestration, vault, coordinator, clientapi, nodeapi, agentapi, serviceproxy, larkbot, modelgateway…
+internal/node/...           flat packages: daemon, shim, claude, codex, acp, statedb, worktree…
+internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), sqlite, nodeproto, githost…
 ```
 
 The three boundaries that matter:
@@ -96,8 +96,9 @@ The three boundaries that matter:
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. These rows change together under concurrency, so one package
    holds one lock order.
-3. **Untrusted input passes policy**: every state change requested by the Coordinator, a channel or a webhook goes through
-   `controlplane/policy`. This one cannot be linted; it is held by design review and tests.
+3. **Untrusted input passes policy**: every state change requested by a Coordinator, a Bot, a Channel or a webhook goes
+   through the client API, which checks what the token may do, and every request to a service through the service
+   proxy, which answers by the Connection's actions. This one cannot be linted; it is held by design review and tests.
 
 **Enforcement**, run by `make verify` locally and in CI:
 
@@ -113,7 +114,6 @@ The three boundaries that matter:
   in `controlplane/orchestration`; a clock is passed in, so lease and timeout tests are exact.
 - **Generated and tidy**: `go mod tidy`, `sqlc generate` and the OpenAPI generation leave `git diff --exit-code`
   clean; released migrations are never edited (as Omnara's `migration-check`).
-- `sqlc vet` rules for query invariants, once queries exist.
 
 ## Orchestration core
 
@@ -152,17 +152,18 @@ The three boundaries that matter:
 - An **event** when the change is complete without the listener: a side effect, a notice, another module catching up,
   or when a call would create a dependency cycle.
 - Never ask through an event and wait for a reply. An event states a past fact (`orchestration.DispatchCompletedEvent`,
-  key `orchestration.dispatch_completed`), carries identifiers only, and is written to an outbox table in the
+  key `orchestration.dispatch_completed`), carries identifiers only, and is written to the event log in the
   transaction that made the change. Listeners run after the commit, are idempotent, and do not depend on order.
 
 ## API
 
-- The control plane's HTTP API is defined in code with `huma`, which generates the OpenAPI 3.1 contract. A change to
-  the API regenerates the contract and the clients in the same change; a contract test checks that code and contract
-  agree. A compatibility check compares the contract with the one on `main` and refuses breaking changes, as Omnara's
-  `openapi-compat-check`, because mobile clients generated from it outlive a release.
-- Every error is an RFC 9457 problem with a stable `code` and the request id. Every request has an id, returned in
-  `X-Request-Id` and logged.
+- The client API is written contract first in `api/openapi.yaml` (OpenAPI 3.0); `oapi-codegen` generates the
+  server's types and the CLI's client from it, and `@hey-api/openapi-ts` the web client's. A change to the API
+  changes the contract and regenerates both in the same change; `make openapi-check` and `make web-api-check` fail
+  when generated code is stale. A compatibility check against the contract on `main`, as Omnara's
+  `openapi-compat-check`, is not built.
+- Every error is `{code, message}` with a stable `code` from the contract's `ErrorCode`. A write that a client may
+  repeat takes an `Idempotency-Key`.
 - Everything the owner or a coordinator can do is a command of the `hypomnema` CLI: an operation added to the client
   API gets its command in the same change, and the web client offers nothing the CLI cannot do (owner, 2026-11-10).
   Orca gives its agents every operation through its CLI the same way.
@@ -187,10 +188,12 @@ The three boundaries that matter:
   and are checked in Go: workers running at once, spawn depth, dispatches per turn (as Omnigent's `spawn_bounds`) and
   per Run, and a cost budget that ASKs when reached (as Omnigent's subagent budget). Plan approval before spawning,
   as genie's `wish`, is an option for large work, not the default.
-- **Separate OS users on one host**: the control plane and vault (`hypomnema`), the Coordinator (`coordinator`: pi with its
-  built-in tools, a filtered environment as Omnigent's `clean_agent_env`, its own directory) and a node's workers
-  (`agent`). The control plane starts pi through one sudoers rule limited to that command. No secret is passed on a
-  command line; the database is a 0600 file of the `hypomnema` user, and every local service (the control plane API)
+- **Separate OS users**: the control plane and vault run as a user of their own (the owner names it in
+  `deploy/controlplane/setup-controlplane.sh`), the Bots as `coordinator` (pi with its built-in tools, a clean
+  environment as Omnigent's `clean_agent_env`, each chat's pi in a bubblewrap box), and a node's workers as a user
+  without sudo (`hypomnema` on a machine the control plane created). The control plane starts pi and a Routine's
+  script through sudoers rules limited to their launchers. No secret is passed on a command line; the database is a
+  0600 file of the control plane's user, and every local service (the control plane API)
   requires authentication, as localhost is not a trust boundary once the Coordinator has a shell.
 - **Trusted machines, untrusted content.** The owner and the owner's machines are trusted; what agents read is not.
   As Orca does, the isolation unit is the machine: no nested sandbox inside a node by default, because it costs setup
@@ -276,7 +279,8 @@ How the references keep a UI consistent is in
 
 ## Go
 
-- One `go.mod` at the repository root; the Go version is pinned there. `golangci-lint` configuration in the root.
+- One application module, `go.mod` at the repository root, where the Go version is pinned; the linters and generators
+  are `tool` directives of a second module, `tools/ci/go.mod`. `golangci-lint` configuration in the root.
 - Errors are wrapped with context (`fmt.Errorf("claim dispatch: %w", err)`) and matched with `errors.Is` / `errors.As`;
   expected failures have typed errors.
 - Applications follow the twelve-factor rules: configuration from the environment, logs to stdout, graceful shutdown
@@ -294,5 +298,5 @@ How the references keep a UI consistent is in
   in `.claude/skills/SOURCES.md`.
 - Vendored skills are copied unchanged with their source, commit and license in `SOURCES.md`, and updated by copying
   again. A skill for a library this project does not use is not installed.
-- No maintained skill exists for sqlc, goose, huma, `coder/websocket` or the MCP Go SDK; when one is needed, a
+- No maintained skill exists for sqlc, goose, oapi-codegen, `coder/websocket` or the MCP Go SDK; when one is needed, a
   short project skill is written from that project's own documentation.

@@ -123,11 +123,13 @@ func (s *Supervisor) Key(chatID string) (string, bool) {
 	p := s.procs[chatID]
 	s.mu.Unlock()
 
-	if p == nil || p.exited() || p.keys.secret == "" {
+	if p == nil || p.exited() {
 		return "", false
 	}
 
-	return p.keys.secret, true
+	key := p.gatewayKey()
+
+	return key.secret, key.secret != ""
 }
 
 // Run delivers what chats have for pi after every commit and every tick,
@@ -195,6 +197,10 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 
 	p, err := s.procFor(ctx, chatID)
 	if err != nil {
+		return err
+	}
+
+	if err := s.applyModel(ctx, p); err != nil {
 		return err
 	}
 
@@ -286,7 +292,7 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 	var key gatewayKey
 
 	if s.cfg.Keys != nil {
-		key.id, key.secret, err = s.cfg.Keys.AddChatKey(ctx, chatID, model)
+		key.id, key.secret, err = s.cfg.Keys.AddChatKey(ctx, chatID, model.Model)
 		if err != nil {
 			return nil, fmt.Errorf("making the gateway key of chat %s: %w", chatID, err)
 		}
@@ -308,6 +314,7 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		return nil, fmt.Errorf("starting pi for chat %s: %w", chatID, err)
 	}
 
+	p.model = model
 	s.procs[chatID] = p
 
 	return p, nil
@@ -315,46 +322,45 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 
 // botArgs are the launcher's flags for the chat's Bot: its name, by which the
 // launcher finds its directory, persona and memory, whether the chat is a
-// Lark group's, and its model: the provider (an id in pi's models.json), the
-// model and the effort. The model is returned too: the chat's gateway key is
-// good for it; and the Bot's name, which pi's token is bound to.
-func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, string, string, error) {
-	chat, err := s.svc.GetChat(ctx, chatID)
+// Lark group's, and the chat's model (model.go): the provider (an id in pi's
+// models.json), the model and the effort. The model is returned too: the
+// chat's gateway key is good for it; and the Bot's name, which pi's token is
+// bound to.
+func (s *Supervisor) botArgs(ctx context.Context, chatID string,
+) ([]string, string, orchestration.ChatModel, error) {
+	none := orchestration.ChatModel{}
+
+	name, m, err := s.chatModel(ctx, chatID)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", none, err
 	}
 
-	p, err := s.svc.GetBot(ctx, chat.Bot)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("reading the bot of chat %s: %w", chatID, err)
-	}
-
-	args := []string{"--bot", p.Name}
+	args := []string{"--bot", name}
 
 	// The chat of a Lark group is not given the Bot's memory, which holds what the owner's chats taught it, and
 	// is told who writes there (issue #246; OpenClaw leaves MEMORY.md out of a group session's prompt).
 	group, err := s.svc.IsLarkGroupChat(ctx, chatID)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", none, err
 	}
 
 	if group {
 		args = append(args, "--group")
 	}
 
-	if p.Model != "" {
-		if p.Provider != "" {
-			args = append(args, "--provider", p.Provider)
+	if m.Model != "" {
+		if m.Provider != "" {
+			args = append(args, "--provider", m.Provider)
 		}
 
-		args = append(args, "--model", p.Model)
+		args = append(args, "--model", m.Model)
 	}
 
-	if p.Effort != "" {
-		args = append(args, "--thinking", p.Effort)
+	if m.Effort != "" {
+		args = append(args, "--thinking", piLevel(m.Effort))
 	}
 
-	return args, p.Name, p.Model, nil
+	return args, name, m, nil
 }
 
 // revoke ends a pi's gateway key and its token. The pi is gone or never
