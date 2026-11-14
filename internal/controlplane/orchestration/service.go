@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/userstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
@@ -27,6 +29,8 @@ type Service struct {
 	// botTokens are the keys of the pi processes running now (issue #260),
 	// kept in memory only.
 	botTokens *botTokens
+	// users is the domain store of the web's users (issue #404).
+	users *userstore.Store
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
@@ -39,28 +43,18 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 		o(s)
 	}
 
+	s.users = userstore.New(s.db, s.clock, s.newID, s.notify.signal)
+
 	return s
 }
 
-// write runs fn in one transaction. The connection opens every transaction
-// with BEGIN IMMEDIATE (internal/shared/sqlite), so fn reads the latest state.
+// Users returns the store of the web's users and sessions, over the same
+// connection and clock, waking the same event readers.
+func (s *Service) Users() *userstore.Store { return s.users }
+
+// write runs fn in one transaction and wakes event readers after the commit.
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("beginning a transaction: %w", err)
-	}
-
-	if err := fn(store.New(tx), s.clock.Now().UnixMilli()); err != nil {
-		return errors.Join(err, tx.Rollback())
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing: %w", err)
-	}
-
-	s.notify.signal()
-
-	return nil
+	return storeutil.Write(ctx, s.db, s.clock, s.notify.signal, fn)
 }
 
 func (s *Service) read() *store.Queries {
@@ -812,13 +806,7 @@ func transitionRun(ctx context.Context, q *store.Queries, now int64, id string, 
 	return fmt.Errorf("%w: run %s is %s, cannot become %s", ErrConflict, id, r.Status, to)
 }
 
-func notFound(err error, kind, id string) error {
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: %s %s", ErrNotFound, kind, id)
-	}
-
-	return fmt.Errorf("reading %s %s: %w", kind, id, err)
-}
+func notFound(err error, kind, id string) error { return storeutil.NotFound(err, kind, id) }
 
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
@@ -832,7 +820,7 @@ func nullMillis(t *time.Time) sql.NullInt64 {
 	return sql.NullInt64{Int64: t.UnixMilli(), Valid: true}
 }
 
-func millis(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
+func millis(ms int64) time.Time { return storeutil.Millis(ms) }
 
 func optionalTime(v sql.NullInt64) *time.Time {
 	if !v.Valid {
