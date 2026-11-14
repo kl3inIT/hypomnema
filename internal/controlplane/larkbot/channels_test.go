@@ -81,6 +81,8 @@ type lark struct {
 	names  map[string]string
 	// usedSecret is the secret the Channel connected with.
 	usedSecret string
+	// hold, when set, keeps every reaction waiting until it is closed: Lark is slow to answer.
+	hold chan struct{}
 }
 
 // newLark is an app at Lark in which the owner and Linh have these ids.
@@ -214,6 +216,14 @@ func (l *lark) pressedMenu(p larkbot.MenuPress) {
 }
 
 func (l *lark) React(_ context.Context, messageID, emoji string) (string, error) {
+	l.mu.Lock()
+	hold := l.hold
+	l.mu.Unlock()
+
+	if hold != nil {
+		<-hold
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -1803,4 +1813,37 @@ func TestTheChannelsModeAppliesToWhoPressesTheMenu(t *testing.T) {
 	theirs := w.chatOf("ou_someone")
 	require.Eventually(t, func() bool { return len(w.texts(theirs)) == 1 }, eventual, tick)
 	assert.Contains(t, w.texts(theirs)[0], "/menu export")
+}
+
+// Scenario: Lark is slow to put the "working" mark on a message in a group, and
+// the Bot answers before it is there. The answer still quotes the question,
+// and the mark that comes late is taken off again (issue #377).
+func TestAnAnswerBeforeTheMarkStillQuotesTheQuestion(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.start()
+	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}}
+	w.setUp(orchestration.LarkChannelOwner)
+
+	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
+	_, err := w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+
+	hold := make(chan struct{})
+	w.lark.mu.Lock()
+	w.lark.hold = hold
+	w.lark.mu.Unlock()
+
+	w.lark.say(inGroup("om_5", ownerID, "@_user_1 what is new?", mentionOfBot))
+	chat := w.chatOf(team)
+	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
+
+	w.answer(chat, "The map tiles.")
+	require.Eventually(t, func() bool { return w.lark.cardAt(0).closed }, eventual, tick)
+	assert.Equal(t, "om_5", w.lark.cardAt(0).replyTo, "the answer quotes the question")
+
+	close(hold)
+	require.Eventually(t, func() bool { return len(w.lark.marked("om_5")) == 0 }, eventual, tick,
+		"the late mark is taken off: the answer is there")
 }
