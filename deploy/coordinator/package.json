@@ -3,6 +3,6 @@
   "private": true,
   "description": "pi, the coordinator on the server; installed by setup-coordinator.sh from package-lock.json.",
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.5.0"
+    "@earendil-works/pi-coding-agent": "1.5.2"
   }
 }
