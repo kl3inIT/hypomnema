@@ -387,6 +387,8 @@ var commands = []command{
 			fs.Bool("all-connections", false, "every connection the owner switched on for chats")
 			fs.String("workers", "", "only these worker profiles, separated by commas; \"\" for none")
 			fs.Bool("all-workers", false, "every worker profile")
+			fs.String("tool-display", "", "what its chats show of its tool calls: off (none), on (each tool's name) "+
+				"or full (arguments, output and time as well)")
 			jsonFlag(fs)
 		},
 		run: botsSet,

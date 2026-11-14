@@ -5534,7 +5534,9 @@ components:
         everyone: { type: boolean }
     Bot:
       type: object
-      required: [name, persona, memory, memory_limit, skills, skills_off, connections, workers, created_at, updated_at]
+      required:
+        [name, persona, memory, memory_limit, skills, skills_off, connections, workers, tool_display, created_at,
+         updated_at]
       properties:
         name: { type: string }
         provider: { type: string }
@@ -5565,8 +5567,19 @@ components:
         workers:
           $ref: "#/components/schemas/AllowList"
           description: The worker profiles the Bot may give work to.
+        tool_display: { $ref: "#/components/schemas/ToolDisplay" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ToolDisplay:
+      type: string
+      enum: [off, on, full]
+      x-enum-varnames: [ToolDisplayOff, ToolDisplayOn, ToolDisplayFull]
+      description: >-
+        What the Bot's chats show of its tool calls, to everyone who reads
+        them, on the web and at Lark: off, none, only its answers; on, a row
+        per call with its tool's name; full, each call's arguments, output,
+        error and time as well. The chat messages and the stream leave out
+        what the level hides.
     AllowList:
       type: object
       description: >-
@@ -5806,6 +5819,9 @@ components:
         workers:
           $ref: "#/components/schemas/AllowList"
           description: The worker profiles the Bot may give work to; left out, the Bot keeps its list.
+        tool_display:
+          $ref: "#/components/schemas/ToolDisplay"
+          description: What the Bot's chats show of its tool calls; left out, the Bot keeps it, on for a new one.
     Memory:
       type: object
       additionalProperties: false

@@ -115,7 +115,7 @@ func (q *Queries) DetachRunsFromChatsOfBot(ctx context.Context, bot string) erro
 }
 
 const getBot = `-- name: GetBot :one
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers FROM bots WHERE name = ?1
+SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
@@ -134,6 +134,7 @@ func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
 		&i.SkillsOff,
 		&i.Connections,
 		&i.Workers,
+		&i.ToolDisplay,
 	)
 	return i, err
 }
@@ -217,7 +218,7 @@ func (q *Queries) LastSetupChangeOf(ctx context.Context, arg LastSetupChangeOfPa
 }
 
 const listBots = `-- name: ListBots :many
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers FROM bots ORDER BY created_at, name
+SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -242,6 +243,7 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.SkillsOff,
 			&i.Connections,
 			&i.Workers,
+			&i.ToolDisplay,
 		); err != nil {
 			return nil, err
 		}
@@ -337,13 +339,27 @@ func (q *Queries) SetBotMemory(ctx context.Context, arg SetBotMemoryParams) erro
 	return err
 }
 
+const toolDisplayOfChat = `-- name: ToolDisplayOfChat :one
+SELECT b.tool_display FROM chats c JOIN bots b ON b.name = c.bot WHERE c.id = ?1
+`
+
+// What the chat's Bot shows of its tool calls (issue #441).
+func (q *Queries) ToolDisplayOfChat(ctx context.Context, chatID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, toolDisplayOfChat, chatID)
+	var tool_display string
+	err := row.Scan(&tool_display)
+	return tool_display, err
+}
+
 const upsertBot = `-- name: UpsertBot :exec
-INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, connections, workers, created_at,
-                  updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
+                  created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+        ?11)
 ON CONFLICT (name) DO UPDATE SET provider = excluded.provider, model = excluded.model, effort = excluded.effort,
     persona = excluded.persona, skills = excluded.skills, skills_off = excluded.skills_off,
-    connections = excluded.connections, workers = excluded.workers, updated_at = excluded.updated_at
+    connections = excluded.connections, workers = excluded.workers, tool_display = excluded.tool_display,
+    updated_at = excluded.updated_at
 `
 
 type UpsertBotParams struct {
@@ -356,6 +372,7 @@ type UpsertBotParams struct {
 	SkillsOff   string
 	Connections sql.NullString
 	Workers     sql.NullString
+	ToolDisplay string
 	Now         int64
 }
 
@@ -370,6 +387,7 @@ func (q *Queries) UpsertBot(ctx context.Context, arg UpsertBotParams) error {
 		arg.SkillsOff,
 		arg.Connections,
 		arg.Workers,
+		arg.ToolDisplay,
 		arg.Now,
 	)
 	return err

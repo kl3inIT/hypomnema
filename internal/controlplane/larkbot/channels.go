@@ -201,6 +201,7 @@ type Store interface {
 	) (orchestration.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
 	ArtifactsBeforeReply(ctx context.Context, chatID string, seq int64) ([]orchestration.ArtifactRef, error)
+	ChatToolDisplay(ctx context.Context, chatID string) (orchestration.ToolDisplay, error)
 	Subscribe(ctx context.Context) <-chan struct{}
 }
 
@@ -1380,7 +1381,20 @@ func (r *relay) frame(ctx context.Context, f coordinator.Frame) bool {
 			r.show(ctx, false)
 		}
 	case coordinator.FrameTool:
-		// What a tool that runs is doing, under the text, as Hermes and OpenClaw show progress.
+		// What a tool that runs is doing, under the text, as Hermes and OpenClaw show progress, as much as the Bot's
+		// tool display shows (issue #441): nothing when off, its name when on, the start of its arguments when full.
+		// A setting that cannot be read shows nothing.
+		display, err := r.all.store.ChatToolDisplay(ctx, r.chat.ChatID)
+		if err != nil {
+			display = orchestration.ToolsOff
+		}
+
+		shown, ok := coordinator.ShownFrame(display, f)
+		if !ok {
+			return false
+		}
+
+		data, _ = shown.Data.(map[string]any)
 		r.status = ""
 		if data["phase"] == "start" {
 			r.status = statusOf(data)

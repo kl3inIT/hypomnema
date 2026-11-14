@@ -1115,7 +1115,7 @@ func TestTheOwnerSeesTheCoordinatorWork(t *testing.T) {
 	})
 	require.Eventually(t, func() bool { return len(w.lark.sent()) == 1 }, eventual, tick)
 	assert.Equal(t, "om_1", w.lark.cardAt(0).replyTo, "the card answers the message")
-	assert.Equal(t, `⚡ bash: {"command":"hypomnema runs create"}`, w.lark.cardAt(0).text)
+	assert.Equal(t, "⚡ bash", w.lark.cardAt(0).text, "a Bot shows its tool's name, not its command")
 
 	w.lark.say(direct("om_2", ownerDM, ownerID, "and the logout page"))
 	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
@@ -1152,6 +1152,47 @@ func TestTheOwnerSeesTheCoordinatorWork(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return assert.ObjectsAreEqual([]string{"CrossMark"}, w.lark.marked("om_3"))
 	}, eventual, tick)
+}
+
+// Scenario: what the card shows of a tool that runs is what the Bot's tool display shows (issue #441), as OpenClaw
+// sends a tool's progress only from on and its command only at full: off shows nothing of it and the card opens with
+// the text; on shows the tool's name; full the start of its arguments too.
+func TestTheCardShowsOfAToolWhatItsBotShows(t *testing.T) {
+	t.Parallel()
+
+	for level, want := range map[orchestration.ToolDisplay]string{
+		orchestration.ToolsOff:  "Sent…",
+		orchestration.ToolsOn:   "⚡ bash",
+		orchestration.ToolsFull: `⚡ bash: {"command":"cat report.sql"}`,
+	} {
+		t.Run(string(level), func(t *testing.T) {
+			t.Parallel()
+
+			w := newWorld(t)
+			w.setUp(orchestration.LarkChannelOwner)
+
+			bot, err := w.orch.GetBot(t.Context(), orchestration.DefaultBot)
+			require.NoError(t, err)
+			bot.ToolDisplay = level
+			_, err = w.orch.PutBot(t.Context(), bot)
+			require.NoError(t, err)
+
+			w.lark.say(direct("om_1", ownerDM, ownerID, "send the report"))
+			chat := w.chatOf(ownerDM)
+
+			w.pi.works(chat, true)
+			w.pi.frame(chat, coordinator.FrameTool, map[string]any{
+				"phase": "start", "id": "t1", "name": "bash", "args": map[string]any{"command": "cat report.sql"},
+			})
+
+			if level == orchestration.ToolsOff {
+				w.pi.frame(chat, coordinator.FrameDelta, map[string]any{"kind": "text", "index": 0, "delta": "Sent"})
+			}
+
+			require.Eventually(t, func() bool { return len(w.lark.sent()) == 1 }, eventual, tick)
+			assert.Equal(t, want, w.lark.cardAt(0).text, "the card opens with it")
+		})
+	}
 }
 
 // Scenario: the coordinator's reply is longer than a card holds and quotes a
