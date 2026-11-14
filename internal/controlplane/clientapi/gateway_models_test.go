@@ -67,9 +67,10 @@ func TestTheOwnerSetsAGatewayModelsAttributes(t *testing.T) {
 	listed, err := coord.ListGatewayModelsWithResponse(ctx)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
-	require.Len(t, listed.JSON200.Data, 2)
+	// By name: the three Claude models a fresh install is seeded with (issue #462), then the two applied.
+	require.Len(t, listed.JSON200.Data, 5)
 
-	sol := listed.JSON200.Data[0]
+	sol := listed.JSON200.Data[3]
 	assert.Equal(t, "cx/sol", sol.Name)
 	codexWindow := int64(272_000)
 	assert.Equal(t, openapi.GatewayModelTokens{

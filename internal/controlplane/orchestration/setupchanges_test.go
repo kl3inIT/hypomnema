@@ -338,7 +338,7 @@ func TestAProfilesUndoIsRefusedOnceItIsReliedOn(t *testing.T) {
 	w.clock.now = w.clock.now.Add(time.Minute)
 
 	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "",
-		"name: implementer\ndescription: Writes code.\nruntime: claude\nmodel: {provider: gateway}\n"+
+		"name: implementer\ndescription: Writes code.\nruntime: claude\nmodel: {provider: model-gateway}\n"+
 			"instruction: Run the tests.\n")
 	require.NoError(t, err)
 	changedImplementer := last()

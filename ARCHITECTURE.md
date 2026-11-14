@@ -893,8 +893,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   A profile may name up to five `fallbacks`, other workers' profiles in the owner's order (issue #171, after
   OpenMausBot's backups of a bot and OpenClaw's fallbacks of an agent;
   [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); they are kept in the version.
-  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model; provider
-  `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
+  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code through the provider `model-gateway`
+  (issue #462, migration 00081), the implementer and the reviewer on `claude-opus-5-5`, the explorer on
+  `claude-sonnet-5-5`; providers `claude-subscription` and `model-gateway` (the gateway, below). The migration
+  gives a seeded profile its gateway version only where its current version is still the seed's and a provider
+  `model-gateway` of kind `model_gateway` offers the model; a seeded version's source and
+  digest are what applying that YAML stores, so applying it again makes no new version. The way back takes the
+  versions back where still current and removes the provider and the gateway models it made where nothing names
+  them. The reviewer (effort `high`) and the explorer say in their
   instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
   `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
   the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
@@ -1481,6 +1487,12 @@ capabilities do not exist yet.
   `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
+- A fresh install has the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, each
+  served from `claude-subscription`'s model of the same name, and the provider `model-gateway` (kind
+  `model_gateway`) offering them, which the starting profiles name (migration 00081, issue #462; models as the
+  owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
+  subscription offers, and the provider only when no provider of its kind exists. A Claude Code worker then
+  needs only a Claude account on the control plane (`accounts login claude` or `accounts add claude`).
 - A model's attributes (issue #367, after 9router-go, omniroute, LiteLLM's `model_info`, CLIProxyAPI and omp) are
   what a client is told of it: `context_window`, `max_output`, `input` (`text`, `image`), `reasoning` and `efforts`
   (its reasoning effort levels, among `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). The YAML may set
