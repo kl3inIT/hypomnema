@@ -1774,7 +1774,11 @@ capabilities do not exist yet.
     (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
     the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
     with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
-    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`). A probe
+    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`).
+    A client's breakpoint on a text or image part stays on its block (a blank text part is dropped and hands its
+    breakpoint to the block before), one on a whole message goes on its last block, and a tool message's goes on the
+    `tool_result` block, never inside its content, which Anthropic refuses (issue #482, CLIProxyAPI
+    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
