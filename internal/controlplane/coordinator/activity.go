@@ -98,6 +98,8 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 		p.stopSettled()
 		p.setWorking(false)
 		p.s.settled()
+	case "turn_end", "compaction_end":
+		p.refreshUsage(ctx)
 	case "message_start":
 		if rec.Message != nil && rec.Message.Role == "assistant" {
 			p.s.publish(p.chatID, Frame{Event: FrameReset})

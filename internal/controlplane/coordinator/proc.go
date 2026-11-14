@@ -42,6 +42,12 @@ type proc struct {
 	// stopKept that its stopped row is kept; both clear when the turn settles.
 	stopAsked bool
 	stopKept  bool
+	// compacting says the owner's compaction runs (usage.go).
+	compacting bool
+
+	// usageMu orders the reads of pi's context usage; usage is the last kept.
+	usageMu sync.Mutex
+	usage   *orchestration.ContextUsage
 }
 
 type response struct {
@@ -144,6 +150,12 @@ func (p *proc) send(ctx context.Context, text string) error {
 
 // call writes one command and waits for its response.
 func (p *proc) call(ctx context.Context, cmd map[string]any) (response, error) {
+	return p.callWithin(ctx, cmd, commandTimeout)
+}
+
+// callWithin is call with its own bound on the wait, for a command that takes
+// long, such as a compaction.
+func (p *proc) callWithin(ctx context.Context, cmd map[string]any, timeout time.Duration) (response, error) {
 	p.mu.Lock()
 	p.nextID++
 	id := "hyp-" + strconv.Itoa(p.nextID)
@@ -179,8 +191,8 @@ func (p *proc) call(ctx context.Context, cmd map[string]any) (response, error) {
 		return response{}, fmt.Errorf("pi exited: %s", p.stderrTail())
 	case <-ctx.Done():
 		return response{}, ctx.Err()
-	case <-time.After(commandTimeout):
-		return response{}, fmt.Errorf("pi did not answer %s in %s", cmd["type"], commandTimeout)
+	case <-time.After(timeout):
+		return response{}, fmt.Errorf("pi did not answer %s in %s", cmd["type"], timeout)
 	}
 }
 
