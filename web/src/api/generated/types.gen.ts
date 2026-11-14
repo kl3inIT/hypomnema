@@ -372,53 +372,112 @@ export type TerminalTicket = {
   expires_at: string;
 };
 
-export type WebSearchProvider = 'exa' | 'searxng' | 'parallel' | 'codex' | 'claude' | 'antigravity';
+export type WebSearchProvider = 'exa' | 'firecrawl' | 'parallel' | 'tavily' | 'tinyfish' | 'you' | 'codex' | 'claude' | 'antigravity';
+
+export type WebSearchKeyedProvider = 'exa' | 'firecrawl' | 'parallel' | 'tavily' | 'tinyfish';
 
 export type WebSearch = {
   /**
    * The ways a search is asked, in the order a search that names no provider tries them.
    */
   chain: Array<WebSearchLink>;
-  /**
-   * The name of the vault secret that holds Exa's API key.
-   */
-  exa_secret: string;
-  /**
-   * The address of the owner's SearXNG; absent when none is set.
-   */
-  searxng_url?: string;
 };
 
 export type WebSearchLink = {
   provider: WebSearchProvider;
   /**
-   * Where its search comes from: Exa with the owner's key, the owner's SearXNG, a public endpoint asked with no key, or an account of a subscription.
+   * Where its search comes from: the owner's API keys, a public endpoint asked with no key, or an account of a subscription.
    */
-  source: 'key' | 'self_hosted' | 'public' | 'subscription';
+  source: 'key' | 'public' | 'subscription';
   /**
    * The owner's switch for the provider.
    */
   on: boolean;
   /**
-   * ready: it is asked in its turn. resting: it answered 429 and is skipped until `resting_until`. not_set_up: no key in the vault, no SearXNG address, or no subscription account in use. off: the owner switched it off.
+   * ready: it is asked in its turn. resting: it (for a keyed provider, each of its keys) rests until `resting_until`, for `rest`. not_set_up: no key in the vault, or no subscription account in use. off: the owner switched it off.
    */
   state: 'ready' | 'resting' | 'not_set_up' | 'off';
   resting_until?: string;
+  rest?: WebSearchRest;
+  /**
+   * A keyed provider's keys, in the order a search asks them now.
+   */
+  keys?: Array<WebSearchKey>;
+  usage: WebSearchUsage;
+};
+
+/**
+ * Why it rests. rate_limit: it answered 429. no_credits: it answered 402 or said its credits are spent. refused: it refused the key (401, 403). daily_limit: it reached its daily limit, until 00:00 UTC.
+ */
+export type WebSearchRest = 'rate_limit' | 'no_credits' | 'refused' | 'daily_limit';
+
+export type WebSearchKey = {
+  /**
+   * The vault secret that holds the key.
+   */
+  name: string;
+  /**
+   * resting: it rests until `resting_until`, for `rest`. spent: its balance, as its provider tells it, is used up; it is skipped until it comes back.
+   */
+  state: 'ready' | 'resting' | 'spent';
+  resting_until?: string;
+  rest?: WebSearchRest;
+  last_used_at?: string;
+  balance?: WebSearchBalance;
+  usage: WebSearchUsage;
+};
+
+/**
+ * The key's balance as its provider tells it, in its credits (Tavily, Firecrawl).
+ */
+export type WebSearchBalance = {
+  used: number;
+  limit: number;
+  remaining: number;
+  checked_at: string;
+};
+
+/**
+ * This control plane's calls, by UTC day and month.
+ */
+export type WebSearchUsage = {
+  today: WebSearchTally;
+  month: WebSearchTally;
+  /**
+   * What this month's calls cost, as the provider said in each answer (Exa).
+   */
+  month_dollars?: number;
+};
+
+export type WebSearchTally = {
+  answered: number;
+  failed: number;
 };
 
 export type WebSearchSwitch = {
   on: boolean;
 };
 
-export type WebSearchExaKey = {
+export type WebSearchNewKey = {
   key: string;
 };
 
-export type WebSearchSearXng = {
+export type WebSearchKeyAdded = {
   /**
-   * An http(s) address, such as http://localhost:8888.
+   * The vault secret the key is kept under.
    */
-  url: string;
+  name: string;
+  web_search: WebSearch;
+};
+
+export type WebSearchOrder = {
+  providers: [
+    WebSearchKeyedProvider,
+    WebSearchKeyedProvider,
+    WebSearchKeyedProvider,
+    WebSearchKeyedProvider,
+    WebSearchKeyedProvider
+  ];
 };
 
 export type WebSearchRequest = {
@@ -430,7 +489,7 @@ export type WebSearchRequest = {
   /**
    * Ask only this provider; left out, the first that answers.
    */
-  provider?: 'exa' | 'searxng' | 'parallel' | 'codex' | 'claude' | 'antigravity';
+  provider?: 'exa' | 'firecrawl' | 'parallel' | 'tavily' | 'tinyfish' | 'you' | 'codex' | 'claude' | 'antigravity';
 };
 
 export type WebSearchAnswer = {
@@ -5179,105 +5238,88 @@ export type SetWebSearchProviderResponses = {
 
 export type SetWebSearchProviderResponse = SetWebSearchProviderResponses[keyof SetWebSearchProviderResponses];
 
-export type DeleteWebSearchExaKeyData = {
+export type AddWebSearchKeyData = {
+  body: WebSearchNewKey;
+  path: {
+    provider: WebSearchKeyedProvider;
+  };
+  query?: never;
+  url: '/gateway/web-search/providers/{provider}/keys';
+};
+
+export type AddWebSearchKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AddWebSearchKeyError = AddWebSearchKeyErrors[keyof AddWebSearchKeyErrors];
+
+export type AddWebSearchKeyResponses = {
+  /**
+   * The name the key is kept under, and the chain with it.
+   */
+  201: WebSearchKeyAdded;
+};
+
+export type AddWebSearchKeyResponse = AddWebSearchKeyResponses[keyof AddWebSearchKeyResponses];
+
+export type RemoveWebSearchKeyData = {
   body?: never;
-  path?: never;
+  path: {
+    provider: WebSearchKeyedProvider;
+    /**
+     * The key's secret name, such as web-search-exa-2.
+     */
+    name: string;
+  };
   query?: never;
-  url: '/gateway/web-search/exa-key';
+  url: '/gateway/web-search/providers/{provider}/keys/{name}';
 };
 
-export type DeleteWebSearchExaKeyErrors = {
+export type RemoveWebSearchKeyErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type DeleteWebSearchExaKeyError = DeleteWebSearchExaKeyErrors[keyof DeleteWebSearchExaKeyErrors];
+export type RemoveWebSearchKeyError = RemoveWebSearchKeyErrors[keyof RemoveWebSearchKeyErrors];
 
-export type DeleteWebSearchExaKeyResponses = {
+export type RemoveWebSearchKeyResponses = {
   /**
-   * The chain without Exa's key.
+   * The chain without the key.
    */
   200: WebSearch;
 };
 
-export type DeleteWebSearchExaKeyResponse = DeleteWebSearchExaKeyResponses[keyof DeleteWebSearchExaKeyResponses];
+export type RemoveWebSearchKeyResponse = RemoveWebSearchKeyResponses[keyof RemoveWebSearchKeyResponses];
 
-export type PutWebSearchExaKeyData = {
-  body: WebSearchExaKey;
+export type SetWebSearchOrderData = {
+  body: WebSearchOrder;
   path?: never;
   query?: never;
-  url: '/gateway/web-search/exa-key';
+  url: '/gateway/web-search/order';
 };
 
-export type PutWebSearchExaKeyErrors = {
+export type SetWebSearchOrderErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type PutWebSearchExaKeyError = PutWebSearchExaKeyErrors[keyof PutWebSearchExaKeyErrors];
+export type SetWebSearchOrderError = SetWebSearchOrderErrors[keyof SetWebSearchOrderErrors];
 
-export type PutWebSearchExaKeyResponses = {
+export type SetWebSearchOrderResponses = {
   /**
-   * The chain with Exa's key.
+   * The chain in its new order.
    */
   200: WebSearch;
 };
 
-export type PutWebSearchExaKeyResponse = PutWebSearchExaKeyResponses[keyof PutWebSearchExaKeyResponses];
-
-export type DeleteWebSearchSearXngData = {
-  body?: never;
-  path?: never;
-  query?: never;
-  url: '/gateway/web-search/searxng';
-};
-
-export type DeleteWebSearchSearXngErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type DeleteWebSearchSearXngError = DeleteWebSearchSearXngErrors[keyof DeleteWebSearchSearXngErrors];
-
-export type DeleteWebSearchSearXngResponses = {
-  /**
-   * The chain without SearXNG.
-   */
-  200: WebSearch;
-};
-
-export type DeleteWebSearchSearXngResponse = DeleteWebSearchSearXngResponses[keyof DeleteWebSearchSearXngResponses];
-
-export type PutWebSearchSearXngData = {
-  body: WebSearchSearXng;
-  path?: never;
-  query?: never;
-  url: '/gateway/web-search/searxng';
-};
-
-export type PutWebSearchSearXngErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type PutWebSearchSearXngError = PutWebSearchSearXngErrors[keyof PutWebSearchSearXngErrors];
-
-export type PutWebSearchSearXngResponses = {
-  /**
-   * The chain with SearXNG.
-   */
-  200: WebSearch;
-};
-
-export type PutWebSearchSearXngResponse = PutWebSearchSearXngResponses[keyof PutWebSearchSearXngResponses];
+export type SetWebSearchOrderResponse = SetWebSearchOrderResponses[keyof SetWebSearchOrderResponses];
 
 export type ListBotsData = {
   body?: never;
