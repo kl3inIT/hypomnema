@@ -11,7 +11,7 @@ import (
 )
 
 // Scenario: zm keeps the provider ninerouter, 9router that nothing has used
-// since 2026-11-10 (issue #413). Migration 00073 removes it with its models;
+// since 2026-11-10 (issue #413). Migration 00074 removes it with its models;
 // one a Bot still names is left.
 func TestMigrationRemovesTheUnusedNinerouterProvider(t *testing.T) {
 	t.Parallel()
@@ -24,7 +24,7 @@ func TestMigrationRemovesTheUnusedNinerouterProvider(t *testing.T) {
 
 		p, err := provider(db)
 		require.NoError(t, err)
-		_, err = p.UpTo(ctx, 72)
+		_, err = p.UpTo(ctx, 73)
 		require.NoError(t, err)
 
 		stmts := []string{

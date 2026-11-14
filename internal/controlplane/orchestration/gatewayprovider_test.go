@@ -12,7 +12,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
-// beforeGatewayKind is a database from before migration 00072 with the old
+// beforeGatewayKind is a database from before migration 00073 with the old
 // gateway provider, as zm had it: an OpenAI-compatible provider at the
 // control plane's own /v1, which the Bot "coordinator" and a chat use.
 func beforeGatewayKind(t *testing.T, withModelGateway bool) *sql.DB {
@@ -25,7 +25,7 @@ func beforeGatewayKind(t *testing.T, withModelGateway bool) *sql.DB {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 71)
+	_, err = p.UpTo(ctx, 72)
 	require.NoError(t, err)
 
 	stmts := []string{

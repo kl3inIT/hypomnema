@@ -192,7 +192,7 @@ func TestMigrationNamesTheHostOfRunsFromBeforeHosts(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 70)
+	_, err = p.UpTo(ctx, 71)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `INSERT INTO runs (id, objective, status, created_by, repo, created_at, updated_at)
