@@ -25,6 +25,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/terminal"
@@ -190,7 +191,7 @@ func SetAccount(home, accountID, tokenFile string) error {
 	return saveConfig(home, cfg)
 }
 
-// Run runs the daemon with the Claude runner until ctx ends.
+// Run runs the daemon with the runtimes' workers until ctx ends.
 func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	cfg, err := LoadConfig(home)
 	if err != nil {
@@ -224,11 +225,6 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
 
-	runner := &claude.Runner{
-		Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts, Logger: logger,
-		Worktrees: worktree.Maker{Root: home, Logger: logger},
-	}
-
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
 		slog.Int("runtimes", len(runtimes)), slog.Int("accounts", len(cfg.Accounts)))
 
@@ -239,10 +235,19 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		defer terminals.Close()
 	}
 
-	// The agents that speak ACP share one runner (issue #107).
-	acpRunner := &acp.Runner{
-		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger,
-		Worktrees: worktree.Maker{Root: home, Logger: logger},
+	// The agents that speak ACP share one runtime (issue #107).
+	acpRuntime := &acp.ACPRuntime{Home: home, Exe: exe, Paths: paths, URL: cfg.URL}
+
+	byRuntime, err := registry(
+		entry{"claude", &claude.ClaudeRuntime{
+			Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts,
+		}},
+		// A Codex worker's model comes from the control plane's gateway (issue #107).
+		entry{"codex", &codex.CodexRuntime{Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL}},
+		entry{"omp", acpRuntime}, entry{"opencode", acpRuntime},
+	)
+	if err != nil {
+		return err
 	}
 
 	// Workers' transcripts go to the control plane beside their reports, whatever the runtime (issues #43, #157).
@@ -253,18 +258,13 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		},
 	}
 
-	all := runners{byRuntime: map[string]worker{}, transcripts: transcripts, skills: skills.Cache{
-		Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
-	}}
-	for _, runtime := range acp.Runtimes() {
-		all.byRuntime[runtime] = acpRunner
-	}
-
-	all.byRuntime["claude"] = runner
-	// A Codex worker's model comes from the control plane's gateway (issue #107).
-	all.byRuntime["codex"] = &codex.Runner{
-		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger,
-		Worktrees: worktree.Maker{Root: home, Logger: logger},
+	all := runners{
+		supervisor: &runner.Supervisor{
+			Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+		},
+		byRuntime: byRuntime, transcripts: transcripts, skills: skills.Cache{
+			Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
+		},
 	}
 
 	d := daemon.New(daemon.Config{
@@ -281,7 +281,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 				paths[r.Runtime] = r.Path
 			}
 
-			acpRunner.SetPaths(paths)
+			acpRuntime.SetPaths(paths)
 
 			return found
 		},

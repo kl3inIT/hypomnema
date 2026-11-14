@@ -1865,7 +1865,16 @@ Node (`internal/node`):
   the control plane records them as at hello. A release file that is no archive is the command itself; a release
   file may be up to 512 MB (omp's is 286 MB). An older node is not told: it would fetch omp every 5 minutes and
   fail.
-- The daemon has a runner per runtime and gives a Dispatch to the runner of its offer's runtime (issue #107).
+- Every runtime's workers have one lifecycle (`internal/node/runner`, issue #392, after Omnara's one map of
+  processes and Orca's session host with a dialect per agent): a `Supervisor` with one map of jobs keeps the shim,
+  the journal and its offset, the bridge, stop and release, and each CLI supplies a `Runtime` (`ClaudeRuntime`,
+  `CodexRuntime`, `ACPRuntime`): its checks and homes, argv, environment and configuration, how it reads a journal
+  line, its interrupt, and its outcome. The daemon's registry of runtimes by key fails at startup on a key named
+  twice or a known runtime with none. A Dispatch is started and adopted with the Runtime of its offer's runtime
+  (`claude` when it names none); a stop, a release, an answer and a question's id go to the Supervisor, which holds
+  the Dispatch's job. A stop sends the runtime's interrupt and closes the worker's input, and kills a worker still
+  alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release kills the
+  shim by its PID file and removes `run/<dispatch>`, also when no job is in memory.
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
   process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
@@ -1878,7 +1887,7 @@ Node (`internal/node`):
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
   or else what `turn.failed` said. A stop kills the process.
 - omp and opencode workers (`internal/node/acp`; [research](docs/research/2026-11-10-acp-omp-opencode.md)) share one
-  runner that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a
+  runtime that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
@@ -1903,7 +1912,7 @@ Node (`internal/node`):
 - Durable reports (accept, started, question, answer acknowledged, the final report, reattach) wait in a local SQLite
   outbox (`internal/node/statedb`) and are resent after every reconnect until acknowledged; heartbeats and progress
   are not resent.
-- Workers (`internal/node/claude`) are Claude Code under a shim (`internal/node/shim`):
+- Claude Code workers (`internal/node/claude`) run under a shim (`internal/node/shim`), as every worker:
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
     and `--effort` when set).
@@ -1917,8 +1926,8 @@ Node (`internal/node`):
     (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, as OpenMausBot's bots): it is kept per working folder, a worker's is a new
     worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
-    socket to the worker's stdin, and writes `exit.json` when the worker exits. The runner reads the journal from a
-    saved offset, so a new daemon adopts a running worker. A stop sends an interrupt and closes stdin; a worker still
+    socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
+    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt and closes stdin; a worker still
     alive after 30 s is killed with its whole session group.
   - Reported:
     - the session id from `system/init`, as started;
@@ -1953,9 +1962,9 @@ Node (`internal/node`):
       journals under `run/` that are not marked, those from before this existed too.
   - The worker's tools (`internal/node/workertools`, `hypomnema-node mcp`) come in through `--mcp-config` with
     `--strict-mcp-config`; AskUserQuestion and the subagent tool (`Task`, `Agent`) are disallowed. `ask` and `finish` reach the
-    runner only through a bridge directory beside the journal (`internal/node/bridge`), so a question survives a
+    Supervisor only through a bridge directory beside the journal (`internal/node/bridge`), so a question survives a
     daemon restart; the shared browser's tools go to the control plane (see "A browser every agent shares").
-    - `ask`: the runner submits the question, records the control plane's id, writes the answer for the waiting
+    - `ask`: the Supervisor submits the question (also one asked just before the worker exited), records the control plane's id, writes the answer for the waiting
       call, and acknowledges it. While it waits, the call sends `notifications/progress` every minute; tool calls may
       last 24 h (`MCP_TOOL_TIMEOUT`). A canceled call withdraws the question.
     - `finish`: the final report, with summary, evidence and an optional Gate. It is the outcome once the worker
@@ -1965,7 +1974,9 @@ Node (`internal/node`):
     - `needs_auth`, on a login error;
     - `worker_error`, "stopped without finish", as Orca reports a stop without `worker_done`;
     - exited with no result: the outcome is unknown;
-    - a worker that never started is `start_failed`.
+    - a worker that neither started nor gave a result is `start_failed`, with what the CLI said, the exit's error
+      or the first line of its stderr; a shim whose input socket does not open in 10 s fails the start with the
+      worker's stderr.
   - Every permission prompt is allowed and logged (`node.tool_allowed`). The node's machine or user is the boundary
     ([research](docs/research/2026-11-08-worker-permissions.md)).
   - The first turn, after Orca's preamble, has:
@@ -2417,11 +2428,12 @@ internal/controlplane/superset  Superset's API for agents: charts' data and the 
 internal/controlplane/vault  the vault: encrypted secrets and their versions, the keyring, rewrap
 internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
-internal/node             package node: configuration, CLI detection, init, check, run and the systemd unit
-internal/node/bridge      the mailbox between a worker's tools and the runner: questions, answers, the final report
-internal/node/claude      the Claude Code runner: worker environment, stream-JSON, journal reading, outcome
-internal/node/codex       the Codex CLI runner: the gateway as its provider, `exec --json`, journal reading, outcome, and its transcript decoder
-internal/node/acp         the ACP runner for omp and opencode: each CLI's configuration, the conversation, outcome, and its transcript decoder
+internal/node             package node: configuration, CLI detection, init, check, run with the registry of runtimes, and the systemd unit
+internal/node/bridge      the mailbox between a worker's tools and the Supervisor: questions, answers, the final report
+internal/node/runner      the Supervisor: every worker's shim, journal and offset, bridge, stop and release, over a Runtime per CLI; the worker's prompt
+internal/node/claude      the Claude Code runtime: credentials, worker environment, stream-JSON, permission replies, outcome, and its transcript decoder
+internal/node/codex       the Codex CLI runtime: the gateway as its provider, `exec --json`, outcome, and its transcript decoder
+internal/node/acp         the ACP runtime for omp and opencode: each CLI's configuration, the conversation, outcome, and its transcript decoder
 internal/node/transcript  the forwarder of every worker's transcript, the decoder interface, the cutting of items
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
