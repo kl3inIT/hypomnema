@@ -137,6 +137,8 @@ if echo '{}' > "$PI_CODING_AGENT_DIR/auth.json"; then echo agent=writable; fi
 if [ -e '`+w.outside+`' ]; then echo tmp=shared; else echo tmp=private; fi
 echo "skills=$(ls "$HOME/.agents/skills")"
 echo "env=$(env | cut -d= -f1 | sort | tr '\n' ' ')"
+echo "python=$(command -v python || true)"
+if touch "$H/tools/envs/documents/x" 2> /dev/null; then echo documents=writable; else echo documents=read-only; fi
 `, 0o700)
 
 	script, err := os.ReadFile(launcher)
@@ -157,6 +159,25 @@ echo "env=$(env | cut -d= -f1 | sort | tr '\n' ' ')"
 	write(t, w.script, text, 0o700)
 
 	return w
+}
+
+// documents lays out a documents environment as `hypomnema tool install`
+// leaves it (issue #401), an older generation beside the one active.json
+// selects, and returns the selected generation's bin.
+func (w *boxWorld) documents(t *testing.T) string {
+	t.Helper()
+
+	docs := filepath.Join(w.home, "tools", "envs", "documents")
+	selected := "gen-0123456789abcdef0123456789abcdef"
+
+	for _, generation := range []string{"gen-ffffffffffffffffffffffffffffffff", selected} {
+		write(t, filepath.Join(docs, generation, "venv", "pyvenv.cfg"), "version_info = 3.14.9\n", 0o600)
+		write(t, filepath.Join(docs, generation, "venv", "bin", "python"), "#!/bin/sh\n", 0o700)
+	}
+
+	write(t, filepath.Join(docs, "active.json"), `{"generation":"`+selected+`","inputs":"x"}`+"\n", 0o600)
+
+	return filepath.Join(docs, selected, "venv", "bin")
 }
 
 func write(t *testing.T, path, content string, mode os.FileMode) {
@@ -201,6 +222,7 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	needBox(t)
 
 	w := newBoxWorld(t, bwrapPath)
+	documents := w.documents(t)
 	seen, stderr, err := w.start(t, "hyp_bot_v1_mine\n{\"type\":\"get_state\"}\n")
 	require.NoError(t, err, stderr)
 
@@ -233,6 +255,9 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.Equal(t, "writable", seen["agent"], "pi locks files in its agent directory")
 	assert.Equal(t, "private", seen["tmp"])
 	assert.Equal(t, "hypomnema-coordinator", seen["skills"])
+	assert.Equal(t, filepath.Join(documents, "python"), seen["python"],
+		"python is the selected generation's, first on PATH (issue #401)")
+	assert.Equal(t, "read-only", seen["documents"], "the documents environment is the tools', read-only")
 	assert.Contains(t, seen["env"], "HYPOMNEMA_CHAT_ID ")
 	assert.NotContains(t, seen["env"], "HYPOMNEMA_SECRET_OF_THE_CALLER", "nothing of the caller's environment")
 
@@ -264,6 +289,7 @@ func TestALarkGroupsPiRunsInItsBoxToo(t *testing.T) {
 	assert.JSONEq(t, `{"url":"http://127.0.0.1:18990","token":"hyp_bot_v1_group"}`, seen["client"])
 	assert.Equal(t, "hidden", seen["other"])
 	assert.Equal(t, "private", seen["tmp"])
+	assert.NotContains(t, seen["python"], "/tools/", "without a documents environment pi starts all the same")
 }
 
 // Scenario: pi does not start without its token, nor without a box.
