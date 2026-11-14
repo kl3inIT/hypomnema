@@ -141,8 +141,25 @@ func (rt *ClaudeRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.
 	return runner.Launch{Format: Format, Write: write, First: [][]byte{initialize, first}, Turn: &turn{}}, nil
 }
 
-// Adopted is a turn read on from where an earlier daemon left it.
-func (rt *ClaudeRuntime) Adopted() runner.Turn { return &turn{} }
+// Adopted is a turn read on from where an earlier daemon left it, with what
+// it had learnt by then.
+func (rt *ClaudeRuntime) Adopted(state []byte) runner.Turn {
+	t := &turn{}
+
+	var s saved
+	if json.Unmarshal(state, &s) == nil {
+		t.result, t.limited = s.Result, s.Limited
+	}
+
+	return t
+}
+
+// saved is what a turn keeps across a daemon restart: the result event and
+// a rate limit's reset.
+type saved struct {
+	Result  *event     `json:"result,omitempty"`
+	Limited *time.Time `json:"limited,omitempty"`
+}
 
 // gatewayAccount is the offer's AccountRef when the model gateway serves the
 // worker's model and no account on the node does (issue #107).
@@ -334,6 +351,13 @@ func (t *turn) Result() runner.Result {
 	}
 
 	return runner.Result{Done: true, Usage: usage(t.result)}
+}
+
+func (t *turn) State() []byte {
+	//nolint:errchkjson // The event as it was decoded, and a time.
+	raw, _ := json.Marshal(saved{Result: t.result, Limited: t.limited})
+
+	return raw
 }
 
 func usage(res *event) *nodeproto.Usage {

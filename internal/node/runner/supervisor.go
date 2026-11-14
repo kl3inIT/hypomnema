@@ -3,8 +3,10 @@
 // worker's first prompt. Each worker runs under a shim (internal/node/shim)
 // in its own session, so it survives a daemon restart. The Supervisor reads
 // the shim's journal from a saved offset and hands each line to the turn of
-// the worker's Runtime, which knows its CLI. The worker talks back through
-// two MCP tools (internal/node/workertools) over the bridge directory: ask,
+// the worker's Runtime, which knows its CLI; the turn's state is saved with
+// the offset, so a new daemon's turn knows what the lines before it said
+// (issue #403). The worker talks back through two MCP tools
+// (internal/node/workertools) over the bridge directory: ask,
 // whose questions and answers the Supervisor relays, and finish, whose report
 // is the outcome. A worker that exits without finish fails, as Orca reports a
 // stop without worker_done.
@@ -18,6 +20,7 @@ package runner
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -57,8 +60,10 @@ type Runtime interface {
 	// Prepare refuses an offer this node cannot run and readies what lives
 	// outside the run directory (CLI home, skills).
 	Prepare(ctx context.Context, d statedb.Dispatch) (Launch, error)
-	// Adopted is the state of a worker that an earlier daemon started.
-	Adopted() Turn
+	// Adopted is the turn of a worker that an earlier daemon started, from
+	// the state that daemon saved with the journal's offset (Turn.State); nil
+	// when it saved none.
+	Adopted(state []byte) Turn
 }
 
 // Launch is how one worker is started.
@@ -83,6 +88,11 @@ type Turn interface {
 	Result() Result
 	// Outcome is a turn that ended without finish.
 	Outcome(ex nodeproto.Exit) nodeproto.Finished
+	// State is what the turn learnt from the lines read so far that a daemon
+	// restarted after them still needs (the session, the result). It is saved
+	// with the journal's offset, handed back to Runtime.Adopted, and called
+	// from the goroutine that calls Line.
+	State() []byte
 }
 
 // Result is what the CLI said of its turn.
@@ -123,13 +133,18 @@ type Supervisor struct {
 type Worker struct {
 	id     string
 	dir    string
-	pid    int
 	r      daemon.Reporter
 	turn   Turn
 	logger *slog.Logger
 	cancel context.CancelFunc
+	// done is closed when the worker's journal reader returned.
+	done chan struct{}
+	// shimBy, for an adopted worker whose shim had written no PID file, is
+	// when it is taken for one that never started.
+	shimBy time.Time
 
 	mu       sync.Mutex
+	pid      int
 	started  bool
 	stopping bool
 	progress time.Time
@@ -152,8 +167,15 @@ func (w *Worker) Started(ctx context.Context, session string) {
 	w.mu.Unlock()
 
 	if first {
-		w.Report(ctx, w.r.Started(ctx, "shim:"+strconv.Itoa(w.pid), session))
+		w.Report(ctx, w.r.Started(ctx, "shim:"+strconv.Itoa(w.shimPID()), session))
 	}
+}
+
+func (w *Worker) shimPID() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.pid
 }
 
 // Progress reports progress, at most every progressEvery.
@@ -217,6 +239,16 @@ func (s *Supervisor) drop(id string) *Worker {
 	delete(s.jobs, id)
 
 	return w
+}
+
+// forget drops w, unless its Dispatch was started again since.
+func (s *Supervisor) forget(w *Worker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.jobs[w.id] == w {
+		delete(s.jobs, w.id)
+	}
 }
 
 // Start prepares the runtime and the worktree, starts the shim, and sends
@@ -327,16 +359,32 @@ func waitSocket(ctx context.Context, dir string) error {
 }
 
 // Adopt follows a worker started by an earlier daemon, from where its journal
-// was last read.
+// was last read, with the turn's state saved there. A run directory whose
+// shim wrote no PID file is given socketWait for it, as a start is, and then
+// ends as a start that failed: the daemon stopped before the shim ran
+// (Omnara reports a process whose execution was never committed as failed,
+// execution_not_started).
 func (s *Supervisor) Adopt(ctx context.Context, rt Runtime, d statedb.Dispatch, r daemon.Reporter) error {
 	dir := s.dir(d.ID)
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("nothing of %s is left on the node: %w", d.ID, err)
 	}
 
-	pid, _ := shim.PID(dir)
+	_, state := readCheckpoint(dir)
+	w := &Worker{id: d.ID, dir: dir, r: r, turn: rt.Adopted(state), started: true}
 
-	s.watch(ctx, &Worker{id: d.ID, dir: dir, pid: pid, r: r, turn: rt.Adopted(), started: true})
+	pid, err := shim.PID(dir)
+	if err != nil {
+		// The shim writes its PID file before it starts the CLI: nothing was reported started.
+		s.Logger.WarnContext(ctx, "an adopted worker's shim has no pid file yet",
+			slog.String("event", "node.adopt_without_pid"), slog.String("dispatch_id", d.ID),
+			slog.String("error", err.Error()))
+
+		w.started, w.shimBy = false, time.Now().Add(socketWait)
+	}
+
+	w.pid = pid
+	s.watch(ctx, w)
 
 	return nil
 }
@@ -344,7 +392,7 @@ func (s *Supervisor) Adopt(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 // watch follows the worker until it ends; it outlives the call that started it.
 func (s *Supervisor) watch(ctx context.Context, w *Worker) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	w.cancel, w.logger = cancel, s.Logger
+	w.cancel, w.logger, w.done = cancel, s.Logger, make(chan struct{})
 
 	if !s.put(w) {
 		cancel()
@@ -374,8 +422,8 @@ func (s *Supervisor) Stop(id string) {
 
 	interrupt := w.turn.Interrupt()
 	if interrupt == nil {
-		if w.pid > 0 {
-			_ = shim.Kill(w.pid)
+		if pid := w.shimPID(); pid > 0 {
+			_ = shim.Kill(pid)
 		}
 
 		return
@@ -384,20 +432,25 @@ func (s *Supervisor) Stop(id string) {
 	_ = shim.Send(context.Background(), w.dir, interrupt, []byte(shim.CloseLine))
 
 	time.AfterFunc(stopGrace, func() {
-		if _, done, _ := shim.ReadExit(w.dir); !done && w.pid > 0 {
-			_ = shim.Kill(w.pid)
+		if _, done, _ := shim.ReadExit(w.dir); !done && w.shimPID() > 0 {
+			_ = shim.Kill(w.shimPID())
 		}
 	})
 }
 
-// Release kills the worker and forgets it, reporting nothing. The shim is
-// found by its PID file, so a worker no daemon follows is killed too.
+// Release kills the worker and forgets it, reporting nothing. It returns once
+// the worker's journal reader has, so nothing of the worker is reported
+// after it (Omnara's closeOutputWatch cancels its reader and waits for it to
+// be done). The reader never calls Release: its reports are queued, not
+// answered. The shim is found by its PID file, so a worker no daemon follows
+// is killed too.
 func (s *Supervisor) Release(id string) {
 	w := s.drop(id)
 	dir := s.dir(id)
 
 	if w != nil {
 		w.cancel()
+		<-w.done
 	}
 
 	if pid, err := shim.PID(dir); err == nil {
@@ -494,9 +547,12 @@ func relay(ctx context.Context, w *Worker) {
 	}
 }
 
-// tail reads the journal from the saved offset until the worker exits.
+// tail reads the journal from the saved offset until the worker exits, or
+// until it is released: a canceled reader reports nothing more.
 func (s *Supervisor) tail(ctx context.Context, w *Worker) {
-	offset := readOffset(w.dir)
+	defer close(w.done)
+
+	offset, _ := readCheckpoint(w.dir)
 
 	for {
 		relay(ctx, w)
@@ -505,7 +561,7 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 		offset += n
 
 		if n > 0 {
-			writeOffset(w.dir, offset)
+			writeCheckpoint(w.dir, offset, w.turn.State())
 		}
 
 		if err != nil {
@@ -514,13 +570,13 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 				slog.String("error", err.Error()))
 		}
 
-		if n == 0 {
+		if n == 0 && ctx.Err() == nil {
 			exit, done, _ := shim.ReadExit(w.dir)
 			if done {
 				// Read once more: the last lines may have landed with the exit.
 				if more, _ := readFrom(ctx, w, offset); more > 0 {
 					offset += more
-					writeOffset(w.dir, offset)
+					writeCheckpoint(w.dir, offset, w.turn.State())
 
 					continue
 				}
@@ -532,8 +588,8 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 				return
 			}
 
-			if w.pid > 0 && !shim.Alive(w.pid) {
-				s.ended(ctx, w, shim.Exit{Code: -1, Error: "the shim died"})
+			if gone, why := shimGone(w); gone {
+				s.ended(ctx, w, shim.Exit{Code: -1, Error: why})
 
 				return
 			}
@@ -547,8 +603,25 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 	}
 }
 
+// shimGone says whether the worker's shim is dead, or, for an adopted worker
+// whose shim had written no PID file, has not written one within socketWait.
+func shimGone(w *Worker) (bool, string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.pid == 0 && !w.shimBy.IsZero() {
+		if pid, err := shim.PID(w.dir); err == nil {
+			w.pid = pid
+		} else if time.Now().After(w.shimBy) {
+			return true, "the shim did not start"
+		}
+	}
+
+	return w.pid > 0 && !shim.Alive(w.pid), "the shim died"
+}
+
 // readFrom hands every complete line after offset to the turn and returns
-// how many bytes it consumed.
+// how many bytes it consumed; a released worker's turn is handed no more.
 func readFrom(ctx context.Context, w *Worker, offset int64) (int64, error) {
 	f, err := os.Open(filepath.Join(w.dir, shim.JournalFile))
 	if errors.Is(err, os.ErrNotExist) {
@@ -568,7 +641,7 @@ func readFrom(ctx context.Context, w *Worker, offset int64) (int64, error) {
 
 	var n int64
 
-	for {
+	for ctx.Err() == nil {
 		line, err := br.ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
 			// A partial line waits for the rest.
@@ -583,11 +656,13 @@ func readFrom(ctx context.Context, w *Worker, offset int64) (int64, error) {
 
 		w.turn.Line(ctx, w, line)
 	}
+
+	return n, nil
 }
 
 // ended reports the outcome once the worker exited.
 func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
-	s.drop(w.id)
+	s.forget(w)
 
 	w.mu.Lock()
 	stopping, started := w.stopping, w.started
@@ -652,20 +727,55 @@ func FirstLine(values ...string) string {
 	return "the worker did not start"
 }
 
-func readOffset(dir string) int64 {
+// checkpoint is how far the journal was read and the turn's state after
+// those lines, in one file renamed into place, so that a restart sees both or
+// neither. The state is kept, not replayed from the journal: Orca records a
+// session's provider id on its persisted record when it learns it, and
+// Omnara keeps a process's phase and reports in its state store.
+type checkpoint struct {
+	Offset int64           `json:"offset"`
+	Turn   json.RawMessage `json:"turn,omitempty"`
+}
+
+// readCheckpoint reads the offset file: a checkpoint, or the bare offset a
+// daemon before issue #403 wrote.
+func readCheckpoint(dir string) (int64, []byte) {
 	raw, err := os.ReadFile(filepath.Join(dir, offsetFile)) //nolint:gosec // the runner's own directory
 	if err != nil {
-		return 0
+		return 0, nil
 	}
 
-	n, _ := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if n, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); err == nil {
+		return n, nil
+	}
+
+	var c checkpoint
+	if json.Unmarshal(raw, &c) != nil {
+		return 0, nil
+	}
+
+	return c.Offset, c.Turn
+}
+
+func readOffset(dir string) int64 {
+	n, _ := readCheckpoint(dir)
 
 	return n
 }
 
-func writeOffset(dir string, n int64) {
+func writeCheckpoint(dir string, n int64, state []byte) {
+	c := checkpoint{Offset: n}
+	if json.Valid(state) {
+		c.Turn = state
+	}
+
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return
+	}
+
 	tmp := filepath.Join(dir, offsetFile+".tmp")
-	if os.WriteFile(tmp, []byte(strconv.FormatInt(n, 10)), 0o600) == nil {
+	if os.WriteFile(tmp, raw, 0o600) == nil {
 		_ = os.Rename(tmp, filepath.Join(dir, offsetFile))
 	}
 }
