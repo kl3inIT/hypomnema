@@ -341,12 +341,47 @@ export function ExaIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
-// SearXNG's magnifier, the path of Simple Icons (searxng.svg, CC0 1.0), as OpenClaw ships it
-// (extensions/searxng/assets/activity.svg), in the blue of SearXNG's own logo.
-export function SearXNGIcon(props: SVGProps<SVGSVGElement>) {
+// Tavily's and Firecrawl's marks, the paths of LobeHub's icons (tavily.svg and firecrawl.svg of
+// @lobehub/icons-static-svg 1.95.0; MIT, Copyright (c) 2023 LobeHub, https://github.com/lobehub/lobe-icons), as
+// OpenClaw ships them (extensions/tavily/assets/activity.svg, extensions/firecrawl/assets/activity.svg), in the
+// text's colour as there.
+export function TavilyIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="#3050FF" aria-hidden="true" {...props}>
-      <path d="m13.716 17.261 6.873 6.582L24 20.282l-6.824-6.536a9.11 9.11 0 0 0 1.143-4.43c0-5.055-4.105-9.159-9.16-9.159S0 4.261 0 9.316c0 5.055 4.104 9.159 9.159 9.159a9.11 9.11 0 0 0 4.557-1.214ZM9.159 2.773a6.546 6.546 0 0 1 6.543 6.543 6.545 6.545 0 0 1-6.543 6.542 6.545 6.545 0 0 1-6.542-6.542 6.545 6.545 0 0 1 6.542-6.543ZM7.26 5.713a4.065 4.065 0 0 1 4.744.747 4.064 4.064 0 0 1 .707 4.749l1.157.611a5.376 5.376 0 0 0-.935-6.282 5.377 5.377 0 0 0-6.274-.987l.601 1.162Z" />
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path
+        fillRule="evenodd"
+        d="M8.033 14.273a1.612 1.612 0 011.139.47l.04.042.044.043a1.61 1.61 0 010 2.277l-3.073 3.073.816.816c.6.6.303 1.627-.525 1.814l-5.159 1.165a1.07 1.07 0 01-.897-.2l-.102-.09a1.07 1.07 0 01-.289-1l1.164-5.158A1.079 1.079 0 013.006 17l.816.817 3.074-3.074a1.612 1.612 0 011.137-.47zM17.042 13.246c0-.85.935-1.366 1.653-.912l4.47 2.824c.336.212.503.562.503.911 0 .35-.167.7-.501.913l-4.472 2.824a1.079 1.079 0 01-1.654-.912v-1.155h-7.027c.37-.4.605-.902.677-1.438l.022-.232a2.65 2.65 0 00-.492-1.669h6.821v-1.154zM8.188 0c.35 0 .7.168.913.503l2.823 4.47a1.079 1.079 0 01-.911 1.655H9.857v6.692h-1.67a2.633 2.633 0 00-1.668.48V6.629H5.365c-.849 0-1.366-.936-.912-1.654L7.276.503A1.072 1.072 0 018.188 0z"
+      />
+    </svg>
+  )
+}
+
+export function FirecrawlIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path
+        fillRule="evenodd"
+        d="M18.183 7.67c-.939.278-1.647.905-2.166 1.586-.11.146-.343.036-.299-.143.993-4.058-.318-7.432-4.407-9.092a.272.272 0 00-.368.317C12.803 7.76 4.98 7.135 5.969 15.55a.17.17 0 01-.266.159c-.37-.265-.784-.817-1.068-1.205a.17.17 0 00-.302.054A8.631 8.631 0 004 16.9a8.43 8.43 0 003.843 7.07c.133.086.303-.038.258-.189a4.533 4.533 0 01-.133-2.041c.097-.637.32-1.244.694-1.797 1.283-1.914 3.854-3.763 3.443-6.273-.026-.16.162-.264.281-.155 1.812 1.645 2.17 3.858 1.873 5.844-.026.172.192.264.302.129.277-.345.615-.647.983-.875a.17.17 0 01.25.088c.204.592.508 1.148.796 1.704a4.528 4.528 0 01.307 3.375.17.17 0 00.257.192A8.43 8.43 0 0021 16.9a8.746 8.746 0 00-.524-2.98c-.718-1.982-2.54-3.47-2.08-6.053a.17.17 0 00-.213-.195z"
+      />
+    </svg>
+  )
+}
+
+// Parallel's mark as OpenClaw draws it (extensions/parallel/assets/activity.svg; MIT, Copyright (c) 2026 OpenClaw
+// Foundation).
+export function ParallelIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.5"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M5 4v16M12 4v16M19 4v16M3 8l2-4 2 4M10 16l2 4 2-4M17 8l2-4 2 4" />
     </svg>
   )
 }

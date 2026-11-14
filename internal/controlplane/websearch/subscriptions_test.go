@@ -50,18 +50,19 @@ func found(title string) func() ([]websearch.Result, error) {
 	}
 }
 
-// failingFree is a world whose free providers all fail, so a search reaches
-// the subscriptions, which off turns off in part.
+// failingFree is a world whose one free provider, Exa's public MCP, fails,
+// so a search reaches the subscriptions, which off turns off in part.
 func failingFree(t *testing.T, subs *subscriptions, off ...string) *websearch.Service {
 	t.Helper()
 
-	c := &clock{now: time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)}
-	_, exaMCPURL := newProvider(t, refuses(http.StatusInternalServerError, ""))
-	_, parallelURL := newProvider(t, refuses(http.StatusBadGateway, ""))
+	w := newWorld(t, options{})
+	w.exaMCP.set(refuses(http.StatusInternalServerError, ""))
+
+	set := websearch.Settings{Off: append(keylessOnly("exa"), off...)}
 
 	svc := websearch.New(websearch.Config{
-		ExaMCPURL: exaMCPURL, ParallelMCPURL: parallelURL, Now: c.Now,
-		Settings: func(context.Context) (websearch.Settings, error) { return websearch.Settings{Off: off}, nil },
+		ExaMCPURL: w.exaMCP.url, Now: w.clock.Now,
+		Settings: func(context.Context) (websearch.Settings, error) { return set, nil },
 	})
 
 	return svc.WithSubscriptions(subs)
@@ -90,7 +91,7 @@ func TestTheSubscriptionsAreAskedLastOnlyWhenLoggedIn(t *testing.T) {
 		failed = append(failed, f.Provider)
 	}
 
-	assert.Equal(t, []string{websearch.ProviderExa, websearch.ProviderParallel}, failed,
+	assert.Equal(t, []string{websearch.ProviderExa}, failed,
 		"a subscription with no account is not a failure")
 
 	// Named, Codex without an account cannot be asked.
@@ -123,14 +124,14 @@ func TestASubscriptionsSearchRestsAfterA429AndCanBeTurnedOff(t *testing.T) {
 	a, err := svc.Search(t.Context(), "first", 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, websearch.ProviderClaude, a.Provider)
-	require.Len(t, a.Errors, 3)
-	assert.Equal(t, websearch.Failure{Provider: "codex", Reason: "its subscription: rate limited (429)"}, a.Errors[2])
+	require.Len(t, a.Errors, 2)
+	assert.Equal(t, websearch.Failure{Provider: "codex", Reason: "its subscription: rate limited (429)"}, a.Errors[1])
 
 	a, err = svc.Search(t.Context(), "second", 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"codex:first:5", "claude:first:5", "claude:second:5"}, subs.calls(),
 		"a resting search is not asked")
-	assert.Contains(t, a.Errors[2].Reason, "its subscription: rate limited until")
+	assert.Contains(t, a.Errors[1].Reason, "its subscription: rate limited until")
 
 	off := &subscriptions{answers: map[string]func() ([]websearch.Result, error){
 		websearch.ProviderCodex: found("codex"), websearch.ProviderClaude: found("claude"),

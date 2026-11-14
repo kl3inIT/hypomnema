@@ -146,7 +146,7 @@ WHERE u.created_at >= @since
   AND (CAST(@failed_only AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.id DESC LIMIT @row_limit OFFSET @row_offset;
 
--- What the owner set for the web search providers (issue #354).
+-- What the owner set for the web search providers (issues #354, #393).
 -- name: ListGatewaySearchProviders :many
 SELECT * FROM gateway_search_providers ORDER BY provider;
 
@@ -154,6 +154,20 @@ SELECT * FROM gateway_search_providers ORDER BY provider;
 INSERT INTO gateway_search_providers (provider, off, updated_at) VALUES (@provider, @off, @now)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at;
 
--- name: SetGatewaySearchBaseURL :exec
-INSERT INTO gateway_search_providers (provider, base_url, updated_at) VALUES (@provider, @base_url, @now)
-ON CONFLICT (provider) DO UPDATE SET base_url = excluded.base_url, updated_at = excluded.updated_at;
+-- name: SetGatewaySearchPosition :exec
+INSERT INTO gateway_search_providers (provider, position, updated_at) VALUES (@provider, @position, @now)
+ON CONFLICT (provider) DO UPDATE SET position = excluded.position, updated_at = excluded.updated_at;
+
+-- Each web search call, counted by its UTC day (issue #393).
+-- name: CountGatewaySearch :exec
+INSERT INTO gateway_search_usage (provider, key, day, answered, failed, cost_micros)
+VALUES (@provider, @key, @day, @answered, @failed, @cost_micros)
+ON CONFLICT (provider, key, day) DO UPDATE SET
+    answered = answered + excluded.answered, failed = failed + excluded.failed,
+    cost_micros = cost_micros + excluded.cost_micros;
+
+-- name: PruneGatewaySearchUsage :exec
+DELETE FROM gateway_search_usage WHERE day < @before;
+
+-- name: ListGatewaySearchUsage :many
+SELECT * FROM gateway_search_usage WHERE day >= @since ORDER BY provider, key, day;

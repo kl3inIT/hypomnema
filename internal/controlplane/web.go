@@ -20,21 +20,42 @@ import (
 // as OmniRoute records a search on its key: the gateway records its own; a
 // worker's is its Dispatch's key, and a Bot's the key of its chat's pi.
 
-// exaKey reads Exa's API key from the vault, under the name the
-// configuration gives (HYPOMNEMA_WEB_SEARCH_EXA_SECRET): no such secret, or
-// no vault, is no key, and Exa is asked through its public MCP.
-func exaKey(secrets *vault.Service, name string) func(ctx context.Context) (string, error) {
-	return func(ctx context.Context) (string, error) {
-		opened, err := secrets.Open(ctx, name)
-
-		switch {
-		case errors.Is(err, vault.ErrNotFound), errors.Is(err, vault.ErrNotConfigured):
-			return "", nil
-		case err != nil:
-			return "", fmt.Errorf("opening secret %q: %w", name, err)
+// searchKeys reads the web search providers' keys from the vault (issue
+// #393): every secret named as a key (websearch.KeyName), the first Exa key
+// being web-search-exa, the name Exa's one key had. No vault, or a key whose
+// secret cannot be opened, is no key: the others are still used.
+func searchKeys(secrets *vault.Service, logger *slog.Logger) func(ctx context.Context) ([]websearch.Key, error) {
+	return func(ctx context.Context) ([]websearch.Key, error) {
+		all, err := secrets.List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing the vault's secrets: %w", err)
 		}
 
-		return opened.Payload[vault.KeyValue], nil
+		var out []websearch.Key
+
+		for _, sec := range all {
+			provider, _, ok := websearch.ParseKeyName(sec.Name)
+			if !ok {
+				continue
+			}
+
+			opened, err := secrets.Open(ctx, sec.Name)
+
+			switch {
+			case errors.Is(err, vault.ErrNotFound), errors.Is(err, vault.ErrNotConfigured):
+				continue
+			case err != nil:
+				logger.ErrorContext(ctx, "opening a web search key",
+					slog.String("event", "controlplane.web_search_key_failed"), slog.String("secret", sec.Name),
+					slog.String("error", err.Error()))
+
+				continue
+			}
+
+			out = append(out, websearch.Key{Provider: provider, Name: sec.Name, Value: opened.Payload[vault.KeyValue]})
+		}
+
+		return out, nil
 	}
 }
 
@@ -179,8 +200,8 @@ func dispatchRuntime(svc *orchestration.Service) func(ctx context.Context, dispa
 }
 
 // webSearchSettings is the chain and what the owner sets of it, for the Web
-// search page (issue #354): the search's order and rests, the gateway's
-// switches and SearXNG's address.
+// search page (issues #354, #393): the search's order, keys, rests and
+// usage, and the gateway's switches and order.
 type webSearchSettings struct {
 	web     *websearch.Service
 	gateway *modelgateway.Service
@@ -194,6 +215,6 @@ func (w webSearchSettings) SetSearchProvider(ctx context.Context, provider strin
 	return w.gateway.SetSearchProvider(ctx, provider, on)
 }
 
-func (w webSearchSettings) SetSearXNG(ctx context.Context, address string) error {
-	return w.gateway.SetSearXNG(ctx, address)
+func (w webSearchSettings) SetSearchOrder(ctx context.Context, providers []string) error {
+	return w.gateway.SetSearchOrder(ctx, providers)
 }

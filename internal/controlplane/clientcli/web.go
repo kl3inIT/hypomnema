@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
@@ -75,7 +76,7 @@ func answerOf(a *openapi.WebSearchAnswer) websearch.Answer {
 	return out
 }
 
-// The web search chain from the terminal (issue #354): what Settings →
+// The web search chain from the terminal (issues #354, #393): what Settings →
 // Gateway → Web search shows and changes, as every page of the web client
 // has its commands.
 
@@ -92,22 +93,67 @@ func webProviders(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printChain(resp.JSON200) })
 }
 
-// printChain prints a line a way of asking, in order: its turn, provider, source and state.
+// printChain prints a line a way of asking, in order: its turn, provider,
+// source, state and usage; a keyed provider's keys follow it, a line each.
 func (e *env) printChain(w *openapi.WebSearch) {
 	sources := map[openapi.WebSearchLinkSource]string{
-		openapi.Key: "with your key", openapi.SelfHosted: "self-hosted", openapi.Public: "public, no key",
-		openapi.Subscription: "your subscription",
+		openapi.Key: "with your keys", openapi.Public: "public, no key", openapi.Subscription: "your subscription",
 	}
 
 	for i, l := range w.Chain {
-		state := string(l.State)
-		if l.State == openapi.WebSearchLinkStateResting && l.RestingUntil != nil {
-			state = "resting until " + l.RestingUntil.Local().Format("15:04")
+		state := strings.ReplaceAll(string(l.State), "_", " ")
+		if l.State == openapi.WebSearchLinkStateResting {
+			state = restText(l.Rest, l.RestingUntil)
 		}
 
-		state = strings.ReplaceAll(state, "_", " ")
-		e.printf("%d\t%s\t%s\t%s\n", i+1, l.Provider, sources[l.Source], state)
+		e.printf("%d\t%s\t%s\t%s\t%s\n", i+1, l.Provider, sources[l.Source], state, usageText(l.Usage, nil))
+
+		for _, k := range val(l.Keys) {
+			state := string(k.State)
+			if k.State == openapi.WebSearchKeyStateResting {
+				state = restText(k.Rest, k.RestingUntil)
+			}
+
+			e.printf("\tkey %s\t%s\t%s\n", k.Name, state, usageText(k.Usage, k.Balance))
+		}
 	}
+}
+
+// restText says why and until when a way rests.
+func restText(why *openapi.WebSearchRest, until *time.Time) string {
+	words := map[openapi.WebSearchRest]string{
+		openapi.RateLimit: "rate limited", openapi.NoCredits: "out of credits",
+		openapi.Refused: "refused", openapi.DailyLimit: "at its daily limit",
+	}
+
+	out := "resting"
+	if why != nil {
+		out = words[*why]
+	}
+
+	if until != nil {
+		out += " until " + until.Local().Format("15:04")
+	}
+
+	return out
+}
+
+// usageText is what was used: the provider's balance when it tells it, the
+// month's spend when it says it, this control plane's calls; never a cap
+// that is not known.
+func usageText(u openapi.WebSearchUsage, b *openapi.WebSearchBalance) string {
+	out := fmt.Sprintf("today %d answered, %d failed; this month %d answered, %d failed",
+		u.Today.Answered, u.Today.Failed, u.Month.Answered, u.Month.Failed)
+
+	if u.MonthDollars != nil {
+		out += fmt.Sprintf("; $%.3f this month", *u.MonthDollars)
+	}
+
+	if b != nil {
+		return out + fmt.Sprintf("; %g of %g credits left", b.Remaining, b.Limit)
+	}
+
+	return out + "; allowance unknown"
 }
 
 func webProvidersSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -129,7 +175,9 @@ func webProvidersSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printf("web search provider %s is %s\n", provider, state) })
 }
 
-func webExaKeySet(ctx context.Context, e *env, fs *flag.FlagSet) error {
+func webKeysAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	provider := fs.Arg(0)
+
 	file := str(fs, "key-file")
 	if file == "" {
 		return errors.New("pass --key-file with the file holding the key, or - to read it from standard input")
@@ -142,55 +190,50 @@ func webExaKeySet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	key = strings.TrimSpace(key)
 
-	resp, err := e.api.PutWebSearchExaKeyWithResponse(ctx, openapi.WebSearchExaKey{Key: &key})
+	resp, err := e.api.AddWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProvider(provider),
+		openapi.WebSearchNewKey{Key: &key})
 	if err != nil {
-		return fmt.Errorf("keeping Exa's key: %w", err)
+		return fmt.Errorf("keeping %s's key: %w", provider, err)
 	}
 
-	if resp.JSON200 == nil {
-		return apiError("keeping Exa's key", resp.StatusCode(), resp.JSONDefault)
+	if resp.JSON201 == nil {
+		return apiError("keeping "+provider+"'s key", resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() {
-		e.printf("Exa's key is kept in the vault as %s\n", resp.JSON200.ExaSecret)
+	return e.print(fs, resp.JSON201, func() {
+		e.printf("%s's key is kept in the vault as %s\n", provider, resp.JSON201.Name)
 	})
 }
 
-func webExaKeyRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	resp, err := e.api.DeleteWebSearchExaKeyWithResponse(ctx)
+func webKeysRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	provider, name := fs.Arg(0), fs.Arg(1)
+
+	resp, err := e.api.RemoveWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProvider(provider), name)
 	if err != nil {
-		return fmt.Errorf("removing Exa's key: %w", err)
+		return fmt.Errorf("removing %s: %w", name, err)
 	}
 
 	if resp.JSON200 == nil {
-		return apiError("removing Exa's key", resp.StatusCode(), resp.JSONDefault)
+		return apiError("removing "+name, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { e.printf("Exa has no key; it is asked through its public MCP\n") })
+	return e.print(fs, resp.JSON200, func() { e.printf("%s was removed from the vault\n", name) })
 }
 
-func webSearXNGSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	resp, err := e.api.PutWebSearchSearXNGWithResponse(ctx, openapi.WebSearchSearXNG{Url: fs.Arg(0)})
+func webOrder(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	var body openapi.WebSearchOrder
+	for _, p := range fs.Args() {
+		body.Providers = append(body.Providers, openapi.WebSearchKeyedProvider(p))
+	}
+
+	resp, err := e.api.SetWebSearchOrderWithResponse(ctx, body)
 	if err != nil {
-		return fmt.Errorf("setting SearXNG's address: %w", err)
+		return fmt.Errorf("ordering the keyed providers: %w", err)
 	}
 
 	if resp.JSON200 == nil {
-		return apiError("setting SearXNG's address", resp.StatusCode(), resp.JSONDefault)
+		return apiError("ordering the keyed providers", resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { e.printf("SearXNG is %s\n", val(resp.JSON200.SearxngUrl)) })
-}
-
-func webSearXNGRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	resp, err := e.api.DeleteWebSearchSearXNGWithResponse(ctx)
-	if err != nil {
-		return fmt.Errorf("forgetting SearXNG's address: %w", err)
-	}
-
-	if resp.JSON200 == nil {
-		return apiError("forgetting SearXNG's address", resp.StatusCode(), resp.JSONDefault)
-	}
-
-	return e.print(fs, resp.JSON200, func() { e.printf("no SearXNG is set\n") })
+	return e.print(fs, resp.JSON200, func() { e.printChain(resp.JSON200) })
 }

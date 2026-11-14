@@ -66,8 +66,6 @@ type Server struct {
 	web Web
 	// webSearch is the web search chain and its switches (issue #354); nil when the control plane wired none.
 	webSearch WebSearchSettings
-	// exaSecret names the vault secret that holds Exa's key.
-	exaSecret string
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
 	now    func() time.Time

@@ -55,7 +55,13 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	t.Cleanup(exa.Close)
 
 	metered := meteredWeb{
-		web: websearch.New(websearch.Config{ExaMCPURL: exa.URL}), gateway: gateway, logger: slog.New(slog.DiscardHandler),
+		web: websearch.New(websearch.Config{
+			ExaMCPURL: exa.URL, ParallelMCPURL: exa.URL, TavilyURL: exa.URL, FirecrawlURL: exa.URL, YouMCPURL: exa.URL,
+			Settings: func(context.Context) (websearch.Settings, error) {
+				return websearch.Settings{Off: []string{"parallel", "firecrawl", "tavily", "you"}}, nil
+			},
+		}),
+		gateway: gateway, logger: slog.New(slog.DiscardHandler),
 	}
 
 	_, err = gateway.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
@@ -95,9 +101,10 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	assert.Equal(t, modelgateway.OutcomeUpstreamError, fetch.Outcome)
 }
 
-// Exa's key is the vault's secret of the name configured; no such secret,
-// or no vault, is no key.
-func TestExasKeyIsReadFromTheVault(t *testing.T) {
+// The web search keys are the vault's secrets named as keys (issue #393):
+// web-search-exa, the name Exa's one key had, and web-search-exa-2 are Exa's,
+// web-search-tavily is Tavily's; another secret is no key. No vault is no key.
+func TestTheWebSearchKeysAreReadFromTheVault(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -110,21 +117,30 @@ func TestExasKeyIsReadFromTheVault(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, nil)
+	logger := slog.New(slog.DiscardHandler)
 
-	key, err := exaKey(secrets, "web-search-exa")(ctx)
+	keys, err := searchKeys(secrets, logger)(ctx)
 	require.NoError(t, err)
-	assert.Empty(t, key, "no such secret, no key")
+	assert.Empty(t, keys, "no such secret, no key")
 
-	_, err = secrets.Create(ctx, vault.NewSecret{
-		Name: "web-search-exa", Kind: vault.KindGeneric, Payload: vault.Payload{vault.KeyValue: "exa-123"},
-	})
-	require.NoError(t, err)
+	for name, value := range map[string]string{
+		"web-search-exa": "exa-1", "web-search-exa-2": "exa-2", "web-search-tavily": "tvly", "github-token": "x",
+	} {
+		_, err = secrets.Create(ctx, vault.NewSecret{
+			Name: name, Kind: vault.KindGeneric, Payload: vault.Payload{vault.KeyValue: value},
+		})
+		require.NoError(t, err)
+	}
 
-	key, err = exaKey(secrets, "web-search-exa")(ctx)
+	keys, err = searchKeys(secrets, logger)(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "exa-123", key)
+	assert.ElementsMatch(t, []websearch.Key{
+		{Provider: "exa", Name: "web-search-exa", Value: "exa-1"},
+		{Provider: "exa", Name: "web-search-exa-2", Value: "exa-2"},
+		{Provider: "tavily", Name: "web-search-tavily", Value: "tvly"},
+	}, keys)
 
-	key, err = exaKey(vault.New(db, platform.SystemClock{}, platform.NewID, nil, nil), "web-search-exa")(ctx)
+	keys, err = searchKeys(vault.New(db, platform.SystemClock{}, platform.NewID, nil, nil), logger)(ctx)
 	require.NoError(t, err)
-	assert.Empty(t, key, "no vault, no key")
+	assert.Empty(t, keys, "no vault, no key")
 }

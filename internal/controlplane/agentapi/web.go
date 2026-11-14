@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
@@ -87,7 +88,7 @@ func webToolList(names []string) []agenttool.BrowserTool {
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"query":{"type":"string","description":"What to search for."},` +
 				`"max_results":{"type":"integer","minimum":1,"maximum":20,"description":"How many results (default 5)."},` +
-				`"provider":{"type":"string","enum":["exa","searxng","parallel","codex","claude","antigravity"],` +
+				`"provider":{"type":"string","enum":["` + strings.Join(websearch.Providers(), `","`) + `"],` +
 				`"description":"Ask only this provider; leave it out to use the first that answers."}},` +
 				`"required":["query"]}`),
 		})

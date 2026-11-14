@@ -30,7 +30,7 @@ func normalizeQuery(query string) string {
 
 func cacheKey(query, provider string, limit int, set Settings) string {
 	sum := sha256.Sum256(fmt.Appendf(nil, "%q %q %d %q %q", normalizeQuery(query), provider, limit,
-		slices.Sorted(slices.Values(set.Off)), set.SearXNGURL))
+		slices.Sorted(slices.Values(set.Off)), set.order()))
 
 	return hex.EncodeToString(sum[:])
 }

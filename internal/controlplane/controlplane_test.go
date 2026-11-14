@@ -163,27 +163,3 @@ func (l *startedLog) Write(p []byte) (int, error) {
 		}
 	}
 }
-
-// The web search's setting (issue #354): the vault secret Exa's key is read
-// from. The switches and SearXNG's address are set on the Web search page.
-func TestLoadConfigReadsTheWebSearchSettings(t *testing.T) {
-	t.Parallel()
-
-	load := func(env map[string]string) (controlplane.Config, error) {
-		return controlplane.LoadConfig(func(name string) string {
-			if name == "HYPOMNEMA_DATABASE_PATH" {
-				return filepath.Join(t.TempDir(), "hypomnema.db")
-			}
-
-			return env[name]
-		})
-	}
-
-	cfg, err := load(nil)
-	require.NoError(t, err)
-	assert.Equal(t, "web-search-exa", cfg.WebSearchExaSecret)
-
-	cfg, err = load(map[string]string{"HYPOMNEMA_WEB_SEARCH_EXA_SECRET": "exa"})
-	require.NoError(t, err)
-	assert.Equal(t, "exa", cfg.WebSearchExaSecret)
-}

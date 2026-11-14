@@ -122,10 +122,6 @@ type Config struct {
 	// `10.0.0.5`, `192.168.1.0/24` or `10.0.0.5:8080`, separated by commas.
 	// Empty: the public internet only.
 	BrowserAllow egress.Allow
-	// WebSearchExaSecret names the vault secret holding Exa's API key, from
-	// HYPOMNEMA_WEB_SEARCH_EXA_SECRET (default web-search-exa); while no
-	// such secret exists Exa is asked without a key.
-	WebSearchExaSecret string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -153,8 +149,6 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BrowserDir:       env.String(envPrefix+"_BROWSER_DIR", ""),
 		BrowserOff:       env.String(envPrefix+"_BROWSER", "1") == "0",
 		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
-
-		WebSearchExaSecret: env.String(envPrefix+"_WEB_SEARCH_EXA_SECRET", "web-search-exa"),
 	}
 
 	if cfg.BrowserDir == "" {
@@ -295,8 +289,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// The web's search and pages (issue #354). A page is read only where the shared browser may go: the same
 	// rules, the owner's list of private destinations and the control plane's own port.
 	webSearch := websearch.New(websearch.Config{
-		// What the owner set on the Web search page, read at each search.
-		ExaKey: exaKey(secrets, cfg.WebSearchExaSecret), Settings: gateway.SearchSettings,
+		// What the owner set on the Web search page and the keys in the vault, read at each search.
+		Keys: searchKeys(secrets, logger), Settings: gateway.SearchSettings, Usage: gateway,
 		Logger: logger,
 		Rules: egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
 			return slices.Contains(ownPorts, port)
@@ -387,7 +381,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithBuiltinSkills(builtinSkills).
 		WithRoutines(routineRunner).
 		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
-		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}, cfg.WebSearchExaSecret)
+		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway})
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})
 	}
