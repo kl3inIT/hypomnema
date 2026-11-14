@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  fitZoom,
   mediaTypeOf,
   parseCsv,
   previewKind,
@@ -50,6 +51,13 @@ describe("a file's preview", () => {
     ])
     expect(parseCsv("a,b")).toEqual([["a", "b"]])
     expect(parseCsv("")).toEqual([])
+  })
+
+  it("zooms a page down to the room there is, never up", () => {
+    expect(fitZoom(340, 794)).toBeCloseTo(340 / 794)
+    expect(fitZoom(1200, 794)).toBe(1)
+    expect(fitZoom(0, 794)).toBe(1)
+    expect(fitZoom(340, 0)).toBe(1)
   })
 
   it("takes @import and every url() that is not data: out of a document's styles", () => {

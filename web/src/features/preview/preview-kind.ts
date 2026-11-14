@@ -182,6 +182,29 @@ export function sanitizeDocxInPlace(root: HTMLElement) {
   DOMPurify.sanitize(root, { ALLOWED_URI_REGEXP: /^(?:https?|mailto):/i, IN_PLACE: true })
 }
 
+// kindLabel is what each kind is called, so an Artifact's card names a file as its viewer will show it (issue #422
+// review; the words are this app's own: MemoryOS and Onyx name a file by its extension).
+export const kindLabel: Record<PreviewKind, string> = {
+  code: "Code",
+  image: "Image",
+  svg: "SVG",
+  pdf: "PDF",
+  csv: "CSV",
+  xlsx: "Spreadsheet",
+  markdown: "Markdown",
+  docx: "Word",
+  doc: "Word",
+  text: "Text",
+  pptx: "Slides",
+  unsupported: "File",
+}
+
+// fitZoom is the zoom that fits a page `page` pixels wide into `room` pixels, never above its own size: a Word
+// page is zoomed down to the panel's width (docx-view.tsx; our own, as MemoryOS and Onyx scroll sideways).
+export function fitZoom(room: number, page: number) {
+  return page > 0 && room > 0 ? Math.min(1, room / page) : 1
+}
+
 // scrubDocxCss takes out of docx-preview's styles what would reach past the document: an @import, and a url() that
 // is not data: (the fonts and pictures it embeds are data: with useBase64URL). This app's own rule, from the #422
 // security review; MemoryOS and Onyx keep the styles as they come.

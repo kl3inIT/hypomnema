@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 
 import { Spinner } from "@/components/ui/spinner"
 
-import { sanitizeDocxInPlace, scrubDocxCss } from "./preview-kind"
+import { fitZoom, sanitizeDocxInPlace, scrubDocxCss } from "./preview-kind"
 
 // The page a document is drawn on, inside its shadow root, where the app's classes do not reach: white in both
 // themes, because a document is authored on white, and centred with a shadow.
@@ -11,17 +11,31 @@ section.docx{margin:0 auto 24px;background:white;box-shadow:0 4px 6px -1px rgb(0
 
 // DocxView is a Word document drawn by docx-preview, sanitized before it reaches the page (Onyx's
 // sanitizeDocxHtml). Copied from MemoryOS (web/src/features/preview/docx-view.tsx), without the words it reports
-// for citations. Changed here, after the #422 security review: MemoryOS adopts docx-preview's <style> sheets on the
-// whole document, so a document's CSS would restyle the app around it. Here the document is drawn inside a shadow
-// root and its sheets are adopted on that root only, as constructed stylesheets (which a policy of style-src
-// 'self' also allows), with any @import and any url() that is not data: taken out first.
+// for citations. Changed here:
+//   - After the #422 security review: MemoryOS adopts docx-preview's <style> sheets on the whole document, so a
+//     document's CSS would restyle the app around it. Here, as Onyx's docxVariant.tsx does, the document is drawn
+//     inside a shadow root, and its sheets are adopted on that root only, as constructed stylesheets (which a policy
+//     of style-src 'self' also allows), with any @import and any url() that is not data: taken out first.
+//   - The pages are zoomed down to the width there is (CSS zoom, from the measured page and panel), so a page fits a
+//     phone or the panel beside the chat. Neither MemoryOS nor Onyx does: both keep the page's width and scroll
+//     sideways. This is our own.
 export function DocxView({ blob }: { blob: Blob }) {
+  const scroller = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<"rendering" | "done" | "failed">("rendering")
   useEffect(() => {
-    if (!host.current) return undefined
+    if (!host.current || !scroller.current) return undefined
     let current = true
+    const outer = scroller.current
     const root = host.current.shadowRoot ?? host.current.attachShadow({ mode: "open" })
+    const pages = document.createElement("div")
+    // The widest page at its own size, measured once it is drawn.
+    let pageWidth = 0
+    const fit = () => {
+      const room = outer.clientWidth - 32
+      pages.style.zoom = String(fitZoom(room, pageWidth))
+    }
+    const observer = new ResizeObserver(fit)
     void (async () => {
       try {
         const { renderAsync } = await import("docx-preview")
@@ -56,7 +70,14 @@ export function DocxView({ blob }: { blob: Blob }) {
           }
         })
         root.adoptedStyleSheets = sheets
-        root.replaceChildren(...renderedBody.childNodes)
+        pages.replaceChildren(...renderedBody.childNodes)
+        root.replaceChildren(pages)
+        pageWidth = Math.max(
+          0,
+          ...Array.from(pages.querySelectorAll<HTMLElement>("section.docx"), (s) => s.offsetWidth),
+        )
+        fit()
+        observer.observe(outer)
         setState("done")
       } catch {
         if (current) setState("failed")
@@ -65,13 +86,14 @@ export function DocxView({ blob }: { blob: Blob }) {
 
     return () => {
       current = false
+      observer.disconnect()
       root.replaceChildren()
       root.adoptedStyleSheets = []
     }
   }, [blob])
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto bg-muted/30">
+    <div ref={scroller} className="min-h-0 flex-1 overflow-auto bg-muted/30">
       {state === "rendering" && (
         <output className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
           <Spinner /> Drawing the document…
@@ -82,8 +104,7 @@ export function DocxView({ blob }: { blob: Blob }) {
           This Word document cannot be shown. Download it instead.
         </p>
       )}
-      {/* Pages keep their layout as in Onyx; narrow screens scroll sideways instead of reflowing. */}
-      <div ref={host} data-slot="docx-preview" className="w-fit min-w-full px-4 py-6" />
+      <div ref={host} data-slot="docx-preview" className="px-4 py-6" />
     </div>
   )
 }

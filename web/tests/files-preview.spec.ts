@@ -202,6 +202,14 @@ test("each kind of file in a folder opens in its own view", async ({ page }) => 
       .locator('[data-slot="docx-preview"]:visible')
       .evaluate((h) => h.shadowRoot?.adoptedStyleSheets.length ?? 0),
   ).toBeGreaterThan(1)
+  // The page is zoomed down to the width there is: nothing of it runs off the right edge.
+  const pageOne = body(page).locator('[data-slot="docx-preview"] section.docx').first()
+  await expect
+    .poll(async () => {
+      const box = await pageOne.boundingBox()
+      return box ? box.x + box.width : Infinity
+    })
+    .toBeLessThanOrEqual(page.viewportSize()!.width)
   await shot(page, "files-docx")
 
   await open(page, "orders.csv")

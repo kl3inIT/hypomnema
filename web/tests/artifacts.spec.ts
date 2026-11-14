@@ -450,6 +450,22 @@ test.describe("on a desktop", () => {
     const w = world()
     await openChat(page, w)
 
+    // Each card names its file as its viewer shows it.
+    for (const [title, kind] of [
+      ["Quarterly report", "PDF"],
+      ["Revenue chart", "Image"],
+      ["Flow", "SVG"],
+      ["Orders, October", "Spreadsheet"],
+      ["Order list", "CSV"],
+      ["Q3 report", "Word"],
+      ["Q3 summary", "Markdown"],
+      ["Revenue script", "Code"],
+      ["Worker log", "Text"],
+      ["Q3 slides", "Slides"],
+    ] as const) {
+      await expect(card(page, title)).toContainText(`${kind} · Click to open`)
+    }
+
     await card(page, "Quarterly report").click()
     const toolbar = side(page).getByRole("toolbar", { name: "Document controls" })
     await expect(toolbar.getByRole("spinbutton", { name: "Page number" })).toHaveValue("1")
@@ -620,7 +636,17 @@ test.describe("on a phone", () => {
       [
         "Q3 report",
         "artifact-docx",
-        (d) => expect(d.locator('[data-slot="docx-preview"] section.docx').first()).toBeVisible(),
+        async (d) => {
+          const pageOne = d.locator('[data-slot="docx-preview"] section.docx').first()
+          await expect(pageOne).toBeVisible()
+          // The page is zoomed down to the phone's width: nothing of it runs off the right edge.
+          await expect
+            .poll(async () => {
+              const box = await pageOne.boundingBox()
+              return box ? box.x + box.width : Infinity
+            })
+            .toBeLessThanOrEqual(page.viewportSize()!.width)
+        },
       ],
       [
         "Q3 summary",
