@@ -61,7 +61,7 @@
   `docs: summary`: no issue, branch or pull request (owner, 2026-11-07). If the checkout is on another session's
   branch, commit from a temporary worktree on `origin/main`. A design change that affects an open issue also gets a
   comment on that issue.
-- Run `make verify` before pushing once it exists. A pull request that adds a migration merges main and runs
+- Run `make verify` before pushing. A pull request that adds a migration merges main and runs
   `make migration-check` again right before it is merged: another may have taken its number meanwhile (#334).
 - The checks need Go at the version `go.mod` names (the linters and generators come through `go tool`), and the
   web client's need Node 24 and pnpm (`web/package.json`). An agent on a machine that lacks one installs it for its
@@ -82,7 +82,8 @@
 
 ## Skills
 
-Vendored skills live in `.claude/skills/` with their sources in `SOURCES.md`; never install two skills for one topic
-([conventions](docs/conventions.md#agent-skills)). Use the matching skill when its trigger appears:
+Vendored skills (Go, shadcn, prompts) live in `.claude/skills/` with their sources in `SOURCES.md`; never install two
+skills for one topic ([conventions](docs/conventions.md#agent-skills)). The owner's own skills are installed for the
+owner's user, not in the repository, and may be missing on a node. Use the matching skill when its trigger appears:
 `research-then-decide` (how others do it, design choices), `ship-branch` (commit, PR, CI, merge), `test-audit`
 (writing or reviewing tests), `code-review`, `chat-reply` (drafting a message to someone else).

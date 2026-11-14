@@ -46,7 +46,9 @@ you start yourself: `hypomnema runs create --use google:work ...`. The agent cal
 which Hypomnema installs and signs in on every call. The agent never holds the account's token: each request passes
 the control plane, which adds it.
 
-Lark works the same way, with `lark-cli` and `lark:<label>`.
+Lark works the same way, with `lark-cli` and `lark:<label>`. A Superset deployment is connected with its address
+and a local account (`hypomnema integrations connect superset --label <name> --url <address> --user <name>
+--password-file <file>`), and AWS accounts as roles, one Connection a role ([setup](deploy/integrations/aws.md)).
 
 What an agent may do with an account is set action by action: `hypomnema integrations actions google:work` lists
 them, and `hypomnema integrations actions set google:work gmail.send never` changes one to `allow`, `ask` or
@@ -61,8 +63,9 @@ ask the agent to give the work to Hypomnema workers.
 
 ## The web client
 
-The control plane serves the web client at its own URL, the one the CLI logs in to. Open it in a browser and paste an
-owner token to sign in.
+The control plane serves the web client at its own URL, the one the CLI logs in to. Make a user on the control
+plane once (`hypomnema users add <name>`, which reads the password from standard input), then open the URL in a
+browser and sign in with that name and password.
 
 `/team` shows the Bots and the machines their work runs on. A chat shows its Runs above the composer, with their
 Tasks and questions. A Task opens to its question, its result and the worker's transcript.
@@ -74,7 +77,7 @@ A node runs the workers. Do this on the machine that will run them, with the con
 The short way, once a release exists: steps 1 and 2 below, then on the control plane run
 `hypomnema nodes add <name>` and, on the machine, the line it prints
 (`curl -fsSL https://<control plane>/install/node.sh | sh`), pasting the token when asked. That does steps 3, 4 and
-6; step 5 is still by hand. Set `HYPOMNEMA_PUBLIC_URL` on the control plane to the URL nodes reach it at.
+6; step 5 is done once on the control plane, for every node. Set `HYPOMNEMA_PUBLIC_URL` on the control plane to the URL nodes reach it at.
 
 By hand:
 
@@ -85,9 +88,11 @@ By hand:
 4. Write the node's configuration:
    `hypomnema-node init --url <control plane URL> --token-file <token file>`
    (it goes to `~/.hypomnema-node/config.json`). Check the connection with `hypomnema-node check`.
-5. For each account, put its Claude token in a file and record where it is:
-   `hypomnema-node accounts set <account id> --token-file <file>`
-   (the account id comes from `hypomnema accounts add` on the control plane).
+5. Give the control plane each Claude account once, on the control plane:
+   `hypomnema accounts add claude <label> --token <file>` (the token of `claude setup-token`). The vault keeps it
+   and sends it to a node with each Dispatch, so nothing is set on the node. An account whose token stays on one
+   node instead is recorded with `hypomnema accounts add claude <label>` and, on that node,
+   `hypomnema-node accounts set <account id> --token-file <file>`.
 6. Run the daemon: `hypomnema-node run`. To keep it running, `hypomnema-node service` prints a systemd user unit.
 
 To change a node's token, make a new one with `hypomnema nodes token add <node> <name>`, put it in the node's

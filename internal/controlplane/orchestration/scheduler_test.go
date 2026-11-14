@@ -734,6 +734,31 @@ func TestAModelTheGatewayServesNeedsNoAccountOnANode(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
+// Scenario: a Claude Code profile names the gateway (issue #381). Its worker
+// is placed on a node that has Claude Code and no account, and runs under the
+// gateway as a Codex worker does.
+func TestAClaudeCodeWorkerMayRunThroughTheGateway(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	w.addNode("node_claude", 2, "claude")
+
+	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-sonnet]\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: claude-gateway\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-sonnet}\n")
+	require.NoError(t, err)
+
+	w.tasks(NewTask{Ref: "c", Profile: "claude-gateway", Spec: "c"})
+
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+
+	d := w.dispatchOf(created[0])
+	assert.Equal(t, "claude-sonnet", d.Model)
+	assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+}
+
 // A profile says whether a worker can start under it now, by the scheduler's
 // own view: a node that has its CLI, then an account that is not cooling
 // down, or none for a model the gateway serves. The coordinator's profile
