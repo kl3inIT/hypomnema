@@ -2,8 +2,20 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import "@/api/client"
-import { abortChat, getChat, sendChatMessage, updateChat } from "@/api/generated/sdk.gen"
-import type { Chat, ChatAttachment, ChatMessage } from "@/api/generated/types.gen"
+import {
+  abortChat,
+  getChat,
+  removeQueuedChatMessage,
+  sendChatMessage,
+  sendQueuedChatMessage,
+  updateChat,
+} from "@/api/generated/sdk.gen"
+import type {
+  Chat,
+  ChatAttachment,
+  ChatMessage,
+  QueuedChatMessage,
+} from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
@@ -29,6 +41,7 @@ import { sentTexts } from "./recall"
 import { useDockedWork } from "./use-docked-work"
 import { useChatStream } from "./use-chat-stream"
 import { OpenFileContext, type OpenFile } from "./open-file-context"
+import { QueuedStrip } from "./queued-strip"
 
 // ChatBody is a chat without its header: the conversation, what waits for the owner, and the composer. It fills
 // the page of one chat and a pane of the grid alike. A message sent shows at once, before the stream keeps it, as
@@ -53,6 +66,8 @@ export function ChatBody({
     queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
   })
   const [sending, setSending] = useState<ChatMessage[]>([])
+  // A queued message taken back to edit goes into the composer (issue #497).
+  const [put, setPut] = useState<{ text: string; at: number }>()
   // The chat's draft (issue #433): its files are put back as attached, and ↑ brings back what it sent, those the
   // stream kept and those on their way.
   const draft = { key: chatDraft(chatId) }
@@ -104,17 +119,34 @@ export function ChatBody({
     setSending((list) => [...list, shown])
 
     try {
-      const { data } = await sendChatMessage({
+      const { data, response } = await sendChatMessage({
         path: { chat_id: chatId },
         body: { text, ...(files.length > 0 && { attachments: files }) },
       })
-      setSending((list) => list.map((m) => (m === shown ? data : m)))
+      // 202: pi works, so the message waits in the queue, which the stream shows above the composer (issue #497).
+      if (response.status === 202) setSending((list) => list.filter((m) => m !== shown))
+      else setSending((list) => list.map((m) => (m === shown ? (data as ChatMessage) : m)))
     } catch (err) {
       setSending((list) => list.filter((m) => m !== shown))
       throw err
     }
 
     void queryClient.invalidateQueries({ queryKey: chatsKey })
+  }
+
+  // The queue's rows (issue #497): Edit takes the message out and puts it back in the composer with its files, as
+  // Omnigent's does; Send now moves it into the chat, which steers pi; Remove drops it. One the server already
+  // gave to pi is a 404, and the stream's next queue frame shows it gone.
+  async function edit(m: QueuedChatMessage) {
+    try {
+      const { data } = await removeQueuedChatMessage({
+        path: { chat_id: chatId, queue_id: m.id },
+      })
+      setPut({ text: data.text, at: Date.now() })
+      if (data.attachments?.length) attachments.draft.restore(data.attachments)
+    } catch {
+      // Gone to pi meanwhile: nothing to edit.
+    }
   }
 
   return (
@@ -163,7 +195,18 @@ export function ChatBody({
                 <DockedQuestions work={work} />
                 <DockedRuns chatId={chatId} work={work} />
               </div>
+              <QueuedStrip
+                queue={view.queue}
+                onEdit={(m) => void edit(m)}
+                onSendNow={(m) =>
+                  void sendQueuedChatMessage({ path: { chat_id: chatId, queue_id: m.id } })
+                }
+                onRemove={(m) =>
+                  void removeQueuedChatMessage({ path: { chat_id: chatId, queue_id: m.id } })
+                }
+              />
               <Composer
+                put={put}
                 working={view.working}
                 bot={bot}
                 onSend={send}

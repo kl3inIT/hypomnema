@@ -489,7 +489,7 @@ func deleteChatTx(ctx context.Context, q *store.Queries, id string, now int64) e
 		},
 		q.DeleteSetupChangesOfChat,
 		func(ctx context.Context, id string) error { return channelstore.DeleteChannelChatOfChatTx(ctx, q, id) },
-		q.DeleteArtifactsOfChat, q.DeleteChatMessages, q.DeleteChat,
+		q.DeleteArtifactsOfChat, q.DeleteChatQueue, q.DeleteChatMessages, q.DeleteChat,
 	}
 	for _, step := range steps {
 		if err := step(ctx, id); err != nil {
@@ -626,15 +626,9 @@ func (s *Service) AddChatMessages(ctx context.Context, chatID string, msgs ...Ne
 				stored = sql.NullString{String: string(m.Parts), Valid: true}
 			}
 
-			var files sql.NullString
-
-			if len(m.Attachments) > 0 {
-				raw, err := json.Marshal(m.Attachments)
-				if err != nil {
-					return fmt.Errorf("keeping the attachments: %w", err)
-				}
-
-				files = sql.NullString{String: string(raw), Valid: true}
+			files, err := keptAttachments(m.Attachments)
+			if err != nil {
+				return err
 			}
 
 			seq, err := q.InsertChatMessage(ctx, store.InsertChatMessageParams{

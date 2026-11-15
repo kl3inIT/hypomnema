@@ -214,6 +214,14 @@ type ChatMessage struct {
 	ApprovalID    sql.NullString
 }
 
+type ChatQueue struct {
+	ID          int64
+	ChatID      string
+	Text        string
+	Attachments sql.NullString
+	CreatedAt   int64
+}
+
 type ClientToken struct {
 	ID        string
 	Name      string

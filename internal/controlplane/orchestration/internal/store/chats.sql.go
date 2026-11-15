@@ -76,6 +76,33 @@ func (q *Queries) ChatWokenAfter(ctx context.Context, chatID string) (int64, err
 	return woken, err
 }
 
+const chatsWithQueue = `-- name: ChatsWithQueue :many
+SELECT DISTINCT chat_id FROM chat_queue
+`
+
+func (q *Queries) ChatsWithQueue(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, chatsWithQueue)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var chat_id string
+		if err := rows.Scan(&chat_id); err != nil {
+			return nil, err
+		}
+		items = append(items, chat_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const chatsWithRuns = `-- name: ChatsWithRuns :many
 SELECT DISTINCT chat_id FROM runs WHERE chat_id IS NOT NULL
 `
@@ -131,6 +158,17 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const countChatQueue = `-- name: CountChatQueue :one
+SELECT count(*) FROM chat_queue WHERE chat_id = ?1
+`
+
+func (q *Queries) CountChatQueue(ctx context.Context, chatID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChatQueue, chatID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countChatsOfBot = `-- name: CountChatsOfBot :one
 SELECT count(*) FROM chats WHERE bot_id = ?1
 `
@@ -168,6 +206,32 @@ DELETE FROM chat_messages WHERE chat_id = ?1
 func (q *Queries) DeleteChatMessages(ctx context.Context, chatID string) error {
 	_, err := q.db.ExecContext(ctx, deleteChatMessages, chatID)
 	return err
+}
+
+const deleteChatQueue = `-- name: DeleteChatQueue :exec
+DELETE FROM chat_queue WHERE chat_id = ?1
+`
+
+func (q *Queries) DeleteChatQueue(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteChatQueue, chatID)
+	return err
+}
+
+const deleteChatQueued = `-- name: DeleteChatQueued :execrows
+DELETE FROM chat_queue WHERE chat_id = ?1 AND id = ?2
+`
+
+type DeleteChatQueuedParams struct {
+	ChatID string
+	ID     int64
+}
+
+func (q *Queries) DeleteChatQueued(ctx context.Context, arg DeleteChatQueuedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteChatQueued, arg.ChatID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteSetupChangesOfChat = `-- name: DeleteSetupChangesOfChat :exec
@@ -221,6 +285,28 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.ContextTokens,
 		&i.ContextWindow,
 		&i.ContextPercent,
+	)
+	return i, err
+}
+
+const getChatQueued = `-- name: GetChatQueued :one
+SELECT id, chat_id, text, attachments, created_at FROM chat_queue WHERE chat_id = ?1 AND id = ?2
+`
+
+type GetChatQueuedParams struct {
+	ChatID string
+	ID     int64
+}
+
+func (q *Queries) GetChatQueued(ctx context.Context, arg GetChatQueuedParams) (ChatQueue, error) {
+	row := q.db.QueryRowContext(ctx, getChatQueued, arg.ChatID, arg.ID)
+	var i ChatQueue
+	err := row.Scan(
+		&i.ID,
+		&i.ChatID,
+		&i.Text,
+		&i.Attachments,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -308,6 +394,37 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 	var seq int64
 	err := row.Scan(&seq)
 	return seq, err
+}
+
+const insertChatQueued = `-- name: InsertChatQueued :one
+INSERT INTO chat_queue (chat_id, text, attachments, created_at)
+VALUES (?1, ?2, ?3, ?4)
+RETURNING id, chat_id, text, attachments, created_at
+`
+
+type InsertChatQueuedParams struct {
+	ChatID      string
+	Text        string
+	Attachments sql.NullString
+	Now         int64
+}
+
+func (q *Queries) InsertChatQueued(ctx context.Context, arg InsertChatQueuedParams) (ChatQueue, error) {
+	row := q.db.QueryRowContext(ctx, insertChatQueued,
+		arg.ChatID,
+		arg.Text,
+		arg.Attachments,
+		arg.Now,
+	)
+	var i ChatQueue
+	err := row.Scan(
+		&i.ID,
+		&i.ChatID,
+		&i.Text,
+		&i.Attachments,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const listArtifactBlobsOfChat = `-- name: ListArtifactBlobsOfChat :many
@@ -542,6 +659,39 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 	return items, nil
 }
 
+const listChatQueue = `-- name: ListChatQueue :many
+SELECT id, chat_id, text, attachments, created_at FROM chat_queue WHERE chat_id = ?1 ORDER BY id
+`
+
+func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue, error) {
+	rows, err := q.db.QueryContext(ctx, listChatQueue, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChatQueue{}
+	for rows.Next() {
+		var i ChatQueue
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.Text,
+			&i.Attachments,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChats = `-- name: ListChats :many
 SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
@@ -580,6 +730,21 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markChatMessageDelivered = `-- name: MarkChatMessageDelivered :exec
+UPDATE chat_messages SET delivered_at = ?1 WHERE chat_id = ?2 AND seq = ?3 AND delivered_at IS NULL
+`
+
+type MarkChatMessageDeliveredParams struct {
+	Now    sql.NullInt64
+	ChatID string
+	Seq    int64
+}
+
+func (q *Queries) MarkChatMessageDelivered(ctx context.Context, arg MarkChatMessageDeliveredParams) error {
+	_, err := q.db.ExecContext(ctx, markChatMessageDelivered, arg.Now, arg.ChatID, arg.Seq)
+	return err
 }
 
 const markChatMessagesDelivered = `-- name: MarkChatMessagesDelivered :exec

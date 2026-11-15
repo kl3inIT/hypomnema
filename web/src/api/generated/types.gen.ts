@@ -2779,6 +2779,21 @@ export type ChatState = {
 };
 
 /**
+ * An owner message that waits for the coordinator's turn to settle (issue
+ */
+export type QueuedChatMessage = {
+  id: number;
+  chat_id: string;
+  text: string;
+  attachments?: Array<ChatAttachment>;
+  created_at: string;
+};
+
+export type QueuedChatMessageList = {
+  items: Array<QueuedChatMessage>;
+};
+
+/**
  * The owner's message; its text may be empty when it carries files.
  */
 export type NewChatMessage = {
@@ -3081,6 +3096,8 @@ export type ArtifactId = string;
 export type ArtifactRevisionNumber = number;
 
 export type ChatId = string;
+
+export type QueueId = number;
 
 /**
  * `bot` for the Bot's folder, or a Task's id for its worktree.
@@ -8335,6 +8352,93 @@ export type SendChatMessageResponses = {
    * The message, waiting for the coordinator.
    */
   201: ChatMessage;
+  /**
+   * The coordinator is working, so the message waits in the chat's queue, off the transcript, until its turn settles (issue #497); it can be removed or sent now meanwhile.
+   */
+  202: QueuedChatMessage;
 };
 
 export type SendChatMessageResponse = SendChatMessageResponses[keyof SendChatMessageResponses];
+
+export type ListChatQueueData = {
+  body?: never;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/queue';
+};
+
+export type ListChatQueueErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListChatQueueError = ListChatQueueErrors[keyof ListChatQueueErrors];
+
+export type ListChatQueueResponses = {
+  /**
+   * The queue.
+   */
+  200: QueuedChatMessageList;
+};
+
+export type ListChatQueueResponse = ListChatQueueResponses[keyof ListChatQueueResponses];
+
+export type RemoveQueuedChatMessageData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    queue_id: number;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/queue/{queue_id}';
+};
+
+export type RemoveQueuedChatMessageErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RemoveQueuedChatMessageError = RemoveQueuedChatMessageErrors[keyof RemoveQueuedChatMessageErrors];
+
+export type RemoveQueuedChatMessageResponses = {
+  /**
+   * The message removed, so its text can go back into the composer.
+   */
+  200: QueuedChatMessage;
+};
+
+export type RemoveQueuedChatMessageResponse = RemoveQueuedChatMessageResponses[keyof RemoveQueuedChatMessageResponses];
+
+export type SendQueuedChatMessageData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    queue_id: number;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/queue/{queue_id}/send';
+};
+
+export type SendQueuedChatMessageErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SendQueuedChatMessageError = SendQueuedChatMessageErrors[keyof SendQueuedChatMessageErrors];
+
+export type SendQueuedChatMessageResponses = {
+  /**
+   * The message, in the chat.
+   */
+  201: ChatMessage;
+};
+
+export type SendQueuedChatMessageResponse = SendQueuedChatMessageResponses[keyof SendQueuedChatMessageResponses];

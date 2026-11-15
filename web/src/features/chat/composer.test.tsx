@@ -110,3 +110,24 @@ test("a send whose answer is lost is not kept as the draft as the page goes", as
     vi.useRealTimers()
   }
 })
+
+// Scenario: the owner edits a queued message (issue #497): its text comes into the box, after what is typed there.
+test("a queued message taken back to edit goes into the box", async () => {
+  const user = userEvent.setup()
+  const props = {
+    onSend: vi.fn<(text: string) => Promise<void>>(),
+    onStop: vi.fn<() => void>(),
+    working: true,
+    bot: "coordinator",
+  }
+  const { rerender } = render(<Composer {...props} put={{ text: "and the totals", at: 1 }} />)
+  const box = screen.getByRole("textbox", { name: "Message" })
+
+  expect(box).toHaveValue("and the totals")
+
+  await user.clear(box)
+  await user.type(box, "first")
+  rerender(<Composer {...props} put={{ text: "then this", at: 2 }} />)
+
+  expect(box).toHaveValue("first\n\nthen this")
+})
