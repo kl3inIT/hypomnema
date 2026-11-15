@@ -10,7 +10,7 @@ import { shot } from "./shot.js"
 const chat = {
   id: "cht_1",
   title: "health page",
-  bot: "builder",
+  bot: "bot_builder",
   working: false,
   coordinator: true,
   created_at: "2026-11-09T10:00:00Z",
@@ -45,7 +45,7 @@ const gatewayModels = [
 ]
 
 const builder = {
-  id: "builder",
+  id: "bot_builder",
   main: true,
   name: "builder",
   provider: "gateway",
@@ -388,6 +388,7 @@ test("a message shows at once, and a refused one is kept to send again", async (
 
   const box = page.getByRole("textbox", { name: "Message" })
   await expect(box).toHaveAttribute("placeholder", "Ask builder to build something")
+  await shot(page, "chat-box-bot-name")
 
   const log = page.getByRole("log")
   await box.fill("and a test for it")

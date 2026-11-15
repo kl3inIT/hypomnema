@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { usePending } from "@/features/approvals/use-approvals"
-import { useMainBot } from "@/features/bots/use-bots"
+import { useBotName, useMainBot } from "@/features/bots/use-bots"
 import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
 import { OpenArtifactContext, type OpenArtifact } from "@/features/artifacts/open-artifact-context"
@@ -81,6 +81,8 @@ export function ChatBody({
   const work = useDockedWork(chatId, wakeCount(view.messages), approvals.data?.length ?? 0)
   const main = useMainBot()
   const bot = chat.data?.bot ?? main
+  // What the chat's Bot is called, for its replies and the message box; a chat keeps its Bot's id (issue #466).
+  const botName = useBotName(bot)
   // The Routines the Bot set up from this chat have their card where they were set up.
   const routines = useRoutines({ chatId })
   // So do the Bots and profiles the Bot coordinator made, changed or removed here (issue #169).
@@ -170,7 +172,7 @@ export function ChatBody({
             <Conversation
               view={view}
               local={{ sending }}
-              bot={bot}
+              botName={botName}
               setups={setups}
               onLoadEarlier={() => void loadEarlier()}
               loadingEarlier={loadingEarlier}
@@ -210,7 +212,7 @@ export function ChatBody({
               <Composer
                 put={put}
                 working={view.working}
-                bot={bot}
+                botName={botName}
                 onSend={send}
                 onStop={() => void abortChat({ path: { chat_id: chatId } })}
                 attachments={attachments}

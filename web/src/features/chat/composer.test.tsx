@@ -8,7 +8,7 @@ import { draftsKey } from "./drafts"
 const setup = (working = false, send: (text: string) => Promise<void> = async () => {}) => {
   const onSend = vi.fn<(text: string, files: unknown[]) => Promise<void>>(send)
   const onStop = vi.fn<() => void>()
-  render(<Composer onSend={onSend} onStop={onStop} working={working} bot="coordinator" />)
+  render(<Composer onSend={onSend} onStop={onStop} working={working} botName="coordinator" />)
 
   return { onSend, onStop, box: screen.getByRole("textbox", { name: "Message" }) }
 }
@@ -88,7 +88,7 @@ test("a send whose answer is lost is not kept as the draft as the page goes", as
         onSend={onSend}
         onStop={() => {}}
         working={false}
-        bot="coordinator"
+        botName="coordinator"
         draft={{ key: "chat:cht_lost" }}
       />,
     )
@@ -118,7 +118,7 @@ test("a queued message taken back to edit goes into the box", async () => {
     onSend: vi.fn<(text: string) => Promise<void>>(),
     onStop: vi.fn<() => void>(),
     working: true,
-    bot: "coordinator",
+    botName: "coordinator",
   }
   const { rerender } = render(<Composer {...props} put={{ text: "and the totals", at: 1 }} />)
   const box = screen.getByRole("textbox", { name: "Message" })
