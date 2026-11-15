@@ -46,6 +46,8 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	assert.Contains(t, Prompt(d), "glab mr create --target-branch main --source-branch hyp/tsk_1 --yes",
 		"a worker on GitLab opens its request with GitLab's own tool")
 	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	assert.Contains(t, p, "When it is false (the work is already there, the problem does not reproduce), "+
+		"change nothing and call `finish` with that evidence", "a task's premise is checked first (issue #513)")
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "DECISION GATE RESOLVED. You asked: PR #7 is green. Merge it?\nThe answer: merge")
 	assert.NotContains(t, p, "For this kind of task", "no instruction, no section")
@@ -67,7 +69,8 @@ func TestPromptCarriesTheMemories(t *testing.T) {
 
 	d := offered()
 
-	assert.NotContains(t, Prompt(d), "memory", "nothing kept, no tool: no section")
+	assert.NotContains(t, Prompt(d), "Memory of your agent", "nothing kept, no tool: no section")
+	assert.NotContains(t, Prompt(d), "`memory` tool", "nothing kept, no tool: no section")
 
 	d.Offer.Instruction = "Report problems."
 	d.Offer.Memory, d.Offer.OwnerMemory = "Run the tests first.\nLinh reviews Go.", "The owner writes in Vietnamese."
