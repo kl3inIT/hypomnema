@@ -22,8 +22,8 @@ type PassOptions struct {
 }
 
 // PassThrough prepares a client's own Messages body for the backend: the
-// model becomes the target's, and the disguise goes on when asked. Nothing
-// else of the body changes.
+// model becomes the target's, the disguise goes on when asked, and the
+// breakpoints past four go. Nothing else of the body changes.
 func PassThrough(raw []byte, opt PassOptions) ([]byte, error) {
 	if opt.Model == "" {
 		return nil, errors.New("the model's name is missing")
@@ -42,6 +42,11 @@ func PassThrough(raw []byte, opt PassOptions) ([]byte, error) {
 	if opt.Disguise {
 		cloak(body, opt.Token, opt.Session)
 	}
+
+	// A client may send more breakpoints than Anthropic takes, a top-level one
+	// counted; the extra ones go, as CLIProxyAPI limits every request it sends
+	// (claude_executor_execute.go, enforceCacheControlLimitDoc; issue #504).
+	limitBreakpoints(body)
 
 	encoded, err := json.Marshal(body)
 	if err != nil {

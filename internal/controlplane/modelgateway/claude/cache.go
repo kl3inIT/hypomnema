@@ -26,7 +26,90 @@ func applyCache(body item) {
 	markLast(body["system"])
 	markLast(body["tools"])
 	markLastMessage(body["messages"])
+	limitBreakpoints(body)
 	settleTTLs(body)
+}
+
+// maxBreakpoints is how many cache_control blocks Anthropic takes in one
+// request; a top-level cache_control (its automatic caching) takes one of them
+// ("You can define up to 4 cache breakpoints", prompt caching docs, read on
+// 2026-11-15). More is a 400, "A maximum of 4 blocks with cache_control may be
+// provided" (issue #504, seen on zm).
+const maxBreakpoints = 4
+
+// limitBreakpoints removes the breakpoints past four, the least useful first,
+// as CLIProxyAPI does after it places its own (MIT, Copyright (c) 2025 Luis
+// Pater, Router-For.ME; commit e96d4c48, read on 2026-11-15:
+// internal/runtime/executor/claude_executor_cloaking.go,
+// enforceCacheControlLimitDoc): the system's but its last, earliest first; the
+// tools' but the last; the messages', earliest first; then the system's last;
+// then the tools' last; then a top-level one. A tool result's own blocks carry
+// none (hoistToolCache), so only a message's blocks are counted.
+func limitBreakpoints(body item) {
+	marked := func(list any) []item {
+		var out []item
+
+		blocks, _ := list.([]any)
+		for _, b := range blocks {
+			if block, ok := b.(item); ok {
+				if _, has := block["cache_control"]; has {
+					out = append(out, block)
+				}
+			}
+		}
+
+		return out
+	}
+
+	tools := marked(body["tools"])
+	system := marked(body["system"])
+
+	var messages []item
+
+	list, _ := body["messages"].([]any)
+	for _, m := range list {
+		if msg, ok := m.(item); ok {
+			messages = append(messages, marked(msg["content"])...)
+		}
+	}
+
+	var top []item
+	if _, has := body["cache_control"]; has {
+		top = []item{body}
+	}
+
+	excess := len(tools) + len(system) + len(messages) + len(top) - maxBreakpoints
+
+	drop := func(blocks []item) {
+		for _, b := range blocks {
+			if excess <= 0 {
+				return
+			}
+
+			delete(b, "cache_control")
+			excess--
+		}
+	}
+
+	if len(system) > 1 {
+		drop(system[:len(system)-1])
+	}
+
+	if len(tools) > 1 {
+		drop(tools[:len(tools)-1])
+	}
+
+	drop(messages)
+
+	if len(system) > 0 {
+		drop(system[len(system)-1:])
+	}
+
+	if len(tools) > 0 {
+		drop(tools[len(tools)-1:])
+	}
+
+	drop(top)
 }
 
 // markLastMessage marks the last block of the last message that has one.
