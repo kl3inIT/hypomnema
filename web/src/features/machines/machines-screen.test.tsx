@@ -131,6 +131,7 @@ test("the View menu's status filters the machines and is remembered", async () =
 // Scenario: memory and disk are shares of the machine's totals; a meter warns from 65 % and is critical from
 // 90 %, and a machine that is not connected shows its last measurement without a colour.
 test("meters show use against the totals and change at 65 % and 90 %", async () => {
+  const user = userEvent.setup()
   nodesServer([
     node("calm", { stats: used(4, 64.9) }),
     node("busy", { stats: used(10.4, 90) }),
@@ -153,6 +154,14 @@ test("meters show use against the totals and change at 65 % and 90 %", async () 
 
   const gone = within(await machine("gone"))
   expect(gone.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "off")
+
+  // A card says how much is used of how much beside the bar (issue #563); the table keeps it in the title.
+  expect(calm.getByText("4 / 16 GiB")).toBeVisible()
+  expect(calm.getByText("64.9 / 100 GiB")).toBeVisible()
+
+  await user.click(screen.getByRole("button", { name: "table" }))
+  expect(await screen.findByRole("columnheader", { name: "Memory" })).toBeVisible()
+  expect(screen.queryByText("4 / 16 GiB")).toBeNull()
 })
 
 // Scenario: a node that was added but never connected has sent no measurement and no description of itself.
@@ -688,6 +697,7 @@ test("a machine with GPUs shows each one, and a machine without has no GPU rows"
   )
   expect(within(serving).getByRole("meter", { name: "GPU 1" })).toHaveAttribute("data-tone", "good")
   expect(serving).toHaveTextContent("74 °C")
+  expect(within(serving).getByText("22.2 / 24 GiB")).toBeVisible()
 
   const plain = await machine("plain")
   expect(plain).not.toHaveTextContent("GPU")
