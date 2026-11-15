@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
   CircleDollarSign,
@@ -21,7 +21,6 @@ import { z } from "zod"
 import "@/api/client"
 import {
   addWebSearchKey,
-  getWebSearch,
   removeWebSearchKey,
   setWebSearchOrder,
   setWebSearchProvider,
@@ -75,6 +74,7 @@ import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
 import { since } from "@/lib/time"
 
+import { useShowWebSearch, useWebSearch } from "./use-models"
 import {
   balanceShare,
   balanceText,
@@ -89,8 +89,6 @@ import {
   spendText,
 } from "./web-search-state"
 
-const webSearchKey = ["web-search"] as const
-
 // WebSearchScreen is Settings → Gateway → Web search (issues #354, #393): the search chain in the order a search
 // tries it, in three parts. The providers with the owner's keys come first, in the order the owner drags them to,
 // as search-rotation's dashboard reorders its engines by a handle (static/app.js, the .handle drag); each lists
@@ -101,12 +99,7 @@ const webSearchKey = ["web-search"] as const
 // whose account is added on the Models page. The rows follow the Models page's account rows, with the Machines
 // page's meter for a share. The page does what `hypomnema web providers|keys|order` does.
 export function WebSearchScreen() {
-  const chain = useQuery({
-    queryKey: webSearchKey,
-    queryFn: async () => (await getWebSearch()).data,
-    // A rest ends on its own, so the chain is read again now and then while the page is open.
-    refetchInterval: 30_000,
-  })
+  const chain = useWebSearch()
 
   return (
     <SettingsPage
@@ -168,12 +161,12 @@ function Chain({ web }: { web: WebSearch }) {
 
 // useChange runs a change of the chain and shows the chain the server answers with.
 function useChange<T>(change: (input: T) => Promise<WebSearch>, done: (input: T) => string) {
-  const queryClient = useQueryClient()
+  const show = useShowWebSearch()
 
   return useMutation({
     mutationFn: change,
     onSuccess: (web, input) => {
-      queryClient.setQueryData(webSearchKey, web)
+      show(web)
       said(done(input))
     },
   })
@@ -355,7 +348,7 @@ function TinyFishNote() {
 
 // KeyRow is one key: its name in the vault, its state, when it was last used, what it used, and its removal.
 function KeyRow({ provider, keyed }: { provider: WebSearchKeyedProvider; keyed: WebSearchKey }) {
-  const queryClient = useQueryClient()
+  const show = useShowWebSearch()
   const state = keyState(keyed)
   const share = balanceShare(keyed)
   const spend = spendText(keyed.usage)
@@ -394,10 +387,7 @@ function KeyRow({ provider, keyed }: { provider: WebSearchKeyedProvider; keyed: 
           consequence={`It is deleted from the vault and ${providerName(provider)} is no longer asked with it.`}
           action="Remove"
           run={async () =>
-            queryClient.setQueryData(
-              webSearchKey,
-              (await removeWebSearchKey({ path: { provider, name: keyed.name } })).data,
-            )
+            show((await removeWebSearchKey({ path: { provider, name: keyed.name } })).data)
           }
           onDone={() => undefined}
           done={`${keyed.name} was removed`}
@@ -434,12 +424,12 @@ function AddKeyDialog({ provider, first }: { provider: WebSearchKeyedProvider; f
   const formId = useId()
   const [open, setOpen] = useState(false)
   const name = providerName(provider)
-  const queryClient = useQueryClient()
+  const show = useShowWebSearch()
   const save = useMutation({
     mutationFn: async (key: string) =>
       (await addWebSearchKey({ path: { provider }, body: { key } })).data,
     onSuccess: (added) => {
-      queryClient.setQueryData(webSearchKey, added.web_search)
+      show(added.web_search)
       said(`${name}'s key is kept in the vault as ${added.name}`)
     },
   })

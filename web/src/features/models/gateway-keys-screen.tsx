@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import {
   columnFilteringFeature,
   createFilteredRowModel,
@@ -28,12 +28,8 @@ import { useId, useState } from "react"
 import { z } from "zod"
 
 import "@/api/client"
-import {
-  createGatewayKey,
-  listGatewayKeys,
-  listGatewayModels,
-  revokeGatewayKey,
-} from "@/api/generated/sdk.gen"
+import { createGatewayKeyMutation } from "@/api/generated/@tanstack/react-query.gen"
+import { revokeGatewayKey } from "@/api/generated/sdk.gen"
 import type { CreatedGatewayKey, GatewayKey } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import {
@@ -86,9 +82,7 @@ import { since } from "@/lib/time"
 
 import { pickGroups } from "./gateway-keys-state"
 import { GatewayModelPicker } from "./gateway-model-picker"
-import { gatewayModelsKey, useProviders } from "./use-models"
-
-const keysKey = ["gateway-keys"] as const
+import { useGatewayKeys, useGatewayModels, useProviders, useRefreshGatewayKeys } from "./use-models"
 
 // The name the gateway gives to "every model".
 const every = "*"
@@ -183,10 +177,7 @@ const sortable = new Set(["name", "last_used", "created_at"])
 // shown with its maker's mark and its name to read. The keys made for one worker or one Bot's chat are counted,
 // not listed: they end with what they were made for.
 export function GatewayKeysScreen() {
-  const keys = useQuery({
-    queryKey: keysKey,
-    queryFn: async () => (await listGatewayKeys()).data,
-  })
+  const keys = useGatewayKeys()
 
   return (
     <SettingsPage
@@ -390,7 +381,7 @@ function KeyModels({ models }: { models: string[] }) {
 }
 
 function RevokeKey({ gatewayKey }: { gatewayKey: GatewayKey }) {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshGatewayKeys()
 
   return (
     <span className="flex justify-end">
@@ -404,7 +395,7 @@ function RevokeKey({ gatewayKey }: { gatewayKey: GatewayKey }) {
         consequence="A tool that uses this key is refused from now on. This cannot be undone."
         action="Revoke key"
         run={() => revokeGatewayKey({ path: { key_id: gatewayKey.id } })}
-        onDone={() => queryClient.invalidateQueries({ queryKey: keysKey })}
+        onDone={refresh}
         done={`${gatewayKey.name} was revoked`}
       />
     </span>
@@ -426,25 +417,20 @@ const keySchema = z
 
 // CreateKey makes a key in a dialog and then shows its value, once, in the same dialog, as Coder's does.
 function CreateKey() {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshGatewayKeys()
   const [open, setOpen] = useState(false)
   const [made, setMade] = useState<CreatedGatewayKey | null>(null)
   const providers = useProviders()
   const formId = useId()
 
-  const models = useQuery({
-    queryKey: gatewayModelsKey,
-    queryFn: async () => (await listGatewayModels()).data.data,
-    enabled: open,
-  })
+  const models = useGatewayModels({ enabled: open })
   const groups = pickGroups(models.data ?? [], providers.data ?? [])
 
   const create = useMutation({
-    mutationFn: async (input: { name: string; models: string[] }) =>
-      (await createGatewayKey({ body: { name: input.name, models: input.models } })).data,
+    ...createGatewayKeyMutation(),
     onSuccess: async (created) => {
       setMade(created)
-      await queryClient.invalidateQueries({ queryKey: keysKey })
+      await refresh()
     },
   })
 
@@ -452,7 +438,9 @@ function CreateKey() {
     defaultValues: { name: "", scope: "every" as "every" | "some", models: [] as string[] },
     validators: { onSubmit: keySchema },
     onSubmit: ({ value }) =>
-      create.mutate({ name: value.name, models: value.scope === "every" ? [] : value.models }),
+      create.mutate({
+        body: { name: value.name, models: value.scope === "every" ? [] : value.models },
+      }),
   })
 
   function change(next: boolean) {
