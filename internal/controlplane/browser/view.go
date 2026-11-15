@@ -29,6 +29,13 @@ import (
 // puts the control gate in front of its input, which agent-browser itself
 // does not have. What the page sends and is sent follows T3 Code's preview
 // stream (apps/server/src/preview/ServerBrowser.ts), as OpenMausBot's does.
+//
+// The page may have up to frameWindow frames on their way unacknowledged:
+// the View acknowledges agent-browser's frame itself while fewer are, and
+// asks for at most streamFPS a second, as OpenMausBot's live view does
+// (server/browser-live.ts, FRAME_WINDOW): "over a slow link one
+// acknowledgement round trip per frame held a Cloud's panel to a few frames a
+// second" (issue #540).
 
 const (
 	// OwnerTab is the owner's own tab, where a sign-in is made. It is made the
@@ -38,6 +45,10 @@ const (
 	maxViews = 4
 	// streamQuality is the frames' JPEG quality (T3 Code and OpenMausBot: 70).
 	streamQuality = "70"
+	// frameWindow is how many frames the page may have unacknowledged, and
+	// streamFPS the most frames a second the stream sends (OpenMausBot: 2 and 15).
+	frameWindow = 2
+	streamFPS   = "15"
 	// maxStreamMessage bounds one message of a session's stream: a frame.
 	maxStreamMessage = 64 << 20
 	// streamFile ends the name of the file in which a session's daemon writes its stream's port.
@@ -132,9 +143,13 @@ type View struct {
 	// again asks Next to say who controls once more: an input was dropped.
 	again chan struct{}
 
-	// What follows is Next's own, and seq also Do's.
-	mu       sync.Mutex
-	seq      uint64
+	// What follows is Next's own, and the frames also Do's.
+	mu sync.Mutex
+	// unacked are the frames given to the page that it has not acknowledged, oldest first.
+	unacked []uint64
+	// waiting is the newest frame agent-browser waits to have acknowledged, while holding is set.
+	waiting  uint64
+	holding  bool
 	told     bool
 	held     bool
 	viewport Size
@@ -176,9 +191,11 @@ func (e *Engine) watch(ctx context.Context, tab string) (*View, error) {
 	// The stream outlives the request that opened it.
 	streaming, stop := context.WithCancel(context.WithoutCancel(ctx))
 
+	address := "ws://127.0.0.1:" + strings.TrimSpace(string(port)) + "/?pacing=ack&maxFps=" + streamFPS
+
 	// No Origin is sent, which agent-browser takes from a program on this machine.
 	//nolint:bodyclose // A WebSocket's response has no body left to close.
-	conn, _, err := websocket.Dial(ctx, "ws://127.0.0.1:"+strings.TrimSpace(string(port))+"/?pacing=ack", nil)
+	conn, _, err := websocket.Dial(ctx, address, nil)
 	if err != nil {
 		stop()
 		e.unviewed(s)
@@ -298,7 +315,12 @@ func (v *View) Next(ctx context.Context) (Update, error) {
 				return Update{}, fmt.Errorf("%w: the tab's stream ended", ErrNoSuchTab)
 			}
 
-			if up, ok := v.update(m); ok {
+			up, ok := v.update(m)
+			if err := v.release(ctx); err != nil {
+				return Update{}, fmt.Errorf("%w: the tab's stream ended: %w", ErrNoSuchTab, err)
+			}
+
+			if ok {
 				return up, nil
 			}
 		case <-changed:
@@ -343,16 +365,37 @@ func (v *View) update(m streamMessage) (Update, bool) {
 	}
 
 	if m.Type == "frame" {
+		// agent-browser waits for this frame to be acknowledged, whether or not the page is given it.
+		v.waiting, v.holding = m.Seq, true
+
 		jpeg, err := base64.StdEncoding.DecodeString(m.Data)
 		if err != nil {
 			return Update{}, false
 		}
 
-		v.seq = m.Seq
+		v.unacked = append(v.unacked, m.Seq)
 		up.JPEG = jpeg
 	}
 
 	return up, up.JPEG != nil || up.Viewport != nil || up.URL != ""
+}
+
+// release lets agent-browser send its next frame while the page has room for
+// it: fewer than frameWindow frames unacknowledged.
+func (v *View) release(ctx context.Context) error {
+	v.mu.Lock()
+
+	if !v.holding || len(v.unacked) >= frameWindow {
+		v.mu.Unlock()
+
+		return nil
+	}
+
+	seq := v.waiting
+	v.holding = false
+	v.mu.Unlock()
+
+	return v.send(ctx, map[string]any{"type": "ack", "seq": seq})
 }
 
 // Do carries out one message of the page. Input and navigation need control:
@@ -362,11 +405,14 @@ func (v *View) Do(ctx context.Context, a Action) error {
 
 	switch a.Type {
 	case "ack":
+		// The page acknowledges its frames in the order it was given them.
 		v.mu.Lock()
-		seq := v.seq
+		if len(v.unacked) > 0 {
+			v.unacked = v.unacked[1:]
+		}
 		v.mu.Unlock()
 
-		return v.send(ctx, map[string]any{"type": "ack", "seq": seq})
+		return v.release(ctx)
 	case "takeControl":
 		v.e.control.Take(ctx, now)
 		v.e.cfg.Logger.InfoContext(ctx, "the owner took the browser",

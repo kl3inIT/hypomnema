@@ -132,7 +132,8 @@ func (s *Server) GetBrowser(ctx context.Context, _ openapi.GetBrowserRequestObje
 	tabs, held := s.browser.Tabs(ctx)
 
 	out := openapi.Browser{
-		Installed: status.Installed, Running: status.Running, Held: held, Tabs: make([]openapi.BrowserTab, 0, len(tabs)),
+		Installed: status.Installed, Running: status.Running, Chrome: status.Chrome, Held: held,
+		Tabs: make([]openapi.BrowserTab, 0, len(tabs)),
 	}
 
 	for _, t := range tabs {

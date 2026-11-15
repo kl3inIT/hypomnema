@@ -37,8 +37,8 @@ import (
 const standIn = `#!/bin/sh
 dir=$(dirname "$0")
 who="session=$AGENT_BROWSER_SESSION cdp=${AGENT_BROWSER_CDP:-} pin=${AGENT_BROWSER_PIN_TAB:-}"
-chrome=$(printf %s "${AGENT_BROWSER_ARGS:-}" | tr '\n' ' ')
-gate="proxy=${AGENT_BROWSER_PROXY:-} bypass=${AGENT_BROWSER_PROXY_BYPASS:-} chrome=$chrome"
+chrome=$(printf %s "${AGENT_BROWSER_ARGS:-}" | tr '\n' '|')
+gate="proxy=${AGENT_BROWSER_PROXY:-} bypass=${AGENT_BROWSER_PROXY_BYPASS:-} tz=${TZ:-} chrome=$chrome"
 echo "$who $gate secret=${HYPOMNEMA_VAULT_KEYS:-} args=$*" >> "$dir/log"
 case "$1" in
 mcp)
@@ -109,7 +109,9 @@ func newRig(t *testing.T, cfg Config) rig {
 
 	system := runtime.GOOS + "/" + runtime.GOARCH
 
-	shell, ok := headlessShell().Releases[system]
+	cft := chromeForTesting()
+
+	rel, ok := cft.Releases[system]
 	if !ok {
 		t.Skipf("no browser is pinned for %s", system)
 	}
@@ -118,13 +120,18 @@ func newRig(t *testing.T, cfg Config) rig {
 
 	ab := agentBrowser()
 	bin := filepath.Join(cfg.Dir, "tools", ab.Name, ab.Version)
-	chrome := filepath.Join(cfg.Dir, "tools", headlessShell().Name, headlessShell().Version,
-		filepath.FromSlash(shell.Binary))
+	chrome := filepath.Join(cfg.Dir, "tools", cft.Name, cft.Version, filepath.FromSlash(rel.Binary))
 
 	require.NoError(t, os.MkdirAll(bin, 0o700))
 	require.NoError(t, os.MkdirAll(filepath.Dir(chrome), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(bin, ab.Name), []byte(standIn), 0o700)) //nolint:gosec // A command.
 	require.NoError(t, os.WriteFile(chrome, nil, 0o700))                                  //nolint:gosec // A command.
+
+	// What the browser is was read before (identity.go): the stand-in is no Chrome to read it from.
+	kept, err := identityFile(cfg.Dir, chrome)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(kept), 0o700))
+	require.NoError(t, os.WriteFile(kept, []byte(keptIdentity), 0o600))
 
 	answer, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "result": map[string]any{"tools": listed()}})
 	require.NoError(t, err)
@@ -312,4 +319,34 @@ func TestCallStartsChromeAgainAfterItWentAway(t *testing.T) {
 	for _, call := range calls {
 		assert.Contains(t, call, "cdp=ws://127.0.0.1:9/devtools/browser/second")
 	}
+}
+
+// Chrome is launched as the binary's headed self (issue #540): without
+// AutomationControlled, with the user agent it reports headed in one
+// argument, a display, and the owner's language and time zone; every
+// agent-browser run has the zone, since Chrome takes it from whichever run
+// started its daemon. A binary whose identity cannot be read is not launched.
+func TestChromeIsLaunchedAsTheBinarysHeadedSelf(t *testing.T) {
+	r := newRig(t, Config{Language: "vi-VN", TimeZone: "Asia/Ho_Chi_Minh"})
+
+	_, err := r.Call(t.Context(), "d-one", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+
+	runs := r.runs(t)
+	launches := containing(runs, "session=host", "open about:blank")
+	require.Len(t, launches, 1)
+	assert.Contains(t, launches[0], "|--disable-blink-features=AutomationControlled"+
+		"|--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"+
+		"|--screen-info={1920x1080}|--lang=vi-VN")
+	assert.Len(t, containing(runs, "tz=Asia/Ho_Chi_Minh"), len(runs))
+
+	unread := newRig(t, Config{})
+	kept, err := filepath.Glob(filepath.Join(unread.cfg.Dir, identityDir, "*.json"))
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
+	require.NoError(t, os.Remove(kept[0]))
+
+	_, err = unread.Call(t.Context(), "d-one", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.ErrorIs(t, err, ErrUnavailable)
+	assert.Empty(t, containing(unread.runs(t), "open about:blank"), "Chrome is not launched without its identity")
 }

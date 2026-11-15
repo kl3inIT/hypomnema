@@ -17,7 +17,9 @@ import (
 // worker's, the owner holding it.
 type twoTabs struct{}
 
-func (twoTabs) Status() browser.Status { return browser.Status{Installed: true, Running: true} }
+func (twoTabs) Status() browser.Status {
+	return browser.Status{Installed: true, Running: true, Chrome: "Chrome for Testing 157.0.8103.78"}
+}
 
 func (twoTabs) Tabs(context.Context) ([]browser.Tab, bool) {
 	return []browser.Tab{
@@ -40,7 +42,7 @@ func TestBrowserStatusListsTheTabs(t *testing.T) {
 
 	out, err := w.cmd(t, "browser", "status")
 	require.NoError(t, err)
-	assert.Equal(t, "running, the owner holds it, 2 tabs\n"+
+	assert.Equal(t, "Chrome for Testing 157.0.8103.78, running, the owner holds it, 2 tabs\n"+
 		"owner\towner\thttps://accounts.example.com/\tSign in\n"+
 		"d-dsp_1\tworker\thttps://example.com/\tExample Domain\n", out)
 
