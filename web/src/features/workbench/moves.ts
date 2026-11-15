@@ -103,3 +103,54 @@ export function alone(bench: Bench): string | null {
 
   return front?.kind === "chat" ? front.chat : (paneChats(pane)[0] ?? null)
 }
+
+// rightOf is the pane to the right of a pane: the first pane of the other side of the nearest split into columns
+// whose left side holds it. null when none is to its right. As Orca's findReusableRightSplitGroupId
+// (src/renderer/src/lib/simulator/tabs/emulator-right-split-target.ts, MIT): the closest pane on the right is taken.
+export function rightOf(layout: GridLayout, pane: string): string | null {
+  const search = (node: GridLayout): { holds: boolean; right: string | null } => {
+    if (typeof node === "string") return { holds: node === pane, right: null }
+
+    const first = search(node.children[0])
+    if (first.holds) {
+      return {
+        holds: true,
+        right:
+          first.right ??
+          (node.axis === "columns" ? (gridPanes(node.children[1])[0] ?? null) : null),
+      }
+    }
+
+    return search(node.children[1])
+  }
+
+  return search(layout).right
+}
+
+// openBeside is the bench after a tab is opened beside a pane, as Orca opens its emulator with placement
+// 'rightSplit' (src/renderer/src/lib/simulator/tabs/ensure-simulator-tab.ts): a tab open on the grid already comes
+// in front where it is; otherwise it opens in the pane to the right, or in a new pane split off to the right; and
+// when the grid has no room for that, in the pane itself, as Orca falls back to the source group. `fresh` is the id
+// a new pane gets.
+export function openBeside(bench: Bench, source: string, tab: PaneTab, fresh: string): Bench {
+  const key = tabKey(tab)
+  const open = gridPanes(bench.layout).find((id) => {
+    const pane = bench.panes[id]
+
+    return pane !== undefined && hasTab(pane, key)
+  })
+  const into = open ?? rightOf(bench.layout, source)
+  const target = into === null ? undefined : bench.panes[into]
+  if (into !== null && target !== undefined) {
+    return { ...bench, panes: { ...bench.panes, [into]: openTab(target, tab) } }
+  }
+
+  const layout = splitGrid(bench.layout, source, fresh, "right")
+  if (layout !== null) return { layout, panes: { ...bench.panes, [fresh]: paneOf(tab) } }
+
+  const here = bench.panes[source]
+
+  return here === undefined
+    ? bench
+    : { ...bench, panes: { ...bench.panes, [source]: openTab(here, tab) } }
+}

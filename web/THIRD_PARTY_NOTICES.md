@@ -87,7 +87,15 @@ Each adapted file names its source.
   rail and loading card (apps/web/src/components/device/DeviceStreamView.tsx, DeviceControlsRail.tsx,
   DeviceLoadingView.tsx) and its Android stream client (packages/client-runtime/src/device/stream.ts: the SEMU
   header, the access unit's scan, the codec string, the decoder's configuration, the key codes and the text's
-  split), MIT, Copyright (c) 2026 T3 Tools Inc.; laid out as the browser view above.
+  split), MIT, Copyright (c) 2026 T3 Tools Inc.; laid out as the browser view above. Its frame, side buttons and
+  wheel (`frame.ts`, `frame-hooks.ts`, issue #528) are adapted from Orca's emulator pane
+  (src/renderer/src/components/emulator-pane: emulator-device-frame-layout.ts, emulator-device-frame.tsx,
+  emulator-screen-surface.tsx, emulator-phone-hardware-buttons.tsx, emulator-screen-gesture.ts,
+  use-emulator-pane-size.ts, use-emulator-wheel-gesture.ts), MIT, Copyright (c) 2026 Lovecast Inc.; the side buttons
+  are pressed as ws-scrcpy's tool box sends them (https://github.com/NetrisTV/ws-scrcpy,
+  src/app/googDevice/toolbox/GoogToolBox.ts, MIT, Copyright (C) 2021 by Netris, JSC). Opening the phone in the pane
+  to the right of the chat (`openBeside` in `src/features/workbench/moves.ts`) follows Orca's `rightSplit`
+  (src/renderer/src/lib/simulator/tabs/ensure-simulator-tab.ts, emulator-right-split-target.ts), MIT.
 - The runtime marks (Claude, Codex, pi, opencode) are copied from OpenMausBot
   (https://github.com/milind-soni/OpenMausBot, src/components/ProviderIcons.tsx), Apache License 2.0. omp's mark is
   its own icon (https://github.com/can1357/oh-my-pi, assets/icon.svg), MIT, with its bars in the text colour.

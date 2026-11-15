@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { alone, dropTab, withoutPane, type Bench } from "./moves"
+import type { GridLayout } from "./grid-layout"
+import { alone, dropTab, openBeside, rightOf, withoutPane, type Bench } from "./moves"
 import { closeTab, openTab, paneOf, replaceTab, type PaneTab } from "./pane"
 
 const chat = (id: string): PaneTab => ({ kind: "chat", chat: id })
@@ -91,6 +92,65 @@ describe("a grid of one pane", () => {
     ).toBe("a")
     expect(alone({ layout: "p1", panes: { p1: paneOf(browser) } })).toBeNull()
     expect(alone(bench), "two panes are a grid").toBeNull()
+  })
+})
+
+const phone: PaneTab = { kind: "phone" }
+
+describe("the pane to the right of a pane", () => {
+  it("is the closest pane on the other side of a split into columns", () => {
+    const layout: GridLayout = {
+      axis: "columns",
+      children: [
+        { axis: "rows", children: ["a", "b"] },
+        { axis: "rows", children: ["c", "d"] },
+      ],
+    }
+
+    expect(rightOf(layout, "a")).toBe("c")
+    expect(rightOf(layout, "b")).toBe("c")
+    expect(rightOf(layout, "c")).toBeNull()
+  })
+
+  it("is none for a pane alone, or under another in a split into rows", () => {
+    expect(rightOf("a", "a")).toBeNull()
+    expect(rightOf({ axis: "rows", children: ["a", "b"] }, "a")).toBeNull()
+  })
+})
+
+describe("a tab opened beside a pane", () => {
+  it("opens in the pane to the right, in front", () => {
+    const next = openBeside(bench, "p1", phone, "p3")
+
+    expect(next.layout).toEqual(bench.layout)
+    expect(next.panes.p2).toEqual({ tabs: [chat("c"), phone], active: "phone" })
+    expect(next.panes.p1).toBe(p1)
+  })
+
+  it("splits the grid to the right when no pane is there", () => {
+    const next = openBeside({ layout: "p1", panes: { p1 } }, "p1", phone, "p3")
+
+    expect(next.layout).toEqual({ axis: "columns", children: ["p1", "p3"] })
+    expect(next.panes.p3).toEqual(paneOf(phone))
+    expect(next.panes.p1).toBe(p1)
+  })
+
+  it("comes in front where it is open already, not opened twice", () => {
+    const open = { ...bench, panes: { ...bench.panes, p1: openTab(p1, phone) } }
+    const behind = { ...open, panes: { ...open.panes, p1: { ...open.panes.p1, active: "chat:a" } } }
+    const next = openBeside(behind, "p2", phone, "p3")
+
+    expect(next.layout).toEqual(bench.layout)
+    expect(next.panes.p1?.active).toBe("phone")
+    expect(next.panes.p2).toEqual(bench.panes.p2)
+  })
+
+  it("opens in the pane itself when the grid has no room on its right", () => {
+    // p2 is the right column already: it cannot be cut into columns again.
+    const next = openBeside(bench, "p2", phone, "p3")
+
+    expect(next.layout).toEqual(bench.layout)
+    expect(next.panes.p2).toEqual({ tabs: [chat("c"), phone], active: "phone" })
   })
 })
 

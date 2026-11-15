@@ -13,9 +13,9 @@ import { cn } from "@/lib/utils"
 
 import { GridDrop } from "./grid-drop"
 import { gridPanes, type GridLayout } from "./grid-layout"
-import { alone, dropTab, withoutPane, type Bench } from "./moves"
-import { frontOf, type Pane } from "./pane"
-import { PaneView } from "./pane-view"
+import { alone, dropTab, openBeside, withoutPane, type Bench } from "./moves"
+import { frontOf, hasTab, type Pane } from "./pane"
+import { PaneView, type Beside } from "./pane-view"
 import { newPaneId, setBench, setPane, soloId, useBench, useGridOffered } from "./use-grid"
 
 // GridScreen is several panes on one screen (issue #235), as Omnigent's grid of sessions (web/src/grid, Apache
@@ -77,6 +77,15 @@ export function GridScreen() {
         full={full === node}
         onFull={() => setFull(full === node ? null : node)}
         onRemove={() => commit(withoutPane(bench, node))}
+        beside={{
+          open: (tab) => commit(openBeside(bench, node, tab, newPaneId())),
+          has: (key) =>
+            gridPanes(bench.layout).some((id) => {
+              const pane = bench.panes[id]
+
+              return pane !== undefined && hasTab(pane, key)
+            }),
+        }}
         onChange={(next) =>
           commit(
             next === null
@@ -120,6 +129,7 @@ function GridPane({
   onFull,
   onRemove,
   onChange,
+  beside,
   drop,
 }: {
   id: string
@@ -128,6 +138,7 @@ function GridPane({
   onFull: () => void
   onRemove: () => void
   onChange: (next: Pane | null) => void
+  beside: Beside
   drop: React.ReactNode
 }) {
   // The pane is named by its tab in front.
@@ -160,6 +171,7 @@ function GridPane({
         id={id}
         pane={pane}
         onChange={onChange}
+        beside={beside}
         end={
           <>
             <PaneButton label={full ? "Back to the grid" : "Full screen"} onClick={onFull}>
