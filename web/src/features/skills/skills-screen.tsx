@@ -32,7 +32,7 @@ function readLayout(): Layout {
 // those the binary ships, as two sections of one page (prototype the owner accepted, 2026-11-12). One search box by
 // name, as Omnara's SkillsSection (components/overview/SkillsSection.tsx), also over the description. A card or row
 // opens the skill's page; a built-in skill has none, since nothing about it is set, except one the control plane
-// puts in the store (pdf, pages; issue #492), which is switched like an added one and listed with the built-in ones.
+// puts in the store (pdf; issue #492), which is switched like an added one and listed with the built-in ones.
 export function SkillsScreen() {
   const skills = useSkills()
   const builtin = useBuiltinSkills()

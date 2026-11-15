@@ -355,6 +355,9 @@ func TestTheShippedSlidesSkillNamesOnlyWhatItShips(t *testing.T) {
 func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
 	t.Parallel()
 
+	_, folders := shippedSkills()
+	require.Contains(t, folders, "pages", "a Bot's skill: it names hypomnema artifact show, which a worker lacks")
+
 	skill, err := fs.Sub(skillFiles, "skills/pages")
 	require.NoError(t, err)
 	assert.True(t, exists(skill, "LICENSE"))
@@ -372,9 +375,8 @@ func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
 	text, err := fs.ReadFile(skill, "SKILL.md")
 	require.NoError(t, err)
 	assert.Contains(t, string(text), "name: pages")
-	assert.Contains(t, string(text), "`dashboard.html` sits next to this guide, in this skill's folder",
-		"the template is named beside SKILL.md, wherever the store places it")
-	assert.NotContains(t, string(text), "~/.agents")
+	assert.Contains(t, string(text), "~/.agents/skills/pages/dashboard.html",
+		"the template is named where it is installed")
 	assert.Contains(t, string(text), "hypomnema artifact show")
 
 	page, err := fs.ReadFile(skill, "dashboard.html")
@@ -457,10 +459,10 @@ func TestARetiredSkillIsRemovedAtInstall(t *testing.T) { //nolint:paralleltest /
 	assert.NotContains(t, out, "removed", "a second install has nothing to take out")
 }
 
-// Scenario: pdf and pages now come from the skills store (issue #492). The
-// deploy's install takes out the copies an earlier release put in
-// ~/.agents/skills, so that a Bot gets each once, and installs neither; a
-// copy the owner edited stays.
+// Scenario: pdf now comes from the skills store (issue #492). The deploy's
+// install takes out the copy an earlier release put in ~/.agents/skills, so
+// that a Bot gets it once, and does not install it; a copy the owner edited
+// stays. pages, a Bot's skill, is still installed there.
 func TestAStoreSkillIsTakenOutOfTheAgentsFolder(t *testing.T) { //nolint:paralleltest // replaces globals
 	w, slides := installHome(t)
 	agents := filepath.Dir(slides)
@@ -479,9 +481,6 @@ func TestAStoreSkillIsTakenOutOfTheAgentsFolder(t *testing.T) { //nolint:paralle
 
 	t.Cleanup(func() { releasedFolders["pdf"] = released })
 
-	require.NoError(t, os.MkdirAll(pages, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(pages, "SKILL.md"), []byte("my own pages"), 0o600))
-
 	out, err := w.cmd(t, "skills", "install", "--agent", "agents", "--dry-run")
 	require.NoError(t, err)
 	assert.Contains(t, out, "agents: would remove "+pdf)
@@ -491,31 +490,35 @@ func TestAStoreSkillIsTakenOutOfTheAgentsFolder(t *testing.T) { //nolint:paralle
 	require.NoError(t, err)
 	assert.Contains(t, out, "agents: removed "+pdf+", which now comes from the skills store")
 	assert.NoDirExists(t, pdf)
-	assert.Contains(t, out, "agents: "+pages+" was edited; left as it is")
-	assert.FileExists(t, filepath.Join(pages, "SKILL.md"))
+	assert.FileExists(t, filepath.Join(pages, "dashboard.html"), "pages is still installed here")
 	assert.DirExists(t, slides, "slides is still installed here")
 
-	require.NoError(t, os.RemoveAll(pages))
+	require.NoError(t, os.MkdirAll(pdf, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(pdf, "SKILL.md"), []byte("my own pdf"), 0o600))
+
+	out, err = w.cmd(t, "skills", "install", "--agent", "agents")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents: "+pdf+" was edited; left as it is")
+	assert.FileExists(t, filepath.Join(pdf, "SKILL.md"))
+
+	require.NoError(t, os.RemoveAll(pdf))
 
 	out, err = w.cmd(t, "skills", "install", "--agent", "agents")
 	require.NoError(t, err)
 	assert.NotContains(t, out, "pdf")
-	assert.NotContains(t, out, "pages")
 	assert.NoDirExists(t, pdf, "the store places it, not the install")
-	assert.NoDirExists(t, pages)
 }
 
-// The skills the control plane publishes into the store are pdf and pages
-// as this binary ships them, whole, their scripts executable as `skills
+// The skill the control plane publishes into the store is pdf as this
+// binary ships it, whole, their scripts executable as `skills
 // install` made them; the list of built-in skills leaves them to the store.
 func TestTheStoreSkillsAreTheShippedFolders(t *testing.T) {
 	t.Parallel()
 
 	skills, err := StoreSkills()
 	require.NoError(t, err)
-	require.Len(t, skills, 2)
-	assert.Equal(t, "pages", skills[0].Name)
-	assert.Equal(t, "pdf", skills[1].Name)
+	require.Len(t, skills, 1)
+	assert.Equal(t, "pdf", skills[0].Name)
 
 	for _, sk := range skills {
 		shipped, err := fs.Sub(skillFiles, "skills/"+sk.Name)

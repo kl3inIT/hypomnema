@@ -34,11 +34,14 @@ import (
 // slides (issue #479), adapted from zarazhangrui/frontend-slides, whose
 // references and script are read from the installed folder.
 //
-// pdf and pages reach every agent kind, Bots and workers alike, through the
-// skills store instead (issue #492): the control plane publishes them as a
-// built-in revision at each start (StoreSkills), and `skills install` takes
-// out the copies earlier releases put in ~/.agents/skills, so that a Bot
-// gets each once.
+// pdf reaches every agent kind, Bots and workers alike, through the skills
+// store instead (issue #492): the control plane publishes it as a built-in
+// revision at each start (StoreSkills), and `skills install` takes out the
+// copy earlier releases put in ~/.agents/skills, so that a Bot gets it once.
+// pages and slides stay here, for Bots only: they name `hypomnema artifact
+// show`, which a worker lacks, and a skill that names a command is given only
+// to the agent kinds that have it
+// (docs/decisions/2026-11-15-one-tool-for-every-agent.md).
 
 // The all: prefix keeps files whose names start with _ (pdf's _raster.py).
 //
@@ -137,8 +140,8 @@ var retiredStubs = map[string][]string{
 // install` replaces an installed folder only when its digest is one of these
 // (Hermes's .bundled_manifest origin hashes, tools/skills_sync.py). A changed
 // folder adds its digest here (TestShippedFoldersAreReleased). Those of pdf
-// and pages are what `skills install` removes, now that the store places
-// them (storeSkills).
+// are what `skills install` removes, now that the store places it
+// (storeSkills).
 var releasedFolders = map[string][]string{
 	"pages": {"4d876aa95c82401380832a67a0a51d435845bcfc70b27d543330b617bc32a2b1"}, // #423
 	"pdf": {
@@ -155,7 +158,8 @@ var releasedFolders = map[string][]string{
 // (src/agents/cli-runner/claude-skills-plugin.ts), and OpenMausBot its
 // library's skills to every engine (server/skill-library.ts, everyBot).
 // `skills install` no longer installs them; it removes a copy it installed.
-var storeSkills = []string{"pages", "pdf"}
+// Only a skill that names no command an agent may lack goes here.
+var storeSkills = []string{"pdf"}
 
 // StoreSkills are the skills the control plane publishes into its skills
 // store at each start, read from this binary: what is under scripts/ is
@@ -745,7 +749,7 @@ type BuiltinSkill struct {
 
 // BuiltinSkills are the skills this binary ships that reach agents by their
 // own rule, by name: the coordinator's, those of the Integrations' tools and
-// slides. pdf and pages are in the skills store, listed there.
+// pages and slides. pdf is in the skills store, listed there.
 func BuiltinSkills() ([]BuiltinSkill, error) {
 	var out []BuiltinSkill
 

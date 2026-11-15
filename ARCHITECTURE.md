@@ -843,10 +843,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Omnara refuses while an agent config names one; otherwise it is removed with its revisions. The web's agent
     builder keeps both lists when it saves and does not edit them yet.
   - Built-in skills in the store (issue #492, [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md),
-    sections 3 and 4): `pdf` and `pages`, which the binary ships (`clientcli.StoreSkills`), reach every agent kind,
+    sections 3 and 4): `pdf`, which the binary ships (`clientcli.StoreSkills`), reaches every agent kind,
     Bots and every worker runtime, by the path above, as Codex gives its system skills to every session, OpenClaw
     its bundled skills to every agent (Claude CLI runs included) and OpenMausBot its library's skills to every
-    engine (`everyBot`). At each start, `serve` publishes them (`PublishBuiltinSkills`): a skill not in the store is
+    engine (`everyBot`). At each start, `serve` publishes it (`PublishBuiltinSkills`): a skill not in the store is
     added as revision 1 for everyone, its source `builtin:<release>`; one whose files changed gets the next revision,
     as Hermes's `tools/skills_sync.py` updates a bundled skill by its hash, unless the newest revision is one the
     owner uploaded (Hermes skips a user-modified skill); a skill of that name the owner added before is never
@@ -854,11 +854,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     first start, and a profile or Bot turns it off as any other. A skill whose first revision is built in is
     `built_in` in the API and cannot be removed (409: turn it off instead), as OpenMausBot's bundled skills are not
     deletable and Codex reinstalls its system skills. A failure to publish is logged and the control plane serves on
-    with the store as it was (Codex's `ensure_system_skills_installed`). Their files name the scripts and the
-    template relative to the skill's folder, since each runtime places it elsewhere; pdf's `python` is the
-    documents environment in a Bot's box, and on a worker, when it does not import the libraries, the venv of
-    Hermes's sandbox branch with the same pins (`~/.cache/hypomnema-docs-venv`). `pages` shows a page with
-    `hypomnema artifact show`, which a worker does not have.
+    with the store as it was (Codex's `ensure_system_skills_installed`). pdf names its scripts relative to its
+    folder, since each runtime places it elsewhere; its `python` is the documents environment in a Bot's box, and
+    on a worker, when it does not import the libraries, the venv of Hermes's sandbox branch with the same pins
+    (`~/.cache/hypomnema-docs-venv`). Only a skill that names no command an agent may lack goes to the store:
+    `pages` and `slides` name `hypomnema artifact show`, which a worker does not have, so they stay Bots' skills in
+    `~/.agents/skills` ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15).
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -893,7 +894,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     flags), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`, and `GET /built-in-skills` (the name and
     description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
     `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are still the built-in skills',
-    which are not listed, but for pdf and pages, which are in the store.
+    which are not listed, but for pdf, which is in the store.
   - skills.sh (`internal/controlplane/skillssh`, step 5, after the skills CLI `vercel-labs/skills`): `GET
     /skill-search?q=&owner=` asks skills.sh's search and, when a query of two to six words finds fewer than ten,
     asks again without each word and puts those after, at most 25 (`exact` says how many lead); `GET
@@ -2456,9 +2457,8 @@ The owner's commands:
   (otherwise only with `--force`, keeping a backup). The stub of a skill this binary no longer ships (`web-search`
   and `images` since issue #492, `retiredStubs`) is taken out of both folders when it matches a released one, and
   its folder when nothing else is in it, as Codex replaces its whole system skills folder at an update; an edited
-  one is left and named. The same goes for the pdf and pages folders in `~/.agents/skills` (issue #492): an
-  unedited copy (its digest in `releasedFolders`) is removed, since the skills store now places them, and neither
-  is installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
+  one is left and named. The same goes for the pdf folder in `~/.agents/skills` (issue #492): an unedited copy (its
+  digest in `releasedFolders`) is removed, since the skills store now places it, and it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
 - The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder (until
   issue #492 installed as described here; since then published into the skills store, above): Hermes's
@@ -2473,7 +2473,7 @@ The owner's commands:
   does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
   with no `skills add`. It is listed among the built-in skills.
 - The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder
-  (in the skills store since issue #492):
+  installed in `~/.agents/skills` for Bots only:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
   `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
   Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
@@ -3018,7 +3018,7 @@ Node (`internal/node`):
   - `/settings/skills` (under Agents, [issue #21](https://github.com/kl3inIT/hypomnema/issues/21)) lists the added
     skills and the built-in ones as two sections of cards or a table, chosen as on the Machines page, with a search
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
-    one book icon. A built-in skill in the store (pdf, pages; issue #492) is listed with the built-in ones as a card
+    one book icon. A built-in skill in the store (pdf; issue #492) is listed with the built-in ones as a card
     or row that opens its page, its source the release it came with; its page has a "Built in" badge and no Remove. "Add skill" takes a GitHub source, an archive (Omnara's drop zone), or a skill found on skills.sh:
     its "skills.sh" tab searches as the skills CLI's prompt does (two characters, a shorter wait for a longer
     query), lists each result's name, repository and installs, marks one already here (same name and repository),

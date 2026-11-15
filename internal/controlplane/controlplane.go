@@ -587,7 +587,7 @@ func nodeTerminals(nodes *nodeapi.Server) clientapi.Terminals {
 }
 
 // publishBuiltinSkills puts the skills this binary gives every agent kind
-// (pdf, pages) into the skills store as this release's revision (issue
+// (pdf) into the skills store as this release's revision (issue
 // #492). A failure is logged and the control plane serves on, as Codex goes
 // on when it cannot install its system skills (ext/skills/src/host_service.rs,
 // ensure_system_skills_installed): the store keeps the last release's.
