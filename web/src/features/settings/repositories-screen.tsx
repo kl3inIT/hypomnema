@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { FolderGit2, Plus } from "lucide-react"
 import { useId, useState } from "react"
 import { z } from "zod"
@@ -37,7 +37,7 @@ import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
 import { SettingsPage } from "@/components/settings-page"
 import { said } from "@/lib/said"
-import { nameOf, reposKey, useRepos } from "./use-integrations"
+import { nameOf, useRefreshRepos, useRepos } from "./use-integrations"
 
 // RepositoriesScreen lists the repositories registered under a name, which a Run can then be started on by that
 // name. A list of rows with one action each, as t3code's and Orca's settings list their projects and repositories.
@@ -80,12 +80,6 @@ export function RepositoriesScreen() {
       )}
     </SettingsPage>
   )
-}
-
-function useRefreshRepos() {
-  const queryClient = useQueryClient()
-
-  return () => queryClient.invalidateQueries({ queryKey: reposKey })
 }
 
 function RepoRow({ repo }: { repo: Repo }) {
