@@ -20,7 +20,8 @@ import (
 )
 
 // phoneTools answers the commands of the phone's tools as Android CLI
-// 1.1.16919734 and adb do: a screen capture writes its PNG, a box resolves to
+// 1.1.16919734 and adb do: a screen capture writes its PNG, adb's screencap
+// writes a PNG to its output, a box resolves to
 // "x y" (the documented output of `screen resolve`), and what a test sets
 // fails as Android CLI fails, "Error:" on its output with exit 0.
 type phoneTools struct {
@@ -31,6 +32,8 @@ type phoneTools struct {
 	logcat   string
 	// noLauncher makes monkey fail as it does for a package not installed.
 	noLauncher bool
+	// notPNG makes screencap write what is not a PNG.
+	notPNG bool
 }
 
 var boxArg = regexp.MustCompile(`^--string=#([0-9]+)$`)
@@ -50,6 +53,17 @@ func (p *phoneTools) answer(c Command) (Output, bool) {
 				_ = os.WriteFile(file, []byte("png "+strconv.Itoa(p.captures)), 0o600)
 			}
 		}
+
+		return Output{}, true
+	case program(c) == "adb" && strings.Contains(args, "exec-out screencap -p"):
+		p.captures++
+
+		picture := string(pngSignature) + "plain " + strconv.Itoa(p.captures)
+		if p.notPNG {
+			picture = "screencap: error"
+		}
+
+		_ = os.WriteFile(c.Out, []byte(picture), 0o600)
 
 		return Output{}, true
 	case program(c) == "android" && strings.Contains(args, "screen resolve"):
@@ -115,8 +129,8 @@ func textOf(a nodeproto.DeviceAnswer) string {
 func ranSince(r *rig, n int) []string { return r.sys.ranCommands()[n:] }
 
 // A call on a stopped phone boots it first, then answers: the screen as a
-// PNG image, which the agent's later taps are resolved against. Android CLI
-// runs against the phone's own SDK and sends no metrics.
+// PNG image, taken by adb's screencap into a file whole, without Android
+// CLI's search for boxes.
 func TestACallStartsAStoppedPhoneAndShowsItsScreen(t *testing.T) {
 	t.Parallel()
 
@@ -132,13 +146,70 @@ func TestACallStartsAStoppedPhoneAndShowsItsScreen(t *testing.T) {
 
 	png, err := base64.StdEncoding.DecodeString(answer.Content[0].Data)
 	require.NoError(t, err)
+	assert.Equal(t, string(pngSignature)+"plain 1", string(png))
+
+	assert.Contains(t, r.sys.ranCommands(), "adb -s emulator-5554 exec-out screencap -p")
+
+	for _, line := range r.sys.ranCommands() {
+		assert.NotContains(t, line, "screen capture", "no boxes were asked for")
+	}
+}
+
+// A screen with boxes is Android CLI's annotated capture, run against the
+// phone's own SDK with no metrics sent, and kept as the agent's last screen.
+func TestAScreenWithBoxesIsAndroidCLIsAnnotatedCapture(t *testing.T) {
+	t.Parallel()
+
+	r, _ := toolRig(t)
+
+	answer := call(t, r, "d-1", "device_screen", `{"boxes":true}`)
+	require.False(t, answer.IsError, textOf(answer))
+	require.Len(t, answer.Content, 2)
+
+	png, err := base64.StdEncoding.DecodeString(answer.Content[0].Data)
+	require.NoError(t, err)
 	assert.Equal(t, "png 1", string(png))
+	assert.Contains(t, textOf(answer), "Numbered boxes")
 
 	sdk := filepath.Join(r.dir, "sdk")
 	capture := slices.IndexFunc(r.sys.ranCommands(), func(line string) bool {
 		return strings.HasPrefix(line, "android --no-metrics --sdk="+sdk+" screen capture --annotate --device=emulator-5554")
 	})
 	assert.GreaterOrEqual(t, capture, 0, r.sys.ranCommands())
+	assert.FileExists(t, r.m.screenFile("d-1"))
+}
+
+// Numbers are taken only from a screen with boxes: a plain screen gives none,
+// and one taken after a screen with boxes leaves its numbers to be tapped.
+func TestAPlainScreenGivesNoNumbers(t *testing.T) {
+	t.Parallel()
+
+	r, _ := toolRig(t)
+
+	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+
+	answer := call(t, r, "d-1", "device_tap", `{"target":"#1"}`)
+	assert.True(t, answer.IsError)
+	assert.Contains(t, textOf(answer), "call device_screen with boxes first")
+
+	require.False(t, call(t, r, "d-1", "device_screen", `{"boxes":true}`).IsError)
+	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+
+	answer = call(t, r, "d-1", "device_tap", `{"target":"#1"}`)
+	require.False(t, answer.IsError, textOf(answer))
+	assert.Equal(t, "Tapped at 100,640.", textOf(answer))
+}
+
+// What adb's screencap writes that is not a PNG is not shown as a picture.
+func TestAScreencapThatIsNotAPictureFails(t *testing.T) {
+	t.Parallel()
+
+	r, tools := toolRig(t)
+	tools.notPNG = true
+
+	answer := call(t, r, "d-1", "device_screen", `{}`)
+	assert.True(t, answer.IsError)
+	assert.Contains(t, textOf(answer), "not a picture")
 }
 
 // A phone not installed yet is installed without holding the call, which
@@ -165,7 +236,7 @@ func TestATapByNumberUsesTheAgentsOwnLastScreen(t *testing.T) {
 
 	r, _ := toolRig(t)
 
-	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+	require.False(t, call(t, r, "d-1", "device_screen", `{"boxes":true}`).IsError)
 
 	before := len(r.sys.ranCommands())
 	answer := call(t, r, "d-1", "device_tap", `{"target":"#3"}`)
@@ -178,7 +249,7 @@ func TestATapByNumberUsesTheAgentsOwnLastScreen(t *testing.T) {
 
 	answer = call(t, r, "d-2", "device_tap", `{"target":"#3"}`)
 	assert.True(t, answer.IsError)
-	assert.Contains(t, textOf(answer), "call device_screen first")
+	assert.Contains(t, textOf(answer), "call device_screen with boxes first")
 }
 
 // After another agent acted on the phone, an agent's old box numbers are
@@ -188,7 +259,7 @@ func TestAnotherAgentsActionMakesTheScreenStale(t *testing.T) {
 
 	r, _ := toolRig(t)
 
-	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+	require.False(t, call(t, r, "d-1", "device_screen", `{"boxes":true}`).IsError)
 	require.False(t, call(t, r, "d-1", "device_tap", `{"target":"#1"}`).IsError)
 	require.False(t, call(t, r, "d-1", "device_tap", `{"target":"#2"}`).IsError,
 		"an agent's own action leaves its screen its own")
@@ -201,7 +272,7 @@ func TestAnotherAgentsActionMakesTheScreenStale(t *testing.T) {
 
 	assert.False(t, call(t, r, "d-1", "device_tap", `{"target":"10,20"}`).IsError)
 
-	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+	require.False(t, call(t, r, "d-1", "device_screen", `{"boxes":true}`).IsError)
 	assert.False(t, call(t, r, "d-1", "device_tap", `{"target":"#1"}`).IsError)
 }
 
@@ -299,7 +370,7 @@ func TestAScreenOfAnEarlierBootIsNotTappedByNumber(t *testing.T) {
 
 	r, _ := toolRig(t)
 
-	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+	require.False(t, call(t, r, "d-1", "device_screen", `{"boxes":true}`).IsError)
 	r.m.Stop(t.Context())
 
 	answer := call(t, r, "d-1", "device_tap", `{"target":"#1"}`)

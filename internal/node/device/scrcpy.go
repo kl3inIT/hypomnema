@@ -35,6 +35,8 @@ const (
 	// The stream's limits (issue #417's design: H.264, max 1280, 8 Mbps; serve-emu's 1280 and 8 Mbps).
 	scrcpyMaxSize = 1280
 	scrcpyBitRate = 8_000_000
+	// scrcpyMaxFps caps the frames the phone encodes a second (serve-emu's maxFps; Orca's max_fps).
+	scrcpyMaxFps = 60
 	// deviceNameBytes is the device's name at the stream's start.
 	deviceNameBytes = 64
 	// packetHeader is a packet's header: flags and time in a uint64, and the size in a uint32.
@@ -94,13 +96,17 @@ func newScid() string {
 }
 
 // scrcpyServerArgs are adb's arguments that run the server on the phone,
-// Orca's (startScrcpyServerArgs) with the stream's limits of the design.
+// Orca's (startScrcpyServerArgs) with the stream's limits of the design and
+// serve-emu's 60 frames a second at most (SCRCPY_DEFAULTS.maxFps). A key
+// frame every 10 s, serve-emu's keyFrameInterval, is scrcpy 3.3.4's own
+// default (SurfaceEncoder.java, DEFAULT_I_FRAME_INTERVAL), so it is not passed.
 func scrcpyServerArgs(scid string) []string {
 	return []string{
 		"-s", serial, "shell", "CLASSPATH=" + scrcpyJar, "app_process", "/", "com.genymobile.scrcpy.Server",
 		scrcpyVersion, "scid=" + scid, "log_level=info", "tunnel_forward=true", "audio=false", "control=true",
 		"cleanup=true", "clipboard_autosync=false", "video_codec=h264",
-		fmt.Sprintf("max_size=%d", scrcpyMaxSize), fmt.Sprintf("video_bit_rate=%d", scrcpyBitRate),
+		fmt.Sprintf("max_size=%d", scrcpyMaxSize), fmt.Sprintf("max_fps=%d", scrcpyMaxFps),
+		fmt.Sprintf("video_bit_rate=%d", scrcpyBitRate),
 	}
 }
 

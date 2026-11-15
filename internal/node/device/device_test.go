@@ -237,13 +237,17 @@ type rig struct {
 	dir   string
 	comps []component
 	kvm   bool
+	// gpu and cpus are the renderer and the machine's CPU count the Manager is given: the default
+	// renderer and the live phone machine's 8 vCPUs unless a test sets them.
+	gpu  string
+	cpus int
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
 
 	r := &rig{sys: newFakeSystem(), clock: &clock{now: time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)},
-		dir: t.TempDir(), comps: testComponents(t, newFiles(t)), kvm: true}
+		dir: t.TempDir(), comps: testComponents(t, newFiles(t)), kvm: true, cpus: 8}
 	r.m = r.manager()
 
 	return r
@@ -255,7 +259,55 @@ func (r *rig) manager() *Manager {
 	return newManager(Options{
 		Dir: r.dir, System: r.sys, KVM: func() bool { return r.kvm }, Clock: r.clock,
 		Poll: time.Millisecond, BootWithin: 200 * time.Millisecond, EndWithin: 50 * time.Millisecond,
+		GPU: r.gpu, CPUs: r.cpus,
 	}, r.comps)
+}
+
+// The renderer the node's configuration names is the emulator's -gpu, on
+// Xvfb still; the phone takes half the machine's CPUs, never fewer than 2.
+func TestTheRendererAndCoresFollowTheNode(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		gpu   string
+		cpus  int
+		cores string
+	}{
+		{"lavapipe", 16, "8"},
+		{"swiftshader", 3, "2"},
+		{"auto", 1, "2"},
+	} {
+		r := newRig(t)
+		r.gpu, r.cpus = tt.gpu, tt.cpus
+		r.m = r.manager()
+		r.start(t)
+
+		starts := r.sys.started()
+		require.Len(t, starts, 2)
+		assert.Equal(t, "Xvfb", starts[0].Path, "the display starts whatever the renderer")
+
+		args := strings.Join(starts[1].Args, " ")
+		assert.Contains(t, args, "-gpu "+tt.gpu+" ", tt.gpu)
+		assert.Contains(t, args, "-cores "+tt.cores+" ", tt.cpus)
+	}
+}
+
+// A renderer the emulator does not have fails the start with what it can
+// be, before anything is started.
+func TestAnUnknownRendererFailsTheStart(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	r.gpu = "swiftshader_indirect"
+	r.m = r.manager()
+
+	require.Error(t, r.m.Start(t.Context()))
+
+	st := r.m.Status()
+	assert.Equal(t, nodeproto.DeviceFailed, st.State)
+	assert.Contains(t, st.Reason, `device_gpu "swiftshader_indirect"`)
+	assert.Contains(t, st.Reason, "lavapipe")
+	assert.Empty(t, r.sys.started())
 }
 
 func (r *rig) start(t *testing.T) {
@@ -296,8 +348,8 @@ func TestStartInstallsAndBootsThePhone(t *testing.T) {
 	assert.Equal(t, filepath.Join(r.dir, "sdk", "emulator", "emulator"), emulator.Path)
 	assert.Equal(t, []string{
 		"-avd", "phone", "-no-window", "-no-audio", "-no-boot-anim", "-gpu", "host",
-		"-memory", "4096", "-cores", "6", "-port", "5554",
-	}, emulator.Args, "Quick Boot: no -wipe-data, -no-snapshot-save or -read-only")
+		"-memory", "4096", "-cores", "4", "-port", "5554",
+	}, emulator.Args, "Quick Boot: no -wipe-data, -no-snapshot-save or -read-only; half of the 8 CPUs")
 	assert.Subset(t, emulator.Env, []string{
 		"DISPLAY=:100", "ANDROID_SDK_ROOT=" + filepath.Join(r.dir, "sdk"), "ANDROID_AVD_HOME=" + filepath.Join(r.dir, "avd"),
 	})

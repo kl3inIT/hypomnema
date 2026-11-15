@@ -26,16 +26,18 @@ the `device_*` tools; nothing else reaches it. Written for Hypomnema (issue #417
 
 ## Look before you act
 
-- `device_screen` returns a picture of the screen with numbered boxes around what it found, and keeps it as your
-  last screen. **Look at the picture before doing anything else.**
+- `device_screen` returns a picture of the screen. **Look at the picture before doing anything else.** With
+  `boxes: true` it also draws numbered boxes around what it found, which takes a second or two longer, and keeps it
+  as your last screen with boxes. Ask for boxes when you want to tap by number; otherwise tap `"x,y"` in the
+  picture's pixels or by a selector.
 - `device_layout` returns the app's views as JSON (text, descriptions, ids, centers). Use it first for an ordinary
   app; an app drawn by Flutter, a map or a game shows little or nothing there, so use `device_screen` for those.
 - Content may take time to load. When a screen looks incomplete after an action, wait a few seconds and look again.
 
 ## Act
 
-- `device_tap` with `"#N"` taps the center of box N of **your last** `device_screen`. A box number is good only
-  for that screen: after any action, take a new screen before tapping by number again. A tap by number is refused
+- `device_tap` with `"#N"` taps the center of box N of **your last** `device_screen` with boxes. A box number is
+  good only for that screen: after any action, take a new screen with boxes before tapping by number again. A tap by number is refused
   when another agent used the phone since your screen; take a new one.
 - `device_tap` also takes `"x,y"` in the screen's pixels, or an Android CLI selector such as `text=Search`,
   `desc=Back`, `id=submit` or `text=OK,clickable=true` (values match as case-insensitive parts; `/regex/` for a
