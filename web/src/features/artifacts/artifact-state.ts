@@ -2,22 +2,22 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect, useMemo } from "react"
 
 import { client } from "@/api/client"
-import { getArtifact, openArtifactFrame, readArtifactFile } from "@/api/generated/sdk.gen"
+import {
+  getArtifactOptions,
+  openArtifactFrameOptions,
+  readArtifactFileOptions,
+  readArtifactFileQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
 import type { Artifact, ArtifactRevision, ArtifactType } from "@/api/generated/types.gen"
 import { isRaster, kindLabel, previewKind, type PreviewKind } from "@/features/preview/preview-kind"
 
 // What the web knows of an artifact (issue #402): the artifact with its revisions, a revision's files read as
 // bytes, and the address a folder page's files load from in its frame.
 
-export const artifactKey = (id: string) => ["artifact", id] as const
-
 // useArtifact is an artifact with every revision kept, newest first. Its message in the chat says when it changes,
 // and the card that shows the message reads it again then (artifact-card.tsx).
 export function useArtifact(id: string) {
-  return useQuery({
-    queryKey: artifactKey(id),
-    queryFn: async () => (await getArtifact({ path: { artifact_id: id } })).data,
-  })
+  return useQuery(getArtifactOptions({ path: { artifact_id: id } }))
 }
 
 // revisionOf is the revision numbered rev, or the newest when rev is absent or not kept.
@@ -28,19 +28,28 @@ export function revisionOf(a: Artifact, rev?: number): ArtifactRevision | undefi
 }
 
 // useArtifactFile is a file of a revision as bytes, the file shown when path is absent. A revision never changes,
-// so what was read is kept.
+// so what was read is kept. The bytes are read as a blob whatever the file's type, which the key does not name.
 export function useArtifactFile(id: string, rev: number, path?: string, enabled = true) {
   return useQuery({
-    queryKey: [...artifactKey(id), rev, "file", path ?? ""],
-    queryFn: async () =>
-      (
-        await readArtifactFile({
-          path: { artifact_id: id, revision: rev },
-          query: path ? { path } : undefined,
-          parseAs: "blob",
-        })
-      ).data as Blob,
+    ...readArtifactFileOptions({
+      path: { artifact_id: id, revision: rev },
+      query: path ? { path } : undefined,
+      parseAs: "blob",
+    }),
     enabled,
+    staleTime: Infinity,
+  })
+}
+
+// usePageText is a page's index.html as text, read from its bytes. It is no call of its own, so its key is the
+// bytes' generated key with "text" after it.
+export function usePageText(id: string, rev: number) {
+  const file = useArtifactFile(id, rev)
+
+  return useQuery({
+    queryKey: [...readArtifactFileQueryKey({ path: { artifact_id: id, revision: rev } }), "text"],
+    queryFn: () => (file.data as Blob).text(),
+    enabled: file.data !== undefined,
     staleTime: Infinity,
   })
 }
@@ -49,12 +58,8 @@ export function useArtifactFile(id: string, rev: number, path?: string, enabled 
 // so it is asked again after half that.
 export function useFrameFiles(id: string, rev: number, enabled: boolean) {
   return useQuery({
-    queryKey: [...artifactKey(id), rev, "frame"],
-    queryFn: async () => {
-      const { url } = (await openArtifactFrame({ path: { artifact_id: id, revision: rev } })).data
-
-      return new URL(url, window.location.origin).href
-    },
+    ...openArtifactFrameOptions({ path: { artifact_id: id, revision: rev } }),
+    select: ({ url }) => new URL(url, window.location.origin).href,
     enabled,
     staleTime: 30 * 60_000,
   })

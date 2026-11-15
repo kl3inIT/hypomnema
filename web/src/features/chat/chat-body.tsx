@@ -1,10 +1,10 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import "@/api/client"
+import { getChatQueryKey, listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import {
   abortChat,
-  getChat,
   removeQueuedChatMessage,
   sendChatMessage,
   sendQueuedChatMessage,
@@ -24,7 +24,7 @@ import { useBotName, useMainBot } from "@/features/bots/use-bots"
 import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
 import { OpenArtifactContext, type OpenArtifact } from "@/features/artifacts/open-artifact-context"
-import { chatsKey } from "@/features/shell/chats"
+import { useChat } from "@/features/shell/chats"
 
 import { AttachDrop } from "./attach-drop"
 import { useAttachments } from "./attachments"
@@ -61,10 +61,7 @@ export function ChatBody({
 }) {
   const queryClient = useQueryClient()
   const { view, loadEarlier, loadingEarlier } = useChatStream(chatId)
-  const chat = useQuery({
-    queryKey: ["chat", chatId],
-    queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
-  })
+  const chat = useChat(chatId)
   const [sending, setSending] = useState<ChatMessage[]>([])
   // A queued message taken back to edit goes into the composer (issue #497).
   const [put, setPut] = useState<{ text: string; at: number }>()
@@ -97,7 +94,7 @@ export function ChatBody({
   // The chat's model and effort (issue #369): shown as chosen at once, kept by the server, and put back as it was
   // when the server refuses them.
   async function choose(next: ChatChoice) {
-    const key = ["chat", chatId]
+    const key = getChatQueryKey({ path: { chat_id: chatId } })
     const before = queryClient.getQueryData<Chat>(key)
     if (before) queryClient.setQueryData<Chat>(key, { ...before, ...next })
 
@@ -133,7 +130,7 @@ export function ChatBody({
       throw err
     }
 
-    void queryClient.invalidateQueries({ queryKey: chatsKey })
+    void queryClient.invalidateQueries({ queryKey: listChatsQueryKey() })
   }
 
   // The queue's rows (issue #497): Edit takes the message out and puts it back in the composer with its files, as

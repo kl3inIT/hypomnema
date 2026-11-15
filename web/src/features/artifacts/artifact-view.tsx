@@ -1,13 +1,13 @@
-import { useQuery } from "@tanstack/react-query"
 import { lazy, Suspense } from "react"
 
+import { readArtifactFileQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import { openArtifactFrame, readArtifactFile, readArtifactSheets } from "@/api/generated/sdk.gen"
 import type { Artifact, ArtifactRevision } from "@/api/generated/types.gen"
 import { Spinner } from "@/components/ui/spinner"
 import { problemOf } from "@/lib/server-error"
 import { FileView, type PreviewReader } from "@/features/preview/preview-loader"
 
-import { artifactKey, downloadURL, useArtifactFile, useFrameFiles } from "./artifact-state"
+import { downloadURL, useFrameFiles, usePageText } from "./artifact-state"
 import { frameDocument, frameSandbox } from "./frame-document"
 
 // The viewers of an artifact (issues #402 and #422): a page in its locked frame, and any other file in the app's
@@ -45,24 +45,12 @@ export function ArtifactView({
 
 type Props = { artifact: Artifact; revision: ArtifactRevision }
 
-// usePageText is a page's index.html as text.
-function usePageText({ artifact, revision }: Props) {
-  const file = useArtifactFile(artifact.id, revision.revision)
-
-  return useQuery({
-    queryKey: ["artifact", artifact.id, revision.revision, "text"],
-    queryFn: () => (file.data as Blob).text(),
-    enabled: file.data !== undefined,
-    staleTime: Infinity,
-  })
-}
-
 // PageFrame is a page in its locked frame (issue #402, rows 8-10): srcdoc with the policy first, a sandbox that
 // runs its scripts and never makes it of this origin, and no referrer. A folder page's files load from the frame's
 // own address, which the policy names as its base.
 function PageFrame(props: Props) {
   const { artifact, revision } = props
-  const text = usePageText(props)
+  const text = usePageText(artifact.id, revision.revision)
   const folder = revision.files.length > 1
   const files = useFrameFiles(artifact.id, revision.revision, folder)
 
@@ -84,7 +72,7 @@ function PageFrame(props: Props) {
 }
 
 function PageCode(props: Props) {
-  const text = usePageText(props)
+  const text = usePageText(props.artifact.id, props.revision.revision)
 
   if (text.error) return <Problem error={text.error} />
   if (text.data === undefined) return <Loading />
@@ -123,7 +111,7 @@ function Preview({ artifact, revision, wide }: Props & { wide: boolean }) {
       reader={reader}
       filename={revision.entry}
       mediaType={mediaType}
-      queryKey={[...artifactKey(id), rev, "file", ""]}
+      queryKey={readArtifactFileQueryKey({ path })}
       staleTime={Infinity}
       thumbnails={wide}
     />

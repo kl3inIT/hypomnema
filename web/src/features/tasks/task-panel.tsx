@@ -1,12 +1,18 @@
 import { Dialog } from "@base-ui/react/dialog"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ArrowDown, ExternalLink, X } from "lucide-react"
 import type { ReactNode } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import "@/api/client"
-import { cancelTask, forwardQuestion, getRun, getTask, reopenTask } from "@/api/generated/sdk.gen"
+import {
+  getRunQueryKey,
+  getTaskQueryKey,
+  listQuestionsQueryKey,
+  listTasksQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import { cancelTask, forwardQuestion, reopenTask } from "@/api/generated/sdk.gen"
 import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { since, span } from "@/lib/time"
@@ -14,7 +20,8 @@ import { since, span } from "@/lib/time"
 import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { QuestionForm } from "@/features/questions/question-form"
-import { boardKey, questionsKey, useWork } from "@/features/work/use-work"
+import { useRun, useTask, useWork } from "@/features/work/use-work"
+import { callsOf } from "@/lib/query-keys"
 import {
   boardCards,
   evidenceLink,
@@ -47,16 +54,8 @@ function useCard(taskId: string): Card | undefined {
   const onBoard = cards.find((c) => c.task.id === taskId)
 
   // A Task off the board (an old Run's) is read on its own.
-  const task = useQuery({
-    queryKey: ["task", taskId],
-    queryFn: async () => (await getTask({ path: { task_id: taskId } })).data,
-    enabled: !onBoard,
-  })
-  const run = useQuery({
-    queryKey: ["run", task.data?.run_id],
-    queryFn: async () => (await getRun({ path: { run_id: task.data?.run_id ?? "" } })).data,
-    enabled: !onBoard && !!task.data,
-  })
+  const task = useTask(taskId, !onBoard)
+  const run = useRun(task.data?.run_id, !onBoard)
 
   if (onBoard) return onBoard
   if (!task.data || !run.data) return undefined
@@ -255,13 +254,18 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
+// taskReads matches what the owner's act on a Task changes: the Tasks, the questions, each Run and each Task.
+const taskReads = callsOf(
+  listTasksQueryKey(),
+  listQuestionsQueryKey(),
+  getRunQueryKey({ path: { run_id: "" } }),
+  getTaskQueryKey({ path: { task_id: "" } }),
+)
+
 function useRefresh() {
   const queryClient = useQueryClient()
 
-  return () => {
-    for (const queryKey of [boardKey, questionsKey, ["run"], ["task"]])
-      void queryClient.invalidateQueries({ queryKey })
-  }
+  return () => void queryClient.invalidateQueries({ predicate: taskReads })
 }
 
 // PiQuestion shows a question the worker put to pi. pi answers it; the owner can take it over, which hands it to the

@@ -152,14 +152,14 @@ func TestTheSizeIsReadFromTheSPS(t *testing.T) {
 }
 
 // The server runs as Orca runs it, at the pinned version, with the stream's
-// limits of the design: H.264, at most 1280 pixels, 8 Mbps.
+// limits of the design: H.264, at most 1280 pixels and 60 frames a second, 8 Mbps.
 func TestTheServerRunsWithTheDesignsLimits(t *testing.T) {
 	t.Parallel()
 
 	args := strings.Join(scrcpyServerArgs("0badcafe"), " ")
 	assert.Equal(t, "-s emulator-5554 shell CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / "+
 		"com.genymobile.scrcpy.Server 3.3.4 scid=0badcafe log_level=info tunnel_forward=true audio=false "+
-		"control=true cleanup=true clipboard_autosync=false video_codec=h264 max_size=1280 video_bit_rate=8000000", args)
+		"control=true cleanup=true clipboard_autosync=false video_codec=h264 max_size=1280 max_fps=60 video_bit_rate=8000000", args)
 
 	scid := newScid()
 	assert.Len(t, scid, 8)

@@ -5,8 +5,10 @@ import { defineConfig } from "@hey-api/openapi-ts"
 const streams = new Set(["StreamEvents", "StreamChat"])
 
 // Reads sent as a POST: they get query options whose key carries the request body, as MemoryOS gives its
-// document search (web/openapi-ts.config.ts). A schedule's preview changes nothing on the server.
-const postReads = new Set(["PreviewRoutineSchedule"])
+// document search (web/openapi-ts.config.ts). A schedule's preview changes nothing on the server. A folder page's
+// frame address is read as a query and kept for half its life (features/artifacts/artifact-state.ts,
+// useFrameFiles); asking it again only gives another address to the same files.
+const postReads = new Set(["PreviewRoutineSchedule", "OpenArtifactFrame"])
 
 // The typed client for the client API, generated from its contract, as Omnara generates its SDK
 // (.tmp/omnara/frontend/packages/sdk/openapi-ts.config.ts). `make openapi-check` fails when it is stale.

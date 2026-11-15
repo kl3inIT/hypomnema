@@ -2,14 +2,27 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef } from "react"
 
 import "@/api/client"
-import { listNodesOptions, listProfilesOptions } from "@/api/generated/@tanstack/react-query.gen"
-import { listQuestions, listTasks, streamEvents } from "@/api/generated/sdk.gen"
-import { isFileQuery, workspaceKey } from "@/features/files/files-state"
+import {
+  diffWorkspaceFileQueryKey,
+  getRunOptions,
+  getRunQueryKey,
+  getTaskOptions,
+  listChatWorkspacesQueryKey,
+  listNodesOptions,
+  listProfilesOptions,
+  listQuestionsOptions,
+  listQuestionsQueryKey,
+  listRunsOptions,
+  listRunsQueryKey,
+  listTasksOptions,
+  listTasksQueryKey,
+  listWorkspaceChangesQueryKey,
+  listWorkspaceDirectoryQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import { streamEvents } from "@/api/generated/sdk.gen"
+import { callsOf } from "@/lib/query-keys"
 
 import { boardCards } from "./work-state"
-
-export const boardKey = ["board"] as const
-export const questionsKey = ["questions"] as const
 
 // whileWorking is how often the Tasks are read again while a worker runs: what a worker does now changes
 // without an event.
@@ -19,14 +32,13 @@ const whileWorking = 10_000
 // that name a card's machine and runtime. LiveUpdates keeps them current, from the cursor this returns as after.
 export function useWork() {
   const board = useQuery({
-    queryKey: boardKey,
-    queryFn: async () => (await listTasks()).data,
+    ...listTasksOptions(),
     refetchInterval: (query) =>
       query.state.data?.data.some((t) => t.status === "running") ? whileWorking : false,
   })
   const questions = useQuery({
-    queryKey: [...questionsKey, "open"],
-    queryFn: async () => (await listQuestions({ query: { status: "open" } })).data.data,
+    ...listQuestionsOptions({ query: { status: "open" } }),
+    select: (page) => page.data,
   })
   const nodes = useQuery({ ...listNodesOptions(), select: (page) => page.data })
   const profiles = useQuery({ ...listProfilesOptions(), select: (page) => page.data })
@@ -38,6 +50,48 @@ export function useWork() {
 
   return { cards, after: board.data?.after, loading: board.isPending, error: board.error }
 }
+
+// useRun reads one Run with its Tasks; none until its id is known.
+export function useRun(runId: string | undefined, enabled = true) {
+  return useQuery({
+    ...getRunOptions({ path: { run_id: runId ?? "" } }),
+    enabled: enabled && runId !== undefined,
+  })
+}
+
+// useTask reads one Task, for a Task off the board (an old Run's).
+export function useTask(taskId: string, enabled: boolean) {
+  return useQuery({ ...getTaskOptions({ path: { task_id: taskId } }), enabled })
+}
+
+// useRecentRuns reads the latest Runs, a hundred at most, while enabled.
+export function useRecentRuns(enabled: boolean) {
+  return useQuery({
+    ...listRunsOptions({ query: { limit: 100 } }),
+    select: (page) => page.data,
+    enabled,
+  })
+}
+
+// everyWorkRead matches every cached read of the work an event may change: the Tasks, the questions, the lists of
+// Runs and each Run, which the hand-written ["board"], ["questions"], ["runs"] and ["run"] prefixes covered.
+const everyWorkRead = callsOf(
+  listTasksQueryKey(),
+  listQuestionsQueryKey(),
+  listRunsQueryKey(),
+  getRunQueryKey({ path: { run_id: "" } }),
+)
+
+// everyFolderList matches every cached read of a chat's folders but a file's own text and bytes
+// (readWorkspaceFile, readWorkspaceRaw) and what is read from them: the folders, their changes, directories and
+// diffs, which the hand-written ["workspace"] prefix without its "file" and "raw" keys covered.
+const folder = { chat_id: "", workspace_id: "" }
+const everyFolderList = callsOf(
+  listChatWorkspacesQueryKey({ path: { chat_id: "" } }),
+  listWorkspaceChangesQueryKey({ path: folder }),
+  listWorkspaceDirectoryQueryKey({ path: folder }),
+  diffWorkspaceFileQueryKey({ path: folder }),
+)
 
 // reopenAfter is the pause before the stream is opened again once the server ended it (a restart).
 const reopenAfter = 2000
@@ -62,15 +116,10 @@ export function useLiveUpdates(after: number | undefined) {
     const refresh = () => {
       clearTimeout(timer)
       timer = setTimeout(() => {
-        for (const queryKey of [boardKey, questionsKey, ["runs"], ["run"]]) {
-          void queryClient.invalidateQueries({ queryKey })
-        }
+        void queryClient.invalidateQueries({ predicate: everyWorkRead })
         // A chat's folders, as Omnigent refreshes them when its runner says files changed; a file that is open
         // reads itself again.
-        void queryClient.invalidateQueries({
-          queryKey: workspaceKey,
-          predicate: (query) => !isFileQuery(query.queryKey),
-        })
+        void queryClient.invalidateQueries({ predicate: everyFolderList })
       }, settle)
     }
 

@@ -3,12 +3,23 @@ import { MessageCircleQuestion } from "lucide-react"
 import { useState } from "react"
 
 import "@/api/client"
+import {
+  getRunQueryKey,
+  listQuestionsQueryKey,
+  listTasksQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
 import { answerQuestion } from "@/api/generated/sdk.gen"
 import type { Question } from "@/api/generated/types.gen"
 import { since } from "@/lib/time"
+import { callsOf } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
-import { boardKey, questionsKey } from "@/features/work/use-work"
+// answeredReads matches what an answer changes: the Tasks, the questions and each Run.
+const answeredReads = callsOf(
+  listTasksQueryKey(),
+  listQuestionsQueryKey(),
+  getRunQueryKey({ path: { run_id: "" } }),
+)
 
 // QuestionForm answers a worker's question, after t3code's pending user-input panel (MIT, Copyright (c) 2026 T3
 // Tools Inc., https://github.com/pingdotgg/t3code; chat/ComposerPendingUserInputPanel.tsx): the options as radio
@@ -36,8 +47,7 @@ export function QuestionForm({
         body: { option: pick, text: takesText && text.trim() ? text.trim() : undefined },
       }),
     onSuccess: () => {
-      for (const queryKey of [boardKey, questionsKey, ["run"]])
-        void queryClient.invalidateQueries({ queryKey })
+      void queryClient.invalidateQueries({ predicate: answeredReads })
       onAnswered?.()
     },
   })
