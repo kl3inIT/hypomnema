@@ -2,13 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef } from "react"
 
 import "@/api/client"
-import {
-  listNodes,
-  listProfiles,
-  listQuestions,
-  listTasks,
-  streamEvents,
-} from "@/api/generated/sdk.gen"
+import { listNodesOptions } from "@/api/generated/@tanstack/react-query.gen"
+import { listProfiles, listQuestions, listTasks, streamEvents } from "@/api/generated/sdk.gen"
 import { isFileQuery, workspaceKey } from "@/features/files/files-state"
 
 import { boardCards } from "./work-state"
@@ -33,10 +28,7 @@ export function useWork() {
     queryKey: [...questionsKey, "open"],
     queryFn: async () => (await listQuestions({ query: { status: "open" } })).data.data,
   })
-  const nodes = useQuery({
-    queryKey: ["nodes"],
-    queryFn: async () => (await listNodes()).data.data,
-  })
+  const nodes = useQuery({ ...listNodesOptions(), select: (page) => page.data })
   const profiles = useQuery({
     queryKey: ["profiles"],
     queryFn: async () => (await listProfiles()).data.data,

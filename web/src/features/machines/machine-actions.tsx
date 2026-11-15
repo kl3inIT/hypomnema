@@ -1,7 +1,7 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog"
 import { Dialog } from "@base-ui/react/dialog"
 import { Menu } from "@base-ui/react/menu"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
   CirclePause,
@@ -16,13 +16,14 @@ import {
 import { useState } from "react"
 
 import "@/api/client"
-import { drainNode, removeNode, resumeNode, updateNode } from "@/api/generated/sdk.gen"
+import { removeNodeMutation, updateNodeMutation } from "@/api/generated/@tanstack/react-query.gen"
+import { drainNode, resumeNode } from "@/api/generated/sdk.gen"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 
 import { errorText } from "@/lib/server-error"
 import { machineState, noTerminal } from "./machines-state"
-import { nodesKey, useMachinePower } from "./use-machines"
+import { useMachinePower, useRefreshMachines } from "./use-machines"
 
 const itemClass =
   "flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
@@ -33,7 +34,7 @@ const itemClass =
 // edit or copy items; a refused request shows the server's message; a provider's machine that is on can be
 // stopped, and one that is stopped is started instead of drained or resumed.
 export function MachineActions({ node }: { node: Node }) {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshMachines()
   const [removing, setRemoving] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const drained = node.status === "drained"
@@ -43,7 +44,7 @@ export function MachineActions({ node }: { node: Node }) {
       drained
         ? await resumeNode({ path: { node_id: node.id } })
         : await drainNode({ path: { node_id: node.id } }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: nodesKey }),
+    onSettled: refresh,
   })
   const power = useMachinePower(node)
   const state = machineState(node)
@@ -151,12 +152,12 @@ export function RemoveMachine({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshMachines()
   const remove = useMutation({
-    mutationFn: async () => await removeNode({ path: { node_id: node.id } }),
+    ...removeNodeMutation(),
     onSuccess: async () => {
       onOpenChange(false)
-      await queryClient.invalidateQueries({ queryKey: nodesKey })
+      await refresh()
     },
   })
 
@@ -186,7 +187,7 @@ export function RemoveMachine({
             <Button
               variant="destructive"
               disabled={remove.isPending}
-              onClick={() => remove.mutate()}
+              onClick={() => remove.mutate({ path: { node_id: node.id } })}
             >
               {remove.isPending ? "Removing…" : "Remove"}
             </Button>
@@ -201,14 +202,13 @@ export function RemoveMachine({
 // Only the name changes: the machine keeps its token and what it runs. A refusal, such as a name another machine
 // has, shows the server's message and keeps the dialog open.
 function RenameMachine({ node, onClose }: { node: Node; onClose: () => void }) {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshMachines()
   const [name, setName] = useState(node.name)
   const rename = useMutation({
-    mutationFn: async () =>
-      await updateNode({ path: { node_id: node.id }, body: { name: name.trim() } }),
+    ...updateNodeMutation(),
     onSuccess: async () => {
       onClose()
-      await queryClient.invalidateQueries({ queryKey: nodesKey })
+      await refresh()
     },
   })
   const unchanged = name.trim() === "" || name.trim() === node.name
@@ -222,7 +222,8 @@ function RenameMachine({ node, onClose }: { node: Node; onClose: () => void }) {
             className="flex flex-col gap-4"
             onSubmit={(event) => {
               event.preventDefault()
-              if (!unchanged) rename.mutate()
+              if (!unchanged)
+                rename.mutate({ path: { node_id: node.id }, body: { name: name.trim() } })
             }}
           >
             <Dialog.Title className="text-sm font-medium">Rename {node.name}</Dialog.Title>
