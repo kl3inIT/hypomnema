@@ -37,7 +37,7 @@ func TestTheTxFunctionsUseTheCallersTransaction(t *testing.T) {
 	defer cancel()
 
 	clock := &fakeClock{now: time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)}
-	bot := orchestration.DefaultBot
+	bot := orchestration.DefaultBotID
 
 	err = storeutil.Write(ctx, db, clock, func() {}, func(q *store.Queries, now int64) error {
 		require.NoError(t, q.UpsertChannel(ctx, store.UpsertChannelParams{

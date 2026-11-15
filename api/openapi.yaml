@@ -870,7 +870,7 @@ paths:
         secret goes into the vault. The owner's email is looked up at Lark
         with the app, which also shows the app's id and secret work. A new
         Channel is off, takes messages from its owner only and talks to the
-        Bot coordinator unless another is named. An app that is another
+        main Bot unless another is named. An app that is another
         Channel's is refused: one app is one Channel. A new Channel connects
         at once; another app of a Channel that is connected is used from the
         control plane's next start.
@@ -1747,9 +1747,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BotList" }
         default: { $ref: "#/components/responses/Error" }
-  /bots/{name}:
+    post:
+      operationId: CreateBot
+      summary: Make a Bot; the owner, or the main Bot from its chat
+      description: >-
+        The Bot gets an id that never changes; its name is only shown and may
+        change (issue #466). A name another Bot has is refused. A Bot made by
+        the main Bot, with its pi's token, is recorded in its chat as a setup
+        change the owner can undo; every other Bot's token is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewBot" }
+      responses:
+        "201":
+          description: The Bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
+  /bots/{bot_id}:
     parameters:
-      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/BotID"
     get:
       operationId: GetBot
       summary: A Bot, with its persona and memory
@@ -1762,11 +1782,11 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       operationId: PutBot
-      summary: Make a Bot, or change its settings; the owner, or the Bot coordinator from its chat
+      summary: Change a Bot's settings; the owner, or the main Bot from its chat
       description: >-
-        The Bot's memory stays as it is. A change by the Bot coordinator, with
-        its pi's token, applies at once and is recorded in its chat as a setup
-        change the owner can undo; every other Bot's token is refused.
+        The Bot's name and memory stay as they are. A change by the main Bot,
+        with its pi's token, applies at once and is recorded in its chat as a
+        setup change the owner can undo; every other Bot's token is refused.
       requestBody:
         required: true
         content:
@@ -1779,13 +1799,31 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Bot" }
         default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: RenameBot
+      summary: Give a Bot another name; the owner, or the main Bot from its chat
+      description: >-
+        Its id, chats, Routines, Channels and memory stay. A name another Bot
+        has is refused. A rename by the main Bot is recorded in its chat as a
+        setup change the owner can undo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BotChange" }
+      responses:
+        "200":
+          description: The Bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: DeleteBot
-      summary: Remove a Bot that has no chats and no memory; the owner, or the Bot coordinator from its chat
+      summary: Remove a Bot that has no chats and no memory; the owner, or the main Bot from its chat
       description: >-
-        The Bot `coordinator` is always there and is not removed. A removal by
-        the Bot coordinator is recorded in its chat as a setup change the owner
-        can undo. With force, the owner removes a Bot with its chats and its
+        The main Bot is always there and is not removed. A removal by the main
+        Bot is recorded in its chat as a setup change the owner can undo. With force, the owner removes a Bot with its chats and its
         memory (issue #330): the chats' messages go; Runs, Routines and
         approvals made in them stay without the chat, and the chats' gateway
         keys are revoked and kept. A Bot that Routines or Lark Channels use is
@@ -1799,9 +1837,9 @@ paths:
       responses:
         "204": { description: The Bot is removed. }
         default: { $ref: "#/components/responses/Error" }
-  /bots/{name}/skills:
+  /bots/{bot_id}/skills:
     parameters:
-      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/BotID"
     get:
       operationId: ListBotSkills
       summary: The skills a Bot gets now, each at its newest revision
@@ -1815,9 +1853,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SkillRefList" }
         default: { $ref: "#/components/responses/Error" }
-  /bots/{name}/memory:
+  /bots/{bot_id}/memory:
     parameters:
-      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/BotID"
     put:
       operationId: SetBotMemory
       summary: Replace a Bot's whole memory with the owner's text; only the owner
@@ -2201,9 +2239,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Skill" }
         default: { $ref: "#/components/responses/Error" }
-  /bots/{name}/routines/{routine}:
+  /bots/{bot_id}/routines/{routine}:
     parameters:
-      - $ref: "#/components/parameters/Name"
+      - $ref: "#/components/parameters/BotID"
       - name: routine
         in: path
         required: true
@@ -2240,7 +2278,7 @@ paths:
       parameters:
         - name: bot
           in: query
-          description: Only this Bot's.
+          description: Only the Routines of the Bot of this id.
           schema: { type: string, maxLength: 63 }
         - name: chat_id
           in: query
@@ -2256,7 +2294,7 @@ paths:
   /setup-changes:
     get:
       operationId: ListSetupChanges
-      summary: What the Bot coordinator made, changed or removed of Bots and profiles from a chat; only the owner
+      summary: What the main Bot made, changed or removed of Bots and profiles from a chat; only the owner
       parameters:
         - name: chat_id
           in: query
@@ -2278,7 +2316,7 @@ paths:
         schema: { type: string, pattern: "^chg_[A-Za-z0-9_]{1,60}$" }
     post:
       operationId: UndoSetupChange
-      summary: Undo a change of the Bot coordinator; only the owner
+      summary: Undo a change of the main Bot; only the owner
       description: >-
         A Bot or profile it made is removed, one it changed is what it was
         before, a Bot it removed is back. Refused once the Bot or profile was
@@ -2477,7 +2515,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       operationId: ApplyProfile
-      summary: Store a profile's YAML; the owner, or the Bot coordinator from its chat
+      summary: Store a profile's YAML; the owner, or the main Bot from its chat
       description: >-
         A changed source makes a new version; the name of a deleted profile
         brings it back as a new version, even from the same source. A new
@@ -3284,6 +3322,12 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 63 }
+    BotID:
+      name: bot_id
+      in: path
+      required: true
+      description: The Bot's id, which never changes (issue #466).
+      schema: { type: string, minLength: 1, maxLength: 63 }
     SkillName:
       name: skill
       in: path
@@ -3315,7 +3359,7 @@ components:
       in: query
       description: >-
         For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the
-        files of the chat's first message go into its folder of attachments before the chat is made. Only the
+        files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the
         folder `bot` takes it; for a chat that is made it must be the chat's Bot.
       schema: { type: string }
     WorkspacePath:
@@ -3426,7 +3470,7 @@ components:
           description: The chat whose coordinator created the Run.
         bot:
           type: string
-          description: The Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
+          description: The id of the Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         uses:
@@ -4451,7 +4495,7 @@ components:
         name: { type: string, description: The Channel's name. }
         bot:
           type: string
-          description: The Bot a chat opened through the Channel talks with.
+          description: The id of the Bot a chat opened through the Channel talks with.
         app_id: { type: string, description: The Lark app's id. Not secret. }
         mode: { $ref: "#/components/schemas/LarkChannelMode" }
         owner_open_id: { type: string, description: The owner's id at Lark, in the Channel's app. }
@@ -4529,10 +4573,10 @@ components:
       properties:
         bot:
           type: string
-          pattern: "^[a-z][a-z0-9-]{0,62}$"
+          maxLength: 63
           description: >-
-            The Bot the Channel talks to, which must exist; coordinator for a
-            new Channel that names none. A chat that is open keeps its Bot;
+            The id of the Bot the Channel talks to, which must exist; the main
+            Bot for a new Channel that names none. A chat that is open keeps its Bot;
             the next one is with the new Bot.
         app_id: { type: string, minLength: 1, maxLength: 1024 }
         app_secret:
@@ -5661,10 +5705,20 @@ components:
     Bot:
       type: object
       required:
-        [name, persona, memory, memory_limit, skills, skills_off, connections, workers, tool_display, created_at,
-         updated_at]
+        [id, name, main, persona, memory, memory_limit, skills, skills_off, connections, workers, tool_display,
+         created_at, updated_at]
       properties:
-        name: { type: string }
+        id:
+          type: string
+          description: The Bot's id, which never changes; every record that names the Bot names this.
+        name:
+          type: string
+          description: What the Bot is called; shown, and changed with a rename.
+        main:
+          type: boolean
+          description: >-
+            The main Bot: always there, never removed, a chat that names no Bot
+            talks with it, and it alone changes Bots and profiles from its chat.
         provider: { type: string }
         model: { type: string }
         effort: { type: string }
@@ -5720,13 +5774,15 @@ components:
           items: { type: string }
     SetupChange:
       type: object
-      description: A change of a Bot or a profile the Bot coordinator made from a chat.
+      description: A change of a Bot or a profile the main Bot made from a chat.
       required: [id, chat_id, kind, name, action, can_undo, created_at]
       properties:
         id: { type: string }
         chat_id: { type: string }
         kind: { type: string, enum: [bot, profile] }
-        name: { type: string }
+        name:
+          type: string
+          description: The profile's name, or the Bot's id for a Bot.
         action: { type: string, enum: [made, changed, removed] }
         can_undo: { type: boolean, description: An undo would be taken now. }
         problem: { type: string, description: Why it cannot be undone. }
@@ -5759,7 +5815,7 @@ components:
          can_undo, created_at, updated_at, grants]
       properties:
         id: { type: string }
-        bot: { type: string }
+        bot: { type: string, description: The id of the Bot whose Routine it is. }
         name: { type: string }
         kind: { $ref: "#/components/schemas/RoutineKind" }
         prompt: { type: string, description: What a prompt Routine gives its Bot. }
@@ -5849,7 +5905,7 @@ components:
       additionalProperties: false
       required: [bot]
       properties:
-        bot: { type: string, maxLength: 63, description: The Bot the Routine must belong to. }
+        bot: { type: string, maxLength: 63, description: The id of the Bot the Routine must belong to. }
     RoutineScriptLaunch:
       type: object
       required: [script, script_text, timeout_seconds, key]
@@ -5923,6 +5979,19 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Bot" }
+    NewBot:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        settings: { $ref: "#/components/schemas/BotSettings" }
+    BotChange:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
     BotSettings:
       type: object
       additionalProperties: false
@@ -6101,7 +6170,7 @@ components:
         title: { type: string, maxLength: 200 }
         bot:
           type: string
-          description: The Bot the chat talks with; `coordinator` when left out.
+          description: The id of the Bot the chat talks with; the main Bot when left out.
         provider:
           type: string
           description: Where the model is found; the provider that offers it when left out.
@@ -6265,7 +6334,7 @@ components:
       properties:
         id: { type: string }
         title: { type: string }
-        bot: { type: string, description: The Bot the chat talks with. }
+        bot: { type: string, description: The id of the Bot the chat talks with. }
         provider:
           type: string
           description: Where the chat's own model is found; absent with the model.
@@ -6432,7 +6501,7 @@ components:
         chat_id: { type: string }
         bot:
           type: string
-          description: The Bot that showed it.
+          description: The id of the Bot that showed it.
         revision:
           type: integer
           description: The newest revision.

@@ -14,7 +14,15 @@ const chat = (id: string, title: string, bot = "coordinator") => ({
   created_at: at,
   updated_at: at,
 })
-const bot = (name: string) => ({ name, model: "", persona: "", memory: "", updated_at: at })
+const bot = (name: string) => ({
+  id: name,
+  main: name === "coordinator",
+  name,
+  model: "",
+  persona: "",
+  memory: "",
+  updated_at: at,
+})
 
 async function fakeServer(page: Page, bots: string[]) {
   const calls: { call: string; body?: unknown }[] = []

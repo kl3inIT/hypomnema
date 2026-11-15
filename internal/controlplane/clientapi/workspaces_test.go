@@ -131,7 +131,7 @@ func TestAChatsFoldersAreReadOnTheirMachines(t *testing.T) {
 	bot, task := list.JSON200.Data[0], list.JSON200.Data[1]
 	assert.Equal(t, openapi.WorkspaceKindBot, bot.Kind)
 	assert.Equal(t, "coordinator", bot.Name)
-	assert.Equal(t, "/home/coordinator/bots/coordinator", bot.Root)
+	assert.Equal(t, "/home/coordinator/bots/"+orchestration.DefaultBotID, bot.Root, "the folder is named by the Bot's id")
 	assert.Equal(t, tree.TaskID, task.Id)
 	assert.Equal(t, "add GET /health", task.Name, "a Task is named by its spec's first line")
 	assert.Equal(t, tree.Worktree, task.Root)
@@ -166,7 +166,7 @@ func TestAChatsFoldersAreReadOnTheirMachines(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"node " + tree.NodeID + " " + tree.Worktree + " list src",
-		"bot coordinator read notes.md",
+		"bot " + orchestration.DefaultBotID + " read notes.md",
 		"node " + tree.NodeID + " " + tree.Worktree + " changes ",
 		"node " + tree.NodeID + " " + tree.Worktree + " diff main.go",
 	}, f.asked)
@@ -271,7 +271,7 @@ func TestAChatsFoldersAreChangedOnTheirMachines(t *testing.T) {
 
 	node := "node " + tree.NodeID + " " + tree.Worktree
 	assert.Equal(t, []string{
-		node + " write src/app.ts", node + " write src/app.ts", "bot coordinator mkdir notes",
+		node + " write src/app.ts", node + " write src/app.ts", "bot " + orchestration.DefaultBotID + " mkdir notes",
 		node + " rename a.md", node + " delete docs", node + " read img/logo.svg",
 	}, f.asked)
 
@@ -361,11 +361,11 @@ func TestFilesAttachedBeforeTheChatGoToThePickedBot(t *testing.T) {
 	}}
 	w.srv.WithWorkspaces(f.node, f)
 
-	_, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
 	require.NoError(t, err)
 
 	id := "cht_abcdefghijklmnopqrstuvwxyz"
-	vmap := &openapi.MakeWorkspaceFolderParams{Bot: ptr("vmap")}
+	vmap := &openapi.MakeWorkspaceFolderParams{Bot: ptr(vmapBot.ID)}
 
 	made, err := owner.MakeWorkspaceFolderWithResponse(ctx, id, "bot", vmap,
 		openapi.WorkspacePathBody{Path: "attachments/" + id})
@@ -387,7 +387,7 @@ func TestFilesAttachedBeforeTheChatGoToThePickedBot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, nobody.StatusCode())
 
-	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id, Bot: ptr("vmap")})
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id, Bot: ptr(vmapBot.ID)})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
 
@@ -397,5 +397,5 @@ func TestFilesAttachedBeforeTheChatGoToThePickedBot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusConflict, other.StatusCode(), "a made chat's folder is its own Bot's")
 
-	assert.Equal(t, []string{"bot vmap mkdir attachments/" + id}, f.asked)
+	assert.Equal(t, []string{"bot " + vmapBot.ID + " mkdir attachments/" + id}, f.asked)
 }

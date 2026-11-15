@@ -31,8 +31,8 @@ type BotFilesRequest struct {
 	Request workspacefs.Request `json:"request"`
 }
 
-// botName is what a Bot's name may be (orchestration/bots.go).
-var botName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+// botID is what a Bot's id may be (orchestration/bots.go, platform.NewID): its folder is named by it (issue #466).
+var botID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 
 func files(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 || args[0] != "serve" {
@@ -58,7 +58,7 @@ func files(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer
 	res := workspacefs.Result{Error: &workspacefs.Error{
 		Code: workspacefs.CodeInvalidPath, Message: fmt.Sprintf("%q is not a Bot's name", req.Bot),
 	}}
-	if botName.MatchString(req.Bot) {
+	if botID.MatchString(req.Bot) {
 		res = workspacefs.Serve(ctx, filepath.Join(*root, req.Bot), req.Request)
 	}
 

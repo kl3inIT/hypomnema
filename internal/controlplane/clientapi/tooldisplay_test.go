@@ -31,28 +31,32 @@ func TestTheOwnerSetsWhatABotsChatsShowOfItsTools(t *testing.T) {
 	ctx := t.Context()
 
 	persona := "You send the Superset report."
-	made, err := owner.PutBotWithResponse(ctx, "reporter", openapi.BotSettings{Persona: &persona})
+	made, err := owner.CreateBotWithResponse(ctx, openapi.NewBot{
+		Name: "reporter", Settings: &openapi.BotSettings{Persona: &persona},
+	})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, made.StatusCode())
-	assert.Equal(t, openapi.ToolDisplayOn, made.JSON200.ToolDisplay, "a new Bot shows a row per call")
+	require.Equal(t, http.StatusCreated, made.StatusCode())
+	assert.Equal(t, openapi.ToolDisplayOn, made.JSON201.ToolDisplay, "a new Bot shows a row per call")
+
+	reporter := made.JSON201.Id
 
 	off := openapi.ToolDisplayOff
-	set, err := owner.PutBotWithResponse(ctx, "reporter", openapi.BotSettings{Persona: &persona, ToolDisplay: &off})
+	set, err := owner.PutBotWithResponse(ctx, reporter, openapi.BotSettings{Persona: &persona, ToolDisplay: &off})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, set.StatusCode())
 	assert.Equal(t, openapi.ToolDisplayOff, set.JSON200.ToolDisplay)
 
-	kept, err := owner.PutBotWithResponse(ctx, "reporter", openapi.BotSettings{Persona: &persona})
+	kept, err := owner.PutBotWithResponse(ctx, reporter, openapi.BotSettings{Persona: &persona})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, kept.StatusCode())
 	assert.Equal(t, openapi.ToolDisplayOff, kept.JSON200.ToolDisplay, "a change that leaves it out keeps it")
 
-	read, err := owner.GetBotWithResponse(ctx, "reporter")
+	read, err := owner.GetBotWithResponse(ctx, reporter)
 	require.NoError(t, err)
 	assert.Equal(t, openapi.ToolDisplayOff, read.JSON200.ToolDisplay, "it is stored")
 
 	loud := openapi.ToolDisplay("loud")
-	bad, err := owner.PutBotWithResponse(ctx, "reporter", openapi.BotSettings{Persona: &persona, ToolDisplay: &loud})
+	bad, err := owner.PutBotWithResponse(ctx, reporter, openapi.BotSettings{Persona: &persona, ToolDisplay: &loud})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, bad.StatusCode())
 }
@@ -72,12 +76,13 @@ func TestAChatSendsOfItsToolCallsWhatItsBotShows(t *testing.T) {
 			ctx := t.Context()
 
 			persona := "You send the Superset report."
-			put, err := owner.PutBotWithResponse(ctx, "reporter",
-				openapi.BotSettings{Persona: &persona, ToolDisplay: &level})
+			made, err := owner.CreateBotWithResponse(ctx, openapi.NewBot{
+				Name: "reporter", Settings: &openapi.BotSettings{Persona: &persona, ToolDisplay: &level},
+			})
 			require.NoError(t, err)
-			require.Equal(t, http.StatusOK, put.StatusCode())
+			require.Equal(t, http.StatusCreated, made.StatusCode())
 
-			chat, err := w.svc.CreateChat(ctx, "reporter", "report")
+			chat, err := w.svc.CreateChat(ctx, made.JSON201.Id, "report")
 			require.NoError(t, err)
 
 			frames := streamOf(t, w, chat.ID)

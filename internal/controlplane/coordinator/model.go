@@ -15,7 +15,7 @@ import (
 // pi's RPC commands set_model and set_thinking_level (pi
 // docs/rpc-commands.md, Model and Thinking).
 
-// chatModel is the name of the chat's Bot and the model and effort the chat
+// chatModel is the id of the chat's Bot and the model and effort the chat
 // runs with.
 func (s *Supervisor) chatModel(ctx context.Context, chatID string) (string, orchestration.ChatModel, error) {
 	chat, err := s.svc.GetChat(ctx, chatID)
@@ -37,7 +37,7 @@ func (s *Supervisor) chatModel(ctx context.Context, chatID string) (string, orch
 		m.Effort = chat.Choice.Effort
 	}
 
-	return b.Name, m, nil
+	return b.ID, m, nil
 }
 
 // piLevel is an effort as pi names its thinking level: the gateway's none is

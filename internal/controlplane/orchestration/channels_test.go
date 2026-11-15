@@ -129,13 +129,13 @@ func TestMigrationRenamesTheLarkTablesToChannels(t *testing.T) {
 
 	// Another kind with the same app id is refused by the unique app_id that stays, not by (kind, app_id); one of
 	// the kind with another app is kept.
-	_, err = db.ExecContext(ctx, `INSERT INTO channels (name, kind, app_id, secret, bot, mode, owner_id, created_at,
-		updated_at) VALUES ('zalo', 'zalo', 'cli_main', 's', 'coordinator', 'owner', 'z_owner', 900, 900)`)
+	_, err = db.ExecContext(ctx, `INSERT INTO channels (name, kind, app_id, secret, bot_id, mode, owner_id, created_at,
+		updated_at) VALUES ('zalo', 'zalo', 'cli_main', 's', '`+DefaultBotID+`', 'owner', 'z_owner', 900, 900)`)
 	require.ErrorContains(t, err, "UNIQUE constraint failed: channels.app_id")
 	assert.NotContains(t, err.Error(), "channels.kind")
 
 	_, err = s.Channels().SetChannel(ctx, channelstore.Channel{
-		Name: "maps", AppID: "cli_maps", Secret: "lark-channel-maps", Bot: DefaultBot, Mode: channelstore.ChannelOwner,
+		Name: "maps", AppID: "cli_maps", Secret: "lark-channel-maps", Bot: DefaultBotID, Mode: channelstore.ChannelOwner,
 		OwnerID: "ou_owner_in_maps",
 	})
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestMigrationRenamesTheLarkTablesToChannels(t *testing.T) {
 	assert.Equal(t, channelstore.KindLark, maps.Kind, "a Channel set up without a kind is Lark's")
 
 	_, err = s.Channels().SetChannel(ctx, channelstore.Channel{
-		Name: "zalo", Kind: "zalo", AppID: "zalo_1", Secret: "s", Bot: DefaultBot, Mode: channelstore.ChannelOwner,
+		Name: "zalo", Kind: "zalo", AppID: "zalo_1", Secret: "s", Bot: DefaultBotID, Mode: channelstore.ChannelOwner,
 		OwnerID: "ou_owner",
 	})
 	require.ErrorIs(t, err, ErrInvalid, "Lark is the one kind there is")

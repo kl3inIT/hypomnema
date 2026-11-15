@@ -112,7 +112,7 @@ func (c *Channels) attachment(ctx context.Context, bot, asked string) (Attachmen
 
 	rel, ok := relativeTo(c.files.Root(bot), asked)
 	if !ok {
-		return Attachment{}, "only a file in " + bot + "'s own folder can be sent"
+		return Attachment{}, "only a file in " + botName(ctx, c.store, bot) + "'s own folder can be sent"
 	}
 
 	res, err := c.files.Ask(ctx, bot, workspacefs.Request{
@@ -126,7 +126,7 @@ func (c *Channels) attachment(ctx context.Context, bot, asked string) (Attachmen
 
 	switch {
 	case errors.As(err, &refused):
-		return Attachment{}, refusalOf(refused.Code, bot)
+		return Attachment{}, refusalOf(refused.Code, botName(ctx, c.store, bot))
 	case err != nil:
 		c.logger.WarnContext(ctx, "a file a Bot asked to send was not read",
 			slog.String("event", "channels.file_failed"),

@@ -54,8 +54,14 @@ func (s *Server) ListChatWorkspaces(ctx context.Context, req openapi.ListChatWor
 	out := openapi.WorkspaceList{Data: []openapi.Workspace{}}
 
 	if s.botFiles != nil {
+		// The folder is named by the Bot's id; it is shown by the Bot's name (issue #466).
+		bot, err := s.svc.GetBot(ctx, chat.Bot)
+		if err != nil {
+			return nil, err
+		}
+
 		out.Data = append(out.Data, openapi.Workspace{
-			Id: botWorkspace, Kind: openapi.WorkspaceKindBot, Name: chat.Bot, Root: s.botFiles.Root(chat.Bot),
+			Id: botWorkspace, Kind: openapi.WorkspaceKindBot, Name: bot.Name, Root: s.botFiles.Root(chat.Bot),
 			Online: true,
 		})
 	}

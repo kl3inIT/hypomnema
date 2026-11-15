@@ -3,6 +3,7 @@ import { Pause, Pencil, Play, Trash2, X } from "lucide-react"
 import type { ReactNode } from "react"
 
 import type { Routine } from "@/api/generated/types.gen"
+import { useBotName } from "@/features/bots/use-bots"
 import { Button } from "@/components/ui/button"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
@@ -54,6 +55,8 @@ export function RoutinePanel({
 }) {
   const routine = useRoutine(routineId)
   const r = routine.data
+  // A Routine names its Bot by id; the panel shows its name (issue #466).
+  const botName = useBotName(r?.bot ?? "")
 
   return (
     <aside
@@ -67,7 +70,7 @@ export function RoutinePanel({
           </h2>
           {r && (
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {r.bot} · {kindLine(r)}
+              {botName} · {kindLine(r)}
             </p>
           )}
         </div>
@@ -204,6 +207,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Facts({ routine }: { routine: Routine }) {
+  const botName = useBotName(routine.bot)
   const rows: [string, ReactNode][] = [
     ["Schedule", routine.schedule.charAt(0).toUpperCase() + routine.schedule.slice(1)],
     [
@@ -228,7 +232,7 @@ function Facts({ routine }: { routine: Routine }) {
         "Told nowhere"
       ),
     ],
-    ["Made by", routine.created_by === "bot" ? `${routine.bot}, in a chat` : "You"],
+    ["Made by", routine.created_by === "bot" ? `${botName}, in a chat` : "You"],
   ]
 
   if (routine.skipped > 0) {

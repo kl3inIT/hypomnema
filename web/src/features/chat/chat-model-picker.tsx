@@ -65,7 +65,7 @@ export function ChatModelControls({
   const bots = useBots().data
   const models = piModels(useModels().data ?? [])
   const gateway = useGatewayModels().data ?? []
-  const own = bots?.find((b) => b.name === bot)
+  const own = bots?.find((b) => b.id === bot)
   const now = running(choice, own)
 
   return (

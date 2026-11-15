@@ -15,6 +15,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // theImages stands for the control plane's images: it keeps what each chat
@@ -100,7 +101,7 @@ func TestABotMakesAndEditsImages(t *testing.T) {
 	chat, err := w.svc.CreateChat(ctx, "", "pictures")
 	require.NoError(t, err)
 
-	piToken, err := w.svc.AddBotToken(ctx, "pi", chat.ID, "coordinator")
+	piToken, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
 	require.NoError(t, err)
 	w.loginWith(t, piToken)
 

@@ -9,6 +9,8 @@ import type { LarkChannel as Channel } from "../src/api/generated/types.gen.js"
 const now = new Date().toISOString()
 
 const bot = (name: string, persona: string) => ({
+  id: name,
+  main: name === "coordinator",
   name,
   persona,
   memory: "",
