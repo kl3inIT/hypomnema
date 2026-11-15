@@ -89,7 +89,8 @@ func botFromRow(r store.Bot) Bot {
 	return Bot{
 		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
-		Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff), Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
+		Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff), Connections: allowListOf(r.Connections),
+		Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		Position: int(r.Position), Pinned: r.Pinned != 0,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
