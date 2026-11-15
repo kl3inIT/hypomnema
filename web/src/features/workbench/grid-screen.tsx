@@ -1,13 +1,12 @@
-import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Maximize2, Minimize2, X } from "lucide-react"
 import { useState } from "react"
 
 import "@/api/client"
-import { getChat } from "@/api/generated/sdk.gen"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { AppSidebar } from "@/features/shell/app-shell"
+import { useChat } from "@/features/shell/chats"
 import { PageHeader } from "@/components/page-header"
 import { cn } from "@/lib/utils"
 
@@ -150,11 +149,7 @@ function GridPane({
   // The pane is named by its tab in front.
   const front = frontOf(pane)
   const chat = front?.kind === "chat" ? front.chat : null
-  const info = useQuery({
-    queryKey: ["chat", chat],
-    queryFn: async () => (await getChat({ path: { chat_id: chat ?? "" } })).data,
-    enabled: chat !== null,
-  })
+  const info = useChat(chat)
   const title =
     front?.kind === "chat"
       ? (info.data?.title ?? "Chat")

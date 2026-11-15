@@ -1,12 +1,11 @@
 import { code } from "@streamdown/code"
-import { useQuery } from "@tanstack/react-query"
 import { Streamdown } from "streamdown"
 import "streamdown/styles.css"
 
 import { InlineSvg } from "@/features/preview/image-view"
 
 import { useObjectURL } from "@/hooks/use-object-url"
-import { fileKey, imageType, inFolder, useImage } from "./files-state"
+import { imageType, inFolder, useImage, useSvgText } from "./files-state"
 
 const plugins = { code }
 const controls = { table: true, code: { copy: true, download: false } } as const
@@ -69,11 +68,7 @@ function FolderImage({
   const image = useImage(chat, workspace, local ?? "", local !== null)
   // An SVG is never given a blob: address (issue #422, row 4): it is drawn from its text in the locked frame.
   const svg = local !== null && imageType(local) === "image/svg+xml"
-  const markup = useQuery({
-    queryKey: [...fileKey(chat, workspace, local ?? ""), "svg"],
-    queryFn: () => (image.data as Blob).text(),
-    enabled: svg && image.data !== undefined,
-  })
+  const markup = useSvgText(chat, workspace, local ?? "", image.data, svg)
   const url = useObjectURL(svg ? undefined : image.data)
 
   if (local === null) return <img src={src} alt={alt} className="max-w-full" />

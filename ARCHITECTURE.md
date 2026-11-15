@@ -2967,16 +2967,15 @@ Node (`internal/node`):
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
   Its `@tanstack/react-query` plugin generates query keys, query options and mutation options for every operation
   but the two Server-Sent Event streams, `StreamEvents` and `StreamChat` (issue #494, after Omnara and MemoryOS);
-  `PreviewRoutineSchedule`, a read sent as a POST, gets query options too, as MemoryOS's document search does.
-  A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
-  settings (Channels, Integrations with their services, accounts and agent actions, Repositories, the Vault and
-  the Skills), the memories (an agent's and About you), and the models and the gateway (the accounts with their
-  limits, the providers, the gateway's models and keys, Images, Web search and Usage), and the machines with
-  their providers, the browser's tabs and the phone (their REST reads only: the screen streams and the take-over
-  sockets stay hand-written), and the agents with their versions and models, the Bots, a chat's setup changes and
-  the Approvals, and the Routines with their runs, a page at a time, and a schedule's preview read and refresh
-  through them; the other screens still use hand-written keys, moved one area at a
-  time.
+  `PreviewRoutineSchedule` and `OpenArtifactFrame`, reads sent as a POST, get query options too, as MemoryOS's
+  document search does. A key is one object named by the operation's `_id`, with the base URL and the call's
+  path, query and body. Every screen reads and refreshes server data through them: the settings, the memories,
+  the models and the gateway, the machines with the browser's tabs and the phone, the agents, the Bots, a chat's
+  setup changes and the Approvals, the Routines, the artifacts, the chats, the Runs, Tasks and questions, and a
+  chat's folders and files. What stays hand-written: the two event streams and a chat's message pages (read into
+  the chat's own state), the screen streams and take-over sockets, chunked uploads, and what is read from bytes
+  already read (an artifact page's text, an SVG's text, a file's preview), keyed by the bytes' generated key with
+  a word after it. An image's bytes keep their own read, typed by the file's name, under the generated key.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
