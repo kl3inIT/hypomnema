@@ -296,7 +296,10 @@ sequenceDiagram
     an instance instead of destroying it. Its node is drained first, and a node that runs a Dispatch is refused.
     The machine's power is `stopping`, then `stopped`; a start makes the node active again and the power
     `starting` until the node says hello. A stop or a start the provider did not carry out is asked again every
-    pass, with the reason recorded. A stopped machine still counts toward its provider's limit and can be removed.
+    pass, with the reason recorded. One power step runs for a machine at a time: a stop or start asked (by the
+    owner or the phone) waits for the one in flight, and the pass leaves a machine whose step is in flight to the
+    next pass and reads each other machine again before acting on it, as client-go's workqueue hands a key to one
+    worker at a time (issue #538). A stopped machine still counts toward its provider's limit and can be removed.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the Codex CLI's login to a new machine, which the owner still sets
