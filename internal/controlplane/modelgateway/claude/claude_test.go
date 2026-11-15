@@ -362,6 +362,25 @@ func TestADeveloperMessageIsTheClientsSystem(t *testing.T) {
 	assert.Equal(t, "hi", first[1]["text"])
 }
 
+// Scenario: pi marks nothing for the cache, so its system prompt was written
+// again for every new chat (issue #520, measured on zm). The gateway's system
+// breakpoint is on the client's system, its last reminder, and not on Claude
+// Code's identity line, so a new chat that starts with the same prompt reads
+// it from the cache.
+func TestTheGatewaysSystemBreakpointIsOnTheClientsSystem(t *testing.T) {
+	t.Parallel()
+
+	body := buildChat(t, `{"role":"system","content":"the rules"},{"role":"developer","content":"You are pi."},`+
+		`{"role":"user","content":"hi"}`)
+
+	first := blocksOfMessage(t, body, 0)
+	require.Len(t, first, 3)
+	assert.NotContains(t, first[0], "cache_control", "one breakpoint for the client's system")
+	assert.True(t, cached(first[1]), "on its last block")
+	assert.False(t, marked(lastOf(t, body["system"])), "none on Claude Code's identity line")
+	assert.Len(t, ttlsInOrder(t, body), 3, "the tools', the client's system's and the last message's")
+}
+
 // Scenario: a client marked its system message for the cache, on a part or on
 // the whole message (issue #504). The mark reaches Anthropic on the reminder
 // that carries that text, kept an hour like the gateway's; the unmarked part
@@ -383,6 +402,10 @@ func TestAClientsBreakpointOnItsSystemReachesAnthropic(t *testing.T) {
 	whole := buildChat(t, `{"role":"system","content":"the rules","cache_control":{"type":"ephemeral"}},`+
 		`{"role":"user","content":"hi"}`)
 	assert.True(t, cached(blocksOfMessage(t, whole, 0)[0]), "the marked message's reminder is marked")
+
+	// The client's own mark stands for the system: the gateway adds none (issue #520).
+	assert.False(t, marked(lastOf(t, parts["system"])), "none on Claude Code's identity line")
+	assert.Len(t, ttlsInOrder(t, parts), 3)
 }
 
 // Scenario: a client marked four earlier messages for the cache; with the
