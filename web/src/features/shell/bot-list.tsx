@@ -75,6 +75,8 @@ function BotItem({
   const latest = chats.at(0)
   // OpenMausBot's hasThreadList: a Bot with one chat has nothing to open.
   const hasChatList = chats.length > 1
+  // The chat a Bot's row stands for when it has no other.
+  const onlyChat = chats.length === 1 ? latest : undefined
   const expanded = hasChatList && open
   const needsYou = chats.some((c) => waiting.has(c.id))
   const working = chats.some((c) => c.working)
@@ -96,6 +98,8 @@ function BotItem({
             here
               ? "bg-sidebar-row-active [:root:not(.dark)_&]:ring-1 [:root:not(.dark)_&]:ring-sidebar-border/70 [:root:not(.dark)_&]:ring-inset"
               : "hover:bg-sidebar-row-hover",
+            // Room for the chat's menu, always shown on a phone (issue #503), as a chat row keeps it.
+            onlyChat && "max-md:pe-9",
           )}
         >
           <span className="relative flex shrink-0">
@@ -153,7 +157,8 @@ function BotItem({
             An anchor drawn by Button, as the pagination's links are (components/ui/pagination.tsx). */}
         <span
           className={cn(
-            "pointer-events-none absolute end-1 opacity-0 transition-opacity group-focus-within/bot:pointer-events-auto group-focus-within/bot:opacity-100 max-md:hidden md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100",
+            "pointer-events-none absolute opacity-0 transition-opacity group-focus-within/bot:pointer-events-auto group-focus-within/bot:opacity-100 max-md:hidden md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100",
+            onlyChat ? "end-8" : "end-1",
             expanded ? "top-1/2 -translate-y-1/2" : "top-1",
           )}
         >
@@ -174,6 +179,16 @@ function BotItem({
             <TooltipContent>New chat with {name}</TooltipContent>
           </Tooltip>
         </span>
+        {/* A Bot with one chat stands for it, so its row carries that chat's menu (issue #503), as OpenMausBot's row of
+            a Bot's chat has Delete chat in its menu (Sidebar.tsx, sidebar.room.deleteChat) and its Bot row an actions
+            button after the new-thread one. Shown as a chat row's is: on hover or focus, always on a phone. */}
+        {onlyChat && (
+          <ChatMenu
+            chat={onlyChat}
+            current={onlyChat.id === current}
+            className="absolute end-1 top-1.5 transition-opacity md:pointer-events-none md:opacity-0 md:group-focus-within/bot:pointer-events-auto md:group-focus-within/bot:opacity-100 md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100 md:has-[[data-popup-open]]:pointer-events-auto"
+          />
+        )}
       </div>
       {expanded && (
         // The Bot's chats, under it, as t3code nests a project's threads (components/ui/sidebar.tsx SidebarMenuSub).
