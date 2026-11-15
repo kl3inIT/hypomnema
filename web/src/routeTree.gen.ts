@@ -19,7 +19,7 @@ import { Route as AgentsNameRouteImport } from './routes/agents.$name'
 import { Route as AgentsNewRouteImport } from './routes/agents.new'
 import { Route as ArtifactsArtifactIdRouteImport } from './routes/artifacts.$artifactId'
 import { Route as BotsIndexRouteImport } from './routes/bots.index'
-import { Route as BotsNameRouteImport } from './routes/bots.$name'
+import { Route as BotsIdRouteImport } from './routes/bots.$id'
 import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -87,9 +87,9 @@ const BotsIndexRoute = BotsIndexRouteImport.update({
   path: '/bots/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const BotsNameRoute = BotsNameRouteImport.update({
-  id: '/bots/$name',
-  path: '/bots/$name',
+const BotsIdRoute = BotsIdRouteImport.update({
+  id: '/bots/$id',
+  path: '/bots/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BotsNewRoute = BotsNewRouteImport.update({
@@ -182,7 +182,7 @@ export interface FileRoutesByFullPath {
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
   '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
-  '/bots/$name': typeof BotsNameRoute
+  '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
@@ -211,7 +211,7 @@ export interface FileRoutesByTo {
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
   '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
-  '/bots/$name': typeof BotsNameRoute
+  '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
@@ -241,7 +241,7 @@ export interface FileRoutesById {
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
   '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
-  '/bots/$name': typeof BotsNameRoute
+  '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
@@ -272,7 +272,7 @@ export interface FileRouteTypes {
     | '/agents/$name'
     | '/agents/new'
     | '/artifacts/$artifactId'
-    | '/bots/$name'
+    | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
     | '/settings/about-you'
@@ -301,7 +301,7 @@ export interface FileRouteTypes {
     | '/agents/$name'
     | '/agents/new'
     | '/artifacts/$artifactId'
-    | '/bots/$name'
+    | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
     | '/settings/about-you'
@@ -330,7 +330,7 @@ export interface FileRouteTypes {
     | '/agents/$name'
     | '/agents/new'
     | '/artifacts/$artifactId'
-    | '/bots/$name'
+    | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
     | '/settings/about-you'
@@ -360,7 +360,7 @@ export interface RootRouteChildren {
   AgentsNameRoute: typeof AgentsNameRoute
   AgentsNewRoute: typeof AgentsNewRoute
   ArtifactsArtifactIdRoute: typeof ArtifactsArtifactIdRoute
-  BotsNameRoute: typeof BotsNameRoute
+  BotsIdRoute: typeof BotsIdRoute
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
@@ -453,11 +453,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BotsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/bots/$name': {
-      id: '/bots/$name'
-      path: '/bots/$name'
-      fullPath: '/bots/$name'
-      preLoaderRoute: typeof BotsNameRouteImport
+    '/bots/$id': {
+      id: '/bots/$id'
+      path: '/bots/$id'
+      fullPath: '/bots/$id'
+      preLoaderRoute: typeof BotsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bots/new': {
@@ -584,7 +584,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentsNameRoute: AgentsNameRoute,
   AgentsNewRoute: AgentsNewRoute,
   ArtifactsArtifactIdRoute: ArtifactsArtifactIdRoute,
-  BotsNameRoute: BotsNameRoute,
+  BotsIdRoute: BotsIdRoute,
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   SettingsAboutYouRoute: SettingsAboutYouRoute,

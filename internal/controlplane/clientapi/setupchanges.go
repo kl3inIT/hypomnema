@@ -18,17 +18,17 @@ import (
 // again on the server (server/index.ts L14147, L14183).
 
 // setupChat says from which chat a token makes a change of Bots and
-// profiles: none for the owner, its own for the Bot coordinator's pi. Any
+// profiles: none for the owner, its own for the main Bot's pi. Any
 // other token is refused.
 func setupChat(tok orchestration.Token) (string, error) {
 	switch {
 	case tok.Kind == bearertoken.Owner:
 		return "", nil
-	case tok.Kind == bearertoken.Bot && tok.Bot == orchestration.DefaultBot && tok.Routine == "" && tok.Chat != "":
+	case tok.Kind == bearertoken.Bot && tok.Bot == orchestration.DefaultBotID && tok.Routine == "" && tok.Chat != "":
 		return tok.Chat, nil
 	default:
-		return "", fmt.Errorf("%w: only the owner and the bot %s, from its chat, make, change and remove bots "+
-			"and profiles", errForbidden, orchestration.DefaultBot)
+		return "", fmt.Errorf("%w: only the owner and the main bot, from its chat, make, change and remove bots "+
+			"and profiles", errForbidden)
 	}
 }
 

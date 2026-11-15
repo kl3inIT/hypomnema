@@ -564,8 +564,10 @@ type world struct {
 	clock *later
 	// web is the web client's address the Channels are given, when they are
 	// given one.
-	web   string
-	orch  *orchestration.Service
+	web  string
+	orch *orchestration.Service
+	// vmap is the id of the Bot vmap, once setUpMaps made it.
+	vmap  string
 	asks  *asking
 	vault *vault.Service
 	// lark is the app of the Channel main, larkMaps the app of maps.
@@ -670,12 +672,14 @@ func (w *world) setUp(mode channelstore.ChannelMode) {
 func (w *world) setUpMaps(mode channelstore.ChannelMode) {
 	w.t.Helper()
 
-	_, err := w.orch.PutBot(w.t.Context(), orchestration.Bot{Name: "vmap", Persona: "You answer about maps."})
+	vmap, err := w.orch.PutBot(w.t.Context(), orchestration.Bot{Name: "vmap", Persona: "You answer about maps."})
 	require.NoError(w.t, err)
+
+	w.vmap = vmap.ID
 
 	on := true
 	st, err := w.svc.Set(w.t.Context(), maps, larkchannel.Settings{
-		AppID: mapsApp, AppSecret: "the-secret-of-maps", Owner: "owner@example.com", Bot: "vmap", Mode: mode,
+		AppID: mapsApp, AppSecret: "the-secret-of-maps", Owner: "owner@example.com", Bot: w.vmap, Mode: mode,
 		Enabled: &on,
 	})
 	require.NoError(w.t, err)
@@ -980,7 +984,7 @@ func TestTheOwnerSetsAChannelUp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, appID, status.Channel.AppID)
 	assert.Equal(t, ownerID, status.Channel.OwnerID)
-	assert.Equal(t, orchestration.DefaultBot, status.Channel.Bot, "it talks to the first Bot unless told another")
+	assert.Equal(t, orchestration.DefaultBotID, status.Channel.Bot, "it talks to the first Bot unless told another")
 	assert.Equal(t, channelstore.ChannelOwner, status.Channel.Mode, "closed unless the owner opens it")
 	assert.False(t, status.Channel.Enabled, "a new Channel is off")
 	assert.False(t, status.State.Connected)
@@ -1197,7 +1201,7 @@ func TestTheCardShowsOfAToolWhatItsBotShows(t *testing.T) {
 			w := newWorld(t)
 			w.setUp(channelstore.ChannelOwner)
 
-			bot, err := w.orch.GetBot(t.Context(), orchestration.DefaultBot)
+			bot, err := w.orch.GetBot(t.Context(), orchestration.DefaultBotID)
 			require.NoError(t, err)
 			bot.ToolDisplay = level
 			_, err = w.orch.PutBot(t.Context(), bot)
@@ -1350,8 +1354,8 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 	w.larkMaps.say(direct("om_2", mapsDM, mapsOwner, "where is the depot"))
 
 	first, second := w.chatOf(ownerDM), w.chatOf(mapsDM)
-	assert.Equal(t, orchestration.DefaultBot, w.botOf(first))
-	assert.Equal(t, "vmap", w.botOf(second))
+	assert.Equal(t, orchestration.DefaultBotID, w.botOf(first))
+	assert.Equal(t, w.vmap, w.botOf(second))
 
 	w.answer(second, "At the ", "north gate.")
 	require.Eventually(t, func() bool {
@@ -1364,7 +1368,7 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 	assert.Equal(t, mapsLinh, added.PersonID, "her id in the app of maps")
 
 	w.larkMaps.say(direct("om_3", mapsLinhs, mapsLinh, "and the warehouse"))
-	assert.Equal(t, "vmap", w.botOf(w.chatOf(mapsLinhs)))
+	assert.Equal(t, w.vmap, w.botOf(w.chatOf(mapsLinhs)))
 
 	w.lark.say(direct("om_4", linhDM, linhID, "deploy it"))
 	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
@@ -1387,7 +1391,7 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 
 		return third != second
 	}, eventual, tick)
-	assert.Equal(t, "vmap", w.botOf(third), "a new conversation is with the Channel's Bot")
+	assert.Equal(t, w.vmap, w.botOf(third), "a new conversation is with the Channel's Bot")
 
 	_, err = w.svc.Set(ctx, "third", larkchannel.Settings{
 		AppID: mapsApp, AppSecret: "the-secret-of-maps", Owner: "owner@example.com",
@@ -1401,12 +1405,12 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 	all, err := w.svc.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, all, 2)
-	assert.Equal(t, []string{"main coordinator", "maps vmap"},
+	assert.Equal(t, []string{"main " + orchestration.DefaultBotID, "maps " + w.vmap},
 		[]string{all[0].Channel.Name + " " + all[0].Channel.Bot, all[1].Channel.Name + " " + all[1].Channel.Bot})
 	assert.Empty(t, all[0].People)
 	assert.Len(t, all[1].People, 1)
 
-	err = w.orch.DeleteBot(ctx, "vmap")
+	err = w.orch.DeleteBot(ctx, w.vmap)
 	require.ErrorIs(t, err, orchestration.ErrConflict)
 	require.ErrorContains(t, err, "Lark channels talk to")
 }
@@ -1480,7 +1484,7 @@ func TestAQuestionReachesTheOwnerThroughTheChannelItsRunCameFrom(t *testing.T) {
 	w.larkMaps.say(direct("om_1", mapsDM, mapsOwner, "add the depot to the map"))
 
 	fromMaps, err := w.orch.CreateRun(ctx, orchestration.NewRun{
-		Objective: "Add the depot", CreatedBy: "vmap", ChatID: w.chatOf(mapsDM),
+		Objective: "Add the depot", CreatedBy: w.vmap, ChatID: w.chatOf(mapsDM),
 	})
 	require.NoError(t, err)
 
@@ -1794,7 +1798,7 @@ func TestTheOwnerIsToldThroughTheChannelsOfABot(t *testing.T) {
 	w.setUp(channelstore.ChannelOwner)
 	w.setUpMaps(channelstore.ChannelOwner)
 
-	w.channels.TellOwner(ctx, "vmap", "", "A routine keeps failing",
+	w.channels.TellOwner(ctx, w.vmap, "", "A routine keeps failing",
 		`Routine "depots" failed 2 times in a row. <at id=all>`)
 
 	card, ok := w.larkMaps.askedCard("ask-1")
@@ -1806,14 +1810,14 @@ func TestTheOwnerIsToldThroughTheChannelsOfABot(t *testing.T) {
 	assert.Zero(t, w.lark.askedCount(), "the Channel of another Bot says nothing")
 
 	w.larkMaps.say(direct("om_1", mapsDM, mapsOwner, "sync the depots every hour"))
-	w.channels.TellOwner(ctx, "vmap", w.chatOf(mapsDM), "A routine keeps failing", "again")
+	w.channels.TellOwner(ctx, w.vmap, w.chatOf(mapsDM), "A routine keeps failing", "again")
 	assert.Equal(t, 1, w.larkMaps.askedCount(), "he reads that chat at Lark already")
 
 	off := false
 	_, err := w.svc.Set(ctx, maps, larkchannel.Settings{Enabled: &off})
 	require.NoError(t, err)
 
-	w.channels.TellOwner(ctx, "vmap", "", "A routine keeps failing", "once more")
+	w.channels.TellOwner(ctx, w.vmap, "", "A routine keeps failing", "once more")
 	assert.Equal(t, 1, w.larkMaps.askedCount(), "a Channel that is off sends nothing")
 }
 
@@ -1830,9 +1834,9 @@ func TestTheBotSendsAFileIntoTheChat(t *testing.T) {
 	w.setUp(channelstore.ChannelOwner)
 
 	workbook := []byte("PK\x03\x04 five sheets")
-	w.bots.put(t, orchestration.DefaultBot, "out/Báo cáo.xlsx", workbook)
-	w.bots.put(t, orchestration.DefaultBot, "notes.pdf", []byte("plain text"))
-	w.bots.put(t, orchestration.DefaultBot, "empty.txt", nil)
+	w.bots.put(t, orchestration.DefaultBotID, "out/Báo cáo.xlsx", workbook)
+	w.bots.put(t, orchestration.DefaultBotID, "notes.pdf", []byte("plain text"))
+	w.bots.put(t, orchestration.DefaultBotID, "empty.txt", nil)
 	w.bots.put(t, "other", "secret.txt", []byte("another Bot's"))
 
 	w.lark.say(direct("om_1", ownerDM, ownerID, "export the report"))

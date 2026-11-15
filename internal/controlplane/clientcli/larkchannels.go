@@ -37,9 +37,9 @@ func larkChannelLink(c *openapi.LarkChannel) string {
 	return "web link off"
 }
 
-func printLarkChannel(e *env, c *openapi.LarkChannel) {
-	e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\t%s\towner %s\n", c.Name, c.Bot, c.AppId, larkChannelState(c), c.Mode,
-		larkChannelLink(c), c.OwnerOpenId)
+func printLarkChannel(e *env, c *openapi.LarkChannel, bots map[string]string) {
+	e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\t%s\towner %s\n", c.Name, nameOf(bots, c.Bot), c.AppId,
+		larkChannelState(c), c.Mode, larkChannelLink(c), c.OwnerOpenId)
 
 	if c.ConnectedAppId != nil {
 		e.printf("connected as app %s until the control plane starts again\n", *c.ConnectedAppId)
@@ -60,11 +60,13 @@ func larkChannelsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("listing the Lark channels", resp.StatusCode(), resp.JSONDefault)
 	}
 
+	bots := botNames(ctx, e)
+
 	return e.print(fs, resp.JSON200, func() {
 		for i := range resp.JSON200.Data {
 			c := &resp.JSON200.Data[i]
-			e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\t%s\n", c.Name, c.Bot, c.AppId, larkChannelState(c), c.Mode,
-				larkChannelLink(c))
+			e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\t%s\n", c.Name, nameOf(bots, c.Bot), c.AppId,
+				larkChannelState(c), c.Mode, larkChannelLink(c))
 		}
 	})
 }
@@ -81,7 +83,7 @@ func larkChannelShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("reading Lark channel "+channel, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { printLarkChannel(e, resp.JSON200) })
+	return e.print(fs, resp.JSON200, func() { printLarkChannel(e, resp.JSON200, botNames(ctx, e)) })
 }
 
 func larkChannelSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -107,7 +109,12 @@ func larkChannelSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		set.AppId, set.AppSecret = &app.AppID, &app.AppSecret
 	}
 
-	if bot := str(fs, "bot"); bot != "" {
+	if ref := str(fs, "bot"); ref != "" {
+		bot, err := botIDOf(ctx, e, ref)
+		if err != nil {
+			return err
+		}
+
 		set.Bot = &bot
 	}
 
@@ -146,7 +153,7 @@ func larkChannelSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("setting Lark channel "+channel, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { printLarkChannel(e, resp.JSON200) })
+	return e.print(fs, resp.JSON200, func() { printLarkChannel(e, resp.JSON200, botNames(ctx, e)) })
 }
 
 func larkChannelRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {

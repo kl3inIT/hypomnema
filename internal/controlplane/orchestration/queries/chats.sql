@@ -1,5 +1,5 @@
 -- name: InsertChat :exec
-INSERT INTO chats (id, title, bot, provider, model, effort, created_at, updated_at)
+INSERT INTO chats (id, title, bot_id, provider, model, effort, created_at, updated_at)
 VALUES (@id, @title, @bot, @provider, @model, @effort, @now, @now);
 
 -- name: SetChatModel :exec
@@ -124,10 +124,10 @@ VALUES (@chat_id, 'system', 'approval', @text, @approval_id, @now);
 UPDATE chat_messages SET to_coordinator = 1 WHERE approval_id = @approval_id AND to_coordinator = 0;
 
 -- name: CountChatsOfBot :one
-SELECT count(*) FROM chats WHERE bot = @bot;
+SELECT count(*) FROM chats WHERE bot_id = @bot;
 
 -- name: ListChatIDsOfBot :many
-SELECT id FROM chats WHERE bot = @bot ORDER BY id;
+SELECT id FROM chats WHERE bot_id = @bot ORDER BY id;
 
 -- A chat deleted (issue #484), on its own or with its Bot (issue #330): what refers to it is let go of or removed
 -- first, in this order. Runs, Routines, their runs (routines.sql) and approvals keep their rows and lose the chat; its gateway keys

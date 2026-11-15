@@ -49,7 +49,7 @@ export type Run = {
    */
   chat_id?: string;
   /**
-   * The Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
+   * The id of the Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
    */
   bot?: string;
   created_at: string;
@@ -972,7 +972,7 @@ export type LarkChannel = {
    */
   name: string;
   /**
-   * The Bot a chat opened through the Channel talks with.
+   * The id of the Bot a chat opened through the Channel talks with.
    */
   bot: string;
   /**
@@ -1051,7 +1051,7 @@ export type LarkChannelMode = 'owner' | 'allowlist' | 'everyone';
 
 export type LarkChannelSettings = {
   /**
-   * The Bot the Channel talks to, which must exist; coordinator for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
+   * The id of the Bot the Channel talks to, which must exist; the main Bot for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
    */
   bot?: string;
   app_id?: string;
@@ -2010,7 +2010,18 @@ export type SkillEveryone = {
 };
 
 export type Bot = {
+  /**
+   * The Bot's id, which never changes; every record that names the Bot names this.
+   */
+  id: string;
+  /**
+   * What the Bot is called; shown, and changed with a rename.
+   */
   name: string;
+  /**
+   * The main Bot: always there, never removed, a chat that names no Bot talks with it, and it alone changes Bots and profiles from its chat.
+   */
+  main: boolean;
   provider?: string;
   model?: string;
   effort?: string;
@@ -2055,12 +2066,15 @@ export type AllowList = {
 };
 
 /**
- * A change of a Bot or a profile the Bot coordinator made from a chat.
+ * A change of a Bot or a profile the main Bot made from a chat.
  */
 export type SetupChange = {
   id: string;
   chat_id: string;
   kind: 'bot' | 'profile';
+  /**
+   * The profile's name, or the Bot's id for a Bot.
+   */
   name: string;
   action: 'made' | 'changed' | 'removed';
   /**
@@ -2091,6 +2105,9 @@ export type RoutineKind = 'prompt' | 'script';
  */
 export type Routine = {
   id: string;
+  /**
+   * The id of the Bot whose Routine it is.
+   */
   bot: string;
   name: string;
   kind: RoutineKind;
@@ -2209,7 +2226,7 @@ export type RoutineUndone = {
 
 export type RoutineLaunchRequest = {
   /**
-   * The Bot the Routine must belong to.
+   * The id of the Bot the Routine must belong to.
    */
   bot: string;
 };
@@ -2291,6 +2308,15 @@ export type RoutineGrant = {
 
 export type BotList = {
   data: Array<Bot>;
+};
+
+export type NewBot = {
+  name: string;
+  settings?: BotSettings;
+};
+
+export type BotChange = {
+  name: string;
 };
 
 export type BotSettings = {
@@ -2428,7 +2454,7 @@ export type NewChat = {
   id?: string;
   title?: string;
   /**
-   * The Bot the chat talks with; `coordinator` when left out.
+   * The id of the Bot the chat talks with; the main Bot when left out.
    */
   bot?: string;
   /**
@@ -2627,7 +2653,7 @@ export type Chat = {
   id: string;
   title: string;
   /**
-   * The Bot the chat talks with.
+   * The id of the Bot the chat talks with.
    */
   bot: string;
   /**
@@ -2814,7 +2840,7 @@ export type Artifact = {
   id: string;
   chat_id: string;
   /**
-   * The Bot that showed it.
+   * The id of the Bot that showed it.
    */
   bot: string;
   /**
@@ -2964,7 +2990,7 @@ export type ChatMessageList = {
 
 export type LarkChannelSettingsWritable = {
   /**
-   * The Bot the Channel talks to, which must exist; coordinator for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
+   * The id of the Bot the Channel talks to, which must exist; the main Bot for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
    */
   bot?: string;
   app_id?: string;
@@ -3058,6 +3084,11 @@ export type AskingRoutineRun = string;
 
 export type Name = string;
 
+/**
+ * The Bot's id, which never changes (issue
+ */
+export type BotId = string;
+
 export type SkillName = string;
 
 export type ArtifactId = string;
@@ -3074,7 +3105,7 @@ export type QueueId = number;
 export type WorkspaceId = string;
 
 /**
- * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+ * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
  */
 export type NewChatBot = string;
 
@@ -5813,10 +5844,38 @@ export type ListBotsResponses = {
 
 export type ListBotsResponse = ListBotsResponses[keyof ListBotsResponses];
 
+export type CreateBotData = {
+  body: NewBot;
+  path?: never;
+  query?: never;
+  url: '/bots';
+};
+
+export type CreateBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateBotError = CreateBotErrors[keyof CreateBotErrors];
+
+export type CreateBotResponses = {
+  /**
+   * The Bot.
+   */
+  201: Bot;
+};
+
+export type CreateBotResponse = CreateBotResponses[keyof CreateBotResponses];
+
 export type DeleteBotData = {
   body?: never;
   path: {
-    name: string;
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
   };
   query?: {
     /**
@@ -5824,7 +5883,7 @@ export type DeleteBotData = {
      */
     force?: boolean;
   };
-  url: '/bots/{name}';
+  url: '/bots/{bot_id}';
 };
 
 export type DeleteBotErrors = {
@@ -5848,10 +5907,13 @@ export type DeleteBotResponse = DeleteBotResponses[keyof DeleteBotResponses];
 export type GetBotData = {
   body?: never;
   path: {
-    name: string;
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
   };
   query?: never;
-  url: '/bots/{name}';
+  url: '/bots/{bot_id}';
 };
 
 export type GetBotErrors = {
@@ -5872,13 +5934,46 @@ export type GetBotResponses = {
 
 export type GetBotResponse = GetBotResponses[keyof GetBotResponses];
 
+export type RenameBotData = {
+  body: BotChange;
+  path: {
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
+  };
+  query?: never;
+  url: '/bots/{bot_id}';
+};
+
+export type RenameBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RenameBotError = RenameBotErrors[keyof RenameBotErrors];
+
+export type RenameBotResponses = {
+  /**
+   * The Bot.
+   */
+  200: Bot;
+};
+
+export type RenameBotResponse = RenameBotResponses[keyof RenameBotResponses];
+
 export type PutBotData = {
   body: BotSettings;
   path: {
-    name: string;
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
   };
   query?: never;
-  url: '/bots/{name}';
+  url: '/bots/{bot_id}';
 };
 
 export type PutBotErrors = {
@@ -5902,10 +5997,13 @@ export type PutBotResponse = PutBotResponses[keyof PutBotResponses];
 export type ListBotSkillsData = {
   body?: never;
   path: {
-    name: string;
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
   };
   query?: never;
-  url: '/bots/{name}/skills';
+  url: '/bots/{bot_id}/skills';
 };
 
 export type ListBotSkillsErrors = {
@@ -5929,10 +6027,13 @@ export type ListBotSkillsResponse = ListBotSkillsResponses[keyof ListBotSkillsRe
 export type ChangeBotMemoryData = {
   body: MemoryChange;
   path: {
-    name: string;
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
   };
   query?: never;
-  url: '/bots/{name}/memory';
+  url: '/bots/{bot_id}/memory';
 };
 
 export type ChangeBotMemoryErrors = {
@@ -5956,10 +6057,13 @@ export type ChangeBotMemoryResponse = ChangeBotMemoryResponses[keyof ChangeBotMe
 export type SetBotMemoryData = {
   body: MemoryText;
   path: {
-    name: string;
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
   };
   query?: never;
-  url: '/bots/{name}/memory';
+  url: '/bots/{bot_id}/memory';
 };
 
 export type SetBotMemoryErrors = {
@@ -6511,14 +6615,17 @@ export type SetSkillEveryoneResponse = SetSkillEveryoneResponses[keyof SetSkillE
 export type PutRoutineData = {
   body: RoutineSettings;
   path: {
-    name: string;
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
     /**
      * The Routine's name, its own among its Bot's.
      */
     routine: string;
   };
   query?: never;
-  url: '/bots/{name}/routines/{routine}';
+  url: '/bots/{bot_id}/routines/{routine}';
 };
 
 export type PutRoutineErrors = {
@@ -6544,7 +6651,7 @@ export type ListRoutinesData = {
   path?: never;
   query?: {
     /**
-     * Only this Bot's.
+     * Only the Routines of the Bot of this id.
      */
     bot?: string;
     /**
@@ -7620,7 +7727,7 @@ export type ListWorkspaceDirectoryData = {
      */
     path?: string;
     /**
-     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
      */
     bot?: string;
     /**
@@ -7664,7 +7771,7 @@ export type DeleteWorkspaceEntryData = {
      */
     path?: string;
     /**
-     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
      */
     bot?: string;
   };
@@ -7839,7 +7946,7 @@ export type BeginWorkspaceUploadData = {
   };
   query?: {
     /**
-     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
      */
     bot?: string;
   };
@@ -7875,7 +7982,7 @@ export type SendWorkspaceUploadChunkData = {
   };
   query?: {
     /**
-     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
      */
     bot?: string;
   };
@@ -7911,7 +8018,7 @@ export type CommitWorkspaceUploadData = {
   };
   query?: {
     /**
-     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
      */
     bot?: string;
   };
@@ -7947,7 +8054,7 @@ export type AbortWorkspaceUploadData = {
   };
   query?: {
     /**
-     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
      */
     bot?: string;
   };
@@ -7983,7 +8090,7 @@ export type MakeWorkspaceFolderData = {
   };
   query?: {
     /**
-     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. The Bot's id. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
      */
     bot?: string;
   };

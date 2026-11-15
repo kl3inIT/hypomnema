@@ -226,15 +226,15 @@ func runBotGives(ctx context.Context, q *store.Queries, runID string) (func(stri
 
 	every := func(string) bool { return true }
 
-	name := run.Bot.String
+	name := run.BotID.String
 
-	if !run.Bot.Valid && run.ChatID.Valid && run.CoordinatorTokenID.Valid {
+	if !run.BotID.Valid && run.ChatID.Valid && run.CoordinatorTokenID.Valid {
 		chat, err := q.GetChat(ctx, run.ChatID.String)
 		if err != nil {
 			return nil, notFound(err, "chat", run.ChatID.String)
 		}
 
-		name = chat.Bot
+		name = chat.BotID
 	}
 
 	if name == "" {

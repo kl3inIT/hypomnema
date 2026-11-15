@@ -1,7 +1,6 @@
 import type { Chat } from "@/api/generated/types.gen"
-import { firstBot } from "@/features/bots/bots-state"
 
-// A Bot as the sidebar lists it (issue #361): its chats, newest first.
+// A Bot as the sidebar lists it (issue #361): its id and its chats, newest first.
 export type BotRow = { bot: string; chats: Chat[] }
 
 const newest = (a: Chat, b: Chat) => Date.parse(b.updated_at) - Date.parse(a.updated_at)
@@ -9,9 +8,9 @@ const newest = (a: Chat, b: Chat) => Date.parse(b.updated_at) - Date.parse(a.upd
 // botRows groups the chats by their Bot, as OpenMausBot lists a Bot with its threads (Apache License 2.0,
 // https://github.com/milind-soni/OpenMausBot; src/components/Sidebar.tsx BotListItem, BotThreadList). The Bot
 // whose chat moved last comes first: OpenMausBot keeps an order the person drags, which is left out here until
-// dragging comes (issue #361, owner, 2026-11-13). The first Bot, coordinator, is always listed, last while it has
-// no chat.
-export function botRows(chats: readonly Chat[]): BotRow[] {
+// dragging comes (issue #361, owner, 2026-11-13). The main Bot, whose id the server names (Bot.main), is always
+// listed, last while it has no chat.
+export function botRows(chats: readonly Chat[], main: string): BotRow[] {
   const byBot = new Map<string, Chat[]>()
   for (const chat of [...chats].sort(newest)) {
     const list = byBot.get(chat.bot)
@@ -20,14 +19,15 @@ export function botRows(chats: readonly Chat[]): BotRow[] {
   }
 
   const rows = [...byBot].map(([bot, list]) => ({ bot, chats: list }))
-  if (!byBot.has(firstBot)) rows.push({ bot: firstBot, chats: [] })
+  if (main && !byBot.has(main)) rows.push({ bot: main, chats: [] })
 
   return rows
 }
 
 // Which Bots the owner opened to their chats, kept in this browser as t3code keeps which projects are expanded
 // (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code; apps/web/src/uiStateStore.ts
-// projectExpandedById). A Bot is closed until opened, as OpenMausBot's (useSearchDisclosure's initial).
+// projectExpandedById). A Bot is closed until opened, as OpenMausBot's (useSearchDisclosure's initial). A Bot is kept
+// by its id (issue #466): a key from before, a Bot's name, names no row and is not read.
 const openKey = "hypomnema.sidebar.open-bots"
 
 export function readOpenBots(): Record<string, boolean> {

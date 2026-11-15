@@ -463,5 +463,5 @@ func TestABotUsesSupersetOnlyWhenTheAccountIsOnForChats(t *testing.T) { //nolint
 	out, err = w.cmd(t, "superset", "dashboards")
 	require.NoError(t, err)
 	assert.Contains(t, out, "9\tProduct usage\n")
-	assert.Contains(t, w.logs.String(), `agent="bot coordinator in chat `+chat.ID+`"`)
+	assert.Contains(t, w.logs.String(), `agent="bot `+orchestration.DefaultBotID+` in chat `+chat.ID+`"`)
 }

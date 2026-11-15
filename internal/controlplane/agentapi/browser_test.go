@@ -16,6 +16,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -96,7 +97,7 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 		chat, err := w.svc.CreateChat(ctx, "", title)
 		require.NoError(t, err)
 
-		own, err := w.svc.AddBotToken(ctx, "pi", chat.ID, "coordinator")
+		own, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
 		require.NoError(t, err)
 
 		status, _ = w.browse(own, "agent_browser_get_url", `{}`)

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs the script of one Routine of a Bot (issue #211), in the box a Bot's pi runs in (issue #260). Installed
 # root-owned as /usr/local/bin/hypomnema-routine; the control plane's user runs it as the coordinator user through
-# the sudoers rule limited to this file and hypomnema-pi. It accepts only a Bot's name and a Routine's id: which file
+# the sudoers rule limited to this file and hypomnema-pi. It accepts only a Bot's id and a Routine's id: which file
 # runs, what it holds and how long it may run are read from the control plane, never from the caller, so no command
 # line reaches the coordinator's user (Hermes: a script is a file under the profile's scripts/, never a command
 # line). The script gets a clean environment, as pi does: no variable of the caller reaches it.
@@ -38,7 +38,7 @@ bot=$1
 routine=$2
 
 case "$bot" in
-  "" | [!a-z]* | *[!a-z0-9-]*) usage ;;
+  "" | [!a-z]* | *[!a-z0-9_-]*) usage ;;
 esac
 case "$routine" in
   rtn_*) ;;
@@ -64,12 +64,30 @@ esac
 
 # The Bot's own directory, as hypomnema-pi makes it: the script works where the Bot does. The box binds its real
 # path.
+# A Bot's directory is named by its id, which never changes, so a rename moves nothing (issue #466). A Bot from
+# before ids keeps the directory named by its old name, which pi recorded in its sessions: the id is a link to it,
+# made once, at the first start after the release, as the main Bot's has always been a link to ../work. The name is
+# read from the control plane while no directory of the id is there.
+# bot_dir makes $home/bots/<id> when it is not there: a link to ../work for the main Bot, a link to the directory of
+# the Bot's name when there is one, or nothing (mkdir follows).
+bot_dir() {
+  [ -e "$home/bots/$1" ] || [ -L "$home/bots/$1" ] && return 0
+  line=$(HOME="$user_home" "$hypomnema" bots show "$1" < /dev/null | sed -n 1p) || return 0
+  label=$(printf '%s\n' "$line" | awk -F '\t' '{ print $2 }')
+  case "$label" in
+    *" (main)")
+      mkdir -p "$home/work"
+      ln -s ../work "$home/bots/$1"
+      ;;
+    "" | */* | .* | *[!a-z0-9-]*) ;;
+    *) [ -d "$home/bots/$label" ] && [ ! -L "$home/bots/$label" ] && ln -s "$label" "$home/bots/$1" ;;
+  esac
+  return 0
+}
+
 mkdir -p "$home/bots" "$home/run"
 dir="$home/bots/$bot"
-if [ "$bot" = coordinator ] && [ ! -e "$dir" ]; then
-  mkdir -p "$home/work"
-  ln -s ../work "$dir"
-fi
+bot_dir "$bot"
 mkdir -p "$dir"
 dir=$(cd "$dir" && pwd -P)
 

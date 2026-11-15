@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarName } from "@/features/agents/agent-avatar"
-import { firstBot } from "@/features/bots/bots-state"
+import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import {
   AppSidebar,
@@ -54,10 +54,12 @@ function NewChat({ initialBot }: { initialBot?: string }) {
   const [saved] = useState(() => readDraft(newChatDraft))
   const listed = useBots().data
   const bots = listed ?? []
-  const [picked, setPicked] = useState(initialBot ?? saved.bot ?? firstBot)
+  const main = mainBotOf(listed)
+  const [picked, setPicked] = useState(initialBot ?? saved.bot ?? "")
   const choice = bots.length > 1
   // Until the Bots are read, the one picked stands, so that the files of the draft do not move meanwhile.
-  const bot = !listed || bots.some((b) => b.name === picked) ? picked : firstBot
+  // A Bot is picked by its id (issue #466); one the list does not have, a draft's from before, is the main Bot.
+  const bot = !listed || bots.some((b) => b.id === picked) ? picked : main
   const [chatId] = useState(() => saved.chat ?? newChatId())
   const attachments = useAttachments(chatId, bot, { files: saved.files, bot: saved.bot ?? bot })
   const [model, setModel] = useDraftChoice(bot)
@@ -82,11 +84,13 @@ function NewChat({ initialBot }: { initialBot?: string }) {
               Chat with
               <Select value={bot} onValueChange={(value) => value && setPicked(value)}>
                 <SelectTrigger aria-label="Bot" size="sm">
-                  <SelectValue>{(value: string) => <AvatarName name={value} />}</SelectValue>
+                  <SelectValue>
+                    {(value: string) => <AvatarName name={botNameOf(bots, value)} />}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {bots.map((b) => (
-                    <SelectItem key={b.name} value={b.name}>
+                    <SelectItem key={b.id} value={b.id}>
                       <AvatarName name={b.name} />
                     </SelectItem>
                   ))}

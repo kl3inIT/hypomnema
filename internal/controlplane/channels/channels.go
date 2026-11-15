@@ -75,7 +75,19 @@ type Store interface {
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
 	ArtifactsBeforeReply(ctx context.Context, chatID string, seq int64) ([]orchestration.ArtifactRef, error)
 	ChatToolDisplay(ctx context.Context, chatID string) (orchestration.ToolDisplay, error)
+	GetBot(ctx context.Context, id string) (orchestration.Bot, error)
 	Subscribe(ctx context.Context) <-chan struct{}
+}
+
+// botName is what a person is told a Bot is called: its name, read at each notice since it may change (issue
+// #466), or its id when it cannot be read.
+func botName(ctx context.Context, store Store, id string) string {
+	b, err := store.GetBot(ctx, id)
+	if err != nil {
+		return id
+	}
+
+	return b.Name
 }
 
 // Coordinator is the part of the supervisor of the Bots' pi the Channels use.
@@ -859,13 +871,13 @@ func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.Channe
 	case !cn.all.coord.Enabled():
 		// Nothing will answer it, so no reply quotes it.
 		r.forget(m.ID)
-		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeNoAnswer, chat.Bot))
+		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeNoAnswer, botName(ctx, store, chat.Bot)))
 
 		return nil
 	case busy:
 		// The message waits for the turn that is running, and the person is told, as Hermes tells one who
 		// writes while it works.
-		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeQueued, chat.Bot))
+		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeQueued, botName(ctx, store, chat.Bot)))
 	}
 
 	if !m.Menu {
@@ -1475,7 +1487,7 @@ func (r *relay) send(ctx context.Context, msgs []orchestration.ChatMessage, one 
 				partial += "\n\n"
 			}
 
-			r.finish(ctx, partial+fmt.Sprintf(noticeNoReply, r.chat.Bot))
+			r.finish(ctx, partial+fmt.Sprintf(noticeNoReply, botName(ctx, r.all.store, r.chat.Bot)))
 			r.settle(ctx, true)
 		default:
 			ended = false

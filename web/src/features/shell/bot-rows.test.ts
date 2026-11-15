@@ -18,11 +18,14 @@ const chat = (id: string, bot: string, updated: string): Chat => ({
 
 // Scenario: the sidebar lists a Bot a row, the one whose chat moved last first, each with its chats newest first.
 test("chats are grouped by their Bot, the Bot whose chat moved last first", () => {
-  const rows = botRows([
-    chat("old", "coordinator", "2026-11-10T09:00:00Z"),
-    chat("research", "researcher", "2026-11-12T09:00:00Z"),
-    chat("new", "coordinator", "2026-11-11T09:00:00Z"),
-  ])
+  const rows = botRows(
+    [
+      chat("old", "coordinator", "2026-11-10T09:00:00Z"),
+      chat("research", "researcher", "2026-11-12T09:00:00Z"),
+      chat("new", "coordinator", "2026-11-11T09:00:00Z"),
+    ],
+    "coordinator",
+  )
 
   expect(rows.map((r) => [r.bot, r.chats.map((c) => c.id)])).toEqual([
     ["researcher", ["research"]],
@@ -33,11 +36,13 @@ test("chats are grouped by their Bot, the Bot whose chat moved last first", () =
 // Scenario: coordinator is listed even before it has a chat, so a first chat can be started from it; it comes
 // after the Bots that have chats.
 test("coordinator is always listed, last while it has no chat", () => {
-  expect(botRows([]).map((r) => [r.bot, r.chats.length])).toEqual([["coordinator", 0]])
-  expect(botRows([chat("a", "reporter", "2026-11-12T09:00:00Z")]).map((r) => r.bot)).toEqual([
-    "reporter",
-    "coordinator",
+  expect(botRows([], "coordinator").map((r) => [r.bot, r.chats.length])).toEqual([
+    ["coordinator", 0],
   ])
+  expect(botRows([], "")).toEqual([])
+  expect(
+    botRows([chat("a", "reporter", "2026-11-12T09:00:00Z")], "coordinator").map((r) => r.bot),
+  ).toEqual(["reporter", "coordinator"])
 })
 
 // Scenario: which Bots the owner opened survives a reload; what the browser kept that is not such a record is

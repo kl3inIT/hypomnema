@@ -15,6 +15,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
@@ -62,7 +63,7 @@ func TestABotSearchesTheWebAndReadsAPage(t *testing.T) {
 	chat, err := w.svc.CreateChat(ctx, "", "news")
 	require.NoError(t, err)
 
-	piToken, err := w.svc.AddBotToken(ctx, "pi", chat.ID, "coordinator")
+	piToken, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
 	require.NoError(t, err)
 	w.loginWith(t, piToken)
 
