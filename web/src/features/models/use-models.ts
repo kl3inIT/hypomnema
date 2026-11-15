@@ -4,6 +4,10 @@ import "@/api/client"
 import {
   getAccountLimitsOptions,
   getAccountLimitsQueryKey,
+  getImagesOptions,
+  getImagesQueryKey,
+  getWebSearchOptions,
+  getWebSearchQueryKey,
   listAccountsOptions,
   listAccountsQueryKey,
   listGatewayKeysOptions,
@@ -13,7 +17,7 @@ import {
   listProvidersOptions,
 } from "@/api/generated/@tanstack/react-query.gen"
 import { getAccountLimits } from "@/api/generated/sdk.gen"
-import type { AccountLimits } from "@/api/generated/types.gen"
+import type { AccountLimits, Images, WebSearch } from "@/api/generated/types.gen"
 import { everyCall } from "@/lib/query-keys"
 
 // An account rests and comes back on its own, so the list is read again now and then while the page is open.
@@ -87,4 +91,29 @@ export function useRefreshGatewayKeys() {
   const queryClient = useQueryClient()
 
   return () => queryClient.invalidateQueries({ queryKey: everyCall(listGatewayKeysQueryKey()) })
+}
+
+// The image providers in their order. A rest ends on its own, so they are read again now and then while the page
+// is open.
+export function useImages() {
+  return useQuery({ ...getImagesOptions(), refetchInterval: 30_000 })
+}
+
+// useShowImages shows the providers the server answered a change with: the body of their read.
+export function useShowImages() {
+  const queryClient = useQueryClient()
+
+  return (images: Images) => queryClient.setQueryData(getImagesQueryKey(), images)
+}
+
+// The web search chain. A rest ends on its own, so the chain is read again now and then while the page is open.
+export function useWebSearch() {
+  return useQuery({ ...getWebSearchOptions(), refetchInterval: 30_000 })
+}
+
+// useShowWebSearch shows the chain the server answered a change with: the body of its read.
+export function useShowWebSearch() {
+  const queryClient = useQueryClient()
+
+  return (web: WebSearch) => queryClient.setQueryData(getWebSearchQueryKey(), web)
 }
