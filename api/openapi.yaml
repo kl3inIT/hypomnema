@@ -3258,8 +3258,15 @@ paths:
     get:
       operationId: ListChatMessages
       summary: A chat's messages after a cursor, oldest first; optionally wait for the next one
+      description: >-
+        With after, the messages that follow that seq; with before, the newest messages older than it, so a chat is
+        read from its end a page at a time (issue #502).
       parameters:
         - $ref: "#/components/parameters/After"
+        - name: before
+          in: query
+          description: Return the newest messages with a seq below this one; after and wait are then ignored.
+          schema: { type: integer, format: int64, minimum: 1 }
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 500 }
@@ -6756,7 +6763,7 @@ components:
         escalation: { type: string, description: "The escalation's kind, such as stalled or overrun." }
     ChatMessageList:
       type: object
-      required: [data, next_after]
+      required: [data, next_after, has_more]
       properties:
         data:
           type: array
@@ -6764,4 +6771,13 @@ components:
         next_after:
           type: integer
           format: int64
-          description: The cursor for the next page.
+          description: The cursor for the next page, the newest seq read; a message the Bot hides is counted.
+        next_before:
+          type: integer
+          format: int64
+          description: >-
+            With before, the cursor for the page older than this one: the oldest seq read, a message the Bot hides
+            included.
+        has_more:
+          type: boolean
+          description: With before, whether older messages are left; always false with after.

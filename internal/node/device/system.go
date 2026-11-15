@@ -55,6 +55,9 @@ type System interface {
 	// command line, so that a group id reused by another program is not
 	// taken for the device's.
 	Alive(pgid int, needle string) bool
+	// Running says whether a live process of any group has needle in its
+	// command line: one this node did not start counts too.
+	Running(needle string) bool
 	// DisplayFree says no X server holds display n; DisplayReady that one
 	// listens on it.
 	DisplayFree(n int) bool

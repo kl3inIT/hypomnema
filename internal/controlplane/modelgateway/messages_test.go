@@ -298,5 +298,6 @@ func TestADisguisedClientKeepsItsCacheBreakpoint(t *testing.T) {
 
 	moved := request.Messages[0].Content[0]
 	assert.Contains(t, moved["text"], "Long rules.")
-	assert.Equal(t, map[string]any{"type": "ephemeral"}, moved["cache_control"])
+	// Kept an hour, as the gateway's own are on a disguised request (issue #524).
+	assert.Equal(t, map[string]any{"type": "ephemeral", "ttl": "1h"}, moved["cache_control"])
 }

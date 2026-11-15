@@ -29,6 +29,8 @@ export type ChatView = {
   reconnecting: boolean
   // queue is what the owner wrote while pi worked, which waits for the turn to settle (issue #497).
   queue: QueuedChatMessage[]
+  // earlier says that older history is left on the server, read when the reader scrolls up (issue #502).
+  earlier: boolean
 }
 
 export type ChatAction =
@@ -39,6 +41,8 @@ export type ChatAction =
   | { type: "state"; working: boolean }
   | { type: "connection"; reconnecting: boolean }
   | { type: "queue"; items: QueuedChatMessage[] }
+  // A page of history read from the end (issue #502): the newest when the chat opens, then each older one.
+  | { type: "history"; messages: ChatMessage[]; earlier: boolean }
 
 export const emptyChat: ChatView = {
   messages: [],
@@ -47,6 +51,7 @@ export const emptyChat: ChatView = {
   working: false,
   reconnecting: false,
   queue: [],
+  earlier: false,
 }
 
 export function chatReducer(view: ChatView, action: ChatAction): ChatView {
@@ -108,6 +113,15 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
     case "queue":
       // The server sends the whole queue each time it changes, as pi's queue_update does (json.md).
       return { ...view, queue: action.items }
+    case "history": {
+      // A message the stream already sent stays as the stream sent it, being the newer copy.
+      const kept = new Set(view.messages.map((m) => m.seq))
+      const messages = [...action.messages.filter((m) => !kept.has(m.seq)), ...view.messages].sort(
+        (a, b) => a.seq - b.seq,
+      )
+
+      return { ...view, messages, earlier: action.earlier }
+    }
   }
 }
 
@@ -165,7 +179,11 @@ export function failed(m: ChatMessage) {
 // this response", MessagesTimeline.logic.ts; assistant-ui's StoppedRun).
 export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = []): ChatItem[] {
   const items: ChatItem[] = []
-  const waiting = [...setups].sort((a, b) => a.at.localeCompare(b.at))
+  // While older history is left unread, a card from before the oldest message read waits for its page (issue #502).
+  const from = view.earlier ? view.messages[0]?.created_at : undefined
+  const waiting = setups
+    .filter((s) => from === undefined || s.at >= from)
+    .sort((a, b) => a.at.localeCompare(b.at))
   let group: Step[] | null = null
   const kept = new Set(view.messages.map((m) => m.seq))
   const messages = [...view.messages, ...(local.sending ?? []).filter((m) => !kept.has(m.seq))]

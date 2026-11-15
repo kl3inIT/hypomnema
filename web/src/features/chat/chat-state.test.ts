@@ -255,3 +255,49 @@ describe("the conversation items", () => {
     ).toBe(false)
   })
 })
+
+// A chat is read from its end a page at a time (issue #502).
+describe("history read in pages", () => {
+  // Scenario: the newest page arrives, the stream sends its last message again, then an older page goes on top; a
+  // tool group cut by the page edge joins up, and nothing shows twice.
+  test("an older page goes on top and joins the group it cut", () => {
+    const owner = msg({ role: "owner", text: "check the runs" })
+    const thought = msg({
+      role: "coordinator",
+      text: "",
+      parts: [{ type: "thinking", text: "look" }],
+    })
+    const tool = msg({
+      role: "tool",
+      text: "ran",
+      parts: [{ type: "tool_result", id: "t1", name: "bash" }],
+    })
+    const reply = msg({ role: "coordinator", text: "Two runs." })
+    const next = msg({ role: "owner", text: "thanks" })
+
+    const view = run(
+      { type: "history", messages: [tool, reply, next], earlier: true },
+      { type: "message", message: next },
+      { type: "history", messages: [owner, thought], earlier: false },
+    )
+
+    expect(view.earlier).toBe(false)
+    expect(view.messages.map((m) => m.seq)).toEqual(
+      [owner, thought, tool, reply, next].map((m) => m.seq),
+    )
+    expect(chatItems(view).map((i) => i.kind)).toEqual(["owner", "activity", "reply", "owner"])
+  })
+
+  // Scenario: a Routine set up before the oldest message read waits for its page, so it never shows at the top of
+  // the wrong part of the chat.
+  test("a card older than what is read waits for its page", () => {
+    const old = msg({ role: "owner", text: "every morning", created_at: "2026-11-09T10:00:00Z" })
+    const setups = [{ id: "rtn_1", at: "2026-11-09T09:00:00Z" }]
+
+    const partial = run({ type: "history", messages: [old], earlier: true })
+    const whole = chatReducer(partial, { type: "history", messages: [], earlier: false })
+
+    expect(chatItems(partial, {}, setups).map((i) => i.kind)).toEqual(["owner"])
+    expect(chatItems(whole, {}, setups).map((i) => i.kind)).toEqual(["routine-setup", "owner"])
+  })
+})

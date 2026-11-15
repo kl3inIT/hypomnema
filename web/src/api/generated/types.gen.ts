@@ -2987,9 +2987,17 @@ export type ChatWake = {
 export type ChatMessageList = {
   data: Array<ChatMessage>;
   /**
-   * The cursor for the next page.
+   * The cursor for the next page, the newest seq read; a message the Bot hides is counted.
    */
   next_after: number;
+  /**
+   * With before, the cursor for the page older than this one: the oldest seq read, a message the Bot hides included.
+   */
+  next_before?: number;
+  /**
+   * With before, whether older messages are left; always false with after.
+   */
+  has_more: boolean;
 };
 
 export type LarkChannelSettingsWritable = {
@@ -8331,6 +8339,10 @@ export type ListChatMessagesData = {
      * The seq of the last event already read.
      */
     after?: number;
+    /**
+     * Return the newest messages with a seq below this one; after and wait are then ignored.
+     */
+    before?: number;
     limit?: number;
     /**
      * Seconds to wait when no message follows the cursor yet; zero answers at once.

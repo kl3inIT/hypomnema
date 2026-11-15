@@ -2072,6 +2072,8 @@ export const getChatGatewayKey = <ThrowOnError extends boolean = true>(options: 
 
 /**
  * A chat's messages after a cursor, oldest first; optionally wait for the next one
+ *
+ * With after, the messages that follow that seq; with before, the newest messages older than it, so a chat is read from its end a page at a time (issue #502).
  */
 export const listChatMessages = <ThrowOnError extends boolean = true>(options: Options<ListChatMessagesData, ThrowOnError>): RequestResult<ListChatMessagesResponses, ListChatMessagesErrors, ThrowOnError> => (options.client ?? client).get<ListChatMessagesResponses, ListChatMessagesErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

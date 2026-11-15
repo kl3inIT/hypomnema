@@ -159,6 +159,19 @@ func (s *fakeSystem) Alive(pgid int, needle string) bool {
 		strings.Contains(filepath.ToSlash(p.cmd.Path)+" "+strings.Join(p.cmd.Args, " "), needle)
 }
 
+func (s *fakeSystem) Running(needle string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, p := range s.procs {
+		if !ended(p) && strings.Contains(filepath.ToSlash(p.cmd.Path)+" "+strings.Join(p.cmd.Args, " "), needle) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (s *fakeSystem) DisplayFree(n int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -468,6 +481,76 @@ func TestANodeTakesBackThePhoneItLeft(t *testing.T) {
 		assert.Equal(t, nodeproto.DeviceStopped, again.Status().State)
 		assert.Contains(t, r.sys.sent(), "term Xvfb", "a leftover display is ended")
 		assert.NoFileExists(t, filepath.Join(r.dir, "run", "run.json"))
+	})
+}
+
+// A machine powered off under a running phone leaves the emulator's lock
+// files in the AVD, which make the next emulator refuse to boot (issue #417,
+// 2026-11-15). The next start removes them, and only them, before the
+// emulator boots; while an emulator of the node's SDK runs, one this node did
+// not start too, they are left.
+func TestStaleLocksAreRemovedBeforeTheEmulatorBoots(t *testing.T) {
+	t.Parallel()
+
+	locks := []string{"hardware-qemu.ini.lock", "multiinstance.lock", "userdata-qemu.img.lock"}
+
+	powerOff := func(t *testing.T, r *rig) string {
+		t.Helper()
+
+		r.start(t)
+
+		r.sys.mu.Lock()
+		for _, p := range r.sys.procs {
+			r.sys.end(p)
+		}
+		r.sys.mu.Unlock()
+
+		folder := filepath.Join(r.dir, "avd", "phone.avd")
+		for _, name := range locks {
+			require.NoError(t, os.WriteFile(filepath.Join(folder, name), []byte("1234"), 0o600))
+		}
+
+		require.NoError(t, os.WriteFile(filepath.Join(folder, "userdata-qemu.img"), []byte("disk"), 0o600))
+
+		return folder
+	}
+
+	t.Run("after a power-off", func(t *testing.T) {
+		t.Parallel()
+
+		r := newRig(t)
+		folder := powerOff(t, r)
+
+		again := r.manager()
+		again.adopt(t.Context())
+		assert.Equal(t, nodeproto.DeviceStopped, again.Status().State, "the emulator run.json names is gone")
+
+		require.NoError(t, again.Start(t.Context()))
+		assert.Equal(t, nodeproto.DeviceRunning, again.Status().State)
+
+		for _, name := range locks {
+			assert.NoFileExists(t, filepath.Join(folder, name))
+		}
+
+		assert.FileExists(t, filepath.Join(folder, "userdata-qemu.img"), "the phone's disk stays")
+		assert.FileExists(t, filepath.Join(folder, "config.ini"))
+	})
+
+	t.Run("an emulator runs", func(t *testing.T) {
+		t.Parallel()
+
+		r := newRig(t)
+		folder := powerOff(t, r)
+
+		// One this node did not start, of its SDK.
+		_, err := r.sys.Start(Command{Path: filepath.Join(r.dir, "sdk", "emulator", "emulator")})
+		require.NoError(t, err)
+
+		require.NoError(t, r.manager().Start(t.Context()))
+
+		for _, name := range locks {
+			assert.FileExists(t, filepath.Join(folder, name), "the locks of a live emulator are not stale")
+		}
 	})
 }
 
