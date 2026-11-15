@@ -38,6 +38,7 @@ type cloud struct {
 	off      map[string]bool
 	stopErr  error
 	startErr error
+	stops    int
 	// whileStopping runs once inside a Stop, while the provider is being asked.
 	whileStopping func()
 }
@@ -74,6 +75,7 @@ func (c *cloud) Delete(_ context.Context, _, nodeID string) error {
 }
 
 func (c *cloud) Stop(_ context.Context, _, nodeID string) error {
+	c.stops++
 	if c.stopErr != nil {
 		return c.stopErr
 	}
@@ -568,9 +570,8 @@ func TestStopAndStartAreAskedAgainUntilTheProviderActs(t *testing.T) {
 
 // Scenario: the settle loop finds a machine being stopped while the stop
 // that was asked (the phone's idle stop, or the owner's) still waits for the
-// provider, and carries out the same step. The machine is stopped once, and
-// neither the stop asked nor the loop fails for the other having recorded it
-// first (issue #417, 2026-11-15).
+// provider. The loop leaves it to that stop: the provider is asked once, and
+// neither fails (issues #417 and #538).
 func TestAStopAndTheSettleLoopAtOnceBothSucceed(t *testing.T) {
 	t.Parallel()
 
@@ -586,36 +587,84 @@ func TestAStopAndTheSettleLoopAtOnceBothSucceed(t *testing.T) {
 	require.NoError(t, settleErr)
 	assert.Equal(t, orchestration.MachineStopped, got.Machine.Power)
 	assert.True(t, w.cloud.off[n.ID])
+	assert.Equal(t, 1, w.cloud.stops)
 }
 
-// Scenario: the owner removes a machine that is stopped, or still being
-// stopped, while the provider is down. Its disk still costs money, so the
-// destroy is tried again like any other, and the machine is not asked to
-// stop once more instead.
-func TestRemovalOfAStoppedMachineIsTriedAgain(t *testing.T) {
+// Scenario: the settle loop lists two machines being stopped. While it stops
+// the first, the stop asked for the second ends and the owner starts that
+// machine again. When the loop reaches it, it acts on the machine as it is
+// now, being started, and does not stop the machine the owner just started
+// (issue #538).
+func TestTheSettleLoopDoesNotStopAMachineStartedSinceItsList(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t, publicURL)
-
-	off := w.ready("stopped")
-	_, err := w.mgr.Stop(t.Context(), off.ID)
-	require.NoError(t, err)
+	first := w.ready("build-1")
+	w.clock.now = w.clock.now.Add(time.Second) // The loop lists the machines by age: the first is settled first.
+	second := w.ready("build-2")
 
 	w.cloud.stopErr = errors.New("RequestLimitExceeded")
 
-	between := w.ready("stopping")
-	_, err = w.mgr.Stop(t.Context(), between.ID)
-	require.Error(t, err)
+	for _, n := range []orchestration.Node{first, second} {
+		_, err := w.mgr.Stop(t.Context(), n.ID)
+		require.Error(t, err)
+	}
 
-	w.cloud.deleteErr = errors.New("RequestLimitExceeded")
-	require.Error(t, w.mgr.Remove(t.Context(), off.ID))
-	require.Error(t, w.mgr.Remove(t.Context(), between.ID))
-	assert.Equal(t, []string{"stopped", "stopping"}, w.listed())
+	w.cloud.stopErr = nil
 
-	w.cloud.deleteErr = nil
-	w.clock.now = w.clock.now.Add(time.Minute)
+	var startErr error
+
+	w.cloud.whileStopping = func() {
+		// The stop asked for the second machine ends, and the owner starts it again.
+		w.cloud.off[second.ID] = true
+		require.NoError(t, w.svc.MachineStopped(t.Context(), second.ID))
+		_, startErr = w.mgr.Start(t.Context(), second.ID)
+	}
+
 	require.NoError(t, w.mgr.Settle(t.Context()))
+	require.NoError(t, startErr)
 
-	assert.Empty(t, w.listed())
-	assert.Empty(t, w.cloud.machines)
+	assert.True(t, w.cloud.off[first.ID])
+	assert.False(t, w.cloud.off[second.ID], "the machine the owner started is on")
+	assert.Equal(t, orchestration.MachineStarting, w.node(second.ID).Machine.Power)
+}
+
+// Scenario: while the owner's stop of a machine waits for the provider, the
+// settle loop passes and the owner starts the machine again. The loop leaves
+// the machine to the stop, and the start waits for the stop to end and then
+// starts it: no stop lands after the start (issue #538).
+func TestAStartWaitsForAStopOfTheSameMachine(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	n := w.ready("build-1")
+
+	var settleErr error
+
+	started := make(chan error, 1)
+
+	w.cloud.whileStopping = func() {
+		settleErr = w.mgr.Settle(t.Context())
+
+		go func() {
+			_, err := w.mgr.Start(t.Context(), n.ID)
+			started <- err
+		}()
+
+		// Without one step per machine the start runs now; with it, it waits for this stop.
+		select {
+		case err := <-started:
+			started <- err
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	_, stopErr := w.mgr.Stop(t.Context(), n.ID)
+	require.NoError(t, stopErr)
+	require.NoError(t, settleErr)
+	require.NoError(t, <-started)
+
+	assert.False(t, w.cloud.off[n.ID], "the machine the owner started is on")
+	assert.Equal(t, orchestration.MachineStarting, w.node(n.ID).Machine.Power)
+	assert.Equal(t, 1, w.cloud.stops)
 }

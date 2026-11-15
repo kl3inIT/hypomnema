@@ -21,7 +21,7 @@ const drawn = (m: ChatMessage) => {
   const item = items[0]
   if (!item) throw new Error("nothing drawn")
 
-  render(<ChatItemView item={item} working={false} bot="reporter" />)
+  render(<ChatItemView item={item} working={false} botName="reporter" />)
 
   return items
 }

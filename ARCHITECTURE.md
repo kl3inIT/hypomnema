@@ -209,7 +209,7 @@ sequenceDiagram
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
   Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
   it; reopening a failed Task resets its failure count and unblocks them.
-- Dispatches: the coordinator creates one for a ready Task, in a new Conversation or continuing the open one; a node
+- Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
   outcome unknown and blocks the Task; a report from the same epoch, a reattach by the same node and process, a
@@ -296,7 +296,10 @@ sequenceDiagram
     an instance instead of destroying it. Its node is drained first, and a node that runs a Dispatch is refused.
     The machine's power is `stopping`, then `stopped`; a start makes the node active again and the power
     `starting` until the node says hello. A stop or a start the provider did not carry out is asked again every
-    pass, with the reason recorded. A stopped machine still counts toward its provider's limit and can be removed.
+    pass, with the reason recorded. One power step runs for a machine at a time: a stop or start asked (by the
+    owner or the phone) waits for the one in flight, and the pass leaves a machine whose step is in flight to the
+    next pass and reads each other machine again before acting on it, as client-go's workqueue hands a key to one
+    worker at a time (issue #538). A stopped machine still counts toward its provider's limit and can be removed.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the Codex CLI's login to a new machine, which the owner still sets
@@ -3357,6 +3360,10 @@ the internet, so that a machine created at a provider can install the node from 
   opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin` (the control plane
   installs them on every node since #107). The earlier
   control plane on aioffice-app (`~ubuntu/hypomnema-cp`) was deleted on 2026-11-13.
+- Node zm, since 2026-11-15 (v0.9.50): on the control plane's own machine, user `dat`, from `~/.hypomnema-node`,
+  added with the default limit of 2 and then drained, so it shows on Machines with its stats and takes no work
+  (owner, 2026-11-15: watch it, run workers when it is idle). `hypomnema nodes resume zm` lets it take work; its
+  workers would then run as the user that holds the control plane's `env` and vault keys.
 - Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
   control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
   sent to the node with each Dispatch of a Claude Code worker and is also served by the gateway. The earlier hand-kept
