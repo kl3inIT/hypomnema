@@ -526,7 +526,8 @@ function AddressRow({
   const shown = url === "about:blank" ? "" : url
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
+    // Who has control is said only where the bar has room for it, as the phone's bar (../device/phone-view.tsx).
+    <div className="@container/view-bar flex h-11 shrink-0 items-center gap-1 border-b px-2">
       <RowButton label="Back" disabled={!you} onClick={() => onHistory(-1)}>
         <ArrowLeft />
       </RowButton>
@@ -577,7 +578,7 @@ function AddressRow({
             />
           }
         >
-          <span className="hidden sm:inline">
+          <span className="@max-[480px]/view-bar:hidden">
             {controller === null
               ? "Connecting…"
               : you

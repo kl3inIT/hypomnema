@@ -346,7 +346,8 @@ test("the owner opens the phone beside a chat, takes control, and uses it", asyn
   await expect(page.getByRole("tab", { name: "Phone" })).toHaveCount(0)
 })
 
-// In a narrow pane of a small screen the frame is made smaller to fit, not cut.
+// In a narrow pane of a small screen the frame is made smaller to fit, not cut, and the bar above it keeps its
+// control button inside the pane.
 test("the phone's frame fits a narrow pane", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "a phone has no grid")
   await page.setViewportSize({ width: 960, height: 540 })
@@ -360,6 +361,11 @@ test("the phone's frame fits a narrow pane", async ({ page }, info) => {
   await expect(page.getByRole("region", { name: "Phone" })).toBeVisible()
   await painted(page)
   await expectFrameInside(page)
+  const view = (await page.getByTestId("phone-view").boundingBox())!
+  const control = page.getByRole("button", { name: "Take control" })
+  await expect(control).toHaveText("Take control", { useInnerText: true })
+  const button = (await control.boundingBox())!
+  expect(button.x + button.width).toBeLessThanOrEqual(view.x + view.width - 4)
   await shot(page, "phone-narrow")
 })
 

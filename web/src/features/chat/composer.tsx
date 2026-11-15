@@ -35,7 +35,7 @@ export function Composer({
   onStop,
   working,
   disabled,
-  bot,
+  botName,
   attachments,
   controls,
   draft,
@@ -46,8 +46,8 @@ export function Composer({
   onStop: () => void
   working: boolean
   disabled?: boolean
-  // bot names who the message goes to.
-  bot: string
+  // botName is what the Bot the message goes to is called: its name, not its id (issue #466).
+  botName: string
   // attachments are the files of the message; without them the composer takes none.
   attachments?: Attachments
   // controls are what the message is sent with: the chat's model and effort.
@@ -195,7 +195,9 @@ export function Composer({
         <div className="relative px-4 pt-3.5 pb-2 sm:pt-4">
           <textarea
             aria-label="Message"
-            placeholder={working ? `Add to what ${bot} is doing` : `Ask ${bot} to build something`}
+            placeholder={
+              working ? `Add to what ${botName} is doing` : `Ask ${botName} to build something`
+            }
             rows={1}
             value={text}
             disabled={disabled}

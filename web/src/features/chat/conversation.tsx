@@ -16,7 +16,7 @@ import { chatItems, type ChatView, type Local, type Setup } from "./chat-state"
 export function Conversation({
   view,
   local,
-  bot,
+  botName,
   empty,
   setups,
   onLoadEarlier,
@@ -29,8 +29,8 @@ export function Conversation({
   loadingEarlier?: boolean
   // setups are the Routines the Bot set up from this chat and the Bots and profiles it changed there.
   setups?: Setup[]
-  // bot names who answers, for a reply's heading.
-  bot: string
+  // botName is what the Bot that answers is called, for a reply's heading.
+  botName: string
   empty: React.ReactNode
 }) {
   const items = chatItems(view, local, setups)
@@ -56,7 +56,7 @@ export function Conversation({
         {items.length === 0
           ? empty
           : items.map((item) => (
-              <ChatItemView key={item.key} item={item} working={view.working} bot={bot} />
+              <ChatItemView key={item.key} item={item} working={view.working} botName={botName} />
             ))}
         {view.working && <WorkingFor />}
       </StickToBottom.Content>

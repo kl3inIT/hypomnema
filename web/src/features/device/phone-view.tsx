@@ -284,7 +284,10 @@ export function PhoneView({ label }: { label: string }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="phone-view">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
+      {/* The control button says who has control only where the bar, not the window, has room for it, as Orca's tab
+      strip drops its buttons' labels (tab-bar/TabBarQuickCommandsButton.tsx, @max-[480px]/tab-strip:hidden), so
+      that the bar fits a narrow pane of the grid. */}
+      <div className="@container/view-bar flex h-11 shrink-0 items-center gap-1 border-b px-2">
         <RowButton label="Back" disabled={!you} onClick={() => send({ type: "back" })}>
           <ChevronLeft />
         </RowButton>
@@ -309,7 +312,7 @@ export function PhoneView({ label }: { label: string }) {
               />
             }
           >
-            <span className="hidden sm:inline">
+            <span className="@max-[480px]/view-bar:hidden">
               {controller === null
                 ? "Connecting…"
                 : you
