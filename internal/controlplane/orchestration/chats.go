@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path"
 	"slices"
 	"strings"
@@ -710,8 +711,38 @@ func (s *Service) ListChatMessages(ctx context.Context, chatID string, after int
 		return nil, notFound(err, "chat", chatID)
 	}
 
+	return listChatMessages(ctx, q, chatID, after, math.MaxInt64, pageLimit(limit))
+}
+
+// ListChatMessagesBefore returns the newest messages with a seq below before, oldest first, and whether older ones
+// are left: a page of history read from its end, as ListItems reads a transcript (issue #502).
+func (s *Service) ListChatMessagesBefore(ctx context.Context, chatID string, before int64, limit int,
+) ([]ChatMessage, bool, error) {
+	q := s.read()
+	if _, err := q.GetChat(ctx, chatID); err != nil {
+		return nil, false, notFound(err, "chat", chatID)
+	}
+
+	limit = pageLimit(limit)
+
+	start, err := q.ChatPageStart(ctx, store.ChatPageStartParams{ChatID: chatID, Before: before, Skip: int64(limit)})
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		start = 0
+	case err != nil:
+		return nil, false, fmt.Errorf("finding the start of a page of chat %s: %w", chatID, err)
+	}
+
+	msgs, err := listChatMessages(ctx, q, chatID, start, before, limit)
+
+	return msgs, start > 0, err
+}
+
+func listChatMessages(ctx context.Context, q *store.Queries, chatID string, after, before int64, limit int,
+) ([]ChatMessage, error) {
 	rows, err := q.ListChatMessages(ctx, store.ListChatMessagesParams{
-		ChatID: chatID, After: after, Lim: int64(pageLimit(limit)),
+		ChatID: chatID, After: after, Before: before, Lim: int64(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing the messages of chat %s: %w", chatID, err)

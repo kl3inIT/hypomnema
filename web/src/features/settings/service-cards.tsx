@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { Copy, ExternalLink, Plug, Plus, RefreshCw, Sheet, UserRound } from "lucide-react"
 import { useId, useState, type ComponentType, type ReactElement, type SVGProps } from "react"
 import { z } from "zod"
@@ -9,9 +9,9 @@ import {
   beginIntegrationSignIn,
   completeIntegrationSignIn,
   deleteIntegrationConnection,
-  patchIntegrationConnection,
   putIntegrationConnection,
 } from "@/api/generated/sdk.gen"
+import { patchIntegrationConnectionMutation } from "@/api/generated/@tanstack/react-query.gen"
 import type { Integration, IntegrationConnection, SignIn } from "@/api/generated/types.gen"
 import {
   GmailIcon,
@@ -76,18 +76,12 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
-import { servicesKey } from "./use-integrations"
+import { useRefreshServices } from "./use-integrations"
 
 // The services that sign in with an account (issue #103, step 4): Google is the first. A card a service, as the
 // git hosts have theirs, with the accounts the owner signed in under it. A service of kind app (Lark, issue #135)
 // has the same card: its client is an app of the service, and it is connected with no sign-in. A service of kind
 // account (Superset, issue #203) has it too: an account is the service's address, a user name and a password.
-
-function useRefreshServices() {
-  const queryClient = useQueryClient()
-
-  return () => queryClient.invalidateQueries({ queryKey: servicesKey })
-}
 
 const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   google: GoogleIcon,
@@ -1109,12 +1103,8 @@ function ChatsSwitch({
   const id = `chats-${service.id}-${connection.label}`
 
   const change = useMutation({
-    mutationFn: (chats: boolean) =>
-      patchIntegrationConnection({
-        path: { integration: service.id, label: connection.label },
-        body: { chats },
-      }),
-    onSuccess: async (_, chats) => {
+    ...patchIntegrationConnectionMutation(),
+    onSuccess: async (_, { body: { chats } }) => {
       await refresh()
       said(
         chats
@@ -1132,7 +1122,12 @@ function ChatsSwitch({
         size="sm"
         checked={connection.chats}
         disabled={change.isPending}
-        onCheckedChange={(next) => change.mutate(next)}
+        onCheckedChange={(chats) =>
+          change.mutate({
+            path: { integration: service.id, label: connection.label },
+            body: { chats },
+          })
+        }
       />
     </span>
   )

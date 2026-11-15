@@ -1,9 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { cn } from "cn"
 import { ChevronRight, ShieldCheck } from "lucide-react"
 
 import "@/api/client"
-import { listConnectionActions, setConnectionAction } from "@/api/generated/sdk.gen"
+import { setConnectionActionMutation } from "@/api/generated/@tanstack/react-query.gen"
 import type {
   ActionPolicy,
   ConnectionAction,
@@ -31,6 +31,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 import { ErrorAlert } from "@/components/error-alert"
 import { said } from "@/lib/said"
+import { useConnectionActions, useRefreshConnectionActions } from "./use-integrations"
 
 // What agents may do with an account, action by action (issue #154). The list and its three answers follow
 // Onyx's Tools tab of an app (Auto-approve, Ask, Disabled for each action); the grouping by service and the
@@ -43,10 +44,6 @@ const dots: Record<ActionPolicy, string> = {
   allow: "bg-info-foreground",
   ask: "bg-needs-you",
   never: "bg-muted-foreground",
-}
-
-function actionsKey(integration: string, label: string) {
-  return ["connection-actions", integration, label] as const
 }
 
 // tally says a list of actions in one line: "5 on their own · ask before 6 · never 2".
@@ -70,11 +67,7 @@ export function AgentActions({
   service: Integration
   connection: IntegrationConnection
 }) {
-  const path = { integration: service.id, label: connection.label }
-  const actions = useQuery({
-    queryKey: actionsKey(service.id, connection.label),
-    queryFn: async () => (await listConnectionActions({ path })).data.data,
-  })
+  const actions = useConnectionActions(service.id, connection.label)
 
   if (!actions.data?.length) return null
 
@@ -148,12 +141,11 @@ function ActionRow({
   label: string
   action: ConnectionAction
 }) {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshConnectionActions()
   const change = useMutation({
-    mutationFn: (policy: ActionPolicy) =>
-      setConnectionAction({ path: { integration, label, action: action.id }, body: { policy } }),
-    onSuccess: async (_, policy) => {
-      await queryClient.invalidateQueries({ queryKey: actionsKey(integration, label) })
+    ...setConnectionActionMutation(),
+    onSuccess: async (_, { body: { policy } }) => {
+      await refresh(integration, label)
       said(`${action.name}: ${words[policy].toLowerCase()}`)
     },
   })
@@ -175,7 +167,9 @@ function ActionRow({
           disabled={change.isPending}
           onValueChange={(next) => {
             const policy = next[0] as ActionPolicy | undefined
-            if (policy && policy !== action.policy) change.mutate(policy)
+            if (policy && policy !== action.policy) {
+              change.mutate({ path: { integration, label, action: action.id }, body: { policy } })
+            }
           }}
         >
           {order.map((policy) => (

@@ -38,7 +38,8 @@ LIMIT 1;
 -- name: ListChatMessages :many
 -- Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
 -- on the row. Other rows have empty event columns. An answered Approval's row is read with its Approval, which no
--- longer changes once answered (issue #465).
+-- longer changes once answered (issue #465). A page of older history is the rows between ChatPageStart and @before
+-- (issue #502).
 SELECT sqlc.embed(chat_messages),
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
@@ -62,9 +63,14 @@ LEFT JOIN artifacts ON chat_messages.kind = 'artifact' AND artifacts.message_seq
 LEFT JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
     AND artifact_revisions.revision = artifacts.revision
 LEFT JOIN approvals ON chat_messages.kind = 'approval' AND approvals.id = chat_messages.approval_id
-WHERE chat_messages.chat_id = @chat_id AND chat_messages.seq > @after
+WHERE chat_messages.chat_id = @chat_id AND chat_messages.seq > @after AND chat_messages.seq < @before
 ORDER BY chat_messages.seq
 LIMIT @lim;
+
+-- name: ChatPageStart :one
+-- The seq a page of the newest @skip rows below @before starts after: the next older row, which also says that
+-- more history is left (issue #502). None when the page reaches the chat's first message.
+SELECT seq FROM chat_messages WHERE chat_id = @chat_id AND seq < @before ORDER BY seq DESC LIMIT 1 OFFSET @skip;
 
 -- name: ListChatArtifactMessages :many
 -- A chat's artifacts' messages with what each shows now (issue #402): a chat's stream sends one again when its

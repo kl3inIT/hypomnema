@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { ExternalLink, Plus } from "lucide-react"
 import { useId, useState, type ReactNode } from "react"
 import { z } from "zod"
@@ -47,10 +47,10 @@ import { said } from "@/lib/said"
 import {
   hostName,
   hostOf,
-  hostsKey,
   kindName,
   tokenHelp,
   useHosts,
+  useRefreshHosts,
   useServices,
 } from "./use-integrations"
 
@@ -241,12 +241,6 @@ function HostRow({ host }: { host: GitHost }) {
       </ItemActions>
     </Item>
   )
-}
-
-function useRefreshHosts() {
-  const queryClient = useQueryClient()
-
-  return () => queryClient.invalidateQueries({ queryKey: hostsKey })
 }
 
 // FormDialog is a dialog that holds one form: its title, what it is for, the fields, what the server refused, and

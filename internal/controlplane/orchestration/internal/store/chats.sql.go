@@ -10,6 +10,25 @@ import (
 	"database/sql"
 )
 
+const chatPageStart = `-- name: ChatPageStart :one
+SELECT seq FROM chat_messages WHERE chat_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT 1 OFFSET ?3
+`
+
+type ChatPageStartParams struct {
+	ChatID string
+	Before int64
+	Skip   int64
+}
+
+// The seq a page of the newest @skip rows below @before starts after: the next older row, which also says that
+// more history is left (issue #502). None when the page reaches the chat's first message.
+func (q *Queries) ChatPageStart(ctx context.Context, arg ChatPageStartParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, chatPageStart, arg.ChatID, arg.Before, arg.Skip)
+	var seq int64
+	err := row.Scan(&seq)
+	return seq, err
+}
+
 const chatRunEvents = `-- name: ChatRunEvents :many
 SELECT e.seq, e.kind, e.run_id, e.task_id, e.dispatch_id, e.question_id, e.node_id, e.payload, e.created_at FROM events e JOIN runs r ON r.id = e.run_id
 WHERE r.chat_id = ?1 AND e.seq > ?2
@@ -609,14 +628,15 @@ LEFT JOIN artifacts ON chat_messages.kind = 'artifact' AND artifacts.message_seq
 LEFT JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
     AND artifact_revisions.revision = artifacts.revision
 LEFT JOIN approvals ON chat_messages.kind = 'approval' AND approvals.id = chat_messages.approval_id
-WHERE chat_messages.chat_id = ?1 AND chat_messages.seq > ?2
+WHERE chat_messages.chat_id = ?1 AND chat_messages.seq > ?2 AND chat_messages.seq < ?3
 ORDER BY chat_messages.seq
-LIMIT ?3
+LIMIT ?4
 `
 
 type ListChatMessagesParams struct {
 	ChatID string
 	After  int64
+	Before int64
 	Lim    int64
 }
 
@@ -642,9 +662,15 @@ type ListChatMessagesRow struct {
 
 // Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
 // on the row. Other rows have empty event columns. An answered Approval's row is read with its Approval, which no
-// longer changes once answered (issue #465).
+// longer changes once answered (issue #465). A page of older history is the rows between ChatPageStart and @before
+// (issue #502).
 func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ListChatMessagesRow, error) {
-	rows, err := q.db.QueryContext(ctx, listChatMessages, arg.ChatID, arg.After, arg.Lim)
+	rows, err := q.db.QueryContext(ctx, listChatMessages,
+		arg.ChatID,
+		arg.After,
+		arg.Before,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}

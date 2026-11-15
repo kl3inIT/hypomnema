@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import {
   columnFilteringFeature,
   createFilteredRowModel,
@@ -30,7 +30,7 @@ import { createContext, use, useId, useMemo, useState, type ReactElement } from 
 import { z } from "zod"
 
 import "@/api/client"
-import { deleteSecret, getSecretValue, listSecrets, putSecret } from "@/api/generated/sdk.gen"
+import { deleteSecret, putSecret } from "@/api/generated/sdk.gen"
 import type { Secret } from "@/api/generated/types.gen"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -66,8 +66,7 @@ import { TextField } from "@/components/text-field"
 import { SettingsPage } from "@/components/settings-page"
 import { errorText } from "@/lib/server-error"
 import { said } from "@/lib/said"
-
-const secretsKey = ["secrets"] as const
+import { useRefreshSecrets, useSecretValue, useSecrets } from "./use-secrets"
 
 // A hidden value: a fixed run of asterisks, so its length says nothing (Infisical's HIDDEN_SECRET_VALUE).
 const hidden = "************"
@@ -182,10 +181,7 @@ const sortable = new Set(["name", "updated_at"])
 export function VaultScreen() {
   const [revealAll, setRevealAll] = useState(false)
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set())
-  const secrets = useQuery({
-    queryKey: secretsKey,
-    queryFn: async () => (await listSecrets()).data.data,
-  })
+  const secrets = useSecrets()
 
   const reveal = useMemo<Reveal>(
     () => ({
@@ -338,13 +334,7 @@ function ValueCell({ secret }: { secret: Secret }) {
   const shown = use(RevealContext).shown(secret.name)
 
   // The value is asked for only while it is shown, and is not kept once hidden.
-  const value = useQuery({
-    queryKey: ["secret-value", secret.name, secret.version],
-    queryFn: async () => (await getSecretValue({ path: { name: secret.name } })).data.values,
-    enabled: shown,
-    gcTime: 0,
-    staleTime: 0,
-  })
+  const value = useSecretValue(secret.name, shown)
   const entries = shown && value.data ? Object.entries(value.data) : []
 
   if (!shown || value.isPending) {
@@ -497,12 +487,6 @@ function RowActions({ secret }: { secret: Secret }) {
       />
     </span>
   )
-}
-
-function useRefreshSecrets() {
-  const queryClient = useQueryClient()
-
-  return () => queryClient.invalidateQueries({ queryKey: secretsKey })
 }
 
 // What a secret's form holds. A new secret has a name and one value; a generic one is given a new value; a token
