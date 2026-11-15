@@ -50,7 +50,10 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	_, err = svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	// The provider of kind model_gateway offers the gateway's models (issue #537).
+	_, err = gateway.ApplyModel(ctx, "name: gpt-sol\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n")
+	require.NoError(t, err)
+	_, err = svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\n")
 	require.NoError(t, err)
 	_, _, err = svc.ApplyProfile(ctx, "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")

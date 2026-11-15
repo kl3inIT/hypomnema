@@ -160,6 +160,70 @@ func (q *Queries) DeleteProfileVersions(ctx context.Context, profile string) err
 	return err
 }
 
+const gatewayChatModels = `-- name: GatewayChatModels :many
+SELECT name FROM gateway_models WHERE capability = 'chat' ORDER BY name
+`
+
+func (q *Queries) GatewayChatModels(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, gatewayChatModels)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const gatewayModelUsers = `-- name: GatewayModelUsers :many
+SELECT CAST('bot ' || b.name AS TEXT) AS who FROM bots b JOIN providers p ON p.name = b.provider
+WHERE p.kind = 'model_gateway' AND b.model = CAST(?1 AS TEXT)
+UNION ALL
+SELECT CAST('chat ' || c.id AS TEXT) FROM chats c JOIN providers p ON p.name = c.provider
+WHERE p.kind = 'model_gateway' AND c.model = CAST(?1 AS TEXT)
+UNION ALL
+SELECT CAST('profile ' || v.profile AS TEXT) FROM profiles f JOIN profile_versions v ON v.id = f.current_version_id
+JOIN providers p ON p.name = v.provider
+WHERE f.deleted_at IS NULL AND p.kind = 'model_gateway' AND v.model = CAST(?1 AS TEXT)
+`
+
+// Who runs a gateway model through a provider of kind model_gateway: a Bot, a chat's own choice, or a profile's
+// current version (issue #537).
+func (q *Queries) GatewayModelUsers(ctx context.Context, model string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, gatewayModelUsers, model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var who string
+		if err := rows.Scan(&who); err != nil {
+			return nil, err
+		}
+		items = append(items, who)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getProfile = `-- name: GetProfile :one
 SELECT name, current_version_id, created_at, updated_at, deleted_at FROM profiles WHERE name = ?1 AND deleted_at IS NULL
 `
@@ -362,7 +426,10 @@ func (q *Queries) ListCurrentProfileVersions(ctx context.Context) ([]ProfileVers
 
 const listModels = `-- name: ListModels :many
 SELECT m.provider, m.name, p.kind FROM models m JOIN providers p ON p.name = m.provider
-ORDER BY m.provider, m.name
+UNION ALL
+SELECT p.name AS provider, g.name, p.kind FROM providers p JOIN gateway_models g ON g.capability = 'chat'
+WHERE p.kind = 'model_gateway'
+ORDER BY 1, 2
 `
 
 type ListModelsRow struct {
@@ -371,6 +438,8 @@ type ListModelsRow struct {
 	Kind     string
 }
 
+// A provider of kind model_gateway offers the gateway's chat models, read from its table; it keeps no list of its own
+// (issue #537, as LiteLLM's /v1/models answers from its model_list).
 func (q *Queries) ListModels(ctx context.Context) ([]ListModelsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listModels)
 	if err != nil {
@@ -515,7 +584,11 @@ func (q *Queries) MarkProfileDeleted(ctx context.Context, arg MarkProfileDeleted
 
 const modelsNamed = `-- name: ModelsNamed :many
 SELECT m.provider, m.name, p.kind FROM models m JOIN providers p ON p.name = m.provider
-WHERE m.name = ?1 ORDER BY m.provider
+WHERE m.name = ?1
+UNION ALL
+SELECT p.name AS provider, g.name, p.kind FROM providers p JOIN gateway_models g ON g.capability = 'chat'
+WHERE p.kind = 'model_gateway' AND g.name = ?1
+ORDER BY 1
 `
 
 type ModelsNamedRow struct {

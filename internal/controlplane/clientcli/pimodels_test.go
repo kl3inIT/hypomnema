@@ -2,6 +2,7 @@ package clientcli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -16,8 +17,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/prices"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // runningPi stands in for the supervisor: a pi runs for one chat and holds
@@ -47,24 +46,33 @@ func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p
 // its own chat.
 func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	pi := &runningPi{}
-	w := newWorldWith(t, pi)
+	db := migratedDB(t)
+	w := newWorldOn(t, db, pi)
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 
-	// The gateway a fresh install is seeded with (issue #462) offers nothing once the starting profiles leave it.
+	// The gateway a fresh install is seeded with (issue #462) offers nothing once its models are gone: the
+	// starting profiles leave it first, as they use them.
 	for _, name := range []string{"implementer", "reviewer", "explorer"} {
 		_, _, err := w.svc.ApplyProfile(ctx, "", "name: "+name+"\ndescription: d\nruntime: codex\n")
 		require.NoError(t, err)
 	}
 
-	_, err := w.svc.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: []\n")
+	_, err := db.ExecContext(ctx, "DELETE FROM gateway_models")
 	require.NoError(t, err)
 
 	_, err = w.cmd(t, "pi-models")
 	require.ErrorIs(t, err, errNoGatewayProvider, "pi would start with no model it can use")
 
+	// The provider of kind model_gateway offers the gateway's models (issue #537).
+	for _, name := range []string{"gpt-sol", "claude-sonnet"} {
+		_, err := db.ExecContext(ctx, "INSERT INTO gateway_models (name, capability, source, created_at, updated_at) "+
+			"VALUES (?, 'chat', ?, 0, 0)", name, "name: "+name+"\n")
+		require.NoError(t, err)
+	}
+
 	for _, source := range []string{
-		"name: model-gateway\nkind: model_gateway\nmodels: [gpt-sol, claude-sonnet]\n",
+		"name: model-gateway\nkind: model_gateway\n",
 		"name: gateway\nkind: openai_compatible\nbase_url: " + w.url + "/v1\napi_key_ref: file:pi.key\nmodels: [gpt-sol]\n",
 		"name: ninerouter\nkind: openai_compatible\nbase_url: http://172.22.0.1:20128/v1\n" +
 			"api_key_ref: file:ninerouter.key\nmodels: [cx/gpt-sol]\n",
@@ -116,15 +124,9 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 	assert.Equal(t, "hyp_gateway_v1_of_this_pi\n", out, "the key alone on its line, as pi reads a command's output")
 }
 
-// newGatewayModels is a model gateway over a database of its own, with the
-// built-in subscriptions as its providers.
-func newGatewayModels(t *testing.T) *modelgateway.Service {
-	t.Helper()
-
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
+// newGatewayModels is a model gateway over the control plane's database, whose table a provider of kind
+// model_gateway offers (issue #537), with the built-in subscriptions as its providers.
+func newGatewayModels(db *sql.DB) *modelgateway.Service {
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	return modelgateway.New(db, platform.SystemClock{}, platform.NewID,
@@ -146,8 +148,9 @@ func newGatewayModels(t *testing.T) *modelgateway.Service {
 func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	t.Parallel()
 
-	g := newGatewayModels(t)
-	w := newWorldWith(t, nil, func(srv *clientapi.Server) { srv.WithGatewayModels(g) })
+	db := migratedDB(t)
+	g := newGatewayModels(db)
+	w := newWorldOn(t, db, nil, func(srv *clientapi.Server) { srv.WithGatewayModels(g) })
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 
@@ -160,7 +163,7 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 		"targets: [{provider: claude-subscription, model: claude-opus-5-5}]\n")
 	require.NoError(t, err)
 	_, err = w.svc.ApplyProvider(ctx, "",
-		"name: model-gateway\nkind: model_gateway\nmodels: [sol, claude-sonnet-5-5, claude-opus-5-5]\n")
+		"name: model-gateway\nkind: model_gateway\n")
 	require.NoError(t, err)
 
 	out, err := w.cmd(t, "pi-models")
@@ -170,7 +173,7 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &file))
 
 	listed := file.Providers["model-gateway"].Models
-	require.Len(t, listed, 3)
+	require.Len(t, listed, 4, "the three applied here and the Haiku a fresh install is seeded with")
 
 	models := map[string]piModel{}
 	for _, m := range listed {

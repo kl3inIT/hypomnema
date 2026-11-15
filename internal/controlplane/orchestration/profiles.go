@@ -708,6 +708,10 @@ func validProvider(in providerSource) error {
 			"never the key itself", ErrInvalid)
 	case in.BaseURL != "" && !strings.HasPrefix(in.BaseURL, "https://") && !strings.HasPrefix(in.BaseURL, "http://"):
 		return fmt.Errorf("%w: base_url is an http or https URL", ErrInvalid)
+	case in.Kind == ProviderModelGateway && len(in.Models) > 0:
+		// One list, the gateway's (issue #537): a second one typed here drifted from it.
+		return fmt.Errorf("%w: a provider of kind %s offers the gateway's chat models and lists none of its own; "+
+			"add one with hypomnema gateway models apply", ErrInvalid, ProviderModelGateway)
 	}
 
 	seen := map[string]bool{}
@@ -737,6 +741,16 @@ func looksLikeSecret(s string) bool {
 // providerStillServes checks that the current profile versions and the Bots
 // using a provider keep their model and runtime after the change.
 func providerStillServes(ctx context.Context, q *store.Queries, in providerSource) error {
+	offered := in.Models
+	if in.Kind == ProviderModelGateway {
+		names, err := q.GatewayChatModels(ctx)
+		if err != nil {
+			return fmt.Errorf("listing the gateway's models: %w", err)
+		}
+
+		offered = names
+	}
+
 	bots, err := q.ListBots(ctx)
 	if err != nil {
 		return fmt.Errorf("listing bots: %w", err)
@@ -752,7 +766,7 @@ func providerStillServes(ctx context.Context, q *store.Queries, in providerSourc
 				b.Name, botRuntime, in.Name, in.Kind)
 		}
 
-		if b.Model.Valid && !slices.Contains(in.Models, b.Model.String) {
+		if b.Model.Valid && !slices.Contains(offered, b.Model.String) {
 			return fmt.Errorf("%w: bot %s uses model %s of provider %s", ErrConflict, b.Name, b.Model.String, in.Name)
 		}
 	}
@@ -772,13 +786,25 @@ func providerStillServes(ctx context.Context, q *store.Queries, in providerSourc
 				v.Profile, v.Runtime, in.Name, in.Kind)
 		}
 
-		if v.Model.Valid && !slices.Contains(in.Models, v.Model.String) {
+		if v.Model.Valid && !slices.Contains(offered, v.Model.String) {
 			return fmt.Errorf("%w: profile %s uses model %s of provider %s", ErrConflict, v.Profile, v.Model.String,
 				in.Name)
 		}
 	}
 
 	return nil
+}
+
+// GatewayModelUsers names who runs a gateway model through a provider of kind model_gateway: Bots, chats with a
+// model of their own and profiles' current versions (issue #537). Removing the model from the gateway would leave
+// them with nothing to run.
+func (s *Service) GatewayModelUsers(ctx context.Context, model string) ([]string, error) {
+	users, err := s.read().GatewayModelUsers(ctx, model)
+	if err != nil {
+		return nil, fmt.Errorf("finding who uses gateway model %s: %w", model, err)
+	}
+
+	return users, nil
 }
 
 // GetProvider returns a provider and its models.

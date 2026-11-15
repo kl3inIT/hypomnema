@@ -3,6 +3,7 @@ package clientcli
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -50,9 +51,23 @@ func newWorld(t *testing.T) *world {
 func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clientapi.Server)) *world {
 	t.Helper()
 
+	return newWorldOn(t, migratedDB(t), coord, with...)
+}
+
+// migratedDB is a database at the latest schema, closed when the test ends.
+func migratedDB(t *testing.T) *sql.DB {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
+
+	return db
+}
+
+// newWorldOn serves the API over a database the test also hands to another service, such as the model gateway.
+func newWorldOn(t *testing.T, db *sql.DB, coord clientapi.Coordinator, with ...func(*clientapi.Server)) *world {
+	t.Helper()
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	stop := make(chan struct{})

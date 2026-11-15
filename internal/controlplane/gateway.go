@@ -151,6 +151,17 @@ func (o *owner) gatewayCommand(ctx context.Context, args []string) error {
 			return usage
 		}
 
+		// A provider of kind model_gateway offers the gateway's models (issue #537): one still in use stays.
+		users, err := o.svc.GatewayModelUsers(ctx, rest[0])
+		if err != nil {
+			return err
+		}
+
+		if len(users) > 0 {
+			return fmt.Errorf("%w: model %s is in use by %s", orchestration.ErrConflict, rest[0],
+				strings.Join(users, ", "))
+		}
+
 		if err := o.gateway.DeleteModel(ctx, rest[0]); err != nil {
 			return err
 		}

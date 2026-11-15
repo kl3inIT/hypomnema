@@ -131,7 +131,7 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: gpt-5}\n":                         "no provider",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n":        "must name a provider of kind model_gateway",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: claude-subscription}\n":       "must name a provider of kind model_gateway",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n":              "no provider of kind model_gateway offers",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-fable-5-2}\n":              "no provider of kind model_gateway offers",
 		"name: x\ndescription: d\nruntime: omp\nmodel: {provider: router, name: gpt-5}\n":          "cannot run against",
 		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: router, name: opus}\n":         "does not offer",
 		"name: x\ndescription: d\nruntime: pi\n":                                                   "a bot's",
@@ -163,12 +163,62 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "model-gateway", p.Provider, "nor an API of Anthropic's")
 
-	_, err = w.s.ApplyProvider(t.Context(), "", "name: gateway-2\nkind: model_gateway\nmodels: [claude-sonnet-5-5]\n")
+	_, err = w.s.ApplyProvider(t.Context(), "", "name: gateway-2\nkind: model_gateway\n")
 	require.NoError(t, err)
 
 	_, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: w\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
 	require.ErrorContains(t, err, "name the provider", "claude now reaches claude-sonnet-5-5 two ways")
+}
+
+// Scenario: the model-gateway provider lists the gateway's models, not a list of its own (issue #537). A model
+// applied at the gateway is offered at once and can be chosen by a Bot; a list typed into the provider is refused,
+// and the Bot's model is found among those that use it.
+func TestTheGatewayProviderOffersTheGatewaysModels(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	offered := func() []string {
+		models, err := w.s.ListModels(ctx)
+		require.NoError(t, err)
+
+		var names []string
+
+		for _, m := range models {
+			if m.Provider == "model-gateway" {
+				names = append(names, m.Name)
+			}
+		}
+
+		return names
+	}
+
+	assert.Equal(t, []string{"claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"}, offered(),
+		"the models a fresh install's gateway is seeded with")
+
+	w.gatewayServes("gpt-sol")
+	assert.Contains(t, offered(), "gpt-sol", "a model applied at the gateway needs nothing typed at the provider")
+
+	p, err := w.s.GetProvider(ctx, "model-gateway")
+	require.NoError(t, err)
+	assert.Contains(t, p.Models, "gpt-sol")
+
+	_, err = w.s.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.ErrorIs(t, err, ErrInvalid)
+	require.ErrorContains(t, err, "gateway models apply")
+
+	_, err = w.s.PutBot(ctx, Bot{Name: "sol", Provider: "model-gateway", Model: "gpt-sol"})
+	require.NoError(t, err)
+
+	users, err := w.s.GatewayModelUsers(ctx, "gpt-sol")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bot sol"}, users)
+
+	users, err = w.s.GatewayModelUsers(ctx, "claude-haiku-5-5")
+	require.NoError(t, err)
+	assert.Empty(t, users)
 }
 
 // A provider names where its key is kept, never the key; and it cannot drop

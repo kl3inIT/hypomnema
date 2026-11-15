@@ -34,7 +34,19 @@ type world struct {
 
 // worldGateway is the world's model gateway: the seeded provider, offering
 // only the Claude models its scenarios name.
-const worldGateway = "name: model-gateway\nkind: model_gateway\nmodels: [claude-opus-5-5, claude-sonnet-5-5]\n"
+const worldGateway = "name: model-gateway\nkind: model_gateway\n"
+
+// gatewayServes puts chat models of these names in the gateway's table, which a provider of kind model_gateway
+// offers (issue #537). Their targets do not matter here.
+func (w *world) gatewayServes(names ...string) {
+	w.t.Helper()
+
+	for _, n := range names {
+		_, err := w.db.ExecContext(w.t.Context(), "INSERT OR IGNORE INTO gateway_models "+
+			"(name, capability, source, created_at, updated_at) VALUES (?, 'chat', ?, 0, 0)", n, "name: "+n+"\n")
+		require.NoError(w.t, err)
+	}
+}
 
 func newWorld(t *testing.T) *world {
 	t.Helper()

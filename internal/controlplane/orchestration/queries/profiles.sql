@@ -18,12 +18,37 @@ DELETE FROM models WHERE provider = @provider;
 INSERT INTO models (provider, name) VALUES (@provider, @name);
 
 -- name: ListModels :many
+-- A provider of kind model_gateway offers the gateway's chat models, read from its table; it keeps no list of its own
+-- (issue #537, as LiteLLM's /v1/models answers from its model_list).
 SELECT m.provider, m.name, p.kind FROM models m JOIN providers p ON p.name = m.provider
-ORDER BY m.provider, m.name;
+UNION ALL
+SELECT p.name AS provider, g.name, p.kind FROM providers p JOIN gateway_models g ON g.capability = 'chat'
+WHERE p.kind = 'model_gateway'
+ORDER BY 1, 2;
 
 -- name: ModelsNamed :many
 SELECT m.provider, m.name, p.kind FROM models m JOIN providers p ON p.name = m.provider
-WHERE m.name = @name ORDER BY m.provider;
+WHERE m.name = @name
+UNION ALL
+SELECT p.name AS provider, g.name, p.kind FROM providers p JOIN gateway_models g ON g.capability = 'chat'
+WHERE p.kind = 'model_gateway' AND g.name = @name
+ORDER BY 1;
+
+-- name: GatewayChatModels :many
+SELECT name FROM gateway_models WHERE capability = 'chat' ORDER BY name;
+
+-- name: GatewayModelUsers :many
+-- Who runs a gateway model through a provider of kind model_gateway: a Bot, a chat's own choice, or a profile's
+-- current version (issue #537).
+SELECT CAST('bot ' || b.name AS TEXT) AS who FROM bots b JOIN providers p ON p.name = b.provider
+WHERE p.kind = 'model_gateway' AND b.model = CAST(sqlc.arg(model) AS TEXT)
+UNION ALL
+SELECT CAST('chat ' || c.id AS TEXT) FROM chats c JOIN providers p ON p.name = c.provider
+WHERE p.kind = 'model_gateway' AND c.model = CAST(sqlc.arg(model) AS TEXT)
+UNION ALL
+SELECT CAST('profile ' || v.profile AS TEXT) FROM profiles f JOIN profile_versions v ON v.id = f.current_version_id
+JOIN providers p ON p.name = v.provider
+WHERE f.deleted_at IS NULL AND p.kind = 'model_gateway' AND v.model = CAST(sqlc.arg(model) AS TEXT);
 
 -- name: GetProfile :one
 -- A profile that is not deleted.

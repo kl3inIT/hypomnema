@@ -715,7 +715,8 @@ func TestAModelTheGatewayServesNeedsNoAccountOnANode(t *testing.T) {
 	w := newSchedWorld(t)
 	w.addNode("node_codex", 2, "codex")
 
-	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	w.gatewayServes("gpt-sol")
+	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
@@ -763,7 +764,8 @@ func TestAClaudeCodeWorkerMayRunThroughTheGateway(t *testing.T) {
 	w := newSchedWorld(t)
 	w.addNode("node_claude", 2, "claude")
 
-	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-sonnet]\n")
+	w.gatewayServes("claude-sonnet")
+	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: claude-gateway\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-sonnet}\n")
@@ -789,7 +791,8 @@ func TestProfilesSayWhetherAWorkerCanStartNow(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	w.gatewayServes("gpt-sol")
+	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(ctx, "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")

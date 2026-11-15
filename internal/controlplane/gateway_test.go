@@ -74,6 +74,11 @@ func TestOwnerSetsUpTheGateway(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "\tpi\trevoked ")
 
+	// The provider of kind model_gateway offers the gateway's models (issue #537): one a profile runs stays.
+	_, err = command(t, cfg, "gateway", "models", "rm", "claude-opus-5-5")
+	require.ErrorIs(t, err, orchestration.ErrConflict)
+	require.ErrorContains(t, err, "profile implementer")
+
 	_, err = command(t, cfg, "gateway", "models", "rm", "gpt-sol")
 	require.NoError(t, err)
 

@@ -1031,7 +1031,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
   belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
-  it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
+  it, and a Task under it needs no account on a node. It offers the gateway's chat models, read from the gateway's
+  table, and lists none of its own (issue #537, as LiteLLM's `/v1/models` answers from its `model_list`): a source
+  with `models:` is refused, saying to apply the model at the gateway, and migration 00089 dropped the list typed
+  before. The orchestration's queries read `gateway_models` for this, the only place outside the gateway that does.
+  `hypomnema gateway models rm` refuses a model a Bot, a chat's own choice or a profile's current version runs
+  through such a provider, naming them. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
   another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
@@ -1712,7 +1717,7 @@ capabilities do not exist yet.
   be served is refused when applied.
 - A fresh install has the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, each
   served from `claude-subscription`'s model of the same name, and the provider `model-gateway` (kind
-  `model_gateway`) offering them, which the starting profiles name (migration 00081, issue #462; models as the
+  `model_gateway`), which offers them as it offers every gateway model, which the starting profiles name (migration 00081, issue #462; models as the
   owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
   subscription offers, and the provider only when no provider of its kind exists. A Claude Code worker then
   needs only a Claude account on the control plane (`accounts login claude` or `accounts add claude`).
@@ -1753,7 +1758,7 @@ capabilities do not exist yet.
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
     `hypomnema pi-models`: one provider of pi for
-    each provider of the control plane of kind `model_gateway`, with the models that provider lists. A Bot may
+    each provider of the control plane of kind `model_gateway`, with the gateway's chat models. A Bot may
     name a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
     OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when

@@ -51,7 +51,7 @@ func newPlane(t *testing.T) *plane {
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	// A Claude Code worker runs through the model gateway (issue #381).
-	_, err = svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	_, err = svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\n")
 	require.NoError(t, err)
 	_, _, err = svc.ApplyProfile(t.Context(), "",
 		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-opus-5-5}\n")
