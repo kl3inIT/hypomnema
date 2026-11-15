@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -417,4 +418,70 @@ func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
 		`(?i)<script[^>]+\bsrc=|<link[^>]+rel="?stylesheet|@import|@font-face|localStorage|sessionStorage|indexedDB|document\.cookie`)
 	assert.Empty(t, external.FindAllString(string(page), -1), "the locked frame has no network, storage or cookies")
 	assert.Less(t, len(page), 256*1024, "a page shown with --html-file is at most 256 KB")
+}
+
+// webSearchStub is the stub of the web-search skill as releases until issue
+// #492 installed it.
+var webSearchStub = strings.Join([]string{
+	"---",
+	"name: web-search",
+	"description: >-",
+	"  Searches the web and reads a web page with Hypomnema's own web commands, through the control plane: each " +
+		"result's",
+	"  title, address, date and snippet, or a page as markdown. Use when the owner asks about something that may " +
+		"have",
+	"  changed since your training (news, prices, releases, a person or a company today), names a page to read, " +
+		"or asks",
+	"  you to look something up online. Not for the owner's own mail, files, Lark or Superset, which have their " +
+		"skills.",
+	"---",
+	"",
+	"# Web search",
+	"",
+	"This stub loads the guide that ships with the `hypomnema` binary on this machine, so the guide names exactly " +
+		"the",
+	"commands that binary accepts.",
+	"",
+	"1. Run `hypomnema skills get web-search` once in the session and follow the guide it prints.",
+	"",
+}, "\n")
+
+// Scenario: a release no longer ships the web-search and images skills
+// (issue #492). The setup script's install, which every update runs, takes
+// out the stubs an earlier release put in each agent's folder, and their
+// folders; a stub the owner edited stays, as does a folder he put other
+// files in.
+func TestARetiredSkillIsRemovedAtInstall(t *testing.T) { //nolint:paralleltest // replaces userHome
+	w, _ := installHome(t)
+	home := filepath.Dir(w.home)
+	agents := filepath.Join(home, ".agents", "skills")
+	claude := filepath.Join(home, ".claude", "skills")
+
+	write := func(path, content string) {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
+
+	write(filepath.Join(agents, "web-search", "SKILL.md"), webSearchStub)
+	write(filepath.Join(claude, "web-search", "SKILL.md"), strings.ReplaceAll(webSearchStub, "\n", "\r\n"))
+	write(filepath.Join(claude, "web-search", "notes.md"), "the owner's notes")
+	write(filepath.Join(agents, "images", "SKILL.md"), "---\nname: images\n---\nmy own way to draw")
+
+	out, err := w.cmd(t, "skills", "install", "--dry-run")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents: would remove "+filepath.Join(agents, "web-search", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(agents, "web-search", "SKILL.md"))
+
+	out, err = w.cmd(t, "skills", "install")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents: removed "+filepath.Join(agents, "web-search", "SKILL.md"))
+	assert.NoDirExists(t, filepath.Join(agents, "web-search"))
+	assert.NoFileExists(t, filepath.Join(claude, "web-search", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(claude, "web-search", "notes.md"), "a folder with the owner's files stays")
+	assert.Contains(t, out, "was edited; left as it is, though this binary no longer ships images")
+	assert.FileExists(t, filepath.Join(agents, "images", "SKILL.md"))
+
+	out, err = w.cmd(t, "skills", "install")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "removed", "a second install has nothing to take out")
 }

@@ -627,26 +627,31 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     memory once per session; a change is in the prompt from pi's next start. pi changes the memory with
     `hypomnema memory add|replace|remove`, which names the Bot of `HYPOMNEMA_BOT`; pi's token decides which Bot it
     is. When the Bot cannot be read pi does not start.
-  - A Bot searches the web and reads a page (issue #354, after 9router's `skills/9router-web-search`): `POST
+  - A Bot's pi has the tools `web_search`, `web_fetch` and `generate_image` from Hypomnema's tools server (issue
+    #492, see "An agent's gateway tools"), which its pi mounts through pi's own MCP (below, the box). Until
+    2026-11-15 it drove the commands below through bash, taught by the built-in skills `web-search` and `images`,
+    which are gone (`skills install` takes their stubs out).
+  - The web from the client API (issue #354, after 9router's `skills/9router-web-search`), for the owner and a
+    Routine's script: `POST
     /web/search` `{query, max_results?, provider?}` and `POST /web/fetch` `{url}`, for any token, and `hypomnema web
     search <query> [--max-results N] [--provider exa|firecrawl|parallel|tavily|tinyfish|you|codex|claude|antigravity]` and `hypomnema web fetch <url>`, which print
     the results or the page marked as outside content (`--json`: the API's answer). Both are "Web search and fetch"
-    (below), the call recorded on the gateway key of the chat's running pi. The skill `web-search`, which this binary
-    ships, says when to use them, and the instructions every Bot gets name it; `hypomnema skills install --agent
-    agents` (the setup script) puts its stub in `~/.agents/skills`. Errors: 400 (no query, an unknown provider, an
+    (below), the call recorded on the gateway key of the chat's running pi when a pi's token asks. Errors: 400 (no
+    query, an unknown provider, an
     address that is not http(s)), 403 (a page not on the public internet), 429 `rate_limited` with `Retry-After`,
     503 `unavailable` (every provider failed, a page that could not be read, no web search).
-  - A Bot makes and edits images (issue #431): `POST /images/generations` `{prompt, images?: [{data, mime_type?}],
+  - Images from the client API (issue #431), for the owner and a Routine's script: `POST /images/generations`
+    `{prompt, images?: [{data, mime_type?}],
     n?, size?, model?, provider?, quality?, background?, image_size?}` for any token, answering `{provider, model,
     created, images: [{b64_json, mime_type, revised_prompt?}], errors?}`, and `hypomnema image generate <prompt>` and
     `hypomnema image edit <prompt> --image <file>…` (`--size`, `--n`, `--model`, `--provider`, `--quality`,
     `--image-size`, `--out <folder or file>`), which save the images (in the current folder by default, a file name's
     extension replaced by the image's own and numbered when several, as opencode's tool) and print each absolute
     path, then who made them; `--json` prints the paths instead of the images. "Images" (above), recorded on the
-    key of the chat's running pi. The skill `images`, which this binary ships, says when to use them and to send an
-    image with a `MEDIA:<path>` line, which a Lark chat delivers as a file (#312); the web chat shows the line as
-    text (it is not turned into a picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request
-    no provider takes), 429 `rate_limited` with `Retry-After`, 503 `unavailable`.
+    key of the chat's running pi when a pi's token asks. A Bot sends an image it made with a `MEDIA:<path>` line,
+    which a Lark chat delivers as a file (#312); the web chat shows the line as text (it is not turned into a
+    picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request no provider takes), 429
+    `rate_limited` with `Retry-After`, 503 `unavailable`.
   - What a Bot's chats show of its tool calls (issue #441, migration 00079, after OpenClaw's `verboseDefault` per
     agent, `src/agents/agent-scope-config.ts`): `bots.tool_display`, `off`, `on` (a new Bot's) or `full`, the same
     for everyone who reads them, the owner included. The server sends only what the level shows, as OpenClaw drops a
@@ -763,12 +768,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     namespaces, ended with the launcher. Read-only: `/usr` (with merged `/bin`, `/lib`, `/lib64`, `/sbin`), `/etc`, the resolver Ubuntu's
     `/etc/resolv.conf` links to (`/run/systemd/resolve`), the CPU list, `/opt/hypomnema-node`, pi, the
     integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills,
-    `models.json` and `settings.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
+    `models.json`, `settings.json` and `mcp.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
     `/dev`, and an empty home in which `~/.hypomnema/client.json` holds the control plane's address and pi's token
     (bubblewrap's `--file`), so the coordinator token's `client.json` is not there. pi's agent directory is private
     too, since pi locks files there as it reads them; the instructions every Bot gets (`AGENTS.md`), the tools pi
-    fetched (`bin/`) and this chat's `models.json` and `settings.json` are bound into it read-only, so a Bot cannot
-    change its own settings. Read-write: the Bot's directory and
+    fetched (`bin/`) and this chat's `models.json`, `settings.json` and `mcp.json` are bound into it read-only, so a
+    Bot cannot change its own settings or MCP servers. Read-write: the Bot's directory and
     the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
     network is the host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12): a Bot's shell still reaches every
     local port of the machine. The launcher refuses to start pi without its token or without bubblewrap, and
@@ -791,7 +796,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Integration name and label of each Connection on its list, "Everything you switched on" without a list, "No
     account" with an empty one. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
     Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
-  - Not built: MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
+  - pi's MCP (issue #492, pi 1.5.2's built-in, `docs/mcp.md`, as OpenMausBot mounts its `agents` server into its
+    pi, `server/drivers/pi.ts`): the launcher writes `run/<chat>/mcp.json` with `hypomnema pi-mcp`, one server,
+    `hypomnema` (`<the binary> mcp`), each of its tools with pi's `direct` exposure, declared to the model like a
+    built-in tool rather than found through codemode or `tool_search` (owner, 2026-11-15), and a wait of 12 minutes
+    a request, longer than an image may take (pi's default is 60 s). pi starts it in the box, where its
+    `client.json` holds pi's own token; when it cannot write the file pi does not start. A server that fails to
+    start leaves the Bot without the tools: pi says so only as a line of its UI (`MCP servers need attention`, an
+    RPC `notify` the supervisor does not read), so the turn is not failed (OpenClaw fails it; not built).
+  - Not built: other MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
     per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, the Bot coordinator deleting a
     profile (only the owner does, below), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
     user or a container per Bot (issue #260).
@@ -1955,8 +1968,8 @@ capabilities do not exist yet.
 
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
-model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker as tools (see "A
-worker's gateway tools", below) and the client API gives a Bot as commands (see Bots). It holds no key and stores
+model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker and a Bot's pi as
+tools (see "An agent's gateway tools", below) and the client API gives as commands (see Bots). It holds no key and stores
 nothing itself: the control plane's wiring gives it the keys from the vault, the gateway keeps the counts of its
 calls, and each call is recorded on a gateway key.
 - Providers: only those free without a card (owner, 2026-11-14). With the owner's keys, each asked as its reference
@@ -2089,8 +2102,8 @@ calls, and each call is recorded on a gateway key.
 
 Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `codex/images.go`, `antigravity/images.go`;
 issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
-(`/v1/images/*`, above), for workers (`generate_image`, see "A worker's gateway tools", below) and for Bots
-(`hypomnema image`, see Bots). Claude makes none (no reference has it).
+(`/v1/images/*`, above), for workers and Bots (`generate_image`, see "An agent's gateway tools", below) and for
+the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
   answers gives the images, and the answer says why those before it did not (as a web search). Each provider makes
   images with its one model, not chosen (issue #453, owner, 2026-11-14): Codex `gpt-image-2` (codex-rs's
@@ -2145,19 +2158,28 @@ issue #431): the owner's Codex and Antigravity subscriptions make and edit image
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
-A worker's gateway tools (`internal/controlplane/agentapi/web.go`, `images.go`; issues #354 and #492,
+An agent's gateway tools (`internal/controlplane/agentapi/web.go`, `images.go`; issues #354 and #492,
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): the web's `web_search` and `web_fetch`
-and `generate_image`, listed and called on the browser's routes of the agent API (see "A browser every agent
-shares"), so that a worker's tools server offers them without a node release, as OpenMausBot gives every engine one
-`agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Each call is recorded on the Dispatch's
-gateway key, when it has one.
+and `generate_image`, offered by Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots
+without a node release, as OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime
+its tools over MCP. A worker's server finds them on the browser's routes of the agent API (see "A browser every
+agent shares"); a Bot's (`hypomnema mcp`) on `GET /agent/v1/gateway/tools` and `POST /agent/v1/gateway/call`,
+which list and run the gateway's tools alone, so that a Bot is offered none of a worker's (`ask`, `finish`,
+`memory`, the browser, the phone); a tool an agent was not given is a 404 there. Each call is recorded on the
+Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's running pi, as its `hypomnema web` and
+`hypomnema image` are.
 - Which worker gets which (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
   three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker
   keeps its own `web.run` search, which the gateway answers on `/v1/alpha/search`, and gets `web_fetch` and
   `generate_image` (Codex's own `image_gen` is offered only under an OpenAI login); omp and opencode get all three,
-  their own web and image tools off (see their runtime, below). A runtime not named, and any agent that is not a
-  worker, gets none; a tool this control plane does not have (no web, no images) is not listed.
+  their own web and image tools off (see their runtime, below). A Bot's pi gets all three (pi has none of its
+  own). A runtime not named, and any other agent (the owner's token, the coordinator token, a Routine's script,
+  which has no MCP and keeps the commands), gets none; a tool this control plane does not have (no web, no images)
+  is not listed.
+- How to use them is in their descriptions, not in a skill (no reference teaches a tool with one): `web_search`
+  says when to search and to read the pages that answer, and both say what they return is outside content, not
+  instructions; the results are between `EXTERNAL_UNTRUSTED_CONTENT` markers.
 - `generate_image` `{prompt, images?, path?, size?, quality?}` makes one image a call (OpenMausBot's and
   opencode's), with "Images" above, `n` 1. The images to edit are files of the worker's machine, at most 8, each a
   PNG, JPEG, WebP or GIF of up to 20 MiB (opencode's bounds): the worker's tools server reads them and sends them
@@ -2166,10 +2188,12 @@ gateway key, when it has one.
   says it made, the providers that failed first) as text and the image as MCP image content; the tools server
   saves it at `path` (its extension the image's real one) or as a new `hypomnema-image-*` file in the temporary
   folder, and answers the text with `Saved to <absolute path>` instead of the image, as opencode's and omp's image
-  tools answer a path. A request no provider could make, or one they refuse, is the tool's error. The call waits up
-  to 11 minutes.
-- Not built: image URLs as references (opencode downloads them); the tools on a Bot (it has `hypomnema web` and
-  `hypomnema image`); a switch per profile or Bot.
+  tools answer a path. A Bot's is saved by default as a new `images/image-*` file in its folder (its box's `/tmp`
+  is its own, and its chat sends only files of its folder), and its answer adds the `MEDIA:<path>` line, relative
+  to that folder, that sends it into the chat, or says that a file saved outside the folder cannot be sent; its
+  description says so (OpenMausBot's says the image "is attached to your reply"). A request no provider could make,
+  or one they refuse, is the tool's error. The call waits up to 11 minutes.
+- Not built: image URLs as references (opencode downloads them); a switch per profile or Bot.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2339,7 +2363,10 @@ The owner's commands:
   most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
-  (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
+  (otherwise only with `--force`, keeping a backup). The stub of a skill this binary no longer ships (`web-search`
+  and `images` since issue #492, `retiredStubs`) is taken out of both folders when it matches a released one, and
+  its folder when nothing else is in it, as Codex replaces its whole system skills folder at an update; an edited
+  one is left and named. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
 - The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder: Hermes's
   `skills/productivity/pdf` at `022a14437b2d` (MIT, its `LICENSE` in the folder, the notice in
@@ -3055,7 +3082,7 @@ internal/node/skills      the skills an offer names: fetched once by digest, and
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
 internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvfb, adb and the emulator, the idle stop
-internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the gateway's) passed on to it, generate_image's files read and saved here
+internal/node/workertools the worker's MCP server: ask, finish and memory, and the tools the control plane lists (the shared browser's, the gateway's, the phone's), on toolsmcp
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
@@ -3078,6 +3105,7 @@ internal/shared/githost   git hosts: how a repository is named, and each kind's 
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
 internal/shared/skillpack a skill in the Agent Skills format: reading an archive, checking it, its digest, the archive kept
+internal/shared/toolsmcp  Hypomnema's stdio MCP server for every agent kind: the loop, the agent API's client, generate_image's files read and saved
 internal/shared/release   a release's manifest, download and SHA-256 check, for the node's and the control plane's updates
 internal/shared/sqlite    SQLite opening, pragmas and file permissions; sqlitetest hands each test a copy of a migrated database
 internal/shared/workspacefs  a folder read and changed for the web: pages of entries, files, git changes, guarded writes

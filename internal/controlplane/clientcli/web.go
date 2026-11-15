@@ -12,10 +12,11 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
-// The web from the terminal (issue #354): a Bot searches the web and reads a
-// page with these, as 9router's agents call its /v1/search from a skill
-// (skills/9router-web-search/SKILL.md). The text they print is what the
-// agent reads, the results marked as outside content (OpenClaw's
+// The web from the terminal (issue #354): the owner and a Routine's script
+// search the web and read a page with these, as 9router's agents call its
+// /v1/search from a skill (skills/9router-web-search/SKILL.md); a Bot's pi
+// has the tools web_search and web_fetch instead (mcp.go, issue #492). The
+// text they print is the results marked as outside content (OpenClaw's
 // EXTERNAL_UNTRUSTED_CONTENT); --json prints the answer as the API gives it.
 
 func webSearch(ctx context.Context, e *env, fs *flag.FlagSet) error {

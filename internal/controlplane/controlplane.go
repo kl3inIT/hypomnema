@@ -312,7 +312,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}},
 	})
 	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
-	agents.WithRuntimes(dispatchRuntime(svc)).WithWeb(workerWeb{metered})
+	agents.WithRuntimes(dispatchRuntime(svc))
 
 	// The phone a node holds (issue #417), given to every worker as the browser is. A call that finds its
 	// machine stopped starts it as `machines start` does.
@@ -359,8 +359,6 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Web:                webSearch,
 	})
 	gatewayServer.Register(mux)
-	// Every worker's generate_image (issue #492), recorded on its Dispatch's key; before anything is served.
-	agents.WithImages(workerImages{server: gatewayServer, gateway: gateway, logger: logger})
 	// The subscriptions the owner logged in search too, through the gateway's calls to them (issue #354); the
 	// gateway is made after the search it serves, before anything is served.
 	webSearch.WithSubscriptions(gatewayServer.SubscriptionSearch())
@@ -374,6 +372,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 	})
+
+	// Every worker's and every Bot's pi's web tools and generate_image (issues #354, #492), each call recorded on
+	// its Dispatch's key or on the key of the chat's running pi; before anything is served.
+	agents.WithWeb(agentWeb{worker: workerWeb{metered}, bot: botWeb{meteredWeb: metered, chats: sup}}).
+		WithImages(agentImages{
+			worker: workerImages{server: gatewayServer, gateway: gateway, logger: logger},
+			bot:    botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+		})
 
 	// The Channels (issues #136, #169 and #404): one runtime for every kind, each kind's Channel found in the
 	// registry, which refuses a kind given twice; each account's secret is opened from the vault to connect.

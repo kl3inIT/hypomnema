@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 )
 
@@ -15,7 +16,8 @@ import (
 // running pi as a web search is (web.go botWeb). Another token's request,
 // which belongs to no chat, is not recorded. The agent API gives a worker
 // generate_image (issue #492), recorded on its Dispatch's key as its web
-// tools are (web.go workerWeb).
+// tools are (web.go workerWeb), and a Bot's pi, recorded as its `hypomnema
+// image` was.
 type botImages struct {
 	server  *modelgateway.Server
 	gateway *modelgateway.Service
@@ -45,6 +47,24 @@ func (w workerImages) Make(
 	return makeImages(ctx, w.server, w.gateway, w.logger, req, func(ctx context.Context) (string, bool) {
 		return dispatchKeyID(ctx, w.gateway, w.logger, dispatchID)
 	})
+}
+
+// agentImages is the images as the agent API gives them: a worker's
+// recorded as workerImages records them, a Bot's pi's (issue #492) as
+// botImages records its `hypomnema image`.
+type agentImages struct {
+	worker workerImages
+	bot    botImages
+}
+
+func (a agentImages) Make(
+	ctx context.Context, who agentapi.Who, req modelgateway.ImageRequest,
+) (modelgateway.ImageResult, error) {
+	if who.DispatchID != "" {
+		return a.worker.Make(ctx, who.DispatchID, req)
+	}
+
+	return a.bot.Make(ctx, who.ChatID, req)
 }
 
 // makeImages makes the images and records the call on the key keyOf names,

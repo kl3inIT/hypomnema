@@ -19,32 +19,42 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
-// fakeWeb stands for the web: it records which Dispatch asked what, and
-// fails with err when it is set.
+// fakeWeb stands for the web: it records whose call asked what (a
+// Dispatch's, or a chat's), and fails with err when it is set.
 type fakeWeb struct {
 	calls []string
 	err   error
 }
 
-func (f *fakeWeb) Search(_ context.Context, dispatchID, query string, limit int, provider string,
+func (f *fakeWeb) Search(_ context.Context, who agentapi.Who, query string, limit int, provider string,
 ) (websearch.Answer, error) {
-	f.calls = append(f.calls, fmt.Sprintf("%s search %q %d %q", dispatchID, query, limit, provider))
+	f.calls = append(f.calls, fmt.Sprintf("%s search %q %d %q", whose(who), query, limit, provider))
 
 	return websearch.Answer{Provider: "exa", Query: query, Results: []websearch.Result{
 		{Title: "Go", URL: "https://go.dev", Snippet: "The Go language."},
 	}}, f.err
 }
 
-func (f *fakeWeb) Fetch(_ context.Context, dispatchID, url string) (websearch.Page, error) {
-	f.calls = append(f.calls, fmt.Sprintf("%s fetch %s", dispatchID, url))
+func (f *fakeWeb) Fetch(_ context.Context, who agentapi.Who, url string) (websearch.Page, error) {
+	f.calls = append(f.calls, fmt.Sprintf("%s fetch %s", whose(who), url))
 
 	return websearch.Page{URL: url, Title: "Go", Content: "# Go"}, f.err
+}
+
+// whose names the Dispatch or the chat a call is recorded for.
+func whose(who agentapi.Who) string {
+	if who.DispatchID != "" {
+		return who.DispatchID
+	}
+
+	return "chat " + who.ChatID
 }
 
 // fakeImages stands for the gateway's images: it records which Dispatch
@@ -54,14 +64,14 @@ type fakeImages struct {
 	err   error
 }
 
-func (f *fakeImages) Make(_ context.Context, dispatchID string, req modelgateway.ImageRequest,
+func (f *fakeImages) Make(_ context.Context, who agentapi.Who, req modelgateway.ImageRequest,
 ) (modelgateway.ImageResult, error) {
 	refs := make([]string, 0, len(req.Images))
 	for _, img := range req.Images {
 		refs = append(refs, img.MIME+":"+string(img.Data))
 	}
 
-	f.asked = append(f.asked, fmt.Sprintf("%s %q n=%d size=%s quality=%s refs=%v", dispatchID, req.Prompt, req.N,
+	f.asked = append(f.asked, fmt.Sprintf("%s %q n=%d size=%s quality=%s refs=%v", whose(who), req.Prompt, req.N,
 		req.Size, req.Quality, refs))
 
 	if f.err != nil {
@@ -304,4 +314,104 @@ func TestAWorkerMakesAnImageThroughTheAgentAPI(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, body, "generate_image takes")
 	assert.Len(t, images.asked, 3, "a call the tool cannot read reaches no provider")
+}
+
+// gatewayNames lists the tools on the gateway's own route, as a Bot's tools
+// server asks for them.
+func (w *world) gatewayNames(key string) ([]string, []agenttool.BrowserTool) {
+	w.t.Helper()
+
+	status, body := w.call(http.MethodGet, agenttool.PathGatewayTools, key, nil)
+	require.Equal(w.t, http.StatusOK, status, string(body))
+
+	var list agenttool.BrowserToolList
+	require.NoError(w.t, json.Unmarshal(body, &list))
+
+	names := []string{}
+	for _, tool := range list.Data {
+		names = append(names, tool.Name)
+	}
+
+	return names, list.Data
+}
+
+// Scenario: a Bot's pi mounts the tools server (issue #492). On the
+// gateway's route it is offered the gateway's three tools and none of the
+// browser's, and its generate_image says how to send the image into its
+// chat. Its calls are its chat's, so that they are recorded on the key of
+// the chat's running pi as its `hypomnema web` and `hypomnema image` are. A
+// worker is offered its runtime's there too; a Routine's script and the
+// coordinator token, which have no MCP, none; a tool an agent was not given
+// is not run.
+func TestABotsPiIsOfferedTheGatewaysToolsAlone(t *testing.T) {
+	t.Parallel()
+
+	w, web, images := gatewayWorld(t, true, map[string]string{"d_codex": "codex"})
+	ctx := t.Context()
+
+	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	names, tools := w.gatewayNames(pi)
+	assert.Equal(t, []string{"web_search", "web_fetch", "generate_image"}, names)
+	assert.Contains(t, tools[2].Description, "MEDIA line", "a Bot is told how to send the image")
+
+	codex, err := w.svc.AddAgentSession(ctx, "d_codex", nil)
+	require.NoError(t, err)
+
+	names, tools = w.gatewayNames(codex)
+	assert.Equal(t, []string{"web_fetch", "generate_image"}, names)
+	assert.NotContains(t, tools[1].Description, "MEDIA", "a worker has no chat to send into")
+
+	names, _ = w.gatewayNames(coordinator)
+	assert.Empty(t, names)
+
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
+		ScriptText: "#!/bin/sh\n", EveryMinutes: 60,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	script, err := w.svc.AddRoutineToken(ctx, "pi", routine.ID)
+	require.NoError(t, err)
+
+	names, _ = w.gatewayNames(script)
+	assert.Empty(t, names, "a Routine's script keeps its commands")
+
+	call := func(key, tool, arguments string) (int, string) {
+		status, body := w.call(http.MethodPost, agenttool.PathGatewayCall, key,
+			agenttool.BrowserCall{Tool: tool, Arguments: json.RawMessage(arguments)})
+
+		return status, string(body)
+	}
+
+	status, body := call(pi, "web_search", `{"query":"go"}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, "EXTERNAL_UNTRUSTED_CONTENT")
+
+	status, _ = call(pi, "generate_image", `{"prompt":"a red fox"}`)
+	require.Equal(t, http.StatusOK, status)
+
+	assert.Equal(t, []string{`chat ` + chat.ID + ` search "go" 0 ""`}, web.calls)
+	assert.Equal(t, []string{`chat ` + chat.ID + ` "a red fox" n=1 size= quality= refs=[]`}, images.asked)
+
+	status, _ = call(pi, "agent_browser_open", `{"url":"https://go.dev"}`)
+	assert.Equal(t, http.StatusNotFound, status, "the browser is not on the gateway's route")
+	assert.Empty(t, w.browser.calls)
+
+	status, _ = call(codex, "web_search", `{"query":"go"}`)
+	assert.Equal(t, http.StatusNotFound, status, "a Codex worker's search is its own")
+
+	status, _ = call(script, "web_search", `{"query":"go"}`)
+	assert.Equal(t, http.StatusNotFound, status)
+	assert.Len(t, web.calls, 1)
+
+	status, _ = w.call(http.MethodGet, agenttool.PathGatewayTools, "", nil)
+	assert.Equal(t, http.StatusUnauthorized, status)
 }

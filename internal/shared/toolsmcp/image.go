@@ -1,4 +1,4 @@
-package workertools
+package toolsmcp
 
 import (
 	"context"
@@ -16,22 +16,36 @@ import (
 )
 
 // generate_image (issue #492) is the control plane's, as the web's tools
-// are, but its files are the worker's machine's: the images to edit are read
+// are, but its files are the agent's machine's: the images to edit are read
 // here and sent whole, and the image made is saved here and its path given,
 // as opencode's experimental_image_generate reads the paths it is given and
 // saves to the path asked or a new temporary file
 // (core/src/tool/plugin/image-generate.ts), and omp's generate_image saves to
-// a temporary file and says where (src/tools/image-gen.ts). The worker reads
+// a temporary file and says where (src/tools/image-gen.ts). The agent reads
 // the file to see the image, as with both: the path is the answer, not the
 // image.
 const (
-	// imageCallTimeout is longer than the gateway may take: each of its two
+	// ImageCallTimeout is longer than the gateway may take: each of its two
 	// providers is given five minutes for an image (Hermes waits 300 s).
-	imageCallTimeout = 11 * time.Minute
+	ImageCallTimeout = 11 * time.Minute
 	// maxImageAnswerBytes bounds an answer with an image: one image in
 	// base64, a large one at 4K.
 	maxImageAnswerBytes = 64 << 20
 )
+
+// Images says where generate_image asks and saves.
+type Images struct {
+	// Path is the agent API's route of the call: PathBrowserCall for a
+	// worker, PathGatewayCall for a Bot.
+	Path string
+	// Folder, when set, is where an image is saved when no path is asked, and
+	// the answer gives a saved image in it as the MEDIA:<path> line, relative
+	// to the folder the agent works in, that sends it into the chat
+	// (controlplane/channels/media.go): a Bot's pi, whose /tmp is its box's
+	// own and whose chat sends only files of its folder. Empty: a new file in
+	// the temporary folder, and the path alone.
+	Folder string
+}
 
 // imageTypes are the images the providers take, with their files'
 // extensions, as opencode's image tool's INPUT_TYPES and EXTENSIONS.
@@ -39,9 +53,9 @@ var imageTypes = map[string]string{
 	"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif",
 }
 
-// imageCall reads the images named, asks the control plane for the image,
-// and saves it. What the worker can fix is its error.
-func (a *agentAPI) imageCall(ctx context.Context, arguments json.RawMessage) (any, error) {
+// ImageCall reads the images named, asks the control plane for the image,
+// and saves it. What the agent can fix is its error.
+func (a *Agent) ImageCall(ctx context.Context, arguments json.RawMessage, where Images) (any, error) {
 	var in struct {
 		Prompt  string   `json:"prompt"`
 		Images  []string `json:"images"`
@@ -81,8 +95,7 @@ func (a *agentAPI) imageCall(ctx context.Context, arguments json.RawMessage) (an
 		return nil, err
 	}
 
-	raw, err := a.toolCall(ctx, agenttool.PathBrowserCall, imageCallTimeout, maxImageAnswerBytes,
-		agenttool.ToolGenerateImage, args)
+	raw, err := a.toolCall(ctx, where.Path, ImageCallTimeout, maxImageAnswerBytes, agenttool.ToolGenerateImage, args)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +128,7 @@ func (a *agentAPI) imageCall(ctx context.Context, arguments json.RawMessage) (an
 		case "text":
 			lines = append(lines, c.Text)
 		case "image":
-			path, err := saveImage(in.Path, saved, c.Data, c.MimeType)
+			path, err := saveImage(in.Path, where.Folder, saved, c.Data, c.MimeType)
 			if err != nil {
 				return nil, err
 			}
@@ -123,6 +136,9 @@ func (a *agentAPI) imageCall(ctx context.Context, arguments json.RawMessage) (an
 			saved++
 
 			lines = append(lines, "Saved to "+path)
+			if where.Folder != "" {
+				lines = append(lines, mediaLine(path))
+			}
 		}
 	}
 
@@ -130,7 +146,24 @@ func (a *agentAPI) imageCall(ctx context.Context, arguments json.RawMessage) (an
 		return nil, errors.New("the control plane answered without an image")
 	}
 
-	return toolText(strings.Join(lines, "\n"), false), nil
+	return Text(strings.Join(lines, "\n"), false), nil
+}
+
+// mediaLine says how a Bot sends a saved image into its chat: the MEDIA line
+// with its path relative to the folder it works in, the only folder whose
+// files its chat sends (OpenMausBot's generate_image says the image "is
+// attached to your reply"; here the reply attaches it).
+func mediaLine(path string) string {
+	if wd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(wd, path); err == nil && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "To send it into the chat, put this line on a line of its own in your reply, outside a code " +
+				"block: MEDIA:" + filepath.ToSlash(rel)
+		}
+	}
+
+	return "It is outside the folder you work in, so it cannot be sent into the chat: save it in your folder to " +
+		"send it."
 }
 
 // readImage reads an image file to send, with opencode's checks and words.
@@ -148,7 +181,7 @@ func readImage(name string) (agenttool.ImageInput, error) {
 		return agenttool.ImageInput{}, fmt.Errorf("%s is larger than %d MiB", name, agenttool.MaxImageInputBytes>>20)
 	}
 
-	data, err := os.ReadFile(name) //nolint:gosec // the worker names the image it wants sent
+	data, err := os.ReadFile(name) //nolint:gosec // the agent names the image it wants sent
 	if err != nil {
 		return agenttool.ImageInput{}, fmt.Errorf("reading %s: %w", name, err)
 	}
@@ -164,8 +197,8 @@ func readImage(name string) (agenttool.ImageInput, error) {
 // saveImage writes the nth image of an answer and returns its absolute
 // path: at the path asked, its extension the image's real one (opencode's
 // image tool does the same) and numbered after the first, or a new file in
-// the temporary folder.
-func saveImage(asked string, n int, b64, mime string) (string, error) {
+// folder, the temporary folder when it is empty.
+func saveImage(asked, folder string, n int, b64, mime string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return "", fmt.Errorf("the image is not base64: %w", err)
@@ -181,7 +214,16 @@ func saveImage(asked string, n int, b64, mime string) (string, error) {
 	}
 
 	if asked == "" {
-		f, err := os.CreateTemp("", "hypomnema-image-*"+ext)
+		prefix := "hypomnema-image-*"
+		if folder != "" {
+			prefix = "image-*"
+
+			if err := os.MkdirAll(folder, 0o750); err != nil {
+				return "", fmt.Errorf("making %s: %w", folder, err)
+			}
+		}
+
+		f, err := os.CreateTemp(folder, prefix+ext)
 		if err != nil {
 			return "", fmt.Errorf("making the image's file: %w", err)
 		}
@@ -195,7 +237,7 @@ func saveImage(asked string, n int, b64, mime string) (string, error) {
 			return "", fmt.Errorf("writing %s: %w", f.Name(), err)
 		}
 
-		return f.Name(), nil
+		return filepath.Abs(f.Name())
 	}
 
 	path, err := filepath.Abs(asked)

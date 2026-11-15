@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/shared/toolsmcp"
 )
 
 // client speaks MCP to a server over pipes, as Claude Code does over stdio.
@@ -36,15 +37,14 @@ func newClientIn(t *testing.T, dir string) *client {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 
-	s := &server{dir: dir, out: outW, calls: map[string]context.CancelFunc{},
-		poll: 10 * time.Millisecond, progress: 30 * time.Millisecond, agent: agentOf(dir)}
+	s := &server{dir: dir, poll: 10 * time.Millisecond, progress: 30 * time.Millisecond, agent: agentOf(dir)}
 
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
 
-		_ = s.serve(context.WithoutCancel(t.Context()), inR)
+		_ = toolsmcp.Serve(context.WithoutCancel(t.Context()), inR, outW, s.config())
 		_ = outW.Close()
 	}()
 

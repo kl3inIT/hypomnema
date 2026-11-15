@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -107,8 +108,19 @@ var releasedStubs = map[string][]string{
 	"superset":              {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
 	"aws":                   {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
 	"android-device":        {"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127"},
-	"web-search":            {"cdf4d06decd3d71394b4353a8a34b98853765b5f8c88b7e1712159d6cf9be35b"},
-	"images":                {"d5914e30a9da434727d0ce057216b1c48a1b3104f23b9c7072f3feeda31e4971"},
+}
+
+// retiredStubs holds, as releasedStubs does, the digests of the stubs of the
+// skills a release shipped and this binary no longer does. `skills install`
+// removes an installed copy whose digest is one of these, as Codex replaces
+// its whole system skills folder at an update (codex-rs skills/src/lib.rs,
+// install_system_skills) and OpenMausBot takes a switched-off skill's links
+// out of each engine's folder (server/skills.ts); a copy the owner edited is
+// left, as an edited stub always is. web-search and images became the tools
+// web_search, web_fetch and generate_image of a Bot's pi (issue #492).
+var retiredStubs = map[string][]string{
+	"web-search": {"cdf4d06decd3d71394b4353a8a34b98853765b5f8c88b7e1712159d6cf9be35b"},
+	"images":     {"d5914e30a9da434727d0ce057216b1c48a1b3104f23b9c7072f3feeda31e4971"},
 }
 
 // releasedFolders holds the folderDigest of every release of a skill
@@ -279,6 +291,12 @@ func skillsInstall(_ context.Context, e *env, fset *flag.FlagSet) error {
 	slices.Sort(agents)
 
 	for _, agent := range agents {
+		for _, name := range slices.Sorted(maps.Keys(retiredStubs)) {
+			if err := removeRetired(e, fset, agent, filepath.Join(roots[agent], name), name); err != nil {
+				return err
+			}
+		}
+
 		for _, name := range skillNames() {
 			var err error
 
@@ -296,6 +314,45 @@ func skillsInstall(_ context.Context, e *env, fset *flag.FlagSet) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+// removeRetired takes out the installed stub of a skill this binary no
+// longer ships, and its folder when nothing else is in it, unless the stub
+// was edited.
+func removeRetired(e *env, fset *flag.FlagSet, agent, dir, name string) error {
+	target := filepath.Join(dir, "SKILL.md")
+
+	old, err := os.ReadFile(target) //nolint:gosec // the path is the agent's own skill folder
+
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("reading %s: %w", target, err)
+	case !slices.Contains(retiredStubs[name], digest(old)):
+		e.printf("%s: %s was edited; left as it is, though this binary no longer ships %s\n", agent, target, name)
+
+		return nil
+	case boolean(fset, "dry-run"):
+		e.printf("%s: would remove %s, which this binary no longer ships\n", agent, target)
+
+		return nil
+	}
+
+	if err := os.Remove(target); err != nil {
+		return fmt.Errorf("removing %s: %w", target, err)
+	}
+
+	// A folder the owner put other files in stays with them.
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
+		if err := os.Remove(dir); err != nil {
+			return fmt.Errorf("removing %s: %w", dir, err)
+		}
+	}
+
+	e.printf("%s: removed %s, which this binary no longer ships\n", agent, target)
 
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -15,10 +16,11 @@ import (
 
 // The web's search and a page's reading for workers and Bots (issue #354):
 // one websearch.Service, which the model gateway serves on /v1/search and
-// /v1/web/fetch, the agent API as a worker's tools and the client API as a
-// Bot's commands. Each call is recorded on the gateway key of whoever asked,
-// as OmniRoute records a search on its key: the gateway records its own; a
-// worker's is its Dispatch's key, and a Bot's the key of its chat's pi.
+// /v1/web/fetch, the agent API as a worker's and a Bot's pi's tools and the
+// client API as commands. Each call is recorded on the gateway key of whoever
+// asked, as OmniRoute records a search on its key: the gateway records its
+// own; a worker's is its Dispatch's key, and a Bot's the key of its chat's
+// pi.
 
 // searchKeys reads the web search providers' keys from the vault (issue
 // #393): every secret named as a key (websearch.KeyName), the first Exa key
@@ -141,6 +143,31 @@ func dispatchKeyID(ctx context.Context, gateway *modelgateway.Service, logger *s
 	}
 
 	return k.ID, true
+}
+
+// agentWeb is the web as the agent API gives it: a worker's call recorded as
+// workerWeb records it, a Bot's pi's (issue #492) as botWeb records its
+// `hypomnema web`, on the key of its chat's running pi.
+type agentWeb struct {
+	worker workerWeb
+	bot    botWeb
+}
+
+func (a agentWeb) Search(ctx context.Context, who agentapi.Who, query string, limit int, provider string,
+) (websearch.Answer, error) {
+	if who.DispatchID != "" {
+		return a.worker.Search(ctx, who.DispatchID, query, limit, provider)
+	}
+
+	return a.bot.Search(ctx, who.ChatID, query, limit, provider)
+}
+
+func (a agentWeb) Fetch(ctx context.Context, who agentapi.Who, url string) (websearch.Page, error) {
+	if who.DispatchID != "" {
+		return a.worker.Fetch(ctx, who.DispatchID, url)
+	}
+
+	return a.bot.Fetch(ctx, who.ChatID, url)
 }
 
 // chatKeyHolder is what holds the gateway key of each chat's running pi:

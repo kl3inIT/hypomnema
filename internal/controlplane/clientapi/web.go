@@ -9,12 +9,12 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
-// The web's search and a page's reading for any token (issue #354), a Bot's
-// above all: a Bot has no tool of its own for the web and uses
-// `hypomnema web search` and `hypomnema web fetch`, as 9router teaches agents
-// its /v1/search with a skill (skills/9router-web-search/SKILL.md). The
-// answer is the model gateway's /v1/search and /v1/web/fetch in this API's
-// shape.
+// The web's search and a page's reading for any token (issue #354), which
+// `hypomnema web search` and `hypomnema web fetch` call, as 9router teaches
+// agents its /v1/search with a skill (skills/9router-web-search/SKILL.md):
+// the owner's and a Routine's script's; a Bot's pi has the agent API's tools
+// instead (issue #492). The answer is the model gateway's /v1/search and
+// /v1/web/fetch in this API's shape.
 
 // Web searches the web and reads pages. chatID is the chat of the Bot's pi
 // that asks, empty for another token: the control plane's wiring records the
