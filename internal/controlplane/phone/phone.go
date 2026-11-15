@@ -53,19 +53,22 @@ type Link interface {
 	Online(nodeID string) bool
 	DeviceCall(ctx context.Context, nodeID, agent, tool string, arguments json.RawMessage,
 	) (nodeproto.DeviceAnswer, error)
+	// DeviceState is the phone's state the node said last, and false when it said none.
+	DeviceState(nodeID string) (nodeproto.DeviceState, bool)
 }
 
 // Views opens a view of the phone's screen on the node that holds it
 // (nodeapi.Server.OpenDeviceView).
 type Views func(ctx context.Context, nodeID string) (ViewEnd, error)
 
-// Machines starts a stopped machine (machines.Manager).
+// Machines starts a stopped machine and stops an idle one (machines.Manager).
 type Machines interface {
 	Start(ctx context.Context, nodeID string) (orchestration.Node, error)
+	Stop(ctx context.Context, nodeID string) (orchestration.Node, error)
 }
 
 // Config is what a Phone needs; Machines may be nil, and a stopped machine
-// is then not started.
+// is then not started, nor an idle one stopped.
 type Config struct {
 	Nodes    Nodes
 	Link     Link
@@ -91,6 +94,8 @@ type Phone struct {
 	// and views that find it offline meanwhile wait for its hello.
 	mu     sync.Mutex
 	waking map[string]time.Time
+	// idleSince is when a sweep first found the phone's machine idle, zero while it is not (idle.go).
+	idleSince time.Time
 }
 
 // New returns a Phone.
@@ -144,7 +149,12 @@ func (p *Phone) Call(ctx context.Context, agent, tool string, arguments json.Raw
 		return nil, ctx.Err()
 	}
 
-	defer func() { <-p.holder }()
+	p.busy()
+
+	defer func() {
+		p.busy()
+		<-p.holder
+	}()
 
 	// While the owner holds the phone no agent's call runs, and one that was running when the owner took it is
 	// answered as if it had not: what it saw may be what the owner typed (the browser's rule, issue #219).
@@ -305,10 +315,14 @@ func (p *Phone) Controlled() bool {
 }
 
 // Run gives the phone back to the agents when the owner's hold outlived its
-// view or the owner's last input, until ctx ends.
+// view or the owner's last input, and stops the phone's idle machine, until
+// ctx ends.
 func (p *Phone) Run(ctx context.Context) {
 	tick := time.NewTicker(ownerhold.CheckEvery)
 	defer tick.Stop()
+
+	sweep := time.NewTicker(SweepEvery)
+	defer sweep.Stop()
 
 	for {
 		select {
@@ -318,6 +332,8 @@ func (p *Phone) Run(ctx context.Context) {
 			if reason := p.hold.Expire(p.cfg.Clock.Now()); reason != "" {
 				p.released(ctx, reason)
 			}
+		case <-sweep.C:
+			p.Sweep(ctx)
 		}
 	}
 }

@@ -25,10 +25,30 @@ type fakeLink struct {
 	hold chan struct{}
 	// entered is told when a call reaches the node.
 	entered chan string
+	// devices is the phone's state each node said.
+	devices map[string]nodeproto.DeviceState
 }
 
 func newLink() *fakeLink {
-	return &fakeLink{online: map[string]bool{}, entered: make(chan string, 8)}
+	return &fakeLink{
+		online: map[string]bool{}, entered: make(chan string, 8), devices: map[string]nodeproto.DeviceState{},
+	}
+}
+
+func (l *fakeLink) DeviceState(id string) (nodeproto.DeviceState, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	st, ok := l.devices[id]
+
+	return st, ok
+}
+
+func (l *fakeLink) said(id, state string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.devices[id] = nodeproto.DeviceState{State: state}
 }
 
 func (l *fakeLink) Online(id string) bool {
@@ -70,10 +90,23 @@ type fakeNodes struct{ nodes []orchestration.Node }
 func (f *fakeNodes) ListNodes(context.Context) ([]orchestration.Node, error) { return f.nodes, nil }
 
 // fakeMachines starts a machine: its node connects after a while, or never.
+// It stops one, or fails to with stopErr.
 type fakeMachines struct {
 	link    *fakeLink
 	started []string
 	connect bool
+	stopped []string
+	stopErr error
+}
+
+func (m *fakeMachines) Stop(_ context.Context, nodeID string) (orchestration.Node, error) {
+	if m.stopErr != nil {
+		return orchestration.Node{}, m.stopErr
+	}
+
+	m.stopped = append(m.stopped, nodeID)
+
+	return orchestration.Node{ID: nodeID}, nil
 }
 
 func (m *fakeMachines) Start(_ context.Context, nodeID string) (orchestration.Node, error) {
