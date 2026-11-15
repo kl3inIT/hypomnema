@@ -151,14 +151,60 @@ func markLastMessage(list any) {
 		}
 
 		blocks := blocksOf(msg["content"])
-		if len(blocks) == 0 {
+		if at := lastHolder(blocks); at >= 0 {
+			markBlock(blocks[at])
+			msg["content"] = blocks
+
+			return
+		}
+	}
+}
+
+// lastHolder is the index of the last block that can hold a breakpoint, or -1:
+// a passed-on body may end on a thinking block, which cannot (issue #524;
+// CLIProxyAPI injectMessagesCacheControl skips a turn whose last block is
+// thinking-like).
+func lastHolder(blocks []any) int {
+	for i := len(blocks) - 1; i >= 0; i-- {
+		if block, ok := blocks[i].(item); ok && canHoldCache(block) {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// moveTopLevelCache puts a top-level cache_control (Anthropic's automatic
+// caching) on the last block of the last message that can hold one, unless it
+// has one, and removes it from the top, before the gateway places its own: a
+// breakpoint of another ttl on that same block would be a 400 (CLIProxyAPI
+// materializeTopLevelCacheControlDoc, run before ensureCacheControlDoc;
+// issue #524).
+func moveTopLevelCache(body item) {
+	cc, ok := body["cache_control"].(item)
+	if !ok {
+		return
+	}
+
+	delete(body, "cache_control")
+
+	messages, _ := body["messages"].([]any)
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, ok := messages[i].(item)
+		if !ok {
 			continue
 		}
 
-		markBlock(blocks[len(blocks)-1])
-		msg["content"] = blocks
+		blocks := blocksOf(msg["content"])
+		if at := lastHolder(blocks); at >= 0 {
+			if block, _ := blocks[at].(item); block["cache_control"] == nil {
+				block["cache_control"] = cc
+			}
 
-		return
+			msg["content"] = blocks
+
+			return
+		}
 	}
 }
 

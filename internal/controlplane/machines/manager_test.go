@@ -38,6 +38,8 @@ type cloud struct {
 	off      map[string]bool
 	stopErr  error
 	startErr error
+	// whileStopping runs once inside a Stop, while the provider is being asked.
+	whileStopping func()
 }
 
 func (c *cloud) Validate(context.Context, string, string, string) error { return c.validate }
@@ -74,6 +76,11 @@ func (c *cloud) Delete(_ context.Context, _, nodeID string) error {
 func (c *cloud) Stop(_ context.Context, _, nodeID string) error {
 	if c.stopErr != nil {
 		return c.stopErr
+	}
+
+	if during := c.whileStopping; during != nil {
+		c.whileStopping = nil
+		during()
 	}
 
 	c.off[nodeID] = true
@@ -557,6 +564,28 @@ func TestStopAndStartAreAskedAgainUntilTheProviderActs(t *testing.T) {
 	w.cloud.startErr = nil
 	require.NoError(t, w.mgr.Settle(t.Context()))
 	assert.False(t, w.cloud.off[n.ID])
+}
+
+// Scenario: the settle loop finds a machine being stopped while the stop
+// that was asked (the phone's idle stop, or the owner's) still waits for the
+// provider, and carries out the same step. The machine is stopped once, and
+// neither the stop asked nor the loop fails for the other having recorded it
+// first (issue #417, 2026-11-15).
+func TestAStopAndTheSettleLoopAtOnceBothSucceed(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	n := w.ready("phone")
+
+	var settleErr error
+
+	w.cloud.whileStopping = func() { settleErr = w.mgr.Settle(t.Context()) }
+
+	got, err := w.mgr.Stop(t.Context(), n.ID)
+	require.NoError(t, err)
+	require.NoError(t, settleErr)
+	assert.Equal(t, orchestration.MachineStopped, got.Machine.Power)
+	assert.True(t, w.cloud.off[n.ID])
 }
 
 // Scenario: the owner removes a machine that is stopped, or still being

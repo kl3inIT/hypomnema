@@ -39,6 +39,8 @@ async function fakeServer(page: Page) {
         body: `id: 1\nevent: message\ndata: ${JSON.stringify(said)}\n\n`,
       })
     }
+    if (chat && path.endsWith("/messages"))
+      return json({ data: [], next_after: 0, has_more: false })
     if (chat) return json(chat)
 
     switch (path) {

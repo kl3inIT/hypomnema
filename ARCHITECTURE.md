@@ -1764,8 +1764,9 @@ capabilities do not exist yet.
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
     to its betas; any other gets the chat route's disguise (billing block, identity, its system in the first user
-    turn with its cache breakpoints kept, a user id) and Claude Code's headers with the betas it asked for. Tools
-    are never renamed. Breakpoints past Anthropic's four, a top-level `cache_control` counted, are removed as on the
+    turn with its cache breakpoints kept, a user id), the chat route's cache breakpoints (its system, last tool and
+    last message, a top-level `cache_control` moved onto that message; issue #524, as CLIProxyAPI places its own on
+    a request it disguises) and Claude Code's headers with the betas it asked for. Tools are never renamed. Breakpoints past Anthropic's four, a top-level `cache_control` counted, are removed as on the
     chat route (issue #504).
   - `stream` stays as the client sent it; a stream goes back line for line, a whole answer as it came. The usage is
     read from `message_start` and `message_delta`, or the answer's `usage`; `count_tokens` records none.
@@ -2628,6 +2629,11 @@ Node (`internal/node`):
   pasted an owner token that the browser kept in `localStorage`, as OpenClaw's control UI does.
 - The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
+  Its `@tanstack/react-query` plugin generates query keys, query options and mutation options for every operation
+  but the two Server-Sent Event streams, `StreamEvents` and `StreamChat` (issue #494, after Omnara and MemoryOS).
+  A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
+  settings (Channels, Integrations with their services, accounts and agent actions, Repositories, and the Vault)
+  read and refresh through them; the other screens still use hand-written keys, moved one area at a time.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
@@ -2651,8 +2657,12 @@ Node (`internal/node`):
   profiles' are, shows no age. Not there: deleting, renaming or duplicating a profile (the API has no delete), and
   a check that nobody else saved meanwhile.
 - Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
-  beside the open one. A chat follows `GET /chats/{id}/stream`: kept messages, then pi's live frames, reopened after
-  the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
+  beside the open one. A chat reads its newest 200 messages (`GET /chats/{id}/messages?before=`, issue #502, after
+  OpenMausBot's `message-history.ts`), then follows `GET /chats/{id}/stream` from the newest seq read: kept messages,
+  then pi's live frames, reopened after the last kept message when the server ends it. Scrolling up brings the
+  page of 200 before the oldest message read, from a sentinel 600 px ahead or a "Load earlier messages" button; the
+  page keeps the reader's row by adding the growth of the scroll height back (OpenMausBot's
+  `use-transcript-viewport.ts`), as Safari has no scroll anchoring. There is no virtual list. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
   screen.
   - A tool row (issue #441, `features/chat/tool-row.ts`, after Orca's `NativeChatToolLine.tsx` and Codex's

@@ -21,8 +21,8 @@ import {
   deleteLarkChannel,
   putLarkChannel,
   removeLarkChannelPerson,
-  setLarkChannelGroup,
 } from "@/api/generated/sdk.gen"
+import { setLarkChannelGroupMutation } from "@/api/generated/@tanstack/react-query.gen"
 import type {
   LarkChannel,
   LarkChannelGroup,
@@ -441,9 +441,8 @@ function GroupRow({ channel, group }: { channel: string; group: LarkChannelGroup
   const id = `group-${channel}-${group.chat_id}`
 
   const change = useMutation({
-    mutationFn: (enabled: boolean) =>
-      setLarkChannelGroup({ path: { channel, group: group.chat_id }, body: { enabled } }),
-    onSuccess: async (_, enabled) => {
+    ...setLarkChannelGroupMutation(),
+    onSuccess: async (_, { body: { enabled } }) => {
       await refresh()
       said(enabled ? `The bot answers in ${shown}` : `The bot no longer answers in ${shown}`)
     },
@@ -464,7 +463,9 @@ function GroupRow({ channel, group }: { channel: string; group: LarkChannelGroup
             size="sm"
             checked={group.enabled}
             disabled={change.isPending}
-            onCheckedChange={(next) => change.mutate(next)}
+            onCheckedChange={(enabled) =>
+              change.mutate({ path: { channel, group: group.chat_id }, body: { enabled } })
+            }
           />
         </span>
       </ItemActions>

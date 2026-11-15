@@ -307,6 +307,8 @@ async function fakeServer(
         return json({ data: [{ provider: "gateway", name: "gpt-luna", kind: "model_gateway" }] })
       case "GET /chats/cht_1":
         return json(chat)
+      case "GET /chats/cht_1/messages":
+        return json({ data: [], next_after: 0, has_more: false })
       case "GET /chats/cht_1/stream":
         return route.fulfill({
           status: 200,

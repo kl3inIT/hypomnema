@@ -22,8 +22,9 @@ type PassOptions struct {
 }
 
 // PassThrough prepares a client's own Messages body for the backend: the
-// model becomes the target's, the disguise goes on when asked, and the
-// breakpoints past four go. Nothing else of the body changes.
+// model becomes the target's, the disguise goes on when asked with the
+// gateway's cache breakpoints, and the breakpoints past four go. Nothing else
+// of the body changes.
 func PassThrough(raw []byte, opt PassOptions) ([]byte, error) {
 	if opt.Model == "" {
 		return nil, errors.New("the model's name is missing")
@@ -39,14 +40,20 @@ func PassThrough(raw []byte, opt PassOptions) ([]byte, error) {
 
 	body["model"] = opt.Model
 
+	// A client that is not Claude Code gets the breakpoints the chat route
+	// places, as CLIProxyAPI places its own on a request it disguises
+	// (claude_executor_cloaking.go, shouldEnsureCacheControlDoc; issue #524):
+	// without them nothing was cached, a second turn included. Claude Code
+	// places its own and they are left. Either way the breakpoints past four
+	// go, a top-level one counted, as CLIProxyAPI limits every request it
+	// sends (enforceCacheControlLimitDoc; issue #504).
 	if opt.Disguise {
-		cloak(body, opt.Token, opt.Session)
+		caller := cloak(body, opt.Token, opt.Session)
+		moveTopLevelCache(body)
+		applyCache(body, caller)
+	} else {
+		limitBreakpoints(body)
 	}
-
-	// A client may send more breakpoints than Anthropic takes, a top-level one
-	// counted; the extra ones go, as CLIProxyAPI limits every request it sends
-	// (claude_executor_execute.go, enforceCacheControlLimitDoc; issue #504).
-	limitBreakpoints(body)
 
 	encoded, err := json.Marshal(body)
 	if err != nil {

@@ -1,28 +1,69 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
-import { listGitHosts, listIntegrations, listRepos } from "@/api/generated/sdk.gen"
+import {
+  listConnectionActionsOptions,
+  listConnectionActionsQueryKey,
+  listGitHostsOptions,
+  listGitHostsQueryKey,
+  listIntegrationsOptions,
+  listIntegrationsQueryKey,
+  listReposOptions,
+  listReposQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
 import type { GitHost } from "@/api/generated/types.gen"
-
-export const hostsKey = ["git-hosts"] as const
-export const reposKey = ["repos"] as const
+import { everyCall } from "@/lib/query-keys"
 
 export function useHosts() {
-  return useQuery({ queryKey: hostsKey, queryFn: async () => (await listGitHosts()).data.data })
+  return useQuery({ ...listGitHostsOptions(), select: (page) => page.data })
+}
+
+// useRefreshHosts reads the git hosts again after one changes: every cached read of their list.
+export function useRefreshHosts() {
+  const queryClient = useQueryClient()
+
+  return () => queryClient.invalidateQueries({ queryKey: everyCall(listGitHostsQueryKey()) })
 }
 
 // The services that sign in with an account (issue #103): Google is the first.
-export const servicesKey = ["integrations"] as const
-
 export function useServices() {
+  return useQuery({ ...listIntegrationsOptions(), select: (page) => page.data })
+}
+
+// useRefreshServices reads the services again after one of their accounts changes.
+export function useRefreshServices() {
+  const queryClient = useQueryClient()
+
+  return () => queryClient.invalidateQueries({ queryKey: everyCall(listIntegrationsQueryKey()) })
+}
+
+// useConnectionActions reads what agents may do with one account of a service.
+export function useConnectionActions(integration: string, label: string) {
   return useQuery({
-    queryKey: servicesKey,
-    queryFn: async () => (await listIntegrations()).data.data,
+    ...listConnectionActionsOptions({ path: { integration, label } }),
+    select: (page) => page.data,
   })
 }
 
+// useRefreshConnectionActions reads one account's actions again after one changes.
+export function useRefreshConnectionActions() {
+  const queryClient = useQueryClient()
+
+  return (integration: string, label: string) =>
+    queryClient.invalidateQueries({
+      queryKey: listConnectionActionsQueryKey({ path: { integration, label } }),
+    })
+}
+
 export function useRepos() {
-  return useQuery({ queryKey: reposKey, queryFn: async () => (await listRepos()).data.data })
+  return useQuery({ ...listReposOptions(), select: (page) => page.data })
+}
+
+// useRefreshRepos reads the repositories again after one changes.
+export function useRefreshRepos() {
+  const queryClient = useQueryClient()
+
+  return () => queryClient.invalidateQueries({ queryKey: everyCall(listReposQueryKey()) })
 }
 
 // hostName is a host as a person names it: the product for the two everyone knows, the address for a company's
