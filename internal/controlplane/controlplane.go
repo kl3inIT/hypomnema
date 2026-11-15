@@ -334,6 +334,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	})
 	agents.WithDevice(sharedPhone)
 
+	// An agent's commands on a node's machine (issue #543), sudo given the node's password from the vault.
+	agents.WithNodeExec(svc, nodes, nodeSudo(secrets))
+
 	// The owner's hold on the phone ends as the browser's does (issue #417, step 3).
 	go sharedPhone.Run(ctx)
 	nodes.WithPhone(sharedPhone.Held)
@@ -365,6 +368,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	proxy.Register(mux)
+	// Superset's tools of a worker and a Bot's pi (issue #536) are relayed through the same decision as the
+	// client API's Superset routes; the proxy is made after the agent API it asks who an agent is.
+	agents.WithRelay(proxy)
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		ClaudeBaseURL:      cfg.ClaudeBaseURL,
@@ -597,6 +603,27 @@ func nodeTerminals(nodes *nodeapi.Server) clientapi.Terminals {
 		return end, nil
 	}
 }
+
+// nodeSudo reads a node's sudo password from the vault: the secret
+// sudo-<node>, its value. A node with none, or with a name no secret may
+// have, gets none, and its sudo asks for a terminal as it would.
+func nodeSudo(secrets *vault.Service) agentapi.SudoPassword {
+	return func(ctx context.Context, n orchestration.Node) (string, error) {
+		opened, err := secrets.Open(ctx, NodeSudoSecret(n.Name))
+
+		switch {
+		case errors.Is(err, vault.ErrNotFound), errors.Is(err, vault.ErrNotConfigured):
+			return "", nil
+		case err != nil:
+			return "", err
+		default:
+			return opened.Payload[vault.KeyValue], nil
+		}
+	}
+}
+
+// NodeSudoSecret is the name of the secret that holds a node's sudo password.
+func NodeSudoSecret(node string) string { return "sudo-" + strings.ToLower(node) }
 
 // publishBuiltinSkills puts the skills this binary gives every agent kind
 // (pdf) into the skills store as this release's revision (issue

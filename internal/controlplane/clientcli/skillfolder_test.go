@@ -7,7 +7,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -36,7 +35,7 @@ func shippedSkills() (stubs, folders []string) {
 }
 
 // installHome points the installer at a temporary home and returns the
-// folder the pages skill goes into.
+// folder pi and Codex read skills from, ~/.agents/skills.
 func installHome(t *testing.T) (*world, string) {
 	t.Helper()
 
@@ -46,162 +45,21 @@ func installHome(t *testing.T) (*world, string) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Cleanup(func() { userHome = os.UserHomeDir })
 
-	return &world{home: filepath.Join(home, ".hypomnema")}, filepath.Join(home, ".agents", "skills", "pages")
+	return &world{home: filepath.Join(home, ".hypomnema")}, filepath.Join(home, ".agents", "skills")
 }
 
-// Scenario: the coordinator's deploy installs the pages skill as files
-// where every Bot reads skills, file for file; a second install changes
-// nothing, and the caches a script leaves do not make it an edited copy.
-func TestAFolderSkillIsInstalledAsFiles(t *testing.T) { //nolint:paralleltest // replaces userHome
-	w, dir := installHome(t)
-
-	out, err := w.cmd(t, "skills", "install", "--agent", "agents")
-	require.NoError(t, err)
-	assert.Contains(t, out, "agents: installed "+dir)
-
-	shipped, err := fs.Sub(skillFiles, "skills/pages")
-	require.NoError(t, err)
-
-	files := 0
-	err = fs.WalkDir(shipped, ".", func(name string, d fs.DirEntry, err error) error {
-		require.NoError(t, err)
-
-		if d.IsDir() {
-			return nil
-		}
-
-		files++
-
-		want, err := fs.ReadFile(shipped, name)
-		require.NoError(t, err)
-
-		got, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name))) //nolint:gosec // the test's own temporary home
-		require.NoError(t, err)
-		assert.Equal(t, string(want), string(got), name)
-
-		return nil
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 3, files, "LICENSE, SKILL.md and dashboard.html")
-
-	if runtime.GOOS != "windows" {
-		info, err := os.Stat(filepath.Join(dir, "SKILL.md"))
-		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-	}
-
-	cache := filepath.Join(dir, "__pycache__")
-	require.NoError(t, os.Mkdir(cache, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(cache, "build.cpython-314.pyc"), []byte("bytecode"), 0o600))
-
-	out, err = w.cmd(t, "skills", "install", "--agent", "agents")
-	require.NoError(t, err)
-	assert.Contains(t, out, "agents: "+dir+" is current")
-	assertNoStaging(t, filepath.Dir(dir))
-}
-
-// Scenario: the owner edited the installed pages skill. The deploy leaves it
-// alone; --force replaces it and keeps the edited copy where pi does not
-// read it.
-func TestAnEditedFolderSkillIsLeftAlone(t *testing.T) { //nolint:paralleltest // replaces userHome
-	w, dir := installHome(t)
-
-	_, err := w.cmd(t, "skills", "install", "--agent", "agents")
-	require.NoError(t, err)
-
-	skill := filepath.Join(dir, "SKILL.md")
-	require.NoError(t, os.WriteFile(skill, []byte("my own notes"), 0o600))
-
-	out, err := w.cmd(t, "skills", "install", "--agent", "agents")
-	require.NoError(t, err)
-	assert.Contains(t, out, "was edited")
-
-	got, err := os.ReadFile(skill) //nolint:gosec // the test's own temporary home
-	require.NoError(t, err)
-	assert.Equal(t, "my own notes", string(got))
-
-	out, err = w.cmd(t, "skills", "install", "--agent", "agents", "--force", "--dry-run")
-	require.NoError(t, err)
-	assert.Contains(t, out, "would replace the edited "+dir)
-
-	out, err = w.cmd(t, "skills", "install", "--agent", "agents", "--force")
-	require.NoError(t, err)
-	assert.Contains(t, out, "replaced "+dir)
-
-	got, err = os.ReadFile(skill) //nolint:gosec // the test's own temporary home
-	require.NoError(t, err)
-	assert.Contains(t, string(got), "name: pages")
-
-	backup, err := os.ReadFile(filepath.Join(filepath.Dir(dir), ".pages.bak", "SKILL.md"))
-	require.NoError(t, err)
-	assert.Equal(t, "my own notes", string(backup))
-	assertNoStaging(t, filepath.Dir(dir))
-}
-
-// Scenario: a copy an earlier release installed is replaced by this
-// release's, with no backup left.
-func TestAReleasedFolderSkillIsUpdated(t *testing.T) { //nolint:paralleltest // replaces userHome and releasedFolders
-	w, dir := installHome(t)
-
-	_, err := w.cmd(t, "skills", "install", "--agent", "agents")
-	require.NoError(t, err)
-
-	// What an earlier release shipped: no template and another SKILL.md.
-	require.NoError(t, os.Remove(filepath.Join(dir, "dashboard.html")))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: pages\n---\nolder"), 0o600))
-
-	old, err := folderDigest(os.DirFS(dir))
-	require.NoError(t, err)
-
-	released := releasedFolders["pages"]
-	releasedFolders["pages"] = append(append([]string{}, released...), old)
-
-	t.Cleanup(func() { releasedFolders["pages"] = released })
-
-	out, err := w.cmd(t, "skills", "install", "--agent", "agents")
-	require.NoError(t, err)
-	assert.Contains(t, out, "agents: updated "+dir)
-	assert.FileExists(t, filepath.Join(dir, "dashboard.html"))
-
-	got, err := folderDigest(os.DirFS(dir))
-	require.NoError(t, err)
-
-	shipped, err := fs.Sub(skillFiles, "skills/pages")
-	require.NoError(t, err)
-
-	want, err := folderDigest(shipped)
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
-	assert.NoDirExists(t, filepath.Join(filepath.Dir(dir), ".pages.bak"))
-	assertNoStaging(t, filepath.Dir(dir))
-}
-
-func assertNoStaging(t *testing.T, root string) {
-	t.Helper()
-
-	entries, err := os.ReadDir(root)
-	require.NoError(t, err)
-
-	for _, e := range entries {
-		assert.NotContains(t, e.Name(), ".new-", "a staging folder was left")
-	}
-}
-
-// A folder that changes adds its digest to releasedFolders, so `skills
-// install` can later update copies of it.
-func TestShippedFoldersAreReleased(t *testing.T) {
+// Every whole-folder skill reaches agents through the skills store, which
+// `skills install` does not place (issue #536): one outside it would reach
+// no agent. The digests of the copies earlier releases installed are kept so
+// that the install can take them out.
+func TestEveryFolderSkillIsInTheStore(t *testing.T) {
 	t.Parallel()
 
 	_, folders := shippedSkills()
-	require.Contains(t, folders, "pages")
+	assert.Empty(t, folders, "add the skill to storeSkills")
 
-	for _, name := range folders {
-		skill, err := fs.Sub(skillFiles, "skills/"+name)
-		require.NoError(t, err)
-
-		d, err := folderDigest(skill)
-		require.NoError(t, err)
-		assert.Contains(t, releasedFolders[name], d, "add the folder's digest to releasedFolders[%q]", name)
+	for name := range releasedFolders {
+		assert.Contains(t, storeSkills, name)
 	}
 }
 
@@ -352,8 +210,7 @@ func TestTheShippedSlidesSkillNamesOnlyWhatItShips(t *testing.T) {
 func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
 	t.Parallel()
 
-	_, folders := shippedSkills()
-	require.Contains(t, folders, "pages", "a Bot's skill: it names hypomnema superset chart, which a worker lacks")
+	require.Contains(t, storeSkills, "pages", "every agent kind's: it names tools both kinds have")
 
 	skill, err := fs.Sub(skillFiles, "skills/pages")
 	require.NoError(t, err)
@@ -372,11 +229,20 @@ func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
 	text, err := fs.ReadFile(skill, "SKILL.md")
 	require.NoError(t, err)
 	assert.Contains(t, string(text), "name: pages")
-	assert.Contains(t, string(text), "~/.agents/skills/pages/dashboard.html",
-		"the template is named where it is installed")
+	assert.Contains(t, string(text), "`dashboard.html` is beside this SKILL.md, in this skill's folder",
+		"the template is named beside the skill, wherever each agent kind's skills are placed")
+	assert.NotContains(t, string(text), "~/.agents")
 	assert.Contains(t, string(text), "the `show_artifact` tool", "a page is shown with the tool")
+	assert.Contains(t, string(text), "`superset_chart_data`", "a chart's rows are read with the tool")
 	assert.Contains(t, string(text), "runs `hypomnema artifact show --id <id> --path dashboard`",
 		"a Routine's script runs the command, having no tools")
+
+	// Only the Routine's row names commands: a script runs them.
+	for line := range strings.SplitSeq(string(text), "\n") {
+		if strings.Contains(line, "hypomnema ") {
+			assert.Contains(t, line, "Routine", "a command a worker lacks: %s", line)
+		}
+	}
 
 	page, err := fs.ReadFile(skill, "dashboard.html")
 	require.NoError(t, err)
@@ -458,27 +324,32 @@ func TestARetiredSkillIsRemovedAtInstall(t *testing.T) { //nolint:paralleltest /
 	assert.NotContains(t, out, "removed", "a second install has nothing to take out")
 }
 
-// Scenario: pdf and slides now come from the skills store (issues #492,
-// #536). The deploy's install takes out the copies an earlier release put in
-// ~/.agents/skills, so that a Bot gets each once, and does not install them;
-// a copy the owner edited stays. pages, a Bot's skill, is still installed
-// there.
+// Scenario: pdf, slides and pages now come from the skills store (issues
+// #492, #536). The deploy's install takes out the copies an earlier release
+// put in ~/.agents/skills, so that a Bot gets each once, and does not install
+// them; a copy the owner edited stays.
 func TestAStoreSkillIsTakenOutOfTheAgentsFolder(t *testing.T) { //nolint:paralleltest // replaces globals
-	w, pages := installHome(t)
-	agents := filepath.Dir(pages)
-	pdf, slides := filepath.Join(agents, "pdf"), filepath.Join(agents, "slides")
+	w, agents := installHome(t)
+	pdf := filepath.Join(agents, "pdf")
 
-	// slides as the release before issue #536 installed it.
-	require.NoError(t, os.MkdirAll(slides, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(slides, "SKILL.md"), []byte("---\nname: slides\n---\nold"), 0o600))
+	// slides and pages as the releases before issue #536 installed them.
+	var olds []string
 
-	oldSlides, err := folderDigest(os.DirFS(slides))
-	require.NoError(t, err)
+	for _, name := range []string{"slides", "pages"} {
+		dir := filepath.Join(agents, name)
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\n---\nold"), 0o600))
 
-	releasedSlides := releasedFolders["slides"]
-	releasedFolders["slides"] = append(append([]string{}, releasedSlides...), oldSlides)
+		old, err := folderDigest(os.DirFS(dir))
+		require.NoError(t, err)
 
-	t.Cleanup(func() { releasedFolders["slides"] = releasedSlides })
+		released := releasedFolders[name]
+		releasedFolders[name] = append(append([]string{}, released...), old)
+
+		t.Cleanup(func() { releasedFolders[name] = released })
+
+		olds = append(olds, dir)
+	}
 
 	// What an earlier release installed: the folder whose digest it released.
 	require.NoError(t, os.MkdirAll(filepath.Join(pdf, "scripts"), 0o750))
@@ -502,9 +373,11 @@ func TestAStoreSkillIsTakenOutOfTheAgentsFolder(t *testing.T) { //nolint:paralle
 	require.NoError(t, err)
 	assert.Contains(t, out, "agents: removed "+pdf+", which now comes from the skills store")
 	assert.NoDirExists(t, pdf)
-	assert.FileExists(t, filepath.Join(pages, "dashboard.html"), "pages is still installed here")
-	assert.Contains(t, out, "agents: removed "+slides+", which now comes from the skills store")
-	assert.NoDirExists(t, slides)
+
+	for _, dir := range olds {
+		assert.Contains(t, out, "agents: removed "+dir+", which now comes from the skills store")
+		assert.NoDirExists(t, dir)
+	}
 
 	require.NoError(t, os.MkdirAll(pdf, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(pdf, "SKILL.md"), []byte("my own pdf"), 0o600))
@@ -530,9 +403,10 @@ func TestTheStoreSkillsAreTheShippedFolders(t *testing.T) {
 
 	skills, err := StoreSkills()
 	require.NoError(t, err)
-	require.Len(t, skills, 2)
+	require.Len(t, skills, 3)
 	assert.Equal(t, "pdf", skills[0].Name)
 	assert.Equal(t, "slides", skills[1].Name)
+	assert.Equal(t, "pages", skills[2].Name)
 
 	for _, sk := range skills {
 		shipped, err := fs.Sub(skillFiles, "skills/"+sk.Name)

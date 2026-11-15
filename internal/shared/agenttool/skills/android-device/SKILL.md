@@ -13,6 +13,3 @@ This stub loads the guide that ships with the `hypomnema` binary on this machine
 tools that binary offers.
 
 1. Run `hypomnema skills get android-device` once in the session and follow the guide it prints.
-
-The device_* tools are a worker's: a Bot and a chat have none yet. To have work done on the phone, give it to a
-worker.

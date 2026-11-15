@@ -160,7 +160,7 @@ test("a Bot with one chat deletes it from its row's menu", async ({ page }) => {
   await bots(page)
     .getByRole("link", { name: /coordinator/ })
     .hover()
-  await bots(page).getByRole("button", { name: "Actions for Only chat" }).click()
+  await bots(page).getByRole("button", { name: "Actions for coordinator" }).click()
   await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible()
   await shot(page, "chat-delete-only-chat-menu")
 

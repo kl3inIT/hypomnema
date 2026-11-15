@@ -25,9 +25,11 @@ const (
 	// listTimeout bounds asking for the tools. The first worker to ask may
 	// wait for the control plane to fetch its browser.
 	listTimeout = 2 * time.Minute
-	// CallTimeout is longer than the control plane gives a tool (3 minutes),
-	// so that its answer is the one the agent reads.
-	CallTimeout = 4 * time.Minute
+	// CallTimeout is longer than the control plane gives a tool, so that its
+	// answer is the one the agent reads: the browser's 3 minutes, and a
+	// command on a node (issue #543), 5 minutes and its node's answer
+	// (nodeproto.ExecTimeoutMax and ExecAnswerSlack).
+	CallTimeout = 7 * time.Minute
 	// DeviceCallTimeout is longer than a phone's call may take at the control
 	// plane: its machine woken (2 minutes), then the node's answer
 	// (nodeproto.DeviceAnswerWithin and half a minute).

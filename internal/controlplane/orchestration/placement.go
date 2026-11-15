@@ -207,7 +207,7 @@ func (p *placement) serves(n *nodeLoad, runtime string) error {
 // root, then an account that is not cooling down, or none for a model the
 // gateway serves. A node at its limit still counts: the Task waits its turn.
 // A runtime that runs only through the gateway cannot start without it.
-func (p *placement) availability(runtime string, gateway bool) Availability {
+func (p *placement) availability(runtime string, gateway bool, accounts string) Availability {
 	if !gateway && gatewayOnly(runtime) {
 		return Availability{Reason: ReasonNeedsGateway}
 	}
@@ -216,6 +216,10 @@ func (p *placement) availability(runtime string, gateway bool) Availability {
 		return p.serves(n, runtime) == nil && n.row.WorktreeRoot.String != ""
 	}) {
 		return Availability{Reason: ReasonNoNode}
+	}
+
+	if gateway && !p.gatewayHasAccount(accounts) {
+		return Availability{Reason: ReasonNoAccount}
 	}
 
 	if gateway {
@@ -341,6 +345,19 @@ const TokenRuntime = "claude"
 // one whose CLI was logged in on that node. An account whose secret the
 // control plane keeps is the gateway's to serve.
 func runsOnNode(a store.Account) bool { return !a.SecretRef.Valid }
+
+// gatewayHasAccount reports whether the control plane keeps an active account of the runtime for the gateway to
+// serve a subscription under; a model of the gateway's own table (no runtime) needs none here. Whether that account
+// cools down is the gateway's to find.
+func (p *placement) gatewayHasAccount(runtime string) bool {
+	if runtime == "" {
+		return true
+	}
+
+	return slices.ContainsFunc(p.accounts, func(a store.Account) bool {
+		return a.Runtime == runtime && AccountStatus(a.Status) == AccountActive && !runsOnNode(a)
+	})
+}
 
 // pickAccount is the first active account of the runtime a node holds, by
 // position, that is not cooling down. cooling reports whether one exists but cools.

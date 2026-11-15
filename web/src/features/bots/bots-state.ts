@@ -50,7 +50,7 @@ export function memoryLine(bot: Pick<Bot, "memory" | "memory_limit">) {
   return `${memoryUsed(bot.memory).toLocaleString("en")} of ${bot.memory_limit.toLocaleString("en")} characters`
 }
 
-// A Draft is a Bot as its form holds it. model is "provider/name", a bare name, or "" for pi's default.
+// A Draft is a Bot as its form holds it. model is "provider/name", a bare name, or "" for the default (Claude Opus 5.5).
 // skills and skillsOff are the skills the Bot adds and the ones for everyone it turns off (issue #21).
 export type Draft = {
   name: string
@@ -93,7 +93,7 @@ export function sameDraft(a: Draft, b: Draft) {
 }
 
 // settingsOf is the draft as PUT /bots/{bot_id} and POST /bots take it. The server replaces what it is given, so what the draft
-// leaves empty is left out and falls back to pi's default; the skills are always given, the form holds them.
+// leaves empty is left out and falls back to the default model; the skills are always given, the form holds them.
 export function settingsOf(draft: Draft, models: Model[]): BotSettings {
   const model = draft.model ? splitModel(draft.model, models) : { provider: "", name: "" }
 

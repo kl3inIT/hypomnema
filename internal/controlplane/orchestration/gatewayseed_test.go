@@ -92,7 +92,7 @@ func migratedTo(t *testing.T, version int64) (*Service, *sql.DB) {
 // model-gateway; so a Task that names no profile is placed as a Claude Code
 // worker through the gateway under the subscription's model, with no profile
 // applied and no account on the node, and its offer says to speak Anthropic
-// Messages.
+// Messages; once a Claude account is logged in on the control plane, not before.
 func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 	t.Parallel()
 
@@ -113,9 +113,17 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 	assert.Contains(t, reviewer.Source, "  provider: claude-subscription\n", "its YAML says so too")
 	assert.Equal(t, "high", reviewer.Effort, "the reviewer keeps its effort")
 	assert.Contains(t, reviewer.Instruction, "Verdict: `correct` or `incorrect`", "and its instruction")
-	assert.Equal(t, &Availability{Available: true}, reviewer.Availability, "node_a has Claude Code")
+	assert.Equal(t, &Availability{Reason: ReasonNoAccount}, reviewer.Availability,
+		"no Claude account is logged in on the control plane yet")
 
 	w.tasks(NewTask{Ref: "a", Spec: "a"})
+	require.Empty(t, w.schedule().Created, "nothing can serve the model yet")
+
+	w.gatewayAccount("claude")
+
+	reviewer, err = w.s.GetProfile(ctx, "reviewer")
+	require.NoError(t, err)
+	assert.Equal(t, &Availability{Available: true}, reviewer.Availability, "node_a has Claude Code")
 
 	created := w.schedule().Created
 	require.Len(t, created, 1, "placed with no profile applied")
@@ -139,7 +147,7 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 // (issue #462): a model_gateway provider of another name, the three gateway
 // models, and an implementer of the owner's. Migrating through 00088 leaves
 // all of it as it was; with no provider model-gateway, the profiles the owner
-// has not changed stay on their seeds too. (00089 then moves them to the
+// has not changed stay on their seeds too. (00090 then moves them to the
 // subscription: TestMigrationMovesGatewayModelsToTheirSubscription.)
 func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 	t.Parallel()
@@ -190,7 +198,7 @@ func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 
 // Scenario: the way back (issue #462). On a fresh install the seed versions
 // are taken back and the provider and gateway models go; once the owner put a
-// profile of its own on the provider, before 00089 moved the seeds off it,
+// profile of its own on the provider, before 00090 moved the seeds off it,
 // the provider and the model it uses stay.
 func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 	t.Parallel()
@@ -237,17 +245,18 @@ func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 	}
 }
 
-// Scenario: an install at 00088 whose Bot, a chat and a profile run on the
-// provider model-gateway (issue #549). The Bot's and the chat's gateway
-// models are served from one subscription model each; the profile's, duo, is
-// the owner's name over two targets. Migrating moves each to the
-// subscription and model of its first target; duo stays, as a name over
-// several targets is made on purpose; the seeded gateway models and the
-// provider, named by nothing any more, go.
+// Scenario: an install at 00089 whose Bot, a chat and two profiles run on the
+// provider model-gateway (issue #549). The Bot's, the chat's and the
+// explorer's gateway models are served from one subscription model each, the
+// explorer's YAML naming its keys in another order; the reviewer's, duo, is
+// the owner's name over two targets. Migrating moves each single one to its
+// subscription and model, YAML included; duo and the reviewer stay, as a name
+// over several targets is made on purpose for its failover, and so does the
+// provider they name; the single gateway models nothing uses go.
 func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 	t.Parallel()
 
-	s, db := migratedTo(t, 88)
+	s, db := migratedTo(t, 89)
 	ctx := t.Context()
 
 	_, err := s.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\n"+
@@ -269,9 +278,13 @@ func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 		"name: reviewer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: duo}\n")
 	require.NoError(t, err)
 
+	explorer, _, err := s.ApplyProfile(ctx, "", "name: explorer\ndescription: d\nruntime: claude\n"+
+		"model: {name: claude-sonnet-5-5, provider: model-gateway, effort: high}\n")
+	require.NoError(t, err)
+
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 89)
+	_, err = p.UpTo(ctx, 90)
 	require.NoError(t, err)
 
 	read := func(query string, args ...any) [2]string {
@@ -287,11 +300,13 @@ func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 		read(`SELECT provider, model FROM bots WHERE id = ?`, DefaultBotID))
 	assert.Equal(t, [2]string{"claude-subscription", "claude-haiku-5-5"},
 		read(`SELECT provider, model FROM chats WHERE id = 'cht_1'`))
-	assert.Equal(t, [2]string{"claude-subscription", "claude-opus-5-5"},
+	assert.Equal(t, [2]string{"model-gateway", "duo"},
 		read(`SELECT provider, model FROM profile_versions WHERE id = ?`, reviewer.VersionID),
-		"duo's first target, in the same version")
-	assert.Contains(t, read(`SELECT source, '' FROM profile_versions WHERE id = ?`, reviewer.VersionID)[0],
-		"model: {provider: claude-subscription, name: claude-opus-5-5}", "its YAML too")
+		"a name over two targets keeps its failover")
+	assert.Equal(t, [2]string{"claude-subscription", "claude-sonnet-5-5"},
+		read(`SELECT provider, model FROM profile_versions WHERE id = ?`, explorer.VersionID), "in the same version")
+	assert.Contains(t, read(`SELECT source, '' FROM profile_versions WHERE id = ?`, explorer.VersionID)[0],
+		"model: {name: claude-sonnet-5-5, provider: claude-subscription, effort: high}", "its YAML too")
 	assert.Equal(t, [2]string{"claude-subscription", "claude-opus-5-5"},
 		read(`SELECT provider, model FROM profile_versions WHERE id = 'pfv_seed3_implementer'`), "a seed too")
 
@@ -301,5 +316,5 @@ func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 	var providers int
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT count(*) FROM providers WHERE name = 'model-gateway'`).Scan(&providers))
-	assert.Zero(t, providers, "named by nothing any more")
+	assert.Equal(t, 1, providers, "the reviewer still names it")
 }

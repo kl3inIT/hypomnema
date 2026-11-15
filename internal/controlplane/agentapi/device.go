@@ -17,7 +17,8 @@ import (
 // is (#212): an agent the browser's routes take is taken here, by the same
 // check, with no setting and no Connection (owner, 2026-11-15). The routes
 // have the browser's shape: a list of MCP tools, and a call whose answer is
-// the tool's result.
+// the tool's result. A worker's tools server and a Bot's (`hypomnema mcp`,
+// issue #536 step 4) list them here beside PathTools.
 
 // Device is the phone: its tools, and one call of a tool for the agent named.
 type Device interface {
@@ -93,6 +94,8 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 	// timeout; its answer must still reach the agent, which would otherwise repeat a tap it did not see.
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
+	started := time.Now()
+
 	result, err := s.device.Call(r.Context(), a.key, asked.Tool, asked.Arguments)
 	if err != nil {
 		s.failDevice(w, r, err)
@@ -100,10 +103,10 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Which agent used which tool, and never what it typed or saw.
+	// Which agent used which tool and how long the call took, and never what it typed or saw.
 	s.logger.InfoContext(r.Context(), "an agent used the phone",
 		slog.String("event", "agentapi.device_call"), slog.String("agent", a.name),
-		slog.String("tool", asked.Tool))
+		slog.String("tool", asked.Tool), slog.Int64("duration_ms", time.Since(started).Milliseconds()))
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")

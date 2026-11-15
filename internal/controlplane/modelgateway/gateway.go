@@ -358,13 +358,21 @@ func (s *Service) ListModels(ctx context.Context) ([]Model, error) {
 		return nil, fmt.Errorf("listing providers: %w", err)
 	}
 
+	// A name in the table is served from its row (GetModel), so the subscription's own is not listed again.
+	inTable := map[string]bool{}
+	for _, m := range out {
+		inTable[m.Name] = true
+	}
+
 	for _, p := range providers {
 		if !slices.Contains(subscriptionKinds, p.Kind) {
 			continue
 		}
 
 		for _, m := range p.Models {
-			out = append(out, subscriptionModelOf(p, m))
+			if sub := subscriptionModelOf(p, m); !inTable[sub.Name] {
+				out = append(out, sub)
+			}
 		}
 	}
 

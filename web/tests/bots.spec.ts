@@ -15,6 +15,8 @@ const hours = (n: number) => new Date(Date.now() - n * 3_600_000).toISOString()
 const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   id: name,
   name,
+  position: 0,
+  pinned: false,
   main: name === "coordinator",
   persona: "",
   memory: "",
@@ -328,7 +330,7 @@ test("the Bots show as cards and as a table, each with its model and its memory"
   await expect(first).toContainText("Memory:108 of 2,200 characters")
   await expect(first).toContainText("Works with:Everything you switched on")
   const second = page.getByRole("article", { name: "researcher" })
-  await expect(second).toContainText("Model:pi's default model")
+  await expect(second).toContainText("Model:Default (Claude Opus 5.5)")
   // The Connections a Bot is limited to, each as its Integration's mark and name (owner, 2026-11-13).
   await expect(second.getByRole("listitem")).toHaveText(["Google · work", "Lark · main"])
   expect(await fits(page)).toBe(true)
@@ -361,7 +363,7 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
   await shot(page, "bot-new-refused")
 
   await page.getByLabel("Model", { exact: true }).click()
-  await page.getByRole("option", { name: "opus" }).click()
+  await page.getByRole("option", { name: "opus", exact: true }).click()
   await page
     .getByRole("group", { name: "Effort" })
     .getByRole("button", { name: "High", exact: true })

@@ -308,14 +308,17 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: reviewer\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
+	w.gatewayAccount("claude")
+	w.gatewayAccount("codex")
 	w.tasks(
 		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
 		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-haiku-5-5"},
 		NewTask{Ref: "c", Profile: "reviewer", Spec: "c"},
+		NewTask{Ref: "d", Profile: "implementer", Spec: "d", Model: "gpt-6.1-sol"},
 	)
 
 	created := w.schedule().Created
-	require.Len(t, created, 2, "the reviewer runs on codex, which no node has")
+	require.Len(t, created, 3, "the reviewer runs on codex, which no node has")
 
 	got := map[string][3]string{}
 	for _, id := range created {
@@ -326,7 +329,8 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	v := implementer.VersionID
 	assert.Equal(t, map[string][3]string{
 		"a": {"claude-subscription/claude-opus-5-5", "high", v}, "b": {"claude-subscription/claude-haiku-5-5", "high", v},
-	}, got, "the gateway's names of the subscription's models (issue #549)")
+		"d": {"codex-subscription/gpt-6.1-sol", "high", v},
+	}, got, "the gateway's names of the subscription's models (issue #549); a Task's model under its own provider")
 }
 
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is
@@ -782,6 +786,19 @@ func TestAClaudeCodeWorkerMayRunThroughTheGateway(t *testing.T) {
 	assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
 }
 
+// Scenario: Codex speaks only OpenAI Responses, which the gateway passes on to a Codex subscription alone, so a
+// Codex profile under another subscription is refused when applied (issue #549).
+func TestACodexProfileNamesNoOtherSubscription(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+
+	_, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: codex-claude\ndescription: d\nruntime: codex\nmodel: {provider: claude-subscription, name: claude-opus-5-5}\n")
+	require.ErrorIs(t, err, ErrInvalid)
+	assert.ErrorContains(t, err, "runtime codex cannot run against provider claude-subscription")
+}
+
 // Scenario: a Codex profile names the Codex subscription (issue #549). Its
 // worker runs through the gateway under the subscription's model, on a node
 // with no Codex account, and its offer says to speak OpenAI Responses; a
@@ -791,6 +808,7 @@ func TestACodexWorkerUnderTheSubscriptionRunsThroughTheGateway(t *testing.T) {
 
 	w := newSchedWorld(t)
 	codexNode := w.addNode("node_codex", 2, "codex")
+	w.gatewayAccount("codex")
 
 	_, _, err := w.s.ApplyProfile(t.Context(), "",
 		"name: codex-sub\ndescription: d\nruntime: codex\nmodel: {provider: codex-subscription, name: gpt-6.1-sol}\n")

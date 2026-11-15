@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -72,8 +73,12 @@ type Bot struct {
 	Workers     AllowList
 	// ToolDisplay is what its chats show of its tool calls; empty is ToolsOn.
 	ToolDisplay ToolDisplay
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Position is the Bot's place in the order the owner sets, 0 first, and Pinned lists it in the sidebar's
+	// Pinned section (issue #470). Neither is a setting: PutBot keeps them as they are.
+	Position  int
+	Pinned    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func botFromRow(r store.Bot) Bot {
@@ -81,6 +86,7 @@ func botFromRow(r store.Bot) Bot {
 		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
 		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
+		Position: int(r.Position), Pinned: r.Pinned != 0,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
 }
@@ -398,7 +404,7 @@ func (s *Service) deleteBot(ctx context.Context, chat, id string) error {
 			return err
 		}
 
-		if err := q.DeleteBot(ctx, id); err != nil {
+		if err := removeBotRow(ctx, q, row); err != nil {
 			return err
 		}
 
@@ -462,13 +468,139 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) ([]Chat, error)
 			deleted = append(deleted, chatFromRow(row))
 		}
 
-		return q.DeleteBot(ctx, id)
+		return removeBotRow(ctx, q, row)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("removing bot %s with its chats: %w", id, err)
 	}
 
 	return deleted, nil
+}
+
+// removeBotRow removes a Bot's row; the Bots after it move up a place, so the order stays 0 to n-1 (issue #470), as
+// OpenMausBot's fleet is one list a removed bot leaves.
+func removeBotRow(ctx context.Context, q *store.Queries, row store.Bot) error {
+	if err := q.DeleteBot(ctx, row.ID); err != nil {
+		return err
+	}
+
+	return q.CloseBotPosition(ctx, row.Position)
+}
+
+// ReorderBots moves Bots in the one order the sidebar lists them in (issue #470) and returns every Bot's id in the
+// new order. It is OpenMausBot's reorder (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
+// shared/bot-order.ts, reorderInPlace and reorderStable): the Bots named take, in the order given, the places they
+// already hold together; every other Bot keeps its place. An empty list, a repeated or unknown id, and the main Bot,
+// which is always first, are refused and change nothing.
+func (s *Service) ReorderBots(ctx context.Context, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: name the bots to move", ErrInvalid)
+	}
+
+	rank := make(map[string]int, len(ids))
+	for i, id := range ids {
+		if id == DefaultBotID {
+			return nil, fmt.Errorf("%w: the main bot is always first", ErrInvalid)
+		}
+
+		if _, twice := rank[id]; twice {
+			return nil, fmt.Errorf("%w: bot %s is named twice", ErrInvalid, id)
+		}
+
+		rank[id] = i
+	}
+
+	var order []string
+
+	err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		had, err := q.ListBotIDsInOrder(ctx)
+		if err != nil {
+			return err
+		}
+
+		order, err = reorderStable(had, rank)
+		if err != nil {
+			return err
+		}
+
+		for i, id := range order {
+			if err := q.SetBotPosition(ctx, store.SetBotPositionParams{Position: int64(i), ID: id}); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reordering bots: %w", err)
+	}
+
+	return order, nil
+}
+
+// reorderStable is OpenMausBot's reorderStable over ids: the slots the ranked ids hold get them in their rank's
+// order; every other id stays in its slot. An id ranked that the order does not hold is refused.
+func reorderStable(order []string, rank map[string]int) ([]string, error) {
+	var slots []int
+
+	for i, id := range order {
+		if _, ok := rank[id]; ok {
+			slots = append(slots, i)
+		}
+	}
+
+	if len(slots) != len(rank) {
+		for id := range rank {
+			if !slices.Contains(order, id) {
+				return nil, fmt.Errorf("%w: unknown bot %s", ErrInvalid, id)
+			}
+		}
+	}
+
+	moved := make([]string, len(slots))
+	for i, slot := range slots {
+		moved[i] = order[slot]
+	}
+
+	slices.SortFunc(moved, func(a, b string) int { return rank[a] - rank[b] })
+
+	out := slices.Clone(order)
+	for i, slot := range slots {
+		out[slot] = moved[i]
+	}
+
+	return out, nil
+}
+
+// PinBot pins or unpins a Bot (issue #470): a pinned Bot is listed in the sidebar's Pinned section, under the main
+// Bot, as OpenMausBot's pinned flag and OpenClaw's pinned agents. The main Bot is always first and is not pinned, as
+// onyx keeps its default agent out of the pins.
+func (s *Service) PinBot(ctx context.Context, id string, pinned bool) (Bot, error) {
+	if id == DefaultBotID {
+		return Bot{}, fmt.Errorf("%w: the main bot is always first", ErrInvalid)
+	}
+
+	flag := int64(0)
+	if pinned {
+		flag = 1
+	}
+
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		n, err := q.SetBotPinned(ctx, store.SetBotPinnedParams{Pinned: flag, ID: id})
+		if err != nil {
+			return err
+		}
+
+		if n != 1 {
+			return fmt.Errorf("%w: bot %s", ErrNotFound, id)
+		}
+
+		return nil
+	}); err != nil {
+		return Bot{}, fmt.Errorf("pinning bot %s: %w", id, err)
+	}
+
+	return s.GetBot(ctx, id)
 }
 
 // ChatIDsOfBot returns the ids of a Bot's chats.

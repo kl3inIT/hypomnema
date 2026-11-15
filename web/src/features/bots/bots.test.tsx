@@ -40,6 +40,8 @@ const json = (body: unknown, status = 200) =>
 const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   id: name,
   name,
+  position: 0,
+  pinned: false,
   main: name === "coordinator",
   persona: "",
   memory: "",

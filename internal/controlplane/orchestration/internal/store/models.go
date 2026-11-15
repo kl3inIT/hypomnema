@@ -126,6 +126,8 @@ type Bot struct {
 	Workers     sql.NullString
 	ToolDisplay string
 	Name        string
+	Position    int64
+	Pinned      int64
 }
 
 type Channel struct {
