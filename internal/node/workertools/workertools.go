@@ -1,11 +1,13 @@
 // Package workertools is the stdio MCP server a worker's CLI starts from
 // --mcp-config (issue #32), as Omnigent's `serve-mcp` bridge
-// (omnigent/harnesses/claude_native/bridge.py at cf1021e). It offers two
-// tools of its own, which talk to the node daemon only through the bridge
-// directory, and the tools the control plane lists, the browser every agent
-// shares (issue #212), the gateway's (issues #354, #492) and the phone's
-// (issue #417), which it passes on to the control plane; generate_image's
-// files are read and written here (image.go):
+// (omnigent/harnesses/claude_native/bridge.py at cf1021e): Hypomnema's one
+// tools server (internal/shared/toolsmcp, which a Bot's pi mounts too, issue
+// #492) with a worker's tools. It offers two tools of its own, which talk to
+// the node daemon only through the bridge directory, the memory's, and the
+// tools the control plane lists, the browser every agent shares (issue
+// #212), the gateway's (issues #354, #492) and the phone's (issue #417),
+// which it passes on to the control plane; generate_image's files are read
+// and written on the node (toolsmcp/image.go):
 //
 //   - ask: a question the worker waits for (a `wait` question of the
 //     orchestration core). The call blocks until the answer arrives and sends
@@ -17,20 +19,19 @@
 package workertools
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
+	"github.com/kl3inIT/hypomnema/internal/shared/toolsmcp"
 )
 
 // Timers.
@@ -42,172 +43,54 @@ const (
 // Name is the server's name in --mcp-config; the tools are mcp__hypomnema__ask and mcp__hypomnema__finish.
 const Name = "hypomnema"
 
-type request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
-}
-
 type server struct {
 	dir string
-	out io.Writer
-	mu  sync.Mutex
-	// calls in flight, by JSON-RPC id, so a cancellation can end one.
-	calls map[string]context.CancelFunc
 	// poll is how often an ask looks for its answer (shorter in tests).
 	poll     time.Duration
 	progress time.Duration
 	// agent reaches the control plane's agent API with the Dispatch's key;
 	// nil when the runner gave none.
-	agent *agentAPI
+	agent *toolsmcp.Agent
 }
 
 // Serve answers MCP requests on in until it closes.
 func Serve(ctx context.Context, in io.Reader, out io.Writer, dir string) error {
-	s := &server{
-		dir: dir, out: out, calls: map[string]context.CancelFunc{}, poll: pollEvery, progress: ProgressEvery,
-		agent: agentOf(dir),
-	}
+	s := &server{dir: dir, poll: pollEvery, progress: ProgressEvery, agent: agentOf(dir)}
 
-	return s.serve(ctx, in)
+	return toolsmcp.Serve(ctx, in, out, s.config())
 }
 
-func (s *server) serve(ctx context.Context, in io.Reader) error {
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 64<<10), 8<<20)
+// agentOf is the agent API of the Dispatch whose bridge directory dir is, or
+// nil when the runner gave none: the worker then has no browser.
+func agentOf(dir string) *toolsmcp.Agent {
+	agent, ok, err := bridge.AgentOf(dir)
+	if err != nil || !ok {
+		return nil
+	}
 
-	var wg sync.WaitGroup
+	return toolsmcp.NewAgent(agent.URL, agent.Key)
+}
 
-	defer wg.Wait()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	for sc.Scan() {
-		var r request
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			s.reply(nil, nil, &rpcError{Code: -32700, Message: "parse error"})
-
-			continue
-		}
-
-		switch r.Method {
-		case "initialize":
-			var p struct {
-				ProtocolVersion string `json:"protocolVersion"`
-			}
-
-			_ = json.Unmarshal(r.Params, &p)
-			s.reply(r.ID, map[string]any{
-				"protocolVersion": p.ProtocolVersion,
-				"capabilities":    map[string]any{"tools": map[string]any{}},
-				"serverInfo":      map[string]any{"name": Name, "version": "1"},
-			}, nil)
-		case "notifications/initialized":
-		case "ping":
-			s.reply(r.ID, map[string]any{}, nil)
-		case "tools/list":
+// config is the worker's tools: ask and finish, and with the agent API the
+// memory's and those the control plane lists, the browser's (with the
+// gateway's) and the phone's.
+func (s *server) config() toolsmcp.Config {
+	return toolsmcp.Config{
+		Name: Name,
+		List: func(ctx context.Context) []map[string]any {
 			listed := tools()
 			if s.agent != nil {
 				// The memory's tool is a worker's with the agent API, before the browser's, whose list the
 				// control plane gives.
 				listed = append(listed, memoryTool())
-				listed = append(listed, s.agent.browserTools(ctx)...)
-				listed = append(listed, s.agent.deviceTools(ctx)...)
+				listed = append(listed, s.agent.Tools(ctx, agenttool.PathBrowserTools)...)
+				listed = append(listed, s.agent.Tools(ctx, agenttool.PathDeviceTools)...)
 			}
 
-			s.reply(r.ID, map[string]any{"tools": listed}, nil)
-		case "tools/call":
-			callCtx, callCancel := context.WithCancel(ctx)
-			s.track(r.ID, callCancel)
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-				defer s.untrack(r.ID)
-
-				result, err := s.call(callCtx, r.Params)
-				if err != nil {
-					s.reply(r.ID, toolText(err.Error(), true), nil)
-
-					return
-				}
-
-				s.reply(r.ID, result, nil)
-			}()
-		case "notifications/cancelled": //nolint:misspell // the MCP method is spelled this way
-			var p struct {
-				RequestID json.RawMessage `json:"requestId"`
-			}
-
-			if json.Unmarshal(r.Params, &p) == nil {
-				s.cancel(p.RequestID)
-			}
-		default:
-			if len(r.ID) > 0 {
-				s.reply(r.ID, nil, &rpcError{Code: -32601, Message: "method not found: " + r.Method})
-			}
-		}
+			return listed
+		},
+		Call: s.call,
 	}
-
-	return sc.Err()
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-func (s *server) reply(id json.RawMessage, result any, e *rpcError) {
-	msg := map[string]any{"jsonrpc": "2.0", "id": id}
-	if e != nil {
-		msg["error"] = e
-	} else {
-		msg["result"] = result
-	}
-
-	s.write(msg)
-}
-
-func (s *server) write(msg map[string]any) {
-	raw, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, _ = s.out.Write(append(raw, '\n'))
-}
-
-func (s *server) track(id json.RawMessage, cancel context.CancelFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.calls[string(id)] = cancel
-}
-
-func (s *server) untrack(id json.RawMessage) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.calls, string(id))
-}
-
-func (s *server) cancel(id json.RawMessage) {
-	s.mu.Lock()
-	cancel := s.calls[string(id)]
-	s.mu.Unlock()
-
-	if cancel != nil {
-		cancel()
-	}
-}
-
-func toolText(text string, isError bool) map[string]any {
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isError}
 }
 
 func tools() []map[string]any {
@@ -264,47 +147,35 @@ func tools() []map[string]any {
 	}
 }
 
-func (s *server) call(ctx context.Context, raw json.RawMessage) (any, error) {
-	var p struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-		Meta      struct {
-			ProgressToken json.RawMessage `json:"progressToken"`
-		} `json:"_meta"`
-	}
-
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, fmt.Errorf("invalid call: %w", err)
-	}
-
-	switch p.Name {
+func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
+	switch c.Name {
 	case "ask":
-		return s.ask(ctx, p.Arguments, p.Meta.ProgressToken)
+		return s.ask(ctx, c.Arguments, c.Progress)
 	case "finish":
-		return s.finish(p.Arguments)
+		return s.finish(c.Arguments)
 	case "memory":
 		if s.agent == nil {
 			return nil, errors.New("this worker has no memory: its runner gave no agent API")
 		}
 
-		return s.agent.memoryCall(ctx, p.Arguments)
+		return memoryCall(ctx, s.agent, c.Arguments)
 	default:
 		// The phone's tools are named device_* (issue #417); generate_image's files are read and written here
 		// (issue #492); any other tool is one the control plane lists, the browser's or the web's (issue #354): it
 		// knows which it offers.
-		if s.agent != nil && strings.HasPrefix(p.Name, devicetool.Prefix) {
-			return s.agent.deviceCall(ctx, p.Name, p.Arguments)
+		if s.agent != nil && strings.HasPrefix(c.Name, devicetool.Prefix) {
+			return s.agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
 		}
 
-		if s.agent != nil && p.Name == agenttool.ToolGenerateImage {
-			return s.agent.imageCall(ctx, p.Arguments)
+		if s.agent != nil && c.Name == agenttool.ToolGenerateImage {
+			return s.agent.ImageCall(ctx, c.Arguments, toolsmcp.Images{Path: agenttool.PathBrowserCall})
 		}
 
 		if s.agent != nil {
-			return s.agent.browserCall(ctx, p.Name, p.Arguments)
+			return s.agent.ToolCall(ctx, agenttool.PathBrowserCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
 		}
 
-		return nil, fmt.Errorf("unknown tool %q", p.Name)
+		return nil, fmt.Errorf("unknown tool %q", c.Name)
 	}
 }
 
@@ -319,7 +190,8 @@ func options(labels []string) []nodeproto.Option {
 	return out
 }
 
-func (s *server) ask(ctx context.Context, raw, progressToken json.RawMessage) (map[string]any, error) {
+func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int, message string),
+) (map[string]any, error) {
 	var a struct {
 		Question string   `json:"question"`
 		Options  []string `json:"options"`
@@ -352,21 +224,16 @@ func (s *server) ask(ctx context.Context, raw, progressToken json.RawMessage) (m
 		// is tried again on the next poll.
 		answer, ok, err := bridge.Answered(s.dir, seq)
 		if err == nil && ok {
-			return toolText("The answer: "+answer, false), nil
+			return toolsmcp.Text("The answer: "+answer, false), nil
 		}
 
 		select {
 		case <-ctx.Done():
-			return toolText("The question was withdrawn.", true), nil
+			return toolsmcp.Text("The question was withdrawn.", true), nil
 		case <-progress.C:
 			waited++
 
-			if len(progressToken) > 0 {
-				s.write(map[string]any{"jsonrpc": "2.0", "method": "notifications/progress", "params": map[string]any{
-					"progressToken": progressToken, "progress": waited,
-					"message": fmt.Sprintf("waiting for the answer (%d min)", waited),
-				}})
-			}
+			report(waited, fmt.Sprintf("waiting for the answer (%d min)", waited))
 		case <-poll.C:
 		}
 	}
@@ -395,5 +262,5 @@ func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
 		return nil, fmt.Errorf("recording the final report: %w", err)
 	}
 
-	return toolText("Recorded. End your turn now, without calling more tools.", false), nil
+	return toolsmcp.Text("Recorded. End your turn now, without calling more tools.", false), nil
 }

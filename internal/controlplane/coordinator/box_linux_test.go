@@ -107,6 +107,7 @@ case "$1" in
   skills) mkdir -p "$6" ;;
   pi-models) echo '{"providers":{"model-gateway":{}}}' ;;
   pi-settings) echo "{\"from\":\"$2\"}" ;;
+  pi-mcp) echo "{\"command\":\"$2\"}" ;;
   *) exit 9 ;;
 esac
 `, 0o700)
@@ -135,6 +136,8 @@ echo "client=$(tr -d '\n ' < "$HOME/.hypomnema/client.json")"
 echo "agents=$(cat "$PI_CODING_AGENT_DIR/AGENTS.md")"
 echo "models=$(cat "$PI_CODING_AGENT_DIR/models.json")"
 echo "settings=$(cat "$PI_CODING_AGENT_DIR/settings.json")"
+echo "mcp=$(cat "$PI_CODING_AGENT_DIR/mcp.json")"
+if (echo x > "$PI_CODING_AGENT_DIR/mcp.json") 2> /dev/null; then echo servers=writable; else echo servers=read-only; fi
 if (echo x > "$PI_CODING_AGENT_DIR/settings.json") 2> /dev/null; then echo own=writable; else echo own=read-only; fi
 if ls "$H/bots/other" > /dev/null 2>&1; then echo other=seen; else echo other=hidden; fi
 echo "sessions=$(ls "$H/sessions" | tr '\n' ' ')"
@@ -255,6 +258,9 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.JSONEq(t, `{"from":"`+filepath.Join(w.home, "run", "cht_mine", "models.json")+`"}`, seen["settings"],
 		"this chat's settings, made from its models.json (issue #395)")
 	assert.Equal(t, "read-only", seen["own"], "the Bot cannot change its own settings")
+	assert.JSONEq(t, `{"command":"`+filepath.Join(w.root, "bin", "hypomnema")+`"}`, seen["mcp"],
+		"pi's mcp.json starts this machine's hypomnema (issue #492)")
+	assert.Equal(t, "read-only", seen["servers"], "nor its MCP servers")
 	assert.Equal(t, "hidden", seen["other"], "another Bot's directory")
 	assert.Equal(t, "cht_mine ", seen["sessions"], "another chat's sessions")
 	assert.Equal(t, "2026-11-01T00-00-00-000Z_cht_mine.jsonl ", seen["mine"], "the chat's own session")

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Removes what pi kept for one chat on this machine once the chat is deleted (issue #484): the folder the launcher
-# made for it (run/<chat>: its prompt, skills, models.json and settings.json) and its sessions (sessions/<chat>), as
+# made for it (run/<chat>: its prompt, skills, models.json, settings.json and mcp.json) and its sessions (sessions/<chat>), as
 # Hermes and pi-web remove a deleted session's files. Installed root-owned as /usr/local/bin/hypomnema-chat-rm; the
 # control plane's user runs it as the coordinator user through the sudoers rule that names it, after the chat is gone
 # from the database and its pi has ended. It accepts one chat id, of the exact shape the control plane makes (cht_

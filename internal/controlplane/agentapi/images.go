@@ -14,22 +14,23 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// A worker's generate_image (issue #492): the gateway's Images
-// (modelgateway/images.go), which a Bot reaches through `hypomnema image`,
-// given to every worker runtime as one tool of the worker's MCP server, as
+// An agent's generate_image (issue #492): the gateway's Images
+// (modelgateway/images.go), which a Routine's script reaches through
+// `hypomnema image`, given to every worker runtime and to a Bot's pi as one
+// tool of Hypomnema's MCP server (internal/shared/toolsmcp), as
 // OpenMausBot's generate_image is one of its `agents` server
 // (server/drivers/agents-image-tools.ts) and Hermes' image_generate one of
 // its tools server for Codex. It makes one image a call, as both do and as
-// opencode's image tool does; the files are the node's to read and write
-// (agenttool.ToolGenerateImage).
+// opencode's image tool does; the files are the agent's machine's to read
+// and write (agenttool.ToolGenerateImage).
 
-// Images makes images for a Dispatch's worker; the control plane's wiring
-// records each call on the Dispatch's gateway key.
+// Images makes images for an agent; the control plane's wiring records each
+// call on the gateway key of who asked, as Web does.
 type Images interface {
-	Make(ctx context.Context, dispatchID string, req modelgateway.ImageRequest) (modelgateway.ImageResult, error)
+	Make(ctx context.Context, who Who, req modelgateway.ImageRequest) (modelgateway.ImageResult, error)
 }
 
-// WithImages gives workers generate_image.
+// WithImages gives workers and Bots generate_image.
 func (s *Server) WithImages(images Images) *Server {
 	s.images = images
 
@@ -41,12 +42,26 @@ const maxPromptChars = 4000
 
 // imageTool is generate_image's definition. Its words are OpenMausBot's and
 // opencode's (experimental_image_generate's description and input), with
-// what the `images` guide tells a Bot (clientcli/skills/images/guide.md).
-func imageTool() agenttool.BrowserTool {
+// what the `images` skill told a Bot until the tool replaced it (issue #492).
+// A Bot's says the image is saved in its folder and sent into its chat with
+// the MEDIA line its answer gives, as OpenMausBot's says the image "is
+// attached to your reply" (server/drivers/agents-image-tools.ts).
+func imageTool(bot bool) agenttool.BrowserTool {
+	saved := "The image is saved as a file and its path given; read the file to look at it. "
+	where := "A new file in the temporary folder when left out."
+
+	if bot {
+		saved = "The image is saved as a file in your folder and its path given, with the MEDIA line that sends " +
+			"it into the chat: put that line in your reply. Look at the file before you send it, when you can " +
+			"read images. Each image spends the owner's subscription: make one unless asked for more. "
+		where = "A new file under images/ in your folder when left out; only a file in your folder can be sent " +
+			"into the chat."
+	}
+
 	return agenttool.BrowserTool{
 		Name: agenttool.ToolGenerateImage,
 		Description: "Make one image from a description, or edit the images you name, through the owner's image " +
-			"subscriptions. The image is saved as a file and its path given; read the file to look at it. " +
+			"subscriptions. " + saved +
 			"Call it only when the task asks for an image; for several, call it once an image. It takes a minute " +
 			"or so: do not repeat a call that is still running. Write the prompt in English, concrete and visual: " +
 			"the subject, the style, the composition, the light, and any text that must appear, word for word. " +
@@ -59,8 +74,8 @@ func imageTool() agenttool.BrowserTool {
 			`"Image files to edit, or to use as references for style and subject, in order: paths on this ` +
 			`machine, absolute or relative to the folder you work in. PNG, JPEG, WebP or GIF, each up to 20 MiB."},` +
 			`"path":{"type":"string","description":"Where to save the image, absolute or relative to the folder ` +
-			`you work in; its extension becomes the image's real one, and a file already there is replaced. A new ` +
-			`file in the temporary folder when left out."},` +
+			`you work in; its extension becomes the image's real one, and a file already there is replaced. ` +
+			where + `"},` +
 			`"size":{"type":"string","description":"1024x1024 (square), 1536x1024 (landscape), 1024x1536 ` +
 			`(portrait), auto, or an aspect ratio such as 16:9. The provider's default when left out."},` +
 			`"quality":{"type":"string","enum":["low","medium","high","auto"],"description":"How much detail; ` +
@@ -100,7 +115,7 @@ func (s *Server) imageCall(w http.ResponseWriter, r *http.Request, a agent, call
 		req.Images = append(req.Images, modelgateway.ImageInput{MIME: img.MIME, Data: img.Data})
 	}
 
-	res, err := s.images.Make(r.Context(), a.dispatchID, req)
+	res, err := s.images.Make(r.Context(), a.who(), req)
 
 	// Which agent made an image, and never what it asked for.
 	s.logger.InfoContext(r.Context(), "an agent made an image",

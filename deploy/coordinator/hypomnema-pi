@@ -132,8 +132,8 @@ bot_dir "$bot"
 mkdir -p "$dir"
 dir=$(cd "$dir" && pwd -P)
 
-# What is made for this chat's pi, outside the box, and given to it read-only: its prompt, its skills and its
-# models.json.
+# What is made for this chat's pi, outside the box, and given to it read-only: its prompt, its skills, its
+# models.json, settings.json and mcp.json.
 run="$home/run/$chat"
 mkdir -p "$run"
 
@@ -185,6 +185,18 @@ if ! HOME="$user_home" "$hypomnema" pi-settings "$models" > "$settings.$$" < /de
 fi
 mv -f "$settings.$$" "$settings"
 
+# pi's mcp.json (issue #492): Hypomnema's tools server, `hypomnema mcp`, which pi starts in the box and which calls the
+# control plane with pi's token from the box's client.json, so that the Bot has web_search, web_fetch and
+# generate_image as tools, each declared to the model (pi docs/mcp.md), as OpenMausBot mounts its `agents` server
+# into its pi. Bound read-only over the one in pi's agent directory, as settings.json is. Without it the Bot would
+# start with no web and no images, so pi does not start.
+mcp="$run/mcp.json"
+if ! HOME="$user_home" "$hypomnema" pi-mcp "$hypomnema" > "$mcp.$$" < /dev/null; then
+  rm -f "$mcp.$$"
+  fail "writing pi's mcp.json failed"
+fi
+mv -f "$mcp.$$" "$mcp"
+
 # The chat's sessions have a directory of their own, the only one of pi's sessions in the box. pi names a session
 # file <time>_<session id>.jsonl (session-manager.ts).
 sessions="$home/sessions/$chat"
@@ -220,10 +232,10 @@ esac
 # The box. Its own PID, IPC and UTS namespaces, ended with the launcher (OpenMausBot's plan.ts options). Read-only:
 # the system (/usr, with merged /bin, /lib, /lib64 and /sbin, and /etc), the resolver Ubuntu's /etc/resolv.conf
 # links to, the CPU list Node reads, Node, pi, the integrations' tools and their guides, the documents environment
-# (under the tools), the skills every Bot gets (~/.agents/skills), and this pi's prompt, models.json and settings.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
+# (under the tools), the skills every Bot gets (~/.agents/skills), and this pi's prompt, models.json, settings.json and mcp.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
 # home, in which ~/.hypomnema/client.json holds pi's own token. pi's agent directory is private too: pi locks
 # auth.json and models-store.json there as it reads them (auth-storage.ts), so it cannot be read-only; the shared
-# instructions (AGENTS.md), the tools pi fetched (bin/) and this pi's models.json and settings.json are bound in
+# instructions (AGENTS.md), the tools pi fetched (bin/) and this pi's models.json, settings.json and mcp.json are bound in
 # read-only. Read-write: the Bot's directory and the chat's sessions. The hint variables say which chat and Bot this is; the token decides.
 agent="$home/agent"
 exec env -i \
@@ -249,7 +261,7 @@ exec env -i \
   --ro-bind-try "$agent/AGENTS.md" "$agent/AGENTS.md" \
   --ro-bind-try "$agent/bin" "$agent/bin" \
   --ro-bind "$models" "$agent/models.json" \
-  --ro-bind "$settings" "$agent/settings.json" \
+  --ro-bind "$settings" "$agent/settings.json"   --ro-bind "$mcp" "$agent/mcp.json" \
   --ro-bind "$run" "$run" \
   --bind "$dir" "$dir" \
   --bind "$sessions" "$sessions" \

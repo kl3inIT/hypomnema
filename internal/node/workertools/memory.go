@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/toolsmcp"
 )
 
 // memoryTimeout bounds one change: the control plane writes a row.
@@ -40,7 +41,7 @@ func memoryTool() map[string]any {
 }
 
 // memoryCall makes one change and answers with how full the memory is.
-func (a *agentAPI) memoryCall(ctx context.Context, arguments json.RawMessage) (map[string]any, error) {
+func memoryCall(ctx context.Context, a *toolsmcp.Agent, arguments json.RawMessage) (map[string]any, error) {
 	var change agenttool.MemoryChange
 	if err := json.Unmarshal(arguments, &change); err != nil {
 		return nil, errors.New("memory needs a target and an action")
@@ -49,10 +50,10 @@ func (a *agentAPI) memoryCall(ctx context.Context, arguments json.RawMessage) (m
 	ctx, cancel := context.WithTimeout(ctx, memoryTimeout)
 	defer cancel()
 
-	raw, err := a.do(ctx, http.MethodPost, agenttool.PathMemory, change)
+	raw, err := a.Do(ctx, http.MethodPost, agenttool.PathMemory, change)
 	if err != nil {
 		// A refusal (the limit, an entry not found) is the model's to fix, not a failure of the tool.
-		return toolText(err.Error(), true), nil
+		return toolsmcp.Text(err.Error(), true), nil
 	}
 
 	var answer agenttool.MemoryAnswer
@@ -60,5 +61,5 @@ func (a *agentAPI) memoryCall(ctx context.Context, arguments json.RawMessage) (m
 		return nil, errors.New("the control plane's answer could not be read")
 	}
 
-	return toolText("Saved. "+agenttool.MemoryUsage(answer.Used, answer.Limit), false), nil
+	return toolsmcp.Text("Saved. "+agenttool.MemoryUsage(answer.Used, answer.Limit), false), nil
 }

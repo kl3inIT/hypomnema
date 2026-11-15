@@ -506,6 +506,18 @@ var commands = []command{
 		run: piSettings,
 	},
 	{
+		name: "pi-mcp", args: "<hypomnema>", min: 1, max: 1, offline: true,
+		summary: "pi's mcp.json: Hypomnema's tools server, `<hypomnema> mcp`, every tool declared to the model; " +
+			"the launcher writes it",
+		run: piMCP,
+	},
+	{
+		name: "mcp", offline: true,
+		summary: "Hypomnema's tools for a Bot's pi, web_search, web_fetch and generate_image, as an MCP server on " +
+			"standard input and output; pi's mcp.json starts it",
+		run: mcpServe,
+	},
+	{
 		name:    "model-key",
 		summary: "the model gateway's key of the chat pi runs for; pi's models.json runs this at each request",
 		run:     modelKey,

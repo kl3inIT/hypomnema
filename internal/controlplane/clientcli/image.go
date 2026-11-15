@@ -15,14 +15,15 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
 
-// Images from the terminal (issue #431): a Bot makes or edits an image with
-// these, as it searches the web with `hypomnema web` (web.go). The images are
-// saved as files, in the current folder unless --out names another, and
-// their paths printed, one a line, as omp's generate_image and opencode's
-// experimental_image_generate save theirs and say where; a Bot then sends a
-// file into its chat with a MEDIA:<path> line (channels/media.go). The
-// providers, their switches and order are what Settings → Gateway → Images
-// shows and changes; each makes images with its one model (issue #453).
+// Images from the terminal (issue #431): the owner and a Routine's script
+// make or edit an image with these, as they search the web with `hypomnema
+// web` (web.go); a Bot's pi has the tool generate_image instead (mcp.go,
+// issue #492). The images are saved as files, in the current folder unless
+// --out names another, and their paths printed, one a line, as omp's
+// generate_image and opencode's experimental_image_generate save theirs and
+// say where. The providers, their switches and order are what Settings →
+// Gateway → Images shows and changes; each makes images with its one model
+// (issue #453).
 
 // imageList is a flag given once a value: --image a.png --image b.png.
 type imageList []string

@@ -37,6 +37,13 @@ const (
 	// (BrowserToolList, BrowserCall).
 	PathDeviceTools = "/agent/v1/device/tools"
 	PathDeviceCall  = "/agent/v1/device/call"
+	// PathGatewayTools lists the gateway's tools alone (web_search,
+	// web_fetch, generate_image) an agent gets, and PathGatewayCall runs one,
+	// in the browser's shape: a Bot's tools server lists them here (issue
+	// #492), so that it offers a Bot none of the browser's. A worker's server
+	// finds them on the browser's routes.
+	PathGatewayTools = "/agent/v1/gateway/tools"
+	PathGatewayCall  = "/agent/v1/gateway/call"
 )
 
 // BrowserTool is one browser tool as PathBrowserTools lists it: an MCP
@@ -60,11 +67,11 @@ type BrowserCall struct {
 }
 
 // ToolGenerateImage is the gateway's image tool (issue #492), listed and
-// called on the browser's routes as the web's tools are. The worker names
-// files, as opencode's experimental_image_generate takes them
-// (core/src/tool/plugin/image-generate.ts): the tools server on its node
+// called as the web's tools are. The agent names files, as opencode's
+// experimental_image_generate takes them
+// (core/src/tool/plugin/image-generate.ts): the tools server on its machine
 // reads the images to edit into ImageCall and saves the image of the answer,
-// which the control plane gives as MCP image content, where the worker can
+// which the control plane gives as MCP image content, where the agent can
 // read it.
 const ToolGenerateImage = "generate_image"
 

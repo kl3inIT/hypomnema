@@ -15,7 +15,8 @@
 // A worker also lists and calls here the tools of the browser every agent
 // shares (issue #212), the gateway's tools, the web's (issue #354, web.go)
 // and generate_image (issue #492, images.go), and the tools of the phone a
-// node holds (issue #417, device.go).
+// node holds (issue #417, device.go); a Bot's pi the gateway's tools (issue
+// #492).
 //
 // A refresh token and a client secret never pass through here: the token it
 // returns is the access token, good for about an hour. It is handed only for
@@ -77,8 +78,8 @@ type Server struct {
 	store   Store
 	tokens  Tokens
 	browser Browser
-	// web and images are the gateway's tools a worker is given by its runtime, which runtimeOf reads
-	// (issues #354, #492); nil when the control plane gave none.
+	// web and images are the gateway's tools a worker is given by its runtime, which runtimeOf reads,
+	// and a Bot's pi (issues #354, #492); nil when the control plane gave none.
 	web       Web
 	images    Images
 	runtimeOf RuntimeOf
@@ -109,6 +110,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+agenttool.PathMemory, s.memory)
 	mux.HandleFunc("GET "+agenttool.PathDeviceTools, s.deviceTools)
 	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.deviceCall)
+	mux.HandleFunc("GET "+agenttool.PathGatewayTools, s.listGateway)
+	mux.HandleFunc("POST "+agenttool.PathGatewayCall, s.callGateway)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of
@@ -127,6 +130,9 @@ type agent struct {
 	// Dispatch's, so a new Dispatch starts on a new tab.
 	key string
 }
+
+// who is whose the agent's gateway calls are.
+func (a agent) who() Who { return Who{DispatchID: a.dispatchID, ChatID: a.chatID} }
 
 var errNoCredential = errors.New("the agent's credential is missing or no longer works")
 
@@ -351,7 +357,7 @@ func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	web := gatewayToolList(s.gatewayTools(r.Context(), a))
+	web := s.gatewayToolList(r.Context(), a)
 
 	if s.browser == nil && len(web) == 0 {
 		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
@@ -400,8 +406,8 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A gateway tool is the worker's when its runtime is given it; for any other agent it is no tool of the
-	// browser.
+	// A gateway tool is the agent's when it is given it (a worker's by its runtime); for any other agent it is
+	// no tool of the browser.
 	if slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool) {
 		s.gatewayCall(w, r, a, asked)
 

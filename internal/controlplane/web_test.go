@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -36,7 +37,8 @@ type stillClock struct{}
 func (stillClock) Now() time.Time { return time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC) }
 
 // Scenario: a worker's search is recorded on its Dispatch's gateway key,
-// a Bot's on the key of its chat's pi, as model web/search with the
+// a Bot's on the key of its chat's pi, whether it ran `hypomnema web` or its
+// tools server's web_search (issue #492), as model web/search with the
 // provider that answered; a page read as web/fetch. A worker whose Dispatch
 // has no gateway key, and a token of no chat, are not recorded. The calls are
 // recorded in one millisecond, as on a fast machine, and still read newest
@@ -79,8 +81,9 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 
 	worker := workerWeb{metered}
 	bot := botWeb{meteredWeb: metered, chats: chatsWith{"chat_1": chatSecret}}
+	agents := agentWeb{worker: worker, bot: bot}
 
-	_, err = worker.Search(ctx, "dsp_1", "q", 0, "")
+	_, err = agents.Search(ctx, agentapi.Who{DispatchID: "dsp_1"}, "q", 0, "")
 	require.NoError(t, err)
 	_, err = bot.Search(ctx, "chat_1", "q2", 0, "")
 	require.NoError(t, err)
@@ -90,15 +93,17 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	require.NoError(t, err)
 	_, err = bot.Fetch(ctx, "chat_1", "http://169.254.169.254/")
 	require.ErrorIs(t, err, websearch.ErrRefused)
+	_, err = agents.Search(ctx, agentapi.Who{ChatID: "chat_1"}, "q5", 0, "")
+	require.NoError(t, err)
 
 	rows, err := gateway.ListUsage(ctx, 10)
 	require.NoError(t, err)
-	require.Len(t, rows, 3)
+	require.Len(t, rows, 4)
 
 	dispatchKey, err := gateway.DispatchKey(ctx, "dsp_1")
 	require.NoError(t, err)
 
-	fetch, chat, work := rows[0], rows[1], rows[2]
+	tool, fetch, chat, work := rows[0], rows[1], rows[2], rows[3]
 	assert.Equal(t, dispatchKey.ID, work.KeyID)
 	assert.Equal(t, modelgateway.ModelWebSearch, work.Model)
 	assert.Equal(t, websearch.ProviderExa, work.Provider)
@@ -106,6 +111,8 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	assert.Equal(t, chatKey.ID, fetch.KeyID)
 	assert.Equal(t, modelgateway.ModelWebFetch, fetch.Model)
 	assert.Equal(t, modelgateway.OutcomeUpstreamError, fetch.Outcome)
+	assert.Equal(t, chatKey.ID, tool.KeyID, "a Bot's tool is recorded as its command is")
+	assert.Equal(t, modelgateway.ModelWebSearch, tool.Model)
 }
 
 // The web search keys are the vault's secrets named as keys (issue #393):
