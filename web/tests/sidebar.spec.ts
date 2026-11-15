@@ -233,6 +233,8 @@ test("a Bot is pinned and unpinned from its row's menu", async ({ page }) => {
   await expect(pinnedNames(page)).toHaveText([/reporter/])
   await expect(botNames(page)).toHaveText([/coordinator/, /reporter/, /researcher/, /writer/])
   await showList(page)
+  // The picture shows the rows at rest, not one the pointer was left on after the menu closed.
+  await page.mouse.move(0, 0)
   await shot(page, "sidebar-pinned")
 
   await page.reload()
