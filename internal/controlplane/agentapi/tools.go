@@ -27,7 +27,9 @@ import (
 //     superset_api (superset.go): a worker given a Superset Connection by its
 //     Run, a Bot's pi one switched on for chats and on its Bot's list;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
-//     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's).
+//     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's);
+//   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
+//     worker and a Bot's pi.
 //
 // The phone's, which both kinds get too, are listed on their own route
 // (device.go): a node of the release before step 4 lists that route beside
@@ -52,6 +54,10 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
+
+	if s.hasNodeTools(a) {
+		out = append(out, nodeToolList()...)
+	}
 
 	if !s.hasBrowser(a) {
 		return out
@@ -130,6 +136,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case asked.Tool == agenttool.ToolMemory && memoryTargets(a) != nil:
 		s.memoryCall(w, r, a, asked)
+	case slices.Contains(nodeTools, asked.Tool) && s.hasNodeTools(a):
+		s.nodeCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolShowArtifact && showsArtifacts(a):
 		s.artifactCall(w, r, a, asked)
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
