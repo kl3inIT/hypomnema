@@ -2607,6 +2607,11 @@ Node (`internal/node`):
   pasted an owner token that the browser kept in `localStorage`, as OpenClaw's control UI does.
 - The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
+  Its `@tanstack/react-query` plugin generates query keys, query options and mutation options for every operation
+  but the two Server-Sent Event streams, `StreamEvents` and `StreamChat` (issue #494, after Omnara and MemoryOS).
+  A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
+  Channels settings read and refresh through them; the other screens still use hand-written keys, moved one area at
+  a time.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read

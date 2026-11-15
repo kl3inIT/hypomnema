@@ -290,6 +290,10 @@ How the references keep a UI consistent is in
   - Dead code is caught by knip in `pnpm check`: a file, an export or a dependency nothing uses fails it, and an
     export used only in its own file is not exported. shadcn's primitives and the generated client are left out
     (Coder, t3code, Orca, assistant-ui run knip; the exclusions follow memoryos and new-api).
+- **Server data goes through the generated query options and keys**, in the feature's `use-*.ts`: a query
+  spreads the generated `xOptions()` and unwraps the body with `select`, a mutation spreads `xMutation()` where its
+  variables fit, and a refresh invalidates the generated `xQueryKey()`, or `everyCall` (`web/src/lib`) for every
+  call of one operation. New code writes no query key by hand (MemoryOS, Omnara; issue #494).
 - **What is its own design stays its own**: a control that is not an ordinary button, input, select or dialog (a
   card that is pressed, a row that opens, the chat's composer, a switch whose state the primitive shows less
   clearly) is not forced into a primitive. The reason is written where it is kept (owner, 2026-11-10).
