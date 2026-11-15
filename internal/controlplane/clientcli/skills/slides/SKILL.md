@@ -6,15 +6,17 @@ license: MIT
 
 # Frontend Slides
 
-Create zero-dependency, animation-rich HTML presentations that run entirely in the browser, shown to the owner as an artifact (`hypomnema artifact show`).
+Create zero-dependency, animation-rich HTML presentations that run entirely in the browser, shown to the owner as an artifact with the `show_artifact` tool.
 
-The files named below are installed with this skill in `~/.agents/skills/slides`:
+The files named below are beside this SKILL.md. Set `S` to that folder's absolute path (this skill's folder, the one
+SKILL.md is in):
 
 ```bash
-S=~/.agents/skills/slides
+S="<this skill's folder>"
 ```
 
-Read them with `read` (`$S/viewport-base.css`, `$S/STYLE_PRESETS.md`, ...); run its script with the `bash` tool.
+Read them with your tool for reading files (`$S/viewport-base.css`, `$S/STYLE_PRESETS.md`, ...); run its script in a
+shell.
 
 ## Core Principles
 
@@ -89,7 +91,7 @@ When enhancing existing presentations, fixed-stage fitting is the biggest risk:
 1. **Before adding content:** Count existing elements, check against density limits
 2. **Adding images:** Fit them inside the 1920×1080 slide canvas. If slide already has max content, split into two slides
 3. **Adding text:** Max 4-6 bullets per slide. Exceeds limits? Split into continuation slides
-4. **After ANY modification, verify:** the slide stage remains 16:9, no text overflows its card, and no panels overlap. You cannot render the page in your box: check the sizes in the HTML against the 1920×1080 stage, and ask the owner to page through the artifact on a computer and a phone
+4. **After ANY modification, verify:** the slide stage remains 16:9, no text overflows its card, and no panels overlap. When you cannot render the page yourself, check the sizes in the HTML against the 1920×1080 stage, and ask the owner to page through the artifact on a computer and a phone
 5. **Proactively reorganize:** If modifications will cause overflow, automatically split content and inform the user. Don't wait to be asked
 
 **When adding images to existing slides:** Move image to a new slide or reduce other content first. Never add images without checking if existing content already fills the 1920×1080 slide stage.
@@ -128,7 +130,7 @@ If user selected "No images" → skip to Phase 2.
 If user provides an image folder:
 
 1. **Scan** — List all image files (.png, .jpg, .svg, .webp, etc.)
-2. **Inspect each image** — Open it with `read`, which shows an image. If it cannot be read, use filenames/metadata and ask the user to clarify only when needed
+2. **Inspect each image** — Open it with your tool for reading files, which shows an image. If it cannot be read, use filenames/metadata and ask the user to clarify only when needed
 3. **Evaluate** — For each: what it shows, USABLE or NOT USABLE (with reason), what concept it represents, dominant colors
 4. **Co-design the outline** — Curated images inform slide structure alongside text. This is NOT "plan slides then add images" — design around both from the start (e.g., 3 screenshots → 3 feature slides, 1 logo → title/closing slide)
 5. **Confirm the outline** using the same structured-question mechanism when available: "Does this slide outline and image selection look right?" Options: Looks good / Adjust images / Adjust outline
@@ -188,11 +190,8 @@ Read [STYLE_PRESETS.md](STYLE_PRESETS.md) for preset candidates and the system f
 
 Save previews to `slide-previews/` in your directory (style-a.html, style-b.html, style-c.html). Each should be self-contained and compact, showing one animated title slide.
 
-Show each preview to the user as an artifact:
-
-```bash
-hypomnema artifact show --title 'Style A: <name>' --html-file slide-previews/style-a.html
-```
+Show each preview to the user as an artifact: call `show_artifact` with `title: "Style A: <name>"` and
+`path: "slide-previews/style-a.html"`.
 
 ### Step 2.1: User Picks
 
@@ -246,7 +245,7 @@ If the user selected a self-generated custom wildcard, treat that preview's CSS 
 
 When converting PowerPoint files:
 
-1. **Extract content** — Run `python "$S/scripts/extract-pptx.py" <input.pptx> <deck_dir>`. `python` is the documents environment, first on PATH, which already has python-pptx (and Pillow); never `pip install` into it, it is read-only. The script writes `<deck_dir>/extracted-slides.json` and the slides' images to `<deck_dir>/assets/`
+1. **Extract content** — Run `python "$S/scripts/extract-pptx.py" <input.pptx> <deck_dir>`. In a Bot's box `python` is the documents environment, first on PATH, which already has python-pptx (and Pillow); never `pip install` into it, it is read-only. Elsewhere (a worker on a node), when `python -c "import pptx, PIL"` fails, first run the environment block of the `pdf` skill's Prerequisites, which puts one with python-pptx and Pillow first on PATH. The script writes `<deck_dir>/extracted-slides.json` and the slides' images to `<deck_dir>/assets/`
 2. **Confirm with user** — Present extracted slide titles, content summaries, and image counts
 3. **Style selection** — Proceed to Phase 2 for style discovery
 4. **Generate HTML** — Write `<deck_dir>/index.html` in the chosen style, preserving all text, images (as relative `assets/<file>` paths), slide order, and speaker notes (as HTML comments). Delete `<deck_dir>/extracted-slides.json` and the images you did not use before showing the folder
@@ -256,26 +255,21 @@ When converting PowerPoint files:
 ## Phase 5: Delivery
 
 1. **Clean up** — Delete `slide-previews/` if it exists
-2. **Show** — Show the deck as an artifact:
+2. **Show** — Show the deck as an artifact: call `show_artifact` with `title: "<deck title>"` and as `path` either
+   `<name>.html`, one HTML file of at most 256 KB (small images as data: URLs), or `<deck_dir>`, a folder with
+   index.html at its top and its images in assets/, at most 5 MB.
 
-   ```bash
-   # one HTML file, at most 256 KB (small images as data: URLs)
-   hypomnema artifact show --title '<deck title>' --html-file <name>.html
-   # a folder with index.html at its top and its images in assets/, at most 5 MB
-   hypomnema artifact show --title '<deck title>' --path <deck_dir>
-   ```
-
-   The command prints the artifact's id. To change the deck later, run it again with `--id <id>`: the owner sees the next revision in place; never make a second artifact for the same deck.
+   The tool returns the artifact's id. To change the deck later, call it again with that `id`: the owner sees the next revision in place; never make a second artifact for the same deck.
 3. **Summarize** — Tell the user:
    - Style name, slide count
    - Navigation: click the slide, then Arrow keys, Space, Page Up/Down; swipe on a phone; the panel's Full screen button for presenting
-   - Offer the natural post-draft action: ask for revisions, which you make in the file and show again with `--id`
+   - Offer the natural post-draft action: ask for revisions, which you make in the file and show again with its `id`
 
 ---
 
 ## Phase 6: Share (Optional)
 
-The artifact is the shared copy: it appears in this chat as a card the owner opens, and on Lark your next reply links to it. There is no export to PDF and no other hosting; say so if the user asks.
+The artifact is the shared copy: it appears in the chat as a card the owner opens, and on Lark your next reply links to it. There is no export to PDF and no other hosting; say so if the user asks.
 
 ---
 

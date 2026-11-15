@@ -9,13 +9,13 @@ Source: https://github.com/zarazhangrui/frontend-slides at
 What is adapted from it here: the slides skill
 (internal/controlplane/clientcli/skills/slides/): its SKILL.md, html-template.md,
 STYLE_PRESETS.md, animation-patterns.md, viewport-base.css and
-scripts/extract-pptx.py. Changed: a deck is shown with `hypomnema artifact show`
-and revised with `--id`, in place of Vercel (scripts/deploy.sh) and `open`; the
+scripts/extract-pptx.py. Changed: a deck is shown with Hypomnema's show_artifact
+tool and revised by its id, in place of Vercel (scripts/deploy.sh) and `open`; the
 PDF export (scripts/export-pdf.sh) is left out; fonts are system font stacks in
 place of Fontshare and Google Fonts; inline editing and its localStorage are left
-out; extract-pptx.py runs with the Bots' documents environment and its images are
-kept in a deck folder beside index.html; files are named where the skill is
-installed, ~/.agents/skills/slides, and the name is `slides`. Left out: the
+out; extract-pptx.py runs with the Bots' documents environment (on a worker, the pdf
+skill's) and its images are kept in a deck folder beside index.html; files are named
+relative to the skill's folder, and the name is `slides`. Left out: the
 Claude Code plugin copy (plugins/, .claude-plugin/), README.md and the bold
 template pack (bold-template-pack/), whose templates load their fonts and charts
 from the network.

@@ -9,12 +9,18 @@ import { useEffect, useState } from "react"
 
 import "@/api/client"
 import {
+  getRoutineOptions,
+  getRoutineQueryKey,
+  listRoutineRunsInfiniteOptions,
+  listRoutineRunsInfiniteQueryKey,
+  listRoutinesOptions,
+  listRoutinesQueryKey,
+  previewRoutineScheduleOptions,
+  previewRoutineScheduleQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import {
   deleteRoutine,
-  getRoutine,
-  listRoutineRuns,
-  listRoutines,
   pauseRoutine,
-  previewRoutineSchedule,
   putRoutine,
   resumeRoutine,
   revokeRoutineGrant,
@@ -28,11 +34,10 @@ import type {
   RoutineSettings,
 } from "@/api/generated/types.gen"
 import { toast } from "@/components/ui/toast"
+import { callsOf } from "@/lib/query-keys"
 
 // Routines (issue #211): work a Bot does on a schedule. They change by themselves (a run starts, ends, waits),
 // without an event, so a page that shows them reads them again every few seconds, as the Bots pages do.
-const routinesKey = ["routines"] as const
-
 const whileOpen = 5000
 
 // runsPage is how many runs a page of a Routine's runs holds.
@@ -41,9 +46,8 @@ const runsPage = 20
 // useRoutines lists the Routines of a Bot, or those made in a chat; every Routine when neither is given.
 export function useRoutines(where: { bot?: string; chatId?: string } = {}) {
   return useQuery({
-    queryKey: [...routinesKey, "list", where.bot ?? "", where.chatId ?? ""],
-    queryFn: async () =>
-      (await listRoutines({ query: { bot: where.bot, chat_id: where.chatId } })).data.data,
+    ...listRoutinesOptions({ query: { bot: where.bot, chat_id: where.chatId } }),
+    select: (page) => page.data,
     refetchInterval: whileOpen,
   })
 }
@@ -51,8 +55,7 @@ export function useRoutines(where: { bot?: string; chatId?: string } = {}) {
 // useRoutine reads one Routine, with a script's text and its grants.
 export function useRoutine(id: string | undefined) {
   return useQuery({
-    queryKey: [...routinesKey, "one", id ?? ""],
-    queryFn: async () => (await getRoutine({ path: { routine_id: id ?? "" } })).data,
+    ...getRoutineOptions({ path: { routine_id: id ?? "" } }),
     enabled: Boolean(id),
     refetchInterval: whileOpen,
     retry: false,
@@ -60,17 +63,14 @@ export function useRoutine(id: string | undefined) {
 }
 
 // useRoutineRuns reads a Routine's runs a page at a time, the newest first, as OpenClaw's run history pages them
-// (src/gateway/server-methods/cron-history.ts: offset, limit, hasMore and nextOffset).
+// (src/gateway/server-methods/cron-history.ts: offset, limit, hasMore and nextOffset). The generated infinite
+// options ask each page with its offset beside the limit in the key.
 export function useRoutineRuns(id: string | undefined) {
   return useInfiniteQuery({
-    queryKey: [...routinesKey, "runs", id ?? ""],
-    queryFn: async ({ pageParam }) =>
-      (
-        await listRoutineRuns({
-          path: { routine_id: id ?? "" },
-          query: { limit: runsPage, offset: pageParam },
-        })
-      ).data,
+    ...listRoutineRunsInfiniteOptions({
+      path: { routine_id: id ?? "" },
+      query: { limit: runsPage },
+    }),
     initialPageParam: 0,
     getNextPageParam: (last) => last.next_offset,
     enabled: Boolean(id),
@@ -80,7 +80,8 @@ export function useRoutineRuns(id: string | undefined) {
 }
 
 // useSchedulePreview asks the server for a schedule in words and its next three times, a moment after the owner
-// stops typing. The answer before stays on the screen while the next is asked.
+// stops typing. The answer before stays on the screen while the next is asked. The preview is a read sent as a
+// POST, so its generated key carries the schedule asked (web/openapi-ts.config.ts).
 export function useSchedulePreview(schedule: RoutineSchedule) {
   const key = JSON.stringify(schedule)
   const [asked, setAsked] = useState(key)
@@ -92,23 +93,31 @@ export function useSchedulePreview(schedule: RoutineSchedule) {
   }, [key])
 
   return useQuery({
-    queryKey: [...routinesKey, "preview", asked],
-    queryFn: async () =>
-      (await previewRoutineSchedule({ body: JSON.parse(asked) as RoutineSchedule })).data,
+    ...previewRoutineScheduleOptions({ body: JSON.parse(asked) as RoutineSchedule }),
     placeholderData: keepPreviousData,
     retry: false,
     staleTime: 30_000,
   })
 }
 
-// What the owner does to a Routine. After each, every list and page of Routines is read again.
+// everyRoutineRead matches every cached read of the Routines, whatever its Bot, chat, Routine or page: their lists,
+// one Routine, its runs and a schedule's preview, which the hand-written ["routines"] prefix covered.
+const everyRoutineRead = callsOf(
+  listRoutinesQueryKey(),
+  getRoutineQueryKey({ path: { routine_id: "" } }),
+  listRoutineRunsInfiniteQueryKey({ path: { routine_id: "" } }),
+  previewRoutineScheduleQueryKey({ body: {} }),
+)
+
+// What the owner does to a Routine. After each, every list and page of Routines is read again. The mutations keep
+// a mutationFn over the SDK: their variables are the page's own (a Routine, a Bot and a name, a grant).
 function useChange<A, T>(run: (arg: A) => Promise<T>, onSuccess?: (done: T) => void) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: run,
     onSuccess,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: routinesKey }),
+    onSettled: () => queryClient.invalidateQueries({ predicate: everyRoutineRead }),
   })
 }
 

@@ -176,7 +176,7 @@ No inline editing and no `localStorage`, `sessionStorage` or cookies: the frame 
 
 If user chose "No images" in Phase 1, skip this entirely. If images were provided, process them before generating HTML.
 
-**Dependency:** Pillow, already in `python` (the documents environment); never `pip install`.
+**Dependency:** Pillow, in `python` (the documents environment, or the one the `pdf` skill's Prerequisites make on a worker); never `pip install` into the documents environment.
 
 ### Image Processing
 
@@ -212,7 +212,7 @@ Save processed images with `_processed` suffix. Never overwrite originals.
 
 ### Image Placement
 
-**Use relative file paths** (not base64) in a deck folder shown with `--path`, whose images are served beside its
+**Use relative file paths** (not base64) in a deck folder shown as a folder, whose images are served beside its
 `index.html`; only a small logo goes into a single-file deck as a `data:` URL. Never an absolute path or another
 host:
 
@@ -256,12 +256,12 @@ host:
 
 ## File Structure
 
-A presentation without images (`--html-file`, at most 256 KB):
+A presentation without images (one HTML file, at most 256 KB):
 ```
 [name].html          # Self-contained, all CSS/JS inline
 ```
 
-A presentation with images (`--path [name]`, at most 5 MB in all):
+A presentation with images (the folder `[name]`, at most 5 MB in all):
 ```
 [name]/index.html    # Self-contained, all CSS/JS inline
 [name]/assets/       # Images only

@@ -20,7 +20,8 @@ type Skipped struct {
 // skippedFolders are never read: packages and caches (OpenMausBot's SKIPPED_FOLDERS).
 var skippedFolders = []string{"node_modules", "__pycache__"}
 
-// Read reads what `hypomnema artifact show --path` names, relative to dir (the Bot's directory): one file, or a
+// Read reads what `hypomnema artifact show --path` or show_artifact's path names, relative to dir (the folder the
+// agent works in: a Bot's directory, a worker's worktree): one file, or a
 // folder with index.html at its top. It must be inside dir. A folder's hidden files, package folders, files a page
 // does not load, badly named ones and links that lead out of the folder are left out and named, as OpenMausBot's
 // readPageBundle does; over a limit it stops with an error rather than read on.
