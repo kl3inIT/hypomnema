@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query"
 import {
   FileDiff,
   FileText,
@@ -12,7 +11,6 @@ import {
 import { useState, type ReactNode } from "react"
 
 import "@/api/client"
-import { getChat } from "@/api/generated/sdk.gen"
 import type { BrowserTab } from "@/api/generated/types.gen"
 import {
   AlertDialog,
@@ -49,6 +47,7 @@ import { ArtifactSide } from "@/features/artifacts/artifact-side"
 import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
 import { baseName, isUnsaved, useUnsaved } from "@/features/files/files-state"
+import { useChat } from "@/features/shell/chats"
 import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
@@ -468,10 +467,7 @@ type TabProps = {
 
 // ChatTab is a chat's tab: its Bot's avatar and its title.
 function ChatTab({ chat, onClose, ...props }: TabProps & { chat: string }) {
-  const info = useQuery({
-    queryKey: ["chat", chat],
-    queryFn: async () => (await getChat({ path: { chat_id: chat } })).data,
-  })
+  const info = useChat(chat)
   const title = info.data?.title ?? "Chat"
   // The chat names its Bot by id; the tab shows its name (issue #466).
   const name = useBotName(info.data?.bot ?? "")

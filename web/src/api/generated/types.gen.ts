@@ -2054,6 +2054,14 @@ export type Bot = {
    * The main Bot: always there, never removed, a chat that names no Bot talks with it, and it alone changes Bots and profiles from its chat.
    */
   main: boolean;
+  /**
+   * The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
+   */
+  position: number;
+  /**
+   * Listed in the sidebar's Pinned section, under the main Bot.
+   */
+  pinned: boolean;
   provider?: string;
   model?: string;
   effort?: string;
@@ -2348,7 +2356,15 @@ export type NewBot = {
 };
 
 export type BotChange = {
-  name: string;
+  name?: string;
+  /**
+   * Listed in the sidebar's Pinned section, under the main Bot; only the owner.
+   */
+  pinned?: boolean;
+};
+
+export type BotOrder = {
+  bot_ids: Array<string>;
 };
 
 export type BotSettings = {
@@ -5933,6 +5949,31 @@ export type CreateBotResponses = {
 };
 
 export type CreateBotResponse = CreateBotResponses[keyof CreateBotResponses];
+
+export type ReorderBotsData = {
+  body: BotOrder;
+  path?: never;
+  query?: never;
+  url: '/bots/order';
+};
+
+export type ReorderBotsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReorderBotsError = ReorderBotsErrors[keyof ReorderBotsErrors];
+
+export type ReorderBotsResponses = {
+  /**
+   * Every Bot's id, in the new order.
+   */
+  200: BotOrder;
+};
+
+export type ReorderBotsResponse = ReorderBotsResponses[keyof ReorderBotsResponses];
 
 export type DeleteBotData = {
   body?: never;

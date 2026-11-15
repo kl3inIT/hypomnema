@@ -15,6 +15,8 @@ const hours = (n: number) => new Date(Date.now() - n * 3_600_000).toISOString()
 const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   id: name,
   name,
+  position: 0,
+  pinned: false,
   main: name === "coordinator",
   persona: "",
   memory: "",

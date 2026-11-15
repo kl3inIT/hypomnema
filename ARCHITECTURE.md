@@ -88,7 +88,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact,<br/>web_search, web_fetch, generate_image"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -105,7 +105,7 @@ flowchart TB
     PI -- "MCP stdio" --> MCP
     MCP -- "agent API, pi's token" --> CP["control plane: agent API"]
     PI --> GW
-    MCP -. "show_artifact: the files of the Bot's folder" .-> CP
+    MCP -. "show_artifact, routines: the files of the Bot's folder" .-> CP
     CP -. "artifact card" .-> CHAT
 ```
 
@@ -423,7 +423,8 @@ sequenceDiagram
     (`agent.json`), and the worker's MCP server (`internal/node/workertools`) calls the agent API itself, as
     OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish` and what the control plane
     lists for the worker on `GET /agent/v1/tools` (see "An agent's tools": `memory`, `show_artifact`, its gateway
-    tools, and the browser's under agent-browser's names), so the list changes without a node release; any other
+    tools, Superset's when its Run was given a Superset account, and the browser's under agent-browser's names), so
+    the list changes without a node release; any other
     tool's call is passed to `POST /agent/v1/tools/call` and its answer, a screenshot as image content, is passed
     back as it is.
     A control plane that cannot be reached leaves the worker `ask` and `finish`. A node of a release before issue
@@ -523,8 +524,11 @@ sequenceDiagram
     (1280x1024x24, GLX), adb's server of the SDK started before the emulator with the node user's own
     `~/.android`, so its key exists for the Play image to authorize (HOME and `ANDROID_USER_HOME` are not
     changed: a trial with another HOME left adb unauthorized), then `emulator -avd phone -no-window -no-audio
-    -no-boot-anim -gpu host -memory 4096 -cores 6 -port 5554` with `DISPLAY`, `ANDROID_SDK_ROOT` and
-    `ANDROID_AVD_HOME` set, and the default Quick Boot. The phone is running once `sys.boot_completed` is 1, within
+    -no-boot-anim -gpu <mode> -memory 4096 -cores <half the CPUs, at least 2> -port 5554` with `DISPLAY`,
+    `ANDROID_SDK_ROOT` and `ANDROID_AVD_HOME` set, and the default Quick Boot. The mode is `device_gpu` in the
+    node's `config.json`, `host` when it is not set; `auto`, `software`, `lavapipe`, `swiftshader` and `swangle` are
+    taken too (the emulator's modes that are not deprecated), on Xvfb still, and any other value fails the start
+    with what it can be. Only `host` passed the trial's sign-in flow (deploy/machines/device.md, "The renderer"). The phone is running once `sys.boot_completed` is 1, within
     5 minutes; then the three animation scales are set to 0. Xvfb and the emulator run in process groups of their
     own, write to `run/xvfb.log` and `run/emulator.log`, and are recorded in `run/run.json`. A start that fails
     ends what it started, and the phone is `failed` with the reason (the emulator's last lines when it ended).
@@ -559,12 +563,16 @@ sequenceDiagram
     issue #536, step 4) list them after the one list's (`GET /agent/v1/tools`) and pass a call of a `device_*`
     tool there. They stay on their own routes rather than on the one list because a node of the release before
     step 4 lists both and would offer them twice. A Bot's pi calls as its chat (`b-<chat>`), so its last screen is
-    its chat's own, as its browser tab is. Which agent used which tool is logged, never the arguments.
+    its chat's own, as its browser tab is. Which agent used which tool is logged, with the call's
+    `duration_ms`, never the arguments.
   - The tools (`internal/shared/devicetool`, run in `internal/node/device/tools.go`) are Android CLI's and adb's,
     as Google's android-cli skill drives a device (notice in `third_party/android-cli-plugin`; the syntax read
-    from Android CLI 1.1.16919734's own help): `device_screen` is `android screen capture --annotate`, returned as
-    a PNG image with numbered boxes and kept as the agent's last screen; `device_layout` is `android layout
-    --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with `android screen resolve`
+    from Android CLI 1.1.16919734's own help): `device_screen` is `adb exec-out screencap -p` (OpenMausBot),
+    written whole to a file and returned as a PNG image once its signature is checked; with `boxes: true` it is
+    `android screen capture --annotate` instead, a PNG with numbered boxes kept as the agent's last screen with
+    boxes (Android CLI finds boxes only as it captures, so that is a capture of its own); `device_layout` is
+    `android layout --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with boxes
+    with `android screen resolve`
     and tapped with `adb shell input tap x y`, or `x,y`, or an Android CLI selector (`android input tap`);
     `device_swipe` is `adb shell input swipe` between two such points; `device_type` is `android input text
     [--submit] -- <text> <selector>`, the focused field by default, which types any language; `device_key` is
@@ -606,8 +614,8 @@ sequenceDiagram
     `scrcpy.go`, `sps.go`) one scrcpy-server serves every view open, started with the first and ended with the last,
     as Orca runs its pane's (notice in `third_party/orca`): pushed to `/data/local/tmp`, an adb forward from a
     local port to its abstract socket, started with `app_process` at the pinned 3.3.4 with audio off, H.264, at most
-    1280 pixels and 8 Mbps (`run/scrcpy.log`), then its video socket, tried until the server's dummy byte, and its
-    control socket. The stream is read as serve-emu documents scrcpy 3 (notice in `third_party/serve-emu`), and
+    1280 pixels, 60 frames a second (serve-emu's cap) and 8 Mbps (`run/scrcpy.log`; a key frame every 10 s is
+    scrcpy's own default), then its video socket, tried until the server's dummy byte, and its control socket. The stream is read as serve-emu documents scrcpy 3 (notice in `third_party/serve-emu`), and
     passed on as serve-emu passes it: each frame behind its 16-byte SEMU header, the codec's SPS and PPS kept and put
     before every key frame, a view that joins waits for the next key frame and the server is asked for one at once,
     and a view more than 24 frames behind drops frames until a key frame, asking for one. A size in a new SPS (the
@@ -765,7 +773,16 @@ sequenceDiagram
   `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): each chat is deleted as a chat is
   (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
   made in them stay without the chat, and the chats' gateway keys are revoked and kept. Their files on the
-  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
+  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then.
+  - **Order and pins** (issue #470, migration 00089; after OpenMausBot's one fleet order with a `pinned` flag and
+    onyx's dense `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
+    column came, so the main Bot is 0); a new Bot goes last and a removed one leaves no gap. `PUT /bots/order`
+    `{bot_ids}` (`ReorderBots`) names the Bots it moves: they take, in the order given, the places they already
+    hold together, and every other Bot keeps its place (OpenMausBot's `reorderStable`); it answers every Bot's id
+    in the new order. An empty list, a repeated or unknown id and the main Bot are refused (400). `bots.pinned` is
+    set with `PATCH /bots/{bot_id}` `{pinned}`; the main Bot is not pinned. Both are the owner's alone, not a Bot
+    setting: the main Bot's pi is refused (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the
+    Bots oldest first, each with its `position` and `pinned`. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -791,10 +808,11 @@ sequenceDiagram
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
-  - A Bot's pi has the tools `memory` and `show_artifact` (issue #536), `web_search`, `web_fetch` and
-    `generate_image` from Hypomnema's tools server (issue #492, see "An agent's tools"), and the shared browser's
-    and the phone's (issue #536, step 4), which its pi mounts through pi's own MCP (below, the box). Those are
-    relayed by the control plane over the same HTTP the other tools use, so the box needs nothing more. Until
+  - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch` and
+    `generate_image`, and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
+    server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
+    step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
+    over the same HTTP the other tools use, so the box needs nothing more. Until
     2026-11-15 it drove the commands below through bash, taught by the built-in skills `web-search` and `images`,
     which are gone (`skills install` takes their stubs out).
   - The web from the client API (issue #354, after 9router's `skills/9router-web-search`), for the owner and a
@@ -838,7 +856,8 @@ sequenceDiagram
     `subagents.allowAgents`. `connections` names Connections (`integration:label`): a Connection not on it is off
     for the Bot, and one the owner did not switch on for chats is off for every Bot. It is read at each call, by
     the caller's Bot from its pi's or its Routine's token, where a tool lists accounts or asks for a token and
-    where the service proxy or the Superset commands relay a call (`agentapi`, `clientapi/superset.go`), and a Run
+    where the service proxy, the Superset tools or the Superset commands relay a call (`agentapi`,
+    `clientapi/superset.go`), and a Run
     the Bot creates is given only Connections on it (`runUses`). `workers` names worker profiles: a Task the Bot
     creates for another profile, or for none (`implementer`), is refused, 403, with the allowed ones named
     ("allowed: reviewer", or "none"), as OpenClaw refuses a spawn target (`subagent-target-policy.ts` L146-200),
@@ -1058,11 +1077,13 @@ flowchart LR
     folder, since each runtime places it elsewhere; its `python` is the documents environment in a Bot's box, and
     on a worker, when it does not import the libraries, the venv of Hermes's sandbox branch with the same pins
     (`~/.cache/hypomnema-docs-venv`); `slides` names its files the same way, shows a deck with the `show_artifact`
-    tool both kinds have, and on a worker takes python-pptx from that venv. Only a skill that names no command an
-    agent may lack goes to the store: `pages` names `hypomnema superset chart` and Routines, which a worker does not
-    have, and its template by its path in `~/.agents/skills`, so it stays a Bots' skill there
-    ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install` takes
-    out an unedited copy of `slides` an earlier release put there, as it does `pdf`'s.
+    tool both kinds have, and on a worker takes python-pptx from that venv; `pages` names its template beside its
+    SKILL.md, shows a page with `show_artifact` and reads a chart with `superset_chart_data` (issue #536); only its
+    Routine row names commands, `hypomnema superset chart` and `hypomnema artifact show`, which a Routine's script
+    runs. Only a skill that names no command an agent may lack goes to the store, and every whole-folder skill is
+    one ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install`
+    takes out an unedited copy of `slides` and `pages` an earlier release put in `~/.agents/skills`, as it does
+    `pdf`'s, and installs no whole-folder skill itself.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -1174,12 +1195,14 @@ flowchart LR
     chat tells its result nowhere. The message names its run in a part (`routine_run`, with the Routine's id),
     which the web draws as the run's card; its text is for every other reader.
   - **Who makes one.** The owner and a Bot use the same operation, `PUT /bots/{name}/routines/{routine}`
-    (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`).
+    (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`). A
+    Bot's pi does it with its `routines` tool (issue #536, see "An agent's tools"), which calls the same store
+    with the same checks; a worker has no such tool.
     A coordinator's token is taken for a Bot: it must name a chat that talks with that Bot, and its change
     records what undoes it. `POST /routines/{id}/undo` (`routines undo`, the owner's) removes a Routine the Bot
     made, or puts back what it was before the Bot's change; it is refused once the Routine was changed again
     (OpenMausBot's undo, `routine-requests.ts` L1099-1147). That the Bot first restates the schedule and the work
-    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions
+    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions, which teach the tool
     (`deploy/coordinator/AGENTS.md`, after OpenClaw's `how-it-works.md`), not a state the server keeps. A
     Routine's run makes and changes no Routines: the chat of a run, and a request that says it comes from a run
     (`HYPOMNEMA_ROUTINE`), are refused (Hermes's loop prevention, not a wall).
@@ -1229,7 +1252,8 @@ flowchart LR
     "…" menu when a Routine's run asked.
   - **Commands**: `hypomnema routines list|show|set|pause|resume|run|rm|undo|revoke`, and `routines script` for
     the launcher. Every token reads Routines; a coordinator's token makes, changes and runs one; pausing,
-    removing, undoing and revoking are the owner's.
+    removing, undoing and revoking are the owner's. Since issue #536 a Bot uses the `routines` tool instead; the
+    commands stay for the owner.
   - Not built: a Routine on a node, a one-time Routine, a run started by an outside event, a Routine that feeds
     another, stopping a run by hand. A prompt run's chat is listed among the chats like any other.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
@@ -1572,16 +1596,34 @@ flowchart LR
       `POST .../api` relays any other request.
     - **Who may ask**: the owner, and a coordinator token or pi's own token when the Connection is switched on for
       chats; the chat a coordinator asks from is passed with the request, so an Approval is answered there. pi's
-      token asks from its own chat, and one that names another chat is refused (issue #260). A worker has no way
-      to it yet.
+      token asks from its own chat, and one that names another chat is refused (issue #260). A worker reaches it
+      only through the tools (below), and only for a Connection its Run was given.
+    - **Tools** (issue #536, `internal/controlplane/agentapi/superset.go`, see "An agent's tools"):
+      `superset_dashboards {search?}`, `superset_dashboard {dashboard}`,
+      `superset_chart_data {dashboard, chart, format?}` and `superset_api {method, path, body?}`, one a command,
+      each with `account` (an enum of the labels) only when the agent may use several Superset Connections, as
+      OpenClaw's Feishu tools take an optional `accountId` (`extensions/feishu/src/tool-account.ts`; naming it
+      only when there is a choice is inference). They are listed only to an agent that may use at least one: a
+      worker those its Run was given, a Bot's pi those on for chats and on its Bot's list (the agent's `may`), as
+      OpenClaw registers no Feishu tool without an enabled account (`tool-registration.ts`) and OpenMausBot mounts
+      its research family only with a credential (`agents-catalog.ts`); each call reads them again. The names
+      follow Superset's own MCP servers (`superset_<thing>`, aptro/superset-mcp) and the generic request
+      OpenMausBot's `research_call`. The reads and the request go through `Proxy.Relay` as the client API's do,
+      with the agent as the caller: a worker's held request is an Approval asked by `worker` under its Dispatch and
+      it is told to ask with its `ask` tool; a Bot's is asked by `pi` in its chat. The answers are the client API's
+      JSON (`superset_chart_data` with `format: csv` the rows as CSV); a refusal, a held request and an answer of
+      `superset_api` that is not a success are the tool's error. The log line is `agentapi.superset` with the
+      agent, the tool, the Connection and the number of rows, never a row.
     - **Commands**: `hypomnema superset dashboards [--search S]`, `superset dashboard <dashboard>`,
       `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
       `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset
       Connection). They wait up to 240 s, longer than the 100 s an Approval is held.
-    - **Its skill** (`internal/shared/agenttool/skills/superset`) is one guide for a Bot: what the commands
+    - **Its skill** (`internal/shared/agenttool/skills/superset`) is one guide naming the tools: what they
       return, that figures are as of the call, that a chart's row limit holds, that lists of people are personal
-      data, and that writes and SQL may wait for the owner's approval. It is installed with the coordinator's
-      skills and is not written to a node.
+      data, and that writes and SQL may wait for the owner's approval. A Bot's stub prints it (`hypomnema skills
+      get superset`); a node writes it to `$HYPOMNEMA_SKILLS/superset/guide.md` for a Dispatch given a Superset
+      Connection (`agenttool.SkillOf`), and the worker's first message names it and the tools, with no command on
+      its `PATH`. The commands stay for the owner and Routine scripts.
     - **The log**: each read is one line with who asked, the Connection, the action, the dashboard and chart and
       the number of rows (`superset.read`); each relayed request one with its action, method and status
       (`superset.relayed`), beside the proxy's own line with the verdict. Never a row, the password or a token.
@@ -2476,7 +2518,8 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
-An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `web.go`, `images.go`;
+An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
+`images.go`, `superset.go`;
 issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md),
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
@@ -2493,13 +2536,43 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 |---|---|---|---|
 | `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
+| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
+| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
+| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
 | `ask`, `finish` (the node's own) | yes | no | no |
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web` and `hypomnema image` are.
+
+Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
+[research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's
+`run_command`, Nezha's `server.exec` and Coder's `coder_workspace_execute`:
+
+- `node_exec {node, command, cwd, timeout_seconds, background}` runs `sh -c <command>` on the node named (its name or
+  id, drained or not; one not connected is refused with the names of those that are), as the node's own user, in
+  `cwd` or the user's home, with stdin empty and Coder's non-interactive environment (`PAGER=cat`, `TERM=dumb`,
+  `GIT_TERMINAL_PROMPT=0`, editors `true`). It runs at once, with no approval (owner, 2026-11-15). In the
+  foreground it is killed with its process group after `timeout_seconds` (60, at most 300); the answer is the exit
+  code and the output, stdout and stderr together, the first and last 32 KB of a longer one with how much was left
+  out. An exit code other than 0, or a time run out, is an error result.
+- `background: true` answers at once with a `process_id`; the command runs with no time limit. `node_process
+  {node, process_id, wait_seconds}` answers once it ended or after `wait_seconds` (at most 300), with the output so
+  far; `node_process_kill` kills its group. An ended one is kept an hour (Coder); the node's restart, as at an
+  update, kills the ones still running.
+- sudo: the vault secret `sudo-<node>` (lowercase, its `value`) is the node's sudo password. When there is one, the
+  control plane sends it with the command, and the node adds `-A` after every `sudo` that is a simple command's
+  command (parsed with `mvdan.cc/sh`) and sets `SUDO_ASKPASS` to a helper that prints it from a file only the
+  node's user reads, removed when the command ends (Hermes's askpass form). The password is not logged, answered or
+  on a command line. A node with none runs `sudo` as it is: it works where sudo needs no password, else fails.
+- The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`) and waits for the answer on
+  `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
+  once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
+- MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
+  and the node's answer.
+- Not built: a PTY, a per-node switch to refuse commands (Nezha), a list of commands always refused (Hermes).
 
 ```mermaid
 flowchart LR
@@ -2507,7 +2580,9 @@ flowchart LR
         L["agent API: /agent/v1/tools<br/>one list, each tool's kinds"] --> G["gateway services<br/>search chain, fetch, Images"]
         L --> M["memories<br/>Bot's, agent's, owner's"]
         L --> A["artifacts<br/>the Bot's chat, a worker's Run's chat"]
+        L --> RT["Routines and their runner<br/>a Bot's pi's own"]
         L --> BR["shared browser<br/>a tab an agent"]
+        L --> SP["service proxy: Relay<br/>a Superset Connection the agent may use"]
         D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
     end
     PH -- "node socket" --> PN["node holding the phone"]
@@ -2515,9 +2590,11 @@ flowchart LR
     B -- "chat pi's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
     N -- "Dispatch key" --> D
-    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact" --> C["client API"] --> G
+    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
     C --> M
     C --> A
+    C --> SP
+    C --> RT
 ```
 - Which worker gets which gateway tool (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
@@ -2561,6 +2638,23 @@ flowchart LR
   as they are: `html` works, `path` is refused with "this node's tools cannot send a folder yet; send html, or
   wait for its update". No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
   commands stay for the owner and Routine scripts.
+- `routines` `{action: list | set | run, name?, every_minutes?, cron?, timezone?, prompt?, script?,
+  timeout_seconds?, summary?, quiet?}` (issue #536, step 5) is a Bot's pi's own Routines as one tool with an
+  action, as Hermes's `cronjob_manage` (`tools/cronjob_tools.py`) and OpenClaw's `cron` tool
+  (`src/agents/tools/cron-tool.ts`) are. Only a Bot's pi gets it; a worker is not offered it and its call is a
+  404, as Hermes keeps `cronjob_manage` from its sub-agents (`tools/delegate_tool_toolsets.py`). It does what the
+  client API lets a pi's token do, through the same store and runner: `set` is `PUT /bots/{id}/routines/{name}`
+  for its own Bot from its own chat (a Bot's change, which the owner can undo), what it leaves out staying, as
+  `routines set` reads its flags; `run` is `POST /routines/{id}/runs` for a Routine of its Bot, refused while a
+  run of it is live; `list` shows its Bot's Routines (id, sentence, state, next time, last run), and one by name
+  with its last 5 runs, its prompt and the end of its last output, as OpenMausBot's `trigger_info` does with a
+  `trigger_id`. Pausing, removing, undoing and taking back a grant stay the owner's (OpenMausBot leaves deleting a
+  trigger to the person). `script` is a file of the Bot's folder, where pi starts `hypomnema mcp`: the tools
+  server reads it there (`os.Root`, at most 100 KB) and sends its text with the call (`agenttool.RoutineCall`),
+  never a text the agent sent itself; the Routine keeps the file's name and that text. A tools server of an
+  earlier release sends the path alone, which is refused ("this tools server cannot send a script yet"). What the
+  store refuses (a schedule out of bounds, a name of another Bot's, a change from a Routine's run's own chat, a
+  run still going) is the tool's error. A Routine's script itself has no MCP and keeps the commands.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2733,25 +2827,25 @@ The owner's commands:
   (otherwise only with `--force`, keeping a backup). The stub of a skill this binary no longer ships (`web-search`
   and `images` since issue #492, `retiredStubs`) is taken out of both folders when it matches a released one, and
   its folder when nothing else is in it, as Codex replaces its whole system skills folder at an update; an edited
-  one is left and named. The same goes for the pdf folder in `~/.agents/skills` (issue #492): an unedited copy (its
-  digest in `releasedFolders`) is removed, since the skills store now places it, and it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
+  one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
+  #536): an unedited copy (its digest in `releasedFolders`) is removed, since the skills store now places it, and
+  it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
 - The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder (until
   issue #492 installed as described here; since then published into the skills store, above): Hermes's
   `skills/productivity/pdf` at `022a14437b2d` (MIT, its `LICENSE` in the folder, the notice in
   `third_party/hermes-agent/NOTICE`), adapted to the Bots' box: `python` is the documents environment (above), the
   scripts are named where the skill is installed (`~/.agents/skills/pdf/scripts`), and OCR, nano-pdf editing and
-  Hermes's tests are left out. A skill without a `guide.md` is such a folder: `skills install` copies its files
-  (what is under `scripts/` executable) into `~/.agents/skills` only, where every Bot reads skills, writing a new
-  copy beside the old and swapping them. It replaces an installed copy only while the folder's digest (each file's
-  path and content, Python caches left out, after Hermes's `tools/skills_sync.py` `dir_hash`) is a released one
-  (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
-  does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
-  with no `skills add`. It is listed among the built-in skills.
-- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder
-  installed in `~/.agents/skills` for Bots only:
+  Hermes's tests are left out. A skill without a `guide.md` is such a folder. Until issue #536 `skills install`
+  copied a folder skill not in the store into `~/.agents/skills`; since every one is in the store it installs none,
+  and the folder's digest (each file's path and content, Python caches left out, after Hermes's
+  `tools/skills_sync.py` `dir_hash`) only tells an unedited copy an earlier release installed, which it removes,
+  from an edited one, which it leaves.
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, and since
+  issue #536 reaches every agent kind through the skills store (above), naming the Superset tools:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
-  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with the `show_artifact` tool.
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page an agent shows with the `show_artifact`
+  tool.
   Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
   the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
   beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
@@ -2962,16 +3056,15 @@ Node (`internal/node`):
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
   Its `@tanstack/react-query` plugin generates query keys, query options and mutation options for every operation
   but the two Server-Sent Event streams, `StreamEvents` and `StreamChat` (issue #494, after Omnara and MemoryOS);
-  `PreviewRoutineSchedule`, a read sent as a POST, gets query options too, as MemoryOS's document search does.
-  A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
-  settings (Channels, Integrations with their services, accounts and agent actions, Repositories, the Vault and
-  the Skills), the memories (an agent's and About you), and the models and the gateway (the accounts with their
-  limits, the providers, the gateway's models and keys, Images, Web search and Usage), and the machines with
-  their providers, the browser's tabs and the phone (their REST reads only: the screen streams and the take-over
-  sockets stay hand-written), and the agents with their versions and models, the Bots, a chat's setup changes and
-  the Approvals, and the Routines with their runs, a page at a time, and a schedule's preview read and refresh
-  through them; the other screens still use hand-written keys, moved one area at a
-  time.
+  `PreviewRoutineSchedule` and `OpenArtifactFrame`, reads sent as a POST, get query options too, as MemoryOS's
+  document search does. A key is one object named by the operation's `_id`, with the base URL and the call's
+  path, query and body. Every screen reads and refreshes server data through them: the settings, the memories,
+  the models and the gateway, the machines with the browser's tabs and the phone, the agents, the Bots, a chat's
+  setup changes and the Approvals, the Routines, the artifacts, the chats, the Runs, Tasks and questions, and a
+  chat's folders and files. What stays hand-written: the two event streams and a chat's message pages (read into
+  the chat's own state), the screen streams and take-over sockets, chunked uploads, and what is read from bytes
+  already read (an artifact page's text, an SVG's text, a file's preview), keyed by the bytes' generated key with
+  a word after it. An image's bytes keep their own read, typed by the file's name, under the generated key.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
@@ -3199,14 +3292,20 @@ Node (`internal/node`):
     other file is its name and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
-    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
-    `coordinator` always, ordered by its latest chat. A row shows the Bot's avatar with a dot when one of its chats
-    is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
+    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
+    not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then a
+    "Pinned" section of the pinned Bots, then the others, each section by `Bot.position`. The owner drags a Bot by
+    its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
+    the mouse or the keyboard, within its section; the page shows the new order at once and sends
+    `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
+    shows the Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its latest
+    chat's title, and "Needs you", "Working" or the time.
     Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
     each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
     with that Bot picked (`/?bot=`). A chat's row has a menu (issue #484, after t3code's thread menu), shown on
     hover or focus and always on a phone, whose Delete asks first and, for the open chat, then opens New chat with
-    its Bot. The phone's start page lists the same Bots.
+    its Bot; a Bot row that stands for its one chat carries that chat's Delete ("Delete chat") in its own menu.
+    The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
@@ -3434,6 +3533,12 @@ the internet, so that a machine created at a provider can install the node from 
   added with the default limit of 2 and then drained, so it shows on Machines with its stats and takes no work
   (owner, 2026-11-15: watch it, run workers when it is idle). `hypomnema nodes resume zm` lets it take work; its
   workers would then run as the user that holds the control plane's `env` and vault keys.
+- Node beyondpilot, since 2026-11-15 (v0.9.52): BeyondPilot's production EC2 (`BeyondPilotProductionApp/Server`,
+  account `891762599330`, `ap-southeast-1`), which has no SSH port. Installed through Session Manager
+  (`aws ssm send-command`, `AWS-RunShellScript`) with the steps of the first-boot script: the user `hypomnema`
+  (in `docker`, and `NOPASSWD:ALL` in `/etc/sudoers.d/hypomnema`, owner, 2026-11-15: root is fine), git from dnf,
+  Node.js, Claude Code and Codex. Drained, so no Run places work there; agents reach it with `node_exec`. The node's
+  token is in that command's parameters in the account's SSM command history.
 - Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
   control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
   sent to the node with each Dispatch of a Claude Code worker and is also served by the gateway. The earlier hand-kept

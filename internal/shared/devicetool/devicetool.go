@@ -6,12 +6,13 @@
 //
 // The tools are Android CLI's commands and adb's, as Google's own android-cli
 // skill drives a device (android/android-cli-plugin, skills/android-cli/SKILL.md
-// at e16e722, Apache-2.0): see with `android screen capture --annotate` and
-// `android layout`, tap and swipe with `adb shell input` at the coordinates
+// at e16e722, Apache-2.0): see with `android layout`, and with `android screen
+// capture --annotate` when the numbered boxes are asked for, tap and swipe with `adb shell input` at the coordinates
 // `android screen resolve` gives for a box's number. Typing is Android CLI's
 // `input text`, which typed Vietnamese where `adb shell input text` types
 // ASCII only (docs/research/2026-11-14-android-device-for-agents.md, section
-// 3). Launching an app and reading its log are Orca's (src/main/emulator/android,
+// 3). A screen without boxes is adb's `exec-out screencap -p`, as OpenMausBot
+// takes one (server/drivers/phone-proxy.ts). Launching an app and reading its log are Orca's (src/main/emulator/android,
 // launchAppArgs and logcatArgs). The names and arguments are this repository's.
 package devicetool
 
@@ -78,14 +79,15 @@ const (
 	maxCoordinate = 100000
 )
 
-const point = `"#N", a number from your last device_screen, or "x,y" in the screen's pixels`
+const point = `"#N", a number from your last device_screen with boxes, or "x,y" in the screen's pixels`
 
 // Tools are the tools an agent is offered.
 func Tools() []Tool {
 	return []Tool{
-		tool(Screen, "Take a picture of the phone's screen, with what can be tapped marked by numbered boxes. "+
-			"Look at it before acting and again after each action: tap a box by its number with device_tap.",
-			`{}`, nil),
+		tool(Screen, "Take a picture of the phone's screen. Look at it before acting and again after each "+
+			"action. With boxes, what can be tapped is marked by numbered boxes, which device_tap takes by "+
+			"number; that takes a second or two longer.",
+			`{"boxes":{"type":"boolean","description":"mark what can be tapped with numbered boxes"}}`, nil),
 		tool(Layout, "Read the views of the app on the phone's screen as JSON: text, descriptions, ids and "+
 			"centers. Apps drawn by Flutter or a game engine show little here; use device_screen for those.",
 			`{}`, nil),
@@ -135,6 +137,8 @@ type Point struct {
 // are set.
 type Call struct {
 	Tool string
+	// Boxes asks device_screen for the numbered boxes.
+	Boxes bool
 	// Target is a tap's point; Selector the view it taps instead.
 	Target   *Point
 	Selector string
@@ -163,6 +167,7 @@ var (
 
 // arguments are every tool's arguments; a call sets those of its tool.
 type arguments struct {
+	Boxes      bool    `json:"boxes"`
 	Target     *string `json:"target"`
 	From       *string `json:"from"`
 	To         *string `json:"to"`
@@ -179,6 +184,7 @@ type arguments struct {
 
 // takes are the arguments each tool's schema names.
 var takes = map[string][]string{
+	Screen: {"boxes"},
 	Tap:    {"target"},
 	Swipe:  {"from", "to", "duration_ms"},
 	Type:   {"text", "into", "submit"},
@@ -226,6 +232,8 @@ func Read(tool string, raw json.RawMessage) (Call, error) {
 	var err error
 
 	switch tool {
+	case Screen:
+		c.Boxes = a.Boxes
 	case Tap:
 		err = c.readTap(a.Target)
 	case Swipe:

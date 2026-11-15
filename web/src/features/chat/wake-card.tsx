@@ -8,15 +8,13 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react"
-import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 
 import "@/api/client"
-import { getRun } from "@/api/generated/sdk.gen"
 import type { ChatWake } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { useWork } from "@/features/work/use-work"
+import { useRun, useWork } from "@/features/work/use-work"
 import { firstLine } from "@/lib/text"
 import { cn } from "@/lib/utils"
 
@@ -137,10 +135,7 @@ function WakeChip({ link }: { link: WakeLink }) {
 // over this chat, as a Task's chip does; until the Run is read, the chip only names it.
 function RunChatChip({ runId, label }: { runId: string; label: string }) {
   const navigate = useNavigate()
-  const run = useQuery({
-    queryKey: ["run", runId],
-    queryFn: async () => (await getRun({ path: { run_id: runId } })).data,
-  })
+  const run = useRun(runId)
   const chatId = run.data?.chat_id
   const first = run.data?.tasks[0]?.id
   const text = <span className="truncate">{label}</span>

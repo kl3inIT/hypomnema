@@ -62,8 +62,8 @@ func (w *world) useDevice(key, tool, arguments string) (int, string) {
 // Scenario: every worker has the phone, as it has the browser (issue #417,
 // owner 2026-11-15), even one whose Run was given no account. A call reaches
 // the phone under the worker's own name, so its screens stay its own, and the
-// answer is passed on as it is. Which agent used which tool is logged, never
-// what it typed; without a credential nothing is listed or run.
+// answer is passed on as it is. Which agent used which tool, and for how long,
+// is logged, never what it typed; without a credential nothing is listed or run.
 func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
 	t.Parallel()
 
@@ -90,6 +90,7 @@ func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
 	logs := w.logs.String()
 	assert.Contains(t, logs, "dsp_1")
 	assert.Contains(t, logs, "device_type")
+	assert.Contains(t, logs, "duration_ms=", "how long the call took")
 	assert.NotContains(t, logs, "bí mật")
 
 	status, _ = w.call(http.MethodGet, agenttool.PathDeviceTools, "", nil)

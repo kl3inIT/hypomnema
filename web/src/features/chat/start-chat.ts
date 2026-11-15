@@ -4,7 +4,7 @@ import { useRef } from "react"
 import "@/api/client"
 import { createChat, sendChatMessage } from "@/api/generated/sdk.gen"
 import type { Chat, ChatAttachment } from "@/api/generated/types.gen"
-import { chatsKey } from "@/features/shell/chats"
+import { listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 
 import type { ChatChoice } from "./chat-model-state"
 
@@ -46,7 +46,7 @@ export function useStartChat(
       return chat
     },
     onSuccess: async (chat) => {
-      await queryClient.invalidateQueries({ queryKey: chatsKey })
+      await queryClient.invalidateQueries({ queryKey: listChatsQueryKey() })
       await onStarted(chat)
     },
   })

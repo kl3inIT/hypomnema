@@ -20,14 +20,16 @@ import (
 // runs (internal/shared/toolsmcp), started by pi inside the Bot's box as
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
 // pi's own token there. It lists the tools the control plane gives a Bot's pi
-// (PathTools, issue #536: memory, show_artifact, web_search, web_fetch,
-// generate_image and the shared browser's) and the phone's (PathDeviceTools,
+// (PathTools, issue #536: memory, show_artifact, routines, web_search,
+// web_fetch, generate_image, the shared browser's, and Superset's superset_*
+// when its Bot may use a Superset account) and the phone's (PathDeviceTools,
 // issue #536 step 4), as a worker's server does (internal/node/workertools),
 // so that a Bot is offered none of a worker's own (ask, finish). The phone's
 // stay on their own route because a node of the release before this one lists
 // both routes, and would list the phone's twice were they on the one list. An image is saved under images/ in the folder pi
 // works in, the Bot's, whose files its chat sends, and the answer gives the
-// MEDIA line that sends it; show_artifact's path is read in that folder.
+// MEDIA line that sends it; show_artifact's path and a Routine's script are
+// read in that folder.
 
 const (
 	// mcpName is the server's name in mcp.json; pi names its tools mcp__hypomnema__<tool>.
@@ -72,6 +74,14 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 				}
 
 				return agent.ArtifactCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
+			case c.Name == agenttool.ToolRoutines:
+				// A Routine's script is a file of the Bot's folder, read here as show_artifact's path is.
+				dir, err := os.Getwd()
+				if err != nil {
+					return nil, fmt.Errorf("reading the working folder: %w", err)
+				}
+
+				return agent.RoutineCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
 			}
 
 			return agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, c.Name, c.Arguments)

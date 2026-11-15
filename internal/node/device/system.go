@@ -15,6 +15,9 @@ type Command struct {
 	// than a pipe, so the program outlives the node that started it: a write
 	// to a pipe nobody reads any more would end it.
 	Log string
+	// Out is the file a run's standard output goes to, whole, instead of
+	// Output's capped Stdout: a screenshot is larger than the cap.
+	Out string
 }
 
 // Output is what a run wrote and how it ended.

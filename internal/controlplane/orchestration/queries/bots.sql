@@ -1,8 +1,9 @@
 -- name: InsertBot :exec
+-- A new Bot goes last in the order (issue #470).
 INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
-                  created_at, updated_at)
+                  position, created_at, updated_at)
 VALUES (@id, @name, @provider, @model, @effort, @persona, @skills, @skills_off, @connections, @workers, @tool_display,
-        @now, @now);
+        (SELECT coalesce(max(position) + 1, 0) FROM bots), @now, @now);
 
 -- name: UpdateBot :exec
 -- A Bot's settings; its name and memory stay.
@@ -29,6 +30,20 @@ SELECT * FROM bots ORDER BY created_at, name;
 
 -- name: DeleteBot :exec
 DELETE FROM bots WHERE id = @id;
+
+-- name: CloseBotPosition :exec
+-- The Bots after a removed one move up a place, so the order stays 0 to n-1 (issue #470).
+UPDATE bots SET position = position - 1 WHERE position > @position;
+
+-- name: ListBotIDsInOrder :many
+-- The Bots in the order the owner set (issue #470).
+SELECT id FROM bots ORDER BY position, created_at, name;
+
+-- name: SetBotPosition :exec
+UPDATE bots SET position = @position WHERE id = @id;
+
+-- name: SetBotPinned :execrows
+UPDATE bots SET pinned = @pinned WHERE id = @id;
 
 -- name: SetBotMemory :exec
 UPDATE bots SET memory = @memory, updated_at = @now WHERE id = @id;

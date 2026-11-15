@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -86,7 +87,38 @@ type Options struct {
 	// BootWithin and EndWithin replace the package's limits.
 	BootWithin time.Duration
 	EndWithin  time.Duration
+	// GPU is the emulator's -gpu mode, one of GPUModes; empty: DefaultGPU.
+	// The node's configuration sets it (device_gpu), so another renderer can
+	// be measured on the machine itself, as serve-emu's --gpu and budtmo's
+	// EMULATOR_GPU let one choose.
+	GPU string
+	// CPUs is the machine's CPU count; zero: runtime.NumCPU.
+	CPUs int
 }
+
+// DefaultGPU is the renderer the trial machine proved: Mesa's llvmpipe
+// through Xvfb. Under SwiftShader (swiftshader_indirect) the emulator died 4
+// times out of 4 when the map app's "sign in with" link opened the toll app's
+// authorize screen, and swangle_indirect crashed as the map app started;
+// only host completed that sign-in (docs/research/2026-11-14-android-device-
+// for-agents.md, section 2). Another mode is for measuring: it is kept only
+// once it passes that sign-in.
+const DefaultGPU = "host"
+
+// GPUModes are the emulator's -gpu modes that are not deprecated
+// (developer.android.com/studio/run/emulator-acceleration). Xvfb starts for
+// each: budtmo keeps DISPLAY whatever its mode, and only host was tried.
+var GPUModes = []string{"host", "auto", "software", "lavapipe", "swiftshader", "swangle"}
+
+// minCores is the fewest cores the phone is given.
+const minCores = 2
+
+// cores is the phone's share of the machine: half its CPUs, at least
+// minCores, so the rest is left to Xvfb, scrcpy's encoder, adb and the node.
+// Google's container gives its phone 4 (emu/templates/avd/MediumPhone.avd/
+// config.ini, hw.cpu.ncore), HQarroum 4 by default (scripts/start-emulator.sh);
+// half the host is the owner's (2026-11-15).
+func cores(cpus int) int { return max(minCores, cpus/2) }
 
 // Manager keeps the phone of this node.
 type Manager struct {
@@ -159,6 +191,14 @@ func newManager(opts Options, comps []component) *Manager {
 
 	if opts.EndWithin <= 0 {
 		opts.EndWithin = EndWithin
+	}
+
+	if opts.GPU == "" {
+		opts.GPU = DefaultGPU
+	}
+
+	if opts.CPUs <= 0 {
+		opts.CPUs = runtime.NumCPU()
 	}
 
 	m := &Manager{
@@ -366,6 +406,11 @@ func (m *Manager) boot(ctx context.Context) error {
 		return errors.New("the node's user cannot use /dev/kvm, which the emulator needs: is it in the kvm group?")
 	}
 
+	if !slices.Contains(GPUModes, m.opts.GPU) {
+		return fmt.Errorf("device_gpu %q in the node's configuration is not a renderer; it is one of %s",
+			m.opts.GPU, strings.Join(GPUModes, ", "))
+	}
+
 	if !m.in.complete(m.comps) {
 		m.set(nodeproto.DeviceInstalling, "")
 
@@ -406,8 +451,8 @@ func (m *Manager) boot(ctx context.Context) error {
 	emulator, err := sys.Start(Command{
 		Path: m.path(emulatorPath),
 		Args: []string{
-			"-avd", avdName, "-no-window", "-no-audio", "-no-boot-anim", "-gpu", "host",
-			"-memory", "4096", "-cores", "6", "-port", strconv.Itoa(port),
+			"-avd", avdName, "-no-window", "-no-audio", "-no-boot-anim", "-gpu", m.opts.GPU,
+			"-memory", "4096", "-cores", strconv.Itoa(cores(m.opts.CPUs)), "-port", strconv.Itoa(port),
 		},
 		Env: append(os.Environ(), "DISPLAY=:"+strconv.Itoa(display),
 			"ANDROID_SDK_ROOT="+m.path(sdkDir), "ANDROID_AVD_HOME="+m.path(avdDir)),

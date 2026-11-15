@@ -71,6 +71,11 @@ Each adapted file names its source.
   GridSessionsContext.tsx), Apache License 2.0. Where a dropped tab lands in a pane (`dropZone` in
   `grid-layout.ts`) is adapted from Orca's `resolveDropZone` (src/renderer/src/components/tab-group/tab-drop-zone.ts),
   MIT License.
+- Reordering the sidebar's Bots (`src/features/shell/reorderable-list.tsx`, `use-sortable-bindings.ts`, issue #470)
+  is adapted from Hermes Agent's desktop sidebar (https://github.com/NousResearch/hermes-agent,
+  apps/desktop/src/app/chat/sidebar/reorderable-list.tsx and chrome.tsx `SidebarRowGrab`), MIT, Copyright (c) 2025
+  Nous Research; each file says what was changed. It runs on dnd-kit (https://github.com/clauderic/dnd-kit,
+  `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/modifiers`), MIT, Copyright (c) 2021, Claudéric Demers.
 - The Files panel (`src/features/files`) follows Omnigent's (web/src/shell/FilesPanel.tsx, FlatFileList.tsx,
   FolderTree.tsx, CodeViewer.tsx, MonacoDiffViewer.tsx, web/src/hooks/useWorkspaceChangedFiles.ts), Apache License
   2.0, and Orca's file explorer (src/renderer/src/components/right-sidebar/file-explorer), MIT License: their
@@ -179,6 +184,32 @@ SOFTWARE.
 MIT License
 
 Copyright (c) 2025 opencode
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Hermes Agent
+
+```text
+MIT License
+
+Copyright (c) 2025 Nous Research
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
