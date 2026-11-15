@@ -26,6 +26,8 @@ import (
 //   - superset_dashboards, superset_dashboard, superset_chart_data,
 //     superset_api (superset.go): a worker given a Superset Connection by its
 //     Run, a Bot's pi one switched on for chats and on its Bot's list;
+//   - routines (routines.go): a Bot's pi only, its own Bot's; a worker never,
+//     as Hermes keeps cronjob_manage from its sub-agents;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
 //     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's).
 //
@@ -36,8 +38,8 @@ import (
 // release.
 
 // toolList is the definitions of the tools an agent gets, in the shape of
-// tools/list: the memory's, show_artifact, the gateway's, Superset's and the
-// browser's. A browser that cannot list its tools takes none of the others
+// tools/list: the memory's, show_artifact, routines, the gateway's,
+// Superset's and the browser's. A browser that cannot list its tools takes none of the others
 // away.
 func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool {
 	out := []agenttool.BrowserTool{}
@@ -47,6 +49,10 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 	}
 
 	if t, ok := artifactTool(a); ok {
+		out = append(out, t)
+	}
+
+	if t, ok := routineTool(a); ok {
 		out = append(out, t)
 	}
 
@@ -132,6 +138,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		s.memoryCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolShowArtifact && showsArtifacts(a):
 		s.artifactCall(w, r, a, asked)
+	case asked.Tool == agenttool.ToolRoutines && makesRoutines(a):
+		s.routineCall(w, r, a, asked)
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
 		s.gatewayCall(w, r, a, asked)
 	case s.hasBrowser(a):

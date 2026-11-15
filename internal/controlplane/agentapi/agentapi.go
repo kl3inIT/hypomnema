@@ -24,7 +24,8 @@
 // (tools.go, issue #536), each given to the agent kinds its definition names:
 // the memory's (memory.go), show_artifact (artifacts.go), the gateway's, the
 // web's (issue #354, web.go) and generate_image (issue #492, images.go),
-// Superset's for an agent given a Superset Connection (superset.go), and
+// Superset's for an agent given a Superset Connection (superset.go), a Bot's
+// pi's own Routines (routines.go), and
 // the browser every agent shares (issues #212, #536), a worker's and a Bot's
 // pi's; and the tools of the phone a node holds (issue #417, device.go).
 //
@@ -50,6 +51,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
@@ -70,6 +72,8 @@ type Store interface {
 	) (orchestration.Artifact, bool, error)
 	ArtifactMakerOfDispatch(ctx context.Context, dispatchID string) (orchestration.ArtifactMaker, error)
 	Memories() *memorystore.Store
+	// Routines keeps the Routines, for a Bot's pi's routines tool (issue #536).
+	Routines() *routinestore.Store
 }
 
 // Token is a Connection's access token and when it ends.
@@ -106,8 +110,11 @@ type Server struct {
 	device Device
 	// relay sends Superset's tools' requests through the service proxy (issue #536); nil when the control
 	// plane gave none.
-	relay  Relay
-	logger *slog.Logger
+	relay Relay
+	// routines starts a Routine's run for a Bot's pi's routines tool (issue #536); nil when the control plane
+	// gave none.
+	routines Routines
+	logger   *slog.Logger
 }
 
 // New returns a Server.
