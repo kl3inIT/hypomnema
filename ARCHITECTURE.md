@@ -2986,8 +2986,10 @@ the internet, so that a machine created at a provider can install the node from 
   1.0.100 themselves. A worker calls it from node v0.6.1 on: a Run given `lark:work` on aioffice-app ran
   `lark-cli whoami` and a call to Lark as the app, and found the guide. A node writes a tool's script from the
   tool catalog compiled into it, so a new tool reaches workers with a node release; the other nodes take v0.6.1
-  at their next update check. The coordinator on zm has neither `lark-cli` nor the skill yet: its tools are
-  installed by `deploy/coordinator/setup-coordinator.sh`, which needs root.
+  at their next update check. The coordinator on zm has both: `deploy/coordinator/setup-coordinator.sh`, which
+  each release's self-update runs, installs `lark-cli` under its tools and the `lark` guide beside them. Checked
+  on 2026-11-15 at v0.9.41 in a chat with the main Bot: `lark-cli` was on its PATH, the `lark` skill in
+  `~/.agents/skills` and in the tools' skills, and it was offered the Connections `lark:work` and `lark:report`.
 - The Lark bot, since 2026-11-11: set up on zm with the owner's Lark app, mode `owner`, switched on, and
   connected. The app's callback `card.action.trigger` was added over the persistent connection and released as
   version 1.0.3 of the app. Tried: a worker's question with two options was answered by the owner nine seconds
