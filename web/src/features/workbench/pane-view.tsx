@@ -65,6 +65,8 @@ import {
 } from "./pane"
 import { setDragged, tabDrag } from "./use-grid"
 
+export type Beside = { open: (tab: PaneTab) => void; has: (key: string) => boolean }
+
 // PaneView is a pane (issue #235): a strip of its tabs, and the tab in front under it. "+" opens a new chat, the
 // owner's browser tab, the phone (issue #417), or a browser tab of a worker of a chat in the pane, as Orca's tab bar does
 // (tab-bar-static-create-menu.tsx: New Terminal, New Browser Tab, New Mobile Emulator) and Omnigent's workspace
@@ -73,7 +75,9 @@ import { setDragged, tabDrag } from "./use-grid"
 // pane, with no header above it, as Orca's tab bar is; a chat's tab carries its Bot's avatar as Orca's terminal tab
 // carries its agent's icon (TerminalTabLeadingIcon.tsx). Every tab is dragged by itself to another pane, or to a
 // side of a pane, as Orca's are. `start` and `end` are what the place showing the pane puts at the strip's ends:
-// the menu on a phone, a grid pane's buttons. `kept` is a tab that cannot be closed: a chat on its own page.
+// the menu on a phone, a grid pane's buttons. `kept` is a tab that cannot be closed: a chat on its own page. The
+// phone opens beside the chat, in the pane to its right or a new one split off there, as Orca opens its emulator
+// (issue #528, `openBeside` in ./moves.ts).
 export function PaneView({
   id,
   pane,
@@ -81,6 +85,7 @@ export function PaneView({
   kept,
   start,
   end,
+  beside,
 }: {
   id: string
   pane: Pane
@@ -88,6 +93,9 @@ export function PaneView({
   kept?: string
   start?: ReactNode
   end?: ReactNode
+  // Where the place showing the pane opens a tab beside it, and whether a tab is open there already (issue #528);
+  // none on a phone, where a tab opens in the pane.
+  beside?: Beside
 }) {
   const browser = useBrowser()
   const device = useDevice()
@@ -262,9 +270,13 @@ export function PaneView({
                     </DropdownMenuItem>
                   )}
                   {hasPhone(device.data) && (
-                    <DropdownMenuItem onClick={() => open({ kind: "phone" })}>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        beside ? beside.open({ kind: "phone" }) : open({ kind: "phone" })
+                      }
+                    >
                       <Smartphone />
-                      {hasTab(pane, "phone") ? "Go to the phone" : "Phone"}
+                      {hasTab(pane, "phone") || beside?.has("phone") ? "Go to the phone" : "Phone"}
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuGroup>

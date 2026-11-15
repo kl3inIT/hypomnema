@@ -270,7 +270,11 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ErrorIs(t, w.s.DeleteBot(ctx, trialBot.ID), ErrConflict, "it has a chat and a memory")
-	require.NoError(t, w.s.ForceDeleteBot(ctx, trialBot.ID))
+	deleted, err := w.s.ForceDeleteBot(ctx, trialBot.ID)
+	require.NoError(t, err)
+	require.Len(t, deleted, 1, "the deleted chats come back, for their files (issue #503)")
+	assert.Equal(t, chat.ID, deleted[0].ID)
+	assert.Equal(t, trialBot.ID, deleted[0].Bot)
 
 	_, err = w.s.GetBot(ctx, trialBot.ID)
 	require.ErrorIs(t, err, ErrNotFound)
@@ -297,15 +301,18 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	assert.False(t, keyChat.Valid)
 	assert.True(t, revoked.Valid, "the chat's key is revoked and kept")
 
-	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, trialBot.ID), ErrNotFound)
-	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, DefaultBotID), ErrConflict)
+	_, err = w.s.ForceDeleteBot(ctx, trialBot.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = w.s.ForceDeleteBot(ctx, DefaultBotID)
+	require.ErrorIs(t, err, ErrConflict)
 
 	scheduledBot, err := w.s.PutBot(ctx, Bot{Name: "scheduled"})
 	require.NoError(t, err)
 	spec := daily("morning")
 	spec.Bot = scheduledBot.ID
 	w.routine(spec)
-	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, scheduledBot.ID), ErrConflict, "a Routine uses it")
+	_, err = w.s.ForceDeleteBot(ctx, scheduledBot.ID)
+	require.ErrorIs(t, err, ErrConflict, "a Routine uses it")
 }
 
 // Scenario: what a Bot's chats show of its tool calls (issue #441) is stored with it, on unless set, read for each

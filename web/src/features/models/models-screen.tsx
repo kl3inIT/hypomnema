@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import {
   ArrowDown,
   ArrowUp,
@@ -85,13 +85,13 @@ import {
   until,
 } from "./models-state"
 import {
-  limitsKey,
   useAccountLimits,
   useAccounts,
   useGatewayModels,
   useProviders,
   useRefreshAccounts,
   useRefreshLimits,
+  useShowLimits,
 } from "./use-models"
 
 // ModelsScreen is where the owner sees where models come from and looks after the accounts they are served
@@ -512,7 +512,7 @@ function LimitBars({ account }: { account: Account }) {
 // (status-bar/CodexResetCredits.tsx) and as T3 Code's "Use reset" does. The request's id is made once a dialog
 // and sent again on a retry, so a second click never uses a second reset (9router-go's idempotency key).
 function LimitResets({ account, resets }: { account: Account; resets: AccountLimitResets }) {
-  const queryClient = useQueryClient()
+  const show = useShowLimits(account.id)
   const [requestId, setRequestId] = useState(() => crypto.randomUUID())
 
   return (
@@ -542,7 +542,7 @@ function LimitResets({ account, resets }: { account: Account; resets: AccountLim
             body: { request_id: requestId },
           })
 
-          queryClient.setQueryData(limitsKey(account.id), after.data)
+          show(after.data)
         }}
         onDone={() => setRequestId(crypto.randomUUID())}
         done={`A limit reset of ${account.label} was used`}

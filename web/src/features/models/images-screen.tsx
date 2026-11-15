@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
   Box,
@@ -13,7 +13,7 @@ import {
 import { useState, type DragEvent, type ReactNode } from "react"
 
 import "@/api/client"
-import { getImages, setImageOrder, setImageProvider } from "@/api/generated/sdk.gen"
+import { setImageOrder, setImageProvider } from "@/api/generated/sdk.gen"
 import type {
   ImageProvider,
   ImageProviderChange,
@@ -31,9 +31,8 @@ import { SettingsSection, SettingsPage } from "@/components/settings-page"
 import { said } from "@/lib/said"
 
 import { accountsText, imageProviderName, imageState, madeText } from "./images-state"
+import { useImages, useShowImages } from "./use-models"
 import { moved } from "./web-search-state"
-
-const imagesKey = ["images"] as const
 
 // ImagesScreen is Settings → Gateway → Images (issue #431): the subscriptions that make and edit images, in the
 // order a request asks them, as the Web search page lists its providers (web-search-screen.tsx) and OmniRoute and
@@ -43,12 +42,7 @@ const imagesKey = ["images"] as const
 // named as OmniRoute names it with its id beside, its accounts and what it made, and its switch. The page does
 // what `hypomnema image providers|order` does.
 export function ImagesScreen() {
-  const images = useQuery({
-    queryKey: imagesKey,
-    queryFn: async () => (await getImages()).data,
-    // A rest ends on its own, so the list is read again now and then while the page is open.
-    refetchInterval: 30_000,
-  })
+  const images = useImages()
 
   return (
     <SettingsPage
@@ -76,12 +70,12 @@ export function ImagesScreen() {
 
 // useChange runs a change and shows the providers the server answers with.
 function useChange<T>(change: (input: T) => Promise<Images>, done: (input: T) => string) {
-  const queryClient = useQueryClient()
+  const show = useShowImages()
 
   return useMutation({
     mutationFn: change,
     onSuccess: (images, input) => {
-      queryClient.setQueryData(imagesKey, images)
+      show(images)
       said(done(input))
     },
   })

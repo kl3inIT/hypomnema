@@ -211,14 +211,29 @@ const painted = (page: Page) =>
     .toBe(360)
 
 async function openPhone(page: Page) {
-  await page.getByRole("button", { name: "Open new" }).click()
+  await page.getByRole("button", { name: "Open new" }).first().click()
   await page.getByRole("menuitem", { name: "Phone" }).click()
 }
 
-// Scenario: the owner opens the phone beside a chat to sign in to an app for the agents. "+" offers the phone; its
-// screen comes up and the owner only watches until taking control. Then a tap, a typed text, Enter and Home reach
-// the phone, and the owner hands it back.
-test("the owner opens the phone beside a chat, takes control, and uses it", async ({ page }) => {
+// expectFrameInside says that the phone's frame, side buttons included, is drawn whole inside its view.
+async function expectFrameInside(page: Page) {
+  const view = (await page.getByTestId("phone-view").boundingBox())!
+  const frame = (await page.getByTestId("phone-frame").boundingBox())!
+  expect(frame.width).toBeGreaterThan(80)
+  expect(frame.x).toBeGreaterThanOrEqual(view.x)
+  expect(frame.y).toBeGreaterThanOrEqual(view.y)
+  expect(frame.x + frame.width).toBeLessThanOrEqual(view.x + view.width + 0.5)
+  expect(frame.y + frame.height).toBeLessThanOrEqual(view.y + view.height + 0.5)
+}
+
+// Scenario: the owner opens the phone beside a chat to sign in to an app for the agents. "+" offers the phone; on a
+// desktop it opens in a pane split off to the right of the chat, on a phone as a tab of the chat's pane. Its screen
+// comes up in its frame and the owner only watches until taking control. Then a tap, a typed text, Enter, Home, the
+// side buttons and the wheel reach the phone, and the owner hands it back.
+test("the owner opens the phone beside a chat, takes control, and uses it", async ({
+  page,
+}, info) => {
+  const desktop = info.project.name === "desktop"
   await page.goto("/")
   const frames = await encode(page)
   test.skip(frames.length === 0, "this browser cannot encode H.264 to play a phone's stream")
@@ -232,16 +247,35 @@ test("the owner opens the phone beside a chat, takes control, and uses it", asyn
   await shot(page, "phone-open-new")
   await page.getByRole("menuitem", { name: "Phone" }).click()
 
+  if (desktop) {
+    // Beside the chat: a grid of two panes, the chat on the left and the phone on the right.
+    await expect(page).toHaveURL(/\/grid$/)
+    const chatPane = page.getByRole("region", { name: chat.title })
+    const phonePane = page.getByRole("region", { name: "Phone" })
+    await expect(chatPane.getByText("sign in to the shop app on the phone")).toBeVisible()
+    await expect(phonePane.getByTestId("phone-view")).toBeVisible()
+    const left = (await chatPane.boundingBox())!
+    const right = (await phonePane.boundingBox())!
+    expect(right.x).toBeGreaterThan(left.x + left.width - 1)
+  }
   await expect(page.getByRole("tab", { name: "Phone" })).toHaveAttribute("aria-selected", "true")
   await painted(page)
-  await expect(page.getByRole("status")).toHaveCount(0)
+  await expect(page.getByTestId("phone-view").getByRole("status")).toHaveCount(0)
   await expect(page.getByText("Watching the phone")).toBeVisible()
+  await expectFrameInside(page)
   await shot(page, "phone-watching")
 
   // Watching: the phone takes nothing, and its buttons are off.
   await screen(page).click({ force: true })
+  if (desktop) {
+    await screen(page).hover({ force: true })
+    await page.mouse.wheel(0, 120)
+  }
   expect(server.of("touch")).toHaveLength(0)
   await expect(page.getByRole("button", { name: "Home" })).toBeDisabled()
+  for (const name of ["Volume up", "Volume down", "Power"]) {
+    await expect(page.getByRole("button", { name, exact: true })).toBeDisabled()
+  }
 
   await page.getByRole("button", { name: /Take control/ }).click()
   await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
@@ -267,18 +301,66 @@ test("the owner opens the phone beside a chat, takes control, and uses it", asyn
 
   await page.getByRole("button", { name: "Home" }).click()
   await expect.poll(() => server.of("home")).toHaveLength(1)
+
+  // The side buttons: the volume as Android's keys 24 and 25, and Power.
+  await page.getByRole("button", { name: "Volume up", exact: true }).click()
+  await page.getByRole("button", { name: "Volume down", exact: true }).click()
+  await page.getByRole("button", { name: "Power", exact: true }).click()
+  await expect
+    .poll(() =>
+      server.sent.filter((m) => m.type === "power" || m.keycode === 24 || m.keycode === 25),
+    )
+    .toEqual([{ type: "key", keycode: 24 }, { type: "key", keycode: 25 }, { type: "power" }])
+  if (desktop) {
+    await page.getByRole("button", { name: "Volume up", exact: true }).hover()
+    await expect(page.getByText("Volume up", { exact: true })).toBeVisible()
+  }
   await shot(page, "phone-control")
+
+  if (desktop) {
+    // A wheel turned down over the screen is a finger dragged up, lifted when it stops.
+    const touched = server.of("touch").length
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.wheel(0, 200)
+    await expect.poll(() => server.of("touch").slice(touched).at(-1)?.action).toBe("up")
+    const drag = server.of("touch").slice(touched)
+    expect(drag[0]?.action).toBe("down")
+    expect(drag.filter((m) => m.action === "move").length).toBeGreaterThan(1)
+    // Every move goes up; at the top edge the finger lifts and comes down again lower, as Orca's does.
+    drag.forEach((m, i) => {
+      if (m.action === "move") expect(m.y as number).toBeLessThan(drag[i - 1]?.y as number)
+    })
+  }
 
   await page.getByRole("button", { name: /Hand back/ }).click()
   await expect(page.getByRole("button", { name: /Take control/ })).toBeVisible()
   expect(server.of("releaseControl")).toHaveLength(1)
 
   // The phone is gone to, not opened twice, and closes like any tab.
-  await page.getByRole("tab", { name: chat.title }).click()
-  await openPhone(page)
+  if (!desktop) await page.getByRole("tab", { name: chat.title }).click()
+  await page.getByRole("button", { name: "Open new" }).first().click()
+  await page.getByRole("menuitem", { name: "Go to the phone" }).click()
   await expect(page.getByRole("tab", { name: "Phone" })).toHaveCount(1)
+  await expect(page.getByRole("tab", { name: "Phone" })).toHaveAttribute("aria-selected", "true")
   await page.getByRole("button", { name: "Close Phone" }).click()
   await expect(page.getByRole("tab", { name: "Phone" })).toHaveCount(0)
+})
+
+// In a narrow pane of a small screen the frame is made smaller to fit, not cut.
+test("the phone's frame fits a narrow pane", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "a phone has no grid")
+  await page.setViewportSize({ width: 960, height: 540 })
+  await page.goto("/")
+  const frames = await encode(page)
+  test.skip(frames.length === 0, "this browser cannot encode H.264 to play a phone's stream")
+
+  await fakeServer(page, { frames })
+  await page.goto("/chats/cht_1")
+  await openPhone(page)
+  await expect(page.getByRole("region", { name: "Phone" })).toBeVisible()
+  await painted(page)
+  await expectFrameInside(page)
+  await shot(page, "phone-narrow")
 })
 
 // While the phone's machine starts, the view says so on the phone's card.

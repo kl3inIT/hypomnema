@@ -324,3 +324,10 @@ How the references keep a UI consistent is in
   again. A skill for a library this project does not use is not installed.
 - No maintained skill exists for sqlc, goose, oapi-codegen, `coder/websocket` or the MCP Go SDK; when one is needed, a
   short project skill is written from that project's own documentation.
+
+## Agent tools
+
+- A capability an agent uses is one tool definition in the control plane, served to every agent kind by
+  Hypomnema's one MCP server; a skill teaches method and names tools, never a `hypomnema` command; a CLI command is
+  an optional door for the owner and Routine scripts
+  ([decision](decisions/2026-11-15-one-tool-for-every-agent.md), with the order to build in).

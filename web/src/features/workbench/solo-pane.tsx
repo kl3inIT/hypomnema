@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 
 import { GridDrop } from "./grid-drop"
-import { dropTab, type Bench, type Dragged } from "./moves"
+import { dropTab, openBeside, type Bench, type Dragged } from "./moves"
 import { hasTab, openTab, paneOf, tabKey, type Pane, type PaneTab } from "./pane"
 import { PaneView } from "./pane-view"
 import { newPaneId, setBench, setPane, soloId, useGridOffered, usePane } from "./use-grid"
@@ -37,6 +37,27 @@ export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
         onChange={(next) => setPane(id, next ?? paneOf(home))}
         kept={tabKey(home)}
         start={start}
+        // A tab opened beside the chat makes a grid of two, as a tab dropped on its side does (issue #528).
+        beside={
+          offered
+            ? {
+                open: (tab) => {
+                  const as = newPaneId()
+                  const next = openBeside(bench(as), as, tab, newPaneId())
+                  if (typeof next.layout === "string") {
+                    setPane(id, next.panes[as] ?? pane)
+
+                    return
+                  }
+
+                  setPane(id, null)
+                  setBench(next)
+                  void navigate({ to: "/grid" })
+                },
+                has: (key) => hasTab(pane, key),
+              }
+            : undefined
+        }
       />
       {offered && (
         <GridDrop

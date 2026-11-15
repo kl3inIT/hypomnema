@@ -19,12 +19,14 @@ const chat = (id: string, title: string, updated: number, m: object = {}) => ({
   ...m,
 })
 
-async function fakeServer(page: Page) {
-  const chats = [
+async function fakeServer(
+  page: Page,
+  chats = [
     chat("cht_1", "Add a /health page", 30, { working: true }),
     chat("cht_2", "Fix the header layout", 7200),
     chat("cht_3", "Old release notes", 3 * 86400),
-  ]
+  ],
+) {
   const deleted: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -144,4 +146,28 @@ test("deleting the open chat goes to its Bot's new chat", async ({ page, isMobil
 
   await expect(page).toHaveURL(/\/\?bot=coordinator$/)
   expect(deleted).toEqual(["cht_3"])
+})
+
+// Scenario: a Bot with one chat shows as one row, which stands for that chat (issue #503); its row's menu deletes the
+// chat after asking, as a chat row's does.
+test("a Bot with one chat deletes it from its row's menu", async ({ page }) => {
+  const deleted = await fakeServer(page, [chat("cht_9", "Only chat", 60)])
+  await page.goto("/")
+
+  await expect(
+    bots(page).getByRole("button", { name: "Show the chats of coordinator" }),
+  ).toHaveCount(0)
+  await bots(page)
+    .getByRole("link", { name: /coordinator/ })
+    .hover()
+  await bots(page).getByRole("button", { name: "Actions for Only chat" }).click()
+  await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible()
+  await shot(page, "chat-delete-only-chat-menu")
+
+  await page.getByRole("menuitem", { name: "Delete" }).click()
+  const dialog = page.getByRole("alertdialog")
+  await expect(dialog).toContainText("Delete “Only chat”?")
+  await dialog.getByRole("button", { name: "Delete" }).click()
+  await expect(page.getByText("Chat deleted")).toBeVisible()
+  expect(deleted).toEqual(["cht_9"])
 })

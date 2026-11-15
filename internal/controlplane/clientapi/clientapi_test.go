@@ -967,9 +967,12 @@ type fakeCoordinator struct {
 	busy      atomic.Bool
 	// keys are the gateway keys of the chats a pi runs for.
 	keys sync.Map
-	// working is the chat pi works in; stopped is the chat whose pi was last stopped.
+	// working is the chat pi works in; stopped is the chat whose pi was last stopped, and stops every chat whose
+	// pi was stopped, in order.
 	working atomic.Value
 	stopped atomic.Value
+	stopsMu sync.Mutex
+	stops   []string
 }
 
 func (f *fakeCoordinator) Key(chatID string) (string, bool) {
@@ -986,7 +989,12 @@ func (f *fakeCoordinator) Working(chatID string) bool {
 	return working != "" && working == chatID
 }
 
-func (f *fakeCoordinator) Stop(chatID string) { f.stopped.Store(chatID) }
+func (f *fakeCoordinator) Stop(chatID string) {
+	f.stopped.Store(chatID)
+	f.stopsMu.Lock()
+	f.stops = append(f.stops, chatID)
+	f.stopsMu.Unlock()
+}
 
 func (f *fakeCoordinator) Watch(_ string) (<-chan coordinator.Frame, func()) {
 	return f.live, func() {}

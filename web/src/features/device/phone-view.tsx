@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
+  type WheelEvent,
 } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -16,6 +17,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { errorText } from "@/lib/server-error"
 
+import { defaultAspect, fitPhoneFrame, sideButtons, wheelDrag, type FrameLayout } from "./frame"
+import { useRoomSize, useWheelDrag, type Touch } from "./frame-hooks"
 import {
   keyInput,
   screenPoint,
@@ -24,6 +27,7 @@ import {
   type Controller,
   type PhoneInput,
   type PhoneState,
+  type Screen,
 } from "./stream"
 import { createPhoneClient, type PhoneClient } from "./stream-client"
 
@@ -55,6 +59,11 @@ function usePageVisible() {
 // the screen takes no input without it, moves are merged one a frame, a hidden text area holds the keys' focus with
 // Shift+Escape to leave, and the stream stops while the page is hidden unless the owner holds the phone. Left out:
 // T3 Code's 3D phone, its accessibility frames, rotation, folding and tools panel.
+//
+// The screen sits in Orca's phone frame (issue #528; src/renderer/src/components/emulator-pane/emulator-device-frame.tsx
+// and emulator-screen-surface.tsx, MIT License, Copyright (c) 2026 Lovecast Inc.; the math in ./frame.ts): a shell
+// that scales with the pane on its muted ground, with side buttons for the volume and Power, and a wheel over the
+// screen is a finger's drag.
 export function PhoneView({ label }: { label: string }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -80,7 +89,17 @@ export function PhoneView({ label }: { label: string }) {
   // A page nobody looks at takes no frames, unless its owner holds the phone, as the browser's.
   const watching = pageVisible || you
 
+  const [screen, setScreen] = useState<Screen | null>(null)
+  const { ref: room, size } = useRoomSize()
+  const layout = fitPhoneFrame(size, screen ? screen.width / screen.height : defaultAspect)
+
   const send = useCallback((message: PhoneInput) => client.current?.send(message) ?? false, [])
+  const sendTouch = useCallback(
+    ({ action, x, y }: Touch) => send({ type: "touch", action, x, y }),
+    [send],
+  )
+  const wheel = useWheelDrag(sendTouch)
+  const cancelWheel = wheel.cancel
 
   const flush = useCallback(() => {
     frame.current = null
@@ -94,8 +113,9 @@ export function PhoneView({ label }: { label: string }) {
     frame.current = null
     pendingMove.current = null
     finger.current = null
+    cancelWheel()
     input.current?.blur()
-  }, [])
+  }, [cancelWheel])
 
   useEffect(() => {
     if (!watching || !canvas.current) return
@@ -123,7 +143,8 @@ export function PhoneView({ label }: { label: string }) {
             setHasFrame(false)
           }
         },
-        onScreen: () => {
+        onScreen: (next) => {
+          setScreen(next)
           setTrouble(null)
           painted.current = false
           setHasFrame(false)
@@ -171,6 +192,8 @@ export function PhoneView({ label }: { label: string }) {
       if (finger.current !== null || (event.pointerType === "mouse" && event.button !== 0)) return
       const point = pointAt(clientX, clientY, false)
       if (!point) return
+      // A finger put down ends a wheel's drag first: the phone has one finger here.
+      wheel.cancel()
       input.current?.focus({ preventScroll: true })
       event.currentTarget.setPointerCapture(pointerId)
       finger.current = pointerId
@@ -193,6 +216,14 @@ export function PhoneView({ label }: { label: string }) {
     flush()
     finger.current = null
     if (point) send({ type: "touch", action: "up", ...point })
+  }
+
+  // A wheel over the screen is a finger's drag, as Orca's emulator takes it; not while a finger is down.
+  const handleWheel = (event: WheelEvent<HTMLCanvasElement>) => {
+    const at = canvas.current
+    if (!at || !painted.current || control.current !== "you" || finger.current !== null) return
+    const drag = wheelDrag(event, at.getBoundingClientRect(), at)
+    if (drag) wheel.queue(drag)
   }
 
   const resetInput = (textarea: HTMLTextAreaElement) => {
@@ -294,20 +325,68 @@ export function PhoneView({ label }: { label: string }) {
           </TooltipContent>
         </Tooltip>
       </div>
-      <div className="relative min-h-0 flex-1 bg-black">
-        <canvas
-          ref={canvas}
-          aria-hidden="true"
-          className={`block size-full touch-none object-contain ${you ? "cursor-default" : "cursor-not-allowed"}`}
-          onPointerDown={handlePointer}
-          onPointerMove={handlePointer}
-          onPointerUp={handlePointer}
-          onPointerCancel={handlePointer}
-          onLostPointerCapture={handlePointer}
-          // Keeps the focus in the input below and stops the page's own text selection.
-          onMouseDown={(event) => event.preventDefault()}
-          onContextMenu={(event) => event.preventDefault()}
-        />
+      {/* The phone in its frame, fitted in the room on the muted ground, as Orca's emulator pane. */}
+      <div className="relative flex min-h-0 flex-1 flex-col bg-muted px-3 py-6">
+        <div ref={room} className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
+          <div
+            className="relative shrink-0"
+            data-testid="phone-frame"
+            style={
+              layout
+                ? { width: layout.width, height: layout.height }
+                : { width: "100%", height: "100%" }
+            }
+          >
+            {layout && (
+              <SideButtons
+                layout={layout}
+                disabled={!you}
+                onPress={(button) =>
+                  send(
+                    button === "power"
+                      ? { type: "power" }
+                      : { type: "key", keycode: button === "volumeUp" ? 24 : 25 },
+                  )
+                }
+              />
+            )}
+            {/* Orca's black shell; on this app's black dark theme it is drawn a shade lighter, or it is not seen. */}
+            <div
+              className="absolute inset-y-0 overflow-hidden bg-black shadow-lg ring-1 ring-black/25 dark:bg-input dark:ring-white/15"
+              style={
+                layout
+                  ? {
+                      left: layout.hardwareOutset,
+                      width: layout.shellWidth,
+                      borderRadius: layout.outerRadius,
+                    }
+                  : { left: 0, right: 0 }
+              }
+            >
+              <div
+                className="absolute overflow-hidden bg-black ring-1 ring-white/10"
+                style={
+                  layout ? { inset: layout.bezel, borderRadius: layout.innerRadius } : { inset: 0 }
+                }
+              >
+                <canvas
+                  ref={canvas}
+                  aria-hidden="true"
+                  className={`block size-full touch-none object-contain ${you ? "cursor-default" : "cursor-not-allowed"}`}
+                  onPointerDown={handlePointer}
+                  onPointerMove={handlePointer}
+                  onPointerUp={handlePointer}
+                  onPointerCancel={handlePointer}
+                  onLostPointerCapture={handlePointer}
+                  onWheel={handleWheel}
+                  // Keeps the focus in the input below and stops the page's own text selection.
+                  onMouseDown={(event) => event.preventDefault()}
+                  onContextMenu={(event) => event.preventDefault()}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
         {/* Where the phone's keys are typed, as in the browser's view. */}
         <textarea
           ref={input}
@@ -388,6 +467,59 @@ function PhoneCard({ alert, children }: { alert?: boolean; children: ReactNode }
       </div>
     </div>
   )
+}
+
+const sideLabels = { volumeUp: "Volume up", volumeDown: "Volume down", power: "Power" } as const
+
+// Room a side button takes beyond its drawn bar, outside the frame, so that a bar a few pixels wide can be hit.
+const sideReach = 10
+
+// SideButtons are the phone's volume rocker and Power, placed as Orca draws them
+// (emulator-phone-hardware-buttons.tsx) and pressed as ws-scrcpy's tool box sends them (GoogToolBox.ts: Power,
+// Volume up, Volume down): only while the owner holds the phone.
+function SideButtons({
+  layout,
+  disabled,
+  onPress,
+}: {
+  layout: FrameLayout
+  disabled: boolean
+  onPress: (button: keyof typeof sideLabels) => void
+}) {
+  const inset = layout.hardwareOutset - layout.sideButtonThickness
+
+  return sideButtons(layout).map((button) => {
+    const label = sideLabels[button.name]
+
+    return (
+      <Tooltip key={button.name}>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={label}
+              disabled={disabled}
+              onClick={() => onPress(button.name)}
+              className={`group absolute flex outline-none disabled:cursor-not-allowed ${button.side === "left" ? "justify-end" : "justify-start"}`}
+              style={{
+                [button.side]: inset - sideReach,
+                top: button.top,
+                height: button.height,
+                width: layout.sideButtonThickness + sideReach,
+              }}
+            />
+          }
+        >
+          <span
+            aria-hidden
+            className={`h-full bg-black/80 group-hover:not-group-disabled:bg-black group-focus-visible:ring-2 group-focus-visible:ring-ring dark:bg-border-strong dark:group-hover:not-group-disabled:bg-muted-foreground ${button.side === "left" ? "rounded-l-sm" : "rounded-r-sm"}`}
+            style={{ width: layout.sideButtonThickness }}
+          />
+        </TooltipTrigger>
+        <TooltipContent side={button.side}>{label}</TooltipContent>
+      </Tooltip>
+    )
+  })
 }
 
 function RowButton({

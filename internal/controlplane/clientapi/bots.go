@@ -3,6 +3,7 @@ package clientapi
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -172,7 +173,7 @@ func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObje
 	case force && chat != "":
 		return nil, fmt.Errorf("%w: only the owner removes a bot with its chats", errForbidden)
 	case force:
-		err = s.svc.ForceDeleteBot(ctx, req.BotId)
+		err = s.forceDeleteBot(ctx, req.BotId)
 	case chat == "":
 		err = s.svc.DeleteBot(ctx, req.BotId)
 	default:
@@ -184,6 +185,48 @@ func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObje
 	}
 
 	return openapi.DeleteBot204Response{}, nil
+}
+
+// forceDeleteBot removes a Bot with its chats, each as DeleteChat removes one
+// (issue #503): refused while pi works in one of them, and after the commit
+// each chat's pi is stopped and its files go. A file that stays is logged; the
+// Bot stays deleted.
+func (s *Server) forceDeleteBot(ctx context.Context, id string) error {
+	if s.coordinator != nil {
+		chats, err := s.svc.ChatIDsOfBot(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		for _, chat := range chats {
+			if s.coordinator.Working(chat) {
+				return fmt.Errorf("%w: the coordinator is working in chat %s of bot %s; stop it first",
+					orchestration.ErrConflict, chat, id)
+			}
+		}
+	}
+
+	chats, err := s.svc.ForceDeleteBot(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// The Bot is gone whatever follows, even if the owner's request ends meanwhile.
+	ctx = context.WithoutCancel(ctx)
+
+	for _, chat := range chats {
+		if s.coordinator != nil {
+			s.coordinator.Stop(chat.ID)
+		}
+
+		for _, err := range s.removeChatFiles(ctx, chat) {
+			s.logger.ErrorContext(ctx, "removing a deleted chat's files failed",
+				slog.String("event", "clientapi.chat_files_left"), slog.String("chat_id", chat.ID),
+				slog.String("error", err.Error()))
+		}
+	}
+
+	return nil
 }
 
 // ChangeBotMemory applies one change to a Bot's memory.
