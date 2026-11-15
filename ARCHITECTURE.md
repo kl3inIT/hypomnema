@@ -2231,6 +2231,16 @@ which list and run the gateway's tools alone, so that a Bot is offered none of a
 `memory`, the browser, the phone); a tool an agent was not given is a 404 there. Each call is recorded on the
 Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's running pi, as its `hypomnema web` and
 `hypomnema image` are.
+
+```mermaid
+flowchart LR
+    subgraph CP["Control plane"]
+        L["agent API: tool list and calls<br/>web_search, web_fetch, generate_image"] --> G["gateway services<br/>search chain, fetch, Images"]
+    end
+    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "/agent/v1/gateway/*<br/>chat pi's token" --> L
+    W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "browser routes<br/>Dispatch key" --> L
+    O["Owner, Routine script"] -- "hypomnema web / image" --> C["client API"] --> G
+```
 - Which worker gets which (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
   three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker

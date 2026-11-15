@@ -1,5 +1,7 @@
 # Coordinators drive orchestration with the CLI and a skill
 
+Since 2026-11-15, what every agent kind shares is one tool over MCP: [2026-11-15-one-tool-for-every-agent.md](2026-11-15-one-tool-for-every-agent.md).
+
 Date: 2026-11-09. Status: accepted by the owner, implemented by issue #41 (PR 2). Replaces the intent in
 [vision.md](../vision.md) that the coordinator's tools come through MCP and a pi extension.
 
