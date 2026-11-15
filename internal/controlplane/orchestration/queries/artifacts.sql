@@ -4,7 +4,7 @@ INSERT INTO artifact_blobs (sha256, size, data) VALUES (@sha256, @size, @data)
 ON CONFLICT (sha256) DO NOTHING;
 
 -- name: InsertArtifact :exec
-INSERT INTO artifacts (id, chat_id, bot, message_seq, revision, created_at, updated_at)
+INSERT INTO artifacts (id, chat_id, bot_id, message_seq, revision, created_at, updated_at)
 VALUES (@id, @chat_id, @bot, @message_seq, @revision, @now, @now);
 
 -- name: ReviseArtifact :exec
@@ -35,11 +35,11 @@ WHERE f.artifact_id = @artifact_id AND f.revision = @revision AND f.path = @path
 
 -- name: ListArtifacts :many
 -- The artifacts with their newest revision, the latest changed first; of one chat when it is named.
-SELECT a.id, a.chat_id, a.bot, a.message_seq, a.revision, a.created_at, a.updated_at,
+SELECT a.id, a.chat_id, a.bot_id, a.message_seq, a.revision, a.created_at, a.updated_at,
        r.title, r.type, r.entry, r.size
 FROM artifacts a JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 WHERE (CAST(@chat_id AS TEXT) = '' OR a.chat_id = @chat_id)
-  AND (CAST(@bot AS TEXT) = '' OR a.bot = @bot)
+  AND (CAST(@bot AS TEXT) = '' OR a.bot_id = @bot)
 ORDER BY a.updated_at DESC, a.id
 LIMIT @lim;
 

@@ -108,7 +108,7 @@ export function BotsScreen() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {list.map((bot) => (
-              <BotCard key={bot.name} bot={bot} names={connectionNames} />
+              <BotCard key={bot.id} bot={bot} names={connectionNames} />
             ))}
           </div>
         )}
@@ -171,8 +171,8 @@ function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
         <h2 className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-semibold">
           <AgentAvatar name={bot.name} className="size-8 shrink-0" />
           <Link
-            to="/bots/$name"
-            params={{ name: bot.name }}
+            to="/bots/$id"
+            params={{ id: bot.id }}
             className="truncate outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
           >
             {bot.name}
@@ -242,14 +242,14 @@ function BotsTable({ bots }: { bots: Bot[] }) {
         </thead>
         <tbody>
           {bots.map((bot) => (
-            <tr key={bot.name} data-testid="bot" className="border-b last:border-b-0">
+            <tr key={bot.id} data-testid="bot" className="border-b last:border-b-0">
               <td className="max-w-80 px-3 py-2.5">
                 <span className="flex min-w-0 items-center gap-2.5">
                   <AgentAvatar name={bot.name} className="size-8 shrink-0" />
                   <span className="min-w-0">
                     <Link
-                      to="/bots/$name"
-                      params={{ name: bot.name }}
+                      to="/bots/$id"
+                      params={{ id: bot.id }}
                       className="font-medium hover:underline"
                     >
                       {bot.name}

@@ -26,7 +26,7 @@ var owner = routineAuthor{}
 
 func hourly(name string) routineSpec {
 	return routineSpec{
-		Bot: DefaultBot, Name: name, Kind: routinestore.RoutineScript, Script: "sync.sh", ScriptText: syncScript,
+		Bot: DefaultBotID, Name: name, Kind: routinestore.RoutineScript, Script: "sync.sh", ScriptText: syncScript,
 		EveryMinutes: 60,
 		Summary:      "the usage figures go to the Lark Base", Announce: true,
 	}
@@ -34,7 +34,7 @@ func hourly(name string) routineSpec {
 
 func daily(name string) routineSpec {
 	return routineSpec{
-		Bot: DefaultBot, Name: name, Kind: routinestore.RoutinePrompt, Prompt: "Summarize what changed overnight.",
+		Bot: DefaultBotID, Name: name, Kind: routinestore.RoutinePrompt, Prompt: "Summarize what changed overnight.",
 		EveryMinutes: 1440, Announce: true,
 	}
 }
@@ -150,7 +150,7 @@ func TestWhatARoutineMayBe(t *testing.T) {
 		"a script stops after ten minutes unless its routine says otherwise")
 	assert.Equal(t, t0.Add(time.Hour), *sync.NextRunAt)
 	assert.Equal(t, "Every hour, coordinator runs the script sync.sh: the usage figures go to the Lark Base.",
-		routinestore.RoutineSentence(sync))
+		routinestore.RoutineSentence(sync, "coordinator"))
 
 	long := hourly("long")
 	long.TimeoutSeconds = 6 * 3600
@@ -164,7 +164,7 @@ func TestWhatARoutineMayBe(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), *made.NextRunAt)
 	assert.Equal(t, "every weekday at 7:00 Ho Chi Minh time", routinestore.ScheduleWords(made))
 
-	err = w.s.DeleteBot(t.Context(), DefaultBot)
+	err = w.s.DeleteBot(t.Context(), DefaultBotID)
 	require.ErrorIs(t, err, ErrConflict)
 }
 
@@ -448,7 +448,7 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 	chat, err := w.s.CreateChat(ctx, "", "The usage figures")
 	require.NoError(t, err)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap"})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
 	require.NoError(t, err)
 
 	spec := hourly("sync")
@@ -460,7 +460,7 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 		want   string
 	}{
 		"from no chat":          {func(n *routineSpec) { n.ChatID = "" }, bot, "from the chat it works in"},
-		"for another bot":       {func(n *routineSpec) { n.Bot = "vmap" }, bot, "talks with bot coordinator, not vmap"},
+		"for another bot":       {func(n *routineSpec) { n.Bot = vmapBot.ID }, bot, "talks with bot " + DefaultBotID + ", not " + vmapBot.ID},
 		"from a script's run":   {func(*routineSpec) {}, routineAuthor{Bot: true, FromRun: true}, "a routine's run cannot make"},
 		"the owner, from a run": {func(*routineSpec) {}, routineAuthor{FromRun: true}, "a routine's run cannot make"},
 	} {
@@ -587,7 +587,7 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 		}
 	}
 
-	_, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBot)
+	_, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.ErrorContains(t, err, "no run of routine", "nothing is handed out while no run is starting")
 
 	first, err := w.s.RunRoutineNow(ctx, sync.ID)
@@ -596,14 +596,14 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	_, err = w.s.Routines().ClaimRoutineScript(ctx, sync.ID, "vmap")
 	require.ErrorContains(t, err, "is not bot vmap's")
 
-	launch, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBot)
+	launch, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.NoError(t, err)
 	assert.Equal(t, "sync.sh", launch.Script)
 	assert.Equal(t, syncScript, launch.Text)
 	assert.Equal(t, routinestore.ScriptTimeout, launch.Timeout)
 	require.NotEmpty(t, launch.Key)
 
-	_, err = w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBot)
+	_, err = w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.ErrorIs(t, err, ErrConflict, "a run's key is given once")
 
 	// A request that names no key, or a key that is none, is nobody's run's.
@@ -656,7 +656,7 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	second, err := w.s.RunRoutineNow(ctx, sync.ID)
 	require.NoError(t, err)
 
-	next, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBot)
+	next, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.NoError(t, err)
 	require.NotEqual(t, launch.Key, next.Key, "each run has its own key")
 
@@ -678,7 +678,7 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	_, err = w.s.RunRoutineNow(ctx, other.ID)
 	require.NoError(t, err)
 
-	otherKey, err := w.s.Routines().ClaimRoutineScript(ctx, other.ID, DefaultBot)
+	otherKey, err := w.s.Routines().ClaimRoutineScript(ctx, other.ID, DefaultBotID)
 	require.NoError(t, err)
 
 	_, granted, err = w.s.AskApproval(ctx, write(otherKey.Key, "rows-2"))
@@ -723,7 +723,7 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	third, err := w.s.RunRoutineNow(ctx, sync.ID)
 	require.NoError(t, err)
 
-	key, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBot)
+	key, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.NoError(t, err)
 
 	asked, granted, err = w.s.AskApproval(ctx, write(key.Key, "rows-3"))

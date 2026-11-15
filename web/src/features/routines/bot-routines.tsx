@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { useBotName } from "@/features/bots/use-bots"
 
 import { StatusMark } from "./parts"
 import { RoutineForm } from "./routine-form"
@@ -17,6 +18,7 @@ import { useRoutines, useSwitch } from "./use-routines"
 // empty list that says so). Changed: a row opens the Routine on the Routines page; its runs are there.
 
 export function BotRoutines({ bot }: { bot: string }) {
+  const name = useBotName(bot)
   const routines = useRoutines({ bot })
   const flip = useSwitch()
   const [making, setMaking] = useState(false)
@@ -43,7 +45,7 @@ export function BotRoutines({ bot }: { bot: string }) {
       ) : listed.length === 0 ? (
         <div className="rounded-xl border border-dashed p-5 text-center text-[13px] text-muted-foreground">
           <Repeat2 className="mx-auto mb-2 size-5 opacity-60" aria-hidden />
-          No Routines yet. Ask {bot} in a chat, or make one.
+          No Routines yet. Ask {name} in a chat, or make one.
         </div>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -79,7 +81,7 @@ export function BotRoutines({ bot }: { bot: string }) {
         search={{ bot }}
         className="flex items-center gap-0.5 self-start text-xs text-link hover:underline"
       >
-        All of {bot}'s Routines
+        All of {name}'s Routines
         <ChevronRight className="size-3.5" aria-hidden />
       </Link>
 

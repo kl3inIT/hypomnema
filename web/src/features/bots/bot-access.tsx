@@ -194,7 +194,7 @@ export function BotAccess({ bot }: { bot: Bot }) {
     what: string,
   ) {
     put.mutate(
-      { name: bot.name, settings: { ...keptSettings(bot), ...change } },
+      { id: bot.id, settings: { ...keptSettings(bot), ...change } },
       { onSuccess: () => said(what) },
     )
   }

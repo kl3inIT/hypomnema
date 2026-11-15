@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // The launcher's box (issue #260), run for real: the launcher is the file
@@ -60,6 +62,8 @@ func needBox(t *testing.T) {
 // launchers left it, in a directory of the test's own.
 type boxWorld struct {
 	root, userHome, home, script string
+	// bot is the id of the Bot pi starts for: the main one unless a test names another.
+	bot string
 	// outside is a file in the machine's /tmp, which the box must not see.
 	outside string
 }
@@ -68,7 +72,7 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 	t.Helper()
 
 	root := t.TempDir()
-	w := &boxWorld{root: root, userHome: filepath.Join(root, "home", "coordinator")}
+	w := &boxWorld{root: root, userHome: filepath.Join(root, "home", "coordinator"), bot: orchestration.DefaultBotID}
 	w.home = filepath.Join(w.userHome, ".hypomnema-coordinator")
 
 	files := map[string]string{
@@ -91,8 +95,13 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 	write(t, filepath.Join(w.userHome, ".agents", "skills", "hypomnema-coordinator", "SKILL.md"), "skill", 0o600)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "node", "bin"), 0o700))
 
-	// The control plane's CLI, as the launcher calls it before pi starts.
+	// The control plane's CLI, as the launcher calls it before pi starts. `bots show` names the main Bot as
+	// coordinator and the Bot of the id `+otherBot+` as other, the names their directories had before ids.
 	write(t, filepath.Join(root, "bin", "hypomnema"), `#!/bin/sh
+case "$1 $2 $3" in
+  "bots show `+orchestration.DefaultBotID+`") printf '%s\tcoordinator (main)\tpi\n' "$3"; exit 0 ;;
+  "bots show `+otherBot+`") printf '%s\tother\tpi\n' "$3"; exit 0 ;;
+esac
 case "$1" in
   bots) shift 2; echo "persona of $*" ;;
   skills) mkdir -p "$6" ;;
@@ -192,7 +201,7 @@ func write(t *testing.T, path, content string, mode os.FileMode) {
 func (w *boxWorld) start(t *testing.T, stdin string, flags ...string) (map[string]string, string, error) {
 	t.Helper()
 
-	args := append(append([]string{w.script, "cht_mine", "--bot", "coordinator"}, flags...), "--model", "gpt-sol")
+	args := append(append([]string{w.script, "cht_mine", "--bot", w.bot}, flags...), "--model", "gpt-sol")
 	//nolint:gosec // The test's own copy of the launcher.
 	cmd := exec.CommandContext(t.Context(), "sh", args...)
 	cmd.Env = append(os.Environ(), "HYPOMNEMA_SECRET_OF_THE_CALLER=x")
@@ -233,8 +242,8 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.Equal(t, "--mode rpc --session-dir "+sessions+" --session-id cht_mine --model gpt-sol "+
 		"--append-system-prompt "+filepath.Join(w.home, "run", "cht_mine", "prompt.md")+
 		" --skill "+filepath.Join(w.home, "run", "cht_mine", "skills"), seen["args"])
-	assert.Equal(t, "persona of coordinator", seen["prompt"])
-	assert.Equal(t, work, seen["cwd"], "the first Bot works where pi always worked, the path its sessions record")
+	assert.Equal(t, "persona of "+orchestration.DefaultBotID, seen["prompt"])
+	assert.Equal(t, work, seen["cwd"], "the main Bot works where pi always worked, the path its sessions record")
 
 	pid, err := strconv.Atoi(seen["pid"])
 	require.NoError(t, err)
@@ -284,12 +293,33 @@ func TestALarkGroupsPiRunsInItsBoxToo(t *testing.T) {
 	seen, stderr, err := w.start(t, "hyp_bot_v1_group\n", "--group")
 	require.NoError(t, err, stderr)
 
-	assert.Equal(t, "persona of --group coordinator", seen["prompt"])
+	assert.Equal(t, "persona of --group "+orchestration.DefaultBotID, seen["prompt"])
 	assert.NotContains(t, seen["args"], "--group", "the flag is the launcher's, not pi's")
 	assert.JSONEq(t, `{"url":"http://127.0.0.1:18990","token":"hyp_bot_v1_group"}`, seen["client"])
 	assert.Equal(t, "hidden", seen["other"])
 	assert.Equal(t, "private", seen["tmp"])
 	assert.NotContains(t, seen["python"], "/tools/", "without a documents environment pi starts all the same")
+}
+
+// otherBot is the id of a Bot from before ids (issue #466), whose directory is named by its name, other.
+const otherBot = "bot_otheraaaaaaaaaaaaaaaaaaaaa"
+
+// Scenario: a Bot from before ids starts in the directory named by its old name, the path its sessions record,
+// through a link of its id, made once; a rename later moves nothing.
+func TestABotFromBeforeIDsKeepsItsDirectory(t *testing.T) {
+	t.Parallel()
+	needBox(t)
+
+	w := newBoxWorld(t, bwrapPath)
+	w.bot = otherBot
+	seen, stderr, err := w.start(t, "hyp_bot_v1_other\n")
+	require.NoError(t, err, stderr)
+
+	assert.Equal(t, filepath.Join(w.home, "bots", "other"), seen["cwd"])
+
+	link, err := os.Readlink(filepath.Join(w.home, "bots", otherBot))
+	require.NoError(t, err)
+	assert.Equal(t, "other", link)
 }
 
 // Scenario: pi does not start without its token, nor without a box.

@@ -116,7 +116,7 @@ function useChange<A, T>(run: (arg: A) => Promise<T>, onSuccess?: (done: T) => v
 export function usePutRoutine() {
   return useChange(
     async ({ bot, name, settings }: { bot: string; name: string; settings: RoutineSettings }) =>
-      (await putRoutine({ path: { name: bot, routine: name }, body: settings })).data,
+      (await putRoutine({ path: { bot_id: bot, routine: name }, body: settings })).data,
   )
 }
 

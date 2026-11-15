@@ -1,9 +1,9 @@
 -- name: UpsertChannel :exec
-INSERT INTO channels (name, kind, app_id, secret, bot, mode, owner_id, enabled, web_link, created_at,
+INSERT INTO channels (name, kind, app_id, secret, bot_id, mode, owner_id, enabled, web_link, created_at,
     updated_at)
 VALUES (@name, @kind, @app_id, @secret, @bot, @mode, @owner_id, @enabled, @web_link, @now, @now)
 ON CONFLICT (name) DO UPDATE SET kind = excluded.kind, app_id = excluded.app_id, secret = excluded.secret,
-    bot = excluded.bot, mode = excluded.mode, owner_id = excluded.owner_id, enabled = excluded.enabled,
+    bot_id = excluded.bot_id, mode = excluded.mode, owner_id = excluded.owner_id, enabled = excluded.enabled,
     web_link = excluded.web_link, updated_at = excluded.updated_at;
 
 -- name: GetChannel :one
@@ -19,7 +19,7 @@ SELECT * FROM channels ORDER BY created_at, name;
 DELETE FROM channels WHERE name = @name;
 
 -- name: CountChannelsOfBot :one
-SELECT count(*) FROM channels WHERE bot = @bot;
+SELECT count(*) FROM channels WHERE bot_id = @bot;
 
 -- name: FirstEnabledChannel :one
 SELECT name FROM channels WHERE enabled = 1 ORDER BY created_at, name LIMIT 1;

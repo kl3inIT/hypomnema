@@ -39,7 +39,7 @@ func (q *Queries) CountUnfinishedTasks(ctx context.Context, arg CountUnfinishedT
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses, bot FROM runs WHERE id = ?1
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses, bot_id FROM runs WHERE id = ?1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -59,13 +59,13 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.ChatID,
 		&i.RepoHost,
 		&i.Uses,
-		&i.Bot,
+		&i.BotID,
 	)
 	return i, err
 }
 
 const getRunWithBot = `-- name: GetRunWithBot :one
-SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot, CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE runs.id = ?1
 `
@@ -93,7 +93,7 @@ func (q *Queries) GetRunWithBot(ctx context.Context, id string) (GetRunWithBotRo
 		&i.Run.ChatID,
 		&i.Run.RepoHost,
 		&i.Run.Uses,
-		&i.Run.Bot,
+		&i.Run.BotID,
 		&i.Bot,
 	)
 	return i, err
@@ -130,7 +130,7 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 
 const insertRun = `-- name: InsertRun :exec
 INSERT INTO runs (id, objective, status, created_by, repo, repo_host, base, coordinator_token_id, chat_id, uses,
-                  bot, created_at, updated_at)
+                  bot_id, created_at, updated_at)
 VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?9,
         ?10, ?11, ?11)
 `
@@ -343,7 +343,7 @@ func (q *Queries) ListDependents(ctx context.Context, taskID string) ([]ListDepe
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot, CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE (CAST(?1 AS TEXT) = '' OR runs.status = ?1)
   AND (CAST(?2 AS TEXT) = '' OR runs.chat_id = ?2)
@@ -399,7 +399,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 			&i.Run.ChatID,
 			&i.Run.RepoHost,
 			&i.Run.Uses,
-			&i.Run.Bot,
+			&i.Run.BotID,
 			&i.Bot,
 		); err != nil {
 			return nil, err

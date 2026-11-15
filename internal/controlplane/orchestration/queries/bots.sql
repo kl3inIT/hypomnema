@@ -1,33 +1,42 @@
--- name: UpsertBot :exec
-INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
+-- name: InsertBot :exec
+INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
                   created_at, updated_at)
-VALUES (@name, @provider, @model, @effort, @persona, @skills, @skills_off, @connections, @workers, @tool_display, @now,
-        @now)
-ON CONFLICT (name) DO UPDATE SET provider = excluded.provider, model = excluded.model, effort = excluded.effort,
-    persona = excluded.persona, skills = excluded.skills, skills_off = excluded.skills_off,
-    connections = excluded.connections, workers = excluded.workers, tool_display = excluded.tool_display,
-    updated_at = excluded.updated_at;
+VALUES (@id, @name, @provider, @model, @effort, @persona, @skills, @skills_off, @connections, @workers, @tool_display,
+        @now, @now);
+
+-- name: UpdateBot :exec
+-- A Bot's settings; its name and memory stay.
+UPDATE bots SET provider = @provider, model = @model, effort = @effort, persona = @persona, skills = @skills,
+    skills_off = @skills_off, connections = @connections, workers = @workers, tool_display = @tool_display,
+    updated_at = @now
+WHERE id = @id;
+
+-- name: RenameBot :execrows
+UPDATE bots SET name = @name, updated_at = @now WHERE id = @id;
 
 -- name: GetBot :one
+SELECT * FROM bots WHERE id = @id;
+
+-- name: GetBotByName :one
 SELECT * FROM bots WHERE name = @name;
 
 -- name: ToolDisplayOfChat :one
 -- What the chat's Bot shows of its tool calls (issue #441).
-SELECT b.tool_display FROM chats c JOIN bots b ON b.name = c.bot WHERE c.id = @chat_id;
+SELECT b.tool_display FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = @chat_id;
 
 -- name: ListBots :many
 SELECT * FROM bots ORDER BY created_at, name;
 
 -- name: DeleteBot :exec
-DELETE FROM bots WHERE name = @name;
+DELETE FROM bots WHERE id = @id;
 
 -- name: SetBotMemory :exec
-UPDATE bots SET memory = @memory, updated_at = @now WHERE name = @name;
+UPDATE bots SET memory = @memory, updated_at = @now WHERE id = @id;
 
 -- name: CountRepliesOfBotSince :one
 -- What a Bot answered since a moment, in chats other than one: that it was used since then.
 SELECT count(*) FROM chat_messages m JOIN chats c ON c.id = m.chat_id
-WHERE c.bot = @bot AND m.role = 'coordinator' AND m.created_at >= @since AND m.chat_id <> @chat_id;
+WHERE c.bot_id = @bot AND m.role = 'coordinator' AND m.created_at >= @since AND m.chat_id <> @chat_id;
 
 -- name: InsertSetupChange :exec
 INSERT INTO setup_changes (id, chat_id, kind, name, action, before, after, created_at)

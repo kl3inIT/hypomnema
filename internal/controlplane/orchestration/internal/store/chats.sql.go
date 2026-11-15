@@ -132,7 +132,7 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 }
 
 const countChatsOfBot = `-- name: CountChatsOfBot :one
-SELECT count(*) FROM chats WHERE bot = ?1
+SELECT count(*) FROM chats WHERE bot_id = ?1
 `
 
 func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error) {
@@ -202,7 +202,7 @@ func (q *Queries) DetachRunsFromChat(ctx context.Context, chatID string) error {
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -213,7 +213,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Title,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Bot,
+		&i.BotID,
 		&i.ChannelGroup,
 		&i.Provider,
 		&i.Model,
@@ -226,7 +226,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 }
 
 const insertChat = `-- name: InsertChat :exec
-INSERT INTO chats (id, title, bot, provider, model, effort, created_at, updated_at)
+INSERT INTO chats (id, title, bot_id, provider, model, effort, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
 `
 
@@ -406,7 +406,7 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 }
 
 const listChatIDsOfBot = `-- name: ListChatIDsOfBot :many
-SELECT id FROM chats WHERE bot = ?1 ORDER BY id
+SELECT id FROM chats WHERE bot_id = ?1 ORDER BY id
 `
 
 func (q *Queries) ListChatIDsOfBot(ctx context.Context, bot string) ([]string, error) {
@@ -543,7 +543,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at, bot, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -560,7 +560,7 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.Title,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Bot,
+			&i.BotID,
 			&i.ChannelGroup,
 			&i.Provider,
 			&i.Model,

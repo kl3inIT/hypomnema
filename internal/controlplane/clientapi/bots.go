@@ -2,7 +2,6 @@ package clientapi
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
@@ -13,10 +12,11 @@ import (
 // launcher reads its Bot's persona when it starts, and pi writes its memory.
 // A pi's own token (issue #260) reads and changes its own Bot only, so one
 // Bot never reads another's persona or memory. The owner makes, changes and
-// removes a Bot, and the Bot coordinator from its chat (setupchanges.go).
+// removes a Bot, and the main Bot from its chat (setupchanges.go). A Bot is named by its id, which never changes;
+// its name is only shown (issue #466).
 
-// ListBots returns every Bot; a pi's token is shown its own, the Bot
-// coordinator's every one.
+// ListBots returns every Bot; a pi's token is shown its own, the main Bot's
+// every one.
 func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 ) (openapi.ListBotsResponseObject, error) {
 	bots, err := s.svc.ListBots(ctx)
@@ -28,7 +28,7 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 
 	out := openapi.ListBots200JSONResponse{Data: make([]openapi.Bot, 0, len(bots))}
 	for _, b := range bots {
-		if botReadable(tok, b.Name) == nil {
+		if botReadable(tok, b.ID) == nil {
 			out.Data = append(out.Data, toBot(b))
 		}
 	}
@@ -38,11 +38,11 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 
 // GetBot returns a Bot.
 func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (openapi.GetBotResponseObject, error) {
-	if err := botReadable(principal(ctx), req.Name); err != nil {
+	if err := botReadable(principal(ctx), req.BotId); err != nil {
 		return nil, err
 	}
 
-	b, err := s.svc.GetBot(ctx, req.Name)
+	b, err := s.svc.GetBot(ctx, req.BotId)
 	if err != nil {
 		return nil, err
 	}
@@ -50,52 +50,48 @@ func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (o
 	return openapi.GetBot200JSONResponse(toBot(b)), nil
 }
 
-// PutBot makes a Bot or changes its settings.
+// CreateBot makes a Bot with a new id and the name given.
+func (s *Server) CreateBot(ctx context.Context, req openapi.CreateBotRequestObject,
+) (openapi.CreateBotResponseObject, error) {
+	chat, err := setupChat(principal(ctx))
+	if err != nil {
+		return nil, err
+	}
+
+	settings := openapi.BotSettings{}
+	if req.Body.Settings != nil {
+		settings = *req.Body.Settings
+	}
+
+	bot := withSettings(orchestration.Bot{Name: req.Body.Name}, settings)
+
+	var b orchestration.Bot
+	if chat == "" {
+		b, err = s.svc.PutBot(ctx, bot)
+	} else {
+		b, err = s.svc.PutBotFromChat(ctx, chat, bot)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.CreateBot201JSONResponse(toBot(b)), nil
+}
+
+// PutBot changes a Bot's settings; what is left out is kept.
 func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (openapi.PutBotResponseObject, error) {
 	chat, err := setupChat(principal(ctx))
 	if err != nil {
 		return nil, err
 	}
 
-	bot := orchestration.Bot{
-		Name: req.Name, Provider: val(req.Body.Provider), Model: val(req.Body.Model), Effort: val(req.Body.Effort),
-		Persona: val(req.Body.Persona),
+	had, err := s.svc.GetBot(ctx, req.BotId)
+	if err != nil {
+		return nil, err
 	}
 
-	// Skills, lists and the tool display left out are kept: a client that does not know them does not take them away.
-	if req.Body.Skills == nil || req.Body.SkillsOff == nil || req.Body.Connections == nil || req.Body.Workers == nil ||
-		req.Body.ToolDisplay == nil {
-		had, err := s.svc.GetBot(ctx, req.Name)
-
-		switch {
-		case err == nil:
-			bot.Skills, bot.SkillsOff = had.Skills, had.SkillsOff
-			bot.Connections, bot.Workers = had.Connections, had.Workers
-			bot.ToolDisplay = had.ToolDisplay
-		case !errors.Is(err, orchestration.ErrNotFound):
-			return nil, err
-		}
-	}
-
-	if req.Body.Skills != nil {
-		bot.Skills = *req.Body.Skills
-	}
-
-	if req.Body.SkillsOff != nil {
-		bot.SkillsOff = *req.Body.SkillsOff
-	}
-
-	if l := req.Body.Connections; l != nil {
-		bot.Connections = fromAllowList(*l)
-	}
-
-	if l := req.Body.Workers; l != nil {
-		bot.Workers = fromAllowList(*l)
-	}
-
-	if d := req.Body.ToolDisplay; d != nil {
-		bot.ToolDisplay = orchestration.ToolDisplay(*d)
-	}
+	bot := withSettings(had, *req.Body)
 
 	var b orchestration.Bot
 	if chat == "" {
@@ -109,6 +105,57 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 	}
 
 	return openapi.PutBot200JSONResponse(toBot(b)), nil
+}
+
+// withSettings is a Bot with the settings given: its model and persona as given, and its skills, lists and tool
+// display as given or, left out, as it had them, so that a client that does not know them does not take them away.
+func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.Bot {
+	bot := had
+	bot.Provider, bot.Model, bot.Effort, bot.Persona = val(in.Provider), val(in.Model), val(in.Effort), val(in.Persona)
+
+	if in.Skills != nil {
+		bot.Skills = *in.Skills
+	}
+
+	if in.SkillsOff != nil {
+		bot.SkillsOff = *in.SkillsOff
+	}
+
+	if l := in.Connections; l != nil {
+		bot.Connections = fromAllowList(*l)
+	}
+
+	if l := in.Workers; l != nil {
+		bot.Workers = fromAllowList(*l)
+	}
+
+	if d := in.ToolDisplay; d != nil {
+		bot.ToolDisplay = orchestration.ToolDisplay(*d)
+	}
+
+	return bot
+}
+
+// RenameBot gives a Bot another name.
+func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObject,
+) (openapi.RenameBotResponseObject, error) {
+	chat, err := setupChat(principal(ctx))
+	if err != nil {
+		return nil, err
+	}
+
+	var b orchestration.Bot
+	if chat == "" {
+		b, err = s.svc.RenameBot(ctx, req.BotId, req.Body.Name)
+	} else {
+		b, err = s.svc.RenameBotFromChat(ctx, chat, req.BotId, req.Body.Name)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.RenameBot200JSONResponse(toBot(b)), nil
 }
 
 // DeleteBot removes a Bot nothing depends on; with force, the owner removes one with its chats and its memory.
@@ -125,11 +172,11 @@ func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObje
 	case force && chat != "":
 		return nil, fmt.Errorf("%w: only the owner removes a bot with its chats", errForbidden)
 	case force:
-		err = s.svc.ForceDeleteBot(ctx, req.Name)
+		err = s.svc.ForceDeleteBot(ctx, req.BotId)
 	case chat == "":
-		err = s.svc.DeleteBot(ctx, req.Name)
+		err = s.svc.DeleteBot(ctx, req.BotId)
 	default:
-		err = s.svc.DeleteBotFromChat(ctx, chat, req.Name)
+		err = s.svc.DeleteBotFromChat(ctx, chat, req.BotId)
 	}
 
 	if err != nil {
@@ -142,11 +189,11 @@ func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObje
 // ChangeBotMemory applies one change to a Bot's memory.
 func (s *Server) ChangeBotMemory(ctx context.Context, req openapi.ChangeBotMemoryRequestObject,
 ) (openapi.ChangeBotMemoryResponseObject, error) {
-	if err := botAllowed(principal(ctx), req.Name); err != nil {
+	if err := botAllowed(principal(ctx), req.BotId); err != nil {
 		return nil, err
 	}
 
-	b, err := s.svc.ChangeBotMemory(ctx, req.Name, orchestration.MemoryOp{
+	b, err := s.svc.ChangeBotMemory(ctx, req.BotId, orchestration.MemoryOp{
 		Kind: string(req.Body.Kind), Text: val(req.Body.Text), Match: val(req.Body.Match),
 	})
 	if err != nil {
@@ -159,7 +206,7 @@ func (s *Server) ChangeBotMemory(ctx context.Context, req openapi.ChangeBotMemor
 // SetBotMemory replaces a Bot's memory with the owner's text.
 func (s *Server) SetBotMemory(ctx context.Context, req openapi.SetBotMemoryRequestObject,
 ) (openapi.SetBotMemoryResponseObject, error) {
-	b, err := s.svc.SetBotMemory(ctx, req.Name, req.Body.Memory)
+	b, err := s.svc.SetBotMemory(ctx, req.BotId, req.Body.Memory)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +216,7 @@ func (s *Server) SetBotMemory(ctx context.Context, req openapi.SetBotMemoryReque
 
 func toBot(b orchestration.Bot) openapi.Bot {
 	return openapi.Bot{
-		Name: b.Name, Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
+		Id: b.ID, Name: b.Name, Main: b.Main(), Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
 		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers),

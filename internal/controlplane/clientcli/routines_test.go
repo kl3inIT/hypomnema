@@ -65,6 +65,9 @@ func TestRoutinesFromTheCLI(t *testing.T) {
 	w := newRoutineWorld(t)
 	w.login(t, bearertoken.Owner)
 
+	vmap, err := w.svc.PutBot(t.Context(), orchestration.Bot{Name: "vmap"})
+	require.NoError(t, err)
+
 	out, err := w.cmd(t, "routines", "list")
 	require.NoError(t, err)
 	assert.Equal(t, "no routine\n", out)
@@ -143,7 +146,7 @@ func TestRoutinesFromTheCLI(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(into, "sync.sh"), []byte("#!/bin/sh\nrm -rf ~\n"), 0o700))
 
 	_, err = pi.cmd(t, "routines", "script", sync.Id, "--bot", "vmap", "--into", into)
-	require.ErrorContains(t, err, "is not bot vmap's")
+	require.ErrorContains(t, err, "is not bot "+vmap.ID+"'s", "--bot takes a name; the server names the id")
 
 	out, err = pi.cmd(t, "routines", "script", sync.Id, "--bot", "coordinator", "--into", into)
 	require.NoError(t, err)
@@ -234,7 +237,7 @@ func TestAScriptsRequestsBelongToItsRun(t *testing.T) { //nolint:paralleltest //
 	require.NoError(t, err)
 
 	sync, err := w.svc.Routines().PutRoutine(t.Context(), routinestore.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
+		Bot: orchestration.DefaultBotID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
 		ScriptText: "#!/bin/sh\nhypomnema superset api PUT /api/v1/chart/166 --data -\n", EveryMinutes: 60,
 	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)

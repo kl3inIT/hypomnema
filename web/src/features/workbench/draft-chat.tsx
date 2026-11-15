@@ -2,7 +2,7 @@ import { useState } from "react"
 
 import type { Chat } from "@/api/generated/types.gen"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
-import { firstBot } from "@/features/bots/bots-state"
+import { useBotName, useMainBot } from "@/features/bots/use-bots"
 import { AttachDrop } from "@/features/chat/attach-drop"
 import { useAttachments } from "@/features/chat/attachments"
 import { ChatModelControls } from "@/features/chat/chat-model-picker"
@@ -28,8 +28,11 @@ export function DraftChat({
   const key = tabDraft(id)
   const [saved] = useState(() => readDraft(key))
   const [chatId] = useState(() => saved.chat ?? newChatId())
-  const attachments = useAttachments(chatId, bot || firstBot, saved)
-  const [model, setModel] = useDraftChoice(bot || firstBot)
+  const main = useMainBot()
+  const of = bot || main
+  const name = useBotName(of)
+  const attachments = useAttachments(chatId, of, saved)
+  const [model, setModel] = useDraftChoice(of)
   const start = useStartChat(chatId, bot || undefined, model, (chat: Chat) => onStarted(chat.id))
 
   return (
@@ -39,17 +42,17 @@ export function DraftChat({
     >
       <div className="mx-auto flex w-full flex-1 flex-col items-center justify-center gap-5 py-6">
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <AgentAvatar name={bot || firstBot} className="size-5" />
-          A new chat with {bot || firstBot}
+          <AgentAvatar name={name} className="size-5" />
+          A new chat with {name}
         </p>
         <Composer
-          bot={bot || firstBot}
+          bot={of}
           onSend={(text, files) => start.mutateAsync({ text, files })}
           onStop={() => {}}
           working={false}
           attachments={attachments}
-          draft={{ key, chat: chatId, bot: bot || firstBot }}
-          controls={<ChatModelControls bot={bot || firstBot} choice={model} onChange={setModel} />}
+          draft={{ key, chat: chatId, bot: of }}
+          controls={<ChatModelControls bot={of} choice={model} onChange={setModel} />}
         />
       </div>
     </AttachDrop>

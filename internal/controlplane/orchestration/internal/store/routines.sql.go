@@ -75,7 +75,7 @@ func (q *Queries) CountRoutineRuns(ctx context.Context, routineID string) (int64
 }
 
 const countRoutinesOfBot = `-- name: CountRoutinesOfBot :one
-SELECT count(*) FROM routines WHERE bot = ?1
+SELECT count(*) FROM routines WHERE bot_id = ?1
 `
 
 func (q *Queries) CountRoutinesOfBot(ctx context.Context, bot string) (int64, error) {
@@ -195,7 +195,7 @@ func (q *Queries) DetachRoutinesFromChat(ctx context.Context, chatID string) err
 }
 
 const dueRoutines = `-- name: DueRoutines :many
-SELECT id, bot, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE state = 'on' AND next_run_at IS NOT NULL AND next_run_at <= ?1
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE state = 'on' AND next_run_at IS NOT NULL AND next_run_at <= ?1
 ORDER BY next_run_at, id
 `
 
@@ -211,7 +211,7 @@ func (q *Queries) DueRoutines(ctx context.Context, now sql.NullInt64) ([]Routine
 		var i Routine
 		if err := rows.Scan(
 			&i.ID,
-			&i.Bot,
+			&i.BotID,
 			&i.Name,
 			&i.Kind,
 			&i.Prompt,
@@ -316,7 +316,7 @@ func (q *Queries) FinishRoutineRun(ctx context.Context, arg FinishRoutineRunPara
 }
 
 const getRoutine = `-- name: GetRoutine :one
-SELECT id, bot, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE id = ?1
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE id = ?1
 `
 
 func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
@@ -324,7 +324,7 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 	var i Routine
 	err := row.Scan(
 		&i.ID,
-		&i.Bot,
+		&i.BotID,
 		&i.Name,
 		&i.Kind,
 		&i.Prompt,
@@ -355,7 +355,7 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 }
 
 const getRoutineByName = `-- name: GetRoutineByName :one
-SELECT id, bot, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE bot = ?1 AND name = ?2
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE bot_id = ?1 AND name = ?2
 `
 
 type GetRoutineByNameParams struct {
@@ -368,7 +368,7 @@ func (q *Queries) GetRoutineByName(ctx context.Context, arg GetRoutineByNamePara
 	var i Routine
 	err := row.Scan(
 		&i.ID,
-		&i.Bot,
+		&i.BotID,
 		&i.Name,
 		&i.Kind,
 		&i.Prompt,
@@ -422,7 +422,7 @@ func (q *Queries) GetRoutineRun(ctx context.Context, id string) (RoutineRun, err
 }
 
 const insertRoutine = `-- name: InsertRoutine :exec
-INSERT INTO routines (id, bot, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone,
+INSERT INTO routines (id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone,
                       timeout_seconds, state, summary, chat_id, announce, next_run_at, created_by, undo,
                       created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
@@ -694,8 +694,8 @@ func (q *Queries) ListRoutineRuns(ctx context.Context, arg ListRoutineRunsParams
 }
 
 const listRoutines = `-- name: ListRoutines :many
-SELECT id, bot, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines
-WHERE (CAST(?1 AS TEXT) = '' OR bot = ?1)
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines
+WHERE (CAST(?1 AS TEXT) = '' OR bot_id = ?1)
   AND (CAST(?2 AS TEXT) = '' OR chat_id = ?2)
 ORDER BY created_at, id
 `
@@ -717,7 +717,7 @@ func (q *Queries) ListRoutines(ctx context.Context, arg ListRoutinesParams) ([]R
 		var i Routine
 		if err := rows.Scan(
 			&i.ID,
-			&i.Bot,
+			&i.BotID,
 			&i.Name,
 			&i.Kind,
 			&i.Prompt,

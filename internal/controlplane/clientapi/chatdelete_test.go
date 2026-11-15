@@ -86,7 +86,7 @@ func TestTheOwnerDeletesAChatAndItsFiles(t *testing.T) {
 	_, err = w.svc.GetChat(ctx, chat.ID)
 	require.ErrorIs(t, err, orchestration.ErrNotFound)
 	assert.Equal(t, chat.ID, w.pi.stopped.Load(), "its pi is stopped")
-	assert.Equal(t, []string{"bot coordinator delete attachments/" + chat.ID}, f.asked)
+	assert.Equal(t, []string{"bot " + orchestration.DefaultBotID + " delete attachments/" + chat.ID}, f.asked)
 	assert.Equal(t, []bool{false}, stillThere, "the attachments go after the commit")
 	assert.Equal(t, []string{chat.ID}, files.removed)
 	assert.Equal(t, []bool{false}, files.present, "pi's files go after the commit")

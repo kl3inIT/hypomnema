@@ -45,6 +45,8 @@ const gatewayModels = [
 ]
 
 const builder = {
+  id: "builder",
+  main: true,
   name: "builder",
   provider: "gateway",
   model: "gpt-sol",
