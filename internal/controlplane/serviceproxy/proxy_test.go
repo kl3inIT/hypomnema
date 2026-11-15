@@ -34,6 +34,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 const realToken = "ya29.the-real-token" //nolint:gosec // A made-up token, which is what this test hands out.
@@ -92,10 +93,9 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 
 	ctx := t.Context()
 
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(ctx, db))
 
 	w := &world{
 		t: t, svc: orchestration.New(db, platform.SystemClock{}, platform.NewID), service: &service{},

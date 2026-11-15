@@ -2,7 +2,6 @@ package controlplane
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 const routerKey = "sk-live-0123456789abcdef-never-printed"
@@ -56,10 +56,9 @@ func keygen(t *testing.T, id string) string {
 func TestOwnerKeepsAProviderKeyInTheVault(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	k1 := keygen(t, "k1")
 	cfg := vaultConfig(t, path, "k1", k1)
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	file := filepath.Join(t.TempDir(), "router.key")
 	require.NoError(t, os.WriteFile(file, []byte(routerKey+"\n"), 0o600))
@@ -146,9 +145,8 @@ func TestOwnerKeepsAProviderKeyInTheVault(t *testing.T) {
 func TestOwnerAddsATokenSet(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	var out bytes.Buffer
 

@@ -21,6 +21,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // Scenario: the whole path the owner sets up for pi. A provider's key goes
@@ -51,15 +52,15 @@ func TestTheControlPlaneServesAChatRequestWithAKeyFromTheVault(t *testing.T) {
 	}
 
 	rootKey, _, _ := strings.Cut(run(controlplane.Config{}, "", "secrets", "keygen", "k1"), "\n")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	cfg, err := controlplane.LoadConfig(func(name string) string {
 		return map[string]string{
-			"HYPOMNEMA_DATABASE_PATH":       filepath.Join(t.TempDir(), "hypomnema.db"),
+			"HYPOMNEMA_DATABASE_PATH":       path,
 			"HYPOMNEMA_VAULT_KEYS":          rootKey,
 			"HYPOMNEMA_VAULT_ACTIVE_KEY_ID": "k1",
 		}[name]
 	})
 	require.NoError(t, err)
-	require.NoError(t, controlplane.Migrate(t.Context(), cfg, io.Discard))
 
 	run(cfg, "sk-the-providers-key\n", "secrets", "add", "router", "--from-file", "-")
 

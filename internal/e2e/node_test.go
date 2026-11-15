@@ -502,10 +502,9 @@ func TestDaemonStopsOnARefusedToken(t *testing.T) {
 func TestHelloTellsTheNodeWhereItsReleasesAre(t *testing.T) {
 	t.Parallel()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 

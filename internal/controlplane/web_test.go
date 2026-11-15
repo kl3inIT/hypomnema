@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -116,9 +115,8 @@ func TestTheWebSearchKeysAreReadFromTheVault(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
-	require.NoError(t, Migrate(ctx, cfg, io.Discard))
 
 	db, err := sqlite.Open(ctx, sqlite.Config{Path: path})
 	require.NoError(t, err)

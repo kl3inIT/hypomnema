@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 type world struct {
@@ -40,10 +40,9 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	w := &world{t: t, svc: orchestration.New(db, platform.SystemClock{}, platform.NewID), logs: &bytes.Buffer{},
 		browser: &sharedBrowser{}}

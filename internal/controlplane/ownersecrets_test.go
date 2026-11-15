@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // vaultAPI is the client API over a real vault, with the owner's token and a
@@ -39,9 +39,8 @@ type vaultAPI struct {
 func newVaultAPI(t *testing.T) *vaultAPI {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: path})
 	require.NoError(t, err)
