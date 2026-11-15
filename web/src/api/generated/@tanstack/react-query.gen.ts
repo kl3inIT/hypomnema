@@ -2189,6 +2189,26 @@ export const getArtifactArchiveOptions = (options: Options<GetArtifactArchiveDat
   queryKey: getArtifactArchiveQueryKey(options)
 });
 
+export const openArtifactFrameQueryKey = (options: Options<OpenArtifactFrameData>) => createQueryKey('openArtifactFrame', options);
+
+/**
+ * Where a folder page's files load from in its locked frame (owner only)
+ *
+ * A short-lived address under /api/v1/artifact-files/ that serves the revision's files to the page's sandboxed frame, which sends no sign-in: each answer is read-only, of the file's type, with nosniff and a sandboxing Content-Security-Policy. It lasts an hour after its last use.
+ */
+export const openArtifactFrameOptions = (options: Options<OpenArtifactFrameData>) => queryOptions<OpenArtifactFrameResponse, OpenArtifactFrameError, OpenArtifactFrameResponse, ReturnType<typeof openArtifactFrameQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await openArtifactFrame({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: openArtifactFrameQueryKey(options)
+});
+
 /**
  * Where a folder page's files load from in its locked frame (owner only)
  *
