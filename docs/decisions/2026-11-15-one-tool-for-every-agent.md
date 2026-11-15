@@ -75,9 +75,13 @@ role skill, which only a coordinator has.
 
 ## Consequences
 
-- Capabilities that a Bot still reaches only through a command and a skill (`artifact`, `memory`, `browser`,
-  `superset`) move to tools one by one, each in its own issue; until then a skill that names a command is given only
+- Capabilities that a Bot still reaches only through a command and a skill (`artifact`, `memory`, `superset`,
+  `routines`) move to tools one by one, each in its own issue; until then a skill that names a command is given only
   to the agent kinds that have it.
+- Out of scope: an Integration's own CLI (`gws`, `lark-cli`, `aws`), which every agent kind already reaches the same
+  way, a script on its `PATH` running the launcher, its account chosen by the Connections it was given and its
+  requests held by the service proxy ([decision](2026-11-11-service-proxy-in-the-control-plane.md)); OpenClaw
+  likewise gives its agents Google's CLI with a skill.
 - A tool's definitions cost tokens on every request with `direct` exposure (about 840 for the three of #492);
   a capability used often pays for itself against reading a skill and running commands.
 - A tool's description is reviewed like a prompt: it is what teaches the agent.
