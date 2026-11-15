@@ -374,8 +374,7 @@ sequenceDiagram
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
   engine on the control plane, an agent's calls to it, the tools in a worker's and a Bot's pi's hands, and the
   control plane's side of the owner watching a tab and taking control, and its tabs in a chat's pane in the web
-  client. Not built: a node holding the browser instead; a Bot's own tab in its chat's pane (the pane lists its
-  Runs' workers' tabs; the Bot's is in `hypomnema browser status`).
+  client. Not built: a node holding the browser instead.
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -460,11 +459,14 @@ sequenceDiagram
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
     say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
-    Run), and its address and title as Chrome's own DevTools port lists them.
+    Run), the chat it belongs to (`chat_id`, issue #557), and its address and title as Chrome's own DevTools port lists them. A tab's
+    chat is named whichever agent opened it: a worker's is its Run's chat, when the Run has one; a Bot's pi's
+    (`b-<chat>`) is that chat, with the chat's Bot (`bot_id`); the owner's own tab, a coordinator token's and a
+    worker's of a Run with no chat belong to none.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
-    `GET /api/v1/browser`, read again every five seconds, that belong to Runs of that chat, each named by its
-    page's title with a mark of whose it is. The tab is shown as `BrowserView`, one piece that holds the address
+    `GET /api/v1/browser`, read again every five seconds, whose `chat_id` is a chat of the pane, its Bot's and its
+    workers' alike, each named by its page's title with a mark of whose it is (a Bot's tab carries its Bot's name). The tab is shown as `BrowserView`, one piece that holds the address
     row, the control button and the picture. While the owner holds the browser the sidebar says so on every
     page, since every agent's browser tools wait meanwhile. It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
@@ -1092,7 +1094,7 @@ flowchart LR
     `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
     and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
     frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
-    its description (`skill_revisions.requires`, migration 00090). A skill is given, whether for everyone or named
+    its description (`skill_revisions.requires`, migration 00092). A skill is given, whether for everyone or named
     by a profile or Bot, only to an agent that has every requirement, as OpenClaw leaves out a skill whose
     requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
     the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
@@ -1121,6 +1123,8 @@ flowchart LR
     every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
     guide once, from the node, until the node takes the release that leaves them to the store. The control plane
     keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
+  - Tools are switched the same way, `tools` and `tools_off` beside the skills (see "Tool switches" under "An
+    agent's tools").
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
     removed. When pi starts for a chat, `hypomnema-pi` runs `hypomnema skills sync --bot <bot> --dir
@@ -1296,7 +1300,14 @@ flowchart LR
   profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
   belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
-  it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
+  it, and a Task under it needs no account on a node. A subscription (`claude_subscription`, `codex_subscription`,
+  `antigravity_subscription`) is reached through the gateway too (issue #549): every runtime may name one but
+  `codex`, which names only `codex_subscription` (it speaks only `/v1/responses`, which the gateway passes on to a
+  Codex subscription alone); its Dispatch runs under the gateway with the model `<provider>/<model>`, and no
+  subscription token leaves the control plane. Such a profile is available, and its Task placed, only while the
+  control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise); whether that account
+  cools down is the gateway's to find. A Task's own model picks its provider again, as it is checked when the Task
+  is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
   another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
@@ -2028,10 +2039,19 @@ capabilities do not exist yet.
   `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
-- A fresh install has the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, each
-  served from `claude-subscription`'s model of the same name, and the provider `model-gateway` (kind
-  `model_gateway`) offering them, which the starting profiles name (migration 00081, issue #462; models as the
-  owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
+- The gateway serves every model of every subscription under `<provider>/<model>`, such as
+  `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
+  every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
+  logged-in accounts). The table is left for a name made on purpose, such as one over several targets. The
+  pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
+  table name has. Migration 00090 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
+  to the subscription and model of the name they used when it had one target only, a subscription's model (a
+  version whose YAML was not matched stayed); a name over several targets and what names it stayed. It then removed
+  the names of one target nothing used any more (a working key keeps its model) and the provider when nothing named
+  it.
+- Migration 00081 (issue #462) seeded the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and
+  `claude-haiku-5-5` and the provider `model-gateway` for the starting profiles; 00090 then moves those profiles to
+  `claude-subscription` and removes them (models as the owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
   subscription offers, and the provider only when no provider of its kind exists. A Claude Code worker then
   needs only a Claude account on the control plane (`accounts login claude` or `accounts add claude`).
 - A model's attributes (issue #367, after 9router-go, omniroute, LiteLLM's `model_info`, CLIProxyAPI and omp) are
@@ -2070,9 +2090,16 @@ capabilities do not exist yet.
     `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only the token of that chat's pi gets it: a chat's id
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
-    `hypomnema pi-models`: one provider of pi for
-    each provider of the control plane of kind `model_gateway`, with the models that provider lists. A Bot may
-    name a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
+    `hypomnema pi-models`: one provider of pi, `hypomnema`, with every model the gateway serves (issue #549), each
+    under its gateway name and with its subscription's wire: `anthropic-messages` at the gateway's root for a
+    Claude subscription's model, `openai-responses` at `/v1` for a Codex subscription's, OpenAI chat for the rest
+    (measured on zm on 2026-11-15: a Claude turn is about a fifth smaller on Messages with the same cache, and
+    Codex's cache is the same on Responses). The supervisor gives pi `--provider hypomnema` and the gateway name,
+    and makes the chat's key for that name. A Bot that names no model runs on Claude Opus 5.5 under the Claude
+    subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
+    `defaultProvider` and `defaultModel` when the gateway serves it, and the pages call it "Default (Claude Opus
+    5.5)"; without it pi takes the first model it is given. An omp worker is given the same wire for its model, as the offer's
+    `model_api`. A Bot may name a subscription or a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
     OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when
     known), `thinkingLevelMap` (pi's minimal to max as the model's level of that name, null for one it lacks; off
@@ -2567,6 +2594,30 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web` and `hypomnema image` are.
+
+Tool switches (issue #536, step 7; #492, row 10; `internal/shared/agenttool/switches.go`, migration 00091): a
+profile's YAML and a Bot narrow the table above with two lists beside their skills, `tools: [...]` (only these;
+empty or left out, every tool the agent kind gets) and `tools_off: [...]` (never these; it wins), as OpenClaw's
+agent has `tools.allow` and `tools.deny` (`docs/gateway/config-tools/tool-policy.md`) and OpenMausBot's bot an Allow
+and an Exclude list (`docs/tool-selection.md`).
+
+- An entry is a tool's name or a family, the start of a name and one `*` at the end (`agent_browser_*`,
+  `superset_*`, `device_*`, `web_*`, `node_*`; `*` alone is every tool), after OpenClaw's `*` wildcards and
+  OpenMausBot's whole-server `mcp:mail:*`; a `*` elsewhere is refused. Each must name at least one of the control
+  plane's tools and be named once, in one list, or the profile or Bot is refused (`400`), as an unknown skill is.
+  `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).
+- Enforced where the tools are listed and again on every call: `/agent/v1/tools` and `/agent/v1/tools/call`, and
+  the older routes (browser, phone, gateway, `/agent/v1/memory`). A tool switched off is left out of the list and its
+  call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
+  gateway. A worker's switches are its Dispatch's profile version's, read at each call (a new version reaches the
+  next Dispatch, as skills do); a Bot's pi's are its Bot's, read at each call, so a change reaches a running pi at
+  its next call. The owner's token, the coordinator token and a Routine's script have no switches (no MCP).
+- Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
+  `finish`) are not switched here.
+- Set with `profiles apply` (YAML), `bots set --tools a,b --tools-off c` (a change that names neither keeps them),
+  the main Bot from its chat (recorded and undone as its other changes), and the web's agent and Bot forms: a row per
+  family with a switch, which writes the family in `tools_off`; a list of only some tools or a single tool off is
+  set in the YAML or the CLI, shown under the rows and kept on save.
 
 Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
 [research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's

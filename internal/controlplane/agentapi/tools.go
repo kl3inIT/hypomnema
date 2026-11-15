@@ -98,7 +98,14 @@ func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	answer(w, agenttool.BrowserToolList{Data: s.toolList(r.Context(), a)})
+	listed, err := s.narrowed(r.Context(), a, s.toolList(r.Context(), a))
+	if err != nil {
+		s.fail(w, r, err)
+
+		return
+	}
+
+	answer(w, agenttool.BrowserToolList{Data: listed})
 }
 
 // callTool runs one of the agent's tools (PathToolsCall); a tool it was not
@@ -116,6 +123,10 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		asked.Tool == "" {
 		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
 
+		return
+	}
+
+	if s.switchedOff(w, r, a, asked.Tool) {
 		return
 	}
 
@@ -156,4 +167,60 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	default:
 		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
 	}
+}
+
+// The switches of a profile or a Bot (issue #536, step 7; #492, row 10):
+// what an agent kind gets, narrowed by the agent's `tools` and `tools_off`,
+// on every route that lists or calls a tool, the older per-family ones too,
+// as OpenMausBot filters both an MCP server's discovery and its calls, with
+// server-side checks behind them (docs/tool-selection.md), and OpenClaw
+// applies its allow and deny lists to what a run may call
+// (docs/gateway/config-tools/tool-policy.md). They are read at each request:
+// a worker's from its Dispatch's profile version, a Bot's pi's from its Bot
+// now, so a Bot's tool turned off is refused at the pi's next call. Other
+// agents (the owner's token, the coordinator's, a Routine's script) have no
+// MCP and no switches.
+
+// switchesOf are the agent's tool switches.
+func (s *Server) switchesOf(ctx context.Context, a agent) (agenttool.ToolSwitches, error) {
+	switch {
+	case a.dispatchID != "":
+		return s.store.ToolSwitchesOfDispatch(ctx, a.dispatchID)
+	case a.chatID != "" && a.bot != "":
+		return a.botSwitches, nil
+	default:
+		return agenttool.ToolSwitches{}, nil
+	}
+}
+
+// narrowed is the tools listed less those the agent's switches take away.
+func (s *Server) narrowed(ctx context.Context, a agent, tools []agenttool.BrowserTool,
+) ([]agenttool.BrowserTool, error) {
+	switches, err := s.switchesOf(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+
+	return slices.DeleteFunc(tools, func(t agenttool.BrowserTool) bool { return !switches.Allows(t.Name) }), nil
+}
+
+// switchedOff refuses a call of a tool the agent's switches take away, with
+// the answer a tool it was never given gets, and says so.
+func (s *Server) switchedOff(w http.ResponseWriter, r *http.Request, a agent, tool string) bool {
+	switches, err := s.switchesOf(r.Context(), a)
+	if err != nil {
+		s.fail(w, r, err)
+
+		return true
+	}
+
+	if switches.Allows(tool) {
+		return false
+	}
+
+	s.logger.InfoContext(r.Context(), "an agent called a tool that is switched off",
+		slog.String("event", "agentapi.tool_off"), slog.String("agent", a.name), slog.String("tool", tool))
+	refuse(w, http.StatusNotFound, "this agent has no tool "+tool)
+
+	return true
 }

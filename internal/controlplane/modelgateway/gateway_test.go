@@ -62,12 +62,6 @@ func newGateway(t *testing.T) *modelgateway.Service {
 		return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Models: p.Models}, nil
 	}, func(context.Context, string) (string, error) { return "", nil })
 
-	// The scenarios are about the owner's models: the Claude models a fresh
-	// install is seeded with (issue #462) are taken out first.
-	for _, seeded := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
-		require.NoError(t, g.DeleteModel(t.Context(), seeded))
-	}
-
 	return g
 }
 

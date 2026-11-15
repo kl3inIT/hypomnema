@@ -23,6 +23,9 @@ const models = [
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
   { provider: "gateway", name: "plain-mini", kind: "model_gateway" },
+  // A subscription's models, which the gateway serves under "<provider>/<model>" (issue #549).
+  { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
+  { provider: "codex-subscription", name: "gpt-6.1-sol", kind: "codex_subscription" },
 ]
 
 const gatewayModel = (name: string, reasoning: boolean, efforts: string[]) => ({
@@ -42,6 +45,8 @@ const gatewayModels = [
   gatewayModel("gpt-sol", true, ["low", "medium", "high", "xhigh"]),
   gatewayModel("gpt-luna", true, ["none", "low", "high"]),
   gatewayModel("plain-mini", false, []),
+  gatewayModel("claude-subscription/claude-opus-5-5", true, ["low", "medium", "high", "max"]),
+  gatewayModel("codex-subscription/gpt-6.1-sol", true, ["low", "medium", "high", "xhigh"]),
 ]
 
 const builder = {
@@ -56,6 +61,8 @@ const builder = {
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
   tool_display: "on",
@@ -1313,4 +1320,41 @@ test("a long chat opens at its end and brings older messages on scroll", async (
     `history before ${Number.MAX_SAFE_INTEGER}`,
     "history before 61",
   ])
+})
+
+// Scenario: the owner picks a subscription's model in the composer (issue #549). The list is grouped by
+// subscription; the model is kept under its subscription, and its effort levels are the gateway's for it.
+test("a subscription's model is chosen under its subscription", async ({ page }) => {
+  const calls = await fakeServer(page, (text) => ({
+    status: 201,
+    body: message(2, { role: "owner", text }),
+  }))
+  await open(page)
+  await write(page, state(false))
+
+  const model = page.getByRole("combobox", { name: /^Model:/ })
+  await model.click()
+  await expect(page.getByRole("group").getByText("claude-subscription")).toBeVisible()
+  await expect(page.getByRole("group").getByText("codex-subscription")).toBeVisible()
+  await shot(page, "chat-model-subscriptions")
+
+  await page
+    .getByRole("group")
+    .filter({ hasText: "claude-subscription" })
+    .getByRole("option", { name: /Claude Opus 5.5/ })
+    .click()
+  await expect(model).toHaveAccessibleName(/Opus/)
+  await expect
+    .poll(() => calls.filter((c) => c.startsWith("PATCH {")).at(-1))
+    .toBe('PATCH {"provider":"claude-subscription","model":"claude-opus-5-5","effort":""}')
+
+  await page.getByRole("button", { name: /^Effort/ }).click()
+  await expect(page.getByRole("menuitemradio")).toHaveText([
+    "Bot's: High",
+    "Low",
+    "Medium",
+    "High",
+    "Max",
+  ])
+  await shot(page, "chat-model-subscription-effort")
 })

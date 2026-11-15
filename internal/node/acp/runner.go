@@ -106,7 +106,8 @@ func (rt *ACPRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.Lau
 	}
 
 	args, agentEnv, err := a.prepare(launch{
-		Dir: convDir, URL: strings.TrimRight(rt.URL, "/") + "/v1", Model: o.Model, Effort: o.Effort, Skills: given,
+		Dir: convDir, URL: strings.TrimRight(rt.URL, "/") + "/v1", Model: o.Model, API: o.ModelAPI, Effort: o.Effort,
+		Skills: given,
 	})
 	if err != nil {
 		return runner.Launch{}, err

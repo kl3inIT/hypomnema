@@ -48,6 +48,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
   tool_display: "on",
@@ -207,6 +209,8 @@ test("a draft is sent as the settings the server replaces", () => {
     persona: "Be brief.",
     skills: [],
     skills_off: [],
+    tools: [],
+    tools_off: [],
   })
   expect(
     settingsOf(
@@ -217,6 +221,8 @@ test("a draft is sent as the settings the server replaces", () => {
         persona: "Be brief.",
         skills: ["review-go"],
         skillsOff: ["pdf"],
+        tools: [],
+        toolsOff: ["agent_browser_*"],
       },
       models,
     ),
@@ -227,6 +233,8 @@ test("a draft is sent as the settings the server replaces", () => {
     persona: "Be brief.",
     skills: ["review-go"],
     skills_off: ["pdf"],
+    tools: [],
+    tools_off: ["agent_browser_*"],
   })
 })
 
@@ -281,7 +289,7 @@ test("a card says the Bot's model and how much memory it uses", async () => {
 
   const first = await screen.findByRole("article", { name: "coordinator" })
   expect(first).toHaveTextContent("No persona.")
-  expect(first).toHaveTextContent("Model:pi's default model")
+  expect(first).toHaveTextContent("Model:Default (Claude Opus 5.5)")
   expect(first).toHaveTextContent("Memory:58 of 2,200 characters")
 
   const second = screen.getByRole("article", { name: "researcher" })
@@ -396,6 +404,8 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
           persona: "Answer briefly, with sources.",
           skills: [],
           skills_off: [],
+          tools: [],
+          tools_off: [],
         },
       },
     ]),
@@ -505,6 +515,8 @@ const reviewer = {
   fallbacks: [],
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   source: "",
   created_at: new Date(0).toISOString(),
 } as Profile

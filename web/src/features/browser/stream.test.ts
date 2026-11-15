@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { BrowserTab } from "@/api/generated/types.gen"
 
-import { tabName, whose } from "./browser-state"
+import { chatTabs, tabName, whose } from "./browser-state"
 import {
   countClick,
   keyInput,
@@ -174,5 +174,31 @@ describe("the strip of tabs", () => {
     expect(whose(tab({ id: "owner", kind: "owner" })).mark).toBe("you")
     expect(whose(tab({ kind: "coordinator" })).mark).toBe("pi")
     expect(whose(tab({ task_id: "tsk_1" })).line).toContain("tsk_1")
+  })
+
+  it("calls a Bot's tab its Bot's", () => {
+    const names = (id: string) => (id === "bot_vmap" ? "vmap" : id)
+    const bots = tab({ id: "b-cht_1", kind: "coordinator", chat_id: "cht_1", bot_id: "bot_vmap" })
+
+    expect(whose(bots, names)).toEqual({ mark: "vmap", line: "vmap's tab, in this chat." })
+  })
+
+  it("lists the tabs of a pane's chats, a Bot's and a worker's alike", () => {
+    const tabs = [
+      tab({ id: "owner", kind: "owner" }),
+      tab({ id: "b-cht_1", kind: "coordinator", chat_id: "cht_1", bot_id: "bot_vmap" }),
+      tab({ id: "d-dsp_1", chat_id: "cht_1" }),
+      tab({ id: "d-dsp_2", chat_id: "cht_2" }),
+      tab({ id: "b-cht_9", kind: "coordinator", chat_id: "cht_9" }),
+      tab({ id: "d-dsp_3" }),
+      tab({ id: "c-tok_1", kind: "coordinator" }),
+    ]
+
+    expect(chatTabs(tabs, new Set(["cht_1", "cht_2"])).map((t) => t.id)).toEqual([
+      "b-cht_1",
+      "d-dsp_1",
+      "d-dsp_2",
+    ])
+    expect(chatTabs(undefined, new Set(["cht_1"]))).toEqual([])
   })
 })

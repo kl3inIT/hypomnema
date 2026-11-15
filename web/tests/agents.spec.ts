@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test"
 
 import { choose } from "./choose.js"
 import { shot } from "./shot.js"
+import { toolFamilies } from "./fixtures/tools.js"
 
 // The Agents pages, built, against a fake client API, on a phone and a desktop.
 
@@ -16,6 +17,8 @@ const profile = (name: string, m: object = {}) => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   source: `name: ${name}\nruntime: claude\n`,
   created_at: hours(30),
   available: true,
@@ -184,6 +187,8 @@ async function fakeServer(page: Page) {
         return json({ data: models })
       case "GET /skills":
         return json({ data: skills })
+      case "GET /tools":
+        return json({ data: toolFamilies })
       case "GET /profiles/reviewer/memory":
         return json({
           agent: "reviewer",
@@ -318,6 +323,16 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await page.getByRole("list", { name: "Skills added" }).scrollIntoViewIfNeeded()
   await shot(page, "agent-skills")
   await page.getByRole("button", { name: "Remove skill review-go" }).click()
+  await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
+
+  // Its tools (issue #536): every family is on; the phone is turned off, then on again.
+  const tools = page.getByRole("list", { name: "Tools" })
+  await expect(tools.getByRole("switch", { name: /web/ })).toBeChecked()
+  await tools.getByRole("switch", { name: /phone/ }).click()
+  await expect(page.getByRole("button", { name: "Save revision" })).toBeEnabled()
+  await tools.scrollIntoViewIfNeeded()
+  await shot(page, "agent-tools")
+  await tools.getByRole("switch", { name: /phone/ }).click()
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   await page.getByRole("button", { name: "YAML" }).click()

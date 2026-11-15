@@ -25,9 +25,11 @@ import { BotRoutines } from "@/features/routines/bot-routines"
 import { MemoryEditor } from "@/features/memory/memory-editor"
 import { PageHeader } from "@/components/page-header"
 import { SkillsField } from "@/features/skills/skills-field"
+import { ToolsField } from "@/features/tools/tools-field"
 
 import { BotAccess } from "./bot-access"
 import {
+  defaultModelLabel,
   draftOf,
   emptyDraft,
   modelLine,
@@ -234,9 +236,9 @@ function BotForm({
         effort={draft.effort}
         models={models}
         onChange={set}
-        defaultLabel="pi's default model"
+        defaultLabel={defaultModelLabel}
         description="The model the Bot thinks with. Saving says so when pi cannot use the one chosen."
-        gone="No provider offers this model any more. Pick another, or pi's default."
+        gone="No provider offers this model any more. Pick another, or the default."
       />
 
       <Field>
@@ -260,6 +262,14 @@ function BotForm({
         off={draft.skillsOff}
         onChange={set}
         description="What the Bot gets besides the built-in skills, from its next chat on. A skill for everyone is on unless it is turned off here."
+      />
+
+      <ToolsField
+        id="bot-tools"
+        tools={draft.tools}
+        off={draft.toolsOff}
+        onChange={set}
+        description="Hypomnema's tools the Bot may call, at its next call. Its CLI's own tools are not switched here."
       />
 
       {put.error && (

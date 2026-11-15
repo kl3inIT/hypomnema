@@ -62,6 +62,9 @@ func (w *world) chatWithATask(c *openapi.ClientWithResponses) (orchestration.Cha
 	require.NoError(w.t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{
 		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
 	}))
+	// The starting profiles run under the Claude subscription, served under an account the control plane keeps.
+	_, err = w.svc.AddTokenAccount(ctx, "claude", "personal", func(id string) string { return "vault:" + id })
+	require.NoError(w.t, err)
 
 	tasks, err := c.CreateTasksWithResponse(ctx, run.ID, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
 		{Ref: "a", Spec: "add GET /health\nreturning ok"},

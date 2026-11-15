@@ -42,7 +42,8 @@ func fallbacksOf(p openapi.Profile) string {
 	return "\tfallbacks: " + strings.Join(p.Fallbacks, ", ")
 }
 
-// skillsOf names the skills a profile adds and turns off, for a line of the list.
+// skillsOf names the skills a profile adds and turns off, and the tools it keeps and turns off, for a line of the
+// list.
 func skillsOf(p openapi.Profile) string {
 	out := ""
 	if len(p.Skills) > 0 {
@@ -51,6 +52,14 @@ func skillsOf(p openapi.Profile) string {
 
 	if len(p.SkillsOff) > 0 {
 		out += "	skills off: " + strings.Join(p.SkillsOff, ", ")
+	}
+
+	if len(p.Tools) > 0 {
+		out += "	tools: only " + strings.Join(p.Tools, ", ")
+	}
+
+	if len(p.ToolsOff) > 0 {
+		out += "	tools off: " + strings.Join(p.ToolsOff, ", ")
 	}
 
 	return out
