@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query"
 import {
   FileDiff,
   FileText,
@@ -12,7 +11,6 @@ import {
 import { useState, type ReactNode } from "react"
 
 import "@/api/client"
-import { listRuns } from "@/api/generated/sdk.gen"
 import type { BrowserTab } from "@/api/generated/types.gen"
 import {
   AlertDialog,
@@ -50,6 +48,7 @@ import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
 import { baseName, isUnsaved, useUnsaved } from "@/features/files/files-state"
 import { useChat } from "@/features/shell/chats"
+import { useRecentRuns } from "@/features/work/use-work"
 import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
@@ -101,17 +100,11 @@ export function PaneView({
   const browser = useBrowser()
   const device = useDevice()
   const bots = useBots().data ?? []
-  const runs = useQuery({
-    queryKey: ["runs"],
-    queryFn: async () => (await listRuns({ query: { limit: 100 } })).data,
-    enabled: browser.isSuccess,
-  })
+  const runs = useRecentRuns(browser.isSuccess)
 
   // The browser tabs of the workers of the chats in this pane: those of the Runs their coordinators created.
   const chats = new Set(paneChats(pane))
-  const mine = new Set(
-    runs.data?.data.filter((r) => r.chat_id && chats.has(r.chat_id)).map((r) => r.id),
-  )
+  const mine = new Set(runs.data?.filter((r) => r.chat_id && chats.has(r.chat_id)).map((r) => r.id))
   const workers = (browser.data?.tabs ?? []).filter(
     (t) => t.kind === "worker" && t.run_id !== undefined && mine.has(t.run_id),
   )

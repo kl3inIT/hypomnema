@@ -2,9 +2,16 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
 import "@/api/client"
-import { getRun, listQuestions, listRuns } from "@/api/generated/sdk.gen"
+import {
+  getRunOptions,
+  getRunQueryKey,
+  listQuestionsOptions,
+  listQuestionsQueryKey,
+  listRunsOptions,
+  listRunsQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
 import type { Question, RunDetail } from "@/api/generated/types.gen"
-import { questionsKey } from "@/features/work/use-work"
+import { everyCall } from "@/lib/query-keys"
 
 import type { Dock } from "./dock-context"
 import { docked, startOpen, toRead } from "./dock-state"
@@ -34,8 +41,8 @@ export type DockedWork = {
 export function useDockedWork(chatId: string, wakes: number, waiting: number): DockedWork {
   const queryClient = useQueryClient()
   const list = useQuery({
-    queryKey: ["runs", "chat", chatId],
-    queryFn: async () => (await listRuns({ query: { chat_id: chatId, status: "open" } })).data.data,
+    ...listRunsOptions({ query: { chat_id: chatId, status: "open" } }),
+    select: (page) => page.data,
     refetchInterval: runsEvery,
   })
   // The Runs a wake-up's chip asked to see stay docked, ended or not, until the chat is left.
@@ -46,26 +53,24 @@ export function useDockedWork(chatId: string, wakes: number, waiting: number): D
   )
   const details = useQueries({
     queries: read.map((id) => ({
-      queryKey: ["run", id],
-      queryFn: async () => (await getRun({ path: { run_id: id } })).data,
+      ...getRunOptions({ path: { run_id: id } }),
       refetchInterval: runsEvery,
     })),
   })
   const questions = useQuery({
-    queryKey: [...questionsKey, "chat", chatId],
-    queryFn: async () =>
-      (
-        await listQuestions({
-          query: { chat_id: chatId, status: "open", addressed_to: "owner" },
-        })
-      ).data.data,
+    ...listQuestionsOptions({ query: { chat_id: chatId, status: "open", addressed_to: "owner" } }),
+    select: (page) => page.data,
     refetchInterval: questionsEvery,
   })
 
   // A wake-up says a Run moved on: read the Runs and the questions now rather than at the next poll.
   useEffect(() => {
     if (wakes === 0) return
-    for (const queryKey of [["runs", "chat", chatId], ["run"], [...questionsKey, "chat", chatId]])
+    for (const queryKey of [
+      listRunsQueryKey({ query: { chat_id: chatId, status: "open" } }),
+      everyCall(getRunQueryKey({ path: { run_id: "" } })),
+      listQuestionsQueryKey({ query: { chat_id: chatId, status: "open", addressed_to: "owner" } }),
+    ])
       void queryClient.invalidateQueries({ queryKey })
   }, [wakes, chatId, queryClient])
 
