@@ -1,10 +1,8 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { ChevronLeft, ChevronRight, ChartColumn } from "lucide-react"
 import { useState } from "react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import "@/api/client"
-import { getGatewayUsage, listGatewayRequests } from "@/api/generated/sdk.gen"
 import type { GatewayRequest, GatewayUsage, GatewayUsageGroup } from "@/api/generated/types.gen"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -56,6 +54,7 @@ import {
   tokens,
   type Period,
 } from "./usage-state"
+import { useGatewayRequests, useGatewayUsage } from "./use-models"
 
 const pageSize = 50
 
@@ -74,16 +73,7 @@ const chartConfig = {
 // LogDetailsDrawer) and 9router's (RequestDetailsTab.js). Neither a prompt nor an answer is kept, so none is shown.
 export function UsageScreen() {
   const [period, setPeriod] = useState<Period>("24h")
-  const usage = useQuery({
-    queryKey: ["gateway-usage", period],
-    queryFn: async () =>
-      (
-        await getGatewayUsage({
-          query: { period, utc_offset_minutes: -new Date().getTimezoneOffset() },
-        })
-      ).data,
-    placeholderData: keepPreviousData,
-  })
+  const usage = useGatewayUsage(period)
 
   return (
     <SettingsPage
@@ -388,16 +378,7 @@ function Requests({ period }: { period: Period }) {
   const [failedOnly, setFailedOnly] = useState(false)
   const [offset, setOffset] = useState(0)
   const [open, setOpen] = useState<GatewayRequest | null>(null)
-  const requests = useQuery({
-    queryKey: ["gateway-requests", period, failedOnly, offset],
-    queryFn: async () =>
-      (
-        await listGatewayRequests({
-          query: { period, failed: failedOnly || undefined, offset, limit: pageSize },
-        })
-      ).data,
-    placeholderData: keepPreviousData,
-  })
+  const requests = useGatewayRequests(period, failedOnly, offset, pageSize)
   const rows = requests.data?.data ?? []
 
   return (

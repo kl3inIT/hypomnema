@@ -1,9 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
 
 import "@/api/client"
 import {
   getAccountLimitsOptions,
   getAccountLimitsQueryKey,
+  getGatewayUsageOptions,
   getImagesOptions,
   getImagesQueryKey,
   getWebSearchOptions,
@@ -14,11 +16,14 @@ import {
   listGatewayKeysQueryKey,
   listGatewayModelsOptions,
   listGatewayModelsQueryKey,
+  listGatewayRequestsOptions,
   listProvidersOptions,
 } from "@/api/generated/@tanstack/react-query.gen"
 import { getAccountLimits } from "@/api/generated/sdk.gen"
 import type { AccountLimits, Images, WebSearch } from "@/api/generated/types.gen"
 import { everyCall } from "@/lib/query-keys"
+
+import type { Period } from "./usage-state"
 
 // An account rests and comes back on its own, so the list is read again now and then while the page is open.
 export function useAccounts() {
@@ -116,4 +121,31 @@ export function useShowWebSearch() {
   const queryClient = useQueryClient()
 
   return (web: WebSearch) => queryClient.setQueryData(getWebSearchQueryKey(), web)
+}
+
+// What the gateway served in a period, counted by the viewer's own day: the offset is part of the generated key,
+// so it is taken once, when the page opens. The last period's answer stays shown while the next one is read.
+export function useGatewayUsage(period: Period) {
+  const [utcOffset] = useState(() => -new Date().getTimezoneOffset())
+
+  return useQuery({
+    ...getGatewayUsageOptions({ query: { period, utc_offset_minutes: utcOffset } }),
+    placeholderData: keepPreviousData,
+  })
+}
+
+// A page of the requests the gateway served in a period, all or only the failed ones. The last page stays shown
+// while the next one is read.
+export function useGatewayRequests(
+  period: Period,
+  failedOnly: boolean,
+  offset: number,
+  limit: number,
+) {
+  return useQuery({
+    ...listGatewayRequestsOptions({
+      query: { period, failed: failedOnly || undefined, offset, limit },
+    }),
+    placeholderData: keepPreviousData,
+  })
 }
