@@ -30,9 +30,9 @@ func TestACommandAnswersWithItsExitCodeAndOutput(t *testing.T) {
 	assert.Equal(t, 3, *got.ExitCode)
 	assert.False(t, got.Running)
 
-	real, err := filepath.EvalSymlinks(dir)
+	resolved, err := filepath.EvalSymlinks(dir)
 	require.NoError(t, err)
-	assert.Equal(t, real+"\noops\n", got.Output)
+	assert.Equal(t, resolved+"\noops\n", got.Output)
 
 	long := m.Run(t.Context(), Request{Command: "seq 1 100000"})
 	require.NotNil(t, long.ExitCode)
@@ -99,8 +99,9 @@ func TestABackgroundCommandIsReadWhileItRunsAndKilled(t *testing.T) {
 }
 
 // sudo is given the node's password through its helper, which is gone once
-// the command ends; a command without the password gets no helper. The sudo
-// here is a stand-in on PATH that prints what its helper gives.
+// the command ends, and the password never comes back in the output; a
+// command without the password gets no helper. The sudo here is a stand-in
+// on PATH that prints what its helper gives.
 func TestSudoGetsTheNodesPasswordFromItsHelper(t *testing.T) {
 	bin := t.TempDir()
 	fake := "#!/bin/sh\n[ \"$1\" = -A ] || { echo 'no -A'; exit 1; }\nshift\necho \"helper says $(\"$SUDO_ASKPASS\")\"\n" +
@@ -114,9 +115,9 @@ func TestSudoGetsTheNodesPasswordFromItsHelper(t *testing.T) {
 	got := m.Run(t.Context(), Request{Command: "sudo echo done", SudoPassword: "s3cret pass"})
 	require.NotNil(t, got.ExitCode, got.Error)
 	assert.Equal(t, 0, *got.ExitCode, got.Output)
-	assert.Equal(t, "helper says s3cret pass\ndone\n", got.Output)
+	assert.Equal(t, "helper says [sudo password hidden]\ndone\n", got.Output)
 
-	helper, err := os.ReadFile(filepath.Join(bin, "helper-was"))
+	helper, err := os.ReadFile(filepath.Join(bin, "helper-was")) //nolint:gosec // G304: the test's own file
 	require.NoError(t, err)
 	assert.NoFileExists(t, strings.TrimSpace(string(helper)), "the helper is removed when the command ends")
 

@@ -104,7 +104,10 @@ func newExecRig(t *testing.T) *execRig {
 
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Logf("the node ended with: %v", err)
+		}
+
 		commands.Close()
 
 		_ = state.Close()

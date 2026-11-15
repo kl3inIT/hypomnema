@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +68,9 @@ func New() *Manager {
 }
 
 type process struct {
-	id   string
+	id string
+	// hide is the sudo password given to the command, taken out of what it answers; "" when none.
+	hide string
 	cmd  *exec.Cmd
 	out  *headTail
 	done chan struct{}
@@ -273,6 +276,9 @@ func (m *Manager) start(req Request) (*process, error) {
 	}
 
 	p := &process{id: newID(), cmd: cmd, out: out, done: make(chan struct{})}
+	if helper != nil {
+		p.hide = req.SudoPassword
+	}
 
 	go func() {
 		err := cmd.Wait()
@@ -313,10 +319,18 @@ func (p *process) kill() {
 	killGroup(p.cmd)
 }
 
+// hidden stands for the sudo password in an answer.
+const hidden = "[sudo password hidden]"
+
 // answer is what the process has come to; withID names it, for one in the
-// background.
+// background. The sudo password the command was given never leaves in its
+// output, as Hermes redacts secrets from a command's result
+// (tools/terminal_tool_result.py).
 func (p *process) answer(withID bool) nodeproto.ExecAnswer {
 	output, cut := p.out.String()
+	if p.hide != "" {
+		output = strings.ReplaceAll(output, p.hide, hidden)
+	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
