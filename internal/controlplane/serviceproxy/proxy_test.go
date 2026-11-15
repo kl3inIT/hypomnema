@@ -155,7 +155,6 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 
 			return nil
 		},
-		Mark: w.svc.MarkConnectionAction,
 	})
 	require.NoError(t, err)
 

@@ -95,9 +95,6 @@ type Store interface {
 // wiring of the service that signs accounts in and Assess.
 type Recheck func(ctx context.Context, integration, label string) error
 
-// Mark keeps that a Connection's account cannot do one action, as the service said it.
-type Mark func(ctx context.Context, integration, label, action string, got orchestration.ActionAccess) error
-
 // Token gives a Connection's access token, fresh: the control plane's own
 // wiring over the vault.
 type Token func(ctx context.Context, integration, label string) (string, error)
@@ -122,10 +119,9 @@ type Config struct {
 	// #331); nil when the AWS Integration is not wired.
 	AWS AWSCredentials
 	// Recheck reads a Connection's access again when the service refused a
-	// request with 403, and Mark records an action Lark said the account has
-	// no scope for (issue #567); nil leaves the access as it was read.
+	// request with 403, or Lark with its code for a missing scope (issue
+	// #567); nil leaves the access as it was read.
 	Recheck Recheck
-	Mark    Mark
 }
 
 // Proxy serves the tunnel a tool's requests come through.

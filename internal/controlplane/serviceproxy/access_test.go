@@ -90,11 +90,14 @@ func TestARefusalFromTheServiceReadsTheAccountAgainOnce(t *testing.T) {
 	}
 }
 
-// Scenario (issue #567, rule 10): Lark answers pi's send with its code for a
-// scope the app has not applied for. The tool gets Lark's answer unchanged;
-// the action is marked missing with Lark's words, nothing else is read, and
-// the next send is refused before it is sent.
-func TestLarksMissingScopeCodeMarksTheAction(t *testing.T) {
+// Scenario (issue #567, rule 10): the Lark app "work" may create chats
+// (im:chat:create) but not send as the bot, so creating or changing in
+// Messages is granted: one of its methods passes. Lark answers pi's send with
+// its code for a scope the app has not applied for. The tool gets Lark's
+// answer unchanged, and the account is read again instead of the action being
+// marked from one call: creating a chat, another method of the same action,
+// still goes to Lark, and so does the next send.
+func TestLarksMissingScopeCodeReadsTheAccountAgain(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t, 100*time.Millisecond)
@@ -108,6 +111,9 @@ func TestLarksMissingScopeCodeMarksTheAction(t *testing.T) {
 	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", true)
 	require.NoError(t, err)
 	require.NoError(t, w.svc.SetActionPolicy(ctx, "lark", "work", "lark.im.write", orchestration.PolicyAllow))
+	require.NoError(t, w.svc.SetConnectionAccess(ctx, "lark", "work", serviceproxy.Assess(integration.Holdings{
+		Integration: integration.LarkID, Scopes: []string{"im:chat:create"},
+	}, time.Now())))
 
 	refusal := `{"code":99991672,"msg":"Access denied. One of the following scopes is required: [im:message]."}`
 	w.service.refuse(http.StatusBadRequest, refusal)
@@ -120,18 +126,21 @@ func TestLarksMissingScopeCodeMarksTheAction(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, got.Status)
 	assert.JSONEq(t, refusal, got.Body, "Lark's answer goes back unchanged")
 
+	select {
+	case conn := <-w.rechecked:
+		assert.Equal(t, "lark:work", conn)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the account's access was not read again")
+	}
+
 	conn, err := w.svc.ConnectionOf(ctx, "lark", "work")
 	require.NoError(t, err)
-	assert.Equal(t, orchestration.ActionAccess{
-		Access: "missing", Reason: "Lark answered code 99991672: Access denied. One of the following scopes is " +
-			"required: [im:message].",
-	}, conn.Access.Of("lark.im.write"))
+	assert.Equal(t, orchestration.AccessGranted, conn.Access.Of("lark.im.write").Access,
+		"one refused method does not take the action away")
 
-	got = lark.do(http.MethodPost, "/open-apis/im/v1/messages?receive_id_type=chat_id", "application/json", send)
-	assert.Equal(t, http.StatusForbidden, got.Status)
-	assert.Contains(t, got.message(), `Refused: Hypomnema cannot "Messages: Create or change" at lark:work`)
-	assert.Len(t, w.service.received(), 1, "the second send was not sent")
-	assert.Empty(t, w.rechecked, "Lark's code says it all; nothing is read again")
+	lark.do(http.MethodPost, "/open-apis/im/v1/chats", "application/json", []byte(`{"name":"Reports"}`))
+	lark.do(http.MethodPost, "/open-apis/im/v1/messages?receive_id_type=chat_id", "application/json", send)
+	assert.Len(t, w.service.received(), 3, "every call still went to Lark")
 }
 
 // Scenario: what agents and the owner are told an account cannot do is its

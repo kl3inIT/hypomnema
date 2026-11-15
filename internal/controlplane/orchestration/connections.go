@@ -216,45 +216,6 @@ func (s *Service) SetConnectionAccess(ctx context.Context, integration, label st
 	return nil
 }
 
-// MarkConnectionAction changes the access of one action of a Connection and leaves the others as they were read:
-// the service itself said that the account cannot do it (Lark's code for a missing scope, issue #567).
-func (s *Service) MarkConnectionAction(ctx context.Context, integration, label, action string, got ActionAccess,
-) error {
-	err := s.write(ctx, func(q *store.Queries, _ int64) error {
-		row, err := q.GetConnection(ctx, store.GetConnectionParams{Integration: integration, Label: label})
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%w: %s has no connection %s", ErrNotFound, integration, label)
-		}
-
-		if err != nil {
-			return err
-		}
-
-		access := connectionFromRow(row).Access
-		if access.Actions == nil {
-			access.Actions = map[string]ActionAccess{}
-		}
-
-		access.Actions[action] = got
-
-		raw, err := json.Marshal(access)
-		if err != nil {
-			return err
-		}
-
-		_, err = q.SetConnectionAccess(ctx, store.SetConnectionAccessParams{
-			Integration: integration, Label: label, Access: nullString(string(raw)),
-		})
-
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("recording the access of %s of %s:%s: %w", action, integration, label, err)
-	}
-
-	return nil
-}
-
 // ConnectionsOf returns an Integration's Connections, oldest first.
 func (s *Service) ConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
 	rows, err := s.read().ListConnectionsOf(ctx, integration)

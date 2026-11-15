@@ -1490,8 +1490,8 @@ flowchart LR
       `/me/roles`, Lark's refusal to name the app's scopes, an AWS role) is unknown everywhere. A request for a
       **missing** action is refused before the owner's answer is read, with "Refused: <account> cannot <action> at
       <connection>: <reason>"; granted and unknown go on as before. A 403 from the service reads the Connection's
-      access again, at most once a minute and after the answer was given; Lark's codes 99991672 and 99991679 mark
-      the action missing at once with Lark's words. The service's answer is passed back unchanged. The agents are
+      access again, at most once a minute and after the answer was given, and so do Lark's codes 99991672 and
+      99991679 for a missing scope: an action is several methods, so one refused call does not mark it. The service's answer is passed back unchanged. The agents are
       told before they try: the agent API's list of accounts carries each one's `cannot`, which the tool launcher
       prints in one line before the tool runs; the client API's Connection carries it too, which
       `hypomnema integrations list` counts and `hypomnema superset dashboards` lists; `integrations actions` has a

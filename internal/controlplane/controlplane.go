@@ -372,7 +372,6 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			return serviceproxy.Answer{Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body}, err
 		},
 		Recheck: checkAccess,
-		Mark:    svc.MarkConnectionAction,
 	})
 	if err != nil {
 		return err

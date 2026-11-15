@@ -45,38 +45,29 @@ func cannot(conn orchestration.Connection, action Action, s session, reason stri
 		action.Service+": "+action.Name, s.connection(), reason, s.connection())
 }
 
-// noticed looks at the service's answer to a request that ran. Lark's code
-// for a missing scope marks the action at once; any other 403 reads the
-// account's access again. The answer itself goes back unchanged.
+// noticed looks at the service's answer to a request that ran. A 403, or
+// Lark's code for a missing scope, reads the account's access again; the
+// action is then what Assess says of all its methods, not what one refused
+// call of it says: an action is several methods, and one of them may need a
+// scope the others do not (lark-cli checks a method, not a group of them).
+// The answer itself goes back unchanged.
 func (p *Proxy) noticed(ctx context.Context, s session, action Action, status int, body []byte) {
 	if action.Plumbing || status < http.StatusBadRequest {
 		return
 	}
 
-	if s.integration == "lark" && p.cfg.Mark != nil {
-		var said struct {
-			Code int    `json:"code"`
-			Msg  string `json:"msg"`
-		}
-
-		if json.Unmarshal(body, &said) == nil && slices.Contains(larkScopeCodes, said.Code) {
-			if _, listed := s.catalog.Action(action.ID); listed {
-				reason := fmt.Sprintf("Lark answered code %d: %s", said.Code, clipTitle(said.Msg))
-				if err := p.cfg.Mark(context.WithoutCancel(ctx), s.integration, s.label, action.ID,
-					missing(reason)); err != nil {
-					p.cfg.Logger.ErrorContext(ctx, "an action the account has no scope for could not be recorded",
-						slog.String("event", "serviceproxy.access_failed"), slog.String("connection", s.connection()),
-						slog.String("action", action.ID), slog.String("error", err.Error()))
-				}
-			}
-
-			return
-		}
-	}
-
-	if status == http.StatusForbidden {
+	if status == http.StatusForbidden || (s.integration == "lark" && larkScopeRefusal(body)) {
 		p.recheck(ctx, s)
 	}
+}
+
+// larkScopeRefusal says whether a Lark answer is its code for a missing scope.
+func larkScopeRefusal(body []byte) bool {
+	var said struct {
+		Code int `json:"code"`
+	}
+
+	return json.Unmarshal(body, &said) == nil && slices.Contains(larkScopeCodes, said.Code)
 }
 
 // recheck reads a Connection's access again, at most once a recheckEvery,
