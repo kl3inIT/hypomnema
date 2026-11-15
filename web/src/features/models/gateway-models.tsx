@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import {
   Brain,
   CircleAlert,
@@ -63,7 +63,7 @@ import {
   tokensHint,
   type ModelForm,
 } from "./gateway-models-state"
-import { gatewayModelsKey } from "./use-models"
+import { useRefreshGatewayModels } from "./use-models"
 
 // GatewayModels are the models the gateway serves (issue #367): each with where it is served from and what a
 // client is told of it, its window, largest output, inputs, reasoning and price, as 9router-go's custom models and
@@ -222,7 +222,7 @@ const reasoningItems: Record<ModelForm["reasoning"], string> = {
 // field shows models.dev's value where it is empty.
 export function EditGatewayModel({ model }: { model: GatewayModel }) {
   const [open, setOpen] = useState(false)
-  const queryClient = useQueryClient()
+  const refresh = useRefreshGatewayModels()
   const formId = useId()
   const a = model.attributes
 
@@ -235,7 +235,7 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
         })
       ).data,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: gatewayModelsKey })
+      await refresh()
       setOpen(false)
       said(`${modelName(model.name)} was saved`)
     },
