@@ -2,7 +2,6 @@ package controlplane
 
 import (
 	"bytes"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 //nolint:gosec // G101: a made-up token for the test
@@ -31,9 +31,8 @@ const claudeToken = "sk-ant-oat01-0123456789abcdef-never-printed"
 func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	run := func(stdin string, args ...string) (string, error) {
 		var out bytes.Buffer

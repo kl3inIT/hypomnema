@@ -2,8 +2,6 @@ package controlplane
 
 import (
 	"bytes"
-	"io"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,16 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 func migratedConfig(t *testing.T) Config {
 	t.Helper()
 
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
+
 	cfg, err := LoadConfig(func(name string) string {
-		return map[string]string{"HYPOMNEMA_DATABASE_PATH": filepath.Join(t.TempDir(), "hypomnema.db")}[name]
+		return map[string]string{"HYPOMNEMA_DATABASE_PATH": path}[name]
 	})
 	require.NoError(t, err)
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	return cfg
 }
