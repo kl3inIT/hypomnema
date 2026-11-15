@@ -47,6 +47,18 @@
 - Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).
+- Documents are leads, not proof: `ARCHITECTURE.md`, research notes, an issue's text, memory, pasted output.
+  Before designing, fixing or filing on what one says, check it against the code on `main` or the running system
+  and cite what you saw (a path and line, a command and its output). A fix that cannot point to the line where the
+  problem shows rests on an unverified premise; when unsure, say so instead of guessing (OpenClaw and Hermes
+  `AGENTS.md`, Coder's "state uncertainty instead of guessing"; owner, 2026-11-15).
+- Before starting an issue, check that its premise still holds on `main`. When the work is already there or the
+  problem does not reproduce, close the issue with the evidence instead of building it (Hermes closes as
+  `implemented_on_main` or `cannot_reproduce`; owner, 2026-11-15).
+- A document's line about a running system (a server has a tool, a node runs a version) is evidence of the past.
+  Before filing or planning an issue that rests on what is deployed, check the live system read-only and write the
+  check (date, version, command) into the issue; fix the document if it was wrong
+  ([research](docs/research/2026-11-15-checking-deployed-state.md); owner, 2026-11-15).
 - A reference whose code cannot be read (a closed product, a paid component) is studied on its real pages: open
   them in a browser and take pictures of each screen and state, kept in `.tmp/`. Text fetched from a page is not
   the screen (owner, 2026-11-11).

@@ -353,12 +353,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's,
     Chrome's DevTools port and the sessions' stream ports never open on that machine. A refusal is logged as `browser.refused` with the host, the
     port and the reason; the agent sees Chrome's connection error.
-- A phone, on a node that holds one (issue #417, steps 1b to 3; [research](docs/research/2026-11-14-android-device-for-agents.md);
+- A phone, on a node that holds one (issue #417, steps 1b to 4; [research](docs/research/2026-11-14-android-device-for-agents.md);
   `internal/node/device`, `internal/controlplane/phone`, `internal/shared/devicetool`). Built so far: the node
   installs the Android emulator and a phone image, writes the AVD, starts and stops the phone when the owner asks
   and after an idle time, and says its state; the owner's API and CLI; the workers' tools on the phone; the owner
-  watching the phone and taking it over from the web (below). Not built: stopping an idle machine (step 4). A real
-  boot from this code is checked on the trial machine, not in CI; the tools and the view are tested with fakes, not
+  watching the phone and taking it over from the web (below); stopping its idle machine. How the owner uses it:
+  [deploy/machines/device.md](deploy/machines/device.md). A real boot from this code is checked on the trial machine, not in CI; the tools and the view are tested with fakes, not
   yet on a real phone.
   - Only a node whose configuration names `device: android` has a phone, and only on Linux x86_64, the one
     system Google publishes the emulator and the image for. Everything of it is in `device/` in the node's home.
@@ -441,7 +441,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `hypomnema machines start` (`machines.Manager.Start`) and waits up to 2 minutes for the node's hello; one
     whose machine is `starting` waits the same. After that the call is refused (503) with "the phone is waking …
     try again in a minute", and the machine keeps starting. A node installed by the owner, or whose machine is on,
-    is reported offline. Stopping an idle machine is step 4.
+    is reported offline.
+  - The phone's machine is stopped when it has been idle (`idle.go`; inference, for cost: no reference stops a
+    whole machine for a device): every minute the control plane looks at the node that holds the phone, and stops
+    its machine with the path of `hypomnema machines stop` (`machines.Manager.Stop`) once, for 30 minutes, the
+    machine was one a provider made and on, its node connected and saying its phone `stopped`, `absent` or
+    `failed`, with no agent's call running and no view open. The 30 minutes count from the first look that finds
+    all of that; a call or a view, its start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
+    or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
+    `phone.machine_stopped`. The next call or view starts the machine again (above).
   - A worker is told of the phone when one is there: the node API marks an offer with `device: android`, and the
     node writes the `android-device` guide (`internal/shared/agenttool/skills/android-device`) where the Integrations'
     guides go and names it in the worker's first message, with the rules that matter most: look before acting,
@@ -1204,7 +1212,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       No generation is removed. `hypomnema-pi` reads `active.json` as pi starts and puts that generation's `bin`
       first on `PATH`, inside the box's read-only tools, so `python` there imports the libraries and a running pi
       keeps its generation through a rebuild; without one, pi starts with the system's Python. No sudo and no
-      system `python3-venv` are needed. A Routine's script does not get it.
+      system `python3-venv` are needed. `hypomnema-routine` gives a Routine's script the same, read the same way as
+      its run starts (issue #507).
     - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
       CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
       Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
@@ -1724,7 +1733,8 @@ capabilities do not exist yet.
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
     to its betas; any other gets the chat route's disguise (billing block, identity, its system in the first user
     turn with its cache breakpoints kept, a user id) and Claude Code's headers with the betas it asked for. Tools
-    are never renamed.
+    are never renamed. Breakpoints past Anthropic's four, a top-level `cache_control` counted, are removed as on the
+    chat route (issue #504).
   - `stream` stays as the client sent it; a stream goes back line for line, a whole answer as it came. The usage is
     read from `message_start` and `message_delta`, or the answer's `usage`; `count_tokens` records none.
   - The session is `X-Claude-Code-Session-Id`, else one per gateway key. The account, a refused token, a usage
@@ -1916,7 +1926,12 @@ capabilities do not exist yet.
     A client's breakpoint on a text or image part stays on its block (a blank text part is dropped and hands its
     breakpoint to the block before), one on a whole message goes on its last block, and a tool message's goes on the
     `tool_result` block, never inside its content, which Anthropic refuses (issue #482, CLIProxyAPI
-    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A probe
+    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A system or developer
+    message (pi sends its system prompt as one to a model that reasons) becomes system text blocks keeping their
+    breakpoints, which the disguise carries onto their reminders. Anthropic takes four breakpoints at most, a 400
+    past that: the extra ones go, the system's but its last first, then the tools' but the last, then the
+    messages' earliest first, then the system's and tools' last, then a top-level one (issue #504, CLIProxyAPI
+    `enforceCacheControlLimitDoc`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
@@ -2944,6 +2959,9 @@ Node (`internal/node`):
     `web/src/lib/said.ts`).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
     `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
+  - What a query read stays fresh for 30 seconds (`web/src/main.tsx`, issue #510; Omnara's and MemoryOS's
+    clients): a screen opened again in that time shows it without asking again. Live events and each change mark
+    what they touch as stale, and a query with its own `staleTime` or `refetchInterval` keeps that.
   - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's
     name says what it measures when pointed at, and a machine's runtimes are their marks with their names while
     they fit on one line, and the marks alone when they do not.
@@ -2951,7 +2969,9 @@ Node (`internal/node`):
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
     - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin;
-    - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`).
+    - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
+    - gzipped, at level 5, to a browser that accepts it: HTML, CSS, JavaScript, JSON and SVG, through chi's
+      `middleware.Compressor`, as Coder's site is (issue #510). The API's answers are not compressed.
   - A binary built without the client (only `dist/.gitkeep`) serves none.
 - In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
   default `http://127.0.0.1:8080`).

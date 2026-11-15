@@ -128,20 +128,35 @@ case "$url" in
   *[!A-Za-z0-9.:/_-]*) rm -rf "$run"; fail "the control plane's address in the coordinator's login is not a plain URL" ;;
 esac
 
+# The documents environment (issue #507), as hypomnema-pi gives it to pi (issue #401): the generation active.json
+# selects is read once, here, and its bin goes first on the script's PATH, so `python` imports the document skills'
+# libraries and the run keeps that generation through a rebuild. Without one the script has the system's Python.
+docs="$home/tools/envs/documents"
+docs_path=""
+generation=$(sed -n 's/^.*"generation": *"\([^"]*\)".*$/\1/p' "$docs/active.json" 2> /dev/null || true)
+case "$generation" in
+  gen-*[!0-9a-f]* | gen-) ;;
+  gen-*)
+    if [ -x "$docs/$generation/venv/bin/python" ]; then
+      docs_path="$docs/$generation/venv/bin:"
+    fi
+    ;;
+esac
+
 # The control plane holds this launcher's standard input open for as long as the run should go on, and closes it to
 # stop the run (the Routine was removed, or the control plane ended): its user cannot signal the coordinator's.
 exec 3<&0
 
 # The box, as hypomnema-pi's: its own PID, IPC and UTS namespaces, ended with the launcher. Read-only: the system,
-# the resolver, the CPU list Node reads, Node, the integrations' tools and their guides, the skills every Bot gets,
-# and this run's folder. A private /tmp, /var/tmp, /proc and /dev, and an empty home, in which
+# the resolver, the CPU list Node reads, Node, the integrations' tools and their guides, the documents environment
+# (under the tools), the skills every Bot gets, and this run's folder. A private /tmp, /var/tmp, /proc and /dev, and an empty home, in which
 # ~/.hypomnema/client.json holds the run's token. Read-write: the Bot's directory. The script has the Bot's tools on
 # its PATH and no model. HYPOMNEMA_ROUTINE says that it is a Routine's run; HYPOMNEMA_ROUTINE_RUN_FILE names the
 # file with the run's key, by which what the script asks the owner to approve is known as this run's. It is ended
 # at its limit here, outside the box: timeout stops bubblewrap, and the box dies with it.
 timeout -k 10 "$limit" env -i \
   HOME="$user_home" USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
-  PATH="$home/tools/bin:$node/bin:/usr/local/bin:/usr/bin:/bin" \
+  PATH="$docs_path$home/tools/bin:$node/bin:/usr/local/bin:/usr/bin:/bin" \
   HYPOMNEMA_BOT="$bot" HYPOMNEMA_ROUTINE="$routine" HYPOMNEMA_ROUTINE_RUN_FILE="$key" HYPOMNEMA_TOOLS_HOME="$home" \
   "$bwrap" \
   --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try --die-with-parent \
