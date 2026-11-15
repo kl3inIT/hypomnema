@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 
 import "@/api/client"
+import { getChatQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import { listChatMessages, streamChat } from "@/api/generated/sdk.gen"
 import type {
   Chat,
@@ -95,8 +96,9 @@ export function useChatStream(chatId: string) {
               connection(false)
               if (e.event === "usage") {
                 const usage = e.data as unknown as ChatContextUsage
-                queryClient.setQueryData<Chat>(["chat", chatId], (c) =>
-                  c ? { ...c, context_usage: usage } : c,
+                queryClient.setQueryData<Chat>(
+                  getChatQueryKey({ path: { chat_id: chatId } }),
+                  (c) => (c ? { ...c, context_usage: usage } : c),
                 )
                 return
               }
