@@ -43,6 +43,9 @@ const (
 	maxPacketBytes = 16 << 20
 	// maxTextBytes bounds one inject-text message (Orca's SCRCPY_INJECT_TEXT_MAX_BYTES).
 	maxInjectText = 300
+	// maxPasteText bounds the text of one set-clipboard message (scrcpy's
+	// SC_CONTROL_MSG_CLIPBOARD_TEXT_MAX_LENGTH: 256 KiB less its 14 bytes of header).
+	maxPasteText = 1<<18 - 14
 	// codecH264 is the FourCC of H.264, the codec asked for.
 	codecH264 = 0x68323634
 )
@@ -60,6 +63,7 @@ const (
 	msgInjectText     = 1
 	msgInjectTouch    = 2
 	msgBackOrScreenOn = 4
+	msgSetClipboard   = 9
 	msgResetVideo     = 17
 
 	actionDown = 0
@@ -218,39 +222,75 @@ func keyMessage(action byte, keycode int) []byte {
 	return out
 }
 
-// textMessages are a text as inject-text messages of at most 300 bytes,
-// split between characters (Orca's splitScrcpyInjectText).
+// textMessages are a text as control messages. A text of ASCII is injected,
+// in inject-text messages of at most 300 bytes split between characters
+// (Orca's splitScrcpyInjectText). The server types an injected text with the
+// phone's key map, which has no key for most of Vietnamese ("Could not inject
+// char u+1edf" for ở, tried on the Play image on 2026-11-15), so a text with
+// any other character is pasted, as scrcpy's own client pastes (set-clipboard
+// with paste, app/src/control_msg.c; ws-scrcpy's createSetClipboardCommand).
+// A paste goes through the phone's clipboard, which any app can read
+// (scrcpy's doc/control.md), so text that can be injected is not pasted.
 func textMessages(text string) [][]byte {
-	var (
-		out   [][]byte
-		chunk strings.Builder
-	)
+	ascii := true
 
-	flush := func() {
-		if chunk.Len() == 0 {
-			return
+	for _, r := range text {
+		if r >= utf8.RuneSelf {
+			ascii = false
+
+			break
+		}
+	}
+
+	var out [][]byte
+
+	if ascii {
+		for _, chunk := range splitText(text, maxInjectText) {
+			msg := make([]byte, 5, 5+len(chunk))
+			msg[0] = msgInjectText
+			binary.BigEndian.PutUint32(msg[1:5], uint32(len(chunk))) //nolint:gosec // At most 300.
+			out = append(out, append(msg, chunk...))
 		}
 
-		msg := make([]byte, 5, 5+chunk.Len())
-		msg[0] = msgInjectText
-		binary.BigEndian.PutUint32(msg[1:5], uint32(chunk.Len())) //nolint:gosec // At most 300.
-		out = append(out, append(msg, chunk.String()...))
-		chunk.Reset()
+		return out
 	}
+
+	for _, chunk := range splitText(text, maxPasteText) {
+		// Sequence 0 asks for no acknowledgement (scrcpy's SC_SEQUENCE_INVALID); paste presses Paste after.
+		msg := make([]byte, 14, 14+len(chunk))
+		msg[0] = msgSetClipboard
+		msg[9] = 1
+		binary.BigEndian.PutUint32(msg[10:14], uint32(len(chunk))) //nolint:gosec // At most 256 KiB.
+		out = append(out, append(msg, chunk...))
+	}
+
+	return out
+}
+
+// splitText splits a text between characters into parts of at most limit
+// bytes, leaving out what is not UTF-8.
+func splitText(text string, limit int) []string {
+	var (
+		out   []string
+		chunk strings.Builder
+	)
 
 	for _, r := range text {
 		if r == utf8.RuneError {
 			continue
 		}
 
-		if chunk.Len()+utf8.RuneLen(r) > maxInjectText {
-			flush()
+		if chunk.Len()+utf8.RuneLen(r) > limit {
+			out = append(out, chunk.String())
+			chunk.Reset()
 		}
 
 		chunk.WriteRune(r)
 	}
 
-	flush()
+	if chunk.Len() > 0 {
+		out = append(out, chunk.String())
+	}
 
 	return out
 }

@@ -80,8 +80,8 @@ func TestAFrameCarriesSEMUAndAKeyFrameItsConfiguration(t *testing.T) {
 // The control messages are scrcpy's, byte for byte as Orca encodes them: a
 // touch of 32 bytes with the finger's id, the point, the video's size, full
 // pressure and the primary button (none when it lifts), a key code of 14
-// bytes, a text of at most 300 bytes split between characters, and serve-emu's
-// Back and video reset.
+// bytes, a text of ASCII injected in parts of at most 300 bytes split between
+// characters, and serve-emu's Back and video reset.
 func TestTheControlMessagesAreScrcpys(t *testing.T) {
 	t.Parallel()
 
@@ -97,9 +97,9 @@ func TestTheControlMessagesAreScrcpys(t *testing.T) {
 	assert.Equal(t, "0401", hex.EncodeToString(backMessage(actionUp)))
 	assert.Equal(t, "11", hex.EncodeToString(resetVideoMessage()))
 
-	assert.Equal(t, [][]byte{append([]byte{1, 0, 0, 0, 8}, "Xin chà"...)}, textMessages("Xin chà"))
+	assert.Equal(t, [][]byte{append([]byte{1, 0, 0, 0, 7}, "Xin cho"...)}, textMessages("Xin cho"))
 
-	long := textMessages(strings.Repeat("ạ", 150)) // 3 bytes each: 100 to a message.
+	long := textMessages(strings.Repeat("a", 450))
 	require.Len(t, long, 2)
 	assert.Equal(t, []byte{1, 0, 0, 1, 0x2c}, long[0][:5])
 	assert.Len(t, long[0], 5+300)
@@ -109,6 +109,23 @@ func TestTheControlMessagesAreScrcpys(t *testing.T) {
 	assert.Equal(t, 0, toPixel(-0.2, 720))
 	assert.Equal(t, 360, toPixel(0.5, 720))
 	assert.Equal(t, 719, toPixel(1, 720))
+}
+
+// A text the phone's key map cannot type, as most of Vietnamese, is pasted
+// as scrcpy pastes: set-clipboard (9), sequence 0 for no acknowledgement,
+// paste on, and the text after its length, all of it in one message.
+func TestATextWithVietnameseIsPasted(t *testing.T) {
+	t.Parallel()
+
+	text := "phở Hà Nội đặc biệt"
+	require.Len(t, text, 29)
+	header := []byte{9, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 29}
+	assert.Equal(t, [][]byte{append(header, text...)}, textMessages(text))
+
+	long := textMessages(strings.Repeat("ạ", maxPasteText/3+1)) // 3 bytes each.
+	require.Len(t, long, 2)
+	assert.Len(t, long[0], 14+maxPasteText/3*3)
+	assert.Len(t, long[1], 14+3)
 }
 
 // The size after the phone turned is the SPS's, read as Orca reads it: its
