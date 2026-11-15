@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 )
 
 // Scenario: the owner makes a second Bot beside the one that is always
@@ -247,6 +249,8 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
+	// The gateway's own revocation, as the control plane wires it (issue #405).
+	w.s.chatKeys = modelgateway.RevokeDeletedChatKeysTx
 	ctx := t.Context()
 
 	trialBot, err := w.s.PutBot(ctx, Bot{Name: "trial"})

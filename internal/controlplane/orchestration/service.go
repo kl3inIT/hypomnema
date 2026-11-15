@@ -40,6 +40,22 @@ type Service struct {
 	channels *channelstore.Store
 	// routines is the domain store of the Routines, their runs and grants.
 	routines *routinestore.Store
+	// chatKeys revokes a deleted chat's gateway keys (issue #405).
+	chatKeys ChatKeys
+}
+
+// ChatKeys revokes the gateway keys of a chat being deleted, in the
+// transaction tx that deletes it, without beginning one: the model gateway
+// owns that table and writes it with its own queries
+// (modelgateway.RevokeDeletedChatKeysTx), as vault.Referrers lets the vault
+// ask orchestration without importing it.
+type ChatKeys func(ctx context.Context, tx *sql.Tx, chatID string, now int64) error
+
+// WithChatKeys gives the Service the gateway's revocation of a deleted chat's
+// keys. Without it, deleting a chat touches no key: a Service made without
+// the gateway has made none.
+func WithChatKeys(k ChatKeys) ServiceOption {
+	return func(s *Service) { s.chatKeys = k }
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
@@ -83,6 +99,11 @@ func (s *Service) Routines() *routinestore.Store { return s.routines }
 // write runs fn in one transaction and wakes event readers after the commit.
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
 	return storeutil.Write(ctx, s.db, s.clock, s.notify.signal, fn)
+}
+
+// writeTx is write for a step that another package's tables take part in.
+func (s *Service) writeTx(ctx context.Context, fn func(tx *sql.Tx, q *store.Queries, now int64) error) error {
+	return storeutil.WriteTx(ctx, s.db, s.clock, s.notify.signal, fn)
 }
 
 func (s *Service) read() *store.Queries {

@@ -829,21 +829,6 @@ func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMes
 	return err
 }
 
-const revokeGatewayKeysOfChat = `-- name: RevokeGatewayKeysOfChat :exec
-UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, ?1), chat_id = NULL
-WHERE chat_id = CAST(?2 AS TEXT)
-`
-
-type RevokeGatewayKeysOfChatParams struct {
-	Now    sql.NullInt64
-	ChatID string
-}
-
-func (q *Queries) RevokeGatewayKeysOfChat(ctx context.Context, arg RevokeGatewayKeysOfChatParams) error {
-	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfChat, arg.Now, arg.ChatID)
-	return err
-}
-
 const setChatContextUsage = `-- name: SetChatContextUsage :exec
 UPDATE chats SET context_tokens = ?1, context_window = ?2, context_percent = ?3
 WHERE id = ?4

@@ -154,10 +154,6 @@ UPDATE runs SET chat_id = NULL WHERE chat_id = CAST(@chat_id AS TEXT);
 -- name: DetachApprovalsFromChat :exec
 UPDATE approvals SET chat_id = NULL WHERE chat_id = CAST(@chat_id AS TEXT);
 
--- name: RevokeGatewayKeysOfChat :exec
-UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, @now), chat_id = NULL
-WHERE chat_id = CAST(@chat_id AS TEXT);
-
 -- name: DeleteSetupChangesOfChat :exec
 DELETE FROM setup_changes WHERE chat_id = @chat_id;
 
