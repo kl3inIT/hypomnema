@@ -2894,14 +2894,16 @@ Node (`internal/node`):
 - The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
   Its `@tanstack/react-query` plugin generates query keys, query options and mutation options for every operation
-  but the two Server-Sent Event streams, `StreamEvents` and `StreamChat` (issue #494, after Omnara and MemoryOS).
+  but the two Server-Sent Event streams, `StreamEvents` and `StreamChat` (issue #494, after Omnara and MemoryOS);
+  `PreviewRoutineSchedule`, a read sent as a POST, gets query options too, as MemoryOS's document search does.
   A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
   settings (Channels, Integrations with their services, accounts and agent actions, Repositories, the Vault and
   the Skills), the memories (an agent's and About you), and the models and the gateway (the accounts with their
   limits, the providers, the gateway's models and keys, Images, Web search and Usage), and the machines with
   their providers, the browser's tabs and the phone (their REST reads only: the screen streams and the take-over
   sockets stay hand-written), and the agents with their versions and models, the Bots, a chat's setup changes and
-  the Approvals read and refresh through them; the other screens still use hand-written keys, moved one area at a
+  the Approvals, and the Routines with their runs, a page at a time, and a schedule's preview read and refresh
+  through them; the other screens still use hand-written keys, moved one area at a
   time.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
