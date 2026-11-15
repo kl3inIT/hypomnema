@@ -88,7 +88,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact,<br/>web_search, web_fetch, generate_image"]
+        MCP["hypomnema mcp: memory, show_artifact,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -424,7 +424,8 @@ sequenceDiagram
     (`agent.json`), and the worker's MCP server (`internal/node/workertools`) calls the agent API itself, as
     OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish` and what the control plane
     lists for the worker on `GET /agent/v1/tools` (see "An agent's tools": `memory`, `show_artifact`, its gateway
-    tools, and the browser's under agent-browser's names), so the list changes without a node release; any other
+    tools, Superset's when its Run was given a Superset account, and the browser's under agent-browser's names), so
+    the list changes without a node release; any other
     tool's call is passed to `POST /agent/v1/tools/call` and its answer, a screenshot as image content, is passed
     back as it is.
     A control plane that cannot be reached leaves the worker `ask` and `finish`. A node of a release before issue
@@ -797,9 +798,10 @@ sequenceDiagram
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
   - A Bot's pi has the tools `memory` and `show_artifact` (issue #536), `web_search`, `web_fetch` and
-    `generate_image` from Hypomnema's tools server (issue #492, see "An agent's tools"), and the shared browser's
-    and the phone's (issue #536, step 4), which its pi mounts through pi's own MCP (below, the box). Those are
-    relayed by the control plane over the same HTTP the other tools use, so the box needs nothing more. Until
+    `generate_image`, and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
+    server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
+    step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
+    over the same HTTP the other tools use, so the box needs nothing more. Until
     2026-11-15 it drove the commands below through bash, taught by the built-in skills `web-search` and `images`,
     which are gone (`skills install` takes their stubs out).
   - The web from the client API (issue #354, after 9router's `skills/9router-web-search`), for the owner and a
@@ -843,7 +845,8 @@ sequenceDiagram
     `subagents.allowAgents`. `connections` names Connections (`integration:label`): a Connection not on it is off
     for the Bot, and one the owner did not switch on for chats is off for every Bot. It is read at each call, by
     the caller's Bot from its pi's or its Routine's token, where a tool lists accounts or asks for a token and
-    where the service proxy or the Superset commands relay a call (`agentapi`, `clientapi/superset.go`), and a Run
+    where the service proxy, the Superset tools or the Superset commands relay a call (`agentapi`,
+    `clientapi/superset.go`), and a Run
     the Bot creates is given only Connections on it (`runUses`). `workers` names worker profiles: a Task the Bot
     creates for another profile, or for none (`implementer`), is refused, 403, with the allowed ones named
     ("allowed: reviewer", or "none"), as OpenClaw refuses a spawn target (`subagent-target-policy.ts` L146-200),
@@ -1063,11 +1066,13 @@ flowchart LR
     folder, since each runtime places it elsewhere; its `python` is the documents environment in a Bot's box, and
     on a worker, when it does not import the libraries, the venv of Hermes's sandbox branch with the same pins
     (`~/.cache/hypomnema-docs-venv`); `slides` names its files the same way, shows a deck with the `show_artifact`
-    tool both kinds have, and on a worker takes python-pptx from that venv. Only a skill that names no command an
-    agent may lack goes to the store: `pages` names `hypomnema superset chart` and Routines, which a worker does not
-    have, and its template by its path in `~/.agents/skills`, so it stays a Bots' skill there
-    ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install` takes
-    out an unedited copy of `slides` an earlier release put there, as it does `pdf`'s.
+    tool both kinds have, and on a worker takes python-pptx from that venv; `pages` names its template beside its
+    SKILL.md, shows a page with `show_artifact` and reads a chart with `superset_chart_data` (issue #536); only its
+    Routine row names commands, `hypomnema superset chart` and `hypomnema artifact show`, which a Routine's script
+    runs. Only a skill that names no command an agent may lack goes to the store, and every whole-folder skill is
+    one ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install`
+    takes out an unedited copy of `slides` and `pages` an earlier release put in `~/.agents/skills`, as it does
+    `pdf`'s, and installs no whole-folder skill itself.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -1577,16 +1582,34 @@ flowchart LR
       `POST .../api` relays any other request.
     - **Who may ask**: the owner, and a coordinator token or pi's own token when the Connection is switched on for
       chats; the chat a coordinator asks from is passed with the request, so an Approval is answered there. pi's
-      token asks from its own chat, and one that names another chat is refused (issue #260). A worker has no way
-      to it yet.
+      token asks from its own chat, and one that names another chat is refused (issue #260). A worker reaches it
+      only through the tools (below), and only for a Connection its Run was given.
+    - **Tools** (issue #536, `internal/controlplane/agentapi/superset.go`, see "An agent's tools"):
+      `superset_dashboards {search?}`, `superset_dashboard {dashboard}`,
+      `superset_chart_data {dashboard, chart, format?}` and `superset_api {method, path, body?}`, one a command,
+      each with `account` (an enum of the labels) only when the agent may use several Superset Connections, as
+      OpenClaw's Feishu tools take an optional `accountId` (`extensions/feishu/src/tool-account.ts`; naming it
+      only when there is a choice is inference). They are listed only to an agent that may use at least one: a
+      worker those its Run was given, a Bot's pi those on for chats and on its Bot's list (the agent's `may`), as
+      OpenClaw registers no Feishu tool without an enabled account (`tool-registration.ts`) and OpenMausBot mounts
+      its research family only with a credential (`agents-catalog.ts`); each call reads them again. The names
+      follow Superset's own MCP servers (`superset_<thing>`, aptro/superset-mcp) and the generic request
+      OpenMausBot's `research_call`. The reads and the request go through `Proxy.Relay` as the client API's do,
+      with the agent as the caller: a worker's held request is an Approval asked by `worker` under its Dispatch and
+      it is told to ask with its `ask` tool; a Bot's is asked by `pi` in its chat. The answers are the client API's
+      JSON (`superset_chart_data` with `format: csv` the rows as CSV); a refusal, a held request and an answer of
+      `superset_api` that is not a success are the tool's error. The log line is `agentapi.superset` with the
+      agent, the tool, the Connection and the number of rows, never a row.
     - **Commands**: `hypomnema superset dashboards [--search S]`, `superset dashboard <dashboard>`,
       `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
       `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset
       Connection). They wait up to 240 s, longer than the 100 s an Approval is held.
-    - **Its skill** (`internal/shared/agenttool/skills/superset`) is one guide for a Bot: what the commands
+    - **Its skill** (`internal/shared/agenttool/skills/superset`) is one guide naming the tools: what they
       return, that figures are as of the call, that a chart's row limit holds, that lists of people are personal
-      data, and that writes and SQL may wait for the owner's approval. It is installed with the coordinator's
-      skills and is not written to a node.
+      data, and that writes and SQL may wait for the owner's approval. A Bot's stub prints it (`hypomnema skills
+      get superset`); a node writes it to `$HYPOMNEMA_SKILLS/superset/guide.md` for a Dispatch given a Superset
+      Connection (`agenttool.SkillOf`), and the worker's first message names it and the tools, with no command on
+      its `PATH`. The commands stay for the owner and Routine scripts.
     - **The log**: each read is one line with who asked, the Connection, the action, the dashboard and chart and
       the number of rows (`superset.read`); each relayed request one with its action, method and status
       (`superset.relayed`), beside the proxy's own line with the verdict. Never a row, the password or a token.
@@ -2481,7 +2504,8 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
-An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `web.go`, `images.go`;
+An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `web.go`, `images.go`,
+`superset.go`;
 issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md),
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
@@ -2499,6 +2523,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
+| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
 | `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
@@ -2541,6 +2566,7 @@ flowchart LR
         L --> M["memories<br/>Bot's, agent's, owner's"]
         L --> A["artifacts<br/>the Bot's chat, a worker's Run's chat"]
         L --> BR["shared browser<br/>a tab an agent"]
+        L --> SP["service proxy: Relay<br/>a Superset Connection the agent may use"]
         D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
     end
     PH -- "node socket" --> PN["node holding the phone"]
@@ -2548,9 +2574,10 @@ flowchart LR
     B -- "chat pi's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
     N -- "Dispatch key" --> D
-    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact" --> C["client API"] --> G
+    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset" --> C["client API"] --> G
     C --> M
     C --> A
+    C --> SP
 ```
 - Which worker gets which gateway tool (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
@@ -2766,25 +2793,25 @@ The owner's commands:
   (otherwise only with `--force`, keeping a backup). The stub of a skill this binary no longer ships (`web-search`
   and `images` since issue #492, `retiredStubs`) is taken out of both folders when it matches a released one, and
   its folder when nothing else is in it, as Codex replaces its whole system skills folder at an update; an edited
-  one is left and named. The same goes for the pdf folder in `~/.agents/skills` (issue #492): an unedited copy (its
-  digest in `releasedFolders`) is removed, since the skills store now places it, and it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
+  one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
+  #536): an unedited copy (its digest in `releasedFolders`) is removed, since the skills store now places it, and
+  it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
 - The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder (until
   issue #492 installed as described here; since then published into the skills store, above): Hermes's
   `skills/productivity/pdf` at `022a14437b2d` (MIT, its `LICENSE` in the folder, the notice in
   `third_party/hermes-agent/NOTICE`), adapted to the Bots' box: `python` is the documents environment (above), the
   scripts are named where the skill is installed (`~/.agents/skills/pdf/scripts`), and OCR, nano-pdf editing and
-  Hermes's tests are left out. A skill without a `guide.md` is such a folder: `skills install` copies its files
-  (what is under `scripts/` executable) into `~/.agents/skills` only, where every Bot reads skills, writing a new
-  copy beside the old and swapping them. It replaces an installed copy only while the folder's digest (each file's
-  path and content, Python caches left out, after Hermes's `tools/skills_sync.py` `dir_hash`) is a released one
-  (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
-  does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
-  with no `skills add`. It is listed among the built-in skills.
-- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder
-  installed in `~/.agents/skills` for Bots only:
+  Hermes's tests are left out. A skill without a `guide.md` is such a folder. Until issue #536 `skills install`
+  copied a folder skill not in the store into `~/.agents/skills`; since every one is in the store it installs none,
+  and the folder's digest (each file's path and content, Python caches left out, after Hermes's
+  `tools/skills_sync.py` `dir_hash`) only tells an unedited copy an earlier release installed, which it removes,
+  from an edited one, which it leaves.
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, and since
+  issue #536 reaches every agent kind through the skills store (above), naming the Superset tools:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
-  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with the `show_artifact` tool.
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page an agent shows with the `show_artifact`
+  tool.
   Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
   the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
   beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the

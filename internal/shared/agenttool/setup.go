@@ -29,6 +29,9 @@ func SkillOf(integration string) (string, bool) {
 		return "lark", true
 	case "aws":
 		return "aws", true
+	case Superset:
+		// Superset's tools are the control plane's (issue #536): a guide with no command of its own.
+		return "superset", true
 	case nodeproto.DeviceAndroid:
 		// The phone every worker and Bot is given (issues #417, #536): a guide with no command of its own, since its tools
 		// are the worker's MCP tools.
@@ -37,6 +40,10 @@ func SkillOf(integration string) (string, bool) {
 
 	return "", false
 }
+
+// Superset is the Integration whose tools are the control plane's own
+// superset_* tools (issue #536), not a command on the agent's PATH.
+const Superset = "superset"
 
 // EnvSkills is the directory an agent on a node finds its skills' guides in.
 const EnvSkills = "HYPOMNEMA_SKILLS"
@@ -164,7 +171,8 @@ func IntegrationsOf(uses []string) []string {
 }
 
 // Brief is what an agent is told about the accounts it may use: which, the
-// command for each Integration, and where its guide is; and about the phone
+// command for each Integration (Superset's tools for Superset), and where its
+// guide is; and about the phone
 // when it is given one (device). It goes into a worker's first message.
 func Brief(uses []string, device string) string {
 	var b strings.Builder
@@ -183,6 +191,14 @@ func Brief(uses []string, device string) string {
 	b.WriteString("\nAccounts you may use for this task: " + strings.Join(uses, ", ") + ".\n")
 
 	for _, integration := range IntegrationsOf(uses) {
+		if integration == Superset {
+			fmt.Fprintf(&b, "- superset: your superset_* tools read its dashboards and charts; read "+
+				"\"$%s/superset/guide.md\" before the first call. With several accounts of it, name one on each "+
+				"call as account.\n", EnvSkills)
+
+			continue
+		}
+
 		def, ok := Of(integration)
 		if !ok {
 			continue

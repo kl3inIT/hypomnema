@@ -1,6 +1,6 @@
 ---
 name: pages
-description: "Build a fast, good-looking page: a data dashboard, or any other page (a landing page, a pricing page, a tool), shown to the owner in this chat as an artifact with the `show_artifact` tool. Use when the owner asks for a dashboard, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures."
+description: "Build a fast, good-looking page: a data dashboard, or any other page (a landing page, a pricing page, a tool), shown to the owner in the chat as an artifact with the `show_artifact` tool. Use when the owner asks for a dashboard, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures."
 ---
 
 # Data dashboards and pages
@@ -20,7 +20,7 @@ make a second artifact for the same page.
 
 | The owner wants | Build |
 |---|---|
-| A quick answer or one chart | No page. Read the figures (`hypomnema superset chart …`, see the `superset` skill) and answer with the number or a markdown table. |
+| A quick answer or one chart | No page. Read the figures (the `superset_chart_data` tool, see the `superset` skill) and answer with the number or a markdown table. |
 | A small summary to look at | One page (a `path` to one HTML file) with the aggregated rows embedded as JSON. |
 | Bigger data | A folder (a `path` to the folder): `index.html` and `data.json` beside it, the template's `CONFIG.dataFile`. Aggregate first all the same. |
 | "Keep it up to date", "every morning" | A folder page and a Routine (see your instructions on Routines) whose script reads the figures again into its data, `hypomnema superset chart <dashboard> <chart> > dashboard/data.json`, and runs `hypomnema artifact show --id <id> --path dashboard`: a script runs commands, not tools. The card shows the new revision. |
@@ -30,12 +30,11 @@ asked for; a list of people is personal data (the `superset` skill).
 
 ## Start from the template
 
-`dashboard.html` sits next to this guide, at `~/.agents/skills/pages/dashboard.html`. It runs in the artifact's locked
-frame, at phone and desktop widths, in light and dark. Copy it into your directory as `index.html` and change only what
-the data needs:
+`dashboard.html` is beside this SKILL.md, in this skill's folder. It runs in the artifact's locked frame, at phone and
+desktop widths, in light and dark. Copy it into your directory as `index.html` and change only what the data needs:
 
 1. `CONFIG`: `dataFile` (a folder page's data, `data.json`), `source`, `updated` (when the figures were read, the
-   `computed_at` of `superset chart`, ISO time), `currency` (`VND`, `USD`, …).
+   `computed_at` of `superset_chart_data`, ISO time), `currency` (`VND`, `USD`, …).
 2. `prepare`: map your columns to the fields the page uses. The sample has `date`, `region`, `category`, `product`,
    `orders`, `units`, `revenue`, one row a month, region and product.
 3. `AGGREGATES` and the `render…` functions: your questions.
@@ -53,10 +52,10 @@ web font, no `fetch` but a folder page's own files. There are no cookies and no 
 
 ## Data
 
-- **From Superset.** Find the chart with the `superset` skill (`superset dashboards --search`, `superset dashboard
-  <number>`), then `hypomnema superset chart <dashboard> <chart> > chart.json`. Its `columns` and `rows` are what the
-  template reads, as they are; a date may come as milliseconds since 1970 and is read as a day. Say in `CONFIG.source`
-  which dashboard and chart, and in `CONFIG.updated` its `computed_at`.
+- **From Superset.** Find the chart with the `superset` skill (`superset_dashboards` with a `search`, then
+  `superset_dashboard`), then read it with `superset_chart_data` and write its answer to `chart.json`. Its `columns`
+  and `rows` are what the template reads, as they are; a date may come as milliseconds since 1970 and is read as a
+  day. Say in `CONFIG.source` which dashboard and chart, and in `CONFIG.updated` its `computed_at`.
 - **Aggregate first.** Ship the smallest table that answers the questions: one row per day or month and dimension,
   not raw events. A chart's rows are already its aggregate; when they are not enough, ask for another chart rather
   than raw rows.
@@ -65,7 +64,7 @@ web font, no `fetch` but a folder page's own files. There are no cookies and no 
 - **Embedding.** The JSON goes inside `<script type="application/json">`: write `<\/` for any `</` in a value, so a
   value cannot close the tag.
 - **Types.** Dates as `YYYY-MM-DD` text or milliseconds. Numbers as plain numbers, not formatted text.
-- Check one or two numbers on the page against `superset chart` before you show it.
+- Check one or two numbers on the page against `superset_chart_data` before you show it.
 
 ## Design
 
