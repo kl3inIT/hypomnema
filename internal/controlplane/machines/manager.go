@@ -235,7 +235,17 @@ func (m *Manager) stop(ctx context.Context, node orchestration.Node) error {
 		return p.Stop(ctx, node.Machine.Region, node.ID)
 	})
 	if err == nil {
-		return m.reg.MachineStopped(ctx, node.ID)
+		err = m.reg.MachineStopped(ctx, node.ID)
+		// The settle loop and a stop asked by hand or by the phone's idle stop can carry out the same step at once,
+		// as it is safe to repeat; the one that records it second finds it recorded (issue #417, 2026-11-15).
+		if errors.Is(err, orchestration.ErrNotFound) {
+			if now, getErr := m.reg.GetNode(ctx, node.ID); getErr == nil && now.Machine != nil &&
+				now.Machine.Power == orchestration.MachineStopped {
+				return nil
+			}
+		}
+
+		return err
 	}
 
 	return m.powerFailed(ctx, node, "stopped", err)
