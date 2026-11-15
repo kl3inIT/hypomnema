@@ -52,40 +52,42 @@ func agentBrowser() program {
 	}
 }
 
-// headlessShell is Chrome for Testing's chrome-headless-shell, the browser
-// T3 Code's server runs, pinned as T3 Code pins it
-// (apps/server/src/preview/PreviewBrowser.ts): a version with the size and
-// checksum of each system's .zip. T3 Code says never to pin below
-// 156.0.8078.70: the shell has no CRLSet, and older builds trust compromised
-// intermediates.
+// chromeForTesting is Chrome for Testing's full browser, which agent-browser
+// runs with `--headless=new`, pinned as OpenMausBot pins it
+// (server/browser/chrome/install.ts): a version with the size and SHA-256 of
+// each system's .zip, checked before it is unpacked. Not its headless shell,
+// which "cannot be made to look like Chrome" (server/browser/chrome/resolve.ts,
+// isHeadlessShell; issue #540).
 //
 // Google publishes no checksum for these files. The version is the Stable
-// channel's of 2026-11-12
-// (googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json),
+// channel's of 2026-11-15
+// (googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json),
 // and the sizes and checksums are of the files as fetched from Google's
 // storage that day. To move the pin: fetch each .zip, and write its size and
-// `sha256sum` here. agent-browser warns in a tool's answer when the Chrome it
+// `sha256sum` here. T3 Code says never to pin below 156.0.8078.70
+// (apps/server/src/preview/PreviewBrowser.ts): older builds trust compromised
+// intermediates. agent-browser warns in a tool's answer when the Chrome it
 // drives is behind the stable release.
-func headlessShell() program {
+func chromeForTesting() program {
 	const (
 		version = "157.0.8103.78"
 		base    = "https://storage.googleapis.com/chrome-for-testing-public/" + version + "/"
 	)
 
 	return program{
-		Name: "chrome-headless-shell", Version: version,
+		Name: "chrome", Version: version,
 		Releases: map[string]release{
 			"linux/amd64": {
-				URL:    base + "linux64/chrome-headless-shell-linux64.zip",
-				SHA256: "f90329720fb61e5a76da9b6b509b6ad12a484c9c5df0359403e935177c6d153a",
-				Bytes:  127_965_683,
-				Binary: "chrome-headless-shell-linux64/chrome-headless-shell",
+				URL:    base + "linux64/chrome-linux64.zip",
+				SHA256: "9223832977a13db3646201b1341c1f9cf08afa3ceae92540116d7b0c062364fb",
+				Bytes:  203_266_906,
+				Binary: "chrome-linux64/chrome",
 			},
 			"linux/arm64": {
-				URL:    base + "linux-arm64/chrome-headless-shell-linux-arm64.zip",
-				SHA256: "912fbf877e53de34d7b3cca5104f3b95607d41bd35412ccc6cd2a599ff0c0dbf",
-				Bytes:  128_047_138,
-				Binary: "chrome-headless-shell-linux-arm64/chrome-headless-shell",
+				URL:    base + "linux-arm64/chrome-linux-arm64.zip",
+				SHA256: "f354d666822a11d8fe99e923c44be77dd226fab2750c5b5947e6318818bf10f1",
+				Bytes:  203_144_198,
+				Binary: "chrome-linux-arm64/chrome",
 			},
 		},
 	}

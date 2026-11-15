@@ -243,9 +243,9 @@ func TestTheOwnersHoldEndsByItself(t *testing.T) {
 }
 
 // Scenario: the owner watches an agent's tab and helps it past a page. The
-// stream is asked for one frame at a time; a frame reaches the page as a
-// JPEG with the tab's size and address, and the page's acknowledgement lets
-// the next one come. The owner's mouse, keys and navigation go in only while
+// stream is asked for frames that wait to be acknowledged, at most 15 a
+// second; a frame reaches the page as a JPEG with the tab's size and address.
+// The owner's mouse, keys and navigation go in only while
 // the owner holds the browser; without that they are dropped and the page is
 // told again who controls.
 func TestAViewShowsATabAndTakesInputOnlyWithControl(t *testing.T) {
@@ -257,7 +257,7 @@ func TestAViewShowsATabAndTakesInputOnlyWithControl(t *testing.T) {
 	st := r.stream(t, "d-one")
 	v := r.watch(t, "d-one")
 
-	assert.Equal(t, "pacing=ack", <-st.asked)
+	assert.Equal(t, "pacing=ack&maxFps=15", <-st.asked)
 	assert.Equal(t, ControllerAgent, next(t, v).Controller)
 
 	port, err := strconv.ParseUint(readFile(t, filepath.Join(r.sockets(), "d-one"+streamFile)), 10, 16)
@@ -275,9 +275,8 @@ func TestAViewShowsATabAndTakesInputOnlyWithControl(t *testing.T) {
 	frame := next(t, v)
 	assert.Equal(t, "a frame", string(frame.JPEG))
 	assert.Nil(t, frame.Viewport, "the size is said when it changes")
-
-	do(t, v, `{"type":"ack"}`)
 	assert.JSONEq(t, `{"type":"ack","seq":7}`, <-st.got)
+	do(t, v, `{"type":"ack"}`)
 
 	// Without control: dropped, and the page is told who controls.
 	do(t, v, `{"type":"mouse","action":"down","x":5,"y":6,"button":"left","clickCount":1}`)
@@ -317,6 +316,61 @@ func TestAViewShowsATabAndTakesInputOnlyWithControl(t *testing.T) {
 	assert.Contains(t, runs[0], "args=mcp call agent_browser_open")
 	assert.Contains(t, runs[1], "args=mcp call agent_browser_back")
 	assert.Contains(t, runs[2], "args=mcp call agent_browser_reload")
+}
+
+// The page may have two frames on their way unacknowledged, never more: the
+// view acknowledges agent-browser's frame itself while the page has fewer,
+// and otherwise once the page acknowledges its oldest (issue #540).
+func TestAViewKeepsTwoFramesOnTheWayToThePage(t *testing.T) {
+	r := newRig(t, Config{})
+
+	_, err := r.Call(t.Context(), "d-one", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+
+	st := r.stream(t, "d-one")
+	v := r.watch(t, "d-one")
+	assert.Equal(t, ControllerAgent, next(t, v).Controller)
+
+	frame := func(seq string) {
+		t.Helper()
+
+		st.send <- `{"type":"frame","seq":` + seq +
+			`,"data":"YSBmcmFtZQ==","metadata":{"deviceWidth":1280,"deviceHeight":720}}`
+		assert.Equal(t, "a frame", string(next(t, v).JPEG))
+	}
+
+	acked := func() string {
+		t.Helper()
+
+		select {
+		case got := <-st.got:
+			return got
+		case <-time.After(300 * time.Millisecond):
+			return ""
+		}
+	}
+
+	frame("1")
+	assert.JSONEq(t, `{"type":"ack","seq":1}`, acked(), "one on its way: the next may come")
+
+	frame("2")
+	assert.Empty(t, acked(), "two on their way: the next waits")
+
+	do(t, v, `{"type":"ack"}`)
+	assert.JSONEq(t, `{"type":"ack","seq":2}`, acked(), "the page took the first: the next may come")
+
+	frame("3")
+	assert.Empty(t, acked())
+
+	do(t, v, `{"type":"ack"}`)
+	assert.JSONEq(t, `{"type":"ack","seq":3}`, acked())
+
+	do(t, v, `{"type":"ack"}`)
+	do(t, v, `{"type":"ack"}`)
+	assert.Empty(t, acked(), "nothing waits: the page's acknowledgements go no further")
+
+	frame("4")
+	assert.JSONEq(t, `{"type":"ack","seq":4}`, acked())
 }
 
 func readFile(t *testing.T, path string) string {

@@ -4269,12 +4269,15 @@ components:
           description: The content was cut at 20,000 characters, or the page at its size limit.
     Browser:
       type: object
-      required: [installed, running, held, tabs]
+      required: [installed, running, chrome, held, tabs]
       properties:
         installed:
           type: boolean
           description: Whether the browser's programs were fetched; they are at the first use.
         running: { type: boolean }
+        chrome:
+          type: string
+          description: The browser the control plane runs, by name and pinned version.
         held:
           type: boolean
           description: Whether the owner holds the browser; agents' calls are refused meanwhile.

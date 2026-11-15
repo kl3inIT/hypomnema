@@ -27,8 +27,8 @@ import (
 
 const (
 	downloadTimeout = 15 * time.Minute
-	// maxUnpackedBytes bounds what a release file unpacks to; the headless
-	// shell is about 300 MB.
+	// maxUnpackedBytes bounds what a release file unpacks to; Chrome for
+	// Testing is about 410 MB.
 	maxUnpackedBytes = 2 << 30
 )
 

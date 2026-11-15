@@ -35,7 +35,7 @@ func browserStatus(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			driver = "the owner holds it"
 		}
 
-		e.printf("%s, %s, %d tabs\n", state, driver, len(b.Tabs))
+		e.printf("%s, %s, %s, %d tabs\n", b.Chrome, state, driver, len(b.Tabs))
 
 		for _, t := range b.Tabs {
 			whose := string(t.Kind)
