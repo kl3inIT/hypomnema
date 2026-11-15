@@ -353,12 +353,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's,
     Chrome's DevTools port and the sessions' stream ports never open on that machine. A refusal is logged as `browser.refused` with the host, the
     port and the reason; the agent sees Chrome's connection error.
-- A phone, on a node that holds one (issue #417, steps 1b and 2; [research](docs/research/2026-11-14-android-device-for-agents.md);
+- A phone, on a node that holds one (issue #417, steps 1b to 3; [research](docs/research/2026-11-14-android-device-for-agents.md);
   `internal/node/device`, `internal/controlplane/phone`, `internal/shared/devicetool`). Built so far: the node
   installs the Android emulator and a phone image, writes the AVD, starts and stops the phone when the owner asks
-  and after an idle time, and says its state; the owner's API and CLI; the workers' tools on the phone (below).
-  Not built: the owner watching and taking over (step 3), and stopping an idle machine (step 4). A real boot from
-  this code is checked on the trial machine, not in CI; the tools are tested with fakes, not yet on a real phone.
+  and after an idle time, and says its state; the owner's API and CLI; the workers' tools on the phone; the owner
+  watching the phone and taking it over from the web (below). Not built: stopping an idle machine (step 4). A real
+  boot from this code is checked on the trial machine, not in CI; the tools and the view are tested with fakes, not
+  yet on a real phone.
   - Only a node whose configuration names `device: android` has a phone, and only on Linux x86_64, the one
     system Google publishes the emulator and the image for. Everything of it is in `device/` in the node's home.
   - Installed at the first start (`release.go`, `install.go`, after the browser's): platform-tools 37.0.1, the
@@ -390,8 +391,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     still there after 30 s is killed, and each adb call is given up after its own limit (the boot's 5 minutes, or
     30 s). One emulator a node. Starts and stops are carried out one at a time, and the latest asked wins: a stop
     calls off a start under way or not yet begun, and a start asked during a stop boots the phone after it.
-  - The phone is stopped 15 minutes after its last use: its start, or an agent's call; using it over adb directly
-    does not count. An emulator
+  - The phone is stopped 15 minutes after its last use: its start, an agent's call, or the owner's view, for as long
+    as one is open; using it over adb directly does not count. An emulator
     that ended by itself makes the phone `failed`; the node looks every minute.
   - A node that ends leaves the phone running, and the next node takes it back when `run.json` names a booted
     phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is
@@ -447,6 +448,44 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     act by box number, never sign in or pay. The guide is written for Claude Code and Codex workers, which are the
     ones the Integrations' guides are written for; an omp or opencode worker is told the rules only. Its stub,
     installed for Bots by `skills install`, says the tools are a worker's for now.
+  - The owner's view and take-over (step 3), in the browser's shape. On the node (`view.go`, `stream.go`,
+    `scrcpy.go`, `sps.go`) one scrcpy-server serves every view open, started with the first and ended with the last,
+    as Orca runs its pane's (notice in `third_party/orca`): pushed to `/data/local/tmp`, an adb forward from a
+    local port to its abstract socket, started with `app_process` at the pinned 3.3.4 with audio off, H.264, at most
+    1280 pixels and 8 Mbps (`run/scrcpy.log`), then its video socket, tried until the server's dummy byte, and its
+    control socket. The stream is read as serve-emu documents scrcpy 3 (notice in `third_party/serve-emu`), and
+    passed on as serve-emu passes it: each frame behind its 16-byte SEMU header, the codec's SPS and PPS kept and put
+    before every key frame, a view that joins waits for the next key frame and the server is asked for one at once,
+    and a view more than 24 frames behind drops frames until a key frame, asking for one. A size in a new SPS (the
+    phone turned) is the touches' size from then. A view starts a phone that is not running and says its state as
+    it changes; a stream that ended with a view open is started again once the phone runs.
+  - The control plane asks the node on its socket (`device_view`) and the node opens a connection of its own to
+    `GET /node/v1/device?stream=`, as a terminal's (#116): binary messages are frames, text messages the phone's
+    `state`, the screen's `size` (`screen`) or why the stream did not start (`error`), and the owner's input goes
+    the other way as serve-emu's messages: `touch` (down, move, up at a point from 0 to 1), `key` (Android's key
+    code), `text` (split at 300 bytes), `back` (scrcpy's back-or-screen-on), `home`, `recents`, `power` and
+    `reset-video`, written on scrcpy's control socket as Orca encodes them.
+  - `POST /api/v1/device/views` (owner only) gives a ticket, which opens `/api/v1/device/views/{ticket}` once within
+    30 seconds, as the browser's. A view of a phone whose node is offline and whose machine is stopped starts the
+    machine as an agent's call does, says `state: waking` and waits for the node's hello for as long as it is open;
+    a machine is started once for the calls and views that find it so. The page is told who controls (`control`)
+    and is passed what the node says. Taking control, releasing it and its ends are the browser's rules, now in
+    `internal/controlplane/ownerhold` which both use: while the owner holds the phone every agent's phone call is
+    answered that the tools are paused, one running when control was taken included; input without control is
+    dropped and the page told again; a view closed gives the phone back, one that dropped after two minutes, and a
+    hold with no input after five. At most 4 views; `GET /api/v1/device` says `held`. Each view is logged
+    (`clientapi.phone_view_opened`, `_closed`, `phone.taken`, `phone.released`), frames and input never. A phone
+    that cannot be shown closes the view with 4404 and its reason.
+  - In the web client (`web/src/features/device`, adapted from T3 Code's Device panel, notice in
+    `web/THIRD_PARTY_NOTICES.md`) the phone is a tab of a chat's pane, opened from its "+" while `GET /api/v1/device`
+    lists a node with a phone, laid out as the browser's tab: a row with Back, Home, Recents and the control button,
+    and the screen fitted under it. It asks for a ticket at each connect, decodes the frames with WebCodecs
+    (`optimizeForLatency`), configured from the SPS of a key frame, and asks for a key frame when it has none. A
+    pointer is one finger, its moves merged one a frame, at a point from 0 to 1 through the letterbox; a key with an
+    Android code is that code, Escape is Back, a typed or pasted text is text, Shift+Escape leaves the screen. Control
+    is taken only with the button. The owner types passwords here; agents never sign in. WebCodecs needs a secure
+    page (HTTPS or this computer's own address), and a page without it says so. The sidebar says when the owner
+    holds the phone.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait

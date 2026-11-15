@@ -28,7 +28,8 @@ const (
 	// request's id as ?request= (issue #255).
 	PathFiles = "/node/v1/files"
 	// PathDevice is where a node posts the answer to a device_call, with the
-	// call's id as ?request= (issue #417).
+	// call's id as ?request= (issue #417), and the WebSocket it opens for a view
+	// of its phone, with the stream it was given as ?stream= (step 3).
 	PathDevice = "/node/v1/device"
 )
 
@@ -100,6 +101,10 @@ const (
 	// the phone (issue #417, step 2); the node answers on PathDevice, as it
 	// answers a files_request.
 	TypeDeviceCall Type = "device_call"
+	// TypeDeviceView asks the node to present a view of its phone's screen for
+	// the owner (issue #417, step 3); the node opens a connection to PathDevice,
+	// as it does to PathTerminal for a terminal.
+	TypeDeviceView Type = "device_view"
 )
 
 // Message is one envelope.
@@ -326,6 +331,66 @@ type DeviceContent struct {
 	Data     string `json:"data,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
 }
+
+// DeviceView asks the node to present a view of its phone's screen (issue
+// #417, step 3) on a connection of its own to PathDevice, with StreamID as
+// ?stream=, as a TerminalOpen asks for a terminal's: both ends meet within
+// TerminalMeetWithin.
+//
+// On that connection the node sends the screen as binary messages, one H.264
+// access unit each in Annex-B with serve-emu's 16-byte SEMU header before it
+// (DeviceFrameHeader), a key frame with the stream's SPS and PPS before it, and
+// a DeviceViewMessage of type "state" or "screen" as text. The control plane
+// sends DeviceViewMessages of the input types as text: the owner's, while the
+// owner holds the phone.
+type DeviceView struct {
+	StreamID string `json:"stream_id"`
+}
+
+// The types of a DeviceViewMessage. From the node: the phone's state, and the
+// screen's size in pixels. To it: serve-emu's input messages (LLP 0008, and
+// T3 Code's Android client): a touch at a point from 0 to 1 of the screen, an
+// Android key code, a text, the four buttons, and a fresh key frame asked for.
+const (
+	DeviceViewState   = "state"
+	DeviceViewScreen  = "screen"
+	DeviceViewTouch   = "touch"
+	DeviceViewKey     = "key"
+	DeviceViewText    = "text"
+	DeviceViewBack    = "back"
+	DeviceViewHome    = "home"
+	DeviceViewRecents = "recents"
+	DeviceViewPower   = "power"
+	DeviceViewReset   = "reset-video"
+)
+
+// DeviceViewMessage is one text message of a phone's view.
+type DeviceViewMessage struct {
+	Type string `json:"type"`
+	// State and Reason are the phone's, for "state".
+	State  string `json:"state,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// Width and Height are the screen's, for "screen".
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
+	// Action is down, move or up, and X and Y the point from 0 to 1, for "touch".
+	Action string  `json:"action,omitempty"`
+	X      float64 `json:"x,omitempty"`
+	Y      float64 `json:"y,omitempty"`
+	// Keycode is Android's KEYCODE_*, for "key".
+	Keycode int `json:"keycode,omitempty"`
+	// Text is what is typed, for "text".
+	Text string `json:"text,omitempty"`
+}
+
+// DeviceFrameHeader is the size of serve-emu's SEMU header (version 1): the
+// magic "SEMU", the version 1, a flags byte whose bit 0 marks a key frame, two
+// bytes of zero, and the frame's time in microseconds as a big-endian uint64.
+const DeviceFrameHeader = 16
+
+// MaxDeviceFrameBytes bounds one message of a phone's view: a frame, as
+// serve-emu bounds a frame's payload (16 MiB), with its header and SPS/PPS.
+const MaxDeviceFrameBytes = 16<<20 + 4096
 
 // Disposition kinds: what the node does with a claimed Dispatch.
 const (

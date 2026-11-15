@@ -548,6 +548,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DeviceList" }
         default: { $ref: "#/components/responses/Error" }
+  /device/views:
+    post:
+      operationId: OpenDeviceView
+      summary: >-
+        A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket
+        `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is
+        stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open.
+        There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind
+        serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero
+        bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control`
+        (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's
+        states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error`
+        (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video`
+        (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y`
+        from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and
+        `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+      responses:
+        "201":
+          description: The ticket.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BrowserViewTicket" }
+        default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}/resume:
     parameters:
       - $ref: "#/components/parameters/NodeID"
@@ -5096,11 +5119,14 @@ components:
           items: { $ref: "#/components/schemas/Node" }
     DeviceList:
       type: object
-      required: [data]
+      required: [data, held]
       properties:
         data:
           type: array
           items: { $ref: "#/components/schemas/DeviceNode" }
+        held:
+          type: boolean
+          description: The owner holds the phone, from a view; every agent's phone call is paused meanwhile.
     DeviceNode:
       type: object
       required: [node_id, name, device, connected, kvm, installed]

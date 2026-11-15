@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/ownerhold"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -47,8 +48,6 @@ const (
 	// ChromeIdle is how long Chrome runs with no agent's tab.
 	ChromeIdle = 5 * time.Minute
 	sweepEvery = time.Minute
-	// holdEvery is how often the owner's hold is looked at for its end.
-	holdEvery = 5 * time.Second
 )
 
 const (
@@ -122,7 +121,7 @@ type Engine struct {
 	lastUsed time.Time
 	sessions map[string]*session
 	// control says who drives the browser: the agents, or the owner.
-	control *control
+	control *ownerhold.Hold
 
 	// The gate's port and Chrome's DevTools port, which the gate asks about
 	// from its own goroutines.
@@ -156,7 +155,7 @@ func New(cfg Config) *Engine {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 
-	return &Engine{cfg: cfg, sessions: map[string]*session{}, control: newControl()}
+	return &Engine{cfg: cfg, sessions: map[string]*session{}, control: ownerhold.New()}
 }
 
 func (e *Engine) download(ctx context.Context) (string, string, error) {
@@ -192,13 +191,13 @@ func (e *Engine) Tools(ctx context.Context) ([]Tool, error) {
 func (e *Engine) Call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
 	// While the owner holds the browser no agent's call runs, and one that was running when the owner took it
 	// is answered as if it had not: what it read may be what the owner typed.
-	if !e.control.enter() {
+	if !e.control.Enter() {
 		return refusal(), nil
 	}
 
 	result, err := e.call(ctx, agent, tool, arguments)
 
-	if e.control.leave() {
+	if e.control.Leave() {
 		return refusal(), nil
 	}
 
@@ -674,7 +673,7 @@ func (e *Engine) Sweep(ctx context.Context) {
 // expire gives the browser back to the agents when the owner's hold outlived
 // its view or the owner's last input.
 func (e *Engine) expire(ctx context.Context) {
-	if reason := e.control.expire(e.cfg.Clock.Now()); reason != "" {
+	if reason := e.control.Expire(e.cfg.Clock.Now()); reason != "" {
 		e.released(ctx, reason)
 	}
 }
@@ -691,7 +690,7 @@ func (e *Engine) Run(ctx context.Context) {
 	tick := time.NewTicker(sweepEvery)
 	defer tick.Stop()
 
-	hold := time.NewTicker(holdEvery)
+	hold := time.NewTicker(ownerhold.CheckEvery)
 	defer hold.Stop()
 
 	for {

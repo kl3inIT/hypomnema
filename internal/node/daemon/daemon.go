@@ -103,6 +103,8 @@ type Config struct {
 	KVM func() bool
 	// Phone is the phone the node holds, started and stopped when the control plane asks; nil: none.
 	Phone Phone
+	// WatchPhone opens a view of that phone's screen for the owner (issue #417, step 3); nil: none.
+	WatchPhone func(ctx context.Context) PhoneView
 	// InstallTool has a tool the control plane named on this machine; nil: the node installs none.
 	InstallTool func(ctx context.Context, tool nodeproto.Tool) error
 	// FindRuntimes finds the agent CLIs again once the tools installed changed, since the control plane has the

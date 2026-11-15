@@ -66,6 +66,7 @@ var policies = map[string]policy{
 	"UpdateNode":                  {scope: scopeOwner},
 	"OpenNodeTerminal":            {scope: scopeOwner},
 	"GetDevice":                   {scope: scopeOwner},
+	"OpenDeviceView":              {scope: scopeOwner},
 	"StartNodeDevice":             {scope: scopeOwner},
 	"StopNodeDevice":              {scope: scopeOwner},
 	"GetBrowser":                  {scope: scopeOwner},

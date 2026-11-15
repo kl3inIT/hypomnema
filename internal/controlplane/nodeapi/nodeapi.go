@@ -156,6 +156,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+nodeproto.PathTerminal, s.terminal)
 	mux.HandleFunc("POST "+nodeproto.PathFiles, s.filesAnswer)
 	mux.HandleFunc("POST "+nodeproto.PathDevice, s.deviceAnswer)
+	mux.HandleFunc("GET "+nodeproto.PathDevice, s.deviceView)
 	mux.HandleFunc("GET "+nodeproto.PathSkills+"{digest}", s.skill)
 }
 

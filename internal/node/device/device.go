@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	// IdleAfter is how long the phone runs after its last use (issue #417): a start, or a Touch. Using the
-	// phone over adb does not count; another start puts the stop off.
+	// IdleAfter is how long the phone runs after its last use (issue #417): a start, a Touch, or a view of its
+	// screen open. Using the phone over adb does not count; another start puts the stop off.
 	IdleAfter = 15 * time.Minute
 	// BootWithin is how long the emulator has to finish booting.
 	BootWithin = 5 * time.Minute
@@ -116,6 +116,11 @@ type Manager struct {
 	// boots counts the boots this node saw, a phone taken back included; a screen of an earlier boot is not
 	// tapped by number. Guarded by mu.
 	boots uint64
+
+	// live is the stream of the phone's screen the owner's views share (view.go), and screenSource what
+	// starts it in a test; nil: scrcpy on the phone.
+	live         screen
+	screenSource func(ctx context.Context) (screenStream, error)
 }
 
 // record is what the node keeps of the programs it started, in run.json, so
@@ -213,6 +218,8 @@ func (m *Manager) set(state, reason string) {
 	if !changed {
 		return
 	}
+
+	m.live.stateChanged(state, reason)
 
 	select {
 	case m.changed <- struct{}{}:
@@ -609,7 +616,14 @@ func (m *Manager) Sweep(ctx context.Context) {
 		return
 	}
 
+	// A view open is a use: the phone is not stopped under the owner's eyes.
+	watched := m.live.watched()
+
 	m.mu.Lock()
+	if watched && m.state == nodeproto.DeviceRunning {
+		m.lastUsed = m.opts.Clock.Now()
+	}
+
 	running, idle, emulator := m.state == nodeproto.DeviceRunning, m.opts.Clock.Now().Sub(m.lastUsed), m.run.Emulator
 	m.mu.Unlock()
 
