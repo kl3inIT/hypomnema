@@ -24,7 +24,14 @@ const rules = "\nRules:\n" +
 	"(the pull request as its URL), then end your turn. A task ended without `finish` counts as failed.\n" +
 	"- If the owner must decide before the work goes on (such as whether to merge), " +
 	"pass that question as `gate` to `finish` instead of waiting.\n" +
-	"- Do not start subagents, and do not work outside this directory.\n"
+	"- Do not start subagents, and do not work outside this directory.\n" +
+	// Issue #513, after OpenClaw's and Hermes's AGENTS.md (verify the claim against source and observed
+	// behavior; close as implemented_on_main or cannot_reproduce) and Coder's ("state uncertainty instead of
+	// guessing").
+	"- The task, an issue, a document or a memory is a claim. Before you build on it, check it in the code of " +
+	"the base branch, or on the system the task names, and cite what you saw (a path and line, a command and " +
+	"its output). When it is false (the work is already there, the problem does not reproduce), change nothing " +
+	"and call `finish` with that evidence. When you are unsure, say so instead of guessing.\n"
 
 // Prompt is the worker's first turn, after Orca's dispatch preamble
 // (src/main/runtime/orchestration/preamble.ts L52-113): who it is, the task,

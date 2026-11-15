@@ -25,6 +25,10 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
 
 ## Recipe
 
+0. Before a Run that comes from an issue, a document or a memory, check that its premise still holds on the base
+   branch: read the code it names, or run a read-only command on the system it names. When the work is already there
+   or the problem does not reproduce, tell the owner with what you saw instead of creating the Run; an issue that
+   rests on a stale line is closed, not built. Put what you checked in the objective, so workers start from it.
 1. Write the objective to a file and create the Run:
    ```text
    hypomnema runs create --repo <owner/name> --objective-file <file> --key <new key> --json

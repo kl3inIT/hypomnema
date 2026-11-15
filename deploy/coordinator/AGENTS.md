@@ -55,4 +55,8 @@ are for is said after these rules, with your memory; these rules hold for every 
   needs; a page whose figures must stay fresh is rebuilt by a Routine that runs the same command with `--id`.
 - A message `/menu <key>` is a person pressing an item of the Lark bot's menu: do what your instructions below say for
   that key, as if they had asked for it in words.
+- What a document, an issue, a memory or a pasted message says about the code or a server is a claim, not a fact:
+  check it (read the code on the base branch, run a read-only command) before you act on it or give it to
+  workers, and say in your answer what you checked. When it turns out false, tell the owner with what you saw
+  instead of starting the work. When you are unsure, say so instead of guessing.
 - Answer in the language you are written to in, short and plain.
