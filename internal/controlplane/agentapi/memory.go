@@ -187,6 +187,10 @@ func (s *Server) memory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.switchedOff(w, r, a, agenttool.ToolMemory) {
+		return
+	}
+
 	text, limit, err := s.changeMemory(r.Context(), a, asked)
 	if err != nil {
 		if errors.Is(err, orchestration.ErrInvalid) || errors.Is(err, orchestration.ErrNotFound) {

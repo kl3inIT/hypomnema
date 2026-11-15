@@ -44,7 +44,8 @@ export function memoryLine(bot: Pick<Bot, "memory" | "memory_limit">) {
 }
 
 // A Draft is a Bot as its form holds it. model is "provider/name", a bare name, or "" for pi's default.
-// skills and skillsOff are the skills the Bot adds and the ones for everyone it turns off (issue #21).
+// skills and skillsOff are the skills the Bot adds and the ones for everyone it turns off (issue #21); tools and
+// toolsOff the Hypomnema tools it keeps and turns off (issue #536).
 export type Draft = {
   name: string
   model: string
@@ -52,6 +53,8 @@ export type Draft = {
   persona: string
   skills: string[]
   skillsOff: string[]
+  tools: string[]
+  toolsOff: string[]
 }
 
 export const emptyDraft: Draft = {
@@ -61,6 +64,8 @@ export const emptyDraft: Draft = {
   persona: "",
   skills: [],
   skillsOff: [],
+  tools: [],
+  toolsOff: [],
 }
 
 export function draftOf(bot: Bot): Draft {
@@ -71,6 +76,8 @@ export function draftOf(bot: Bot): Draft {
     persona: bot.persona,
     skills: bot.skills,
     skillsOff: bot.skills_off,
+    tools: bot.tools,
+    toolsOff: bot.tools_off,
   }
 }
 
@@ -81,12 +88,14 @@ export function sameDraft(a: Draft, b: Draft) {
     a.effort === b.effort &&
     a.persona === b.persona &&
     a.skills.join() === b.skills.join() &&
-    a.skillsOff.join() === b.skillsOff.join()
+    a.skillsOff.join() === b.skillsOff.join() &&
+    a.tools.join() === b.tools.join() &&
+    a.toolsOff.join() === b.toolsOff.join()
   )
 }
 
 // settingsOf is the draft as PUT /bots/{bot_id} and POST /bots take it. The server replaces what it is given, so what the draft
-// leaves empty is left out and falls back to pi's default; the skills are always given, the form holds them.
+// leaves empty is left out and falls back to pi's default; the skills and tools are always given, the form holds them.
 export function settingsOf(draft: Draft, models: Model[]): BotSettings {
   const model = draft.model ? splitModel(draft.model, models) : { provider: "", name: "" }
 
@@ -97,6 +106,8 @@ export function settingsOf(draft: Draft, models: Model[]): BotSettings {
     persona: draft.persona.trim(),
     skills: draft.skills,
     skills_off: draft.skillsOff,
+    tools: draft.tools,
+    tools_off: draft.toolsOff,
   }
 }
 

@@ -109,6 +109,11 @@ type Profile struct {
 	// (issue #21).
 	Skills    []string
 	SkillsOff []string
+	// Tools are the only control-plane tools its workers get, when any is
+	// named, and ToolsOff those they never get, each a name or a family
+	// (issue #536; agenttool.ToolSwitches).
+	Tools    []string
+	ToolsOff []string
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
@@ -161,6 +166,8 @@ type profileSource struct {
 	Fallbacks   []string `yaml:"fallbacks"`
 	Skills      []string `yaml:"skills"`
 	SkillsOff   []string `yaml:"skills_off"`
+	Tools       []string `yaml:"tools"`
+	ToolsOff    []string `yaml:"tools_off"`
 }
 
 type providerSource struct {
@@ -209,7 +216,8 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 
 	p := Profile{
 		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
-		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Skills: in.Skills, SkillsOff: in.SkillsOff, Source: source,
+		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Skills: in.Skills, SkillsOff: in.SkillsOff, Tools: in.Tools,
+		ToolsOff: in.ToolsOff, Source: source,
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
@@ -257,6 +265,10 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
+		if err := checkTools(p.Tools, p.ToolsOff); err != nil {
+			return fmt.Errorf("profile %s: %w", p.Name, err)
+		}
+
 		p.Provider = provider
 		digest := sourceDigest(source)
 
@@ -292,7 +304,8 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			Runtime: p.Runtime, Provider: nullString(p.Provider), Model: nullString(p.Model),
 			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
 			Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
-			SkillsOff: strings.Join(p.SkillsOff, ","), Now: now,
+			SkillsOff: strings.Join(p.SkillsOff, ","), Tools: strings.Join(p.Tools, ","),
+			ToolsOff: strings.Join(p.ToolsOff, ","), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
 		}
@@ -630,7 +643,7 @@ func profileFromRow(v store.ProfileVersion) Profile {
 		Provider: v.Provider.String,
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
 		Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills), SkillsOff: splitNames(v.SkillsOff),
-		CreatedAt: millis(v.CreatedAt),
+		Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff), CreatedAt: millis(v.CreatedAt),
 	}
 }
 
