@@ -15,9 +15,9 @@ import { useBots } from "@/features/bots/use-bots"
 // The skills the owner added and those the binary ships (issue #21), with the profiles and bots that name them.
 
 export const skillsKey = ["skills"] as const
-export const builtinSkillsKey = ["built-in-skills"] as const
-export const skillKey = (name: string) => ["skills", name] as const
-export const skillFilesKey = (name: string, revision: number) =>
+const builtinSkillsKey = ["built-in-skills"] as const
+const skillKey = (name: string) => ["skills", name] as const
+const skillFilesKey = (name: string, revision: number) =>
   ["skills", name, "files", revision] as const
 
 export function useSkills() {

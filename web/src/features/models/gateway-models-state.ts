@@ -100,7 +100,7 @@ export function settingsOf(form: ModelForm): GatewayModelSettings {
 const grouped = new Intl.NumberFormat("en-US")
 
 // tokenCount is a number of tokens as the form shows it: 1,050,000.
-export function tokenCount(n: number) {
+function tokenCount(n: number) {
   return grouped.format(n)
 }
 

@@ -8,7 +8,7 @@ export type Source =
   | { kind: "github"; where: string; ref: string; commit?: string }
   | { kind: "upload" }
 
-export function sourceOf(revision: Pick<SkillRevision, "source" | "commit">): Source {
+function sourceOf(revision: Pick<SkillRevision, "source" | "commit">): Source {
   const github = revision.source.match(/^github:(.+)@([^@]+)$/)
   if (github) {
     return {

@@ -10,7 +10,7 @@
 
 // Scripts, styles and fonts load from three package CDNs and Google Fonts only; images from data:, blob: and the
 // CDNs, so no tracking pixel reaches another host.
-export const pageCDNs = [
+const pageCDNs = [
   "https://cdnjs.cloudflare.com",
   "https://cdn.jsdelivr.net",
   "https://unpkg.com",

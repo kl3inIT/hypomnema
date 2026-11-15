@@ -5,7 +5,7 @@ import "@/api/client"
 import { getBrowser } from "@/api/generated/sdk.gen"
 import type { BrowserTab } from "@/api/generated/types.gen"
 
-export const browserKey = ["browser"] as const
+const browserKey = ["browser"] as const
 
 // The owner's own tab, where a sign-in is made. Watching it makes it, so it is always offered.
 export const ownerTab = "owner"

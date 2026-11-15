@@ -11,8 +11,8 @@ import {
 // An agent's memory, shared by all its workers, and the one about the owner, which every worker and Bot gets
 // (issue #21). Workers write them while they run, so a page reads them again when it is looked at again.
 
-export const agentMemoryKey = (name: string) => ["agent-memory", name] as const
-export const ownerMemoryKey = ["owner-memory"] as const
+const agentMemoryKey = (name: string) => ["agent-memory", name] as const
+const ownerMemoryKey = ["owner-memory"] as const
 
 export function useAgentMemory(name: string) {
   return useQuery({

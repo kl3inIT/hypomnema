@@ -1,5 +1,4 @@
 import type { Routine, RoutineRun } from "@/api/generated/types.gen"
-import { since } from "@/lib/time"
 
 // What the Routines pages say about a Routine and its runs, apart from how they draw it (issue #211). The status, its
 // one fix, the grey status line and a run's one line are adapted from OpenMausBot (Apache License 2.0, Copyright
@@ -182,6 +181,3 @@ export function limitLine(seconds: number) {
 
   return `${seconds} seconds`
 }
-
-// ago is since() for a run's line in a card: "5m ago".
-export const ago = since

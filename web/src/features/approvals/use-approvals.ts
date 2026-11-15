@@ -6,7 +6,7 @@ import type { Approval, ApprovalDecision } from "@/api/generated/types.gen"
 
 // Approvals (issue #154): requests agents made to the owner's accounts that wait for his answer. The list is
 // read again every few seconds while a screen that shows it is open, as Onyx reads a session's approvals.
-export const approvalsKey = ["approvals"] as const
+const approvalsKey = ["approvals"] as const
 
 const everyMs = 3000
 

@@ -40,7 +40,7 @@ function Mark({ action }: { action: string }) {
 // ComposerPendingApprovalActions.tsx, Decline and Approve are the two buttons and approving for the session waits
 // in the "…" menu beside them. A request a Routine's run made has one more answer there (issue #211, after
 // OpenClaw's standing grant scoped to the job): always for this Routine.
-export function ApprovalCard({ approval }: { approval: Approval }) {
+function ApprovalCard({ approval }: { approval: Approval }) {
   const decide = useDecide(approval)
   const session = sessionOf(approval)
 

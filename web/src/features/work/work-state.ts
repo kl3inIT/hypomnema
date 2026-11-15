@@ -6,7 +6,7 @@ import type { Node, Profile, Question, Run, TaskBoard, TaskDetail } from "@/api/
 // what waits for the owner comes first. Columns are by status because workers live for one Task; a free canvas
 // (Omnigent) or teams (OpenMausBot) would need places kept for cards that come and go.
 
-export type Column = "you" | "work" | "done"
+type Column = "you" | "work" | "done"
 
 export type Card = {
   task: TaskDetail
@@ -24,7 +24,7 @@ export type Card = {
 
 // columnOf places a Task. A question to the owner, a failure in an open Run and a block only the owner can lift
 // wait for the owner; a block on a failed dependency waits on that Task instead.
-export function columnOf(task: TaskDetail, run: Run, question?: Question): Column {
+function columnOf(task: TaskDetail, run: Run, question?: Question): Column {
   if (question) return "you"
 
   switch (task.status) {
