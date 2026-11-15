@@ -47,6 +47,10 @@
 - Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).
+- A document's line about a running system (a server has a tool, a node runs a version) is evidence of the past.
+  Before filing or planning an issue that rests on what is deployed, check the live system read-only and write the
+  check (date, version, command) into the issue; fix the document if it was wrong
+  ([research](docs/research/2026-11-15-checking-deployed-state.md); owner, 2026-11-15).
 - A reference whose code cannot be read (a closed product, a paid component) is studied on its real pages: open
   them in a browser and take pictures of each screen and state, kept in `.tmp/`. Text fetched from a page is not
   the screen (owner, 2026-11-11).
