@@ -1,10 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { ArrowLeft, Globe, Upload, X } from "lucide-react"
 import type { ReactNode } from "react"
 
 import "@/api/client"
-import { deleteSkill, setSkillEveryone } from "@/api/generated/sdk.gen"
+import { setSkillEveryoneMutation } from "@/api/generated/@tanstack/react-query.gen"
+import { deleteSkill } from "@/api/generated/sdk.gen"
 import type { Skill } from "@/api/generated/types.gen"
 import { GitHubIcon } from "@/components/icons/brand-icons"
 import { Button } from "@/components/ui/button"
@@ -18,7 +19,7 @@ import { AddSkill } from "./add-skill"
 import { SkillFileTree } from "./skill-file-tree"
 import { BuiltinBadge, EveryoneBadge, SourceIcon } from "./skill-parts"
 import { githubAgain, size, sourceLine, usersOf, type Users } from "./skills-state"
-import { skillsKey, useNamers, useSkill, useSkillFiles } from "./use-skills"
+import { useNamers, useRefreshSkills, useSkill, useSkillFiles } from "./use-skills"
 
 // SkillScreen is one skill's page (issue #21), after Omnara's (Apache-2.0, Copyright Omnara;
 // frontend/apps/web/src/components/skills/SkillView.tsx): the name with a way back, "Upload new version" and the
@@ -65,7 +66,7 @@ function Back() {
 }
 
 function Loaded({ skill }: { skill: Skill }) {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshSkills()
   const navigate = useNavigate()
   const { profiles, bots } = useNamers()
   const users = usersOf(skill, profiles, bots)
@@ -74,9 +75,8 @@ function Loaded({ skill }: { skill: Skill }) {
   const again = githubAgain(skill.latest)
 
   const everyone = useMutation({
-    mutationFn: async (next: boolean) =>
-      setSkillEveryone({ path: { skill: skill.name }, body: { everyone: next } }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: skillsKey }),
+    ...setSkillEveryoneMutation(),
+    onSuccess: () => refresh(),
   })
 
   return (
@@ -118,7 +118,7 @@ function Loaded({ skill }: { skill: Skill }) {
               run={() => deleteSkill({ path: { skill: skill.name } })}
               onDone={async () => {
                 await navigate({ to: "/settings/skills" })
-                await queryClient.invalidateQueries({ queryKey: skillsKey })
+                await refresh()
               }}
               done={`${skill.name} removed`}
             />
@@ -146,7 +146,9 @@ function Loaded({ skill }: { skill: Skill }) {
           id="skill-everyone"
           checked={skill.everyone}
           disabled={everyone.isPending}
-          onCheckedChange={(next) => everyone.mutate(next)}
+          onCheckedChange={(next) =>
+            everyone.mutate({ path: { skill: skill.name }, body: { everyone: next } })
+          }
         />
       </div>
       <ErrorAlert error={everyone.error} />

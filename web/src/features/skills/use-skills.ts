@@ -1,52 +1,61 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
 import {
-  getSkill,
-  listBuiltinSkills,
-  listSkillAudits,
-  listSkillFiles,
-  listSkills,
-  searchSkills,
-} from "@/api/generated/sdk.gen"
+  getSkillOptions,
+  getSkillQueryKey,
+  listBuiltinSkillsOptions,
+  listSkillAuditsOptions,
+  listSkillFilesOptions,
+  listSkillFilesQueryKey,
+  listSkillsOptions,
+  listSkillsQueryKey,
+  searchSkillsOptions,
+} from "@/api/generated/@tanstack/react-query.gen"
 import { useProfiles } from "@/features/agents/use-profiles"
 import { useBots } from "@/features/bots/use-bots"
+import { callsOf } from "@/lib/query-keys"
 
 // The skills the owner added and those the binary ships (issue #21), with the profiles and bots that name them.
 
-export const skillsKey = ["skills"] as const
-const builtinSkillsKey = ["built-in-skills"] as const
-const skillKey = (name: string) => ["skills", name] as const
-const skillFilesKey = (name: string, revision: number) =>
-  ["skills", name, "files", revision] as const
-
 export function useSkills() {
-  return useQuery({ queryKey: skillsKey, queryFn: async () => (await listSkills()).data.data })
+  return useQuery({ ...listSkillsOptions(), select: (page) => page.data })
 }
 
 export function useBuiltinSkills() {
   return useQuery({
-    queryKey: builtinSkillsKey,
-    queryFn: async () => (await listBuiltinSkills()).data.data,
+    ...listBuiltinSkillsOptions(),
+    select: (page) => page.data,
     staleTime: Infinity,
   })
 }
 
 export function useSkill(name: string) {
-  return useQuery({
-    queryKey: skillKey(name),
-    queryFn: async () => (await getSkill({ path: { skill: name } })).data,
-  })
+  return useQuery(getSkillOptions({ path: { skill: name } }))
 }
 
 export function useSkillFiles(name: string, revision: number | undefined) {
   return useQuery({
-    queryKey: skillFilesKey(name, revision ?? 0),
-    queryFn: async () =>
-      (await listSkillFiles({ path: { skill: name, revision: revision ?? 0 } })).data.data,
+    ...listSkillFilesOptions({ path: { skill: name, revision: revision ?? 0 } }),
+    select: (page) => page.data,
     enabled: revision !== undefined,
     staleTime: Infinity,
   })
+}
+
+// useRefreshSkills reads the skills again after one changes: every cached read of their list, of one skill and of
+// a revision's files, which the hand-written ["skills"] prefix covered.
+export function useRefreshSkills() {
+  const queryClient = useQueryClient()
+
+  return () =>
+    queryClient.invalidateQueries({
+      predicate: callsOf(
+        listSkillsQueryKey(),
+        getSkillQueryKey({ path: { skill: "" } }),
+        listSkillFilesQueryKey({ path: { skill: "", revision: 0 } }),
+      ),
+    })
 }
 
 // useNamers are the profiles and bots, which say who adds a skill and who turns one off.
@@ -63,8 +72,7 @@ export function useSkillSearch(query: string) {
   const q = query.trim()
 
   return useQuery({
-    queryKey: ["skill-search", q],
-    queryFn: async () => (await searchSkills({ query: { q } })).data,
+    ...searchSkillsOptions({ query: { q } }),
     enabled: q.length >= 2,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
@@ -74,9 +82,8 @@ export function useSkillSearch(query: string) {
 // useSkillAudits is what skills.sh's auditors said of a result, read when the owner picks it.
 export function useSkillAudits(source: string | undefined, slug: string | undefined) {
   return useQuery({
-    queryKey: ["skill-audits", source, slug],
-    queryFn: async () =>
-      (await listSkillAudits({ query: { source: source ?? "", skill: slug ?? "" } })).data.data,
+    ...listSkillAuditsOptions({ query: { source: source ?? "", skill: slug ?? "" } }),
+    select: (page) => page.data,
     enabled: !!source && !!slug,
     staleTime: Infinity,
   })
