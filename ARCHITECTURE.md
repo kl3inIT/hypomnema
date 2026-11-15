@@ -3002,7 +3002,9 @@ and the node in the control plane binary.
   transcript's reads stop on their abort signal.
 - Oxlint loads `@shadcn/lint` (`jsPlugins` in `web/.oxlintrc.json`) with `no-raw-colors`, `no-restyle`,
   `no-unknown-classes` and `require-static-classes`; `no-arbitrary-values` and `no-inline-styles` are not enabled
-  yet. Both tools leave the primitives alone (`web/src/components`: shadcn's components and theme provider).
+  yet. Oxlint leaves shadcn's primitives alone (`web/src/components/ui`); React Doctor leaves all of
+  `web/src/components`. Oxlint also fails an import cycle (`import/no-cycle`) and an import of a feature or a
+  route from `web/src/{components,lib,hooks}` (`no-restricted-imports`).
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request

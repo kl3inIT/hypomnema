@@ -1,3 +1,4 @@
+// oxlint-disable shadcn/no-raw-colors -- a brand's mark is drawn in the brand's own colours, not the theme's.
 import { useId, type SVGProps } from "react"
 
 // Brand marks, in each brand's own colours. lucide, the project's icon set, carries none, so each is its own SVG

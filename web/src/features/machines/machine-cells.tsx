@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 
 import type { Node, NodeGpu } from "@/api/generated/types.gen"
-import { dimmed, meterTone, toneColors } from "@/components/meter"
+import { dimmed, meterTone, toneColors } from "@/lib/meter-tone"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
