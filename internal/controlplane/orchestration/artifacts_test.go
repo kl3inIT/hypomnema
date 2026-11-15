@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
 func page(t *testing.T, html string, more ...artifactpack.File) artifactpack.Pack {

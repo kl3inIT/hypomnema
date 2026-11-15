@@ -88,7 +88,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, web_search,<br/>web_fetch, generate_image"]
+        MCP["hypomnema mcp: memory, show_artifact,<br/>web_search, web_fetch, generate_image"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -105,7 +105,8 @@ flowchart TB
     PI -- "MCP stdio" --> MCP
     MCP -- "agent API, pi's token" --> CP["control plane: agent API"]
     PI --> GW
-    PI -- "hypomnema artifact show" --> CHAT
+    MCP -. "show_artifact: the files of the Bot's folder" .-> CP
+    CP -. "artifact card" .-> CHAT
 ```
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
@@ -405,9 +406,10 @@ sequenceDiagram
     asks. The runner writes the control plane's address and the key into the worker's bridge directory
     (`agent.json`), and the worker's MCP server (`internal/node/workertools`) calls the agent API itself, as
     OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish` and what the control plane
-    lists for the worker on `GET /agent/v1/tools` (see "An agent's tools": `memory`, its gateway tools, and the
-    browser's under agent-browser's names), so the list changes without a node release; any other tool's call is
-    passed to `POST /agent/v1/tools/call` and its answer, a screenshot as image content, is passed back as it is.
+    lists for the worker on `GET /agent/v1/tools` (see "An agent's tools": `memory`, `show_artifact`, its gateway
+    tools, and the browser's under agent-browser's names), so the list changes without a node release; any other
+    tool's call is passed to `POST /agent/v1/tools/call` and its answer, a screenshot as image content, is passed
+    back as it is.
     A control plane that cannot be reached leaves the worker `ask` and `finish`. A node of a release before issue
     #536 lists `GET /agent/v1/browser/tools` (the browser's and the gateway's) and defines `memory` itself; both
     routes and `POST /agent/v1/memory` stay for it. The tab is not closed when the Dispatch settles: the idle
@@ -644,22 +646,28 @@ sequenceDiagram
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
   page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
   dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
-- Artifacts (issue #402, `orchestration/artifacts.go`, `internal/controlplane/artifactpack`, after OpenMausBot's chat
+- Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
-  - A Bot shows one with `hypomnema artifact show --title T (--html-file F | --path P) [--id A]`, run by pi in its
-    box with its own token; the file or folder is read in the Bot's directory (pi's working directory) and must be
-    inside it. A folder has `index.html` at its top; its hidden files, `node_modules` and `__pycache__`, files a
-    page does not load (OpenMausBot's `PAGE_FILE_TYPES`), badly named ones and links out of it are left out and
-    named in the command's answer. One HTML file is at most 256 KB, all files 5 MB and 200, a title one line of 80
-    characters. The files go as a tar in the body of `POST /artifacts?title=&id=`, the second body allowed over
-    1 MB (`artifactpack.MaxBody`). The type is found from the bytes and the name: `html` (an .html file that is
+  - A Bot's pi and a worker show one with the `show_artifact` tool (issue #536, under "An agent's tools"); the owner
+    and a Routine's script with `hypomnema artifact show --title T (--html-file F | --path P) [--id A]`. The file or
+    folder is read where the agent works, by the same rules (`artifactpack.Read`, shared since issue #536 so that a
+    node's tools server reads by them too): the Bot's directory, a worker's worktree, and must be inside it. A
+    folder has `index.html` at its top; its hidden files, `node_modules` and `__pycache__`, files a page does not
+    load (OpenMausBot's `PAGE_FILE_TYPES`), badly named ones and links out of it are left out and named in the
+    answer. One HTML file is at most 256 KB, all files 5 MB and 200, a title one line of 80 characters. The files
+    go as a tar in the body of `POST /artifacts?title=&id=`, the second body allowed over 1 MB
+    (`artifactpack.MaxBody`). The type is found from the bytes and the name: `html` (an .html file that is
     text, or a folder), `pdf` (`%PDF-`), `image` (what a browser shows, SVG by its name) or `file`. The command
-    prints the id.
-  - Only a Bot's token shows one: a pi's token in its own chat, whose Bot must be the chat's; a Routine's script's
-    token only replaces one of its Bot's, so that a Routine rebuilds a live dashboard (row 11 of the issue). With
-    `--id` the files become the next revision; the same files under the same title make none (200). A pi of
-    another chat does not find it.
+    prints the id; the tool sends the files in its call instead and answers the id.
+  - Only a Bot's token and a worker show one: a pi's token in its own chat, whose Bot must be the chat's; a worker
+    in its Run's chat as that chat's Bot (`ArtifactMakerOfDispatch`: Dispatch, Task, Run, chat), so that a
+    worker's dashboard is shown where the Run was asked for; a Routine's script's token only replaces one of its
+    Bot's, so that a Routine rebuilds a live dashboard (row 11 of the issue). With an id the files become the next
+    revision; the same files under the same title make none (200). Whoever shows in a chat may revise any artifact
+    of that chat and its Bot, a worker the Bot's and the Bot a worker's (OpenMausBot's per-conversation pages); a
+    pi of another chat does not find it. A worker whose Run has no chat (the owner's own Run, or one whose chat was
+    deleted) is refused and told to name the file in its finish summary.
   - Kept in the database (migration 71): `artifacts` (its chat, Bot, message and newest revision),
     `artifact_revisions` (title, type, the file shown, a digest of the files), `artifact_files` (path, SHA-256,
     size, media type) and `artifact_blobs`, the bytes once by SHA-256. The last ten revisions are kept
@@ -692,7 +700,7 @@ sequenceDiagram
     A download is saved as `<id>-r<rev>-<name>` (a folder as `<id>-r<rev>.zip`), the name only the last part of
     what the server gave and left out when it is no plain file name here (`..`, a drive's colon, a device of
     Windows, a control character); a file that is there is never replaced.
-    Every Bot's `AGENTS.md` says when and how to show one.
+    Every Bot's `AGENTS.md` says when to show one, with the tool, and that a Routine's script uses the command.
   - Not built: JSX pages, a public link (OpenMausBot's `publish_page`), pinning to a board, the page calling back
     into the chat, the dashboard skill (row 13); a pptx or an old .doc is a download.
 - The chat's work docked above its composer (issue #314, `web/src/features/chat/docked-work.tsx`), beside the
@@ -759,8 +767,9 @@ sequenceDiagram
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
-  - A Bot's pi has the tools `memory` (issue #536), `web_search`, `web_fetch` and `generate_image` from Hypomnema's
-    tools server (issue #492, see "An agent's tools"), which its pi mounts through pi's own MCP (below, the box). Until
+  - A Bot's pi has the tools `memory` and `show_artifact` (issue #536), `web_search`, `web_fetch` and
+    `generate_image` from Hypomnema's tools server (issue #492, see "An agent's tools"), which its pi mounts through
+    pi's own MCP (below, the box). Until
     2026-11-15 it drove the commands below through bash, taught by the built-in skills `web-search` and `images`,
     which are gone (`skills install` takes their stubs out).
   - The web from the client API (issue #354, after 9router's `skills/9router-web-search`), for the owner and a
@@ -1008,10 +1017,11 @@ flowchart LR
     Omnara refuses while an agent config names one; otherwise it is removed with its revisions. The web's agent
     builder keeps both lists when it saves and does not edit them yet.
   - Built-in skills in the store (issue #492, [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md),
-    sections 3 and 4): `pdf`, which the binary ships (`clientcli.StoreSkills`), reaches every agent kind,
-    Bots and every worker runtime, by the path above, as Codex gives its system skills to every session, OpenClaw
-    its bundled skills to every agent (Claude CLI runs included) and OpenMausBot its library's skills to every
-    engine (`everyBot`). At each start, `serve` publishes it (`PublishBuiltinSkills`): a skill not in the store is
+    sections 3 and 4): `pdf` and `slides` (since issue #536), which the binary ships (`clientcli.StoreSkills`),
+    reach every agent kind, Bots and every worker runtime, by the path above, as Codex gives its system skills to
+    every session, OpenClaw its bundled skills to every agent (Claude CLI runs included) and OpenMausBot its
+    library's skills to every engine (`everyBot`). At each start, `serve` publishes them (`PublishBuiltinSkills`): a
+    skill not in the store is
     added as revision 1 for everyone, its source `builtin:<release>`; one whose files changed gets the next revision,
     as Hermes's `tools/skills_sync.py` updates a bundled skill by its hash, unless the newest revision is one the
     owner uploaded (Hermes skips a user-modified skill); a skill of that name the owner added before is never
@@ -1022,9 +1032,12 @@ flowchart LR
     with the store as it was (Codex's `ensure_system_skills_installed`). pdf names its scripts relative to its
     folder, since each runtime places it elsewhere; its `python` is the documents environment in a Bot's box, and
     on a worker, when it does not import the libraries, the venv of Hermes's sandbox branch with the same pins
-    (`~/.cache/hypomnema-docs-venv`). Only a skill that names no command an agent may lack goes to the store:
-    `pages` and `slides` name `hypomnema artifact show`, which a worker does not have, so they stay Bots' skills in
-    `~/.agents/skills` ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15).
+    (`~/.cache/hypomnema-docs-venv`); `slides` names its files the same way, shows a deck with the `show_artifact`
+    tool both kinds have, and on a worker takes python-pptx from that venv. Only a skill that names no command an
+    agent may lack goes to the store: `pages` names `hypomnema superset chart` and Routines, which a worker does not
+    have, and its template by its path in `~/.agents/skills`, so it stays a Bots' skill there
+    ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install` takes
+    out an unedited copy of `slides` an earlier release put there, as it does `pdf`'s.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -2438,8 +2451,8 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
-An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `web.go`, `images.go`; issues #354,
-#492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md),
+An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `web.go`, `images.go`;
+issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md),
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
 Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots without a node release, as
@@ -2454,6 +2467,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | Tool | Worker | Bot's pi | Owner, coordinator token, Routine script |
 |---|---|---|---|
 | `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
+| `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
 | the browser's (agent-browser) | yes | not yet (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | not yet (issue #536, step 4) | no |
@@ -2467,12 +2481,14 @@ flowchart LR
     subgraph CP["Control plane"]
         L["agent API: /agent/v1/tools<br/>one list, each tool's kinds"] --> G["gateway services<br/>search chain, fetch, Images"]
         L --> M["memories<br/>Bot's, agent's, owner's"]
+        L --> A["artifacts<br/>the Bot's chat, a worker's Run's chat"]
         L --> BR["shared browser"]
     end
     P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "chat pi's token" --> L
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
-    O["Owner, Routine script"] -- "hypomnema web / image / memory" --> C["client API"] --> G
+    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact" --> C["client API"] --> G
     C --> M
+    C --> A
 ```
 - Which worker gets which gateway tool (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
@@ -2500,6 +2516,22 @@ flowchart LR
   description says so (OpenMausBot's says the image "is attached to your reply"). A request no provider could make,
   or one they refuse, is the tool's error. The call waits up to 11 minutes.
 - Not built: image URLs as references (opencode downloads them); a switch per profile or Bot.
+- `show_artifact` `{title?, html? | path?, id?}` (issue #536, after OpenMausBot's `show_html`: html or path, a
+  title, `app_id` to replace, and its answer "Shown as app X. To change it, call show_html again with app_id"; and
+  OpenClaw's `show_widget`) shows a page, a PDF, an image or any file as an artifact (Artifacts, above). `path` is
+  a file or folder in the folder the agent works in: a Bot's folder, where pi starts `hypomnema mcp`; a worker's
+  worktree, which the runner writes into `agent.json` beside the key (a node of an earlier release does not, and
+  its server reads the path in the folder its CLI started it in). The tools server reads it there by
+  `artifactpack.Read` and sends the files whole in the call, base64 (`agenttool.ArtifactCall`), as
+  `generate_image` sends its images, since a node does not share the control plane's disk (OpenMausBot's server
+  reads the bot's folder itself); the control plane checks them again by the client API's rules and keeps them
+  with `ShowArtifact`. The answer: "Shown as artifact <id> (revision N). To change it, call show_artifact again
+  with id <id>.", what a folder left out, and for a worker "Name artifact <id> in your finish summary." A worker
+  whose Run has no chat is told to name the file's path in its finish summary instead (inference: neither
+  reference has a sub-agent without a conversation). A tools server of an earlier release passes the arguments on
+  as they are: `html` works, `path` is refused with "this node's tools cannot send a folder yet; send html, or
+  wait for its update". No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
+  commands stay for the owner and Routine scripts.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2690,21 +2722,23 @@ The owner's commands:
 - The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder
   installed in `~/.agents/skills` for Bots only:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
-  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with the `show_artifact` tool.
   Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
   the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
   beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
   artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
   OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
-  a page kept current is a folder page a Routine shows again with `--id`.
-- The slides skill (`internal/controlplane/clientcli/skills/slides`, issue #479) is built in the same way:
+  a page kept current is a folder page a Routine's script shows again with `hypomnema artifact show --id`.
+- The slides skill (`internal/controlplane/clientcli/skills/slides`, issue #479) is built in the same way, and since
+  issue #536 reaches every agent kind through the skills store (above):
   zarazhangrui/frontend-slides at `9906a34d640d` (MIT, its `LICENSE` in the folder, the notice in
   `third_party/frontend-slides/NOTICE`), for slide decks; dashboards and single pages are not its. A deck is one
-  self-contained HTML page on a fixed 1920×1080 stage scaled to the frame, shown with `hypomnema artifact show`
-  (`--html-file`, or `--path` for a folder whose images are in `assets/` beside `index.html`) and revised with
-  `--id`. Adapted to the artifact frame: fonts are system font stacks (Modern Font Stacks, CC0) in place of
-  Fontshare and Google Fonts, nothing loads from the network, and there is no inline editing or `localStorage`;
-  `scripts/extract-pptx.py` turns a `.pptx` into text and images with the documents environment's python-pptx.
+  self-contained HTML page on a fixed 1920×1080 stage scaled to the frame, shown with the `show_artifact` tool
+  (one HTML file, or a folder whose images are in `assets/` beside `index.html`) and revised with its id. Adapted
+  to the artifact frame: fonts are system font stacks (Modern Font Stacks, CC0) in place of Fontshare and Google
+  Fonts, nothing loads from the network, and there is no inline editing or `localStorage`;
+  `scripts/extract-pptx.py` turns a `.pptx` into text and images with the documents environment's python-pptx
+  (on a worker, the `pdf` skill's venv).
   Vercel deploy, PDF export (Playwright downloads Chromium), the Claude Code plugin and the bold template pack (its
   fonts and charts come from the network) are left out.
 
@@ -3389,7 +3423,7 @@ the internet, so that a machine created at a provider can install the node from 
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
 internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's tools and the gateway's (web, images)
-internal/controlplane/artifactpack  an Artifact's files: the rules a Bot's file or folder is read by, its tar, its type from bytes and name, its limits
+internal/shared/artifactpack  an Artifact's files: the rules an agent's file or folder is read by, its tar, its type from bytes and name, its limits
 internal/controlplane/spreadsheet  an xlsx workbook read into CSV text a sheet for the web's preview, within its limits
 internal/controlplane/bearertoken  client token format: making, checking and hashing
 internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views

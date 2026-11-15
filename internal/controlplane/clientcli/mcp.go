@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/toolsmcp"
@@ -17,11 +18,11 @@ import (
 // runs (internal/shared/toolsmcp), started by pi inside the Bot's box as
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
 // pi's own token there. It lists the tools the control plane gives a Bot's pi
-// (PathTools, issue #536: memory, web_search, web_fetch, generate_image), so
-// that a Bot is offered none of a worker's (ask, finish, the browser, the
-// phone). An image is saved under images/ in the folder pi works in, the
-// Bot's, whose files its chat sends, and the answer gives the MEDIA line that
-// sends it.
+// (PathTools, issue #536: memory, show_artifact, web_search, web_fetch,
+// generate_image), so that a Bot is offered none of a worker's (ask, finish,
+// the browser, the phone). An image is saved under images/ in the folder pi
+// works in, the Bot's, whose files its chat sends, and the answer gives the
+// MEDIA line that sends it; show_artifact's path is read in that folder.
 
 const (
 	// mcpName is the server's name in mcp.json; pi names its tools mcp__hypomnema__<tool>.
@@ -52,9 +53,18 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 			return agent.Tools(ctx, agenttool.PathTools)
 		},
 		Call: func(ctx context.Context, c toolsmcp.Call) (any, error) {
-			if c.Name == agenttool.ToolGenerateImage {
+			switch c.Name {
+			case agenttool.ToolGenerateImage:
 				return agent.ImageCall(ctx, c.Arguments,
 					toolsmcp.Images{Path: agenttool.PathToolsCall, Folder: mcpImages})
+			case agenttool.ToolShowArtifact:
+				// pi starts the server in the folder it works in, the Bot's, where its pages are.
+				dir, err := os.Getwd()
+				if err != nil {
+					return nil, fmt.Errorf("reading the working folder: %w", err)
+				}
+
+				return agent.ArtifactCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
 			}
 
 			return agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, c.Name, c.Arguments)

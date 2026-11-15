@@ -18,7 +18,7 @@ and edges worked out from Hypomnema's records; each file names what changed.
 
 The built-in pages skill (internal/controlplane/clientcli/skills/pages/), from
 its skills/data-dashboards at a6cd67c78610 (SKILL.md and dashboard.html, with
-this LICENSE in the folder). Changed: shown with `hypomnema artifact show`, no
+this LICENSE in the folder). Changed: shown with the show_artifact tool, no
 public link, its data from Superset, and the template drawing its charts as SVG
 with no library or network request.
 
