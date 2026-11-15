@@ -2580,8 +2580,12 @@ Node (`internal/node`):
   profiles' are, shows no age. Not there: deleting, renaming or duplicating a profile (the API has no delete), and
   a check that nobody else saved meanwhile.
 - Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
-  beside the open one. A chat follows `GET /chats/{id}/stream`: kept messages, then pi's live frames, reopened after
-  the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
+  beside the open one. A chat reads its newest 200 messages (`GET /chats/{id}/messages?before=`, issue #502, after
+  OpenMausBot's `message-history.ts`), then follows `GET /chats/{id}/stream` from the newest seq read: kept messages,
+  then pi's live frames, reopened after the last kept message when the server ends it. Scrolling up brings the
+  page of 200 before the oldest message read, from a sentinel 600 px ahead or a "Load earlier messages" button; the
+  page keeps the reader's row by adding the growth of the scroll height back (OpenMausBot's
+  `use-transcript-viewport.ts`), as Safari has no scroll anchoring. There is no virtual list. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
   screen.
   - A tool row (issue #441, `features/chat/tool-row.ts`, after Orca's `NativeChatToolLine.tsx` and Codex's
