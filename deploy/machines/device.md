@@ -23,6 +23,26 @@ Open a chat, choose **Phone** in the pane's **+** menu, take control and sign in
 apps there. Install apps from the Play Store the same way. An agent never signs in to an account; the sign-ins stay
 on the phone's disk when it stops, and when its machine stops.
 
+### An app the Play Store calls incompatible
+
+Some apps are refused on the emulator: the Play Store says "This app won't work for your device" and has no Install
+button. The toll-payment app VETC (`vn.com.vetc.app`) is one; the reason is not known (tried 2026-11-14 and again on
+2026-11-15). It was installed this way, on both days:
+
+1. Install [Aurora Store](https://f-droid.org/packages/com.aurora.store/) from F-Droid with the node's adb, checking
+   the APK's SHA-256 against F-Droid's `index-v2.json` (4.8.4 on 2026-11-15). Aurora downloads an app's own files
+   from Google's servers.
+2. The owner signs in to Aurora with Google in the view; its anonymous sign-in is refused from AWS addresses ("Access
+   denied! Are you using VPN or Tor?").
+3. Install the app from Aurora. It then refuses to run ("Get this app from Play"), because it checks where it was
+   installed from.
+4. Pull the files Aurora installed (`pm path vn.com.vetc.app`: `base.apk` and its `split_config.*.apk`) and install
+   them again with the Play Store named as the installer:
+   `adb install-multiple -r -i com.android.vending base.apk split_config.*.apk`. The app then opens normally.
+
+The node's adb is `~/.hypomnema-node/device/sdk/platform-tools/adb`, serial `emulator-5554`; a Run whose worker lands
+on the phone's node can use it.
+
 ## Who uses it
 
 Every agent that has the shared browser's tools has the phone's (`device_screen`, `device_tap`, `device_type` and the
