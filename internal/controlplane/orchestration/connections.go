@@ -46,6 +46,10 @@ type Connection struct {
 	// is an app (Lark, issue #311); its secret is the vault secret Secret
 	// names. Not a secret. Empty otherwise.
 	AppID string
+	// AppLabel is the app Connection of the same Integration a user Connection signs in with (issue #468): the
+	// owner signed in to the service as himself through that app, and AppID is its app's id when he did. Empty
+	// for every other Connection.
+	AppLabel string
 	// SignInFailed says the service refused the account the last time the
 	// control plane signed in.
 	SignInFailed bool
@@ -59,6 +63,10 @@ var connectionLabelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
 
 // ValidConnectionLabel says whether a label is one the owner can give.
 func ValidConnectionLabel(label string) bool { return connectionLabelPattern.MatchString(label) }
+
+// User says the Connection is a person's own sign-in through an app (issue #468): it acts as the owner, so only
+// the owner's token and the main Bot on the owner's turn may use it.
+func (c Connection) User() bool { return c.AppLabel != "" }
 
 // SetConnection records a Connection and the secret that holds its
 // credential, or changes the secret and account of an existing one. The
@@ -105,7 +113,7 @@ func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Conn
 		return q.UpsertConnection(ctx, store.UpsertConnectionParams{
 			Integration: c.Integration, Label: c.Label, Account: nullString(c.Account), Secret: c.Secret,
 			Services: nullString(strings.Join(c.Services, ",")), Address: nullString(c.Address),
-			Version: nullString(c.Version), AppID: nullString(c.AppID), Now: now,
+			Version: nullString(c.Version), AppID: nullString(c.AppID), AppLabel: nullString(c.AppLabel), Now: now,
 		})
 	})
 	if err != nil {
@@ -268,6 +276,20 @@ func (s *Service) RemoveConnection(ctx context.Context, integration, label strin
 			return fmt.Errorf("removing connection %s:%s: %w", integration, label, err)
 		}
 
+		// An app a user Connection signs in with stays while it does (issue #468): its secret refreshes the
+		// person's token and revokes it.
+		users, err := q.ListUserConnectionsOfApp(ctx, store.ListUserConnectionsOfAppParams{
+			Integration: integration, AppLabel: nullString(label),
+		})
+		if err != nil {
+			return fmt.Errorf("reading the user connections that sign in with %s:%s: %w", integration, label, err)
+		}
+
+		if len(users) > 0 {
+			return fmt.Errorf("%w: %s signs in with the app of %s:%s; disconnect it first", ErrConflict,
+				integration+":"+strings.Join(users, ", "+integration+":"), integration, label)
+		}
+
 		// The owner's answers for its actions go with it: an account connected again under the label starts
 		// from the defaults.
 		if err := q.DeleteActionPoliciesOfConnection(ctx, store.DeleteActionPoliciesOfConnectionParams{
@@ -386,8 +408,9 @@ func connectionFromRow(r store.Connection) Connection {
 
 	return Connection{
 		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret, Services: services,
-		Address: r.Address.String, Version: r.Version.String, AppID: r.AppID.String, SignInFailed: r.SignInFailed != 0,
-		Chats:     r.Chats != 0,
-		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
+		Address: r.Address.String, Version: r.Version.String, AppID: r.AppID.String, AppLabel: r.AppLabel.String,
+		SignInFailed: r.SignInFailed != 0,
+		Chats:        r.Chats != 0,
+		CreatedAt:    millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
 }

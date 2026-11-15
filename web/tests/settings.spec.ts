@@ -8,6 +8,10 @@ import { shot } from "./shot.js"
 
 const now = new Date().toISOString()
 
+// The owner entering the code of a sign-in by device code at Lark: the fake waits for it before it answers.
+let codeEntered: Promise<void> = Promise.resolve()
+let enterCode = () => {}
+
 async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } = {}) {
   let hosts: Host[] = start.hosts ?? [
     { host: "github.com", kind: "github", known: true, has_token: true, connections: ["default"] },
@@ -36,7 +40,8 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   ]
   // Lark, an app: connected with no sign-in once its id and secret were given.
   // Lark, an app Integration: each account is an app given with its App ID and App Secret (issue #311).
-  let apps: ((typeof accounts)[number] & { app_id?: string })[] = []
+  let apps: ((typeof accounts)[number] & { app_id?: string; app?: string })[] = []
+  codeEntered = new Promise((resolve) => (enterCode = resolve))
   let asked: { label: string; services: string[] } | undefined
   // What agents may do with a Google account: the actions of the service proxy's catalog, with their answers.
   const action = (id: string, service: string, name: string, text: string, policy: string) => ({
@@ -161,6 +166,40 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       return request.method() === "DELETE"
         ? route.fulfill({ status: 204 })
         : json(hosts.find((h) => h.host === name))
+    }
+
+    // The owner's own sign-in to Lark through one of his apps (issue #468): a code he enters at Lark, which
+    // completing waits for until the test enters it.
+    if (kind === "integrations" && sub === "sign-ins" && name === "lark") {
+      if (path.endsWith("/sign-ins")) {
+        asked = request.postDataJSON() as { label: string; services: string[] }
+
+        return json({
+          id: "signin-device",
+          url: "https://accounts.larksuite.com/oauth/v1/device/verify?user_code=WXYZ-1234",
+          user_code: "WXYZ-1234",
+          expires_in_seconds: 240,
+        })
+      }
+
+      await codeEntered
+
+      const app = (asked as unknown as { app: string }).app
+      const added = {
+        integration: "lark",
+        label: asked?.label ?? "",
+        account: "Nguyen Van Owner",
+        app_id: apps.find((a) => a.label === app)?.app_id,
+        app,
+        services: [],
+        sign_in_required: false,
+        chats: false,
+        created_at: now,
+        updated_at: now,
+      }
+      apps = [...apps.filter((a) => a.label !== added.label), added]
+
+      return json(added)
     }
 
     if (kind === "integrations" && sub === "sign-ins") {
@@ -673,6 +712,69 @@ test("the owner adds two Lark apps and disconnects one", async ({ page }) => {
     "PUT /integrations/lark/connections/report",
     "PUT /integrations/lark/connections/report",
     "DELETE /integrations/lark/connections/work",
+  ])
+})
+
+// Scenario (issue #468): with his app "work" connected, the owner signs in to Lark as himself. He names the account
+// and the app, is shown the code and a link, and the dialog waits until he entered the code at Lark. His account
+// then shows as his own through the app, with who may use it, and can be signed in again or disconnected, which
+// says Lark is asked to end it. Before any app there is nothing to sign in through. On a phone nothing runs off
+// the side.
+test("the owner signs in to Lark as himself through his app", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/integrations")
+
+  const lark = card(page, "Lark")
+  await expect(lark).toContainText("Not connected")
+  await expect(lark.getByRole("button", { name: "Sign in as me" })).toHaveCount(0)
+
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await lark.getByRole("button", { name: "Add app" }).click()
+  await dialog.getByLabel("Name").fill("work")
+  await dialog.getByLabel("App ID").fill("cli_work")
+  await dialog.getByLabel("App Secret").fill("work-secret")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+  await expect(dialog).toBeHidden()
+
+  await lark.getByRole("button", { name: "Sign in as me" }).click()
+  await expect(dialog.getByLabel("Name")).toHaveValue("me")
+  await expect(dialog).toContainText("work (Hypomnema)")
+  await shot(page, "integrations-lark-as-me")
+  await dialog.getByRole("button", { name: "Continue" }).click()
+
+  await expect(dialog).toContainText("WXYZ-1234")
+  await expect(dialog.getByRole("link", { name: "Open Lark's sign-in page" })).toHaveAttribute(
+    "href",
+    "https://accounts.larksuite.com/oauth/v1/device/verify?user_code=WXYZ-1234",
+  )
+  await expect(dialog.getByText("Waiting for the code, for 4 minutes")).toBeVisible()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-lark-as-me-code")
+
+  enterCode()
+  await expect(dialog).toBeHidden()
+
+  const mine = lark.getByLabel("Lark account me")
+  await expect(mine).toContainText("Nguyen Van Owner")
+  await expect(mine).toContainText("You, through work")
+  await expect(mine).toContainText("Only the main Bot, when you ask it yourself")
+  await expect(mine.getByRole("button", { name: "Change app" })).toHaveCount(0)
+  await expect(mine.getByRole("button", { name: "Sign in again" })).toBeVisible()
+  expect(await fits(page)).toBe(true)
+  await mine.scrollIntoViewIfNeeded()
+  await shot(page, "integrations-lark-as-me-connected")
+
+  await lark.getByRole("button", { name: "Disconnect me" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm).toContainText("Lark is asked to end your sign-in")
+  await confirm.getByRole("button", { name: "Disconnect" }).click()
+  await expect(mine).toHaveCount(0)
+
+  expect(calls).toEqual([
+    "PUT /integrations/lark/connections/work",
+    "POST /integrations/lark/sign-ins",
+    "POST /integrations/lark/sign-ins/signin-device",
+    "DELETE /integrations/lark/connections/me",
   ])
 })
 

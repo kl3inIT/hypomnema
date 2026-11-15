@@ -90,6 +90,10 @@ func (s *Service) Connect(ctx context.Context, integration, label string, app Ap
 		return Connection{}, err
 	}
 
+	if old.User() {
+		return Connection{}, errUserLabel(d, label)
+	}
+
 	secret, payload := connectionSecretName(d.ID, label), vault.Payload{vault.KeyValue: app.Secret}
 
 	_, err = s.vault.Create(ctx, vault.NewSecret{
@@ -133,6 +137,10 @@ func (s *Service) checkApp(ctx context.Context, d Definition, label string) (Con
 
 	if err != nil {
 		return Connection{}, err
+	}
+
+	if conn.User() {
+		return Connection{}, errUserLabel(d, label)
 	}
 
 	app, err := s.appOf(ctx, d, conn)

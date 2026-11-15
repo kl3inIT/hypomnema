@@ -1164,6 +1164,8 @@ type signIns struct {
 
 	appSecret string
 	apps      []integration.Connection
+	// userApp is the app a sign-in as the owner goes through.
+	userApp string
 }
 
 func (s *signIns) List(context.Context) ([]integration.Integration, error) {
@@ -1223,9 +1225,39 @@ func (s *signIns) Begin(_ context.Context, _, label string, services []string) (
 	}, nil
 }
 
+// BeginAsUser starts the owner's sign-in through an app, by a code to enter.
+func (s *signIns) BeginAsUser(_ context.Context, id, label, app string) (integration.SignIn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if id != integration.LarkID || !slices.ContainsFunc(s.apps, func(c integration.Connection) bool {
+		return c.Label == app && c.AppLabel == ""
+	}) {
+		return integration.SignIn{}, integration.ErrInvalid
+	}
+
+	s.label, s.userApp = label, app
+
+	return integration.SignIn{
+		ID: "signin-device", URL: "https://accounts.example/device?code=WXYZ-1234", UserCode: "WXYZ-1234",
+		ExpiresIn: 4 * time.Minute,
+	}, nil
+}
+
 func (s *signIns) Complete(_ context.Context, _, id, pasted string) (integration.Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// The owner entered the code: waiting for it ends with his own Connection.
+	if id == "signin-device" && pasted == "" && s.userApp != "" {
+		c := integration.Connection{
+			Integration: integration.LarkID, Label: s.label, Account: "The Owner", AppID: "cli_a1b2",
+			AppLabel: s.userApp,
+		}
+		s.apps = append(s.apps, c)
+
+		return c, nil
+	}
 
 	if id != "signin-1" || !strings.Contains(pasted, "state="+s.state) {
 		return integration.Connection{}, integration.ErrSignInFailed
@@ -1323,6 +1355,40 @@ func TestConnectingALarkAppFromTheCLI(t *testing.T) {
 		"--label", "work", "--app-file", "-")
 	require.Error(t, err, "only the owner connects an app")
 	assert.Empty(t, services.apps)
+}
+
+// Scenario: the owner signs in to Lark as himself through his app "work"
+// (issue #468): the command prints the link and the code he enters on any
+// device, waits, and says the account acts as him. Without --app nothing is
+// asked; a coordinator cannot sign the owner in.
+func TestSigningInToLarkAsTheOwnerFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	services := &signIns{}
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithIntegrations(services) })
+	w.login(t, bearertoken.Owner)
+
+	_, err := w.cmdIn(t, `{"app_id":"cli_a1b2","app_secret":"never-printed"}`, "integrations", "connect", "lark",
+		"--label", "work", "--app-file", "-")
+	require.NoError(t, err)
+
+	_, err = w.cmd(t, "integrations", "connect", "lark", "--label", "me", "--as-user")
+	require.ErrorContains(t, err, "--app")
+
+	out, err := w.cmd(t, "integrations", "connect", "lark", "--label", "me", "--app", "work", "--as-user")
+	require.NoError(t, err)
+	assert.Contains(t, out, "enter the code WXYZ-1234")
+	assert.Contains(t, out, "https://accounts.example/device?code=WXYZ-1234")
+	assert.Contains(t, out, "lark:me is connected as you, The Owner, through the app work.")
+
+	out, err = w.cmd(t, "integrations", "connect", "lark", "--label", "me", "--app", "work", "--as-user", "--json")
+	require.NoError(t, err)
+	assert.Contains(t, out, `"app":"work"`, "the answer names the app it signs in with")
+
+	w.login(t, bearertoken.Coordinator)
+
+	_, err = w.cmd(t, "integrations", "connect", "lark", "--label", "mine", "--app", "work", "--as-user")
+	require.Error(t, err, "only the owner signs himself in")
 }
 
 // Scenario: the owner gives Hypomnema the Google client from the file Google

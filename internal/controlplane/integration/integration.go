@@ -93,6 +93,8 @@ type Service struct {
 	// for a test.
 	roles       map[string]awsRole
 	stsEndpoint string
+	// after is time.After outside tests: the pause between two polls of a device sign-in (larkuser.go).
+	after func(time.Duration) <-chan time.Time
 }
 
 // signIn is one sign-in the owner started and has not completed.
@@ -103,6 +105,9 @@ type signIn struct {
 	state    string
 	verifier string
 	started  time.Time
+	// device is set for a person's sign-in through an app, by device code (larkuser.go); the fields above
+	// that are not the definition, the label and the start are then unused.
+	device *deviceSignIn
 }
 
 // New returns a Service for the given Integrations.
@@ -112,6 +117,7 @@ func New(store Store, secrets *vault.Service, clock platform.Clock, newID func(s
 		store: store, vault: secrets, defs: defs, client: &http.Client{Timeout: httpTimeout}, clock: clock,
 		newID: newID, signIns: map[string]*signIn{}, appTokens: map[string]Token{},
 		accounts: map[string]accountSession{}, accountClient: newAccountClient(), roles: map[string]awsRole{},
+		after: time.After,
 	}
 }
 
@@ -138,6 +144,9 @@ type Connection struct {
 	// AppID is the id of the app the Connection is, for an Integration that
 	// is an app. Not a secret.
 	AppID string
+	// AppLabel is the app Connection a user Connection signs in with (issue #468): the owner signed in as
+	// himself through that app. Empty for every other Connection.
+	AppLabel string
 	// RoleARN is the role the Connection is and Key the name of the key it is
 	// assumed with, for an Integration of kind role.
 	RoleARN string
@@ -161,10 +170,13 @@ type Integration struct {
 
 // SignIn is a sign-in in progress. The owner opens URL in a browser on any
 // machine and signs in; the browser ends on an address that does not load,
-// which they copy and give to Complete with the ID.
+// which they copy and give to Complete with the ID. A sign-in by device code
+// has a UserCode instead: the page URL opens asks for it, and Complete waits
+// until it was entered.
 type SignIn struct {
 	ID        string
 	URL       string
+	UserCode  string
 	ExpiresIn time.Duration
 }
 
@@ -230,7 +242,8 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connection) Connection {
 	out := Connection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Chats: c.Chats,
-		Address: c.Address, Version: c.Version, AppID: c.AppID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Address: c.Address, Version: c.Version, AppID: c.AppID, AppLabel: c.AppLabel, CreatedAt: c.CreatedAt,
+		UpdatedAt: c.UpdatedAt,
 	}
 
 	if d.IsRole() {
@@ -242,7 +255,8 @@ func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connec
 
 	secret, err := s.vault.Get(ctx, c.Secret)
 	// An account's password does not expire: it needs a sign-in when the service refused it the last time.
-	out.SignInRequired = err != nil || secret.LoginRequired || secret.KeyMissing || c.SignInFailed
+	out.SignInRequired = err != nil || secret.LoginRequired || secret.KeyMissing || c.SignInFailed ||
+		(c.User() && !s.appStillSignsIn(ctx, d, c))
 
 	return out
 }
@@ -316,7 +330,8 @@ func (s *Service) Begin(ctx context.Context, integration, label string, services
 	}
 
 	if d.IsApp() {
-		return SignIn{}, fmt.Errorf("%w: %s is connected as an app, with no sign-in", ErrInvalid, d.ID)
+		return SignIn{}, fmt.Errorf("%w: %s is connected as an app, with no sign-in; to sign in as yourself through "+
+			"one of its apps, name the app (`--app LABEL --as-user`)", ErrInvalid, d.ID)
 	}
 
 	if d.IsAccount() {
@@ -385,6 +400,10 @@ func (s *Service) Complete(ctx context.Context, integration, id, pasted string) 
 	if !ok || pending.def.ID != integration || s.clock.Now().Sub(pending.started) > signInTimeout {
 		return Connection{}, fmt.Errorf("%w: no sign-in %q is waiting; it was completed, is older than %d minutes, "+
 			"or the control plane restarted. Start it again", ErrNotFound, id, int(signInTimeout.Minutes()))
+	}
+
+	if pending.device != nil {
+		return s.completeDevice(ctx, id, pending, pasted)
 	}
 
 	d := pending.def
@@ -504,7 +523,7 @@ type Token struct {
 }
 
 // Token returns a Connection's access token, refreshed first when it has
-// less than two minutes left. ErrSignInRequired when the provider refused the
+// less than its Integration's lead left (two minutes, Lark's person five). ErrSignInRequired when the provider refused the
 // refresh token for good.
 func (s *Service) Token(ctx context.Context, integration, label string) (Token, error) {
 	d, err := s.definition(integration)
@@ -515,6 +534,10 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
 	if err != nil {
 		return Token{}, err
+	}
+
+	if d.IsApp() && conn.User() {
+		return s.userToken(ctx, d, conn)
 	}
 
 	if d.IsApp() {
@@ -532,7 +555,7 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 		return Token{}, vaultError(err)
 	}
 
-	if fresh(opened, s.clock.Now()) {
+	if fresh(opened, s.clock.Now(), d.lead()) {
 		return tokenOf(opened), nil
 	}
 
@@ -555,9 +578,9 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 	return tokenOf(opened), nil
 }
 
-func fresh(o vault.Opened, now time.Time) bool {
+func fresh(o vault.Opened, now time.Time, lead time.Duration) bool {
 	return o.Payload[vault.KeyAccessToken] != "" && o.AccessTokenExpiresAt != nil &&
-		o.AccessTokenExpiresAt.Sub(now) > refreshLead
+		o.AccessTokenExpiresAt.Sub(now) > lead
 }
 
 func tokenOf(o vault.Opened) Token {
@@ -611,6 +634,10 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
 	if err != nil {
 		return false, err
+	}
+
+	if d.IsApp() && conn.User() {
+		return s.forgetUser(ctx, d, conn)
 	}
 
 	if d.IsApp() {

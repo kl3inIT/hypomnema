@@ -4,8 +4,8 @@ description: >-
   Reads and changes what the owner's Lark app may reach in Lark (documents, sheets, Base, wiki, drive, messages,
   calendars, tasks) with the lark-cli command, which Hypomnema installs and signs in. Use when the owner asks about
   something in Lark: reading or writing a document or a sheet, a Base table, a wiki page, a file, sending a message
-  as the bot, a calendar the app can see. Not for a person's own mail, calendar or drive: the command acts as the
-  app, not as the owner.
+  as the bot, a calendar the app can see; and, when you were given the owner's own sign-in, reading what only he
+  sees (his groups, his tickets, his Bases).
 ---
 
 # Lark
