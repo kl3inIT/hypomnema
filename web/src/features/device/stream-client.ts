@@ -303,7 +303,8 @@ export function createPhoneClient(
       socket = null
       controller = null
       closeDecoder()
-      ws?.close()
+      // A normal close: the control plane gives the phone back at once when the owner held it.
+      ws?.close(1000)
     },
   }
 }

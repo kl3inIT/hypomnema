@@ -59,6 +59,9 @@ func (e *NodeEnd) Close(reason string) {
 type pendingStream struct {
 	nodeID  string
 	arrived chan *NodeEnd
+	// abandoned says the opener stopped waiting; the connection is then closed rather than handed over. Guarded by
+	// the Server's mu, under which a connection is handed over.
+	abandoned bool
 }
 
 // OpenTerminal asks a node to connect a terminal session and returns its end
@@ -97,10 +100,26 @@ func (s *Server) openStream(ctx context.Context, nodeID, what string,
 		return nil, fmt.Errorf("%w: node %s is not connected", orchestration.ErrUnavailable, nodeID)
 	}
 
+	// An opener that gives up owns nothing: a connection handed over meanwhile is closed, and one that comes later
+	// is closed by present.
+	delivered := false
+
 	defer func() {
 		s.mu.Lock()
 		delete(s.streams, streamID)
+		pending.abandoned = !delivered
+
+		var late *NodeEnd
+
+		select {
+		case late = <-pending.arrived:
+		default:
+		}
 		s.mu.Unlock()
+
+		if late != nil && !delivered {
+			late.Close("nobody waits for this " + what + " any more")
+		}
 	}()
 
 	t, payload := ask(streamID)
@@ -110,6 +129,8 @@ func (s *Server) openStream(ctx context.Context, nodeID, what string,
 
 	select {
 	case end := <-pending.arrived:
+		delivered = true
+
 		return end, nil
 	case <-time.After(nodeproto.TerminalMeetWithin):
 		return nil, fmt.Errorf("%w: node %s did not open the %s within %s; it may be a version without one",
@@ -163,7 +184,19 @@ func (s *Server) present(w http.ResponseWriter, r *http.Request, what string, li
 	conn.SetReadLimit(limit)
 
 	end := &NodeEnd{conn: conn, done: make(chan struct{})}
-	pending.arrived <- end
+
+	s.mu.Lock()
+	abandoned := pending.abandoned
+	if !abandoned {
+		pending.arrived <- end
+	}
+	s.mu.Unlock()
+
+	if abandoned {
+		_ = conn.Close(websocket.StatusNormalClosure, "nobody waits for this "+what+" any more")
+
+		return
+	}
 
 	select {
 	case <-end.done:

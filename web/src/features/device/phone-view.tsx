@@ -184,7 +184,7 @@ export function PhoneView({ label }: { label: string }) {
     if (type === "pointermove") {
       if (!point) return
       pendingMove.current = { type: "touch", action: "move", ...point }
-      frame.current ??= requestAnimationFrame(flush)
+      if (frame.current === null) frame.current = requestAnimationFrame(flush)
 
       return
     }

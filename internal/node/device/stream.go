@@ -27,7 +27,10 @@ const (
 	dialEvery = 100 * time.Millisecond
 	// readyWithin is how long a connection may stay silent before it is tried again (Orca: 2 s).
 	readyWithin = 2 * time.Second
-	scrcpyLog   = "scrcpy.log"
+	// preambleWithin is how long the server has to say the device and the codec once both sockets are open: it
+	// starts the phone's encoder first, slow on an emulator without a GPU (inference: no reference bounds it).
+	preambleWithin = 10 * time.Second
+	scrcpyLog      = "scrcpy.log"
 )
 
 // screenStream is a running stream of the phone's screen.
@@ -116,7 +119,11 @@ func (s *scrcpyStream) connect(ctx context.Context) error {
 		}
 
 		if try > 0 {
-			time.Sleep(dialEvery)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(dialEvery):
+			}
 		}
 
 		conn, err := dialer.DialContext(ctx, "tcp", address)
@@ -134,7 +141,6 @@ func (s *scrcpyStream) connect(ctx context.Context) error {
 			continue
 		}
 
-		_ = conn.SetReadDeadline(time.Time{})
 		s.video, s.reader = conn, reader
 
 		break
@@ -155,9 +161,22 @@ func (s *scrcpyStream) connect(ctx context.Context) error {
 	// What the phone sends back on the control socket (its clipboard) is not used; it is drained (serve-emu).
 	go func() { _, _ = io.Copy(io.Discard, control) }()
 
-	s.size, err = readPreamble(s.reader)
+	// The start comes once both sockets are open; a server that says nothing is given up, and so is the wait when
+	// ctx ends. The deadline is lifted after it: a phone whose screen does not change sends no frames.
+	_ = s.video.SetReadDeadline(time.Now().Add(preambleWithin))
 
-	return err
+	stop := context.AfterFunc(ctx, func() { _ = s.video.SetReadDeadline(time.Now()) })
+	defer stop()
+
+	if s.size, err = readPreamble(s.reader); err != nil {
+		return err
+	}
+
+	if !stop() {
+		return ctx.Err()
+	}
+
+	return s.video.SetReadDeadline(time.Time{})
 }
 
 func (s *scrcpyStream) Size() screenSize { return s.size }

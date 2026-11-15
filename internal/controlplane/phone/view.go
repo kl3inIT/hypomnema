@@ -110,6 +110,9 @@ func (v *View) run(ctx context.Context, nodeID string) {
 		return
 	}
 
+	// Closed here too: a view closed before the end was kept here would leave it open.
+	defer end.Close("the owner's view closed")
+
 	v.mu.Lock()
 	v.end = end
 	v.mu.Unlock()

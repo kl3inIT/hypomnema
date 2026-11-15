@@ -74,9 +74,6 @@ func (m *Manager) Watch(ctx context.Context) *View {
 		waitKey: true,
 	}
 
-	st := m.Status()
-	v.state = &nodeproto.DeviceViewMessage{Type: nodeproto.DeviceViewState, State: st.State, Reason: st.Reason}
-
 	s := &m.live
 	s.mu.Lock()
 
@@ -86,6 +83,11 @@ func (m *Manager) Watch(ctx context.Context) *View {
 	}
 
 	s.views[v] = struct{}{}
+
+	// The state is read once the view is in: a change from now on reaches it too. The lock order is live.mu, then
+	// the Manager's mu, which set releases before it tells the views.
+	st := m.Status()
+	v.state = &nodeproto.DeviceViewMessage{Type: nodeproto.DeviceViewState, State: st.State, Reason: st.Reason}
 
 	if s.stream != nil {
 		v.size = &nodeproto.DeviceViewMessage{Type: nodeproto.DeviceViewScreen, Width: s.size.Width, Height: s.size.Height}
@@ -225,6 +227,15 @@ func (m *Manager) relay(stream screenStream) {
 	s := &m.live
 
 	s.mu.Lock()
+
+	// The last view left while the stream was starting: it ends at once.
+	if len(s.views) == 0 {
+		s.mu.Unlock()
+		stream.Close()
+
+		return
+	}
+
 	s.stream, s.config, s.size = stream, nil, stream.Size()
 
 	for v := range s.views {
@@ -252,12 +263,15 @@ func (m *Manager) relay(stream screenStream) {
 			return
 		}
 
-		m.fanOut(stream, p)
+		if m.fanOut(p) {
+			m.askKeyFrame(stream)
+		}
 	}
 }
 
-// fanOut gives one packet to every view.
-func (m *Manager) fanOut(stream screenStream, p packet) {
+// fanOut gives one packet to every view, and says whether one fell behind
+// and a key frame is to be asked for.
+func (m *Manager) fanOut(p packet) bool {
 	s := &m.live
 
 	s.mu.Lock()
@@ -280,7 +294,7 @@ func (m *Manager) fanOut(stream screenStream, p packet) {
 			}
 		}
 
-		return
+		return false
 	}
 
 	var out []byte
@@ -297,27 +311,24 @@ func (m *Manager) fanOut(stream screenStream, p packet) {
 		}
 	}
 
-	if behind {
-		m.askKeyFrameLocked(stream)
-	}
+	return behind
 }
 
 // askKeyFrame asks the server for a key frame, at most every resetEvery.
+// The write is made outside the lock: a slow control socket holds up no view.
 func (m *Manager) askKeyFrame(stream screenStream) {
 	m.live.mu.Lock()
-	defer m.live.mu.Unlock()
-
-	m.askKeyFrameLocked(stream)
-}
-
-func (m *Manager) askKeyFrameLocked(stream screenStream) {
 	now := m.opts.Clock.Now()
-	if now.Sub(m.live.reset) < resetEvery {
-		return
-	}
+	due := now.Sub(m.live.reset) >= resetEvery
 
-	m.live.reset = now
-	_ = stream.Control(resetVideoMessage())
+	if due {
+		m.live.reset = now
+	}
+	m.live.mu.Unlock()
+
+	if due {
+		_ = stream.Control(resetVideoMessage())
+	}
 }
 
 // endScreen ends the stream and forgets the views: the node is stopping.
