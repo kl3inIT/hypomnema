@@ -33,7 +33,7 @@ func SkillOf(integration string) (string, bool) {
 		// Superset's tools are the control plane's (issue #536): a guide with no command of its own.
 		return "superset", true
 	case nodeproto.DeviceAndroid:
-		// The phone every worker is given (issue #417): a guide with no command of its own, since its tools
+		// The phone every worker and Bot is given (issues #417, #536): a guide with no command of its own, since its tools
 		// are the worker's MCP tools.
 		return "android-device", true
 	}

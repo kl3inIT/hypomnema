@@ -7,8 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 	"github.com/kl3inIT/hypomnema/internal/shared/toolsmcp"
 )
 
@@ -19,9 +21,12 @@ import (
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
 // pi's own token there. It lists the tools the control plane gives a Bot's pi
 // (PathTools, issue #536: memory, show_artifact, web_search, web_fetch,
-// generate_image, and Superset's superset_* when its Bot may use a Superset
-// account), so that a Bot is offered none of a worker's (ask, finish,
-// the browser, the phone). An image is saved under images/ in the folder pi
+// generate_image, the shared browser's, and Superset's superset_* when its
+// Bot may use a Superset account) and the phone's (PathDeviceTools,
+// issue #536 step 4), as a worker's server does (internal/node/workertools),
+// so that a Bot is offered none of a worker's own (ask, finish). The phone's
+// stay on their own route because a node of the release before this one lists
+// both routes, and would list the phone's twice were they on the one list. An image is saved under images/ in the folder pi
 // works in, the Bot's, whose files its chat sends, and the answer gives the
 // MEDIA line that sends it; show_artifact's path is read in that folder.
 
@@ -51,14 +56,16 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	return toolsmcp.Serve(ctx, e.in, e.out, toolsmcp.Config{
 		Name: mcpName,
 		List: func(ctx context.Context) []map[string]any {
-			return agent.Tools(ctx, agenttool.PathTools)
+			return append(agent.Tools(ctx, agenttool.PathTools), agent.Tools(ctx, agenttool.PathDeviceTools)...)
 		},
 		Call: func(ctx context.Context, c toolsmcp.Call) (any, error) {
-			switch c.Name {
-			case agenttool.ToolGenerateImage:
+			switch {
+			case strings.HasPrefix(c.Name, devicetool.Prefix):
+				return agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
+			case c.Name == agenttool.ToolGenerateImage:
 				return agent.ImageCall(ctx, c.Arguments,
 					toolsmcp.Images{Path: agenttool.PathToolsCall, Folder: mcpImages})
-			case agenttool.ToolShowArtifact:
+			case c.Name == agenttool.ToolShowArtifact:
 				// pi starts the server in the folder it works in, the Bot's, where its pages are.
 				dir, err := os.Getwd()
 				if err != nil {

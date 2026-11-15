@@ -122,8 +122,11 @@ var releasedStubs = map[string][]string{
 		"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef",
 		"d224bf62df9bbc768f84b90d9b261db118c46889f8b643f9967655c227193a61", // #536: the superset_* tools
 	},
-	"aws":            {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
-	"android-device": {"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127"},
+	"aws": {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
+	"android-device": {
+		"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127",
+		"354020b3fc5f96ee9be92432902284298b21164c8cc37c3510906f1f6efe7df4", // #536: Bots have the phone too
+	},
 }
 
 // retiredStubs holds, as releasedStubs does, the digests of the stubs of the
