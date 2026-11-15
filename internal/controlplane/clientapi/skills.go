@@ -258,7 +258,7 @@ func (s *Server) SetSkillEveryone(ctx context.Context, req openapi.SetSkillEvery
 
 func toSkill(sk orchestration.Skill) openapi.Skill {
 	return openapi.Skill{
-		Name: sk.Name, Everyone: sk.Everyone, Latest: toSkillRevision(sk.Latest),
+		Name: sk.Name, Everyone: sk.Everyone, BuiltIn: sk.BuiltIn, Latest: toSkillRevision(sk.Latest),
 		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt,
 	}
 }

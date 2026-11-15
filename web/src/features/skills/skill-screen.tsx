@@ -17,7 +17,7 @@ import { since } from "@/lib/time"
 
 import { AddSkill } from "./add-skill"
 import { SkillFileTree } from "./skill-file-tree"
-import { EveryoneBadge, SourceIcon } from "./skill-parts"
+import { BuiltinBadge, EveryoneBadge, SourceIcon } from "./skill-parts"
 import { githubAgain, size, sourceLine, usersOf, type Users } from "./skills-state"
 import { useNamers, useRefreshSkills, useSkill, useSkillFiles } from "./use-skills"
 
@@ -26,7 +26,9 @@ import { useNamers, useRefreshSkills, useSkill, useSkillFiles } from "./use-skil
 // row's actions in the header, then the files of the newest revision as a tree. Added here: the switch that gives it
 // to everyone, OpenMausBot's "Every bot" (src/components/bot-settings/SkillsSection.tsx); who uses it; "Update
 // from GitHub", which fetches the same source again; and every revision, which the API already returns. Omnara
-// edits SKILL.md in place; here a change is a new revision, from GitHub or an archive.
+// edits SKILL.md in place; here a change is a new revision, from GitHub or an archive. A built-in skill (issue #492)
+// has no Remove, as OpenMausBot's bundled skills are switched and not deleted (server/skill-library.ts, editable:
+// false); the owner may still upload his own version of it, which the next release leaves alone.
 export function SkillScreen({ name }: { name: string }) {
   const skill = useSkill(name)
 
@@ -103,27 +105,30 @@ function Loaded({ skill }: { skill: Skill }) {
               </Button>
             }
           />
-          <ConfirmDialog
-            trigger={
-              <Button variant="ghost" size="sm">
-                Remove
-              </Button>
-            }
-            title={`Remove ${skill.name}?`}
-            consequence={`Its ${revisions.length === 1 ? "version goes" : `${revisions.length} versions go`} with it. Work already running keeps what it was given. This cannot be undone.`}
-            action="Remove"
-            run={() => deleteSkill({ path: { skill: skill.name } })}
-            onDone={async () => {
-              await navigate({ to: "/settings/skills" })
-              await refresh()
-            }}
-            done={`${skill.name} removed`}
-          />
+          {!skill.built_in && (
+            <ConfirmDialog
+              trigger={
+                <Button variant="ghost" size="sm">
+                  Remove
+                </Button>
+              }
+              title={`Remove ${skill.name}?`}
+              consequence={`Its ${revisions.length === 1 ? "version goes" : `${revisions.length} versions go`} with it. Work already running keeps what it was given. This cannot be undone.`}
+              action="Remove"
+              run={() => deleteSkill({ path: { skill: skill.name } })}
+              onDone={async () => {
+                await navigate({ to: "/settings/skills" })
+                await refresh()
+              }}
+              done={`${skill.name} removed`}
+            />
+          )}
         </>
       }
     >
       <div className="flex items-center gap-2">
         <Back />
+        {skill.built_in && <BuiltinBadge />}
         {skill.everyone && <EveryoneBadge />}
       </div>
       <p className="text-sm text-muted-foreground">{skill.latest.description}</p>
@@ -211,6 +216,8 @@ function Loaded({ skill }: { skill: Skill }) {
         <p className="text-xs text-muted-foreground">
           A worker keeps the version it was given when its work started; the next one gets the
           newest.
+          {skill.built_in &&
+            " Hypomnema adds a version when a release changes this skill, unless the newest is one you uploaded."}
         </p>
       </section>
     </SettingsPage>

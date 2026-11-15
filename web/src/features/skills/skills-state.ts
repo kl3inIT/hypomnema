@@ -2,13 +2,17 @@ import type { Bot, Profile, Skill, SkillAudit, SkillRevision } from "@/api/gener
 
 // What the Skills pages say about a skill (issue #21), apart from how they draw it.
 
-// Source is where a revision came from: a public GitHub repository, as owner/repo[/path] and the ref it named, or
-// an archive the owner uploaded.
+// Source is where a revision came from: a public GitHub repository, as owner/repo[/path] and the ref it named, an
+// archive the owner uploaded, or the control plane's own release for a skill it ships (issue #492).
 export type Source =
   | { kind: "github"; where: string; ref: string; commit?: string }
+  | { kind: "builtin"; release: string }
   | { kind: "upload" }
 
 function sourceOf(revision: Pick<SkillRevision, "source" | "commit">): Source {
+  const builtin = revision.source.match(/^builtin(?::(.+))?$/)
+  if (builtin) return { kind: "builtin", release: builtin[1] ?? "" }
+
   const github = revision.source.match(/^github:(.+)@([^@]+)$/)
   if (github) {
     return {
@@ -22,18 +26,20 @@ function sourceOf(revision: Pick<SkillRevision, "source" | "commit">): Source {
   return { kind: "upload" }
 }
 
-// sourceLine is a source in a line: the repository and its ref, or "Uploaded".
+// sourceLine is a source in a line: the repository and its ref, the release of Hypomnema, or "Uploaded".
 export function sourceLine(revision: Pick<SkillRevision, "source" | "commit">) {
   const source = sourceOf(revision)
   if (source.kind === "upload") return "Uploaded"
+  if (source.kind === "builtin") return source.release ? `Hypomnema ${source.release}` : "Hypomnema"
 
   return source.ref === "HEAD" ? source.where : `${source.where}@${source.ref}`
 }
 
-// githubAgain is what the add form takes to fetch the newest of a GitHub source again; none for an upload.
+// githubAgain is what the add form takes to fetch the newest of a GitHub source again; none for an upload or a
+// built-in revision.
 export function githubAgain(revision: Pick<SkillRevision, "source" | "commit">) {
   const source = sourceOf(revision)
-  if (source.kind === "upload") return undefined
+  if (source.kind !== "github") return undefined
 
   return source.ref === "HEAD" ? source.where : `${source.where}@${source.ref}`
 }
