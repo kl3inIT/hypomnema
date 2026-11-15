@@ -30,12 +30,13 @@ const (
 )
 
 // busy notes that the phone is in use now: a call or a view began or ended,
-// and the machine's idle time starts again.
+// or a sweep found the machine not idle. Its idle time starts at the next
+// sweep that finds it idle.
 func (p *Phone) busy() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.idleSince = p.cfg.Clock.Now()
+	p.idleSince = time.Time{}
 }
 
 // Sweep stops the phone's machine when the phone has been stopped, with no
@@ -53,11 +54,17 @@ func (p *Phone) Sweep(ctx context.Context) {
 		return
 	}
 
+	now := p.cfg.Clock.Now()
+
 	p.mu.Lock()
+	if p.idleSince.IsZero() {
+		p.idleSince = now
+	}
+
 	since := p.idleSince
 	p.mu.Unlock()
 
-	if p.cfg.Clock.Now().Sub(since) < MachineIdle {
+	if now.Sub(since) < MachineIdle {
 		return
 	}
 

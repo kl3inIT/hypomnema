@@ -446,8 +446,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     whole machine for a device): every minute the control plane looks at the node that holds the phone, and stops
     its machine with the path of `hypomnema machines stop` (`machines.Manager.Stop`) once, for 30 minutes, the
     machine was one a provider made and on, its node connected and saying its phone `stopped`, `absent` or
-    `failed`, with no agent's call running and no view open. A call or a view, its start and its end, and a look
-    that finds any of that otherwise, start the 30 minutes again. A stop that is refused (the node runs a Dispatch)
+    `failed`, with no agent's call running and no view open. The 30 minutes count from the first look that finds
+    all of that; a call or a view, its start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
     `phone.machine_stopped`. The next call or view starts the machine again (above).
   - A worker is told of the phone when one is there: the node API marks an offer with `device: android`, and the

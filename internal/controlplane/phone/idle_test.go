@@ -31,13 +31,14 @@ func idleRig(t *testing.T) (*Phone, *fakeLink, *fakeMachines, *clock) {
 	return p, link, machines, c
 }
 
-// The machine is stopped once the phone has been stopped for MachineIdle,
-// and not before.
+// The machine is stopped MachineIdle after a sweep first found it idle, and
+// not before.
 func TestAnIdleMachineIsStoppedAfterItsIdleTime(t *testing.T) {
 	t.Parallel()
 
 	p, _, machines, c := idleRig(t)
 
+	p.Sweep(t.Context())
 	c.pass(MachineIdle - time.Minute)
 	p.Sweep(t.Context())
 	assert.Empty(t, machines.stopped)
@@ -56,16 +57,20 @@ func TestUseStartsTheIdleTimeAgain(t *testing.T) {
 
 		p, link, machines, c := idleRig(t)
 
+		p.Sweep(t.Context())
 		c.pass(MachineIdle - time.Minute)
 		link.said("n-phone", nodeproto.DeviceRunning)
 		p.Sweep(t.Context())
-		link.said("n-phone", nodeproto.DeviceStopped)
 
+		// The phone stopped just after that sweep: its idle time is counted from the next.
+		link.said("n-phone", nodeproto.DeviceStopped)
 		c.pass(time.Minute)
+		p.Sweep(t.Context())
+		c.pass(MachineIdle - time.Second)
 		p.Sweep(t.Context())
 		assert.Empty(t, machines.stopped)
 
-		c.pass(MachineIdle)
+		c.pass(time.Second)
 		p.Sweep(t.Context())
 		assert.Equal(t, []string{"n-phone"}, machines.stopped)
 	})
@@ -75,6 +80,7 @@ func TestUseStartsTheIdleTimeAgain(t *testing.T) {
 
 		p, _, machines, c := idleRig(t)
 
+		p.Sweep(t.Context())
 		c.pass(MachineIdle - time.Minute)
 		_, err := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
 		require.NoError(t, err)
@@ -89,6 +95,7 @@ func TestUseStartsTheIdleTimeAgain(t *testing.T) {
 
 		p, _, machines, c := idleRig(t)
 
+		p.Sweep(t.Context())
 		c.pass(MachineIdle - time.Minute)
 		v, err := p.Watch(t.Context())
 		require.NoError(t, err)
@@ -120,6 +127,7 @@ func TestACallInFlightKeepsTheMachineOn(t *testing.T) {
 
 	require.Equal(t, "d-1", <-link.entered)
 
+	p.Sweep(t.Context())
 	c.pass(MachineIdle + time.Minute)
 	p.Sweep(t.Context())
 	assert.Empty(t, machines.stopped)
@@ -136,6 +144,7 @@ func TestAFailedStopIsAskedAgain(t *testing.T) {
 	p, _, machines, c := idleRig(t)
 	machines.stopErr = errors.New("the node runs a Dispatch")
 
+	p.Sweep(t.Context())
 	c.pass(MachineIdle)
 	p.Sweep(t.Context())
 	assert.Empty(t, machines.stopped)
@@ -171,6 +180,7 @@ func TestOnlyAnIdleMachineOfAProviderIsStopped(t *testing.T) {
 		machines := &fakeMachines{link: link}
 		p, c := viewPhone(link, machines, newEnd(), n)
 
+		p.Sweep(t.Context())
 		c.pass(2 * MachineIdle)
 		p.Sweep(t.Context())
 		assert.Empty(t, machines.stopped, name)

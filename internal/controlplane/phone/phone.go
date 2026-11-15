@@ -94,7 +94,7 @@ type Phone struct {
 	// and views that find it offline meanwhile wait for its hello.
 	mu     sync.Mutex
 	waking map[string]time.Time
-	// idleSince is when the phone was last seen in use, for its machine's idle stop (idle.go).
+	// idleSince is when a sweep first found the phone's machine idle, zero while it is not (idle.go).
 	idleSince time.Time
 }
 
@@ -116,10 +116,7 @@ func New(cfg Config) *Phone {
 		cfg.Poll = pollEvery
 	}
 
-	return &Phone{
-		cfg: cfg, holder: make(chan struct{}, 1), hold: ownerhold.New(), waking: map[string]time.Time{},
-		idleSince: cfg.Clock.Now(),
-	}
+	return &Phone{cfg: cfg, holder: make(chan struct{}, 1), hold: ownerhold.New(), waking: map[string]time.Time{}}
 }
 
 // Tools lists the phone's tools; ErrUnavailable when no node holds a phone,
