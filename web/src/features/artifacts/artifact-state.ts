@@ -73,14 +73,6 @@ export function pageURL(id: string, rev?: number) {
   return `${window.location.origin}/artifacts/${encodeURIComponent(id)}${rev ? `?rev=${rev}` : ""}`
 }
 
-// sizeOf is a number of bytes as people read it.
-export function sizeOf(bytes: number) {
-  if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`
-  if (bytes >= 1 << 10) return `${Math.round(bytes / (1 << 10))} KB`
-
-  return `${bytes} B`
-}
-
 // useImageSource is where an image artifact's card draws it from: a raster image from its bytes, typed exactly (a
 // blob: address is of this origin, so a type that can run script there never gets one); any other image, an SVG,
 // from its frame's address, which the server sends with a sandboxing policy, so that opened on its

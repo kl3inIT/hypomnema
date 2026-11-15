@@ -194,7 +194,7 @@ export function sameDraft(a: Draft, b: Draft) {
 }
 
 // The name's rule is Omnigent's (CreateAgentDialog.tsx: "Use only letters, numbers, hyphens, and underscores.").
-export const namePattern = /^[A-Za-z0-9_-]+$/
+const namePattern = /^[A-Za-z0-9_-]+$/
 
 // problem says what keeps a draft from being saved, in the builder's own words; the server checks the rest.
 export function problem(draft: Draft): string | null {

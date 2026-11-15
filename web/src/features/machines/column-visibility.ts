@@ -14,7 +14,7 @@ export function isVisible(visibility: Visibility, id: string) {
 }
 
 // readVisibility is the owner's choice for a table, over the columns it hides until then.
-export function readVisibility(key: string, hidden: readonly string[]): Visibility {
+function readVisibility(key: string, hidden: readonly string[]): Visibility {
   const defaults: Visibility = Object.fromEntries(hidden.map((id) => [id, false]))
 
   try {

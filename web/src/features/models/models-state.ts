@@ -67,7 +67,7 @@ export function until(iso: string, now = Date.now()) {
 }
 
 // resting reports whether an account waits for a usage limit to end.
-export function resting(account: Account, now = Date.now()) {
+function resting(account: Account, now = Date.now()) {
   return account.cooling_until !== undefined && new Date(account.cooling_until).getTime() > now
 }
 
@@ -100,7 +100,7 @@ export function accountState(account: Account, now = Date.now()): AccountState {
 }
 
 // serves reports whether the gateway can use an account now.
-export function serves(account: Account, now = Date.now()) {
+function serves(account: Account, now = Date.now()) {
   return accountState(account, now) === null
 }
 

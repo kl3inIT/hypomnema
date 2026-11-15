@@ -105,7 +105,7 @@ export async function commitUpload(
   ).data
 }
 
-export async function dropUpload(chat: string, workspace: string, path: string, upload: string) {
+async function dropUpload(chat: string, workspace: string, path: string, upload: string) {
   await abortWorkspaceUpload({ path: where(chat, workspace), body: { path, upload } })
 }
 

@@ -26,7 +26,7 @@ import { commitUpload, maxUpload, sendPieces } from "@/features/files/upload"
 
 export const botFolder = "bot"
 
-export const attachmentsDir = (chat: string) => `attachments/${chat}`
+const attachmentsDir = (chat: string) => `attachments/${chat}`
 
 export type Attachment = {
   id: string
@@ -67,7 +67,7 @@ export function formatSize(bytes: number) {
 const mib = (bytes: number) => `${Math.round(bytes / (1 << 20))} MiB`
 
 // refusal says why a file is not taken, or null: t3code refuses an empty file and one over its limit.
-export function refusal(file: File): string | null {
+function refusal(file: File): string | null {
   if (file.size > maxUpload) return `${file.name} is larger than ${mib(maxUpload)}.`
   if (file.size === 0) return `${file.name} is empty or could not be read.`
 

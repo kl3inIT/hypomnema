@@ -34,7 +34,7 @@ export type WakeNames = {
   question: (id: string) => string | undefined
 }
 
-export const noNames: WakeNames = {
+const noNames: WakeNames = {
   task: () => undefined,
   run: () => undefined,
   question: () => undefined,

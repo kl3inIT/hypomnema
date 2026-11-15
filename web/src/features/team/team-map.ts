@@ -12,7 +12,7 @@ import { firstLine } from "@/lib/text"
 // of its Run runs as, keyed in that order, as Bots and agents are different things here; departments
 // (buildTeamMapSections) and the bot count are left out; the words are English only, with no i18n.
 
-export type BotActivity = "waiting-on-you" | "no-signal" | "working" | "idle"
+type BotActivity = "waiting-on-you" | "no-signal" | "working" | "idle"
 
 export type TeamBot = {
   // id is the Bot's, which never changes; name is shown (issue #466).
@@ -44,7 +44,7 @@ export function teamMapStatus(bot: Pick<TeamBot, "activity">): TeamMapStatus {
 // A Dispatch whose worker is on a machine now: starting, running or stopping.
 const liveStatuses = new Set<Dispatch["status"]>(["starting", "running", "stopping"])
 
-export function liveDispatch(card: Card): Dispatch | undefined {
+function liveDispatch(card: Card): Dispatch | undefined {
   const dispatch = card.task.latest_dispatch
 
   return dispatch && liveStatuses.has(dispatch.status) ? dispatch : undefined
@@ -191,7 +191,7 @@ export function teamLinks(machines: TeamMachine[], bots: string[]): TeamLink[] {
 }
 
 // A handoff as OpenMausBot's snapshot carries it: from a Bot to the agent a Task runs as.
-export type Handoff = {
+type Handoff = {
   sourceBot: string
   targetAgent: string
   runtime: string

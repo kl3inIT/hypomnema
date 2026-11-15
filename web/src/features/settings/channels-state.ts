@@ -5,7 +5,7 @@ import { since } from "@/lib/time"
 
 // A Channel's name follows the server's rule (orchestration/larkchannels.go, ValidLarkChannelName): lowercase
 // letters, digits and dashes, starting with a letter, at most 50.
-export const channelNamePattern = /^[a-z][a-z0-9-]{0,49}$/
+const channelNamePattern = /^[a-z][a-z0-9-]{0,49}$/
 
 export const modeNames: Record<LarkChannelMode, string> = {
   owner: "Only you",

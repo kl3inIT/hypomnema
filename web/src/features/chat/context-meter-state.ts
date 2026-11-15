@@ -9,9 +9,9 @@ import type { ChatContextUsage } from "@/api/generated/types.gen"
 
 // compactReserve is what pi keeps free: it compacts on its own once the context passes the window less this
 // (pi settings-defaults.ts reserveTokens, compaction.ts shouldCompact).
-export const compactReserve = 16384
+const compactReserve = 16384
 
-export type MeterTone = "normal" | "warning" | "critical"
+type MeterTone = "normal" | "warning" | "critical"
 
 export type Meter = {
   window: number

@@ -3137,8 +3137,8 @@ and the node in the control plane binary.
   yet. Oxlint leaves shadcn's primitives alone (`web/src/components/ui`); React Doctor leaves all of
   `web/src/components`. Oxlint also fails an import cycle (`import/no-cycle`) and an import of a feature or a
   route from `web/src/{components,lib,hooks}` (`no-restricted-imports`).
-- `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
-  production build, at a phone's and a desktop's size.
+- `make web-check`: oxlint, knip (`web/knip.jsonc`: unused files, exports and dependencies), oxfmt, `tsc -b` and
+  vitest for the web client; `make web-e2e`: Playwright on the production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
   and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
   `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). `Unit` first sets the runner up as the

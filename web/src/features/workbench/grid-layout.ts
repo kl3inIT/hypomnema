@@ -12,7 +12,7 @@ type Axis = "columns" | "rows"
 // A layout is one pane, or two layouts side by side or one above the other.
 export type GridLayout = string | { axis: Axis; children: [GridLayout, GridLayout] }
 
-export const maxPanes = 4
+const maxPanes = 4
 
 export function gridPanes(layout: GridLayout): string[] {
   return typeof layout === "string" ? [layout] : layout.children.flatMap(gridPanes)

@@ -17,7 +17,7 @@ export function botNameOf(bots: Pick<Bot, "id" | "name">[] | undefined, id: stri
 
 // maxName is the longest a Bot's name may be, as the server's rule (orchestration/bots.go, botName): trimmed, 1 to
 // 64 characters, any letters.
-export const maxName = 64
+const maxName = 64
 
 // modelLine is a Bot's model as a card says it: the name, or that pi chooses.
 export function modelLine(bot: Pick<Bot, "model">) {
