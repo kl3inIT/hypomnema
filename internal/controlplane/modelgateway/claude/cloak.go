@@ -146,8 +146,9 @@ const claudeIdentity = "You are Claude Code, Anthropic's official CLI for Claude
 // cloak makes the body read as Claude Code's to Anthropic: a billing block and
 // the Claude Code identity as the whole top-level system, the client's own
 // system text moved under the first user turn as a system-reminder, and a
-// metadata.user_id.
-func cloak(body item, token, session string) {
+// metadata.user_id. It returns the blocks that now carry the client's system,
+// where the gateway's system breakpoint goes (issue #520).
+func cloak(body item, token, session string) []item {
 	// The billing fingerprint is deterministic so the top of the prompt does
 	// not change between two requests of the same conversation, which is what
 	// lets Anthropic's prompt cache hit (CLIProxyAPI generateBillingHeader /
@@ -167,13 +168,16 @@ func cloak(body item, token, session string) {
 
 	body["system"] = []any{billing, identity}
 
-	if len(caller) > 0 && !relocateCallerSystem(body, caller) {
-		extra := make([]any, 0, len(caller))
+	placed := relocateCallerSystem(body, caller)
+	if len(caller) > 0 && placed == nil {
+		system := []any{billing, identity}
 		for _, b := range caller {
-			extra = append(extra, b.block(b.text))
+			block := b.block(b.text)
+			placed = append(placed, block)
+			system = append(system, block)
 		}
 
-		body["system"] = append([]any{billing, identity}, extra...)
+		body["system"] = system
 	}
 
 	meta, _ := body["metadata"].(item)
@@ -186,6 +190,8 @@ func cloak(body item, token, session string) {
 	}
 
 	body["metadata"] = meta
+
+	return placed
 }
 
 // fingerprintSalt is the constant Claude Code's billing fingerprint is salted
@@ -299,12 +305,13 @@ func callerSystem(system any) []systemBlock {
 
 // relocateCallerSystem moves the client's system instructions into the first
 // user turn, each wrapped as a system-reminder, after any tool results there.
-// It reports whether a user turn was found to hold them (CLIProxyAPI
+// It returns the reminders, or nil when there is nothing to move or no user
+// turn to hold them (CLIProxyAPI
 // prependClaudeSystemReminderBlocksToFirstUserMessage).
-func relocateCallerSystem(body item, caller []systemBlock) bool {
+func relocateCallerSystem(body item, caller []systemBlock) []item {
 	messages, ok := body["messages"].([]any)
-	if !ok {
-		return false
+	if !ok || len(caller) == 0 {
+		return nil
 	}
 
 	for _, m := range messages {
@@ -314,8 +321,12 @@ func relocateCallerSystem(body item, caller []systemBlock) bool {
 		}
 
 		reminders := make([]any, 0, len(caller))
+		placed := make([]item, 0, len(caller))
+
 		for _, b := range caller {
-			reminders = append(reminders, b.block("<system-reminder>\n"+b.text+"\n</system-reminder>"))
+			block := b.block("<system-reminder>\n" + b.text + "\n</system-reminder>")
+			reminders = append(reminders, block)
+			placed = append(placed, block)
 		}
 
 		blocks := blocksOf(msg["content"])
@@ -337,10 +348,10 @@ func relocateCallerSystem(body item, caller []systemBlock) bool {
 		merged = append(merged, blocks[at:]...)
 		msg["content"] = merged
 
-		return true
+		return placed
 	}
 
-	return false
+	return nil
 }
 
 // fakeUserID is the metadata.user_id Claude Code sends: a device id and an

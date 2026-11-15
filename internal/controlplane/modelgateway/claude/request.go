@@ -142,11 +142,11 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 		cloakTools(body, names)
 	}
 
-	cloak(body, opt.Token, opt.Session)
+	caller := cloak(body, opt.Token, opt.Session)
 
 	// The prompt-cache breakpoints go on last, over the final tools and system.
 	if !probe {
-		applyCache(body)
+		applyCache(body, caller)
 	}
 
 	encoded, err := json.Marshal(body)

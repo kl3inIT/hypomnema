@@ -21,13 +21,38 @@ import (
 
 // applyCache marks the cache breakpoints on a built Messages body. It runs
 // after the disguise, so the breakpoints land on the final tool list (the
-// decoys included) and the final system (Claude Code's prefix).
-func applyCache(body item) {
-	markLast(body["system"])
+// decoys included) and the final system. caller is the blocks that carry the
+// client's own system after the disguise.
+func applyCache(body item, caller []item) {
+	markSystem(body, caller)
 	markLast(body["tools"])
 	markLastMessage(body["messages"])
 	limitBreakpoints(body)
 	settleTTLs(body)
+}
+
+// markSystem puts the system breakpoint on the last block of the client's own
+// system, so that its prompt is read from the cache by every new conversation
+// that starts with it, as omp moves the identity block's breakpoint onto the
+// last stable system block, since one left there "caches only tools +
+// identity" (providers/anthropic.ts, applyHeadCaching; issue #520, measured
+// on zm: a new chat read 6,853 of 6,885 tokens from the cache). A client that
+// marked its system keeps its own mark and gets none from the gateway; without
+// a client system the breakpoint stays on Claude Code's prefix.
+func markSystem(body item, caller []item) {
+	if len(caller) == 0 {
+		markLast(body["system"])
+
+		return
+	}
+
+	for _, block := range caller {
+		if _, has := block["cache_control"]; has {
+			return
+		}
+	}
+
+	markBlock(caller[len(caller)-1])
 }
 
 // maxBreakpoints is how many cache_control blocks Anthropic takes in one
