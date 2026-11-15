@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
 // Artifacts (issue #402): what a Bot hands the owner to look at in its chat, after OpenMausBot's chat pages
-// (server/chat-apps.ts:160-207, server/app-docs.ts): a Bot shows one with `hypomnema artifact show`, the chat gets
+// (server/chat-apps.ts:160-207, server/app-docs.ts): a Bot shows one with the show_artifact tool or `hypomnema
+// artifact show`, and a worker with the tool into its Run's chat (issue #536), the chat gets
 // one message of kind artifact for it, and showing it again by its id makes its next revision and updates that
 // message in place. Each revision keeps its files, and the files are kept once by their SHA-256. The last ten
 // revisions are kept (OpenMausBot's APP_PAGE_VERSIONS).
@@ -78,8 +79,9 @@ type ArtifactCard struct {
 	UpdatedAt time.Time
 }
 
-// ArtifactMaker is who shows an artifact: a Bot in its chat (a pi's token), or a Bot's Routine's script, which
-// has no chat and only replaces an artifact of its Bot (issue #402, row 11).
+// ArtifactMaker is who shows an artifact: a Bot in its chat (a pi's token), a worker in its Run's chat as that
+// chat's Bot (issue #536, ArtifactMakerOfDispatch), or a Bot's Routine's script, which has no chat and only
+// replaces an artifact of its Bot (issue #402, row 11).
 type ArtifactMaker struct {
 	Bot  string
 	Chat string
@@ -134,6 +136,35 @@ func (s *Service) ShowArtifact(ctx context.Context, by ArtifactMaker, in ShowArt
 	return a, changed, err
 }
 
+// ErrNoChat is a worker whose Run has no chat to show an artifact in: the owner made the Run, or deleted its chat.
+var ErrNoChat = errors.New("the run has no chat")
+
+// ArtifactMakerOfDispatch is who a worker shows an artifact as (issue #536): its Run's chat and that chat's Bot,
+// so the worker's artifact is one of the chat's, which the chat's Bot may revise and the worker may revise in turn
+// (reviseArtifact's rule, OpenMausBot's per-conversation pages). A Run without a chat is ErrNoChat.
+func (s *Service) ArtifactMakerOfDispatch(ctx context.Context, dispatchID string) (ArtifactMaker, error) {
+	d, err := s.GetDispatch(ctx, dispatchID)
+	if err != nil {
+		return ArtifactMaker{}, err
+	}
+
+	task, err := s.GetTask(ctx, d.TaskID)
+	if err != nil {
+		return ArtifactMaker{}, err
+	}
+
+	run, err := s.GetRun(ctx, task.RunID)
+	if err != nil {
+		return ArtifactMaker{}, err
+	}
+
+	if run.ChatID == "" || run.Bot == "" {
+		return ArtifactMaker{}, fmt.Errorf("%w: run %s", ErrNoChat, run.ID)
+	}
+
+	return ArtifactMaker{Bot: run.Bot, Chat: run.ChatID}, nil
+}
+
 func (s *Service) newArtifact(ctx context.Context, q *store.Queries, by ArtifactMaker, title string,
 	p artifactpack.Pack, now int64,
 ) (string, error) {
@@ -180,7 +211,7 @@ func reviseArtifact(ctx context.Context, q *store.Queries, by ArtifactMaker, id,
 	// One of another Bot, or of another chat than the pi's, is not there for it (OpenMausBot: "No page with that
 	// id in this conversation").
 	if errors.Is(err, sql.ErrNoRows) || err == nil && (a.BotID != by.Bot || by.Chat != "" && a.ChatID != by.Chat) {
-		return false, fmt.Errorf("%w: no artifact %s of this chat; show a new one without --id", ErrNotFound, id)
+		return false, fmt.Errorf("%w: no artifact %s of this chat; show a new one without an id", ErrNotFound, id)
 	}
 
 	if err != nil {

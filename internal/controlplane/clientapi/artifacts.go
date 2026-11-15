@@ -16,10 +16,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
 // Artifacts (issue #402): a Bot shows one with `hypomnema artifact show`, its pi's token naming the chat; every

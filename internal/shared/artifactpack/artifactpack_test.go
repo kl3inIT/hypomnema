@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
 var pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 32)...)
