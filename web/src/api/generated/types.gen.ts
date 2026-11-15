@@ -1455,6 +1455,10 @@ export type NodeList = {
 
 export type DeviceList = {
   data: Array<DeviceNode>;
+  /**
+   * The owner holds the phone, from a view; every agent's phone call is paused meanwhile.
+   */
+  held: boolean;
 };
 
 export type DeviceNode = {
@@ -3998,6 +4002,31 @@ export type GetDeviceResponses = {
 };
 
 export type GetDeviceResponse = GetDeviceResponses[keyof GetDeviceResponses];
+
+export type OpenDeviceViewData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/device/views';
+};
+
+export type OpenDeviceViewErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenDeviceViewError = OpenDeviceViewErrors[keyof OpenDeviceViewErrors];
+
+export type OpenDeviceViewResponses = {
+  /**
+   * The ticket.
+   */
+  201: BrowserViewTicket;
+};
+
+export type OpenDeviceViewResponse = OpenDeviceViewResponses[keyof OpenDeviceViewResponses];
 
 export type ResumeNodeData = {
   body?: never;

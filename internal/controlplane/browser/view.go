@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/ownerhold"
 )
 
 // The owner watching a tab (issue #219). Each agent-browser session serves
@@ -144,13 +146,13 @@ type View struct {
 // Watch opens the owner's view of a tab: an agent's, by the name the agent
 // has in the browser, or OwnerTab.
 func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
-	if !e.control.opened(maxViews) {
+	if !e.control.Opened(maxViews) {
 		return nil, ErrTooManyViews
 	}
 
 	v, err := e.watch(ctx, tab)
 	if err != nil {
-		e.control.unopened()
+		e.control.Unopened()
 
 		return nil, err
 	}
@@ -275,7 +277,7 @@ func (v *View) pump(ctx context.Context) {
 // stream ended.
 func (v *View) Next(ctx context.Context) (Update, error) {
 	for {
-		held, changed := v.e.control.state()
+		held, changed := v.e.control.State()
 
 		v.mu.Lock()
 		say := !v.told || held != v.held
@@ -366,14 +368,14 @@ func (v *View) Do(ctx context.Context, a Action) error {
 
 		return v.send(ctx, map[string]any{"type": "ack", "seq": seq})
 	case "takeControl":
-		v.e.control.take(ctx, now)
+		v.e.control.Take(ctx, now)
 		v.e.cfg.Logger.InfoContext(ctx, "the owner took the browser",
 			slog.String("event", "browser.taken"), slog.String("tab", v.tab))
 
 		return nil
 	case "releaseControl":
-		if v.e.control.release() {
-			v.e.released(ctx, releasedAsked)
+		if v.e.control.Release() {
+			v.e.released(ctx, ownerhold.ReleasedAsked)
 		}
 
 		return nil
@@ -399,7 +401,7 @@ func (v *View) Do(ctx context.Context, a Action) error {
 		return nil
 	}
 
-	if !v.e.control.input(now) {
+	if !v.e.control.Input(now) {
 		select {
 		case v.again <- struct{}{}:
 		default:
@@ -531,7 +533,7 @@ func (v *View) Close(ctx context.Context, clean bool) {
 		v.e.unviewed(v.s)
 		v.e.unwatched(ctx, v.s)
 
-		if reason := v.e.control.closed(clean, v.e.cfg.Clock.Now()); reason != "" {
+		if reason := v.e.control.Closed(clean, v.e.cfg.Clock.Now()); reason != "" {
 			v.e.released(ctx, reason)
 		}
 	})
@@ -555,7 +557,7 @@ type Tab struct {
 // Tabs lists the open tabs, and says whether the owner holds the browser.
 // It starts nothing.
 func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
-	held, _ := e.control.state()
+	held, _ := e.control.State()
 
 	e.mu.Lock()
 

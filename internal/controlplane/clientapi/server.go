@@ -64,7 +64,11 @@ type Server struct {
 	chatFiles ChatFiles
 	// devices reaches the nodes' phones; nil when the control plane wired none.
 	devices Devices
-	tickets terminalTickets
+	// phone is the phone the owner watches and takes over (issue #417, step 3); nil when the control plane
+	// wired none.
+	phone      Phone
+	phoneViews viewTickets
+	tickets    terminalTickets
 	// frames are the addresses folder pages' files load from in their locked frames (issue #402).
 	frames artifactFrames
 	// browser is the browser every agent shares; nil when the control plane has none.
@@ -274,6 +278,7 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	// A WebSocket is not in the contract's request and response shapes; its ticket is its permission.
 	mux.HandleFunc("GET "+BasePath+"/terminals/{ticket}", s.terminalSocket)
 	mux.HandleFunc("GET "+BasePath+"/browser/views/{ticket}", s.browserViewSocket)
+	mux.HandleFunc("GET "+BasePath+"/device/views/{ticket}", s.phoneViewSocket)
 	// A folder page's files, for its sandboxed frame, which sends no sign-in: the token in the address is the
 	// permission (issue #402).
 	mux.HandleFunc(artifactFilesPath+"{token}/{path...}", s.artifactFiles)

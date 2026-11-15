@@ -19,6 +19,7 @@ import { signOut } from "@/features/auth/session"
 import { useLiveUpdates, useWork } from "@/features/work/use-work"
 import { needsYou } from "@/features/work/work-state"
 import { useBrowser } from "@/features/browser/browser-state"
+import { useDevice } from "@/features/device/device-state"
 import { gridPanes } from "@/features/workbench/grid-layout"
 import { paneChats } from "@/features/workbench/pane"
 import { useBench, useGridOffered } from "@/features/workbench/use-grid"
@@ -113,6 +114,7 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
       <div className="flex min-h-0 flex-1 flex-col gap-2 px-2">
         <Places />
         <BrowserHeld />
+        <PhoneHeld />
         <GridLink />
         <BotList current={currentChat} />
       </div>
@@ -153,6 +155,18 @@ function BrowserHeld() {
   return (
     <output className="mx-0.5 rounded-md border border-primary/50 bg-primary/10 px-2.5 py-2 text-xs text-foreground">
       You hold the browser. Every agent's browser tools are paused until you hand it back.
+    </output>
+  )
+}
+
+// PhoneHeld says that the owner holds the phone, as BrowserHeld says it of the browser (issue #417, step 3).
+function PhoneHeld() {
+  const device = useDevice()
+  if (!device.data?.held) return null
+
+  return (
+    <output className="mx-0.5 rounded-md border border-primary/50 bg-primary/10 px-2.5 py-2 text-xs text-foreground">
+      You hold the phone. Every agent's phone tools are paused until you hand it back.
     </output>
   )
 }

@@ -1,5 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
-import { FileDiff, FileText, FolderTree, Globe, MessageSquarePlus, Plus, X } from "lucide-react"
+import {
+  FileDiff,
+  FileText,
+  FolderTree,
+  Globe,
+  MessageSquarePlus,
+  Plus,
+  Smartphone,
+  X,
+} from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import "@/api/client"
@@ -34,6 +43,8 @@ import { useBots } from "@/features/bots/use-bots"
 import { ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserView } from "@/features/browser/browser-view"
 import { ChatBody } from "@/features/chat/chat-body"
+import { hasPhone, useDevice } from "@/features/device/device-state"
+import { PhoneView } from "@/features/device/phone-view"
 import { ArtifactSide } from "@/features/artifacts/artifact-side"
 import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
@@ -55,10 +66,10 @@ import {
 import { setDragged, tabDrag } from "./use-grid"
 
 // PaneView is a pane (issue #235): a strip of its tabs, and the tab in front under it. "+" opens a new chat, the
-// owner's browser tab, or a browser tab of a worker of a chat in the pane, as Orca's tab bar does
+// owner's browser tab, the phone (issue #417), or a browser tab of a worker of a chat in the pane, as Orca's tab bar does
 // (tab-bar-static-create-menu.tsx: New Terminal, New Browser Tab, New Mobile Emulator) and Omnigent's workspace
 // panel ("Open new", WorkspacePanel.tsx). An item is offered only when the control plane has it; the owner's own
-// browser tab, of which there is one, is gone to when it is open, as Orca's emulator is. The strip is the top of the
+// browser tab and the phone, of which there is one each, are gone to when open, as Orca's emulator is. The strip is the top of the
 // pane, with no header above it, as Orca's tab bar is; a chat's tab carries its Bot's avatar as Orca's terminal tab
 // carries its agent's icon (TerminalTabLeadingIcon.tsx). Every tab is dragged by itself to another pane, or to a
 // side of a pane, as Orca's are. `start` and `end` are what the place showing the pane puts at the strip's ends:
@@ -79,6 +90,7 @@ export function PaneView({
   end?: ReactNode
 }) {
   const browser = useBrowser()
+  const device = useDevice()
   const bots = useBots().data ?? []
   const runs = useQuery({
     queryKey: ["runs"],
@@ -175,6 +187,19 @@ export function PaneView({
                     <UnsavedMark tab={key} />
                   </TabButton>
                 )
+              case "phone":
+                return (
+                  <TabButton
+                    key={key}
+                    title="The Android phone the agents share"
+                    onClose={close}
+                    closeLabel="Close Phone"
+                    {...common}
+                  >
+                    <Smartphone className="size-3.5 shrink-0" aria-hidden />
+                    <span className="truncate">Phone</span>
+                  </TabButton>
+                )
               case "browser": {
                 const shown = known(tab.tab)
 
@@ -233,6 +258,12 @@ export function PaneView({
                       {hasTab(pane, `browser:${ownerTab}`) ? "Go to my browser" : "My browser"}
                     </DropdownMenuItem>
                   )}
+                  {hasPhone(device.data) && (
+                    <DropdownMenuItem onClick={() => open({ kind: "phone" })}>
+                      <Smartphone />
+                      {hasTab(pane, "phone") ? "Go to the phone" : "Phone"}
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuGroup>
                 {workers.length > 0 && (
                   <>
@@ -287,6 +318,9 @@ export function PaneView({
                   />
                 )
               )
+            }
+            if (tab.kind === "phone") {
+              return shown && <PhoneView key={key} label="The phone's screen" />
             }
             if (tab.kind === "file") {
               // Kept behind other tabs, as a chat is, so that text not saved stays.

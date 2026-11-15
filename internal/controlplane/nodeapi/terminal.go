@@ -65,9 +65,22 @@ type pendingStream struct {
 // once the node has. A node that is not connected, or does not come within
 // nodeproto.TerminalMeetWithin, is ErrUnavailable.
 func (s *Server) OpenTerminal(ctx context.Context, nodeID, sessionID string, rows, cols int) (*NodeEnd, error) {
+	return s.openStream(ctx, nodeID, "terminal", func(streamID string) (nodeproto.Type, any) {
+		return nodeproto.TypeTerminalOpen, nodeproto.TerminalOpen{
+			StreamID: streamID, SessionID: sessionID, Rows: rows, Cols: cols,
+		}
+	})
+}
+
+// openStream names a stream, asks a node on its socket to open it with the
+// message ask makes, and returns the node's end once the node has: what a
+// terminal and a view of the phone share.
+func (s *Server) openStream(ctx context.Context, nodeID, what string,
+	ask func(streamID string) (nodeproto.Type, any),
+) (*NodeEnd, error) {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
-		return nil, fmt.Errorf("naming a terminal stream: %w", err)
+		return nil, fmt.Errorf("naming a %s stream: %w", what, err)
 	}
 
 	streamID := hex.EncodeToString(raw)
@@ -90,9 +103,8 @@ func (s *Server) OpenTerminal(ctx context.Context, nodeID, sessionID string, row
 		s.mu.Unlock()
 	}()
 
-	if err := sess.send(ctx, nodeproto.TypeTerminalOpen, nodeproto.TerminalOpen{
-		StreamID: streamID, SessionID: sessionID, Rows: rows, Cols: cols,
-	}); err != nil {
+	t, payload := ask(streamID)
+	if err := sess.send(ctx, t, payload); err != nil {
 		return nil, err
 	}
 
@@ -100,8 +112,8 @@ func (s *Server) OpenTerminal(ctx context.Context, nodeID, sessionID string, row
 	case end := <-pending.arrived:
 		return end, nil
 	case <-time.After(nodeproto.TerminalMeetWithin):
-		return nil, fmt.Errorf("%w: node %s did not open the terminal within %s; it may be a version without one",
-			orchestration.ErrUnavailable, nodeID, nodeproto.TerminalMeetWithin)
+		return nil, fmt.Errorf("%w: node %s did not open the %s within %s; it may be a version without one",
+			orchestration.ErrUnavailable, nodeID, what, nodeproto.TerminalMeetWithin)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -110,6 +122,12 @@ func (s *Server) OpenTerminal(ctx context.Context, nodeID, sessionID string, row
 // terminal is the node's request for one terminal connection: it presents
 // the stream it was asked to open and stays until that connection ends.
 func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
+	s.present(w, r, "terminal", nodeproto.MaxMessageBytes)
+}
+
+// present is a node's connection for a stream it was asked to open: it is
+// handed to who waits for it, and stays until that one closes it.
+func (s *Server) present(w http.ResponseWriter, r *http.Request, what string, limit int64) {
 	n, _, ok := s.authenticate(w, r)
 	if !ok {
 		return
@@ -128,7 +146,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 
 	// A stream nobody waits for, or another node's: there is nothing to connect.
 	if pending == nil {
-		http.Error(w, "unknown terminal stream", http.StatusNotFound)
+		http.Error(w, "unknown "+what+" stream", http.StatusNotFound)
 
 		return
 	}
@@ -142,7 +160,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn.SetReadLimit(nodeproto.MaxMessageBytes)
+	conn.SetReadLimit(limit)
 
 	end := &NodeEnd{conn: conn, done: make(chan struct{})}
 	pending.arrived <- end
@@ -153,6 +171,6 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusGoingAway, "the control plane is stopping")
 	}
 
-	s.logger.DebugContext(r.Context(), "terminal stream ended",
-		slog.String("event", "nodeapi.terminal_ended"), slog.String("node_id", n.ID))
+	s.logger.DebugContext(r.Context(), what+" stream ended",
+		slog.String("event", "nodeapi."+what+"_ended"), slog.String("node_id", n.ID))
 }

@@ -1,10 +1,12 @@
 // A pane is a group of tabs (issue #235), as a tab group is in Orca (src/renderer/src/components/tab-group): what
-// is open in it, in order, and which tab is in front. A tab is a chat, a tab of the shared browser, or a new chat
-// that has no message yet.
+// is open in it, in order, and which tab is in front. A tab is a chat, a tab of the shared browser, the phone (issue
+// #417), or a new chat that has no message yet.
 
 export type PaneTab =
   | { kind: "chat"; chat: string }
   | { kind: "browser"; tab: string }
+  // The Android phone a node holds, of which there is one.
+  | { kind: "phone" }
   // A new chat is made on its first message, as on the New chat page; until then it is only this tab. An empty bot
   // is the server's first.
   | { kind: "draft"; id: string; bot: string }
@@ -23,6 +25,8 @@ export function tabKey(tab: PaneTab): string {
       return `chat:${tab.chat}`
     case "browser":
       return `browser:${tab.tab}`
+    case "phone":
+      return "phone"
     case "draft":
       return `draft:${tab.id}`
     case "file":
@@ -88,6 +92,8 @@ export function parsePane(value: unknown): Pane | null {
         return typeof t.chat === "string"
       case "browser":
         return typeof t.tab === "string"
+      case "phone":
+        return true
       case "draft":
         return typeof t.id === "string" && typeof t.bot === "string"
       case "file":

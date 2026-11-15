@@ -142,7 +142,9 @@ function GridPane({
       ? (info.data?.title ?? "Chat")
       : front?.kind === "draft"
         ? "New chat"
-        : "Browser"
+        : front?.kind === "phone"
+          ? "Phone"
+          : "Browser"
 
   return (
     <section
