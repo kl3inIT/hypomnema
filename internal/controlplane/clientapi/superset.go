@@ -23,7 +23,9 @@ import (
 // Connection; a worker has no token of this API. Every request to Superset
 // goes through the service proxy's decision (Relay), so the owner's answer
 // for its action holds here as it does for an agent's tool. No token and no
-// password is in an answer or a log line, and no row is logged.
+// password is in an answer or a log line, and no row is logged. A Bot the
+// owner limited to some dashboards of a Connection reads only those, through
+// the three reads, and is refused the relay (issue #562, superset.Scope).
 
 // Relay sends a request to a Connection that has its own address, through
 // the decision of the control plane's service proxy.
@@ -38,14 +40,16 @@ func (s *Server) WithRelay(r Relay) *Server {
 	return s
 }
 
-// supersetCall is who asks for a Superset Connection, as the relay takes it.
-// A coordinator token is refused a Connection the owner did not switch on
-// for chats, with the same answer as for one that does not exist: an agent
-// learns nothing of accounts it may not use (the agent API's rule).
+// supersetCall is who asks for a Superset Connection, as the relay takes it,
+// and the dashboards it may read. A coordinator token is refused a
+// Connection the owner did not switch on for chats, with the same answer as
+// for one that does not exist: an agent learns nothing of accounts it may
+// not use (the agent API's rule). Only a Bot's token is ever limited to
+// some dashboards: the owner's and the coordinator's read all.
 func (s *Server) supersetCall(ctx context.Context, label string, chatID, runKey *string,
-) (serviceproxy.Call, error) {
+) (serviceproxy.Call, superset.Scope, error) {
 	if s.relay == nil {
-		return serviceproxy.Call{}, errNoApprovals
+		return serviceproxy.Call{}, superset.Scope{}, errNoApprovals
 	}
 
 	call := serviceproxy.Call{Integration: serviceproxy.SupersetID, Label: label}
@@ -53,59 +57,62 @@ func (s *Server) supersetCall(ctx context.Context, label string, chatID, runKey 
 
 	conn, err := s.svc.ConnectionOf(ctx, serviceproxy.SupersetID, label)
 	if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
-		return serviceproxy.Call{}, err
+		return serviceproxy.Call{}, superset.Scope{}, err
 	}
+
+	var scope superset.Scope
 
 	switch tok.Kind {
 	case bearertoken.Owner:
 		if err != nil {
-			return serviceproxy.Call{}, err
+			return serviceproxy.Call{}, superset.Scope{}, err
 		}
 
 		call.Caller = serviceproxy.Caller{Name: "owner token " + tok.ID}
 	case bearertoken.Coordinator, bearertoken.Bot:
-		may, merr := s.mayUse(ctx, tok, conn, err == nil)
+		may, sc, merr := s.mayUse(ctx, tok, conn, err == nil)
 		if merr != nil {
-			return serviceproxy.Call{}, merr
+			return serviceproxy.Call{}, superset.Scope{}, merr
 		}
 
 		if !may {
-			return serviceproxy.Call{}, fmt.Errorf("%w: this agent was not given %s", errForbidden,
+			return serviceproxy.Call{}, superset.Scope{}, fmt.Errorf("%w: this agent was not given %s", errForbidden,
 				orchestration.Use(serviceproxy.SupersetID, label))
 		}
 
 		// A pi's token asks from its own chat, whatever chat the request names (issue #260).
 		chat, err := chatOf(tok, val(chatID))
 		if err != nil {
-			return serviceproxy.Call{}, err
+			return serviceproxy.Call{}, superset.Scope{}, err
 		}
 
+		scope = sc
 		call.Caller = serviceproxy.Caller{Name: callerName(tok), Coordinator: true, ChatID: tok.Chat}
 		call.ChatID = chat
 		call.RunKey = val(runKey)
 	default:
-		return serviceproxy.Call{}, fmt.Errorf("%w: only the owner and a coordinator may use a Superset connection",
-			errForbidden)
+		return serviceproxy.Call{}, superset.Scope{}, fmt.Errorf(
+			"%w: only the owner and a coordinator may use a Superset connection", errForbidden)
 	}
 
-	return call, nil
+	return call, scope, nil
 }
 
 // mayUse says whether a coordinator's token may use a Connection that
 // exists: one the owner switched on for chats, and for a Bot one on its list,
-// if it has one (issue #169).
+// if it has one (issue #169), with the dashboards it may read (issue #562).
 func (s *Server) mayUse(ctx context.Context, tok orchestration.Token, conn orchestration.Connection, exists bool,
-) (bool, error) {
+) (bool, superset.Scope, error) {
 	if !exists || tok.Kind != bearertoken.Bot {
-		return exists && conn.Chats, nil
+		return exists && conn.Chats, superset.Scope{}, nil
 	}
 
 	bot, err := s.svc.GetBot(ctx, tok.Bot)
 	if err != nil {
-		return false, err
+		return false, superset.Scope{}, err
 	}
 
-	return bot.MayUse(conn), nil
+	return bot.MayUse(conn), superset.ScopeOf(bot, conn.Label), nil
 }
 
 // relayOf is the way the reads reach Superset for one caller: each request
@@ -156,15 +163,28 @@ func (s *Server) logSupersetRead(
 	s.logger.InfoContext(ctx, "a read of a Superset connection", attrs...)
 }
 
+// logSupersetRefused writes that a limited Bot asked for what its dashboards
+// leave out (issue #562), on the same event as its reads.
+func (s *Server) logSupersetRefused(ctx context.Context, call serviceproxy.Call, action, dashboard string, err error) {
+	if !superset.OutOfScope(err) {
+		return
+	}
+
+	s.logger.InfoContext(ctx, "a read of a Superset connection refused: out of scope",
+		slog.String("event", "superset.read"), slog.String("agent", call.Caller.Name),
+		slog.String("connection", orchestration.Use(call.Integration, call.Label)), slog.String("action", action),
+		slog.String("dashboard", dashboard), slog.String("refused", "out of scope"))
+}
+
 // ListSupersetDashboards lists a Connection's dashboards by title.
 func (s *Server) ListSupersetDashboards(ctx context.Context, req openapi.ListSupersetDashboardsRequestObject,
 ) (openapi.ListSupersetDashboardsResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
+	call, scope, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
 		return nil, err
 	}
 
-	found, err := superset.Dashboards(ctx, s.relayOf(call), val(req.Params.Q))
+	found, err := scope.ListDashboards(ctx, s.relayOf(call), val(req.Params.Q))
 	if err != nil {
 		return nil, err
 	}
@@ -188,13 +208,15 @@ func (s *Server) ListSupersetDashboards(ctx context.Context, req openapi.ListSup
 // GetSupersetDashboard returns a dashboard with its charts and its filters.
 func (s *Server) GetSupersetDashboard(ctx context.Context, req openapi.GetSupersetDashboardRequestObject,
 ) (openapi.GetSupersetDashboardResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
+	call, scope, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
 		return nil, err
 	}
 
-	d, err := superset.GetDashboard(ctx, s.relayOf(call), req.Dashboard)
+	d, err := scope.Dashboard(ctx, s.relayOf(call), req.Dashboard)
 	if err != nil {
+		s.logSupersetRefused(ctx, call, "superset.dashboards.read", req.Dashboard, err)
+
 		return nil, err
 	}
 
@@ -231,15 +253,17 @@ func (s *Server) GetSupersetDashboard(ctx context.Context, req openapi.GetSupers
 // GetSupersetChartData returns a chart's rows as its dashboard shows them.
 func (s *Server) GetSupersetChartData(ctx context.Context, req openapi.GetSupersetChartDataRequestObject,
 ) (openapi.GetSupersetChartDataResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
+	call, scope, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
 		return nil, err
 	}
 
 	chart := strconv.FormatInt(req.Chart, 10)
 
-	data, err := superset.GetChartData(ctx, s.relayOf(call), req.Dashboard, chart, s.now())
+	data, err := scope.ChartData(ctx, s.relayOf(call), req.Dashboard, chart, s.now())
 	if err != nil {
+		s.logSupersetRefused(ctx, call, "superset.charts.read", req.Dashboard, err)
+
 		return nil, err
 	}
 
@@ -265,8 +289,14 @@ func (s *Server) GetSupersetChartData(ctx context.Context, req openapi.GetSupers
 // Superset's answer unchanged, whatever its status.
 func (s *Server) RelaySupersetRequest(ctx context.Context, req openapi.RelaySupersetRequestRequestObject,
 ) (openapi.RelaySupersetRequestResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Body.ChatId, req.Params.HypomnemaRoutineRun)
+	call, scope, err := s.supersetCall(ctx, req.Label, req.Body.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := scope.RelayRefused(orchestration.Use(call.Integration, call.Label)); err != nil {
+		s.logSupersetRefused(ctx, call, "superset.relay", "", err)
+
 		return nil, err
 	}
 

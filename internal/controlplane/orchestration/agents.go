@@ -78,6 +78,14 @@ func runUses(ctx context.Context, q *store.Queries, asked []string, byCoordinato
 				"on the bot's page", ErrForbidden, bot.Name, integration, label)
 		}
 
+		// A worker reads a Connection whole: one the Bot reaches only part of is not passed on (issue #562).
+		if bot != nil {
+			if _, limited := bot.ScopeOf(Use(integration, label)); limited {
+				return nil, fmt.Errorf("%w: bot %s may read only some dashboards of %s:%s, so it cannot give it to a "+
+					"run", ErrForbidden, bot.Name, integration, label)
+			}
+		}
+
 		out = append(out, Use(integration, label))
 	}
 
@@ -152,6 +160,12 @@ type AgentSession struct {
 	// takes back from the coordinator, its Runs lose too. A key whose Dispatch
 	// cannot be found counts as one.
 	ByCoordinator bool
+	// Scoped are the Connections of Uses that the Bot whose Run it is now
+	// reaches only part of (issue #562): a worker reads a Connection whole, so
+	// it is not given one of these, even when the Run was made before the
+	// scope was set; every one of Uses when that Bot is gone. Read when
+	// asked, as ByCoordinator is.
+	Scoped []string
 }
 
 // AddAgentSession makes a Dispatch's key and returns it once; only its hash
@@ -196,7 +210,7 @@ func (s *Service) AgentSessionOf(ctx context.Context, secret string) (AgentSessi
 		return AgentSession{}, fmt.Errorf("reading an agent session: %w", err)
 	}
 
-	byCoordinator, err := s.runByCoordinator(ctx, row.DispatchID)
+	byCoordinator, bot, err := s.runOrigin(ctx, row.DispatchID)
 	if err != nil {
 		return AgentSession{}, err
 	}
@@ -206,43 +220,71 @@ func (s *Service) AgentSessionOf(ctx context.Context, secret string) (AgentSessi
 		uses = strings.Split(row.Uses, ",")
 	}
 
-	return AgentSession{ID: row.ID, DispatchID: row.DispatchID, Uses: uses, ByCoordinator: byCoordinator}, nil
+	session := AgentSession{ID: row.ID, DispatchID: row.DispatchID, Uses: uses, ByCoordinator: byCoordinator}
+
+	if bot != "" {
+		b, found, err := botIfAny(ctx, s.read(), bot)
+		if err != nil {
+			return AgentSession{}, err
+		}
+
+		// A Bot that is gone cannot say what it may reach: its Run's workers get none of its Connections.
+		for _, use := range uses {
+			if _, limited := b.ScopeOf(use); !found || limited {
+				session.Scoped = append(session.Scoped, use)
+			}
+		}
+	}
+
+	return session, nil
 }
 
-// runByCoordinator reports whether a Dispatch's Run was created by a
-// coordinator. It is read when asked, not kept with the key. A Dispatch or a
-// Run that is gone answers yes: the stricter of the two.
-func (s *Service) runByCoordinator(ctx context.Context, dispatchID string) (bool, error) {
+// May says whether the session's worker may use a Connection: one its Run
+// was given, not the owner's own sign-in, while the owner still allows it
+// for chats when a coordinator made the Run, and not one its Bot now reaches
+// only part of.
+func (a AgentSession) May(c Connection) bool {
+	use := Use(c.Integration, c.Label)
+
+	return !c.User() && slices.Contains(a.Uses, use) && (!a.ByCoordinator || c.Chats) &&
+		!slices.Contains(a.Scoped, use)
+}
+
+// runOrigin reports whether a Dispatch's Run was created by a coordinator,
+// and the Bot whose Run it is, if any. It is read when asked, not kept with
+// the key. A Dispatch or a Run that is gone answers by a coordinator: the
+// stricter of the two.
+func (s *Service) runOrigin(ctx context.Context, dispatchID string) (byCoordinator bool, bot string, err error) {
 	q := s.read()
 
 	dispatch, err := q.GetDispatch(ctx, dispatchID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
+		return true, "", nil
 	}
 
 	if err != nil {
-		return false, fmt.Errorf("reading dispatch %s: %w", dispatchID, err)
+		return false, "", fmt.Errorf("reading dispatch %s: %w", dispatchID, err)
 	}
 
 	task, err := q.GetTask(ctx, dispatch.TaskID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
+		return true, "", nil
 	}
 
 	if err != nil {
-		return false, fmt.Errorf("reading task %s: %w", dispatch.TaskID, err)
+		return false, "", fmt.Errorf("reading task %s: %w", dispatch.TaskID, err)
 	}
 
 	run, err := q.GetRun(ctx, task.RunID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
+		return true, "", nil
 	}
 
 	if err != nil {
-		return false, fmt.Errorf("reading run %s: %w", task.RunID, err)
+		return false, "", fmt.Errorf("reading run %s: %w", task.RunID, err)
 	}
 
-	return run.CoordinatorTokenID.Valid, nil
+	return run.CoordinatorTokenID.Valid, run.BotID.String, nil
 }
 
 // RevokeAgentSessions stops every key of a Dispatch from working; none is no

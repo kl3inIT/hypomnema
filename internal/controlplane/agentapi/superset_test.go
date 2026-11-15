@@ -57,6 +57,7 @@ type supersetWorld struct {
 
 	superset *supersettest.Superset
 	proxy    *serviceproxy.Proxy
+	agents   *agentapi.Server
 	log      *lockedBuffer
 }
 
@@ -121,7 +122,7 @@ func newSupersetWorld(t *testing.T, labels ...string) *supersetWorld {
 
 	return &supersetWorld{
 		world:    &world{t: t, svc: svc, srv: srv, logs: &bytes.Buffer{}},
-		superset: stand, proxy: proxy, log: log,
+		superset: stand, proxy: proxy, agents: agents, log: log,
 	}
 }
 
