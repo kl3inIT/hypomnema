@@ -932,7 +932,7 @@ sequenceDiagram
     user or a container per Bot (issue #260).
 
 How a skill goes from the store to a worker and to a Bot (`orchestration/skills.go`, `shared/skillpack`,
-`skillsource`, `skillssh`, `node/skills`, `clientcli/skilllibrary.go`, `deploy/coordinator/hypomnema-pi`).
+`skillsource`, `skillssh`, `node/skills`, `clientcli/skills.go` and `skilllibrary.go`, `deploy/coordinator/hypomnema-pi`).
 
 ```mermaid
 flowchart LR
@@ -948,10 +948,12 @@ flowchart LR
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
     SY["hypomnema-pi: skills sync --bot<br/>GET /bots/{bot}/skills, revision archives"]
     PI["pi --skill (the chat's skills folder,<br/>read-only in the box)"]
-    BI["built-in skills: skills install<br/>~/.agents/skills, bound into every box"]
+    BS["built-in pdf: published at each serve start<br/>source builtin:release (PublishBuiltinSkills)"]
+    BI["other built-in skills for Bots: skills install<br/>~/.agents/skills, bound into every box"]
 
     UP --> PK
     SSH --> GH --> PK
+    BS --> ST
     PK --> ST
     ST --> PR
     ST --> BL
