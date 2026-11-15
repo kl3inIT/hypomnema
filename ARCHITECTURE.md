@@ -1747,8 +1747,9 @@ capabilities do not exist yet.
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
     to its betas; any other gets the chat route's disguise (billing block, identity, its system in the first user
-    turn with its cache breakpoints kept, a user id) and Claude Code's headers with the betas it asked for. Tools
-    are never renamed. Breakpoints past Anthropic's four, a top-level `cache_control` counted, are removed as on the
+    turn with its cache breakpoints kept, a user id), the chat route's cache breakpoints (its system, last tool and
+    last message, a top-level `cache_control` moved onto that message; issue #524, as CLIProxyAPI places its own on
+    a request it disguises) and Claude Code's headers with the betas it asked for. Tools are never renamed. Breakpoints past Anthropic's four, a top-level `cache_control` counted, are removed as on the
     chat route (issue #504).
   - `stream` stays as the client sent it; a stream goes back line for line, a whole answer as it came. The usage is
     read from `message_start` and `message_delta`, or the answer's `usage`; `count_tokens` records none.
