@@ -27,11 +27,18 @@ const (
 // give them by default.
 var piDefaultTools = []string{"+grep", "+find", "+ls"}
 
+// piDefaultModel is the model of a Bot that names none (owner, 2026-11-15): Claude Opus 5.5 under the Claude
+// subscription, given to pi as its default (pi docs/settings.md, defaultProvider and defaultModel). Where the
+// gateway does not serve it, pi takes the first model it is given (model-resolver.ts findInitialModel).
+const piDefaultModel = "claude-subscription/claude-opus-5-5"
+
 // piSettingsFile is the part of pi's settings.json written here (pi
 // docs/settings.md).
 type piSettingsFile struct {
-	DefaultTools []string          `json:"defaultTools"`
-	Compaction   piCompactionGroup `json:"compaction"`
+	DefaultProvider string            `json:"defaultProvider,omitempty"`
+	DefaultModel    string            `json:"defaultModel,omitempty"`
+	DefaultTools    []string          `json:"defaultTools"`
+	Compaction      piCompactionGroup `json:"compaction"`
 }
 
 type piCompactionGroup struct {
@@ -75,6 +82,10 @@ func piSettingsOf(models piModelsFile) piSettingsFile {
 
 	for provider, p := range models.Providers {
 		for _, m := range p.Models {
+			if provider == piProviderID && m.ID == piDefaultModel {
+				settings.DefaultProvider, settings.DefaultModel = provider, m.ID
+			}
+
 			if m.ContextWindow <= 0 {
 				continue
 			}

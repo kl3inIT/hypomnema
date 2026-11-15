@@ -116,6 +116,9 @@ type Offer struct {
 	// serves its model. Orchestration never fills it: the node API does, as
 	// it sends the offer.
 	ModelKey string `json:"model_key,omitempty"`
+	// ModelAPI is the wire a worker that can choose one speaks to the gateway for the model: "anthropic-messages"
+	// for a Claude subscription's, "openai-responses" for a Codex subscription's, empty for chat (issue #549).
+	ModelAPI string `json:"model_api,omitempty"`
 	// Uses are the Connections the Run's workers may use; AgentKey is this
 	// Dispatch's own key to ask for their tokens. Orchestration never fills
 	// the key: the node API does, as it sends the offer.
@@ -263,7 +266,13 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		kind = string(h.Kind)
 	}
 
+	api, err := modelAPI(ctx, q, conv.AccountRef, d.Model.String)
+	if err != nil {
+		return Offer{}, err
+	}
+
 	return Offer{
+		ModelAPI:   api,
 		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Profile: task.Profile, Instruction: instruction,
 		Spec: spec,
 		Repo: run.Repo.String, RepoHost: host, RepoKind: kind,

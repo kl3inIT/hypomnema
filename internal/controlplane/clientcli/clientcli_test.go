@@ -360,6 +360,11 @@ func startWorker(t *testing.T, w *world) *worker {
 		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
 	}))
 
+	// The starting profiles run under the Claude subscription, which the gateway serves under an account the
+	// control plane keeps (issue #549).
+	_, err = w.svc.AddTokenAccount(ctx, "claude", "personal", func(id string) string { return "vault:" + id })
+	require.NoError(t, err)
+
 	scheduled, err := w.svc.Schedule(ctx)
 	require.NoError(t, err)
 	require.Len(t, scheduled.Created, 1)
