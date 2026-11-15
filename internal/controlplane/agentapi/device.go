@@ -17,7 +17,8 @@ import (
 // is (#212): an agent the browser's routes take is taken here, by the same
 // check, with no setting and no Connection (owner, 2026-11-15). The routes
 // have the browser's shape: a list of MCP tools, and a call whose answer is
-// the tool's result.
+// the tool's result. A worker's tools server and a Bot's (`hypomnema mcp`,
+// issue #536 step 4) list them here beside PathTools.
 
 // Device is the phone: its tools, and one call of a tool for the agent named.
 type Device interface {
