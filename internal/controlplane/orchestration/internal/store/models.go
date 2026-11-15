@@ -128,6 +128,8 @@ type Bot struct {
 	Name        string
 	Position    int64
 	Pinned      int64
+	Tools       string
+	ToolsOff    string
 }
 
 type Channel struct {
@@ -539,6 +541,8 @@ type ProfileVersion struct {
 	Fallbacks   string
 	Skills      string
 	SkillsOff   string
+	Tools       string
+	ToolsOff    string
 }
 
 type Provider struct {

@@ -40,6 +40,22 @@ func gatewayModelsOf(ctx context.Context, t *testing.T, db *sql.DB) map[string][
 	return out
 }
 
+// putVersion makes a new current version of a profile in a database at an
+// earlier migration, by its columns of that time: the Service's queries read
+// the columns of the newest one.
+func putVersion(ctx context.Context, t *testing.T, db *sql.DB, id, profile, source, provider, model, effort string) {
+	t.Helper()
+
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO profile_versions (id, profile, version, source, digest, runtime, provider, model, effort,
+		                              description, created_at)
+		VALUES (?, ?, (SELECT coalesce(max(version), 0) + 1 FROM profile_versions WHERE profile = ?), ?, ?, 'claude',
+		        ?, ?, nullif(?, ''), 'd', 100);
+		UPDATE profiles SET current_version_id = ? WHERE name = ?;`,
+		id, profile, profile, source, id, provider, model, effort, id, profile)
+	require.NoError(t, err)
+}
+
 // currentVersions maps each profile to the id of its current version.
 func currentVersions(ctx context.Context, t *testing.T, db *sql.DB) map[string]string {
 	t.Helper()
@@ -204,17 +220,15 @@ func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 	t.Parallel()
 
 	for _, owned := range []bool{false, true} {
-		s, db := migratedTo(t, 88)
+		_, db := migratedTo(t, 88)
 		ctx := t.Context()
 
-		var custom Profile
+		const custom = "pfv_owner_explorer"
 
 		if owned {
-			var err error
-
-			custom, _, err = s.ApplyProfile(ctx, "",
-				"name: explorer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-haiku-5-5}\n")
-			require.NoError(t, err)
+			putVersion(ctx, t, db, custom, "explorer",
+				"name: explorer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-haiku-5-5}\n",
+				"model-gateway", "claude-haiku-5-5", "")
 		}
 
 		p, err := provider(db)
@@ -240,7 +254,7 @@ func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 		assert.Equal(t, []string{"claude-haiku-5-5"}, slices.Sorted(maps.Keys(gatewayModelsOf(ctx, t, db))),
 			"the owner's explorer uses it")
 		assert.Equal(t, map[string]string{
-			"implementer": "pfv_seed2_implementer", "reviewer": "pfv_seed3_reviewer", "explorer": custom.VersionID,
+			"implementer": "pfv_seed2_implementer", "reviewer": "pfv_seed3_reviewer", "explorer": custom,
 		}, currentVersions(ctx, t, db))
 	}
 }
@@ -256,14 +270,13 @@ func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 	t.Parallel()
 
-	s, db := migratedTo(t, 89)
+	_, db := migratedTo(t, 89)
 	ctx := t.Context()
 
-	_, err := s.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\n"+
-		"models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, duo]\n")
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO models (provider, name)
+		VALUES ('model-gateway', 'claude-opus-5-5'), ('model-gateway', 'claude-sonnet-5-5'),
+		       ('model-gateway', 'claude-haiku-5-5'), ('model-gateway', 'duo');
 		INSERT INTO gateway_models (name, capability, source, created_at, updated_at)
 		VALUES ('duo', 'chat', 'name: duo', 100, 100);
 		INSERT INTO gateway_model_targets (model, position, provider, upstream_model)
@@ -274,13 +287,14 @@ func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 		VALUES ('cht_1', 'hi', ?, 'model-gateway', 'claude-haiku-5-5', 100, 100);`, DefaultBotID, DefaultBotID)
 	require.NoError(t, err)
 
-	reviewer, _, err := s.ApplyProfile(ctx, "",
-		"name: reviewer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: duo}\n")
-	require.NoError(t, err)
+	const reviewer, explorer = "pfv_owner_reviewer", "pfv_owner_explorer"
 
-	explorer, _, err := s.ApplyProfile(ctx, "", "name: explorer\ndescription: d\nruntime: claude\n"+
-		"model: {name: claude-sonnet-5-5, provider: model-gateway, effort: high}\n")
-	require.NoError(t, err)
+	putVersion(ctx, t, db, reviewer, "reviewer",
+		"name: reviewer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: duo}\n",
+		"model-gateway", "duo", "")
+	putVersion(ctx, t, db, explorer, "explorer", "name: explorer\ndescription: d\nruntime: claude\n"+
+		"model: {name: claude-sonnet-5-5, provider: model-gateway, effort: high}\n",
+		"model-gateway", "claude-sonnet-5-5", "high")
 
 	p, err := provider(db)
 	require.NoError(t, err)
@@ -301,11 +315,11 @@ func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 	assert.Equal(t, [2]string{"claude-subscription", "claude-haiku-5-5"},
 		read(`SELECT provider, model FROM chats WHERE id = 'cht_1'`))
 	assert.Equal(t, [2]string{"model-gateway", "duo"},
-		read(`SELECT provider, model FROM profile_versions WHERE id = ?`, reviewer.VersionID),
+		read(`SELECT provider, model FROM profile_versions WHERE id = ?`, reviewer),
 		"a name over two targets keeps its failover")
 	assert.Equal(t, [2]string{"claude-subscription", "claude-sonnet-5-5"},
-		read(`SELECT provider, model FROM profile_versions WHERE id = ?`, explorer.VersionID), "in the same version")
-	assert.Contains(t, read(`SELECT source, '' FROM profile_versions WHERE id = ?`, explorer.VersionID)[0],
+		read(`SELECT provider, model FROM profile_versions WHERE id = ?`, explorer), "in the same version")
+	assert.Contains(t, read(`SELECT source, '' FROM profile_versions WHERE id = ?`, explorer)[0],
 		"model: {name: claude-sonnet-5-5, provider: claude-subscription, effort: high}", "its YAML too")
 	assert.Equal(t, [2]string{"claude-subscription", "claude-opus-5-5"},
 		read(`SELECT provider, model FROM profile_versions WHERE id = 'pfv_seed3_implementer'`), "a seed too")

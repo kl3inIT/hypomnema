@@ -31,6 +31,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
   tool_display: "on",

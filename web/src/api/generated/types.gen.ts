@@ -2085,6 +2085,14 @@ export type Bot = {
    * The skills given to everyone that the Bot does not get.
    */
   skills_off: Array<string>;
+  /**
+   * The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+   */
+  tools: Array<string>;
+  /**
+   * The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
+   */
+  tools_off: Array<string>;
   connections: AllowList;
   workers: AllowList;
   tool_display: ToolDisplay;
@@ -2380,6 +2388,14 @@ export type BotSettings = {
    * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
    */
   skills_off?: Array<string>;
+  /**
+   * The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+   */
+  tools?: Array<string>;
+  /**
+   * The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
+   */
+  tools_off?: Array<string>;
   connections?: AllowList;
   workers?: AllowList;
   tool_display?: ToolDisplay;
@@ -2445,6 +2461,14 @@ export type Profile = {
    */
   skills_off: Array<string>;
   /**
+   * The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+   */
+  tools: Array<string>;
+  /**
+   * The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
+   */
+  tools_off: Array<string>;
+  /**
    * The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
    */
   fallbacks: Array<string>;
@@ -2489,6 +2513,20 @@ export type Model = {
   provider: string;
   name: string;
   kind: string;
+};
+
+export type ToolFamily = {
+  name: string;
+  description: string;
+  /**
+   * The entry of tools or tools_off that names every tool of the family.
+   */
+  pattern: string;
+  tools: Array<string>;
+};
+
+export type ToolFamilyList = {
+  data: Array<ToolFamily>;
 };
 
 export type ModelList = {
@@ -7489,6 +7527,31 @@ export type ListModelsResponses = {
 };
 
 export type ListModelsResponse = ListModelsResponses[keyof ListModelsResponses];
+
+export type ListToolsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/tools';
+};
+
+export type ListToolsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListToolsError = ListToolsErrors[keyof ListToolsErrors];
+
+export type ListToolsResponses = {
+  /**
+   * The tools.
+   */
+  200: ToolFamilyList;
+};
+
+export type ListToolsResponse = ListToolsResponses[keyof ListToolsResponses];
 
 export type GetBrowserData = {
   body?: never;

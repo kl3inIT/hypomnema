@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Tool is one browser tool as an agent is offered it: agent-browser's own
@@ -26,37 +28,10 @@ var (
 	ErrBadArguments = errors.New("the browser tool's arguments were refused")
 )
 
-// offered are the tools an agent gets, out of agent-browser's `core` set
-// (cli/src/mcp.rs, CORE_PROFILE_TOOLS). Each agent has one tab, which the
-// engine opens and closes, so the tab tools and `close` are not offered;
-// neither are flows, which are files on the engine's machine, nor
-// `agent_browser_read`, which fetches an address outside the browser.
-// OpenMausBot puts a list of its own in front of agent-browser's in the same
-// way (server/browser/tools.ts).
-var offered = []string{
-	"agent_browser_open",
-	"agent_browser_snapshot",
-	"agent_browser_click",
-	"agent_browser_fill",
-	"agent_browser_type",
-	"agent_browser_press",
-	"agent_browser_check",
-	"agent_browser_uncheck",
-	"agent_browser_select",
-	"agent_browser_scroll",
-	"agent_browser_back",
-	"agent_browser_forward",
-	"agent_browser_reload",
-	"agent_browser_wait_ms",
-	"agent_browser_wait_for_selector",
-	"agent_browser_wait_for_text",
-	"agent_browser_wait_for_load",
-	"agent_browser_screenshot",
-	"agent_browser_get_text",
-	"agent_browser_get_url",
-	"agent_browser_get_title",
-	"agent_browser_eval",
-}
+// offered are the tools an agent gets: agenttool.BrowserTools, kept there
+// with every other tool of the control plane so a profile or a Bot can switch
+// them (issue #536).
+var offered = agenttool.BrowserTools
 
 const toolOpen = "agent_browser_open"
 
