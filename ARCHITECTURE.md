@@ -2656,8 +2656,10 @@ Node (`internal/node`):
   A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
   settings (Channels, Integrations with their services, accounts and agent actions, Repositories, the Vault and
   the Skills), the memories (an agent's and About you), and the models and the gateway (the accounts with their
-  limits, the providers, the gateway's models and keys, Images, Web search and Usage) read and refresh through
-  them; the other screens still use hand-written keys, moved one area at a time.
+  limits, the providers, the gateway's models and keys, Images, Web search and Usage), and the machines with
+  their providers, the browser's tabs and the phone (their REST reads only: the screen streams and the take-over
+  sockets stay hand-written) read and refresh through them; the other screens still use hand-written keys, moved
+  one area at a time.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
