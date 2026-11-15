@@ -1,0 +1,17 @@
+serve-emu (in expo-device-hub)
+Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
+
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/expo/expo-device-hub, packages/serve-emu and
+llp/0008-serve-emu-protocol.spec.md.
+
+What is adapted from it here (issue #417, step 3): the wire of scrcpy 3 as
+its protocol note documents it (the stream's start, the packets' header, the
+Back and video-reset control messages), its 16-byte SEMU header before each
+frame, and how one stream serves several viewers (src/middleware.ts): the
+codec's configuration kept and put before every key frame, a viewer that
+joins or falls behind waiting for the next key frame while the server is
+asked for one. In Go in internal/node/device (scrcpy.go, view.go); the web
+client reads the SEMU header (web/src/features/device). The code is
+Hypomnema's own.

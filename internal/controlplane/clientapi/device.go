@@ -43,7 +43,7 @@ func (s *Server) GetDevice(ctx context.Context, _ openapi.GetDeviceRequestObject
 		return nil, err
 	}
 
-	out := openapi.DeviceList{Data: []openapi.DeviceNode{}}
+	out := openapi.DeviceList{Data: []openapi.DeviceNode{}, Held: s.phone != nil && s.phone.Controlled()}
 
 	for _, n := range nodes {
 		if n.Device != "" {

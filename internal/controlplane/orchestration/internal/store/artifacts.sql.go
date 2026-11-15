@@ -164,7 +164,7 @@ func (q *Queries) DeleteUnusedArtifactBlobs(ctx context.Context, candidates inte
 }
 
 const getArtifact = `-- name: GetArtifact :one
-SELECT id, chat_id, bot, message_seq, revision, created_at, updated_at FROM artifacts WHERE id = ?1
+SELECT id, chat_id, bot_id, message_seq, revision, created_at, updated_at FROM artifacts WHERE id = ?1
 `
 
 func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) {
@@ -173,7 +173,7 @@ func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) 
 	err := row.Scan(
 		&i.ID,
 		&i.ChatID,
-		&i.Bot,
+		&i.BotID,
 		&i.MessageSeq,
 		&i.Revision,
 		&i.CreatedAt,
@@ -183,7 +183,7 @@ func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) 
 }
 
 const insertArtifact = `-- name: InsertArtifact :exec
-INSERT INTO artifacts (id, chat_id, bot, message_seq, revision, created_at, updated_at)
+INSERT INTO artifacts (id, chat_id, bot_id, message_seq, revision, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
 `
 
@@ -390,11 +390,11 @@ func (q *Queries) ListArtifactRevisions(ctx context.Context, artifactID string) 
 }
 
 const listArtifacts = `-- name: ListArtifacts :many
-SELECT a.id, a.chat_id, a.bot, a.message_seq, a.revision, a.created_at, a.updated_at,
+SELECT a.id, a.chat_id, a.bot_id, a.message_seq, a.revision, a.created_at, a.updated_at,
        r.title, r.type, r.entry, r.size
 FROM artifacts a JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 WHERE (CAST(?1 AS TEXT) = '' OR a.chat_id = ?1)
-  AND (CAST(?2 AS TEXT) = '' OR a.bot = ?2)
+  AND (CAST(?2 AS TEXT) = '' OR a.bot_id = ?2)
 ORDER BY a.updated_at DESC, a.id
 LIMIT ?3
 `
@@ -408,7 +408,7 @@ type ListArtifactsParams struct {
 type ListArtifactsRow struct {
 	ID         string
 	ChatID     string
-	Bot        string
+	BotID      string
 	MessageSeq int64
 	Revision   int64
 	CreatedAt  int64
@@ -432,7 +432,7 @@ func (q *Queries) ListArtifacts(ctx context.Context, arg ListArtifactsParams) ([
 		if err := rows.Scan(
 			&i.ID,
 			&i.ChatID,
-			&i.Bot,
+			&i.BotID,
 			&i.MessageSeq,
 			&i.Revision,
 			&i.CreatedAt,

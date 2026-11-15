@@ -28,8 +28,10 @@ import (
 // A skill without a guide.md is a whole folder installed as files, scripts
 // and references with it (issue #458), as Hermes and OpenClaw ship bundled
 // skills: pdf, adapted from Hermes's skills/productivity/pdf, whose scripts
-// run from the installed folder, and pages (issue #423), adapted from
-// OpenMausBot's skills/data-dashboards, whose template is copied from it.
+// run from the installed folder; pages (issue #423), adapted from
+// OpenMausBot's skills/data-dashboards, whose template is copied from it; and
+// slides (issue #479), adapted from zarazhangrui/frontend-slides, whose
+// references and script are read from the installed folder.
 
 // The all: prefix keeps files whose names start with _ (pdf's _raster.py).
 //
@@ -120,6 +122,7 @@ var releasedFolders = map[string][]string{
 		"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b", // #458
 		"5a21174acf72f04f8a75d55451d35094ff66a46117f42ce6f77202ce3dd0f020", // #474: JSON samples, pdf_read modes, a TTF for Vietnamese
 	},
+	"slides": {"ae1d255cf5ebc308b35005cffa50c005e9f70495347388ce89fb8b06861e1f6f"}, // #479
 }
 
 // folderSkill says whether a skill is installed as a whole folder: it has no
@@ -595,7 +598,7 @@ type BuiltinSkill struct {
 }
 
 // BuiltinSkills are the skills this binary ships, by name: the coordinator's,
-// those of the Integrations' tools and the whole-folder ones (pdf).
+// those of the Integrations' tools and the whole-folder ones (pages, pdf, slides).
 func BuiltinSkills() ([]BuiltinSkill, error) {
 	var out []BuiltinSkill
 

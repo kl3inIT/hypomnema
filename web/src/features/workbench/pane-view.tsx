@@ -1,5 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
-import { FileDiff, FileText, FolderTree, Globe, MessageSquarePlus, Plus, X } from "lucide-react"
+import {
+  FileDiff,
+  FileText,
+  FolderTree,
+  Globe,
+  MessageSquarePlus,
+  Plus,
+  Smartphone,
+  X,
+} from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import "@/api/client"
@@ -29,11 +38,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AgentAvatar } from "@/components/agent-avatar"
-import { firstBot } from "@/features/bots/bots-state"
-import { useBots } from "@/features/bots/use-bots"
+import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
+import { useBotName, useBots } from "@/features/bots/use-bots"
 import { ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserView } from "@/features/browser/browser-view"
 import { ChatBody } from "@/features/chat/chat-body"
+import { hasPhone, useDevice } from "@/features/device/device-state"
+import { PhoneView } from "@/features/device/phone-view"
 import { ArtifactSide } from "@/features/artifacts/artifact-side"
 import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
@@ -55,10 +66,10 @@ import {
 import { setDragged, tabDrag } from "./use-grid"
 
 // PaneView is a pane (issue #235): a strip of its tabs, and the tab in front under it. "+" opens a new chat, the
-// owner's browser tab, or a browser tab of a worker of a chat in the pane, as Orca's tab bar does
+// owner's browser tab, the phone (issue #417), or a browser tab of a worker of a chat in the pane, as Orca's tab bar does
 // (tab-bar-static-create-menu.tsx: New Terminal, New Browser Tab, New Mobile Emulator) and Omnigent's workspace
 // panel ("Open new", WorkspacePanel.tsx). An item is offered only when the control plane has it; the owner's own
-// browser tab, of which there is one, is gone to when it is open, as Orca's emulator is. The strip is the top of the
+// browser tab and the phone, of which there is one each, are gone to when open, as Orca's emulator is. The strip is the top of the
 // pane, with no header above it, as Orca's tab bar is; a chat's tab carries its Bot's avatar as Orca's terminal tab
 // carries its agent's icon (TerminalTabLeadingIcon.tsx). Every tab is dragged by itself to another pane, or to a
 // side of a pane, as Orca's are. `start` and `end` are what the place showing the pane puts at the strip's ends:
@@ -79,6 +90,7 @@ export function PaneView({
   end?: ReactNode
 }) {
   const browser = useBrowser()
+  const device = useDevice()
   const bots = useBots().data ?? []
   const runs = useQuery({
     queryKey: ["runs"],
@@ -153,7 +165,10 @@ export function PaneView({
                     closeLabel="Close New chat"
                     {...common}
                   >
-                    <AgentAvatar name={tab.bot || firstBot} className="size-5 shrink-0" />
+                    <AgentAvatar
+                      name={botNameOf(bots, tab.bot || mainBotOf(bots))}
+                      className="size-5 shrink-0"
+                    />
                     <span className="truncate">New chat</span>
                   </TabButton>
                 )
@@ -173,6 +188,19 @@ export function PaneView({
                     )}
                     <span className="truncate">{baseName(tab.path)}</span>
                     <UnsavedMark tab={key} />
+                  </TabButton>
+                )
+              case "phone":
+                return (
+                  <TabButton
+                    key={key}
+                    title="The Android phone the agents share"
+                    onClose={close}
+                    closeLabel="Close Phone"
+                    {...common}
+                  >
+                    <Smartphone className="size-3.5 shrink-0" aria-hidden />
+                    <span className="truncate">Phone</span>
                   </TabButton>
                 )
               case "browser": {
@@ -214,7 +242,7 @@ export function PaneView({
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent>
                         {bots.map((bot) => (
-                          <DropdownMenuItem key={bot.name} onClick={() => newChat(bot.name)}>
+                          <DropdownMenuItem key={bot.id} onClick={() => newChat(bot.id)}>
                             <AgentAvatar name={bot.name} className="size-4" />
                             {bot.name}
                           </DropdownMenuItem>
@@ -231,6 +259,12 @@ export function PaneView({
                     <DropdownMenuItem onClick={() => open({ kind: "browser", tab: ownerTab })}>
                       <Globe />
                       {hasTab(pane, `browser:${ownerTab}`) ? "Go to my browser" : "My browser"}
+                    </DropdownMenuItem>
+                  )}
+                  {hasPhone(device.data) && (
+                    <DropdownMenuItem onClick={() => open({ kind: "phone" })}>
+                      <Smartphone />
+                      {hasTab(pane, "phone") ? "Go to the phone" : "Phone"}
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuGroup>
@@ -287,6 +321,9 @@ export function PaneView({
                   />
                 )
               )
+            }
+            if (tab.kind === "phone") {
+              return shown && <PhoneView key={key} label="The phone's screen" />
             }
             if (tab.kind === "file") {
               // Kept behind other tabs, as a chat is, so that text not saved stays.
@@ -429,15 +466,17 @@ function ChatTab({ chat, onClose, ...props }: TabProps & { chat: string }) {
     queryFn: async () => (await getChat({ path: { chat_id: chat } })).data,
   })
   const title = info.data?.title ?? "Chat"
+  // The chat names its Bot by id; the tab shows its name (issue #466).
+  const name = useBotName(info.data?.bot ?? "")
 
   return (
     <TabButton
-      title={info.data && `Chat with ${info.data.bot}`}
+      title={info.data && `Chat with ${name}`}
       onClose={onClose}
       closeLabel={`Close ${title}`}
       {...props}
     >
-      {info.data && <AgentAvatar name={info.data.bot} className="size-5 shrink-0" />}
+      {info.data && <AgentAvatar name={name} className="size-5 shrink-0" />}
       <span className="truncate">{title}</span>
     </TabButton>
   )

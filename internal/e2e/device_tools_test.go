@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +40,69 @@ import (
 func TestAWorkersPhoneCallGoesToTheNodeThatHoldsThePhone(t *testing.T) {
 	t.Parallel()
 
+	held := newFakePhone()
+	r := newPhoneRig(t, held)
+
+	answer, code := r.call(t, devicetool.Tap, `{"target":"#4"}`)
+	require.Equal(t, http.StatusOK, code, answer)
+
+	assert.JSONEq(t, `{"content":[{"type":"image","data":"cG5n","mimeType":"image/png"},`+
+		`{"type":"text","text":"Numbered boxes."}],"isError":false}`, answer)
+
+	held.mu.Lock()
+	defer held.mu.Unlock()
+
+	assert.Equal(t, []string{`d-dsp_1 device_tap {"target":"#4"}`}, held.calls)
+}
+
+// Scenario: the node that holds the phone goes away while it runs a call,
+// as when it restarts to update (trial on AWS, 2026-11-15). The call fails at
+// once, saying to call again, rather than waiting out its time limit for an
+// answer the new process will never send.
+func TestAPhoneCallFailsAtOnceWhenItsNodeGoesAway(t *testing.T) {
+	t.Parallel()
+
+	held := newFakePhone()
+	held.reached, held.hold = make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(held.hold) })
+
+	r := newPhoneRig(t, held)
+
+	type result struct {
+		answer string
+		code   int
+	}
+
+	got := make(chan result, 1)
+
+	go func() {
+		answer, code := r.call(t, devicetool.Screen, `{}`)
+		got <- result{answer, code}
+	}()
+
+	<-held.reached
+	r.stopNode()
+
+	select {
+	case res := <-got:
+		assert.Equal(t, http.StatusServiceUnavailable, res.code, res.answer)
+		assert.Contains(t, res.answer, "went away during the call")
+	case <-time.After(wait):
+		t.Fatal("the call still waits after its node went away")
+	}
+}
+
+// phoneRig is a control plane with a node that holds a fake phone, and a
+// worker's agent key.
+type phoneRig struct {
+	srv      *httptest.Server
+	key      string
+	stopNode func()
+}
+
+func newPhoneRig(t *testing.T, held *fakePhone) *phoneRig {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -61,7 +125,6 @@ func TestAWorkersPhoneCallGoesToTheNodeThatHoldsThePhone(t *testing.T) {
 	state, err := statedb.Open(t.Context(), filepath.Join(t.TempDir(), "state.db"), time.Now)
 	require.NoError(t, err)
 
-	held := newFakePhone()
 	d := daemon.New(daemon.Config{
 		URL: srv.URL, Token: token, WorktreeRoot: "/srv/wt", Version: "test", Device: nodeproto.DeviceAndroid,
 		KVM: func() bool { return true }, Phone: held,
@@ -72,12 +135,20 @@ func TestAWorkersPhoneCallGoesToTheNodeThatHoldsThePhone(t *testing.T) {
 
 	go func() { done <- d.Run(ctx) }()
 
-	t.Cleanup(func() {
-		cancel()
+	var once sync.Once
 
-		if err := <-done; err != nil {
-			t.Logf("the node ended with: %v", err)
-		}
+	stop := func() {
+		once.Do(func() {
+			cancel()
+
+			if err := <-done; err != nil {
+				t.Logf("the node ended with: %v", err)
+			}
+		})
+	}
+
+	t.Cleanup(func() {
+		stop()
 
 		_ = state.Close()
 	})
@@ -91,28 +162,35 @@ func TestAWorkersPhoneCallGoesToTheNodeThatHoldsThePhone(t *testing.T) {
 	key, err := svc.AddAgentSession(t.Context(), "dsp_1", nil)
 	require.NoError(t, err)
 
-	body, err := json.Marshal(agenttool.BrowserCall{Tool: devicetool.Tap, Arguments: json.RawMessage(`{"target":"#4"}`)})
-	require.NoError(t, err)
+	return &phoneRig{srv: srv, key: key, stopNode: stop}
+}
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+agenttool.PathDeviceCall,
-		bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+key)
+// call is a worker's phone call through the agent API: its answer and status.
+func (r *phoneRig) call(t *testing.T, tool, arguments string) (string, int) {
+	body, err := json.Marshal(agenttool.BrowserCall{Tool: tool, Arguments: json.RawMessage(arguments)})
+	if err != nil {
+		return err.Error(), 0
+	}
+
+	req, err := http.NewRequestWithContext(context.WithoutCancel(t.Context()), http.MethodPost,
+		r.srv.URL+agenttool.PathDeviceCall, bytes.NewReader(body))
+	if err != nil {
+		return err.Error(), 0
+	}
+
+	req.Header.Set("Authorization", "Bearer "+r.key)
 
 	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	if err != nil {
+		return err.Error(), 0
+	}
 
 	defer resp.Body.Close() //nolint:errcheck // a test's response body
 
 	answer, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, string(answer))
+	if err != nil {
+		return err.Error(), 0
+	}
 
-	assert.JSONEq(t, `{"content":[{"type":"image","data":"cG5n","mimeType":"image/png"},`+
-		`{"type":"text","text":"Numbered boxes."}],"isError":false}`, string(answer))
-
-	held.mu.Lock()
-	defer held.mu.Unlock()
-
-	assert.Equal(t, []string{`d-dsp_1 device_tap {"target":"#4"}`}, held.calls)
+	return string(answer), resp.StatusCode
 }

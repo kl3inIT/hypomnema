@@ -312,12 +312,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}},
 	})
 	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
-	agents.WithWeb(workerWeb{metered}, dispatchRuntime(svc))
+	agents.WithRuntimes(dispatchRuntime(svc)).WithWeb(workerWeb{metered})
 
 	// The phone a node holds (issue #417), given to every worker as the browser is. A call that finds its
 	// machine stopped starts it as `machines start` does.
-	sharedPhone := phone.New(phone.Config{Nodes: svc, Link: nodes, Machines: machineMgr, Logger: logger})
+	sharedPhone := phone.New(phone.Config{
+		Nodes: svc, Link: nodes, Machines: machineMgr, Views: nodeViews(nodes), Logger: logger,
+	})
 	agents.WithDevice(sharedPhone)
+
+	// The owner's hold on the phone ends as the browser's does (issue #417, step 3).
+	go sharedPhone.Run(ctx)
 	nodes.WithPhone(sharedPhone.Held)
 
 	agents.Register(mux)
@@ -354,6 +359,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Web:                webSearch,
 	})
 	gatewayServer.Register(mux)
+	// Every worker's generate_image (issue #492), recorded on its Dispatch's key; before anything is served.
+	agents.WithImages(workerImages{server: gatewayServer, gateway: gateway, logger: logger})
 	// The subscriptions the owner logged in search too, through the gateway's calls to them (issue #354); the
 	// gateway is made after the search it serves, before anything is served.
 	webSearch.WithSubscriptions(gatewayServer.SubscriptionSearch())
@@ -414,6 +421,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	if !cfg.BrowserOff {
 		api.WithBrowser(ownersBrowser{shared})
 	}
+
+	api.WithPhone(ownersPhone{sharedPhone})
 
 	if err := api.Register(mux); err != nil {
 		return err
@@ -529,6 +538,32 @@ func (b ownersBrowser) Watch(ctx context.Context, tab string) (clientapi.Browser
 	}
 
 	return view, nil
+}
+
+// ownersPhone is the phone as the client API sees it: the owner watches it
+// and takes it over (issue #417, step 3).
+type ownersPhone struct{ *phone.Phone }
+
+func (p ownersPhone) Watch(ctx context.Context) (clientapi.PhoneView, error) {
+	view, err := p.Phone.Watch(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return view, nil
+}
+
+// nodeViews lets the phone open a view of its screen on the node that holds
+// it, through the node API.
+func nodeViews(nodes *nodeapi.Server) phone.Views {
+	return func(ctx context.Context, nodeID string) (phone.ViewEnd, error) {
+		end, err := nodes.OpenDeviceView(ctx, nodeID)
+		if err != nil {
+			return nil, err
+		}
+
+		return end, nil
+	}
 }
 
 // nodeTerminals lets the client API reach a node for a terminal through the

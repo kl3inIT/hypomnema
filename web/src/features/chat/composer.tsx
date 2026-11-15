@@ -40,6 +40,7 @@ export function Composer({
   controls,
   draft,
   sent,
+  put,
 }: {
   onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
   onStop: () => void
@@ -55,6 +56,9 @@ export function Composer({
   draft?: { key: string; chat?: string; bot?: string }
   // sent are the texts this chat sent, newest first, which ↑ brings back.
   sent?: readonly string[]
+  // put is a text to put in the box, once for each at: a queued message taken back to edit (issue #497, Omnigent's
+  // Edit). It goes after what is typed already.
+  put?: { text: string; at: number }
 }) {
   const [text, setText] = useState(() => (draft ? readDraft(draft.key).text : ""))
   const [sending, setSending] = useState(false)
@@ -93,6 +97,19 @@ export function Composer({
 
   // The draft is saved as the composer goes, to another chat or page.
   useEffect(() => saveDrafts, [])
+
+  const putAt = put?.at
+  const putText = put?.text
+  useEffect(() => {
+    if (putAt === undefined || putText === undefined) return
+    const typed = box.current?.value ?? ""
+    const next = typed.trim() === "" ? putText : `${typed}\n\n${putText}`
+    type(next)
+    caret.current = next.length
+    box.current?.focus()
+    // type is the same function each render for what it does; the text is put once for each at.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [putAt])
 
   useLayoutEffect(() => {
     const at = caret.current

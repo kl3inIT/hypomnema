@@ -14,6 +14,7 @@ import {
 import { useState, type ReactNode } from "react"
 
 import type { Artifact, ArtifactRevision } from "@/api/generated/types.gen"
+import { useBotName } from "@/features/bots/use-bots"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -55,6 +56,8 @@ export function ArtifactPanel({
 }) {
   const artifact = useArtifact(id)
   const [mode, setMode] = useState<ArtifactMode>("preview")
+  // An artifact names its Bot by id; it is shown by its name (issue #466).
+  const botName = useBotName(artifact.data?.bot ?? "")
 
   if (artifact.isPending) {
     return (
@@ -98,7 +101,7 @@ export function ArtifactPanel({
             v{revision.revision}
             {revision.revision !== a.revision && ` of ${a.revision}`} · Updated{" "}
             {since(revision.created_at)}
-            {where === "page" && ` · by ${a.bot}`}
+            {where === "page" && ` · by ${botName}`}
           </>
         }
         onClose={onClose}

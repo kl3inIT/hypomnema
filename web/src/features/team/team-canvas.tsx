@@ -65,7 +65,7 @@ export function TeamCanvas({
   const geometry = useMemo(
     () =>
       teamGeometry(
-        bots.map((b) => b.name),
+        bots.map((b) => b.id),
         machines.map((m) => ({ id: m.node.id, lines: m.lines.length })),
         links,
       ),
@@ -314,15 +314,15 @@ export function TeamCanvas({
           ))}
         </svg>
         {geometry.cards.map((card) => {
-          const bot = bots.find((b) => b.name === card.bot)
+          const bot = bots.find((b) => b.id === card.bot)
 
           return bot ? (
             <BotCard
-              key={bot.name}
+              key={bot.id}
               bot={bot}
               x={card.x}
               y={card.y}
-              faded={fades(bot.name)}
+              faded={fades(bot.id)}
               onOpen={onOpenBot}
             />
           ) : null

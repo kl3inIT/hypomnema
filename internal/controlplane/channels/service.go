@@ -49,7 +49,7 @@ type SettingsStore interface {
 	ChannelGroups(ctx context.Context, channel string) ([]channelstore.ChannelGroup, error)
 	SetChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
 	) (channelstore.ChannelGroup, error)
-	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
+	GetBot(ctx context.Context, id string) (orchestration.Bot, error)
 }
 
 // Service is the owner's side of the Channels.
@@ -140,7 +140,7 @@ func (s *Service) Load(ctx context.Context, name string) (channelstore.Channel, 
 func (s *Service) Refused(ctx context.Context, ch channelstore.Channel, appID string) error {
 	if _, err := s.store.GetBot(ctx, ch.Bot); err != nil {
 		if errors.Is(err, orchestration.ErrNotFound) {
-			return fmt.Errorf("%w: no bot is named %q", orchestration.ErrInvalid, ch.Bot)
+			return fmt.Errorf("%w: no bot has the id %q", orchestration.ErrInvalid, ch.Bot)
 		}
 
 		return err

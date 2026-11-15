@@ -91,6 +91,8 @@ const json = (body: unknown) =>
   new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } })
 
 const vmap = {
+  id: "vmap",
+  main: false,
   name: "vmap",
   provider: "gateway",
   model: "gpt-sol",

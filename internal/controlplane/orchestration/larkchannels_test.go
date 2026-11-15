@@ -57,7 +57,7 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 	main := channels[0]
 	//nolint:gosec // G101: the name of a vault secret, not a credential
 	assert.Equal(t, channelstore.Channel{
-		Name: "main", Kind: channelstore.KindLark, AppID: "cli_a1b2", Secret: "lark-bot-app", Bot: DefaultBot,
+		Name: "main", Kind: channelstore.KindLark, AppID: "cli_a1b2", Secret: "lark-bot-app", Bot: DefaultBotID,
 		Mode: channelstore.ChannelAllowlist, OwnerID: "ou_owner", Enabled: true, CreatedAt: main.CreatedAt,
 		UpdatedAt: main.UpdatedAt,
 		// A Channel that existed keeps the link under its replies (migration 62).
@@ -72,7 +72,7 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 	chats, err := s.Channels().ChannelChats(ctx, "main")
 	require.NoError(t, err)
 	assert.Equal(t, []channelstore.ChannelChat{{
-		Channel: "main", ExternalChatID: "oc_owner_dm", PersonID: "ou_owner", ChatID: "cht_1", Bot: DefaultBot, SentSeq: 4,
+		Channel: "main", ExternalChatID: "oc_owner_dm", PersonID: "ou_owner", ChatID: "cht_1", Bot: DefaultBotID, SentSeq: 4,
 	}}, chats)
 
 	first, err := s.Channels().TakeChannelMessage(ctx, "main", "om_1")
@@ -111,16 +111,16 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
 	require.NoError(t, err)
 
 	//nolint:gosec // G101: the name of a vault secret, not a credential
 	main := channelstore.Channel{
-		Name: "main", AppID: "cli_main", Secret: "lark-bot-app", Bot: DefaultBot, Mode: channelstore.ChannelOwner,
+		Name: "main", AppID: "cli_main", Secret: "lark-bot-app", Bot: DefaultBotID, Mode: channelstore.ChannelOwner,
 		OwnerID: "ou_owner",
 	}
 	maps := channelstore.Channel{
-		Name: "maps", AppID: "cli_maps", Secret: "lark-channel-maps", Bot: "vmap", Mode: channelstore.ChannelAllowlist,
+		Name: "maps", AppID: "cli_maps", Secret: "lark-channel-maps", Bot: vmapBot.ID, Mode: channelstore.ChannelAllowlist,
 		OwnerID: "ou_owner_in_maps", Enabled: true,
 	}
 
@@ -130,19 +130,19 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	}
 
 	for want, c := range map[string]channelstore.Channel{
-		"lowercase":        {Name: "Maps 2", AppID: "cli_x", Secret: "s", Bot: DefaultBot, Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
-		"no bot is named":  {Name: "third", AppID: "cli_x", Secret: "s", Bot: "nobody", Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
-		"one app is one":   {Name: "third", AppID: "cli_maps", Secret: "s", Bot: DefaultBot, Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
-		"the mode is":      {Name: "third", AppID: "cli_x", Secret: "s", Bot: DefaultBot, Mode: "anyone", OwnerID: "ou_o"},
-		"starts with ou_":  {Name: "third", AppID: "cli_x", Secret: "s", Bot: DefaultBot, Mode: channelstore.ChannelOwner, OwnerID: "linh"},
-		"names the bot it": {Name: "third", AppID: "cli_x", Secret: "s", Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
+		"lowercase":         {Name: "Maps 2", AppID: "cli_x", Secret: "s", Bot: DefaultBotID, Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
+		"no bot has the id": {Name: "third", AppID: "cli_x", Secret: "s", Bot: "nobody", Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
+		"one app is one":    {Name: "third", AppID: "cli_maps", Secret: "s", Bot: DefaultBotID, Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
+		"the mode is":       {Name: "third", AppID: "cli_x", Secret: "s", Bot: DefaultBotID, Mode: "anyone", OwnerID: "ou_o"},
+		"starts with ou_":   {Name: "third", AppID: "cli_x", Secret: "s", Bot: DefaultBotID, Mode: channelstore.ChannelOwner, OwnerID: "linh"},
+		"names the bot it":  {Name: "third", AppID: "cli_x", Secret: "s", Mode: channelstore.ChannelOwner, OwnerID: "ou_o"},
 	} {
 		_, err := w.s.Channels().SetChannel(ctx, c)
 		require.ErrorContains(t, err, want)
 	}
 
 	_, err = w.s.Channels().SetChannel(ctx, channelstore.Channel{
-		Name: "third", AppID: "cli_maps", Secret: "s", Bot: DefaultBot, Mode: channelstore.ChannelOwner, OwnerID: "ou_o",
+		Name: "third", AppID: "cli_maps", Secret: "s", Bot: DefaultBotID, Mode: channelstore.ChannelOwner, OwnerID: "ou_o",
 	})
 	require.ErrorIs(t, err, ErrConflict, "an app that is another Channel's")
 
@@ -157,9 +157,9 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 
 	chat, err := w.s.ChannelChatFor(ctx, "maps", "oc_dm_in_maps", "ou_owner_in_maps", "")
 	require.NoError(t, err)
-	assert.Equal(t, "vmap", chat.Bot, "a chat opened through a Channel is with the Channel's Bot")
+	assert.Equal(t, vmapBot.ID, chat.Bot, "a chat opened through a Channel is with the Channel's Bot")
 
-	fromMaps, err := w.s.CreateRun(ctx, NewRun{Objective: "add the depot", CreatedBy: "vmap", ChatID: chat.ChatID})
+	fromMaps, err := w.s.CreateRun(ctx, NewRun{Objective: "add the depot", CreatedBy: vmapBot.ID, ChatID: chat.ChatID})
 	require.NoError(t, err)
 
 	via, err := w.s.Channels().ChannelForRun(ctx, fromMaps.ID)
@@ -178,7 +178,7 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "main", via, "a Run started elsewhere asks through the first Channel")
 
-	err = w.s.DeleteBot(ctx, "vmap")
+	err = w.s.DeleteBot(ctx, vmapBot.ID)
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "Lark channels talk to bot vmap")
 
@@ -191,11 +191,11 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 
 	kept, err := w.s.GetChat(ctx, chat.ChatID)
 	require.NoError(t, err)
-	assert.Equal(t, "vmap", kept.Bot, "the chat stays")
+	assert.Equal(t, vmapBot.ID, kept.Bot, "the chat stays")
 
 	via, err = w.s.Channels().ChannelForRun(ctx, fromMaps.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "main", via, "its Channel is gone, so the first one")
 
-	require.ErrorIs(t, w.s.DeleteBot(ctx, "vmap"), ErrConflict, "it still has the chat")
+	require.ErrorIs(t, w.s.DeleteBot(ctx, vmapBot.ID), ErrConflict, "it still has the chat")
 }

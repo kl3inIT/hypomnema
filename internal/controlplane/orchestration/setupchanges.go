@@ -56,6 +56,9 @@ type SetupChange struct {
 // Its memory is not: a change keeps it, and a Bot with a memory is not
 // removed.
 type botSettings struct {
+	// Name is what the Bot was called; it is not part of its revision, so a revision from before a Bot could be
+	// renamed stays the same (issue #466).
+	Name        string    `json:"name,omitempty"`
 	Provider    string    `json:"provider,omitempty"`
 	Model       string    `json:"model,omitempty"`
 	Effort      string    `json:"effort,omitempty"`
@@ -75,14 +78,21 @@ func settingsOfBot(b Bot) botSettings {
 	}
 
 	return botSettings{
-		Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
+		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers, ToolDisplay: display,
 	}
 }
 
-func (b botSettings) bot(name string) Bot {
+// bot is the Bot of id with these settings. A record made before a Bot's settings kept its name gives it its id
+// as its name, which no other Bot has.
+func (b botSettings) bot(id string) Bot {
+	name := b.Name
+	if name == "" {
+		name = id
+	}
+
 	return Bot{
-		Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
+		ID: id, Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers, ToolDisplay: b.ToolDisplay,
 	}
 }
@@ -90,7 +100,10 @@ func (b botSettings) bot(name string) Bot {
 // botRevision names a Bot's settings, as OpenMausBot's teamSetupRevision: a
 // change of any of them since makes an undo stale; its memory does not.
 func botRevision(b Bot) string {
-	raw, err := json.Marshal(settingsOfBot(b))
+	settings := settingsOfBot(b)
+	settings.Name = ""
+
+	raw, err := json.Marshal(settings)
 	if err != nil {
 		panic(fmt.Sprintf("encoding a bot's settings: %v", err))
 	}
@@ -101,7 +114,7 @@ func botRevision(b Bot) string {
 }
 
 // changeFromChat checks the chat a setup change is made from: it exists and
-// talks with the Bot coordinator. No chat is the owner's change.
+// talks with the main Bot. No chat is the owner's change.
 func changeFromChat(ctx context.Context, q *store.Queries, chat string) error {
 	if chat == "" {
 		return nil
@@ -112,9 +125,9 @@ func changeFromChat(ctx context.Context, q *store.Queries, chat string) error {
 		return notFound(err, "chat", chat)
 	}
 
-	if row.Bot != DefaultBot {
-		return fmt.Errorf("%w: only the bot %s makes and changes bots and profiles, and chat %s talks with %s",
-			ErrForbidden, DefaultBot, chat, row.Bot)
+	if row.BotID != DefaultBotID {
+		return fmt.Errorf("%w: only the main bot makes and changes bots and profiles, and chat %s talks with bot %s",
+			ErrForbidden, chat, row.BotID)
 	}
 
 	return nil
@@ -395,7 +408,7 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 		return err
 	}
 
-	return upsertBot(ctx, q, now, b)
+	return restoreBot(ctx, q, now, b, r.Action == actionRemoved)
 }
 
 func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, r store.SetupChange) error {

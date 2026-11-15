@@ -45,6 +45,8 @@ const gatewayModels = [
 ]
 
 const builder = {
+  id: "builder",
+  main: true,
   name: "builder",
   provider: "gateway",
   model: "gpt-sol",
@@ -310,6 +312,22 @@ async function fakeServer(
     if (path === `/chats/${chat.id}`) return json(current)
     if (path === `/chats/${chat.id}/abort`) return route.fulfill({ status: 204 })
     if (path === `/chats/${chat.id}/compact`) return route.fulfill({ status: 202 })
+    // The queue (issue #497): Remove answers the message removed, Send now the message as kept in the chat.
+    const queued = /^\/chats\/[^/]+\/queue\/(\d+)(\/send)?$/.exec(path)
+    if (queued) {
+      const id = Number(queued[1])
+      calls.push(`${queued[2] ? "send now" : "remove"} ${id}`)
+      const item = {
+        id,
+        chat_id: chat.id,
+        text: `queued ${id}`,
+        created_at: "2026-11-09T10:00:00Z",
+      }
+
+      return queued[2]
+        ? json(message(20 + id, { role: "owner", text: item.text }), 201)
+        : json(item)
+    }
     if (path === `/chats/${chat.id}/messages`) {
       const body = route.request().postDataJSON() as { text: string }
       const answer = send(body.text, body)
@@ -1187,4 +1205,53 @@ test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page, 
   await expect(box).toHaveValue("and a test for it")
   await box.press("ArrowDown")
   await expect(box).toHaveValue("")
+})
+
+// Scenario: the owner writes twice while the Bot works (issue #497). The server keeps both in the chat's queue (202),
+// which the stream shows above the composer; Send now and Remove go to the server, and Edit takes the message out
+// and puts its text back in the composer.
+test("messages written while the Bot works wait above the composer", async ({ page }) => {
+  const calls = await fakeServer(page, (text) => ({
+    status: 202,
+    body: { id: 1, chat_id: chat.id, text, created_at: "2026-11-09T10:00:00Z" },
+  }))
+  await open(page)
+  await write(page, state(true))
+  await write(page, kept(1, { role: "owner", text: "Build the sales report for October" }))
+
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("and add the totals per region")
+  await box.press("Enter")
+  await expect(box).toHaveValue("")
+
+  const queue = (items: { id: number; text: string }[]) =>
+    `event: queue\ndata: ${JSON.stringify({
+      items: items.map((i) => ({ ...i, chat_id: chat.id, created_at: "2026-11-09T10:00:00Z" })),
+    })}\n\n`
+  await write(
+    page,
+    queue([
+      { id: 1, text: "and add the totals per region" },
+      { id: 2, text: "use the new price list" },
+      { id: 3, text: "queued 3" },
+    ]),
+  )
+
+  const strip = page.getByRole("list", { name: "Queued messages" })
+  await expect(strip.getByRole("listitem")).toHaveCount(3)
+  await expect(page.getByText("and add the totals per region")).toHaveCount(1)
+  // The Bot works, so its spinner never settles: the picture is taken once the strip is drawn.
+  await shot(page, "chat-queue")
+
+  const rows = strip.getByRole("listitem")
+  await rows.nth(1).getByRole("button", { name: "Send queued message now" }).click()
+  await expect.poll(() => calls).toContain("send now 2")
+  await rows.nth(0).getByRole("button", { name: "Remove queued message" }).click()
+  await expect.poll(() => calls).toContain("remove 1")
+  await rows.nth(2).getByRole("button", { name: "Edit queued message" }).click()
+  await expect.poll(() => calls).toContain("remove 3")
+  await expect(box).toHaveValue("queued 3")
+
+  await write(page, queue([]))
+  await expect(strip).toHaveCount(0)
 })

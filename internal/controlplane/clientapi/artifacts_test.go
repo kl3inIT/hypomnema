@@ -279,6 +279,8 @@ func TestAChatsStreamSendsARevisedArtifactAgain(t *testing.T) {
 	assert.Equal(t, "event: state", next())
 	next()
 	assert.Equal(t, 1, card().Revision, "a resumed stream sends it once as it is")
+	assert.Equal(t, "event: queue", next())
+	next()
 
 	second := w.show(pi, "Sales by region", first.JSON201.Id, artifactpack.File{Path: "index.html", Data: []byte("v2")})
 	require.Equal(t, http.StatusCreated, second.StatusCode(), string(second.Body))

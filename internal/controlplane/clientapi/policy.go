@@ -66,6 +66,7 @@ var policies = map[string]policy{
 	"UpdateNode":                  {scope: scopeOwner},
 	"OpenNodeTerminal":            {scope: scopeOwner},
 	"GetDevice":                   {scope: scopeOwner},
+	"OpenDeviceView":              {scope: scopeOwner},
 	"StartNodeDevice":             {scope: scopeOwner},
 	"StopNodeDevice":              {scope: scopeOwner},
 	"GetBrowser":                  {scope: scopeOwner},
@@ -178,8 +179,10 @@ var policies = map[string]policy{
 	"RevokeGatewayKey":          {scope: scopeOwner},
 	"ListBots":                  {},
 	"GetBot":                    {},
-	// The owner, or the Bot coordinator from its chat: the handler decides (setupchanges.go).
+	// The owner, or the main Bot from its chat: the handler decides (setupchanges.go).
+	"CreateBot":           {},
 	"PutBot":              {},
+	"RenameBot":           {},
 	"DeleteBot":           {},
 	"ChangeBotMemory":     {},
 	"SetBotMemory":        {scope: scopeOwner},
@@ -222,8 +225,11 @@ var policies = map[string]policy{
 	"CompactChat":        {scope: scopeOwner},
 	// pi reads its own key (issue #204). The handler lets one token through, pi's, by its name: no scope here
 	// says that.
-	"GetChatGatewayKey": {},
-	"SendChatMessage":   {scope: scopeOwner},
+	"GetChatGatewayKey":       {},
+	"SendChatMessage":         {scope: scopeOwner},
+	"ListChatQueue":           {scope: scopeOwner},
+	"RemoveQueuedChatMessage": {scope: scopeOwner},
+	"SendQueuedChatMessage":   {scope: scopeOwner},
 	// The web (issue #354): any token, a Bot's above all. A search may try every provider, longer than the
 	// write timeout at worst.
 	"SearchWeb": {long: true},
@@ -320,7 +326,7 @@ func botAllowed(tok orchestration.Token, bot string) error {
 }
 
 // botReadable refuses a pi's token to read a Bot other than its own, except
-// the Bot coordinator's, which manages the Bots (issue #169, setupchanges.go)
+// the main Bot's, which manages the Bots (issue #169, setupchanges.go)
 // and reads them as the owner's CLI does before it changes one.
 func botReadable(tok orchestration.Token, bot string) error {
 	if _, err := setupChat(tok); err == nil {

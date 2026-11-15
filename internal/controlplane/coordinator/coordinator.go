@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -183,6 +184,17 @@ func (s *Supervisor) pass(ctx context.Context) {
 	}
 
 	chats, err := s.svc.ChatsWithUndelivered(ctx)
+	if err == nil {
+		var queued []string
+
+		queued, err = s.svc.ChatsWithQueue(ctx)
+		for _, id := range queued {
+			if !slices.Contains(chats, id) {
+				chats = append(chats, id)
+			}
+		}
+	}
+
 	if err != nil {
 		if ctx.Err() == nil {
 			s.cfg.Logger.ErrorContext(ctx, "listing chats failed", slog.Any("error", err))
@@ -201,12 +213,30 @@ func (s *Supervisor) pass(ctx context.Context) {
 	s.reapIdle()
 }
 
-// deliver gives pi the chat's waiting messages as one prompt, or as a
-// follow-up while it works, and marks them delivered once pi accepted them.
+// deliver gives pi what the chat has for it and marks it delivered once pi accepted it. While pi works, only the
+// owner messages sent now go, as a steer, and the rest waits for the turn to settle, as pi's own follow-ups did
+// (rpc-commands.md: a followUp "is delivered only when agent stops"). When pi is idle the chat's queue moves into
+// the chat first (issue #497), so it goes with the wake-ups as one prompt.
 func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
+	working := s.Working(chatID)
+
+	if !working {
+		if _, err := s.svc.TakeChatQueue(ctx, chatID); err != nil {
+			return err
+		}
+	}
+
 	msgs, err := s.svc.Undelivered(ctx, chatID)
-	if err != nil || len(msgs) == 0 {
+	if err != nil {
 		return err
+	}
+
+	if working {
+		msgs = ownerOnly(msgs)
+	}
+
+	if len(msgs) == 0 {
+		return nil
 	}
 
 	p, err := s.procFor(ctx, chatID)
@@ -227,7 +257,29 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 		return err
 	}
 
+	if working {
+		seqs := make([]int64, 0, len(msgs))
+		for _, m := range msgs {
+			seqs = append(seqs, m.Seq)
+		}
+
+		return s.svc.MarkDeliveredSeqs(ctx, chatID, seqs)
+	}
+
 	return s.svc.MarkDelivered(ctx, chatID, msgs[len(msgs)-1].Seq)
+}
+
+// ownerOnly keeps the owner messages: what is sent while pi works.
+func ownerOnly(msgs []orchestration.ChatMessage) []orchestration.ChatMessage {
+	out := msgs[:0:0]
+
+	for _, m := range msgs {
+		if m.Role == orchestration.ChatOwner {
+			out = append(out, m)
+		}
+	}
+
+	return out
 }
 
 // promptText joins the owner's messages and the wake-ups into one turn.
@@ -339,22 +391,22 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 	return p, nil
 }
 
-// botArgs are the launcher's flags for the chat's Bot: its name, by which the
+// botArgs are the launcher's flags for the chat's Bot: its id, by which the
 // launcher finds its directory, persona and memory, whether the chat is a
 // Lark group's, and the chat's model (model.go): the provider (an id in pi's
 // models.json), the model and the effort. The model is returned too: the
-// chat's gateway key is good for it; and the Bot's name, which pi's token is
+// chat's gateway key is good for it; and the Bot's id, which pi's token is
 // bound to.
 func (s *Supervisor) botArgs(ctx context.Context, chatID string,
 ) ([]string, string, orchestration.ChatModel, error) {
 	none := orchestration.ChatModel{}
 
-	name, m, err := s.chatModel(ctx, chatID)
+	id, m, err := s.chatModel(ctx, chatID)
 	if err != nil {
 		return nil, "", none, err
 	}
 
-	args := []string{"--bot", name}
+	args := []string{"--bot", id}
 
 	// The chat of a Lark group is not given the Bot's memory, which holds what the owner's chats taught it, and
 	// is told who writes there (issue #246; OpenClaw leaves MEMORY.md out of a group session's prompt).
@@ -379,7 +431,7 @@ func (s *Supervisor) botArgs(ctx context.Context, chatID string,
 		args = append(args, "--thinking", piLevel(m.Effort))
 	}
 
-	return args, name, m, nil
+	return args, id, m, nil
 }
 
 // revoke ends a pi's gateway key and its token. The pi is gone or never

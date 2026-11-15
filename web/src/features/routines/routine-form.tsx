@@ -26,6 +26,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { botNameOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
@@ -165,7 +166,7 @@ function Body({
   const bots = useBots()
   const put = usePutRoutine()
   const form = useForm({
-    defaultValues: valuesOf(routine, bot || (bots.data?.[0]?.name ?? "")),
+    defaultValues: valuesOf(routine, bot || (bots.data?.[0]?.id ?? "")),
     validators: { onSubmit: schema },
     onSubmit: async ({ value }) => {
       const saved = await put.mutateAsync({
@@ -202,11 +203,13 @@ function Body({
                         disabled={Boolean(bot)}
                       >
                         <SelectTrigger id="routine-bot" width="full">
-                          <SelectValue placeholder="Choose a Bot" />
+                          <SelectValue placeholder="Choose a Bot">
+                            {(value: string) => botNameOf(bots.data, value)}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {(bots.data ?? []).map((b) => (
-                            <SelectItem key={b.name} value={b.name}>
+                            <SelectItem key={b.id} value={b.id}>
                               {b.name}
                             </SelectItem>
                           ))}

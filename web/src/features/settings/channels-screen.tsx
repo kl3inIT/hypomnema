@@ -77,8 +77,7 @@ import {
 } from "@/components/ui/sheet"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
-import { firstBot } from "@/features/bots/bots-state"
-import { useBots } from "@/features/bots/use-bots"
+import { useBotName, useBots, useMainBot } from "@/features/bots/use-bots"
 
 import { AvatarName } from "@/components/agent-avatar"
 import {
@@ -107,7 +106,8 @@ import { useServices } from "./use-integrations"
 
 export function ChannelsScreen() {
   const channels = useLarkChannels()
-  const bots = (useBots().data ?? []).map((bot) => bot.name)
+  // The Bots by id (issue #466); each is shown by its name.
+  const bots = (useBots().data ?? []).map((bot) => bot.id)
   const list = channels.data ?? []
   const taken = list.map((channel) => channel.name)
 
@@ -158,6 +158,11 @@ export function ChannelsScreen() {
 }
 
 // NoChannelCard is the page before the first Channel: what a Lark Channel needs, and the way to set one up.
+// BotAvatarName is a Bot of an id, shown by its name, which may change (issue #466).
+function BotAvatarName({ id }: { id: string }) {
+  return <AvatarName name={useBotName(id)} />
+}
+
 function NoChannelCard({ bots }: { bots: string[] }) {
   return (
     <Card size="sm" data-testid="channel-empty">
@@ -319,17 +324,17 @@ function LarkChannelCard({
 
                   change.mutate(
                     { bot },
-                    { onSuccess: () => said(`${channel.name} talks to ${bot}`) },
+                    { onSuccess: () => said(`${channel.name} talks to another Bot`) },
                   )
                 }}
               >
                 <SelectTrigger id={`${id}-bot`} size="sm">
-                  <SelectValue>{(value: string) => <AvatarName name={value} />}</SelectValue>
+                  <SelectValue>{(value: string) => <BotAvatarName id={value} />}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {botChoices(bots, channel.bot).map((bot) => (
                     <SelectItem key={bot} value={bot}>
-                      <AvatarName name={bot} />
+                      <BotAvatarName id={bot} />
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -470,6 +475,7 @@ function GroupRow({ channel, group }: { channel: string; group: LarkChannelGroup
 // People are who the owner added to a Channel. They count only while the mode is the allowlist, and the list
 // says so.
 function People({ channel }: { channel: LarkChannel }) {
+  const botName = useBotName(channel.bot)
   const refresh = useRefreshChannels()
   const count = channel.people.length
 
@@ -496,9 +502,8 @@ function People({ channel }: { channel: LarkChannel }) {
         <SheetHeader>
           <SheetTitle>{channel.name} · People you added</SheetTitle>
           <SheetDescription>
-            They may talk to {channel.bot} through this channel while you choose “
-            {modeNames.allowlist}”: in a direct message, and in a group chat you switch on when they
-            mention the bot.
+            They may talk to {botName} through this channel while you choose “{modeNames.allowlist}
+            ”: in a direct message, and in a group chat you switch on when they mention the bot.
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6">
@@ -681,6 +686,7 @@ function SetUpDialog({
   trigger: ReactElement
 }) {
   const formId = useId()
+  const main = useMainBot()
   const refresh = useRefreshChannels()
   const [open, setOpen] = useState(false)
 
@@ -704,7 +710,7 @@ function SetUpDialog({
       appId: channel?.app_id ?? "",
       appSecret: "",
       owner: "",
-      bot: firstBot,
+      bot: main,
     },
     validators: {
       onSubmit: setUpSchema.superRefine((value, ctx) => {
@@ -808,13 +814,13 @@ function SetUpDialog({
                       >
                         <SelectTrigger id={field.name} width="full">
                           <SelectValue>
-                            {(value: string) => <AvatarName name={value} />}
+                            {(value: string) => <BotAvatarName id={value} />}
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          {botChoices(bots, firstBot).map((bot) => (
+                          {botChoices(bots, main).map((bot) => (
                             <SelectItem key={bot} value={bot}>
-                              <AvatarName name={bot} />
+                              <BotAvatarName id={bot} />
                             </SelectItem>
                           ))}
                         </SelectContent>

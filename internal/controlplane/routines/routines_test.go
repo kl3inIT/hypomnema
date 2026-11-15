@@ -208,7 +208,7 @@ func (w *world) hourly(name string, chatID string) routinestore.Routine {
 	w.t.Helper()
 
 	r, err := w.svc.Routines().PutRoutine(w.t.Context(), routinestore.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: name, Kind: routinestore.RoutineScript, Script: "sync.sh",
+		Bot: orchestration.DefaultBotID, Name: name, Kind: routinestore.RoutineScript, Script: "sync.sh",
 		ScriptText: "#!/bin/sh\necho 3 rows written\n", EveryMinutes: 60, ChatID: chatID, Announce: true,
 	}, owner)
 	require.NoError(w.t, err)
@@ -220,7 +220,7 @@ func (w *world) daily(name, chatID string) routinestore.Routine {
 	w.t.Helper()
 
 	r, err := w.svc.Routines().PutRoutine(w.t.Context(), routinestore.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: name, Kind: routinestore.RoutinePrompt,
+		Bot: orchestration.DefaultBotID, Name: name, Kind: routinestore.RoutinePrompt,
 		Prompt: "Summarize what changed overnight.", EveryMinutes: 1440, ChatID: chatID, Announce: true,
 	}, owner)
 	require.NoError(w.t, err)
@@ -321,7 +321,7 @@ func change(n orchestration.NewApproval) orchestration.NewApproval {
 // holds it: it asks, waits in place until the Approval is answered, and
 // says how it ended.
 func (w *world) held(ctx context.Context, routineID string, asked chan<- orchestration.Approval) (string, error) {
-	launch, err := w.svc.Routines().ClaimRoutineScript(ctx, routineID, orchestration.DefaultBot)
+	launch, err := w.svc.Routines().ClaimRoutineScript(ctx, routineID, orchestration.DefaultBotID)
 	if err != nil {
 		return "", err
 	}
@@ -377,8 +377,8 @@ func TestAScriptRoutineRunsThroughTheLauncher(t *testing.T) {
 	assert.Zero(t, *run.ExitCode)
 	assert.Equal(t, "3 rows written\n", run.Output)
 	assert.Equal(t, [][]string{
-		{"sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-routine", "coordinator", sync.ID},
-	}, w.script.ran(), "the launcher gets a Bot's name and a Routine's id only")
+		{"sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-routine", orchestration.DefaultBotID, sync.ID},
+	}, w.script.ran(), "the launcher gets a Bot's id and a Routine's id only")
 
 	told := w.said(chat, 1)
 	assert.Contains(t, told[0], `Routine "sync" ran`)
@@ -404,7 +404,7 @@ func TestAScriptRoutineRunsThroughTheLauncher(t *testing.T) {
 		"a script that ran out of time may pass: it is tried again after the second step of the backoff")
 
 	require.Eventually(t, func() bool { return len(w.lark.heard()) == 1 }, eventual, every)
-	assert.Contains(t, w.lark.heard()[0], "coordinator|"+chat+"|A routine keeps failing|")
+	assert.Contains(t, w.lark.heard()[0], orchestration.DefaultBotID+"|"+chat+"|A routine keeps failing|")
 
 	told = w.said(chat, 2)
 	assert.Contains(t, told[1], `Routine "sync" of coordinator failed 2 times in a row`)
@@ -486,7 +486,7 @@ func TestAScriptRunHasATokenOfItsOwnThatEndsWithIt(t *testing.T) {
 
 	during := <-seen
 	assert.Equal(t, bearertoken.Bot, during.Kind)
-	assert.Equal(t, orchestration.DefaultBot, during.Bot)
+	assert.Equal(t, orchestration.DefaultBotID, during.Bot)
 	assert.Equal(t, sync.ID, during.Routine)
 	assert.Empty(t, during.Chat, "a script answers no chat")
 
@@ -782,7 +782,7 @@ func TestRemovingARoutineStopsItsRun(t *testing.T) {
 	chat := w.chat()
 
 	made, err := w.svc.Routines().PutRoutine(t.Context(), routinestore.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "brief", Kind: routinestore.RoutinePrompt, Prompt: "Summarize.",
+		Bot: orchestration.DefaultBotID, Name: "brief", Kind: routinestore.RoutinePrompt, Prompt: "Summarize.",
 		EveryMinutes: 1440, ChatID: chat, Announce: true,
 	}, routinestore.RoutineAuthor{Bot: true})
 	require.NoError(t, err)

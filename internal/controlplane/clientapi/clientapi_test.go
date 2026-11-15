@@ -1218,15 +1218,15 @@ func TestAChatIsMadeUnderTheIDItsPageChose(t *testing.T) {
 	owner, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()
 
-	_, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	made, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
 	require.NoError(t, err)
 
 	id := "cht_k3xq2m7ab4cdefghijklmnopqr"
-	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id, Bot: ptr("vmap")})
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id, Bot: ptr(made.ID)})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
 	assert.Equal(t, id, created.JSON201.Id)
-	assert.Equal(t, "vmap", created.JSON201.Bot)
+	assert.Equal(t, made.ID, created.JSON201.Bot)
 
 	taken, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id})
 	require.NoError(t, err)
@@ -1278,7 +1278,7 @@ func TestPiReadsItsChatsGatewayKey(t *testing.T) {
 	another, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	pi := w.piToken("pi-coordinator", chat, orchestration.DefaultBot)
+	pi := w.piToken("pi-coordinator", chat, orchestration.DefaultBotID)
 
 	none, err := pi.GetChatGatewayKeyWithResponse(ctx, chat)
 	require.NoError(t, err)
@@ -1300,7 +1300,7 @@ func TestPiReadsItsChatsGatewayKey(t *testing.T) {
 	assert.NotContains(t, string(other.Body), "hyp_gateway_v1_of_another_pi")
 
 	laptop, _ := w.token("laptop", bearertoken.Coordinator)
-	anotherPi := w.piToken("pi-coordinator", another.ID, orchestration.DefaultBot)
+	anotherPi := w.piToken("pi-coordinator", another.ID, orchestration.DefaultBotID)
 
 	for name, client := range map[string]*openapi.ClientWithResponses{
 		"pi's coordinator token": shared, "another coordinator": laptop, "the owner": owner,
@@ -1324,20 +1324,20 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	_, shared := w.token("pi-coordinator", bearertoken.Coordinator)
 	ctx := t.Context()
 
-	_, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	made, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
 	require.NoError(t, err)
 
 	mine, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	theirs, err := w.svc.CreateChat(ctx, "vmap", "")
+	theirs, err := w.svc.CreateChat(ctx, made.ID, "")
 	require.NoError(t, err)
 
-	secret, err := w.svc.AddBotToken(ctx, "pi-coordinator", mine.ID, orchestration.DefaultBot)
+	secret, err := w.svc.AddBotToken(ctx, "pi-coordinator", mine.ID, orchestration.DefaultBotID)
 	require.NoError(t, err)
 
 	pi := w.client(secret)
-	vmap := w.piToken("pi-coordinator", theirs.ID, "vmap")
+	vmap := w.piToken("pi-coordinator", theirs.ID, made.ID)
 
 	named, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "x", ChatId: &theirs.ID})
 	require.NoError(t, err)
@@ -1361,10 +1361,10 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, canceled.StatusCode(), string(canceled.Body))
 
-	_, err = w.svc.SetBotMemory(ctx, orchestration.DefaultBot, "The owner is in Hanoi.")
+	_, err = w.svc.SetBotMemory(ctx, orchestration.DefaultBotID, "The owner is in Hanoi.")
 	require.NoError(t, err)
 
-	other, err := vmap.GetBotWithResponse(ctx, orchestration.DefaultBot)
+	other, err := vmap.GetBotWithResponse(ctx, orchestration.DefaultBotID)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, other.StatusCode())
 	assert.NotContains(t, string(other.Body), "The owner is in Hanoi.")
@@ -1373,10 +1373,10 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, listed.StatusCode())
 	require.Len(t, listed.JSON200.Data, 1, "a pi is shown its own Bot")
-	assert.Equal(t, "vmap", listed.JSON200.Data[0].Name)
+	assert.Equal(t, made.ID, listed.JSON200.Data[0].Id)
 
 	// The Bot coordinator manages the Bots (issue #169): it reads every one, as the owner's CLI does first.
-	_, err = w.svc.SetBotMemory(ctx, "vmap", "Linh leads the maps team.")
+	_, err = w.svc.SetBotMemory(ctx, made.ID, "Linh leads the maps team.")
 	require.NoError(t, err)
 
 	managed, err := pi.ListBotsWithResponse(ctx)
@@ -1385,24 +1385,24 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	assert.Len(t, managed.JSON200.Data, 2)
 	assert.Contains(t, string(managed.Body), "Linh leads", "the coordinator reads every Bot whole (owner, 2026-11-13)")
 
-	vmapBot, err := pi.GetBotWithResponse(ctx, "vmap")
+	vmapBot, err := pi.GetBotWithResponse(ctx, made.ID)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, vmapBot.StatusCode())
 	assert.Equal(t, "You answer about VMAP.", vmapBot.JSON200.Persona)
 	assert.Equal(t, "Linh leads the maps team.", vmapBot.JSON200.Memory)
 
-	skills, err := pi.ListBotSkillsWithResponse(ctx, "vmap")
+	skills, err := pi.ListBotSkillsWithResponse(ctx, made.ID)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, skills.StatusCode())
 
 	note := "The owner likes short answers."
 	change := openapi.MemoryChange{Kind: openapi.Add, Text: &note}
 
-	theirMemory, err := pi.ChangeBotMemoryWithResponse(ctx, "vmap", change)
+	theirMemory, err := pi.ChangeBotMemoryWithResponse(ctx, made.ID, change)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, theirMemory.StatusCode())
 
-	ownMemory, err := pi.ChangeBotMemoryWithResponse(ctx, orchestration.DefaultBot, change)
+	ownMemory, err := pi.ChangeBotMemoryWithResponse(ctx, orchestration.DefaultBotID, change)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, ownMemory.StatusCode(), string(ownMemory.Body))
 
@@ -1482,6 +1482,8 @@ func TestStreamChatShowsPiLive(t *testing.T) {
 	assert.Equal(t, "id: "+strconv.FormatInt(old.Seq+1, 10), next(), "resumes after Last-Event-ID")
 	assert.Equal(t, "event: message", next())
 	assert.Contains(t, next(), "add a health page")
+	assert.Equal(t, "event: queue", next(), "the queue comes as the stream opens, empty or not")
+	assert.JSONEq(t, `{"items":[]}`, strings.TrimPrefix(next(), "data: "))
 
 	w.pi.live <- coordinator.Frame{Event: coordinator.FrameDelta, Data: map[string]any{
 		"kind": "text", "index": 0, "delta": "On ",

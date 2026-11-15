@@ -131,14 +131,18 @@ func TestAProfileStillNamedIsNotDeleted(t *testing.T) {
 		"model: {provider: model-gateway}\n")
 	require.NoError(t, err)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer", "scout"}}})
+	vmap, err := w.s.PutBot(ctx, Bot{
+		Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer", "scout"}},
+	})
 	require.NoError(t, err)
 
 	err = w.s.DeleteProfile(ctx, "scout")
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "bots vmap")
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer"}}})
+	_, err = w.s.PutBot(ctx, Bot{
+		ID: vmap.ID, Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer"}},
+	})
 	require.NoError(t, err)
 	require.NoError(t, w.s.DeleteProfile(ctx, "scout"))
 }

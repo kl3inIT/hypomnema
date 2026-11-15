@@ -48,7 +48,7 @@ func fakePi() int {
 	token := ""
 	model, level := flagOf("--provider")+"/"+flagOf("--model"), flagOf("--thinking")
 
-	hanging := ""
+	hanging, steered := "", ""
 	measured, small, compacted, answers := false, false, false, 0
 
 	for {
@@ -75,7 +75,22 @@ func fakePi() int {
 				emit(out, rec)
 			}
 
-			hanging = ""
+			// What was steered in meanwhile is answered next, as pi goes on with its queue after an abort.
+			if steered != "" {
+				for _, rec := range turn("steered: " + steered) {
+					emit(out, rec)
+				}
+			}
+
+			hanging, steered = "", ""
+
+			continue
+		}
+
+		if cmd["type"] == "prompt" && cmd["streamingBehavior"] == "steer" && hanging != "" {
+			steered, _, _ = strings.Cut(fmt.Sprint(cmd["message"]), "\n")
+			reply["data"] = map[string]any{"disposition": "queued"}
+			emit(out, reply)
 
 			continue
 		}
@@ -472,35 +487,35 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 
 	args, _, _, err := sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the starting set leaves pi's own default model")
+	assert.Equal(t, []string{"--bot", orchestration.DefaultBotID}, args, "the starting set leaves pi's own default model")
 
 	_, err = svc.ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
 		"base_url: http://172.22.0.1:20128/v1\napi_key_ref: file:ninerouter.key\nmodels: [cx/gpt-6.1-sol]\n")
 	require.NoError(t, err)
 
-	_, err = svc.PutBot(ctx, orchestration.Bot{
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{
 		Name: "vmap", Provider: "ninerouter", Model: "cx/gpt-6.1-sol", Effort: "high", Persona: "You answer about VMAP.",
 	})
 	require.NoError(t, err)
 
-	second, err := svc.CreateChat(ctx, "vmap", "")
+	second, err := svc.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
 	args, bot, model, err := sup.botArgs(ctx, second.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"--bot", "vmap", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
+		"--bot", vmapBot.ID, "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
 	assert.Equal(t, "cx/gpt-6.1-sol", model.Model, "the chat's gateway key is made for this model")
-	assert.Equal(t, "vmap", bot, "pi's token is bound to the Bot")
+	assert.Equal(t, vmapBot.ID, bot, "pi's token is bound to the Bot")
 
 	args, _, _, err = sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
+	assert.Equal(t, []string{"--bot", orchestration.DefaultBotID}, args, "the first chat keeps its Bot")
 
 	// A Lark group's chat is not given the Bot's memory (issue #246); a person's direct chat is.
 	_, err = svc.Channels().SetChannel(ctx, channelstore.Channel{
-		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: "vmap",
+		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: vmapBot.ID,
 		Mode: channelstore.ChannelOwner, OwnerID: "ou_owner", Enabled: true,
 	})
 	require.NoError(t, err)
@@ -511,7 +526,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	args, _, _, err = sup.botArgs(ctx, group.ChatID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"--bot", "vmap", "--group", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
+		"--bot", vmapBot.ID, "--group", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
 
 	direct, err := svc.ChannelChatFor(ctx, "maps", "oc_dm", "ou_owner", "")
@@ -787,7 +802,7 @@ func TestEachPiGetsItsOwnTokenOnItsStdin(t *testing.T) {
 	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	first := "hyp_bot_v1_1_" + chat.ID + "_coordinator"
+	first := "hyp_bot_v1_1_" + chat.ID + "_" + orchestration.DefaultBotID
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what is your token?")
 	require.NoError(t, err)
@@ -802,7 +817,8 @@ func TestEachPiGetsItsOwnTokenOnItsStdin(t *testing.T) {
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "and your token now?")
 	require.NoError(t, err)
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "my token: hyp_bot_v1_2_"+chat.ID+"_coordinator")
+	token := "my token: hyp_bot_v1_2_" + chat.ID + "_" + orchestration.DefaultBotID
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, token)
 }
 
 // Scenario: the owner stops pi mid-turn, and pi ends the turn as aborted with
@@ -867,24 +883,25 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	_, err = svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
 	require.NoError(t, err)
 
-	effortOnly, err := svc.CreateChatWithID(ctx, "", "vmap", "", orchestration.ChatModel{Effort: "none"})
+	effortOnly, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Effort: "none"})
 	require.NoError(t, err)
 
 	args, _, model, err := sup.botArgs(ctx, effortOnly.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "vmap", "--provider", "gateway", "--model", "gpt-sol", "--thinking", "off"},
+	assert.Equal(t, []string{"--bot", vmapBot.ID, "--provider", "gateway", "--model", "gpt-sol", "--thinking", "off"},
 		args, "the Bot's model with the chat's effort")
 	assert.Equal(t, "gpt-sol", model.Model)
 
-	both, err := svc.CreateChatWithID(ctx, "", "vmap", "", orchestration.ChatModel{Model: "gpt-luna", Effort: "low"})
+	both, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Model: "gpt-luna", Effort: "low"})
 	require.NoError(t, err)
 
 	args, _, model, err = sup.botArgs(ctx, both.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "vmap", "--provider", "gateway", "--model", "gpt-luna", "--thinking", "low"}, args)
+	want := []string{"--bot", vmapBot.ID, "--provider", "gateway", "--model", "gpt-luna", "--thinking", "low"}
+	assert.Equal(t, want, args)
 	assert.Equal(t, "gpt-luna", model.Model, "the chat's gateway key is made for the chat's model")
 }
 
@@ -902,10 +919,10 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	_, err = svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
 	require.NoError(t, err)
 
-	chat, err := svc.CreateChat(ctx, "vmap", "")
+	chat, err := svc.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "which model first")
@@ -945,4 +962,71 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 	keys.mu.Lock()
 	assert.Len(t, keys.models, 2, "the same model keeps its key")
 	keys.mu.Unlock()
+}
+
+// A message written while pi works waits in the chat's queue, off the transcript, and goes to pi as a new prompt
+// once the turn settles (issue #497); one sent now goes at once as a steer. Wake-ups are not steered.
+func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hang aborted")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sup.Working(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+
+	_, later, err := svc.SendOwnerMessage(ctx, chat.ID,
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: "later"}, sup.Working(chat.ID))
+	require.NoError(t, err)
+	require.NotNil(t, later)
+
+	_, now, err := svc.SendOwnerMessage(ctx, chat.ID,
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: "look here"}, sup.Working(chat.ID))
+	require.NoError(t, err)
+	require.NotNil(t, now)
+
+	_, err = svc.SendQueuedNow(ctx, chat.ID, now.ID)
+	require.NoError(t, err)
+
+	// The steer is delivered while pi still works; the other stays queued.
+	require.Eventually(t, func() bool {
+		msgs, err := svc.Undelivered(ctx, chat.ID)
+
+		return err == nil && len(msgs) == 0
+	}, 10*time.Second, 10*time.Millisecond)
+
+	queue, err := svc.ChatQueue(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, queue, 1)
+	assert.Equal(t, "later", queue[0].Text)
+	assert.True(t, sup.Working(chat.ID))
+
+	require.NoError(t, sup.Abort(ctx, chat.ID))
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "steered: look here")
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: later")
+
+	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+
+	var got []string
+
+	for _, m := range msgs {
+		// The tool calls and the thinking before them are other tests' business.
+		if m.Role != orchestration.ChatTool && m.Text != "" {
+			got = append(got, fmt.Sprintf("%s: %s", m.Role, m.Text))
+		}
+	}
+
+	assert.Equal(t, []string{
+		"owner: hang aborted", "owner: look here", "coordinator: half an answer", "system: Stopped",
+		"coordinator: steered: look here", "owner: later", "coordinator: echo: later",
+	}, got)
+
+	queue, err = svc.ChatQueue(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, queue)
 }

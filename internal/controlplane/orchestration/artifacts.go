@@ -147,8 +147,8 @@ func (s *Service) newArtifact(ctx context.Context, q *store.Queries, by Artifact
 		return "", notFound(err, "chat", by.Chat)
 	}
 
-	if chat.Bot != by.Bot {
-		return "", fmt.Errorf("%w: chat %s is %s's, not %s's", ErrForbidden, by.Chat, chat.Bot, by.Bot)
+	if chat.BotID != by.Bot {
+		return "", fmt.Errorf("%w: chat %s is %s's, not %s's", ErrForbidden, by.Chat, chat.BotID, by.Bot)
 	}
 
 	seq, err := q.InsertChatMessage(ctx, store.InsertChatMessageParams{
@@ -179,7 +179,7 @@ func reviseArtifact(ctx context.Context, q *store.Queries, by ArtifactMaker, id,
 	a, err := q.GetArtifact(ctx, id)
 	// One of another Bot, or of another chat than the pi's, is not there for it (OpenMausBot: "No page with that
 	// id in this conversation").
-	if errors.Is(err, sql.ErrNoRows) || err == nil && (a.Bot != by.Bot || by.Chat != "" && a.ChatID != by.Chat) {
+	if errors.Is(err, sql.ErrNoRows) || err == nil && (a.BotID != by.Bot || by.Chat != "" && a.ChatID != by.Chat) {
 		return false, fmt.Errorf("%w: no artifact %s of this chat; show a new one without --id", ErrNotFound, id)
 	}
 
@@ -301,7 +301,7 @@ func (s *Service) GetArtifact(ctx context.Context, id string) (Artifact, error) 
 	}
 
 	out := Artifact{
-		ID: a.ID, ChatID: a.ChatID, Bot: a.Bot, MessageSeq: a.MessageSeq, Revision: int(a.Revision),
+		ID: a.ID, ChatID: a.ChatID, Bot: a.BotID, MessageSeq: a.MessageSeq, Revision: int(a.Revision),
 		Title: revs[0].Title, Type: artifactpack.Type(revs[0].Type), Entry: revs[0].Entry, Size: revs[0].Size,
 		CreatedAt: millis(a.CreatedAt), UpdatedAt: millis(a.UpdatedAt),
 	}
@@ -346,7 +346,7 @@ func (s *Service) ListArtifacts(ctx context.Context, f ArtifactFilter) ([]Artifa
 	out := make([]Artifact, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, Artifact{
-			ID: r.ID, ChatID: r.ChatID, Bot: r.Bot, MessageSeq: r.MessageSeq, Revision: int(r.Revision),
+			ID: r.ID, ChatID: r.ChatID, Bot: r.BotID, MessageSeq: r.MessageSeq, Revision: int(r.Revision),
 			Title: r.Title, Type: artifactpack.Type(r.Type), Entry: r.Entry, Size: r.Size,
 			CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 		})

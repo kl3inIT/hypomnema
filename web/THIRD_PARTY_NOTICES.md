@@ -83,6 +83,11 @@ Each adapted file names its source.
   and its hint, and the strip of tabs (src/components/browser/StreamSurface.tsx, ChromeRow.tsx, Apache License
   2.0, Copyright 2026 Milind Soni and OpenMausBot contributors). A tab is named as Orca's is
   (src/renderer/src/components/tab-bar/BrowserTab.tsx, MIT).
+- The phone's view (`src/features/device`, issue #417) is adapted from t3code's Device panel: its view, controls
+  rail and loading card (apps/web/src/components/device/DeviceStreamView.tsx, DeviceControlsRail.tsx,
+  DeviceLoadingView.tsx) and its Android stream client (packages/client-runtime/src/device/stream.ts: the SEMU
+  header, the access unit's scan, the codec string, the decoder's configuration, the key codes and the text's
+  split), MIT, Copyright (c) 2026 T3 Tools Inc.; laid out as the browser view above.
 - The runtime marks (Claude, Codex, pi, opencode) are copied from OpenMausBot
   (https://github.com/milind-soni/OpenMausBot, src/components/ProviderIcons.tsx), Apache License 2.0. omp's mark is
   its own icon (https://github.com/can1357/oh-my-pi, assets/icon.svg), MIT, with its bars in the text colour.

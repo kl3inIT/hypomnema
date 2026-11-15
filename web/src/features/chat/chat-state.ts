@@ -6,6 +6,7 @@ import type {
   ChatPart,
   ChatToolActivity,
   ChatWake,
+  QueuedChatMessage,
   SetupChange,
 } from "@/api/generated/types.gen"
 
@@ -26,6 +27,8 @@ export type ChatView = {
   working: boolean
   // reconnecting is true while the stream is down and being opened again (Omnigent's ConnectionIndicator).
   reconnecting: boolean
+  // queue is what the owner wrote while pi worked, which waits for the turn to settle (issue #497).
+  queue: QueuedChatMessage[]
 }
 
 export type ChatAction =
@@ -35,6 +38,7 @@ export type ChatAction =
   | { type: "tool"; activity: ChatToolActivity }
   | { type: "state"; working: boolean }
   | { type: "connection"; reconnecting: boolean }
+  | { type: "queue"; items: QueuedChatMessage[] }
 
 export const emptyChat: ChatView = {
   messages: [],
@@ -42,6 +46,7 @@ export const emptyChat: ChatView = {
   running: [],
   working: false,
   reconnecting: false,
+  queue: [],
 }
 
 export function chatReducer(view: ChatView, action: ChatAction): ChatView {
@@ -100,6 +105,9 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
       return view.reconnecting === action.reconnecting
         ? view
         : { ...view, reconnecting: action.reconnecting }
+    case "queue":
+      // The server sends the whole queue each time it changes, as pi's queue_update does (json.md).
+      return { ...view, queue: action.items }
   }
 }
 
