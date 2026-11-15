@@ -5,7 +5,8 @@ import "streamdown/styles.css"
 
 import { InlineSvg } from "@/features/preview/image-view"
 
-import { fileKey, imageType, inFolder, useImage, useObjectURL } from "./files-state"
+import { useObjectURL } from "@/hooks/use-object-url"
+import { fileKey, imageType, inFolder, useImage } from "./files-state"
 
 const plugins = { code }
 const controls = { table: true, code: { copy: true, download: false } } as const

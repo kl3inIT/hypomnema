@@ -1,6 +1,8 @@
 package webui_test
 
 import (
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -65,4 +67,30 @@ func TestAvailableNeedsIndex(t *testing.T) {
 
 	assert.True(t, webui.Available(build))
 	assert.False(t, webui.Available(fstest.MapFS{".gitkeep": {}}))
+}
+
+// Scenario: a browser that accepts gzip gets the build gzipped, which it reads
+// back as the same file; one that does not gets it as it is (issue #510).
+func TestHandlerGzipsTheBuildForABrowserThatAcceptsIt(t *testing.T) {
+	t.Parallel()
+
+	files := map[string]string{"/": "index.html", "/assets/index-a1.js": "assets/index-a1.js"}
+	for target, file := range files {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		rec := httptest.NewRecorder()
+		webui.Handler(build).ServeHTTP(rec, req)
+
+		require.Equal(t, http.StatusOK, rec.Code, target)
+		require.Equal(t, "gzip", rec.Header().Get("Content-Encoding"), target)
+		zr, err := gzip.NewReader(rec.Body)
+		require.NoError(t, err, target)
+		body, err := io.ReadAll(zr)
+		require.NoError(t, err, target)
+		assert.Equal(t, string(build[file].Data), string(body), target)
+	}
+
+	plain := get(t, http.MethodGet, "/assets/index-a1.js")
+	assert.Empty(t, plain.Header().Get("Content-Encoding"))
+	assert.Equal(t, "console.log(1)", plain.Body.String())
 }

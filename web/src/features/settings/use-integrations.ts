@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query"
 import "@/api/client"
 import { listGitHosts, listIntegrations, listRepos } from "@/api/generated/sdk.gen"
 import type { GitHost } from "@/api/generated/types.gen"
-import { toast } from "@/components/ui/toast"
 
 export const hostsKey = ["git-hosts"] as const
 export const reposKey = ["repos"] as const
@@ -72,18 +71,4 @@ export function tokenHelp(host: GitHost): { needs: string; docs: string } {
           "A personal, group or project access token with the scopes api and write_repository.",
         docs: "https://docs.gitlab.com/user/profile/personal_access_tokens/",
       }
-}
-
-export function errorText(error: unknown) {
-  if (error && typeof error === "object" && "message" in error && error.message) {
-    return String(error.message)
-  }
-
-  return "The server refused. Try again."
-}
-
-// said tells the owner, in a toast, that a change he made was done. Omnigent, Orca, Infisical and Coder confirm a
-// change the same way (sonner); this is the toast of the project's own component style.
-export function said(what: string) {
-  toast.add({ title: what, type: "success" })
 }

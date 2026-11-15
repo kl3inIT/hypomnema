@@ -191,6 +191,14 @@ func (c *Hold) Unopened() {
 	c.views--
 }
 
+// Viewing says whether a view is open.
+func (c *Hold) Viewing() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.views > 0
+}
+
 // Closed counts a view out. When it was the last one, a view the owner
 // closed ends the hold at once, and one that dropped starts the grace. It
 // returns why the hold ended, or "".

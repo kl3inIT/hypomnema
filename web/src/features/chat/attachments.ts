@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import "@/api/client"
 import { listWorkspaceDirectory } from "@/api/generated/sdk.gen"
 import type { ChatAttachment } from "@/api/generated/types.gen"
-import { deleteEntry, imageType, makeFolder, problemOf } from "@/features/files/files-state"
+import { deleteEntry, imageType, makeFolder } from "@/features/files/files-state"
+import { problemOf } from "@/lib/server-error"
 import { commitUpload, maxUpload, sendPieces } from "@/features/files/upload"
 
 // The files attached in a chat's composer (issue #343), taken in as t3code's useComposerAttachmentIntake.ts does

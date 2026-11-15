@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { useObjectURL } from "@/features/files/files-state"
+import { useObjectURL } from "@/hooks/use-object-url"
 
 import { CsvView } from "./csv-view"
 import { DocxView } from "./docx-view"

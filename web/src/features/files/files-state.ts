@@ -1,5 +1,5 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo, useSyncExternalStore } from "react"
+import { useSyncExternalStore } from "react"
 
 import { client } from "@/api/client"
 import {
@@ -7,7 +7,6 @@ import {
   diffWorkspaceFile,
   listChatWorkspaces,
   listWorkspaceChanges,
-  listWorkspaceDirectory,
   makeWorkspaceFolder,
   moveWorkspaceEntry,
   readWorkspaceFile,
@@ -41,21 +40,6 @@ export function useWorkspaces(chat: string | null) {
     queryFn: async () => (await listChatWorkspaces({ path: { chat_id: chat ?? "" } })).data.data,
     enabled: chat !== null,
     staleTime: 30_000,
-  })
-}
-
-export function useDirectory(chat: string, workspace: string, path: string, enabled = true) {
-  return useQuery({
-    queryKey: key(chat, workspace, "tree", path),
-    queryFn: async () =>
-      (
-        await listWorkspaceDirectory({
-          path: { chat_id: chat, workspace_id: workspace },
-          query: { path },
-        })
-      ).data,
-    enabled,
-    staleTime: 5_000,
   })
 }
 
@@ -106,20 +90,6 @@ export function useDiff(chat: string, workspace: string, path: string) {
       ).data,
     staleTime: 5_000,
   })
-}
-
-// problemOf is a refused request's code and message, as the server sent them.
-export function problemOf(error: unknown): { code: string; message: string } {
-  if (error && typeof error === "object") {
-    const { code, message } = error as Record<string, unknown>
-
-    return {
-      code: typeof code === "string" ? code : "",
-      message: typeof message === "string" && message ? message : "The server refused. Try again.",
-    }
-  }
-
-  return { code: "", message: "The server refused. Try again." }
 }
 
 // baseName is the last part of a path.
@@ -249,14 +219,6 @@ export function useUnsaved(tab: string) {
     },
     () => unsaved.has(tab),
   )
-}
-
-// useObjectURL is a blob: URL for bytes, revoked when they change or are no longer shown.
-export function useObjectURL(blob: Blob | undefined) {
-  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob])
-  useEffect(() => () => (url ? URL.revokeObjectURL(url) : undefined), [url])
-
-  return url
 }
 
 // inFolder is the path of the folder that a link in the file at `from` names, or null when it is an address or

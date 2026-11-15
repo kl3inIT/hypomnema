@@ -13,14 +13,15 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useBots } from "@/features/bots/use-bots"
-import { AvatarName } from "@/features/agents/agent-avatar"
-import { PageHeader, PageHeading } from "@/features/shell/app-shell"
+import { AvatarName } from "@/components/agent-avatar"
+import { PageHeader, PageHeading } from "@/components/page-header"
 import { cn } from "@/lib/utils"
 
 import { FixButton, StatusMark } from "./parts"
 import { RoutineForm } from "./routine-form"
 import { RoutinePanel } from "./routine-panel"
-import { errorText, orderRoutines, routineStatus, statusLine } from "./routines-state"
+import { errorText } from "@/lib/server-error"
+import { orderRoutines, routineStatus, statusLine } from "./routines-state"
 import { useRoutines, useRunNow, useSwitch } from "./use-routines"
 
 // RoutinesScreen is the Routines of every Bot, or of one (issue #211), with the open one beside the list. Adapted

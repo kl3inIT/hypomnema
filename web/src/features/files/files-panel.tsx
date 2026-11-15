@@ -48,7 +48,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils"
 
 import { type FileAction, FileActionDialogs } from "./file-actions"
-import { problemOf, rawURL, useChanges, useWorkspaces, workspaceKey } from "./files-state"
+import { problemOf } from "@/lib/server-error"
+import { rawURL, useChanges, useWorkspaces, workspaceKey } from "./files-state"
 import { useUploads } from "./upload"
 import { UploadList } from "./upload-list"
 

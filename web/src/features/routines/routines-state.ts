@@ -185,11 +185,3 @@ export function limitLine(seconds: number) {
 
 // ago is since() for a run's line in a card: "5m ago".
 export const ago = since
-
-export function errorText(error: unknown) {
-  if (error && typeof error === "object" && "message" in error && error.message) {
-    return String(error.message)
-  }
-
-  return "The server refused. Try again."
-}

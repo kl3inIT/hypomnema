@@ -1,6 +1,6 @@
 import type { Approval, Bot, Chat, Dispatch, Node } from "@/api/generated/types.gen"
 import type { Card } from "@/features/work/work-state"
-import { firstLine } from "@/features/work/work-state"
+import { firstLine } from "@/lib/text"
 
 // What the Team page draws, worked out from the records the control plane already serves (issue #262).
 //

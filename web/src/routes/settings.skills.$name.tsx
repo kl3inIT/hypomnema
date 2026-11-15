@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 
-import { SettingsSidebar } from "@/features/settings/settings-shell"
+import { SettingsSidebar } from "@/components/settings-page"
 import { SkillScreen } from "@/features/skills/skill-screen"
 
 export const Route = createFileRoute("/settings/skills/$name")({

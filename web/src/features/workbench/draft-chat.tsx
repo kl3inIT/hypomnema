@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import type { Chat } from "@/api/generated/types.gen"
-import { AgentAvatar } from "@/features/agents/agent-avatar"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { useBotName, useMainBot } from "@/features/bots/use-bots"
 import { AttachDrop } from "@/features/chat/attach-drop"
 import { useAttachments } from "@/features/chat/attachments"

@@ -10,7 +10,8 @@ import {
   sendWorkspaceUploadChunk,
 } from "@/api/generated/sdk.gen"
 
-import { problemOf, refreshFolder } from "./files-state"
+import { problemOf } from "@/lib/server-error"
+import { refreshFolder } from "./files-state"
 
 // An upload into a chat's folder (issue #315), as Orca's staged save (src/shared/file-write/staged-file-save.ts):
 // begun, sent in pieces of 384 KiB, then committed, up to 50 MiB. A commit never goes over a file that is there; the

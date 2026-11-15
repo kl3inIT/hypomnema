@@ -63,11 +63,12 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { Switch } from "@/components/ui/switch"
-import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
-import { Meter } from "@/features/machines/machine-cells"
-import { ConfirmDialog, ErrorAlert, SettingsSection } from "@/features/settings/settings-parts"
-import { SettingsPage } from "@/features/settings/settings-shell"
-import { said } from "@/features/settings/use-integrations"
+import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
+import { Meter } from "@/components/meter"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ErrorAlert } from "@/components/error-alert"
+import { SettingsSection, SettingsPage } from "@/components/settings-page"
+import { said } from "@/lib/said"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 
@@ -430,7 +431,7 @@ function AccountRow({
 }
 
 // LimitBars are an account's limits: a meter a window with the part used and when it starts again, as the
-// Machines page shows a machine's shares (machine-cells.tsx, after Beszel) and as 9router's quota cards
+// Machines page shows a machine's shares (components/meter.tsx, after Beszel) and as 9router's quota cards
 // (usage/components/ProviderLimits), T3 Code's limits (usage/UsageLimits.tsx) and Orca's status bar do for a
 // subscription. Only an account signed in here can be asked. An account with nothing to show has no bars, and a
 // line says so when the reading failed; the button asks the vendor now.

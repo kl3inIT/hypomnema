@@ -1,5 +1,5 @@
 import type { ChatWake } from "@/api/generated/types.gen"
-import { firstLine } from "@/features/work/work-state"
+import { firstLine } from "@/lib/text"
 
 // What a wake-up card says (issue #303), from the event the wake-up reports, which never changes: no live status
 // is read again, as t3code's TimelineSystemDivider and Orca's task rows show what happened at that moment. The

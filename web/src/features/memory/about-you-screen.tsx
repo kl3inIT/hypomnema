@@ -1,4 +1,4 @@
-import { SettingsPage } from "@/features/settings/settings-shell"
+import { SettingsPage } from "@/components/settings-page"
 
 import { MemoryEditor } from "./memory-editor"
 import { useOwnerMemory, useSetOwnerMemory } from "./use-memory"

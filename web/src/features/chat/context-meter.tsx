@@ -11,7 +11,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { errorText } from "@/features/agents/profiles-state"
+import { errorText } from "@/lib/server-error"
 import { cn } from "@/lib/utils"
 
 import { meterLabel, meterLine, meterOf, type Meter } from "./context-meter-state"

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 
 import { IntegrationsScreen } from "@/features/settings/integrations-screen"
-import { SettingsSidebar } from "@/features/settings/settings-shell"
+import { SettingsSidebar } from "@/components/settings-page"
 
 export const Route = createFileRoute("/settings/integrations")({
   component: () => (

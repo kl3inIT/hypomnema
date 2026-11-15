@@ -211,6 +211,7 @@ export function ThemeProvider({
   )
 }
 
+// oxlint-disable-next-line react/only-export-components -- shadcn's provider keeps its hook beside it.
 export const useTheme = () => {
   const context = React.useContext(ThemeProviderContext)
 

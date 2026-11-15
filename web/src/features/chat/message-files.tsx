@@ -17,7 +17,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { imageType, useImage, useObjectURL } from "@/features/files/files-state"
+import { imageType, useImage } from "@/features/files/files-state"
+import { useObjectURL } from "@/hooks/use-object-url"
 import { cn } from "@/lib/utils"
 
 import { botFolder, formatSize } from "./attachments"

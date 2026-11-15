@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/combobox"
 
 import { choices, matches, type Choice, type Group } from "./model-choices"
-import { ModelMark, ProviderMark } from "./model-mark"
+import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
 
 // ModelPicker chooses a model from every provider's, with a search (issue #200). It is Omnara's model combobox
 // (Apache License 2.0, https://github.com/omnara-ai/omnara; frontend/apps/web/src/components/ui/
