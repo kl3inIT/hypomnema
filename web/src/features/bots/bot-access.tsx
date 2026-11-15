@@ -1,7 +1,9 @@
-import { useIsMutating } from "@tanstack/react-query"
-import { Bot as BotIcon, Plug, Wrench } from "lucide-react"
+import { useIsMutating, useQuery } from "@tanstack/react-query"
+import { Bot as BotIcon, LayoutDashboard, Plug, Wrench } from "lucide-react"
 import type { ReactNode } from "react"
 
+import "@/api/client"
+import { listSupersetDashboardsOptions } from "@/api/generated/@tanstack/react-query.gen"
 import type { AllowList, Bot, BotSettings, ToolDisplay } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
@@ -20,7 +22,7 @@ import { IntegrationMark } from "@/features/settings/service-cards"
 import { said } from "@/lib/said"
 import { useServices } from "@/features/settings/use-integrations"
 
-import { allowed, keptSettings, withName } from "./bots-state"
+import { allowed, keptSettings, scopeList, withName, withScope } from "./bots-state"
 import { putBotKey, usePutBot } from "./use-bots"
 
 // What a Bot may use (issue #169): the Connections it may use and the worker profiles it gives work to. Each is a
@@ -180,6 +182,70 @@ function ToolDisplayCard({
   )
 }
 
+// DashboardsCard is the dashboards a Bot may read of one Superset Connection it may use (issue #562), the same card
+// as the Connections', under them: OpenMausBot's app shows the scope control beside the connected app
+// (connector-scopes.ts L4). Off, the Bot reads every dashboard the account sees and may send its own requests to
+// Superset's API; on, only the dashboards switched on, through the dashboard and chart reads. The dashboards are
+// the account's, read as the owner; one the scope names that the account no longer sees is kept on it.
+function DashboardsCard({
+  bot,
+  label,
+  pending,
+  onChange,
+}: {
+  bot: Bot
+  label: string
+  pending: boolean
+  onChange: (list: AllowList) => void
+}) {
+  const dashboards = useQuery({
+    ...listSupersetDashboardsOptions({ path: { label } }),
+    select: (page) => page.data,
+  })
+  const list = scopeList(bot.scopes, `superset:${label}`)
+  const seen = (dashboards.data ?? []).map<Item>((d) => ({
+    name: String(d.id),
+    // A long title is cut, its number never is: it is what the Bot's scope keeps.
+    label: (
+      <>
+        <span className="min-w-0 truncate font-medium" title={d.title}>
+          {d.title}
+        </span>
+        <span className="shrink-0 text-xs text-muted-foreground">#{d.id}</span>
+      </>
+    ),
+  }))
+  const items = [
+    ...seen,
+    ...allowed(list, seen).map<Item>((name) => ({
+      name,
+      label: <span className="shrink-0 font-medium">#{name}</span>,
+      detail: "Not seen by the account",
+    })),
+  ]
+  const empty = dashboards.isPending
+    ? "Reading the dashboards…"
+    : dashboards.error
+      ? `The dashboards could not be read: ${errorText(dashboards.error)}`
+      : "The account sees no dashboard."
+
+  return (
+    <AccessCard
+      id={`bot-dashboards-${label}`}
+      title={`Superset · ${label} dashboards`}
+      icon={<LayoutDashboard className="size-4" aria-hidden />}
+      limit="Limit dashboards"
+      all="Every dashboard the account sees, and its own requests to Superset's API."
+      none="No dashboard: it reads nothing of this account."
+      list={list}
+      items={items}
+      empty={empty}
+      pending={pending}
+      onChange={onChange}
+    />
+  )
+}
+
 // BotAccess is the cards on a Bot's page. The PUT carries the Bot's stored settings, so a switch changes only
 // its list; what the form above holds unsaved stays in the form.
 export function BotAccess({ bot }: { bot: Bot }) {
@@ -191,7 +257,7 @@ export function BotAccess({ bot }: { bot: Bot }) {
   const profiles = useProfiles()
 
   function save(
-    change: Pick<BotSettings, "connections" | "workers" | "tool_display">,
+    change: Pick<BotSettings, "connections" | "workers" | "scopes" | "tool_display">,
     what: string,
   ) {
     put.mutate(
@@ -226,6 +292,15 @@ export function BotAccess({ bot }: { bot: Bot }) {
       detail: "Not used in chats",
     })),
   ]
+
+  // The Superset Connections the Bot may use, each with the dashboards it may read.
+  const supersets = forChats
+    .filter(
+      (item) =>
+        item.name.startsWith("superset:") &&
+        (!bot.connections.limited || bot.connections.names.includes(item.name)),
+    )
+    .map((item) => item.name.slice("superset:".length))
 
   const workerItems = (profiles.data ?? []).map<Item>((p) => ({
     name: p.name,
@@ -268,6 +343,22 @@ export function BotAccess({ bot }: { bot: Bot }) {
           )
         }
       />
+      {supersets.map((label) => (
+        <DashboardsCard
+          key={label}
+          bot={bot}
+          label={label}
+          pending={saving}
+          onChange={(list) =>
+            save(
+              { scopes: withScope(bot.scopes, `superset:${label}`, list) },
+              list.limited
+                ? `Dashboards of ${bot.name} saved`
+                : `${bot.name} may read every dashboard of superset:${label}`,
+            )
+          }
+        />
+      ))}
       <AccessCard
         id="bot-workers"
         title="Workers"

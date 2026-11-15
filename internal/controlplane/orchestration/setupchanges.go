@@ -71,6 +71,8 @@ type botSettings struct {
 	Workers     AllowList `json:"workers"`
 	// ToolDisplay is empty for ToolsOn, so a Bot's revision from before it was a setting stays the same.
 	ToolDisplay ToolDisplay `json:"tool_display,omitempty"`
+	// Scopes are left out when there are none, so a Bot's revision from before they were a setting stays the same.
+	Scopes map[string]ConnectionScope `json:"scopes,omitempty"`
 }
 
 func settingsOfBot(b Bot) botSettings {
@@ -82,7 +84,7 @@ func settingsOfBot(b Bot) botSettings {
 	return botSettings{
 		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
-		ToolDisplay: display,
+		ToolDisplay: display, Scopes: b.Scopes,
 	}
 }
 
@@ -97,7 +99,7 @@ func (b botSettings) bot(id string) Bot {
 	return Bot{
 		ID: id, Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
-		ToolDisplay: b.ToolDisplay,
+		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes,
 	}
 }
 

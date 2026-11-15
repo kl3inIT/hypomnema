@@ -2129,6 +2129,12 @@ export type Bot = {
   tools_off: Array<string>;
   connections: AllowList;
   workers: AllowList;
+  /**
+   * What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
+   */
+  scopes: {
+    [key: string]: ConnectionScope;
+  };
   tool_display: ToolDisplay;
   created_at: string;
   updated_at: string;
@@ -2138,6 +2144,13 @@ export type Bot = {
  * What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
  */
 export type ToolDisplay = 'off' | 'on' | 'full';
+
+/**
+ * The part of a Connection a Bot may reach. For Superset, the dashboards it may read, by number, and none when the list is empty; such a Bot reads only through the dashboards, dashboard and chart reads, and is refused the API relay for that Connection.
+ */
+export type ConnectionScope = {
+  dashboards: Array<number>;
+};
 
 /**
  * What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
@@ -2432,6 +2445,12 @@ export type BotSettings = {
   tools_off?: Array<string>;
   connections?: AllowList;
   workers?: AllowList;
+  /**
+   * What the Bot may reach of each Connection, as a whole: a Connection left out of the map is reached whole. Left out, the Bot keeps its scopes.
+   */
+  scopes?: {
+    [key: string]: ConnectionScope;
+  };
   tool_display?: ToolDisplay;
 };
 

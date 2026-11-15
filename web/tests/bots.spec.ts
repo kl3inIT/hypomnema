@@ -28,6 +28,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   tools_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  scopes: {},
   tool_display: "on",
   created_at: hours(200),
   updated_at: hours(3),
@@ -134,7 +135,7 @@ const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString(
 async function fakeServer(
   page: Page,
   start: Bot[] = [coordinator],
-  opts: { chat?: object; messages?: Message[]; changes?: Change[] } = {},
+  opts: { chat?: object; messages?: Message[]; changes?: Change[]; integrations?: object[] } = {},
 ) {
   let bots = start
   let chat: object | null = opts.chat ?? null
@@ -245,6 +246,11 @@ async function fakeServer(
       return route.fulfill({ status: 204 })
     }
 
+    // A Superset account's dashboards (issue #562), as the owner reads them.
+    if (/^\/integrations\/superset\/connections\/[^/]+\/dashboards$/.test(path)) {
+      return json({ data: dashboards })
+    }
+
     switch (call) {
       case "GET /me":
         return json({ id: "usr_1", name: "admin", kind: "owner" })
@@ -295,7 +301,7 @@ async function fakeServer(
       case "GET /setup-changes":
         return json({ data: changes })
       case "GET /integrations":
-        return json({ data: integrations })
+        return json({ data: opts.integrations ?? integrations })
       case "GET /profiles":
         return json({ data: profiles })
       case "GET /chats":
@@ -671,6 +677,81 @@ test("a Bot's Connections and workers are limited on its page", async ({ page })
         persona: "You find sources and say where they are.",
         workers: { limited: true, names: ["reviewer"] },
       },
+    },
+  ])
+})
+
+// The dashboards a Superset account sees (issue #562).
+const dashboards = [
+  { id: 8, title: "Đóng góp VMAP — Cộng đồng", slug: "vmap-dong-gop", published: true },
+  { id: 9, title: "Đóng góp VMAP — Nhân sự theo đơn vị", published: true },
+  {
+    id: 12,
+    title: "Search logs and AI Assistant usage by day, unit and channel",
+    published: false,
+  },
+]
+
+// Scenario: two Bots share a Superset account and one answers anyone in a Lark group (issue #562). Under the
+// Connections, each Superset account the Bot may use has its dashboards card: off, every dashboard and its own
+// requests to Superset's API; "Limit dashboards" starts with none and each dashboard the account sees is a switch,
+// saved at once as the Bot's scopes. A Superset account the Bot may not use has no card, and taking the limit
+// away sends no scope for it.
+test("a Bot is limited to some dashboards of a Superset account", async ({ page }) => {
+  const community = bot("community", { persona: "You answer the community group." })
+  const calls = await fakeServer(page, [coordinator, community], {
+    integrations: [
+      ...integrations,
+      {
+        id: "superset",
+        name: "Superset",
+        kind: "account",
+        services: [],
+        connections: [
+          connection("superset", "prod", "svc-lark-report", true),
+          connection("superset", "staging", "svc-staging", false),
+        ],
+      },
+    ],
+  })
+  await page.goto("/bots/community")
+
+  const card = page.getByRole("region", { name: "Superset · prod dashboards" })
+  await card.scrollIntoViewIfNeeded()
+  await expect(card).toContainText("Every dashboard the account sees")
+  await expect(page.getByRole("region", { name: "Superset · staging dashboards" })).toHaveCount(0)
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-dashboards")
+
+  await card.getByRole("switch", { name: "Limit dashboards" }).click()
+  await expect(card).toContainText("No dashboard: it reads nothing of this account.")
+  await card.getByRole("switch", { name: "Superset · prod dashboards: 8" }).click()
+  await expect(card).toContainText("1 of 3 on")
+  await card.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-dashboards-limited")
+
+  await card.getByRole("switch", { name: "Limit dashboards" }).click()
+  await expect(card).toContainText("Every dashboard the account sees")
+
+  expect(calls.slice(-3)).toEqual([
+    {
+      call: "PUT /bots/community",
+      body: {
+        persona: "You answer the community group.",
+        scopes: { "superset:prod": { dashboards: [] } },
+      },
+    },
+    {
+      call: "PUT /bots/community",
+      body: {
+        persona: "You answer the community group.",
+        scopes: { "superset:prod": { dashboards: [8] } },
+      },
+    },
+    {
+      call: "PUT /bots/community",
+      body: { persona: "You answer the community group.", scopes: {} },
     },
   ])
 })
