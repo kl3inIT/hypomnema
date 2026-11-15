@@ -9,7 +9,10 @@ import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { router } from "@/router"
 
-const queryClient = new QueryClient()
+// What was read stays fresh for 30 seconds (issue #510), as Omnara's and MemoryOS's clients keep it: a screen opened
+// again shows it without asking the server for the lists every screen shares. Live events and each change still
+// mark what they touch as stale, and a query that sets its own staleTime or refetchInterval keeps it.
+const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } })
 
 const root = document.getElementById("root")
 if (!root) {

@@ -2944,6 +2944,9 @@ Node (`internal/node`):
     `web/src/lib/said.ts`).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
     `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
+  - What a query read stays fresh for 30 seconds (`web/src/main.tsx`, issue #510; Omnara's and MemoryOS's
+    clients): a screen opened again in that time shows it without asking again. Live events and each change mark
+    what they touch as stale, and a query with its own `staleTime` or `refetchInterval` keeps that.
   - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's
     name says what it measures when pointed at, and a machine's runtimes are their marks with their names while
     they fit on one line, and the marks alone when they do not.
@@ -2951,7 +2954,9 @@ Node (`internal/node`):
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
     - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin;
-    - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`).
+    - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
+    - gzipped, at level 5, to a browser that accepts it: HTML, CSS, JavaScript, JSON and SVG, through chi's
+      `middleware.Compressor`, as Coder's site is (issue #510). The API's answers are not compressed.
   - A binary built without the client (only `dist/.gitkeep`) serves none.
 - In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
   default `http://127.0.0.1:8080`).
