@@ -85,9 +85,24 @@ func fakeClaude(mode string) int {
 		switch {
 		case msg.Type == "control_request" && msg.Request.Subtype == "initialize":
 			emit(out, map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success"}})
+		case msg.Type == "control_request" && msg.Request.Subtype == "interrupt":
+			_ = os.WriteFile("interrupted.txt", []byte("yes"), 0o600)
+			emit(out, map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true,
+				"result": "interrupted"})
 		case msg.Type == "user":
 			_ = os.WriteFile("prompt.txt", []byte(msg.Message.Content), 0o600)
-			emit(out, map[string]any{"type": "system", "subtype": "init", "session_id": "sess_fake"})
+
+			status := "connected"
+			if mode == "toolsdown" {
+				status = "failed"
+			}
+
+			emit(out, map[string]any{"type": "system", "subtype": "init", "session_id": "sess_fake",
+				"mcp_servers": []map[string]any{{"name": "hypomnema", "status": status}}})
+
+			if mode == "toolsdown" {
+				continue
+			}
 
 			if mode == "die" {
 				return 3
@@ -345,8 +360,8 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 	assert.Contains(t, g.file("argv.txt"), "--permission-prompt-tool stdio")
 	assert.Contains(t, g.file("argv.txt"), "--model opus")
 	assert.Contains(t, g.file("argv.txt"), "--effort xhigh")
-	assert.Contains(t, g.file("argv.txt"), "--disallowedTools AskUserQuestion,Task,Agent",
-		"a worker cannot ask outside ask or start subagents")
+	assert.Contains(t, g.file("argv.txt"), "--disallowedTools AskUserQuestion,Task,Agent,WebSearch,WebFetch",
+		"a worker cannot ask outside ask or start subagents, and searches and reads pages through the gateway")
 	assert.Contains(t, g.file("gateway.txt"), "ANTHROPIC_AUTH_TOKEN=hyp_gateway_v1_dispatch")
 	assert.Empty(t, g.file("token.txt"), "no subscription token on the node")
 
@@ -366,6 +381,24 @@ func TestFailedTurnIsAWorkerError(t *testing.T) {
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "worker_error", r.finished[0].Class)
 	assert.Equal(t, "stopped without finish: boom", r.finished[0].Summary)
+}
+
+// Scenario: Claude Code says at start that the tools server failed (issue
+// #492). The worker could neither finish nor use the gateway's tools, so its
+// turn is stopped at once and fails, saying why.
+func TestATurnWhoseToolsServerFailedFails(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "toolsdown")
+	r := newReporter("dsp_1")
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("dsp_1"), r))
+	r.wait(t)
+
+	assert.Equal(t, "yes", g.file("interrupted.txt"), "the turn is stopped")
+	require.Len(t, r.finished, 1)
+	assert.Equal(t, "worker_error", r.finished[0].Class)
+	assert.Equal(t, "the worker's tools server (hypomnema) did not start: its status was failed",
+		r.finished[0].Summary)
 }
 
 // Scenario: the turn ends well but the worker never called finish. It fails

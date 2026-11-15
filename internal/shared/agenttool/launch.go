@@ -59,6 +59,43 @@ type BrowserCall struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
+// ToolGenerateImage is the gateway's image tool (issue #492), listed and
+// called on the browser's routes as the web's tools are. The worker names
+// files, as opencode's experimental_image_generate takes them
+// (core/src/tool/plugin/image-generate.ts): the tools server on its node
+// reads the images to edit into ImageCall and saves the image of the answer,
+// which the control plane gives as MCP image content, where the worker can
+// read it.
+const ToolGenerateImage = "generate_image"
+
+// ImageCall is the arguments of a generate_image call as the control plane
+// takes them.
+type ImageCall struct {
+	Prompt  string       `json:"prompt"`
+	Size    string       `json:"size,omitempty"`
+	Quality string       `json:"quality,omitempty"`
+	Images  []ImageInput `json:"images,omitempty"`
+}
+
+// ImageInput is an image to edit or to use as a reference: its bytes, base64
+// in JSON.
+type ImageInput struct {
+	MIME string `json:"mime_type"`
+	Data []byte `json:"data"`
+}
+
+const (
+	// MaxImageInputs and MaxImageInputBytes bound the images one call sends:
+	// opencode's image tool takes up to 8, each up to 20 MiB (MAX_INPUT_BYTES).
+	MaxImageInputs     = 8
+	MaxImageInputBytes = 20 << 20
+	// MaxCallBytes bounds a call's body on PathBrowserCall: an image edit's
+	// images, sent whole in base64, are the largest part of one, and the
+	// bound is the model gateway's own for an image request
+	// (modelgateway.MaxImageRequestBytes).
+	MaxCallBytes = 64 << 20
+)
+
 // The parameters of PathTunnel.
 const (
 	QueryIntegration = "integration"

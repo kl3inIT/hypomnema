@@ -14,25 +14,36 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// A worker's web tools (issue #354): web_search and web_fetch, listed and
+// A worker's gateway tools: the web's, web_search and web_fetch (issue
+// #354), and generate_image (images.go, issue #492). They are listed and
 // called on the browser's routes, so that the worker's MCP server, which
 // lists what the control plane lists and passes any other tool's call on
 // (internal/node/workertools), offers them without a node release, as
 // OmniRoute offers its search to agents as MCP tools (omniroute_web_search,
-// omniroute_web_fetch).
+// omniroute_web_fetch) and OpenMausBot one `agents` MCP server to every
+// engine it drives (server/drivers/agents-mcp.ts).
 //
-// Which worker gets which is the owner's (2026-11-13): a Claude Code worker
-// keeps its own WebSearch and WebFetch and gets neither, as OpenClaw keeps
-// Claude Code's WebSearch by default; a Codex worker keeps its own search,
-// which the gateway answers from the search chain (/v1/alpha/search), and
-// gets web_fetch, Codex having no fetch
-// (codex/core/src/tools/hosted_spec.rs); omp and opencode get both, their own
-// being turned off where the node writes their configuration. A runtime not
-// named gets none.
-var webToolsOf = map[string][]string{
-	"codex":    {toolWebFetch},
-	"omp":      {toolWebSearch, toolWebFetch},
-	"opencode": {toolWebSearch, toolWebFetch},
+// Which worker gets which is the owner's (2026-11-15, issue #492): a CLI's
+// own tool is off when Hypomnema serves the same, and kept only when the
+// gateway itself answers it, as OpenClaw turns Claude Code's WebSearch off
+// when a search provider of its own is set (resolveCliNativeWebSearchEnabled,
+// injectClaudeWebSearchDisabledArgs, src/agents/cli-runner/bundle-mcp*.ts).
+// So a Claude Code worker gets all three, its own WebSearch and WebFetch
+// being taken away where the node starts it (internal/node/claude; until
+// 2026-11-15 it kept them and got none); a Codex worker keeps its own
+// search, which the gateway answers from the search chain
+// (/v1/alpha/search), and gets web_fetch, Codex having no fetch
+// (codex/core/src/tools/hosted_spec.rs), and generate_image, Codex's own
+// image_gen being offered only under an OpenAI login
+// (codex/core/src/tools/spec_plan.rs), as Hermes gives its Codex runtime
+// image_generate over MCP (agent/transports/hermes_tools_mcp_server.py); omp
+// and opencode get all three, their own being turned off where the node
+// writes their configuration. A runtime not named gets none.
+var toolsOf = map[string][]string{
+	"claude":   {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage},
+	"codex":    {toolWebFetch, agenttool.ToolGenerateImage},
+	"omp":      {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage},
+	"opencode": {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage},
 }
 
 const (
@@ -50,17 +61,26 @@ type Web interface {
 // RuntimeOf says which runtime a Dispatch's worker runs.
 type RuntimeOf func(ctx context.Context, dispatchID string) (string, error)
 
-// WithWeb gives workers the web's tools, by their runtime.
-func (s *Server) WithWeb(web Web, runtimeOf RuntimeOf) *Server {
-	s.web, s.runtimeOf = web, runtimeOf
+// WithRuntimes says which runtime each worker runs, by which its gateway
+// tools are given. Without it a worker gets none.
+func (s *Server) WithRuntimes(runtimeOf RuntimeOf) *Server {
+	s.runtimeOf = runtimeOf
 
 	return s
 }
 
-// webTools are the web's tools an agent gets: a worker's by its runtime;
-// any other agent none, a Bot having its CLI's `hypomnema web` commands.
-func (s *Server) webTools(ctx context.Context, a agent) []string {
-	if s.web == nil || a.dispatchID == "" {
+// WithWeb gives workers the web's tools.
+func (s *Server) WithWeb(web Web) *Server {
+	s.web = web
+
+	return s
+}
+
+// gatewayTools are the gateway's tools an agent gets: a worker's by its
+// runtime, each that this control plane has; any other agent none, a Bot
+// having its CLI's `hypomnema web` and `hypomnema image` commands.
+func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
+	if s.runtimeOf == nil || (s.web == nil && s.images == nil) || a.dispatchID == "" {
 		return nil
 	}
 
@@ -73,7 +93,38 @@ func (s *Server) webTools(ctx context.Context, a agent) []string {
 		return nil
 	}
 
-	return webToolsOf[runtime]
+	var out []string
+
+	for _, name := range toolsOf[runtime] {
+		if (name == agenttool.ToolGenerateImage && s.images != nil) ||
+			(name != agenttool.ToolGenerateImage && s.web != nil) {
+			out = append(out, name)
+		}
+	}
+
+	return out
+}
+
+// gatewayToolList is the definitions of the tools named, as tools/list
+// gives them.
+func gatewayToolList(names []string) []agenttool.BrowserTool {
+	out := webToolList(names)
+	if slices.Contains(names, agenttool.ToolGenerateImage) {
+		out = append(out, imageTool())
+	}
+
+	return out
+}
+
+// gatewayCall runs one of the gateway's tools for a worker.
+func (s *Server) gatewayCall(w http.ResponseWriter, r *http.Request, a agent, call agenttool.BrowserCall) {
+	if call.Tool == agenttool.ToolGenerateImage {
+		s.imageCall(w, r, a, call)
+
+		return
+	}
+
+	s.webCall(w, r, a, call)
 }
 
 // webToolList is the definitions of the tools named, as tools/list gives them.
