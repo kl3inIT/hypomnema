@@ -269,26 +269,31 @@ func TestTheRendererAndCoresFollowTheNode(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
+		name  string
 		gpu   string
 		cpus  int
 		cores string
 	}{
-		{"lavapipe", 16, "8"},
-		{"swiftshader", 3, "2"},
-		{"auto", 1, "2"},
+		{"lavapipe on 16 CPUs", "lavapipe", 16, "8"},
+		{"swiftshader on 3 CPUs", "swiftshader", 3, "2"},
+		{"auto on 1 CPU", "auto", 1, "2"},
 	} {
-		r := newRig(t)
-		r.gpu, r.cpus = tt.gpu, tt.cpus
-		r.m = r.manager()
-		r.start(t)
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		starts := r.sys.started()
-		require.Len(t, starts, 2)
-		assert.Equal(t, "Xvfb", starts[0].Path, "the display starts whatever the renderer")
+			r := newRig(t)
+			r.gpu, r.cpus = tt.gpu, tt.cpus
+			r.m = r.manager()
+			r.start(t)
 
-		args := strings.Join(starts[1].Args, " ")
-		assert.Contains(t, args, "-gpu "+tt.gpu+" ", tt.gpu)
-		assert.Contains(t, args, "-cores "+tt.cores+" ", tt.cpus)
+			starts := r.sys.started()
+			require.Len(t, starts, 2)
+			assert.Equal(t, "Xvfb", starts[0].Path, "the display starts whatever the renderer")
+
+			args := strings.Join(starts[1].Args, " ")
+			assert.Contains(t, args, "-gpu "+tt.gpu+" ")
+			assert.Contains(t, args, "-cores "+tt.cores+" ")
+		})
 	}
 }
 

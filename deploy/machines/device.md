@@ -44,8 +44,7 @@ python3 - lavapipe <<'PY'
 import json, os, sys
 p = os.path.expanduser("~/.hypomnema-node/config.json")
 c = json.load(open(p)); c["device_gpu"] = sys.argv[1]
-open(p, "w").write(json.dumps(c, indent=2) + "
-")
+open(p, "w").write(json.dumps(c, indent=2) + "\n")
 PY
 systemctl --user restart hypomnema-node   # the node reads its configuration as it starts
 ```
