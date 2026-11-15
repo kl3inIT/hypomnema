@@ -470,7 +470,8 @@ func GetChartData(ctx context.Context, relay Relay, dashboardID, chartID string,
 	}
 
 	if !on {
-		return ChartData{}, fmt.Errorf("%w: dashboard %s has no chart %d", orchestration.ErrNotFound, dashboardID, chart)
+		return ChartData{}, fmt.Errorf("%w: dashboard %s has no chart %d%w", orchestration.ErrNotFound, dashboardID,
+			chart, quiet{errNoChart})
 	}
 
 	var detail struct {

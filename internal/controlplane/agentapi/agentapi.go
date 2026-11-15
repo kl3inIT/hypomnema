@@ -53,6 +53,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/superset"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -160,6 +161,9 @@ type agent struct {
 	// chatID is the chat a pi's own token is bound to, and bot that pi's Bot's id.
 	chatID string
 	bot    string
+	// scope is the dashboards a Bot's agent may read of a Superset
+	// Connection (issue #562); nil for every other agent, which reads all.
+	scope func(label string) superset.Scope
 	// key names the agent's own tab in the shared browser: a worker's is its
 	// Dispatch's, so a new Dispatch starts on a new tab.
 	key string
@@ -196,12 +200,9 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: "dispatch " + session.DispatchID, dispatchID: session.DispatchID, key: "d-" + session.DispatchID,
 			// A Run a coordinator created was given only what the coordinator may use, and keeps it only while
-			// the coordinator may: the owner's switch is read now, not when the Run was made. The owner's own
-			// sign-in is never a worker's.
-			may: func(c orchestration.Connection) bool {
-				return !c.User() && slices.Contains(session.Uses, orchestration.Use(c.Integration, c.Label)) &&
-					(!session.ByCoordinator || c.Chats)
-			},
+			// the coordinator may: the owner's switch and its Bot's scopes are read now, not when the Run was
+			// made (AgentSession.May). The owner's own sign-in is never a worker's.
+			may: session.May,
 		}, nil
 	}
 
@@ -235,8 +236,9 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		if token.Routine != "" {
 			return agent{
 				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
-				key: "r-" + token.Routine,
-				may: func(c orchestration.Connection) bool { return !c.User() && bot.MayUse(c) },
+				key:   "r-" + token.Routine,
+				may:   func(c orchestration.Connection) bool { return !c.User() && bot.MayUse(c) },
+				scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 			}, nil
 		}
 
@@ -246,6 +248,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
 			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
+			scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 		}, nil
 	default:
 		return agent{}, errNoCredential
@@ -303,11 +306,18 @@ func (s *Server) Caller(r *http.Request) (serviceproxy.Caller, error) {
 	}, nil
 }
 
-// May reports whether the request's agent may use a Connection.
+// May reports whether the request's agent may use a Connection through the
+// service proxy's tunnel, a request it writes itself. One its Bot reaches only
+// part of is refused (issue #562): only the Superset reads, which apply the
+// scope, use it.
 func (s *Server) May(ctx context.Context, r *http.Request, integration, label string) (bool, error) {
 	a, err := s.authenticate(r)
 	if err != nil {
 		return false, nil //nolint:nilerr // No credential, no Connection: the caller is refused, not failed.
+	}
+
+	if integration == serviceproxy.SupersetID && a.scopeOf(label).Limited {
+		return false, nil
 	}
 
 	allowed, err := s.allowed(ctx, a, integration)

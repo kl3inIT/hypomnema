@@ -1,5 +1,5 @@
 import { modelName } from "@/lib/model-name"
-import type { AllowList, Bot, BotSettings, Model } from "@/api/generated/types.gen"
+import type { AllowList, Bot, BotSettings, ConnectionScope, Model } from "@/api/generated/types.gen"
 import { modelKey, splitModel } from "@/features/agents/profiles-state"
 
 // What the Bots pages say about a Bot, apart from how they draw it.
@@ -132,6 +132,28 @@ export function keptSettings(bot: Bot): BotSettings {
     ...(bot.effort && { effort: bot.effort }),
     persona: bot.persona,
   }
+}
+
+// scopeList is a Bot's scope of a Connection as the access card's list (issue #562): not limited without a scope,
+// else its dashboards by number.
+export function scopeList(scopes: Record<string, ConnectionScope>, use: string): AllowList {
+  const scope = scopes[use]
+  if (!scope) return { limited: false, names: [] }
+
+  return { limited: true, names: scope.dashboards.map(String) }
+}
+
+// withScope is a Bot's scopes with one Connection's as the card sets it: none when not limited, else the
+// dashboards switched on. The others stay as they are, since the PUT replaces the scopes whole.
+export function withScope(
+  scopes: Record<string, ConnectionScope>,
+  use: string,
+  list: AllowList,
+): Record<string, ConnectionScope> {
+  const { [use]: _was, ...others } = scopes
+  if (!list.limited) return others
+
+  return { ...others, [use]: { dashboards: list.names.map(Number) } }
 }
 
 // allowed is what a Bot's list names that is not among the items shown: kept on the list, though gone since, as

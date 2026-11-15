@@ -867,6 +867,20 @@ sequenceDiagram
     the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
     records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
     when the Bot's list, read then, has that backup; otherwise it waits for the reset.
+  - **A Bot's scope of a Connection** (issue #562; `orchestration/botaccess.go`, migration 00091,
+    `bots.connection_scopes`): beside `connections`, a map keyed `integration:label` of what the Bot may reach of
+    that Connection; today only a Superset Connection's `dashboards`, by number (`{"superset:prod":
+    {"dashboards": [9]}}`). A Connection not in the map is reached whole, as before (OpenMausBot's connector
+    scopes, absent = all). It is checked where the Superset reads and the relay are, for the client API's
+    commands and the agent's tools alike (`superset.Scope`, see Superset below). The owner and the coordinator
+    token are never limited. A Bot cannot give a Connection it reaches only part of to a Run (`runUses`), and a
+    worker of a Run made before the scope loses it at once: a Dispatch's key reads its Run's Bot's scopes on every
+    request (`AgentSession.May`, the same check the service proxy's tunnel and the token route use); a Run whose
+    Bot was removed gives its workers none of its Connections. The service proxy's tunnel (`Server.May`) refuses a
+    Superset Connection the caller's Bot is scoped on: only the reads below use it. `bots set
+    --superset-dashboards prod=8,9` (a slug is resolved to its number when it is set; `prod=` none,
+    `prod=all` removes the scope); `bots show` prints each scope; on the web, a "Superset · label dashboards" card
+    under Connections, for each Superset Connection the Bot may use, switches dashboards on and off.
   - **Managing Bots and profiles** (issue #169, part 3, after OpenMausBot's Chief: the tools that make bots are
     its alone, `server/drivers/agents-catalog.ts` L907-909, checked again on the server, `server/index.ts`
     L14147, L14183). Besides the owner, only the main Bot makes, changes, renames and removes Bots
@@ -1621,6 +1635,14 @@ flowchart LR
       JSON (`superset_chart_data` with `format: csv` the rows as CSV); a refusal, a held request and an answer of
       `superset_api` that is not a success are the tool's error. The log line is `agentapi.superset` with the
       agent, the tool, the Connection and the number of rows, never a row.
+    - **A Bot limited to some dashboards** (issue #562, `internal/controlplane/superset/scope.go`): the list
+      leaves out every other dashboard; a read of one by number or slug is answered as a dashboard that does not
+      exist (a slug compared by the `id` Superset answers for it, before any chart's query runs), as Superset's
+      `DashboardAccessFilter` and guest token do; a chart is read only from its dashboard (`/dashboard/{id}/charts`,
+      read on every call) with the query Hypomnema builds from the saved chart; `superset api` and `superset_api`
+      are refused (403, naming its dashboards), as OpenMausBot refuses its generic proxy to a scoped bot, and
+      `superset_api` is not listed when every Superset account of the agent is limited. Each refusal is logged on
+      `superset.read` with `refused="out of scope"`.
     - **Commands**: `hypomnema superset dashboards [--search S]`, `superset dashboard <dashboard>`,
       `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
       `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset

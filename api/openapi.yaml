@@ -5864,7 +5864,7 @@ components:
       type: object
       required:
         [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, connections, workers,
-         tool_display, created_at, updated_at]
+         scopes, tool_display, created_at, updated_at]
       properties:
         id:
           type: string
@@ -5913,6 +5913,13 @@ components:
         workers:
           $ref: "#/components/schemas/AllowList"
           description: The worker profiles the Bot may give work to.
+        scopes:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/ConnectionScope" }
+          description: >-
+            What the Bot may reach of a Connection it may use, keyed
+            integration:label: of a Superset Connection, the dashboards it may
+            read. A Connection not named here is reached whole.
         tool_display: { $ref: "#/components/schemas/ToolDisplay" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -5926,6 +5933,19 @@ components:
         per call with its tool's name; full, each call's arguments, output,
         error and time as well. The chat messages and the stream leave out
         what the level hides.
+    ConnectionScope:
+      type: object
+      description: >-
+        The part of a Connection a Bot may reach. For Superset, the dashboards
+        it may read, by number, and none when the list is empty; such a Bot
+        reads only through the dashboards, dashboard and chart reads, and is
+        refused the API relay for that Connection.
+      additionalProperties: false
+      required: [dashboards]
+      properties:
+        dashboards:
+          type: array
+          items: { type: integer, format: int64 }
     AllowList:
       type: object
       description: >-
@@ -6192,6 +6212,13 @@ components:
         workers:
           $ref: "#/components/schemas/AllowList"
           description: The worker profiles the Bot may give work to; left out, the Bot keeps its list.
+        scopes:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/ConnectionScope" }
+          description: >-
+            What the Bot may reach of each Connection, as a whole: a Connection
+            left out of the map is reached whole. Left out, the Bot keeps its
+            scopes.
         tool_display:
           $ref: "#/components/schemas/ToolDisplay"
           description: What the Bot's chats show of its tool calls; left out, the Bot keeps it, on for a new one.

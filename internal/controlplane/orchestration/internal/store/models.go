@@ -112,22 +112,23 @@ type ArtifactRevision struct {
 }
 
 type Bot struct {
-	ID          string
-	Provider    sql.NullString
-	Model       sql.NullString
-	Effort      sql.NullString
-	Persona     string
-	Memory      string
-	CreatedAt   int64
-	UpdatedAt   int64
-	Skills      string
-	SkillsOff   string
-	Connections sql.NullString
-	Workers     sql.NullString
-	ToolDisplay string
-	Name        string
-	Position    int64
-	Pinned      int64
+	ID               string
+	Provider         sql.NullString
+	Model            sql.NullString
+	Effort           sql.NullString
+	Persona          string
+	Memory           string
+	CreatedAt        int64
+	UpdatedAt        int64
+	Skills           string
+	SkillsOff        string
+	Connections      sql.NullString
+	Workers          sql.NullString
+	ToolDisplay      string
+	Name             string
+	Position         int64
+	Pinned           int64
+	ConnectionScopes sql.NullString
 }
 
 type Channel struct {

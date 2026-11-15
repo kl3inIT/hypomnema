@@ -70,6 +70,9 @@ type Bot struct {
 	// profiles it may give work to (issue #169, part 3; botaccess.go).
 	Connections AllowList
 	Workers     AllowList
+	// Scopes narrow what it may reach of a Connection it may use, keyed
+	// integration:label (issue #562; botaccess.go); nil narrows none.
+	Scopes map[string]ConnectionScope
 	// ToolDisplay is what its chats show of its tool calls; empty is ToolsOn.
 	ToolDisplay ToolDisplay
 	// Position is the Bot's place in the order the owner sets, 0 first, and Pinned lists it in the sidebar's
@@ -85,7 +88,7 @@ func botFromRow(r store.Bot) Bot {
 		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
 		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
-		Position: int(r.Position), Pinned: r.Pinned != 0,
+		Position: int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
 }
@@ -289,7 +292,7 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 		ID: b.ID, Name: b.Name, Provider: nullString(b.Provider), Model: nullString(b.Model),
 		Effort: nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
 		SkillsOff: strings.Join(b.SkillsOff, ","), Connections: b.Connections.stored(), Workers: b.Workers.stored(),
-		ToolDisplay: string(b.ToolDisplay), Now: now,
+		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes), Now: now,
 	})
 	if err != nil {
 		return fmt.Errorf("%w: another bot is named %q: %w", ErrConflict, b.Name, err)
@@ -307,7 +310,7 @@ func updateBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 		Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
 		Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay),
-		Now: now, ID: b.ID,
+		ConnectionScopes: storedScopes(b.Scopes), Now: now, ID: b.ID,
 	})
 }
 

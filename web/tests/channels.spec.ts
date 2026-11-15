@@ -19,6 +19,7 @@ const bot = (name: string, persona: string) => ({
   skills_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  scopes: {},
   created_at: now,
   updated_at: now,
 })

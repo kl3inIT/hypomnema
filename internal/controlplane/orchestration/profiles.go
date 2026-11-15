@@ -827,7 +827,7 @@ func looksLikeSecret(s string) bool {
 // providerStillServes checks that the current profile versions and the Bots
 // using a provider keep their model and runtime after the change.
 func providerStillServes(ctx context.Context, q *store.Queries, in providerSource) error {
-	bots, err := q.ListBots(ctx)
+	bots, err := q.ListBotModels(ctx)
 	if err != nil {
 		return fmt.Errorf("listing bots: %w", err)
 	}

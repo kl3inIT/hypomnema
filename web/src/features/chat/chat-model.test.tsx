@@ -117,6 +117,7 @@ const vmap = {
   pinned: false,
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  scopes: {},
   tool_display: "on",
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),

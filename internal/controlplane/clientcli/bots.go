@@ -5,7 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -61,6 +64,11 @@ func printBot(e *env, b *openapi.Bot) {
 
 	e.printf("connections: %s\n", allowLine(b.Connections, "every one switched on for chats"))
 	e.printf("workers: %s\n", allowLine(b.Workers, "every profile"))
+
+	for _, use := range slices.Sorted(maps.Keys(b.Scopes)) {
+		e.printf("%s dashboards: %s\n", use, dashboardsLine(b.Scopes[use].Dashboards))
+	}
+
 	e.printf("tool calls shown: %s\n", b.ToolDisplay)
 
 	if b.Persona != "" {
@@ -74,6 +82,20 @@ func printBot(e *env, b *openapi.Bot) {
 			e.printf("- %s\n", m)
 		}
 	}
+}
+
+// dashboardsLine names a scope's dashboards.
+func dashboardsLine(ids []int64) string {
+	if len(ids) == 0 {
+		return "none"
+	}
+
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, strconv.FormatInt(id, 10))
+	}
+
+	return strings.Join(out, ", ")
 }
 
 // allowLine says what a Bot's list lets it use.
@@ -228,6 +250,61 @@ func botsShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, b, func() { printBot(e, b) })
 }
 
+// supersetScopes is a Bot's scopes with those of one Superset Connection as
+// --superset-dashboards gives them: label=8,9, label= for none, label=all
+// for every one. A slug is asked of Superset for its number now, so the Bot
+// keeps the number (issue #562).
+func supersetScopes(ctx context.Context, e *env, had *openapi.Bot, v string,
+) (map[string]openapi.ConnectionScope, error) {
+	label, refs, ok := strings.Cut(v, "=")
+	if label = strings.TrimSpace(label); !ok || label == "" {
+		return nil, fmt.Errorf("--superset-dashboards is label=dashboards, such as prod=8,9")
+	}
+
+	out := map[string]openapi.ConnectionScope{}
+	if had != nil {
+		maps.Copy(out, had.Scopes)
+	}
+
+	use := "superset:" + label
+
+	if strings.TrimSpace(refs) == "all" {
+		delete(out, use)
+
+		return out, nil
+	}
+
+	ids := []int64{}
+
+	for _, ref := range strings.Split(refs, ",") {
+		if ref = strings.TrimSpace(ref); ref == "" {
+			continue
+		}
+
+		id, err := strconv.ParseInt(ref, 10, 64)
+		if err != nil {
+			resp, err := e.api.GetSupersetDashboardWithResponse(ctx, label, ref, &openapi.GetSupersetDashboardParams{})
+			if err != nil {
+				return nil, fmt.Errorf("reading dashboard %s of %s: %w", ref, use, err)
+			}
+
+			if resp.JSON200 == nil {
+				return nil, apiError("reading dashboard "+ref+" of "+use, resp.StatusCode(), resp.JSONDefault)
+			}
+
+			id = resp.JSON200.Id
+		}
+
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+
+	out[use] = openapi.ConnectionScope{Dashboards: ids}
+
+	return out, nil
+}
+
 // botsSet changes what the flags name of the Bot named by its id or its name,
 // or makes a Bot of that name when none has it: a flag left out keeps what the
 // Bot had.
@@ -286,6 +363,13 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			if v == "true" {
 				set.Workers = &openapi.AllowList{Names: []string{}}
 			}
+		case "superset-dashboards":
+			scopes, err := supersetScopes(ctx, e, had, v)
+			if err != nil {
+				failed = err
+			}
+
+			set.Scopes = &scopes
 		case "tool-display":
 			d := openapi.ToolDisplay(v)
 			set.ToolDisplay = &d
