@@ -20,11 +20,12 @@
 // the requests that are that person's own (docs/composio.md) and out of a team
 // (server/cloud-team.ts).
 //
-// A worker also lists and calls here the tools of the browser every agent
-// shares (issue #212), the gateway's tools, the web's (issue #354, web.go)
-// and generate_image (issue #492, images.go), and the tools of the phone a
-// node holds (issue #417, device.go); a Bot's pi the gateway's tools (issue
-// #492).
+// An agent's tools server lists and calls here the control plane's tools
+// (tools.go, issue #536), each given to the agent kinds its definition names:
+// the memory's (memory.go), the gateway's, the web's (issue #354, web.go) and
+// generate_image (issue #492, images.go), and a worker's the browser every
+// agent shares (issue #212); and a worker the tools of the phone a node holds
+// (issue #417, device.go).
 //
 // A refresh token and a client secret never pass through here: the token it
 // returns is the access token, good for about an hour. It is handed only for
@@ -58,6 +59,8 @@ type Store interface {
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
+	// ChangeBotMemory changes a Bot's own memory, for its pi's memory tool (issue #536).
+	ChangeBotMemory(ctx context.Context, id string, op orchestration.MemoryOp) (orchestration.Bot, error)
 	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
 	OwnerTurn(ctx context.Context, chatID string) (bool, error)
 	Memories() *memorystore.Store
@@ -122,6 +125,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.deviceCall)
 	mux.HandleFunc("GET "+agenttool.PathGatewayTools, s.listGateway)
 	mux.HandleFunc("POST "+agenttool.PathGatewayCall, s.callGateway)
+	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
+	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.callTool)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of
@@ -134,8 +139,9 @@ type agent struct {
 	dispatchID  string
 	coordinator bool
 	owner       bool
-	// chatID is the chat a pi's own token is bound to.
+	// chatID is the chat a pi's own token is bound to, and bot that pi's Bot's id.
 	chatID string
+	bot    string
 	// key names the agent's own tab in the shared browser: a worker's is its
 	// Dispatch's, so a new Dispatch starts on a new tab.
 	key string
@@ -221,7 +227,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		// one pi at a time, and the pi that follows goes on in the same tab.
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
-			key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
+			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
 		}, nil
 	default:
 		return agent{}, errNoCredential
@@ -397,9 +403,10 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// browserTools lists the tools the control plane gives the agent: the
-// browser's, and a worker's gateway tools (issues #354, #492), which a
-// browser that cannot be used does not take away.
+// browserTools lists the browser's tools and a worker's gateway tools
+// (issues #354, #492), which a browser that cannot be used does not take
+// away: for a node of a release before PathTools (issue #536), whose tools
+// server lists them here.
 func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {
@@ -471,6 +478,11 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.runBrowser(w, r, a, asked)
+}
+
+// runBrowser runs one of the browser's tools in the agent's own tab.
+func (s *Server) runBrowser(w http.ResponseWriter, r *http.Request, a agent, asked agenttool.BrowserCall) {
 	result, err := s.browser.Call(r.Context(), a.key, asked.Tool, asked.Arguments)
 	if err != nil {
 		s.failBrowser(w, r, err)

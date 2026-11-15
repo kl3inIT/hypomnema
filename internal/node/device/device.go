@@ -107,6 +107,8 @@ type Manager struct {
 	// asked counts the starts and stops asked; only the latest one asked is
 	// carried out, whatever order they take op in.
 	asked uint64
+	// starts counts the starts asked that have not returned yet, a replaced one included until it returns.
+	starts int
 	// starting cancels the start under way; nil when none is.
 	starting context.CancelFunc
 	changed  chan struct{}
@@ -263,11 +265,25 @@ func (m *Manager) ask(start bool) uint64 {
 	defer m.mu.Unlock()
 
 	m.asked++
+	if start {
+		m.starts++
+	}
+
 	if !start && m.starting != nil {
 		m.starting()
 	}
 
 	return m.asked
+}
+
+// Busy says whether the phone is being installed or started, or a start was
+// asked that has not ended yet: the node does not restart for its update
+// then, which would cut the boot short (issue #545).
+func (m *Manager) Busy() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.starts > 0 || m.state == nodeproto.DeviceInstalling || m.state == nodeproto.DeviceStarting
 }
 
 // Start has the phone running: installed first if it is not, then booted. A
@@ -278,6 +294,12 @@ func (m *Manager) Start(ctx context.Context) error { return m.start(ctx, m.ask(t
 
 // start carries out the start asked as n, unless a later ask replaced it.
 func (m *Manager) start(ctx context.Context, n uint64) error {
+	defer func() {
+		m.mu.Lock()
+		m.starts--
+		m.mu.Unlock()
+	}()
+
 	m.op.Lock()
 	defer m.op.Unlock()
 

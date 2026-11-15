@@ -3,6 +3,11 @@ import { Link, useNavigate } from "@tanstack/react-router"
 import { ChevronRight, Copy } from "lucide-react"
 import { useState } from "react"
 
+import {
+  getProfileQueryKey,
+  listProfilesQueryKey,
+  listProfileVersionsQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
 import type { Model, Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -14,8 +19,8 @@ import { StandingText } from "./agents-screen"
 import { ProfileEditor } from "./profile-editor"
 import { copyName, draftOf, emptyDraft, runtimeName, savedAgo, type Draft } from "./profiles-state"
 import { RuntimeMark } from "@/components/icons/runtime-mark"
+import { everyCall } from "@/lib/query-keys"
 import {
-  profilesKey,
   useApplyProfile,
   useDeleteProfile,
   useModels,
@@ -200,9 +205,11 @@ function Removal({ profile }: { profile: Profile }) {
 
   const gone = async () => {
     // The list is read again before the page leaves; this agent's own queries go with its page.
-    await queryClient.invalidateQueries({ queryKey: profilesKey, exact: true })
+    await queryClient.invalidateQueries({ queryKey: everyCall(listProfilesQueryKey()) })
     await navigate({ to: "/agents" })
-    queryClient.removeQueries({ queryKey: [...profilesKey, profile.name] })
+    const path = { name: profile.name }
+    queryClient.removeQueries({ queryKey: getProfileQueryKey({ path }) })
+    queryClient.removeQueries({ queryKey: listProfileVersionsQueryKey({ path }) })
   }
 
   return (

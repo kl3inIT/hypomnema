@@ -252,6 +252,11 @@ func (p *Phone) wake(ctx context.Context, n orchestration.Node) error {
 		return fmt.Errorf("%w: the phone's node %s is offline though its machine is on", ErrUnavailable, n.Name)
 	}
 
+	return p.hello(ctx, n)
+}
+
+// hello waits for the phone's node to say hello, for WakeWithin.
+func (p *Phone) hello(ctx context.Context, n orchestration.Node) error {
 	deadline := time.NewTimer(p.cfg.WakeWithin)
 	defer deadline.Stop()
 

@@ -22,9 +22,9 @@ import (
 // boxLogin is the token in the box's client.json: the chat's pi's own.
 const boxLogin = "hyp_bot_v1_the_pis_own"
 
-// gatewayAPI stands for the agent API's gateway routes: it lists the three
-// tools and answers a search and an image, and records what it was asked
-// and with which credential.
+// gatewayAPI stands for the agent API's tools routes: it lists a Bot's four
+// tools and answers a memory's change, a search and an image, and records
+// what it was asked and with which credential.
 type gatewayAPI struct {
 	mu    sync.Mutex
 	asked []string
@@ -36,12 +36,13 @@ func (g *gatewayAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.mu.Unlock()
 
 	switch r.Method + " " + r.URL.Path {
-	case "GET " + agenttool.PathGatewayTools:
+	case "GET " + agenttool.PathTools:
 		_, _ = io.WriteString(w, `{"data":[`+
+			`{"name":"memory","description":"Keep a fact.","inputSchema":{"type":"object"}},`+
 			`{"name":"web_search","description":"Search the web.","inputSchema":{"type":"object"}},`+
 			`{"name":"web_fetch","description":"Read a page.","inputSchema":{"type":"object"}},`+
 			`{"name":"generate_image","description":"Make one image.","inputSchema":{"type":"object"}}]}`)
-	case "POST " + agenttool.PathGatewayCall:
+	case "POST " + agenttool.PathToolsCall:
 		var call agenttool.BrowserCall
 
 		_ = json.NewDecoder(r.Body).Decode(&call)
@@ -50,6 +51,13 @@ func (g *gatewayAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			made := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\nfox"))
 			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"Made by codex with gpt-image-2."},`+
 				`{"type":"image","data":"`+made+`","mimeType":"image/png"}],"isError":false}`)
+
+			return
+		}
+
+		if call.Tool == agenttool.ToolMemory {
+			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"Saved. memory: 20 of 2,200 characters (0%)"}],`+
+				`"isError":false}`)
 
 			return
 		}
@@ -104,8 +112,9 @@ func (m *mcpSession) text(id int, tool string, arguments map[string]any) string 
 }
 
 // Scenario: pi starts `hypomnema mcp` in a Bot's box (issue #492). It lists
-// the gateway's tools as the control plane gives them to the pi's own
-// token, and passes a search on as it is. An image is saved under images/
+// the tools the control plane gives the pi's own token (the memory's, issue
+// #536, and the gateway's), and passes a memory's change and a search on as
+// they are. An image is saved under images/
 // in the Bot's folder, where pi works, and the answer gives the MEDIA line
 // that sends it into the chat; one saved outside the folder says it cannot
 // be sent.
@@ -147,7 +156,10 @@ func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
 
 	var tools []struct{ Name string }
 	require.NoError(t, json.Unmarshal(raw, &tools))
-	assert.Equal(t, []struct{ Name string }{{"web_search"}, {"web_fetch"}, {"generate_image"}}, tools)
+	assert.Equal(t, []struct{ Name string }{{"memory"}, {"web_search"}, {"web_fetch"}, {"generate_image"}}, tools)
+
+	assert.Equal(t, "Saved. memory: 20 of 2,200 characters (0%)",
+		m.text(9, "memory", map[string]any{"target": "bot", "action": "add", "text": "Lan is the designer."}))
 
 	assert.Contains(t, m.text(3, "web_search", map[string]any{"query": "go"}), "EXTERNAL_UNTRUSTED_CONTENT")
 

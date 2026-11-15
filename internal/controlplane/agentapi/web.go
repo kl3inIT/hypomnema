@@ -15,15 +15,16 @@ import (
 )
 
 // An agent's gateway tools: the web's, web_search and web_fetch (issue
-// #354), and generate_image (images.go, issue #492). A worker's are listed
-// and called on the browser's routes, so that the worker's MCP server, which
-// lists what the control plane lists and passes any other tool's call on
-// (internal/node/workertools), offers them without a node release, as
-// OmniRoute offers its search to agents as MCP tools (omniroute_web_search,
-// omniroute_web_fetch) and OpenMausBot one `agents` MCP server to every
-// engine it drives (server/drivers/agents-mcp.ts). A Bot's pi mounts the
-// same server (`hypomnema mcp`, issue #492), which lists them alone on the
-// gateway's routes, so that it offers a Bot none of the browser's.
+// #354), and generate_image (images.go, issue #492). They are listed and
+// called with the agent's other tools on PathTools (tools.go, issue #536), so
+// that the one MCP server, which lists what the control plane lists and
+// passes any other tool's call on, offers them to a worker
+// (internal/node/workertools) and a Bot's pi (`hypomnema mcp`) without a node
+// release, as OmniRoute offers its search to agents as MCP tools
+// (omniroute_web_search, omniroute_web_fetch) and OpenMausBot one `agents` MCP
+// server to every engine it drives (server/drivers/agents-mcp.ts). The
+// browser's routes and the gateway's own stay for tools servers of an earlier
+// release.
 //
 // Which worker gets which is the owner's (2026-11-15, issue #492): a CLI's
 // own tool is off when Hypomnema serves the same, and kept only when the
@@ -148,7 +149,7 @@ func (s *Server) gatewayToolList(ctx context.Context, a agent) []agenttool.Brows
 }
 
 // listGateway lists the gateway's tools alone (PathGatewayTools), for a Bot's
-// tools server, which offers none of the browser's.
+// tools server of a release before PathTools.
 func (s *Server) listGateway(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {

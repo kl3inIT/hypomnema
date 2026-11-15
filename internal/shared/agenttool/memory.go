@@ -7,18 +7,26 @@ import (
 
 // PathMemory changes a worker's memory (issue #21): an entry of the memory of
 // the agent its Dispatch runs as, or of the one about the owner. Its answer
-// is a MemoryAnswer.
+// is a MemoryAnswer. Kept for a node of a release before the control plane
+// listed ToolMemory on PathTools (issue #536), whose tools server defines the
+// tool itself and calls here.
 const PathMemory = "/agent/v1/memory"
 
-// Targets of a MemoryChange.
+// ToolMemory is the memory's tool (issues #21, #536), one definition in the
+// control plane for a worker and a Bot's pi, its arguments a MemoryChange.
+const ToolMemory = "memory"
+
+// Targets of a MemoryChange: a worker's own is MemoryAgent, the memory of the
+// agent it runs as; a Bot's is MemoryBot, its own; both may write MemoryOwner.
 const (
 	MemoryAgent = "agent"
+	MemoryBot   = "bot"
 	MemoryOwner = "owner"
 )
 
-// MemoryChange is the body of PathMemory: one change, as a Bot's memory takes
-// it (add, replace or remove; Match is part of the one entry to replace or
-// remove).
+// MemoryChange is the body of PathMemory and the arguments of ToolMemory: one
+// change, as a Bot's memory takes it (add, replace or remove; Match is part
+// of the one entry to replace or remove).
 type MemoryChange struct {
 	Target string `json:"target"`
 	Action string `json:"action"`

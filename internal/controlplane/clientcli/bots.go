@@ -483,11 +483,12 @@ func botPrompt(b openapi.Bot, owner kept) string {
 
 	out.WriteString(whoSpeaks + "\n")
 
-	// The memory about the owner (issue #21), which every agent and Bot gets, as OpenMausBot's About me.
+	// The memory about the owner (issue #21), which every agent and Bot gets, as OpenMausBot's About me. How to
+	// change a memory is the memory tool's description (issue #536), as Hermes gives its prompt the memory and its
+	// tool the rest; the prompt names the tool's target of each memory.
 	fmt.Fprintf(&out, "## About the owner\n\n"+
 		"Every agent and Bot knows this about the owner: how he works, his language, his standing rules. Keep "+
-		"there only lasting facts about him, with `hypomnema memory add --owner \"<one line>\"` (replace and "+
-		"remove take --owner too). %d of its %d characters are used.\n\n",
+		"there only lasting facts about him (the memory tool, target owner). %d of its %d characters are used.\n\n",
 		utf8.RuneCountInString(owner.text), owner.limit)
 
 	for _, m := range owner.entries() {
@@ -500,13 +501,8 @@ func botPrompt(b openapi.Bot, owner kept) string {
 
 	fmt.Fprintf(&out, "## Memory\n\n"+
 		"You are the bot `%s` (id %s). You keep a short memory across your chats, the same in every chat with anyone: who "+
-		"people are, what they prefer, standing decisions, where things are. %d of its %d characters are used. "+
-		"Change it with:\n\n"+
-		"- `hypomnema memory add \"<one line>\"`\n"+
-		"- `hypomnema memory replace \"<part of an entry>\" \"<the new line>\"`\n"+
-		"- `hypomnema memory remove \"<part of an entry>\"`\n\n"+
-		"Keep no secret in it and nothing that matters to this chat only. When a change is refused for the limit, "+
-		"replace or remove entries first. A change is in your prompt from your next chat on.\n\n",
+		"people are, what they prefer, standing decisions, where things are (the memory tool, target bot). %d of "+
+		"its %d characters are used. A change is in your prompt from your next chat on.\n\n",
 		b.Name, b.Id, utf8.RuneCountInString(b.Memory), b.MemoryLimit)
 
 	entries := memoryEntries(b)

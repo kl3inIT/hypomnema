@@ -2,15 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
 import {
-  applyProfile,
-  deleteProfile,
-  getProfile,
-  listModels,
-  listProfiles,
-  listProfileVersions,
-} from "@/api/generated/sdk.gen"
-
-export const profilesKey = ["profiles"] as const
+  getProfileOptions,
+  getProfileQueryKey,
+  listModelsOptions,
+  listProfilesOptions,
+  listProfilesQueryKey,
+  listProfileVersionsOptions,
+  listProfileVersionsQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import { applyProfile, deleteProfile } from "@/api/generated/sdk.gen"
+import { callsOf } from "@/lib/query-keys"
 
 // whileOpen is how often the profiles are read again while a page shows them: whether a worker can start changes
 // with the machines and the accounts, without an event.
@@ -19,8 +20,8 @@ const whileOpen = 10_000
 // useProfiles reads every profile at its current version, with whether a worker can start under it now.
 export function useProfiles() {
   return useQuery({
-    queryKey: profilesKey,
-    queryFn: async () => (await listProfiles()).data.data,
+    ...listProfilesOptions(),
+    select: (page) => page.data,
     refetchInterval: whileOpen,
   })
 }
@@ -28,8 +29,7 @@ export function useProfiles() {
 // useProfile reads one profile at its current version, while `enabled`.
 export function useProfile(name: string, enabled = true) {
   return useQuery({
-    queryKey: [...profilesKey, name],
-    queryFn: async () => (await getProfile({ path: { name } })).data,
+    ...getProfileOptions({ path: { name } }),
     refetchInterval: whileOpen,
     retry: false,
     enabled,
@@ -39,8 +39,8 @@ export function useProfile(name: string, enabled = true) {
 // useProfileVersions reads a profile's versions, newest first, while `enabled`.
 export function useProfileVersions(name: string, enabled: boolean) {
   return useQuery({
-    queryKey: [...profilesKey, name, "versions"],
-    queryFn: async () => (await listProfileVersions({ path: { name } })).data.data,
+    ...listProfileVersionsOptions({ path: { name } }),
+    select: (page) => page.data,
     enabled,
   })
 }
@@ -48,20 +48,35 @@ export function useProfileVersions(name: string, enabled: boolean) {
 // useModels reads the models the providers offer, for the builder's model field.
 export function useModels() {
   return useQuery({
-    queryKey: ["models"],
-    queryFn: async () => (await listModels()).data.data,
+    ...listModelsOptions(),
+    select: (page) => page.data,
     staleTime: 60_000,
   })
 }
 
+// useRefreshProfiles reads the profiles again after one changes: every cached read of their list, of one profile
+// and of a profile's versions, which the hand-written ["profiles"] prefix covered.
+export function useRefreshProfiles() {
+  const queryClient = useQueryClient()
+
+  return () =>
+    queryClient.invalidateQueries({
+      predicate: callsOf(
+        listProfilesQueryKey(),
+        getProfileQueryKey({ path: { name: "" } }),
+        listProfileVersionsQueryKey({ path: { name: "" } }),
+      ),
+    })
+}
+
 // useApplyProfile stores a profile's YAML: a new version, or the current one when nothing changed.
 export function useApplyProfile() {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshProfiles()
 
   return useMutation({
     mutationFn: async ({ name, source }: { name: string; source: string }) =>
       (await applyProfile({ path: { name }, body: { source } })).data,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: profilesKey }),
+    onSuccess: refresh,
   })
 }
 

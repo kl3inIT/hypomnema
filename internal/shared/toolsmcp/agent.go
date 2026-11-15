@@ -113,7 +113,7 @@ func (a *Agent) doWithin(ctx context.Context, method, path string, body any, lim
 }
 
 // Tools is the tools the control plane lists on path (agenttool's
-// PathBrowserTools, PathDeviceTools, PathGatewayTools), in the shape of
+// PathTools, PathDeviceTools), in the shape of
 // tools/list. A control plane that cannot give them gives none: the agent
 // still has the others.
 func (a *Agent) Tools(ctx context.Context, path string) []map[string]any {
@@ -138,9 +138,9 @@ func (a *Agent) Tools(ctx context.Context, path string) []map[string]any {
 	return out
 }
 
-// ToolCall runs one tool on path (PathBrowserCall, PathDeviceCall,
-// PathGatewayCall) within the time given and returns its result as the
-// control plane gave it: text, or a screenshot as image content.
+// ToolCall runs one tool on path (PathToolsCall, PathDeviceCall) within the
+// time given and returns its result as the control plane gave it: text, or a
+// screenshot as image content.
 func (a *Agent) ToolCall(ctx context.Context, path string, within time.Duration, tool string,
 	arguments json.RawMessage,
 ) (json.RawMessage, error) {

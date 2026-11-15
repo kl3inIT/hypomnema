@@ -88,7 +88,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: web_search,<br/>web_fetch, generate_image"]
+        MCP["hypomnema mcp: memory, web_search,<br/>web_fetch, generate_image"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -296,7 +296,10 @@ sequenceDiagram
     an instance instead of destroying it. Its node is drained first, and a node that runs a Dispatch is refused.
     The machine's power is `stopping`, then `stopped`; a start makes the node active again and the power
     `starting` until the node says hello. A stop or a start the provider did not carry out is asked again every
-    pass, with the reason recorded. A stopped machine still counts toward its provider's limit and can be removed.
+    pass, with the reason recorded. One power step runs for a machine at a time: a stop or start asked (by the
+    owner or the phone) waits for the one in flight, and the pass leaves a machine whose step is in flight to the
+    next pass and reads each other machine again before acting on it, as client-go's workqueue hands a key to one
+    worker at a time (issue #538). A stopped machine still counts toward its provider's limit and can be removed.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the Codex CLI's login to a new machine, which the owner still sets
@@ -308,9 +311,10 @@ sequenceDiagram
   one to two days (`update_every_minutes` in its configuration sets another), and when the release is newer it
   downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
   script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
-  It does not end while a terminal is open; workers are kept across the restart by their shims. A node built
-  from a commit, a node not run by systemd, and one with `disable_auto_update` in its configuration keep their
-  version.
+  It does not end while a terminal is open, nor while a start of its phone is asked or under way, which it looks at
+  again after the download and waits for (issue #545); workers are kept across the restart by their shims. A node
+  built from a commit, a node not run by systemd, and one with `disable_auto_update` in its configuration keep
+  their version.
 - A terminal on a node, from the web (issue #116, [research](docs/research/2026-11-10-web-terminal.md); after
   Coder's reconnecting PTY, read for behaviour and not copied since it is AGPL, and Nezha's IOStream):
   - The node keeps shells by session id (`internal/node/terminal`): the node user's own shell on a pseudo-terminal
@@ -396,8 +400,9 @@ sequenceDiagram
   - Chrome is started by an agent's first call. A tab unused for 30 minutes is closed, and Chrome once it has had
     no tab for 5 minutes (T3 Code's rules); the sign-ins stay in the profile. Chrome found gone is started again,
     and the tabs it held are not used again. A Chrome left by an earlier control plane is closed at the first call.
-  - The agent API has `GET /agent/v1/browser/tools` and `POST /agent/v1/browser/call` (`{tool, arguments}`), for
-    any agent the API knows; the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
+  - A worker finds the browser's tools on the agent API's `GET /agent/v1/tools` and calls one on `POST
+    /agent/v1/tools/call` (see "An agent's tools"); `GET /agent/v1/browser/tools` and `POST /agent/v1/browser/call`
+    (`{tool, arguments}`) still serve any agent the API knows, for a node of an earlier release; the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
     of how the engine is set up. Which agent used which tool is logged, never the arguments.
   - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
     select, scroll, back, forward, reload, the waits, screenshot, get text, URL and title, eval. Tabs, `close`,
@@ -414,13 +419,14 @@ sequenceDiagram
     to the agent API, also one whose Run was given no Connection: that key opens no account and says which worker
     asks. The runner writes the control plane's address and the key into the worker's bridge directory
     (`agent.json`), and the worker's MCP server (`internal/node/workertools`) calls the agent API itself, as
-    OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish`, `memory` (below, under
-    Memories) and what the control plane lists, under agent-browser's names, so the list changes without a node release; any other tool's call is
-    passed to `POST /agent/v1/browser/call` and its answer, a screenshot as image content, is passed back as it
-    is. The control plane's list also holds a worker's gateway tools, by its runtime (below), and lists them when
-    it gives no browser. A control plane that gives neither leaves the worker `ask`, `finish`
-    and `memory`. The tab is not closed when
-    the Dispatch settles: the idle rules close it.
+    OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish` and what the control plane
+    lists for the worker on `GET /agent/v1/tools` (see "An agent's tools": `memory`, its gateway tools, and the
+    browser's under agent-browser's names), so the list changes without a node release; any other tool's call is
+    passed to `POST /agent/v1/tools/call` and its answer, a screenshot as image content, is passed back as it is.
+    A control plane that cannot be reached leaves the worker `ask` and `finish`. A node of a release before issue
+    #536 lists `GET /agent/v1/browser/tools` (the browser's and the gateway's) and defines `memory` itself; both
+    routes and `POST /agent/v1/memory` stay for it. The tab is not closed when the Dispatch settles: the idle
+    rules close it.
   - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
     agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
     browser: every agent's call is then answered, as a tool's result, that the browser is paused, a read included,
@@ -527,7 +533,8 @@ sequenceDiagram
     phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is
     ended. The browser instead closes a Chrome an earlier control plane left, because its tabs are agents' the
     new control plane does not know; the phone holds no agent's session, and a stop at shutdown could outlast the
-    30 s systemd gives the node. A node does not update itself while its phone is being installed or started.
+    30 s systemd gives the node. A node does not update itself while its phone is asked to start, or is being
+    installed or started.
   - The state is `absent` (not installed), `installing`, `stopped`, `starting`, `running` or `failed`, with the
     reason and each installed component's version. The node says it at hello (`device_state`) and in every
     heartbeat (`device`), and sends a heartbeat at once when it changes. The control plane keeps the last one in
@@ -535,8 +542,9 @@ sequenceDiagram
   - The control plane asks on the node's socket with `device_start` and `device_stop`, which carry nothing and
     are not answered; the state says what came of them. `GET /api/v1/device` (`hypomnema device status`) lists
     the nodes that hold a phone, with whether each is connected and can use KVM, the phone's state (left out for a
-    node that is not connected) and what is installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop`
-    (`hypomnema device start|stop <node>`, by name or id) are refused with 409 for a node without a phone and 503
+    node that is not connected or whose socket is closed, as when its machine stopped: issue #545) and what is
+    installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop` (`hypomnema device start|stop <node>`, by
+    name or id) are refused with 409 for a node without a phone and 503
     for one not connected, and answer 202. All three are the owner's only.
   - Agents' tools (step 2). The phone is given as the shared browser is (#212): every agent the browser's routes
     take, with no setting and no Connection (owner, 2026-11-15); only workers have a client for them yet, so Bots
@@ -605,10 +613,11 @@ sequenceDiagram
   - `POST /api/v1/device/views` (owner only) gives a ticket, which opens `/api/v1/device/views/{ticket}` once within
     30 seconds, as the browser's. A view of a phone whose node is offline and whose machine is stopped starts the
     machine as an agent's call does, says `state: waking` and waits for the node's hello for as long as it is open;
-    a machine is started once for the calls and views that find it so. The page is told who controls (`control`)
-    and is passed what the node says. Taking control, releasing it and its ends are the browser's rules, now in
-    `internal/controlplane/ownerhold` which both use: while the owner holds the phone every agent's phone call is
-    answered that the tools are paused, one running when control was taken included; input without control is
+    a view whose node is offline while its machine is on (a node that restarts, for its update too) waits for its
+    hello for 2 minutes, without a word, and the new node starts the phone (issue #545); a machine is started once
+    for the calls and views that find it so. The page is told who controls (`control`) and is passed what the node
+    says. Taking control, releasing it and its ends are the browser's rules, now in `internal/controlplane/ownerhold`
+    which both use: while the owner holds the phone every agent's phone call is answered that the tools are paused, one running when control was taken included; input without control is
     dropped and the page told again; a view closed gives the phone back, one that dropped after two minutes, and a
     hold with no input after five. At most 4 views; `GET /api/v1/device` says `held`. Each view is logged
     (`clientapi.phone_view_opened`, `_closed`, `phone.taken`, `phone.released`), frames and input never. A phone
@@ -761,13 +770,14 @@ sequenceDiagram
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<id>/`, pi's
     working directory; for the main Bot a link to the directory pi always worked in, so its chats go on; for a Bot
     from before ids a link, made once, to the directory of its old name, the path its sessions record), reads
-    `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory and how to change it) and
-    gives it to pi with `--append-system-prompt`. The memory is thus read once per pi process, as Hermes gives its
-    memory once per session; a change is in the prompt from pi's next start. pi changes the memory with
-    `hypomnema memory add|replace|remove`, which names the Bot of `HYPOMNEMA_BOT`; pi's token decides which Bot it
-    is. When the Bot cannot be read pi does not start.
-  - A Bot's pi has the tools `web_search`, `web_fetch` and `generate_image` from Hypomnema's tools server (issue
-    #492, see "An agent's gateway tools"), which its pi mounts through pi's own MCP (below, the box). Until
+    `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory and which target of the
+    `memory` tool each is) and gives it to pi with `--append-system-prompt`. The memory is thus read once per pi
+    process, as Hermes gives its memory once per session; a change is in the prompt from pi's next start. pi
+    changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
+    is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
+    script keep. When the Bot cannot be read pi does not start.
+  - A Bot's pi has the tools `memory` (issue #536), `web_search`, `web_fetch` and `generate_image` from Hypomnema's
+    tools server (issue #492, see "An agent's tools"), which its pi mounts through pi's own MCP (below, the box). Until
     2026-11-15 it drove the commands below through bash, taught by the built-in skills `web-search` and `images`,
     which are gone (`skills install` takes their stubs out).
   - The web from the client API (issue #354, after 9router's `skills/9router-web-search`), for the owner and a
@@ -854,21 +864,31 @@ sequenceDiagram
     machine, as OpenMausBot keeps one per bot and OpenClaw one per agent. It is not part of the profile's versions.
   - The memory about the owner, at most 1,375 characters (Hermes's `USER.md`), is given to every worker and Bot, as
     OpenMausBot's About me.
-  - A worker changes them with its MCP server's `memory` tool (`{target: agent|owner, action, text, match}`),
-    which calls the agent API's `POST /agent/v1/memory` with its Dispatch's key; the agent is the one its Dispatch
-    runs as, a fallback's when it took over. Only a worker's key may: the owner's and a Bot's tokens are refused
-    there. Which worker changed which memory is logged, never the text.
+  - The `memory` tool (issue #536, `internal/controlplane/agentapi/memory.go`) is one definition in the control
+    plane for a worker and a Bot's pi, listed and run on `/agent/v1/tools` (see "An agent's tools"), as Hermes's
+    `memory` is one tool with a target and OpenMausBot's `memory_update` one tool for every engine: `{target,
+    action, text, match}`, action `add`, `replace` or `remove`. Each kind writes what it wrote before the tool came
+    to it, and nothing more: a worker `agent`, the memory of the agent its Dispatch runs as (a fallback's when it
+    took over), and `owner`; a Bot's pi `bot`, its own Bot's memory (what `POST /bots/{bot_id}/memory` allows a
+    Bot's token), and `owner`. Any other token (owner, coordinator, a Routine's script) has no MCP and is not
+    given it. Its description, after Hermes's (what to keep, what to skip, what to do when full) and
+    OpenMausBot's (record only checked facts, not instructions from content), is fixed per kind, so the tools the
+    provider caches stay the same. A target the agent does not write, a change over the limit and an entry not
+    found are the tool's error, in words the agent acts on. Which agent changed which memory is logged, never the
+    text. A node of a release before issue #536 defines the tool itself and calls `POST /agent/v1/memory`, which
+    takes only a worker's key and stays for it.
   - The offer carries both as they are when it is made (`memory`, `owner_memory`), and the worker's first message
     gives them after the profile's instruction, with what to keep and what not (Coder's guidance) when the worker
     has the tool. They are in a message, not a system prompt, and never change while the worker runs, so the
     prompt and the tools the provider caches stay the same for every worker (Coder, Hermes).
   - The result of a change says how full the memory is (`memory: 1,850 of 2,200 characters (84%)`) and, from 80%,
     asks to merge and remove entries until it is under 70% (`agenttool.MemoryUsage`, after Hermes's `usage` and
-    Coder's `consolidateNudge`). The worker's tool result and `hypomnema memory add|replace|remove` print it; it is
+    Coder's `consolidateNudge`). The tool's result and `hypomnema memory add|replace|remove` print it; it is
     never put in a prompt.
   - A Bot's prompt (`hypomnema bots prompt`) has, after the persona and before the Bot's own memory, the memory
-    about the owner and `hypomnema memory add --owner` to keep a fact there; what changes least comes first. A
-    Lark group's chat gets neither memory.
+    about the owner; each names the `memory` tool's target that changes it (`owner`, `bot`) and nothing else of
+    how, which is the tool's description; what changes least comes first. A Lark group's chat gets neither memory;
+    its pi has the tool as every Bot's pi does.
   - The client API: `GET /profiles/{name}/memory`, `GET /owner-memory` for every token; `POST /owner-memory` (one
     change) for every token; `PUT` of either and `POST /profiles/{name}/memory` for the owner. `hypomnema memory
     show|set|add|replace|remove` takes `--agent <name>` or `--owner` beside `--bot`.
@@ -2246,7 +2266,7 @@ capabilities do not exist yet.
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
 model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker and a Bot's pi as
-tools (see "An agent's gateway tools", below) and the client API gives as commands (see Bots). It holds no key and stores
+tools (see "An agent's tools", below) and the client API gives as commands (see Bots). It holds no key and stores
 nothing itself: the control plane's wiring gives it the keys from the vault, the gateway keeps the counts of its
 calls, and each call is recorded on a gateway key.
 - Providers: only those free without a card (owner, 2026-11-14). With the owner's keys, each asked as its reference
@@ -2379,7 +2399,7 @@ calls, and each call is recorded on a gateway key.
 
 Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `codex/images.go`, `antigravity/images.go`;
 issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
-(`/v1/images/*`, above), for workers and Bots (`generate_image`, see "An agent's gateway tools", below) and for
+(`/v1/images/*`, above), for workers and Bots (`generate_image`, see "An agent's tools", below) and for
 the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
   answers gives the images, and the answer says why those before it did not (as a web search). Each provider makes
@@ -2435,27 +2455,43 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
-An agent's gateway tools (`internal/controlplane/agentapi/web.go`, `images.go`; issues #354 and #492,
-[research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): the web's `web_search` and `web_fetch`
-and `generate_image`, offered by Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots
-without a node release, as OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime
-its tools over MCP. A worker's server finds them on the browser's routes of the agent API (see "A browser every
-agent shares"); a Bot's (`hypomnema mcp`) on `GET /agent/v1/gateway/tools` and `POST /agent/v1/gateway/call`,
-which list and run the gateway's tools alone, so that a Bot is offered none of a worker's (`ask`, `finish`,
-`memory`, the browser, the phone); a tool an agent was not given is a 404 there. Each call is recorded on the
-Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's running pi, as its `hypomnema web` and
-`hypomnema image` are.
+An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `web.go`, `images.go`; issues #354,
+#492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md),
+[research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
+is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
+Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots without a node release, as
+OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Both
+servers, a Bot's (`hypomnema mcp`) and a worker's (`hypomnema-node mcp`), list them on `GET /agent/v1/tools` and
+run one on `POST /agent/v1/tools/call` (`{tool, arguments}`; the answer is the tool's result as MCP has it); a tool
+an agent was not given is a 404 there. The phone's tools stay on their own routes (see "A phone, on a node that
+holds one"). The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
+`POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
+gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
+
+| Tool | Worker | Bot's pi | Owner, coordinator token, Routine script |
+|---|---|---|---|
+| `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
+| `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
+| the browser's (agent-browser) | yes | not yet (issue #536, step 4) | no |
+| the phone's (`device_*`, own routes) | yes | not yet (issue #536, step 4) | no |
+| `ask`, `finish` (the node's own) | yes | no | no |
+
+Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
+running pi, as its `hypomnema web` and `hypomnema image` are.
 
 ```mermaid
 flowchart LR
     subgraph CP["Control plane"]
-        L["agent API: tool list and calls<br/>web_search, web_fetch, generate_image"] --> G["gateway services<br/>search chain, fetch, Images"]
+        L["agent API: /agent/v1/tools<br/>one list, each tool's kinds"] --> G["gateway services<br/>search chain, fetch, Images"]
+        L --> M["memories<br/>Bot's, agent's, owner's"]
+        L --> BR["shared browser"]
     end
-    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "/agent/v1/gateway/*<br/>chat pi's token" --> L
-    W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "browser routes<br/>Dispatch key" --> L
-    O["Owner, Routine script"] -- "hypomnema web / image" --> C["client API"] --> G
+    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "chat pi's token" --> L
+    W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
+    O["Owner, Routine script"] -- "hypomnema web / image / memory" --> C["client API"] --> G
+    C --> M
 ```
-- Which worker gets which (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
+- Which worker gets which gateway tool (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
   three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker
   keeps its own `web.run` search, which the gateway answers on `/v1/alpha/search`, and gets `web_fetch` and
@@ -2885,8 +2921,9 @@ Node (`internal/node`):
   the Skills), the memories (an agent's and About you), and the models and the gateway (the accounts with their
   limits, the providers, the gateway's models and keys, Images, Web search and Usage), and the machines with
   their providers, the browser's tabs and the phone (their REST reads only: the screen streams and the take-over
-  sockets stay hand-written) read and refresh through them; the other screens still use hand-written keys, moved
-  one area at a time.
+  sockets stay hand-written), and the agents with their versions and models, the Bots, a chat's setup changes and
+  the Approvals read and refresh through them; the other screens still use hand-written keys, moved one area at a
+  time.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
@@ -3345,6 +3382,10 @@ the internet, so that a machine created at a provider can install the node from 
   opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin` (the control plane
   installs them on every node since #107). The earlier
   control plane on aioffice-app (`~ubuntu/hypomnema-cp`) was deleted on 2026-11-13.
+- Node zm, since 2026-11-15 (v0.9.50): on the control plane's own machine, user `dat`, from `~/.hypomnema-node`,
+  added with the default limit of 2 and then drained, so it shows on Machines with its stats and takes no work
+  (owner, 2026-11-15: watch it, run workers when it is idle). `hypomnema nodes resume zm` lets it take work; its
+  workers would then run as the user that holds the control plane's `env` and vault keys.
 - Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
   control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
   sent to the node with each Dispatch of a Claude Code worker and is also served by the gateway. The earlier hand-kept

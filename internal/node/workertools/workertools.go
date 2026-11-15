@@ -3,11 +3,13 @@
 // (omnigent/harnesses/claude_native/bridge.py at cf1021e): Hypomnema's one
 // tools server (internal/shared/toolsmcp, which a Bot's pi mounts too, issue
 // #492) with a worker's tools. It offers two tools of its own, which talk to
-// the node daemon only through the bridge directory, the memory's, and the
-// tools the control plane lists, the browser every agent shares (issue
-// #212), the gateway's (issues #354, #492) and the phone's (issue #417),
+// the node daemon only through the bridge directory, and the tools the
+// control plane lists for a worker (PathTools, issue #536: the memory's, the
+// gateway's and the browser every agent shares) and the phone's (issue #417),
 // which it passes on to the control plane; generate_image's files are read
-// and written on the node (toolsmcp/image.go):
+// and written on the node (toolsmcp/image.go). Until issue #536 the memory's
+// tool was defined here; a node of that release still defines it and calls
+// agenttool.PathMemory, which the control plane keeps.
 //
 //   - ask: a question the worker waits for (a `wait` question of the
 //     orchestration core). The call blocks until the answer arrives and sends
@@ -71,19 +73,15 @@ func agentOf(dir string) *toolsmcp.Agent {
 	return toolsmcp.NewAgent(agent.URL, agent.Key)
 }
 
-// config is the worker's tools: ask and finish, and with the agent API the
-// memory's and those the control plane lists, the browser's (with the
-// gateway's) and the phone's.
+// config is the worker's tools: ask and finish, and with the agent API those
+// the control plane lists, its own and the phone's.
 func (s *server) config() toolsmcp.Config {
 	return toolsmcp.Config{
 		Name: Name,
 		List: func(ctx context.Context) []map[string]any {
 			listed := tools()
 			if s.agent != nil {
-				// The memory's tool is a worker's with the agent API, before the browser's, whose list the
-				// control plane gives.
-				listed = append(listed, memoryTool())
-				listed = append(listed, s.agent.Tools(ctx, agenttool.PathBrowserTools)...)
+				listed = append(listed, s.agent.Tools(ctx, agenttool.PathTools)...)
 				listed = append(listed, s.agent.Tools(ctx, agenttool.PathDeviceTools)...)
 			}
 
@@ -153,26 +151,20 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 		return s.ask(ctx, c.Arguments, c.Progress)
 	case "finish":
 		return s.finish(c.Arguments)
-	case "memory":
-		if s.agent == nil {
-			return nil, errors.New("this worker has no memory: its runner gave no agent API")
-		}
-
-		return memoryCall(ctx, s.agent, c.Arguments)
 	default:
 		// The phone's tools are named device_* (issue #417); generate_image's files are read and written here
-		// (issue #492); any other tool is one the control plane lists, the browser's or the web's (issue #354): it
-		// knows which it offers.
+		// (issue #492); any other tool is one the control plane lists for the worker (issue #536): it knows which
+		// it offers.
 		if s.agent != nil && strings.HasPrefix(c.Name, devicetool.Prefix) {
 			return s.agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
 		}
 
 		if s.agent != nil && c.Name == agenttool.ToolGenerateImage {
-			return s.agent.ImageCall(ctx, c.Arguments, toolsmcp.Images{Path: agenttool.PathBrowserCall})
+			return s.agent.ImageCall(ctx, c.Arguments, toolsmcp.Images{Path: agenttool.PathToolsCall})
 		}
 
 		if s.agent != nil {
-			return s.agent.ToolCall(ctx, agenttool.PathBrowserCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
+			return s.agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
 		}
 
 		return nil, fmt.Errorf("unknown tool %q", c.Name)
