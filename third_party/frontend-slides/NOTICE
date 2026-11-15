@@ -1,0 +1,26 @@
+Frontend Slides
+Copyright (c) 2025 Zara Zhang
+
+Used under the MIT License (internal/controlplane/clientcli/skills/slides/LICENSE,
+kept in the skill's folder as frontend-slides ships it).
+Source: https://github.com/zarazhangrui/frontend-slides at
+9906a34d640d2111f724544cbc50f7f130569ae1.
+
+What is adapted from it here: the slides skill
+(internal/controlplane/clientcli/skills/slides/): its SKILL.md, html-template.md,
+STYLE_PRESETS.md, animation-patterns.md, viewport-base.css and
+scripts/extract-pptx.py. Changed: a deck is shown with `hypomnema artifact show`
+and revised with `--id`, in place of Vercel (scripts/deploy.sh) and `open`; the
+PDF export (scripts/export-pdf.sh) is left out; fonts are system font stacks in
+place of Fontshare and Google Fonts; inline editing and its localStorage are left
+out; extract-pptx.py runs with the Bots' documents environment and its images are
+kept in a deck folder beside index.html; files are named where the skill is
+installed, ~/.agents/skills/slides, and the name is `slides`. Left out: the
+Claude Code plugin copy (plugins/, .claude-plugin/), README.md and the bold
+template pack (bold-template-pack/), whose templates load their fonts and charts
+from the network.
+
+The system font stacks in STYLE_PRESETS.md are from Modern Font Stacks
+(https://github.com/system-fonts/modern-font-stacks at
+76f973110be618cb6a443abc4ae5964182d1fd58), dedicated to the public domain under
+CC0 1.0.

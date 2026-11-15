@@ -289,6 +289,91 @@ func TestThePdfSkillsJSONSamplesParse(t *testing.T) {
 		"the samples of SKILL.md, references/forms.md, pdf_create.py and pdf_make_form.py")
 }
 
+// Scenario: the coordinator's deploy installs the slides skill beside pdf,
+// file for file, its pptx script executable.
+func TestTheSlidesSkillIsInstalledAsFiles(t *testing.T) { //nolint:paralleltest // replaces userHome
+	w, pdf := installHome(t)
+	dir := filepath.Join(filepath.Dir(pdf), "slides")
+
+	out, err := w.cmd(t, "skills", "install", "--agent", "agents")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents: installed "+dir)
+
+	shipped, err := fs.Sub(skillFiles, "skills/slides")
+	require.NoError(t, err)
+
+	files := 0
+	err = fs.WalkDir(shipped, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+
+		want, err := fs.ReadFile(shipped, name)
+		require.NoError(t, err)
+
+		got, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name))) //nolint:gosec // the test's own temporary home
+		require.NoError(t, err)
+		assert.Equal(t, string(want), string(got), name)
+
+		files++
+
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 7, files, "LICENSE, SKILL.md, four references and extract-pptx.py")
+
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(dir, "scripts", "extract-pptx.py"))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "the script is executable")
+	}
+}
+
+// The slides skill as shipped: frontend-slides without what needs the
+// network, a host or a Mac (Vercel, Fontshare and Google Fonts, the PDF
+// export, the bold template pack, the Claude Code plugin), with no
+// localStorage in its code; every file it names is shipped, with its MIT
+// license, and named where it is installed.
+func TestTheShippedSlidesSkillNamesOnlyWhatItShips(t *testing.T) {
+	t.Parallel()
+
+	skill, err := fs.Sub(skillFiles, "skills/slides")
+	require.NoError(t, err)
+	assert.True(t, exists(skill, "LICENSE"))
+
+	removed := regexp.MustCompile(`(?i)https?://|vercel|fontshare|fonts\.googleapis|google fonts|deploy\.sh|` +
+		`export-pdf|bold-template-pack|design\.md|preview\.md|\.claude-plugin|plugins/|\bbrew\b|\bnpx\b|` +
+		`pip install \w|localStorage\.|setItem|\.frontend-slides|\bopen \[`)
+	named := regexp.MustCompile(`\]\(([^)#]+)\)|\$S/([\w./-]+\.(?:md|css|py))`)
+
+	err = fs.WalkDir(skill, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || name == "LICENSE" {
+			return err
+		}
+
+		b, err := fs.ReadFile(skill, name)
+		if err != nil {
+			return err
+		}
+
+		assert.Empty(t, removed.FindAllString(string(b), -1), "%s names what is left out", name)
+
+		for _, m := range named.FindAllStringSubmatch(string(b), -1) {
+			file := m[1] + m[2]
+			assert.True(t, exists(skill, file), "%s names %s, which is not shipped", name, file)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	text, err := fs.ReadFile(skill, "SKILL.md")
+	require.NoError(t, err)
+	assert.Contains(t, string(text), "S=~/.agents/skills/slides", "the files are named where they are installed")
+	assert.Contains(t, string(text), "hypomnema artifact show", "a deck is shown as an artifact")
+	assert.Contains(t, string(text), "name: slides\n")
+}
+
 // The pages skill as shipped (issue #423): OpenMausBot's data-dashboards
 // with its license, naming none of OpenMausBot's own tools, and a template
 // that loads nothing from the network or the browser's storage, so it runs
