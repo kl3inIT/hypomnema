@@ -814,6 +814,23 @@ func (q *Queries) RevokeGatewayKeysOfChat(ctx context.Context, arg RevokeGateway
 	return result.RowsAffected()
 }
 
+const revokeGatewayKeysOfDeletedChat = `-- name: RevokeGatewayKeysOfDeletedChat :exec
+UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, ?1), chat_id = NULL
+WHERE chat_id = CAST(?2 AS TEXT)
+`
+
+type RevokeGatewayKeysOfDeletedChatParams struct {
+	Now    sql.NullInt64
+	ChatID string
+}
+
+// A deleted chat's keys (issue #405): revoked and kept, so the usage records stay whole, and they lose the chat, as
+// its Runs do (issue #484).
+func (q *Queries) RevokeGatewayKeysOfDeletedChat(ctx context.Context, arg RevokeGatewayKeysOfDeletedChatParams) error {
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfDeletedChat, arg.Now, arg.ChatID)
+	return err
+}
+
 const revokeGatewayKeysOfDispatch = `-- name: RevokeGatewayKeysOfDispatch :execrows
 UPDATE gateway_keys SET revoked_at = ?1 WHERE dispatch_id = ?2 AND revoked_at IS NULL
 `

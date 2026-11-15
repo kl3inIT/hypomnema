@@ -33,6 +33,12 @@ VALUES (@id, @name, @key_hash, @key_prefix, @models, @dispatch_id, @chat_id, @no
 -- name: RevokeGatewayKeysOfChat :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE chat_id = @chat_id AND revoked_at IS NULL;
 
+-- name: RevokeGatewayKeysOfDeletedChat :exec
+-- A deleted chat's keys (issue #405): revoked and kept, so the usage records stay whole, and they lose the chat, as
+-- its Runs do (issue #484).
+UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, @now), chat_id = NULL
+WHERE chat_id = CAST(@chat_id AS TEXT);
+
 -- name: RevokeGatewayChatKeys :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE chat_id IS NOT NULL AND revoked_at IS NULL;
 
