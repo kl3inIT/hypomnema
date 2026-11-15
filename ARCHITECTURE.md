@@ -6,6 +6,49 @@ statement true or false.
 
 ## Binaries
 
+The two binaries and what talks to them, as `serve` wires them (`internal/controlplane/controlplane.go`) and the node
+runs them (`internal/node`); each box names its package.
+
+```mermaid
+flowchart TB
+    OW["Owner: web client, hypomnema CLI"]
+    LK["Lark app"]
+    subgraph CP["cmd/hypomnema serve: the control plane, on zm"]
+        CAPI["client API, web client<br/>clientapi, webui"]
+        CH["Lark Channels<br/>channels, channels/lark"]
+        ORC["Runs, Tasks, Dispatches, chats, scheduler<br/>orchestration"]
+        CO["coordinator: one pi per chat<br/>coordinator"]
+        AAPI["agent API<br/>agentapi"]
+        GW["model gateway, web search, Images<br/>modelgateway, websearch"]
+        SP["service proxy, Integrations<br/>serviceproxy, integration"]
+        DB[("one SQLite file<br/>shared/sqlite; the vault's secrets in it")]
+    end
+    BOT["Bot: pi --mode rpc in a bubblewrap box<br/>deploy/coordinator/hypomnema-pi"]
+    subgraph ND["cmd/hypomnema-node run: each node"]
+        D["daemon<br/>node/daemon"]
+        W["workers under a shim: Claude Code,<br/>Codex, omp, opencode (node/runner)"]
+    end
+    PROV["subscription accounts: Codex, Claude, Antigravity;<br/>OpenAI-compatible providers"]
+    EXT["Google, Lark, Superset, AWS"]
+
+    OW -- "/api/v1" --> CAPI
+    LK <-- "persistent connection (Lark SDK)" --> CH
+    CAPI --> ORC
+    CH --> ORC
+    ORC --> DB
+    ORC -- "messages, wake-ups" --> CO
+    CO -- "RPC on stdin and stdout" --> BOT
+    BOT -- "hypomnema CLI, pi's token" --> CAPI
+    BOT -- "hypomnema mcp" --> AAPI
+    BOT -- "/v1, chat's key" --> GW
+    D <-- "nodeapi: /node/v1 hello, WebSocket" --> ORC
+    D --> W
+    W -- "hypomnema-node mcp" --> AAPI
+    W -- "/v1, Dispatch's key" --> GW
+    AAPI --> SP --> EXT
+    GW --> PROV
+```
+
 | Binary | Commands | What it does today |
 |---|---|---|
 | `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
@@ -28,6 +71,42 @@ deleted chat's files of pi for the chat's id appended to it (issue #484); unset,
 The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
 which providers are on and the keyed ones' order are set on Settings → Gateway → Web search and stored (see "Web
 search and fetch").
+
+How a message reaches a Bot's pi and its reply comes back (`internal/controlplane/coordinator`,
+`orchestration/chats.go` and `chatqueue.go`, `internal/controlplane/channels`, `deploy/coordinator/hypomnema-pi`).
+
+```mermaid
+flowchart TB
+    WEB["web chat, hypomnema chat<br/>client API, SSE stream"]
+    LK["Lark: a direct message,<br/>a group's mention"]
+    CH["Lark Channel<br/>channels, channels/lark"]
+    CHAT["the chat: chat_messages<br/>orchestration/chats.go"]
+    Q["chat_queue<br/>while pi works"]
+    WK["wake-ups from its Runs' events<br/>WakeChats"]
+    SUP["supervisor: one pi per chat,<br/>stopped after 30 min idle (coordinator)"]
+    subgraph BOX["bubblewrap box, user coordinator (hypomnema-pi)"]
+        PI["pi --mode rpc"]
+        RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
+        RW["read-write: the Bot's folder,<br/>the chat's sessions"]
+        MCP["hypomnema mcp: web_search,<br/>web_fetch, generate_image"]
+    end
+    GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
+
+    WEB <-- "the owner's messages in;<br/>messages, artifacts out" --> CHAT
+    LK <--> CH
+    CH <-- "a person's message, with its sender, in;<br/>reply relay out: text, MEDIA: files, artifact links" --> CHAT
+    CHAT <-- "held while pi works,<br/>moved in when the turn settles" --> Q
+    WK --> CHAT
+    CHAT <-- "a prompt when pi is idle, a steer on send now;<br/>replies and tool calls kept" --> SUP
+    SUP <-- "RPC on stdin and stdout" --> PI
+    SUP -. "live text, tools, working: memory only" .-> WEB
+    PI --- RO
+    PI --- RW
+    PI -- "MCP stdio" --> MCP
+    MCP -- "agent API, pi's token" --> CP["control plane: agent API"]
+    PI --> GW
+    PI -- "hypomnema artifact show" --> CHAT
+```
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
@@ -93,6 +172,39 @@ Migrations are goose SQL files embedded in the binary (`internal/controlplane/or
 holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
 cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
+
+The life of a Run, from its creation to the report that wakes its chat (`orchestration` `scheduler.go`, `dispatch.go`,
+`questions.go`, `chats.go`; `nodeapi`; `internal/node/daemon`, `runner`, `workertools`).
+
+```mermaid
+sequenceDiagram
+    participant C as Owner or a Bot's pi
+    participant CP as Control plane<br/>(clientapi, orchestration)
+    participant N as Node daemon
+    participant W as Worker
+    participant G as Git host
+    C->>CP: create a Run (repository, base branch), then Tasks with dependencies
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the least loaded node with the runtime and a worktree root,<br/>an account or a gateway model, at most 4 Dispatches unsettled
+    CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
+    N->>CP: accept (new epoch, 90 s lease)
+    N->>N: fetch the skills, add the Task's worktree, start the shim
+    N->>W: start the CLI with the first turn
+    N->>CP: started, then heartbeats renewing the lease, transcript items
+    opt the worker asks
+        W->>N: ask (hypomnema-node mcp, bridge)
+        N->>CP: question, to the coordinator or the owner
+        CP-->>C: a wake-up in the chat (to the coordinator), or an open question (to the owner)
+        C->>CP: answer (the first wins)
+        CP->>N: answer
+        N->>W: the answer to the waiting call
+    end
+    W->>G: push the branch, gh pr create
+    W->>N: finish (summary, evidence, optional Gate)
+    N->>CP: final report
+    Note over CP: the Dispatch settles and its gateway key is revoked,<br/>the Task succeeds, fails, or is blocked by a Gate
+    CP-->>C: a wake-up in the chat whose pi made the Run
+    C->>CP: finish the Run
+```
 
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
   Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
@@ -818,6 +930,37 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, the Bot coordinator deleting a
     profile (only the owner does, below), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
     user or a container per Bot (issue #260).
+
+How a skill goes from the store to a worker and to a Bot (`orchestration/skills.go`, `shared/skillpack`,
+`skillsource`, `skillssh`, `node/skills`, `clientcli/skilllibrary.go`, `deploy/coordinator/hypomnema-pi`).
+
+```mermaid
+flowchart LR
+    UP["upload: skills add --file<br/>POST /skills/archive"]
+    SSH["skills.sh search, audits<br/>skillssh"]
+    GH["GitHub: skills add --github<br/>skillsource, the ref's commit"]
+    PK["checked, digest, gzipped tar<br/>shared/skillpack"]
+    ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
+    PR["a profile's YAML<br/>skills, skills_off"]
+    BL["a Bot's lists<br/>skills, skills_off"]
+    DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
+    NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
+    PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
+    SY["hypomnema-pi: skills sync --bot<br/>GET /bots/{bot}/skills, revision archives"]
+    PI["pi --skill (the chat's skills folder,<br/>read-only in the box)"]
+    BI["built-in skills: skills install<br/>~/.agents/skills, bound into every box"]
+
+    UP --> PK
+    SSH --> GH --> PK
+    PK --> ST
+    ST --> PR
+    ST --> BL
+    PR --> DS
+    DS -- "offer: name, revision, digest" --> NF --> PL
+    BL --> SY --> PI
+    BI --> PI
+```
+
 - Skills (`orchestration/skills.go`, issue #21, [research](docs/research/2026-11-12-skills.md)): a skill the owner
   adds, in the Agent Skills format (a folder with a `SKILL.md` whose frontmatter has `name` and `description`, and
   the files beside it), kept whole in revisions that never change, after Omnara's `skills` and `skill_revisions`
@@ -1716,6 +1859,40 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   `refresh_token_reused`) marks the account as needing a new login and is not tried again. Any other failure keeps
   the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
   error code only.
+
+What the model gateway serves and from where (`modelgateway/http.go`, `chat.go`, `accounts.go`, `images.go`;
+`subscription/rank.go`; `websearch/chain.go`).
+
+```mermaid
+flowchart LR
+    CW["Workers<br/>a Dispatch's key"]
+    CB["A Bot's pi<br/>its chat's key"]
+    CT["Owner's tools (opencode, omp)<br/>keys from Settings, Gateway keys"]
+    CA["Owner, a Routine's script<br/>client API: hypomnema web, image"]
+    K["key check: Bearer or x-api-key<br/>gateway_keys, the models it may use"]
+    CHAT["chat routes: /v1/chat/completions,<br/>/v1/messages, /v1/responses, /v1/models"]
+    MT["model table: a public name,<br/>its targets in order (gateway_models)"]
+    OC["openai_compatible providers<br/>key in the vault (vault:name)"]
+    SUB["built-in providers: codex-, claude-,<br/>antigravity-subscription"]
+    ACC["subscription accounts: a session's home account,<br/>ranked (rank.go), reserve last, cooldowns;<br/>next account on 401, 402, 403, 429, 502-504"]
+    WS["web search chain: keyed providers in the owner's order,<br/>then the keyless ring, then Codex, Claude, Antigravity"]
+    WP["Exa, Firecrawl, Parallel,<br/>Tavily, TinyFish, You.com"]
+    IMG["Images: Codex, then Antigravity"]
+
+    CW --> K
+    CB --> K
+    CT --> K
+    K --> CHAT --> MT
+    MT -- "next target on no answer, 429, 5xx,<br/>while nothing was sent" --> OC
+    MT --> SUB --> ACC
+    K -- "/v1/search, /v1/web/fetch, /v1/alpha/search" --> WS
+    K -- "/v1/images/generations, /edits" --> IMG
+    CA --> WS
+    CA --> IMG
+    WS --> WP
+    WS --> ACC
+    IMG --> ACC
+```
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
