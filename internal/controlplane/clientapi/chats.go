@@ -191,10 +191,14 @@ func (s *Server) SendChatMessage(ctx context.Context, req openapi.SendChatMessag
 }
 
 // ListChatMessages returns the messages after the cursor. With wait, an
-// empty page waits up to that many seconds for a message.
+// empty page waits up to that many seconds for a message. With before, it
+// returns the newest page older than that seq (issue #502).
 func (s *Server) ListChatMessages(ctx context.Context, req openapi.ListChatMessagesRequestObject,
 ) (openapi.ListChatMessagesResponseObject, error) {
 	p := req.Params
+	if p.Before != nil {
+		return s.chatHistory(ctx, req.ChatId, *p.Before, val(p.Limit))
+	}
 
 	var (
 		wake     <-chan struct{}
@@ -240,6 +244,30 @@ func (s *Server) ListChatMessages(ctx context.Context, req openapi.ListChatMessa
 			return nil, fmt.Errorf("waiting for messages: %w", ctx.Err())
 		}
 	}
+}
+
+// chatHistory is the page of a chat's history older than before, as the Bot's tool display shows it: the cursors
+// count the messages it hides, so a page of hidden ones still moves the reader on.
+func (s *Server) chatHistory(ctx context.Context, chatID string, before int64, limit int,
+) (openapi.ListChatMessagesResponseObject, error) {
+	msgs, more, err := s.svc.ListChatMessagesBefore(ctx, chatID, before, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	display, err := s.svc.ChatToolDisplay(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := chatMessageList(msgs, 0, display)
+	out.HasMore = more
+
+	if len(msgs) > 0 {
+		out.NextBefore = &msgs[0].Seq
+	}
+
+	return out, nil
 }
 
 // chatMessageList is a page as the Bot's tool display shows it: a message it hides still moves the cursor on.

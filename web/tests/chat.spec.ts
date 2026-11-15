@@ -150,8 +150,23 @@ async function fakeServer(
   work: Work = noWork(),
   files = botFolder(),
   kept: Record<string, unknown> = chat,
+  // older is the history kept before the test, read from its end a page at a time (issue #502).
+  older: { seq: number }[] = [],
 ) {
   const calls: string[] = []
+  // A page as GET /chats/{id}/messages?before= answers it: the newest messages below before, oldest first.
+  const history = (q: URLSearchParams) => {
+    const below = older.filter((m) => m.seq < Number(q.get("before") ?? Infinity))
+    const page = below.slice(-Number(q.get("limit") ?? 200))
+    calls.push(`history before ${q.get("before")}`)
+
+    return {
+      data: page,
+      next_after: page.at(-1)?.seq ?? 0,
+      next_before: page[0]?.seq,
+      has_more: below.length > page.length,
+    }
+  }
   const uploads = new Map<string, { path: string; bytes: Buffer }>()
   // The chat as the server keeps it: a PATCH changes its model and effort.
   let current: Record<string, unknown> = { ...kept }
@@ -327,6 +342,9 @@ async function fakeServer(
       return queued[2]
         ? json(message(20 + id, { role: "owner", text: item.text }), 201)
         : json(item)
+    }
+    if (path === `/chats/${chat.id}/messages` && route.request().method() === "GET") {
+      return json(history(new URL(route.request().url()).searchParams))
     }
     if (path === `/chats/${chat.id}/messages`) {
       const body = route.request().postDataJSON() as { text: string }
@@ -1254,4 +1272,43 @@ test("messages written while the Bot works wait above the composer", async ({ pa
 
   await write(page, queue([]))
   await expect(strip).toHaveCount(0)
+})
+
+// Scenario: a long chat opens on its newest 200 messages (issue #502). Scrolling up brings the older ones, and the
+// row the owner was reading stays where it was; the stream follows from the newest message read.
+test("a long chat opens at its end and brings older messages on scroll", async ({ page }) => {
+  const older = Array.from({ length: 260 }, (_, i) =>
+    message(i + 1, { role: i % 2 ? "coordinator" : "owner", text: `message ${i + 1}` }),
+  )
+  const calls = await fakeServer(
+    page,
+    () => ({ status: 201, body: {} }),
+    noWork(),
+    botFolder(),
+    chat,
+    older,
+  )
+  await open(page)
+  await write(page, state(false))
+
+  const log = page.getByRole("log")
+  await expect(log.getByText("message 260", { exact: true })).toBeVisible()
+  await expect(log.getByText("message 61", { exact: true })).toHaveCount(1)
+  await expect(log.getByText("message 60", { exact: true })).toHaveCount(0)
+  await expect(log.getByRole("button", { name: "Load earlier messages" })).toBeAttached()
+  await shot(page, "chat-history-newest")
+
+  // The owner scrolls up with the wheel, to the top of what was read.
+  await log.hover()
+  await page.mouse.wheel(0, -1_000_000)
+
+  await expect(log.getByText("message 1", { exact: true })).toHaveCount(1)
+  await expect(log.getByRole("button", { name: "Load earlier messages" })).toHaveCount(0)
+  // The row read before the page came is still on the screen.
+  await expect(log.getByText("message 61", { exact: true })).toBeInViewport()
+  await shot(page, "chat-history-earlier")
+  expect(calls.filter((c) => c.startsWith("history"))).toEqual([
+    `history before ${Number.MAX_SAFE_INTEGER}`,
+    "history before 61",
+  ])
 })
