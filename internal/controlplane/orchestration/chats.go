@@ -220,9 +220,39 @@ type ChatMessage struct {
 	ApprovalID string
 	// Approval is that Approval as it was answered, read with the message; nil where the message is read for pi.
 	Approval *ChatApprovalAnswer
+	// Sender is who wrote a person's message when it was not the owner (issue #468); nil for the owner's and for
+	// every message that is not a person's.
+	Sender *ChatSender
 	// DeliveredAt is when pi got an owner message or a wake-up.
 	DeliveredAt *time.Time
 	CreatedAt   time.Time
+}
+
+// ChatSender is a person other than the owner who wrote a chat message (issue #468): a person of a Channel, by
+// their id at the service and their name, as OpenMausBot keeps a message's sender {name, id} (server/store.ts).
+// A person message with no sender is the owner's. ID is empty for a message written before senders were kept,
+// whose writer is not known.
+type ChatSender struct {
+	ID   string
+	Name string
+}
+
+// senderColumns are the columns a sender is kept in: NULL for the owner.
+func senderColumns(s *ChatSender) (id, name sql.NullString) {
+	if s == nil {
+		return sql.NullString{}, sql.NullString{}
+	}
+
+	return sql.NullString{String: s.ID, Valid: true}, sql.NullString{String: s.Name, Valid: s.Name != ""}
+}
+
+// senderOf reads the sender kept in a row's columns.
+func senderOf(id, name sql.NullString) *ChatSender {
+	if !id.Valid {
+		return nil
+	}
+
+	return &ChatSender{ID: id.String, Name: name.String}
 }
 
 // ChatApprovalAnswer is what an approval row shows of its Approval (issue #465): what was asked, the answer and
@@ -571,6 +601,9 @@ type NewChatMessage struct {
 	Parts json.RawMessage
 	// Attachments are an owner message's files, and only an owner message's.
 	Attachments []ChatAttachment
+	// Sender is who wrote a person's message when it is not the owner (issue #468), and only a person's: a role
+	// owner message is a person's, the owner's or a Channel person's.
+	Sender *ChatSender
 }
 
 func (m NewChatMessage) check(chatID string) error {
@@ -583,6 +616,8 @@ func (m NewChatMessage) check(chatID string) error {
 		return fmt.Errorf("%w: unknown kind of chat message %q", ErrInvalid, m.Kind)
 	case len(m.Attachments) > 0 && m.Role != ChatOwner:
 		return fmt.Errorf("%w: only an owner message has attachments", ErrInvalid)
+	case m.Sender != nil && m.Role != ChatOwner:
+		return fmt.Errorf("%w: only a person's message has a sender", ErrInvalid)
 	case strings.TrimSpace(m.Text) == "" && len(m.Attachments) == 0 && (m.Parts == nil || m.Role == ChatOwner):
 		return fmt.Errorf("%w: a message needs text", ErrInvalid)
 	case len(m.Text) > MaxChatText:
@@ -632,9 +667,11 @@ func (s *Service) AddChatMessages(ctx context.Context, chatID string, msgs ...Ne
 				return err
 			}
 
+			senderID, senderName := senderColumns(m.Sender)
+
 			seq, err := q.InsertChatMessage(ctx, store.InsertChatMessageParams{
 				ChatID: chatID, Role: string(m.Role), Kind: string(m.Kind), Text: m.Text, Parts: stored,
-				Attachments: files, Now: now,
+				Attachments: files, SenderID: senderID, SenderName: senderName, Now: now,
 			})
 			if err != nil {
 				return fmt.Errorf("inserting a message: %w", err)
@@ -794,8 +831,28 @@ func chatMessage(r store.ChatMessage) ChatMessage {
 		Attachments: attachmentsOf(r.Attachments),
 		EventSeq:    r.EventSeq.Int64,
 		ApprovalID:  r.ApprovalID.String,
+		Sender:      senderOf(r.SenderID, r.SenderName),
 		DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
 	}
+}
+
+// OwnerTurn says whether what a chat's pi works on now is the owner's own request (issue #468): the last of the
+// chat's messages pi is given as a turn is a message the owner wrote. A message of a Channel person who is not
+// the owner, a wake-up (a Run's events, a Routine's run, an Approval answered after its request ended) and a
+// message whose writer is not known each end his turn, whether pi has it yet or not, as OpenMausBot lets the last
+// sender decide (server/host/outside-lineage.ts) and OpenClaw never counts a wake as an owner turn
+// (docs/plugins/tool-plugins.md). A chat with no such message is no turn of his.
+func (s *Service) OwnerTurn(ctx context.Context, chatID string) (bool, error) {
+	last, err := s.read().LastTurnInput(ctx, chatID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("reading whose turn chat %s is: %w", chatID, err)
+	}
+
+	return ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid, nil
 }
 
 // attachmentsOf reads the attachments kept on a row. Their JSON was checked as it was written; a row that cannot be

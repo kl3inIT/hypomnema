@@ -907,7 +907,7 @@ export const putIntegrationClientMutation = (options?: Partial<Options<PutIntegr
 /**
  * Start signing an account in, as a Connection under a label; only the owner
  *
- * Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+ * Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services. With `app`, the owner signs in to an app Integration (Lark) as himself through the app of that Connection: the answer has a `user_code` he enters on the page the link opens, and completing waits for it. Such a user Connection acts as the owner and is used only by the owner's token and by the main Bot on the owner's own turn.
  */
 export const beginIntegrationSignInMutation = (options?: Partial<Options<BeginIntegrationSignInData>>): UseMutationOptions<BeginIntegrationSignInResponse, BeginIntegrationSignInError, Options<BeginIntegrationSignInData>> => {
   const mutationOptions: UseMutationOptions<BeginIntegrationSignInResponse, BeginIntegrationSignInError, Options<BeginIntegrationSignInData>> = {
@@ -924,9 +924,9 @@ export const beginIntegrationSignInMutation = (options?: Partial<Options<BeginIn
 };
 
 /**
- * Complete a sign-in with the address the browser ended on; only the owner
+ * Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
  *
- * The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+ * The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed. A sign-in that answered a `user_code` takes no callback: completing waits until the owner entered the code, for as long as the sign-in stays open, and is refused when the service gives no refresh token.
  */
 export const completeIntegrationSignInMutation = (options?: Partial<Options<CompleteIntegrationSignInData>>): UseMutationOptions<CompleteIntegrationSignInResponse, CompleteIntegrationSignInError, Options<CompleteIntegrationSignInData>> => {
   const mutationOptions: UseMutationOptions<CompleteIntegrationSignInResponse, CompleteIntegrationSignInError, Options<CompleteIntegrationSignInData>> = {

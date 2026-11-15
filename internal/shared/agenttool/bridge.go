@@ -60,8 +60,10 @@ func (r *refusal) said() string {
 
 // bridge starts the loopback proxy and returns the tool's variables. stop
 // ends it and removes the certificate file; refused holds why the control
-// plane opened no stream, if it did not.
-func (l Launcher) bridge(ctx context.Context, def Def, label string,
+// plane opened no stream, if it did not. user says the account is the
+// owner's own sign-in: the tool is given the placeholder as a person's token
+// and held to acting as one.
+func (l Launcher) bridge(ctx context.Context, def Def, label string, user bool,
 ) (env []string, refused *refusal, stop func(), err error) {
 	ca, err := l.certificate(ctx)
 	if err != nil {
@@ -94,8 +96,16 @@ func (l Launcher) bridge(ctx context.Context, def Def, label string,
 
 	address := "http://" + listener.Addr().String()
 
+	token, identity := def.TokenEnv, def.AppIdentity
+	if user && def.UserTokenEnv != "" {
+		token, identity = def.UserTokenEnv, def.UserIdentity
+	}
+
 	env = []string{
-		def.TokenEnv + "=" + Placeholder, "HTTPS_PROXY=" + address, "https_proxy=" + address, "SSL_CERT_FILE=" + ca,
+		token + "=" + Placeholder, "HTTPS_PROXY=" + address, "https_proxy=" + address, "SSL_CERT_FILE=" + ca,
+	}
+	if def.IdentityEnv != "" {
+		env = append(env, def.IdentityEnv+"="+identity)
 	}
 	if def.CAEnv != "" {
 		env = append(env, def.CAEnv+"="+ca)

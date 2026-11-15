@@ -43,6 +43,11 @@ func TestMain(m *testing.M) {
 		fmt.Printf("client=%s brand=%s\n", os.Getenv(def.ClientEnv), os.Getenv("LARKSUITE_CLI_BRAND"))
 	}
 
+	if def.UserTokenEnv != "" {
+		fmt.Printf("user=%s identity=%s default=%q\n", os.Getenv(def.UserTokenEnv), os.Getenv(def.IdentityEnv),
+			os.Getenv("LARKSUITE_CLI_DEFAULT_AS"))
+	}
+
 	if def.CAEnv != "" {
 		_, bundleErr := os.Stat(os.Getenv(def.CAEnv)) //nolint:gosec // G703: a stand-in reads what it was given.
 		profile, hasProfile := os.LookupEnv("AWS_PROFILE")
@@ -243,6 +248,10 @@ func TestTheLauncherRunsAProxiedToolWithAPlaceholderAndABridge(t *testing.T) {
 // every tool it holds a placeholder and goes through the proxy; no token is
 // asked for.
 func TestTheLauncherGivesLarksToolTheAppOfTheAccountBesideThePlaceholder(t *testing.T) {
+	// A person's token left in the agent's environment would make lark-cli act as that person (issue #468).
+	t.Setenv("LARKSUITE_CLI_USER_ACCESS_TOKEN", "u-left-behind")
+	t.Setenv("LARKSUITE_CLI_DEFAULT_AS", "user")
+
 	home := installedAs(t, LarkCLI())
 	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema", ClientID: "cli_a1b2"},
 		Connection{Label: "report", Account: "Superset Report", ClientID: "cli_report"})
@@ -252,8 +261,31 @@ func TestTheLauncherGivesLarksToolTheAppOfTheAccountBesideThePlaceholder(t *test
 	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "lark-cli",
 		[]string{"--account", "report", "calendar", "+agenda"}))
 	assert.Equal(t, "token="+Placeholder+" key=\"\" args=calendar +agenda\nclient=cli_report brand=lark\n"+
-		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
+		"user= identity=bot default=\"\"\n"+
+		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String(),
+		"an app's account acts as the app only")
 	assert.Equal(t, []string{"connections lark", "certificate", "tunnel lark:report gmail.googleapis.com:443"}, c.calls)
+}
+
+// Scenario: the main Bot, on the owner's turn, runs lark-cli as "me", the
+// owner's own sign-in through the app work (issue #468). The control plane
+// lists it as a user's account; the launcher gives the placeholder as a
+// person's token, not an app's, with the app's id, and holds lark-cli to
+// acting as the user, so it never falls back to the app on its own. The
+// tunnel is opened for lark:me, whose token the proxy puts in.
+func TestTheLauncherGivesLarksToolTheOwnersSignInAsAUser(t *testing.T) {
+	home := installedAs(t, LarkCLI())
+	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema", ClientID: "cli_a1b2"},
+		Connection{Label: "me", Account: "The Owner", ClientID: "cli_a1b2", User: true})
+
+	var out bytes.Buffer
+
+	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "lark-cli",
+		[]string{"--account", "me", "im", "+chat-search"}))
+	assert.Equal(t, "token= key=\"\" args=im +chat-search\nclient=cli_a1b2 brand=lark\n"+
+		"user="+Placeholder+" identity=user default=\"\"\n"+
+		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
+	assert.Equal(t, []string{"connections lark", "certificate", "tunnel lark:me gmail.googleapis.com:443"}, c.calls)
 }
 
 // Scenario: an agent given an AWS role runs the AWS CLI (issue #331). It

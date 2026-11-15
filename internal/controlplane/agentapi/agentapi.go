@@ -12,6 +12,14 @@
 //   - the owner's own token gets every Connection, as it can already read the
 //     vault.
 //
+// A user Connection, the owner's own sign-in through an app (issue #468),
+// acts as him, so it is narrower still: only the owner's token, and the main
+// Bot's pi on the owner's own turn in its chat, may use it. A worker, a
+// coordinator token, a Routine's script and any other Bot never get it,
+// whatever the switches say, as OpenMausBot keeps a person's connected app to
+// the requests that are that person's own (docs/composio.md) and out of a team
+// (server/cloud-team.ts).
+//
 // A worker also lists and calls here the tools of the browser every agent
 // shares (issue #212), the gateway's tools, the web's (issue #354, web.go)
 // and generate_image (issue #492, images.go), and the tools of the phone a
@@ -50,6 +58,8 @@ type Store interface {
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
+	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
+	OwnerTurn(ctx context.Context, chatID string) (bool, error)
 	Memories() *memorystore.Store
 }
 
@@ -162,9 +172,10 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: "dispatch " + session.DispatchID, dispatchID: session.DispatchID, key: "d-" + session.DispatchID,
 			// A Run a coordinator created was given only what the coordinator may use, and keeps it only while
-			// the coordinator may: the owner's switch is read now, not when the Run was made.
+			// the coordinator may: the owner's switch is read now, not when the Run was made. The owner's own
+			// sign-in is never a worker's.
 			may: func(c orchestration.Connection) bool {
-				return slices.Contains(session.Uses, orchestration.Use(c.Integration, c.Label)) &&
+				return !c.User() && slices.Contains(session.Uses, orchestration.Use(c.Integration, c.Label)) &&
 					(!session.ByCoordinator || c.Chats)
 			},
 		}, nil
@@ -185,7 +196,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 	case bearertoken.Coordinator:
 		return agent{
 			name: "coordinator token " + token.ID, coordinator: true, key: "c-" + token.ID,
-			may: func(c orchestration.Connection) bool { return c.Chats },
+			may: func(c orchestration.Connection) bool { return c.Chats && !c.User() },
 		}, nil
 	case bearertoken.Bot:
 		// A Bot uses what the coordinator does, narrowed to its list, read now as the owner's switch is (issue
@@ -196,10 +207,12 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		}
 
 		// A Routine's script's token (issue #211) is bound to its Bot and no chat: its tab is its Routine's.
+		// A Routine's run is never the owner's turn: one that should act as him needs a grant of its own.
 		if token.Routine != "" {
 			return agent{
 				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
-				key: "r-" + token.Routine, may: bot.MayUse,
+				key: "r-" + token.Routine,
+				may: func(c orchestration.Connection) bool { return !c.User() && bot.MayUse(c) },
 			}, nil
 		}
 
@@ -208,10 +221,48 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		// one pi at a time, and the pi that follows goes on in the same tab.
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
-			key: "b-" + token.Chat, may: bot.MayUse,
+			key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
 		}, nil
 	default:
 		return agent{}, errNoCredential
+	}
+}
+
+// botMay is what a Bot's pi in a chat may use: what its Bot may, and the
+// owner's own sign-in only for the main Bot on the owner's turn in that chat
+// (issue #468), which is read once a request, when a user Connection is
+// asked about. A turn that cannot be read is not his.
+func (s *Server) botMay(ctx context.Context, bot orchestration.Bot, chatID string,
+) func(orchestration.Connection) bool {
+	var asked, ownerTurn bool
+
+	return func(c orchestration.Connection) bool {
+		if !bot.MayUse(c) {
+			return false
+		}
+
+		if !c.User() {
+			return true
+		}
+
+		if !bot.Main() {
+			return false
+		}
+
+		if !asked {
+			asked = true
+
+			var err error
+			if ownerTurn, err = s.store.OwnerTurn(ctx, chatID); err != nil {
+				s.logger.ErrorContext(ctx, "whose turn a chat is could not be read",
+					slog.String("event", "agentapi.failed"), slog.String("chat", chatID),
+					slog.String("error", err.Error()))
+
+				ownerTurn = false
+			}
+		}
+
+		return ownerTurn
 	}
 }
 
@@ -276,7 +327,7 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 
 	out := agenttool.ConnectionList{Data: make([]agenttool.Connection, 0, len(allowed))}
 	for _, c := range allowed {
-		conn := agenttool.Connection{Label: c.Label, Account: c.Account}
+		conn := agenttool.Connection{Label: c.Label, Account: c.Account, User: c.User()}
 		if def.ClientEnv != "" {
 			conn.ClientID = c.AppID
 		}

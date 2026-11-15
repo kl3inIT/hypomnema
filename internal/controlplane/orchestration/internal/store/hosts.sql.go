@@ -126,7 +126,7 @@ func (q *Queries) GetAgentSessionByHash(ctx context.Context, keyHash string) (Ag
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id FROM connections WHERE integration = ?1 AND label = ?2
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections WHERE integration = ?1 AND label = ?2
 `
 
 type GetConnectionParams struct {
@@ -150,6 +150,7 @@ func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (C
 		&i.Version,
 		&i.SignInFailed,
 		&i.AppID,
+		&i.AppLabel,
 	)
 	return i, err
 }
@@ -240,7 +241,7 @@ func (q *Queries) InsertSecretRead(ctx context.Context, arg InsertSecretReadPara
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id FROM connections ORDER BY integration, created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections ORDER BY integration, created_at, label
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
@@ -265,6 +266,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 			&i.Version,
 			&i.SignInFailed,
 			&i.AppID,
+			&i.AppLabel,
 		); err != nil {
 			return nil, err
 		}
@@ -280,7 +282,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 }
 
 const listConnectionsBySecret = `-- name: ListConnectionsBySecret :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id FROM connections WHERE secret = ?1 ORDER BY integration, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections WHERE secret = ?1 ORDER BY integration, label
 `
 
 func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([]Connection, error) {
@@ -305,6 +307,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 			&i.Version,
 			&i.SignInFailed,
 			&i.AppID,
+			&i.AppLabel,
 		); err != nil {
 			return nil, err
 		}
@@ -320,7 +323,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 }
 
 const listConnectionsOf = `-- name: ListConnectionsOf :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id FROM connections WHERE integration = ?1 ORDER BY created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections WHERE integration = ?1 ORDER BY created_at, label
 `
 
 func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
@@ -345,6 +348,7 @@ func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]
 			&i.Version,
 			&i.SignInFailed,
 			&i.AppID,
+			&i.AppLabel,
 		); err != nil {
 			return nil, err
 		}
@@ -517,6 +521,39 @@ func (q *Queries) ListSecretReads(ctx context.Context, arg ListSecretReadsParams
 	return items, nil
 }
 
+const listUserConnectionsOfApp = `-- name: ListUserConnectionsOfApp :many
+SELECT label FROM connections WHERE integration = ?1 AND app_label = ?2 ORDER BY label
+`
+
+type ListUserConnectionsOfAppParams struct {
+	Integration string
+	AppLabel    sql.NullString
+}
+
+// The user Connections that sign in with an app Connection's app (issue #468).
+func (q *Queries) ListUserConnectionsOfApp(ctx context.Context, arg ListUserConnectionsOfAppParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listUserConnectionsOfApp, arg.Integration, arg.AppLabel)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			return nil, err
+		}
+		items = append(items, label)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeAgentSessionsOfDispatch = `-- name: RevokeAgentSessionsOfDispatch :execrows
 UPDATE agent_sessions SET revoked_at = ?1 WHERE dispatch_id = ?2 AND revoked_at IS NULL
 `
@@ -585,13 +622,13 @@ func (q *Queries) SetConnectionSignInFailed(ctx context.Context, arg SetConnecti
 }
 
 const upsertConnection = `-- name: UpsertConnection :exec
-INSERT INTO connections (integration, label, account, secret, services, address, version, app_id, created_at,
-    updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+INSERT INTO connections (integration, label, account, secret, services, address, version, app_id, app_label,
+    created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
 ON CONFLICT (integration, label) DO UPDATE
 SET account = excluded.account, secret = excluded.secret, services = excluded.services,
-    address = excluded.address, version = excluded.version, app_id = excluded.app_id, sign_in_failed = 0,
-    updated_at = excluded.updated_at
+    address = excluded.address, version = excluded.version, app_id = excluded.app_id, app_label = excluded.app_label,
+    sign_in_failed = 0, updated_at = excluded.updated_at
 `
 
 type UpsertConnectionParams struct {
@@ -603,6 +640,7 @@ type UpsertConnectionParams struct {
 	Address     sql.NullString
 	Version     sql.NullString
 	AppID       sql.NullString
+	AppLabel    sql.NullString
 	Now         int64
 }
 
@@ -616,6 +654,7 @@ func (q *Queries) UpsertConnection(ctx context.Context, arg UpsertConnectionPara
 		arg.Address,
 		arg.Version,
 		arg.AppID,
+		arg.AppLabel,
 		arg.Now,
 	)
 	return err
