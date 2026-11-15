@@ -92,6 +92,17 @@ func (w *world) addAccount(runtime, label string) Account {
 	return a
 }
 
+// gatewayAccount is an account of the runtime logged in on the control plane, for the gateway to serve a
+// subscription under (issue #549).
+func (w *world) gatewayAccount(runtime string) {
+	w.t.Helper()
+
+	require.NoError(w.t, store.New(w.db).InsertLoginAccount(w.t.Context(), store.InsertLoginAccountParams{
+		ID: "acc_gateway_" + runtime, Runtime: runtime, Label: runtime + " on the control plane",
+		SecretRef: sql.NullString{String: "vault:" + runtime, Valid: true}, Now: 1,
+	}))
+}
+
 // alive is a node heartbeat at the current time.
 func (w *world) alive(n Node) { require.NoError(w.t, w.s.NodeHeartbeat(w.t.Context(), n.ID)) }
 

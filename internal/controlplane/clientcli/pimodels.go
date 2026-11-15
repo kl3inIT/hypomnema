@@ -12,16 +12,26 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
 
-// kindModelGateway is the kind of the provider that is the control plane's
-// own model gateway (orchestration.ProviderModelGateway).
-const kindModelGateway = "model_gateway"
+// piProviderID is the one provider of pi's models.json (orchestration.PiProvider): the supervisor names it with
+// each model's gateway name.
+const piProviderID = "hypomnema"
+
+// piWires is the wire pi speaks to the gateway for a model of a subscription of the kind (issue #549), as
+// orchestration.GatewayWires gives omp: the
+// subscription's own, as Claude Code and Codex speak to it; the gateway's chat for the rest. Measured on zm on
+// 2026-11-15, a Claude turn is a fifth smaller on Messages with the same cache, and Codex's cache is the same on
+// Responses.
+var piWires = map[string]string{
+	"claude_subscription": "anthropic-messages",
+	"codex_subscription":  "openai-responses",
+}
 
 // keyCommand is what pi's models.json gives as a provider's key: a command,
 // which pi runs at each request, and no key.
 const keyCommand = "!hypomnema model-key"
 
 // errNoGatewayProvider means pi would start without a model it can use.
-var errNoGatewayProvider = errors.New("no provider is the model gateway with a model: pi would have none to use")
+var errNoGatewayProvider = errors.New("the model gateway serves no model: pi would have none to use")
 
 // piModelsFile is pi's models.json (pi's docs/models.md).
 type piModelsFile struct {
@@ -40,8 +50,11 @@ type piProvider struct {
 // gateway does not know is left out, so pi keeps its default for it: a
 // window of 128000, 16384 out, no reasoning, no price; but for its input.
 type piModel struct {
-	ID               string             `json:"id"`
-	Name             string             `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// API and BaseURL are the model's own wire, over the provider's (pi model-config.ts).
+	API              string             `json:"api,omitempty"`
+	BaseURL          string             `json:"baseUrl,omitempty"`
 	Reasoning        bool               `json:"reasoning,omitempty"`
 	ThinkingLevelMap map[string]*string `json:"thinkingLevelMap,omitempty"`
 	Input            []string           `json:"input,omitempty"`
@@ -63,16 +76,13 @@ type piCost struct {
 // MODEL_THINKING_LEVELS); off is the gateway's none.
 var piThinkingLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 
-// piModels prints the models.json pi starts with (issue #204): one provider
-// of pi for each provider of the control plane that is the model gateway,
-// with the models that provider lists, so that a Bot given another model
-// needs nothing changed on the machine. The launcher writes it as pi starts
-// for a chat, as Omnigent writes a models.json for each of its pi sessions
-// (inner/pi_executor.py) and as a node writes a worker's configuration for
-// each Dispatch (internal/node/acp/agents.go). The key is the command pi
-// runs at each request. Each model has the attributes the gateway gives it
-// (issue #367): its window, largest output, inputs, reasoning, effort levels
-// and price. A provider is the gateway when its kind is model_gateway.
+// piModels prints the models.json pi starts with (issue #204): one provider of pi, the model gateway, with every
+// model it serves (issue #549: each subscription's models, under "<provider>/<model>", and the names made in its
+// table), so that a Bot given another model needs nothing changed on the machine. The launcher writes it as pi
+// starts for a chat, as Omnigent writes a models.json for each of its pi sessions (inner/pi_executor.py) and as a
+// node writes a worker's configuration for each Dispatch (internal/node/acp/agents.go). The key is the command pi
+// runs at each request. Each model has the attributes the gateway gives it (issue #367): its window, largest
+// output, inputs, reasoning, effort levels and price; and the wire of its subscription (piWires).
 func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	resp, err := e.api.ListProvidersWithResponse(ctx)
 	if err != nil {
@@ -92,33 +102,40 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 		return apiError("listing the gateway's models", served.StatusCode(), served.JSONDefault)
 	}
 
-	attributes := make(map[string]openapi.GatewayModelAttributes, len(served.JSON200.Data))
-	for _, m := range served.JSON200.Data {
-		attributes[m.Name] = m.Attributes
-	}
-
-	gateway := strings.TrimRight(e.url, "/") + "/v1"
-	file := piModelsFile{Providers: map[string]piProvider{}}
-
-	for _, p := range resp.JSON200.Data {
-		if string(p.Kind) != kindModelGateway || len(p.Models) == 0 {
-			continue
-		}
-
-		models := make([]piModel, 0, len(p.Models))
-		for _, m := range p.Models {
-			models = append(models, piModelOf(m, attributes[m]))
-		}
-
-		file.Providers[p.Name] = piProvider{
-			Name: "Hypomnema gateway (" + p.Name + ")", BaseURL: gateway, API: "openai-completions",
-			APIKey: keyCommand, Models: models,
-		}
-	}
-
-	if len(file.Providers) == 0 {
+	if len(served.JSON200.Data) == 0 {
 		return errNoGatewayProvider
 	}
+
+	kinds := make(map[string]string, len(resp.JSON200.Data))
+	for _, p := range resp.JSON200.Data {
+		kinds[p.Name] = string(p.Kind)
+	}
+
+	root := strings.TrimRight(e.url, "/")
+	models := make([]piModel, 0, len(served.JSON200.Data))
+
+	for _, m := range served.JSON200.Data {
+		pm := piModelOf(m.Name, m.Attributes)
+
+		// The wire is chosen as a worker's offer chooses it (orchestration modelAPI): a subscription's own for a
+		// name "<subscription>/<model>"; chat, which the gateway turns into each target's, for a name of its table.
+		provider, _, _ := strings.Cut(m.Name, "/")
+		wire := piWires[kinds[provider]]
+
+		switch wire {
+		case "anthropic-messages":
+			pm.API, pm.BaseURL = wire, root
+		case "openai-responses":
+			pm.API = wire
+		}
+
+		models = append(models, pm)
+	}
+
+	file := piModelsFile{Providers: map[string]piProvider{piProviderID: {
+		Name: "Hypomnema gateway", BaseURL: root + "/v1", API: "openai-completions", APIKey: keyCommand,
+		Models: models,
+	}}}
 
 	out, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {

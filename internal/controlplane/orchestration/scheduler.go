@@ -151,7 +151,7 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 		return nil, r, nil
 	}
 
-	a := p.availability(r.runtime, r.gateway)
+	a := p.availability(r.runtime, r.gateway, r.accounts)
 	if a.Reason != ReasonAccountsCooling {
 		return nil, r, nil
 	}
@@ -263,7 +263,7 @@ func placeHandoff(p *placement, conv store.Conversation, b resolved, host where)
 		account, _ = p.pickAccount(b.runtime)
 	}
 
-	if account == "" {
+	if account == "" || (b.gateway && !p.gatewayHasAccount(b.accounts)) {
 		return nil
 	}
 
@@ -379,7 +379,7 @@ func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchS
 	switch {
 	case cooling && account == "":
 		return nil, ""
-	case account == "":
+	case account == "", r.gateway && !p.gatewayHasAccount(r.accounts):
 		return nil, ReasonNoAccount
 	}
 

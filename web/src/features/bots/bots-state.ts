@@ -19,9 +19,16 @@ export function botNameOf(bots: Pick<Bot, "id" | "name">[] | undefined, id: stri
 // 64 characters, any letters.
 const maxName = 64
 
-// modelLine is a Bot's model as a card says it: the name, or that pi chooses.
+// defaultBotModel is the model of a Bot that names none (owner, 2026-11-15): Claude Opus 5.5 under the Claude
+// subscription, which pi is given as its default (clientcli pisettings.go, piDefaultModel).
+export const defaultBotModel = "claude-opus-5-5"
+
+// defaultModelLabel says which model a Bot with none runs on.
+export const defaultModelLabel = `Default (${modelName(defaultBotModel)})`
+
+// modelLine is a Bot's model as a card says it: the name, or the default.
 export function modelLine(bot: Pick<Bot, "model">) {
-  return bot.model ? modelName(bot.model) : "pi's default model"
+  return bot.model ? modelName(bot.model) : defaultModelLabel
 }
 
 // memoryEntries is a Bot's memory as a list: one entry a line.
@@ -43,7 +50,7 @@ export function memoryLine(bot: Pick<Bot, "memory" | "memory_limit">) {
   return `${memoryUsed(bot.memory).toLocaleString("en")} of ${bot.memory_limit.toLocaleString("en")} characters`
 }
 
-// A Draft is a Bot as its form holds it. model is "provider/name", a bare name, or "" for pi's default.
+// A Draft is a Bot as its form holds it. model is "provider/name", a bare name, or "" for the default (Claude Opus 5.5).
 // skills and skillsOff are the skills the Bot adds and the ones for everyone it turns off (issue #21).
 export type Draft = {
   name: string
@@ -86,7 +93,7 @@ export function sameDraft(a: Draft, b: Draft) {
 }
 
 // settingsOf is the draft as PUT /bots/{bot_id} and POST /bots take it. The server replaces what it is given, so what the draft
-// leaves empty is left out and falls back to pi's default; the skills are always given, the form holds them.
+// leaves empty is left out and falls back to the default model; the skills are always given, the form holds them.
 export function settingsOf(draft: Draft, models: Model[]): BotSettings {
   const model = draft.model ? splitModel(draft.model, models) : { provider: "", name: "" }
 

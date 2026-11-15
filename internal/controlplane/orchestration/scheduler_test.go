@@ -302,19 +302,23 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 
 	w := newWorld(t)
 	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
-		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5, effort: high}\n")
+		"name: implementer\ndescription: d\nruntime: claude\n"+
+			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: reviewer\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
+	w.gatewayAccount("claude")
+	w.gatewayAccount("codex")
 	w.tasks(
 		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
-		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-sonnet-5-5"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-haiku-5-5"},
 		NewTask{Ref: "c", Profile: "reviewer", Spec: "c"},
+		NewTask{Ref: "d", Profile: "implementer", Spec: "d", Model: "gpt-6.1-sol"},
 	)
 
 	created := w.schedule().Created
-	require.Len(t, created, 2, "the reviewer runs on codex, which no node has")
+	require.Len(t, created, 3, "the reviewer runs on codex, which no node has")
 
 	got := map[string][3]string{}
 	for _, id := range created {
@@ -323,7 +327,10 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	}
 
 	v := implementer.VersionID
-	assert.Equal(t, map[string][3]string{"a": {"claude-opus-5-5", "high", v}, "b": {"claude-sonnet-5-5", "high", v}}, got)
+	assert.Equal(t, map[string][3]string{
+		"a": {"claude-subscription/claude-opus-5-5", "high", v}, "b": {"claude-subscription/claude-haiku-5-5", "high", v},
+		"d": {"codex-subscription/gpt-6.1-sol", "high", v},
+	}, got, "the gateway's names of the subscription's models (issue #549); a Task's model under its own provider")
 }
 
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is
@@ -777,6 +784,63 @@ func TestAClaudeCodeWorkerMayRunThroughTheGateway(t *testing.T) {
 	d := w.dispatchOf(created[0])
 	assert.Equal(t, "claude-sonnet", d.Model)
 	assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+}
+
+// Scenario: Codex speaks only OpenAI Responses, which the gateway passes on to a Codex subscription alone, so a
+// Codex profile under another subscription is refused when applied (issue #549).
+func TestACodexProfileNamesNoOtherSubscription(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+
+	_, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: codex-claude\ndescription: d\nruntime: codex\nmodel: {provider: claude-subscription, name: claude-opus-5-5}\n")
+	require.ErrorIs(t, err, ErrInvalid)
+	assert.ErrorContains(t, err, "runtime codex cannot run against provider claude-subscription")
+}
+
+// Scenario: a Codex profile names the Codex subscription (issue #549). Its
+// worker runs through the gateway under the subscription's model, on a node
+// with no Codex account, and its offer says to speak OpenAI Responses; a
+// worker under a model the gateway's table names is offered no wire.
+func TestACodexWorkerUnderTheSubscriptionRunsThroughTheGateway(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	codexNode := w.addNode("node_codex", 2, "codex")
+	w.gatewayAccount("codex")
+
+	_, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: codex-sub\ndescription: d\nruntime: codex\nmodel: {provider: codex-subscription, name: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: claude-table\ndescription: d\nruntime: claude\n"+
+		"model: {provider: model-gateway, name: claude-sonnet-5-5}\n")
+	require.NoError(t, err)
+
+	w.tasks(NewTask{Ref: "x", Profile: "codex-sub", Spec: "x"}, NewTask{Ref: "c", Profile: "claude-table", Spec: "c"})
+
+	created := w.schedule().Created
+	require.Len(t, created, 2)
+
+	apis := map[string]string{}
+
+	for _, n := range []Node{w.node, codexNode} {
+		w.alive(n)
+
+		pending, err := w.s.NodePending(t.Context(), n.ID)
+		require.NoError(t, err)
+
+		for _, o := range pending.Offers {
+			d := w.dispatchOf(o.DispatchID)
+			assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef, d.Model)
+			apis[d.Model] = o.ModelAPI
+		}
+	}
+
+	assert.Equal(t, map[string]string{
+		"codex-subscription/gpt-6.1-sol": "openai-responses", "claude-sonnet-5-5": "",
+	}, apis)
 }
 
 // A profile says whether a worker can start under it now, by the scheduler's
