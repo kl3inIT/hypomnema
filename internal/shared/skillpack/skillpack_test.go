@@ -139,16 +139,18 @@ func TestAnArchiveThatIsNotASafeSkillIsRefused(t *testing.T) {
 		archive []byte
 		want    string
 	}{
-		"a link":           {tarGzOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "x", link: true}), "links are refused"},
-		"a link in a zip":  {zipOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "x", link: true}), "links are refused"},
-		"climbing out":     {tarGzOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "../x", body: "x"}), "plain relative path"},
-		"absolute":         {tarGzOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "/etc/x", body: "x"}), "plain relative path"},
-		"no manifest":      {zipOf(t, entry{name: "README.md", body: "x"}), "no SKILL.md"},
-		"two top folders":  {zipOf(t, entry{name: "a/SKILL.md", body: manifest}, entry{name: "b/x", body: "x"}), "no SKILL.md"},
-		"no frontmatter":   {zipOf(t, entry{name: "SKILL.md", body: "# Review\n"}), "frontmatter"},
-		"no description":   {zipOf(t, entry{name: "SKILL.md", body: "---\nname: x\n---\n"}), "no description"},
-		"a bad name":       {zipOf(t, entry{name: "SKILL.md", body: "---\nname: Review_Go\ndescription: d\n---\n"}), "single hyphens"},
-		"not an archive":   {[]byte("hello"), "neither a zip"},
+		"a link":          {tarGzOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "x", link: true}), "links are refused"},
+		"a link in a zip": {zipOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "x", link: true}), "links are refused"},
+		"climbing out":    {tarGzOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "../x", body: "x"}), "plain relative path"},
+		"absolute":        {tarGzOf(t, entry{name: "SKILL.md", body: manifest}, entry{name: "/etc/x", body: "x"}), "plain relative path"},
+		"no manifest":     {zipOf(t, entry{name: "README.md", body: "x"}), "no SKILL.md"},
+		"two top folders": {zipOf(t, entry{name: "a/SKILL.md", body: manifest}, entry{name: "b/x", body: "x"}), "no SKILL.md"},
+		"no frontmatter":  {zipOf(t, entry{name: "SKILL.md", body: "# Review\n"}), "frontmatter"},
+		"no description":  {zipOf(t, entry{name: "SKILL.md", body: "---\nname: x\n---\n"}), "no description"},
+		"a bad name":      {zipOf(t, entry{name: "SKILL.md", body: "---\nname: Review_Go\ndescription: d\n---\n"}), "single hyphens"},
+		"not an archive":  {[]byte("hello"), "neither a zip"},
+		"a bad requirement": {zipOf(t, entry{name: "SKILL.md", body: "---\nname: x\ndescription: d\nmetadata:\n" +
+			"  hypomnema:\n    requires:\n      integration: Super Set\n---\n"}), "requires.integration"},
 		"over the archive": {make([]byte, MaxArchive+1), "over 25 MB"},
 	}
 
@@ -159,6 +161,23 @@ func TestAnArchiveThatIsNotASafeSkillIsRefused(t *testing.T) {
 			assert.Contains(t, err.Error(), c.want)
 		})
 	}
+}
+
+// Scenario: a skill says in its frontmatter what an agent must have to be
+// given it (issue #536), under metadata.hypomnema as OpenClaw's skills do
+// under metadata.openclaw; the standard's other metadata keys are left alone,
+// and a skill that says nothing requires nothing.
+func TestASkillSaysWhatItRequires(t *testing.T) {
+	t.Parallel()
+
+	sk, err := FromArchive(zipOf(t, entry{name: "SKILL.md", body: "---\nname: superset\ndescription: d\nmetadata:\n" +
+		"  author: someone\n  hypomnema:\n    requires:\n      integration: superset\n      device: android\n---\n"}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"integration:superset", "device:android"}, sk.Requires)
+
+	sk, err = FromArchive(zipOf(t, entry{name: "SKILL.md", body: manifest}))
+	require.NoError(t, err)
+	assert.Empty(t, sk.Requires)
 }
 
 // Scenario: a zip made by macOS's Finder carries __MACOSX beside the folder;

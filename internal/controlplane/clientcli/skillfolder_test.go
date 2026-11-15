@@ -324,6 +324,57 @@ func TestARetiredSkillIsRemovedAtInstall(t *testing.T) { //nolint:paralleltest /
 	assert.NotContains(t, out, "removed", "a second install has nothing to take out")
 }
 
+// supersetStub is the stub of the superset guide as releases until issue
+// #536 installed it.
+var supersetStub = strings.Join([]string{
+	"---",
+	"name: superset",
+	"description: >-",
+	"  Reads the figures of the owner's Superset dashboards with Hypomnema's superset_* tools: finds a dashboard by its",
+	"  title, lists its charts and filters, and returns a chart's rows as the dashboard shows them, as JSON or CSV, with",
+	"  the SQL Superset ran. Can also send any other request to Superset's API. Use when the owner asks for a number, a",
+	"  table or a list that is on a Superset dashboard, or to copy a chart's data somewhere. Not for drawing charts and",
+	"  not for pictures of a dashboard.",
+	"---",
+	"",
+	"# Superset",
+	"",
+	"This stub loads the guide that ships with the `hypomnema` binary on this machine.",
+	"",
+	"1. Run `hypomnema skills get superset` once in the session and follow the guide it prints.",
+	"",
+	"When there are no `superset_*` tools, or a call says you were not given the account, tell the owner: the account is",
+	"connected in Settings, Integrations, and switched on there for chats.",
+	"",
+}, "\n")
+
+// Scenario: the Integrations' guides now come from the skills store (issue
+// #536). The deploy's install takes out the stubs an earlier release put in
+// each agent's folder, which ran `hypomnema skills get`, and installs none;
+// the coordinator's stub stays its own.
+func TestAGuideStubIsTakenOutAtInstall(t *testing.T) { //nolint:paralleltest // replaces userHome
+	w, agents := installHome(t)
+
+	require.Contains(t, retiredStubs["superset"], digest([]byte(supersetStub)))
+	require.NoError(t, os.MkdirAll(filepath.Join(agents, "superset"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(agents, "superset", "SKILL.md"), []byte(supersetStub), 0o600))
+
+	out, err := w.cmd(t, "skills", "install", "--agent", "agents")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents: removed "+filepath.Join(agents, "superset", "SKILL.md"))
+	assert.NoDirExists(t, filepath.Join(agents, "superset"))
+	assert.FileExists(t, filepath.Join(agents, "hypomnema-coordinator", "SKILL.md"))
+
+	for _, guide := range []string{"google-workspace", "lark", "aws", "superset", "android-device"} {
+		assert.NoDirExists(t, filepath.Join(agents, guide), "the store places it, not the install")
+	}
+
+	out, err = w.cmd(t, "skills", "install", "--agent", "agents")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "removed", "a second install has nothing to take out")
+	assert.NotContains(t, out, "edited")
+}
+
 // Scenario: pdf, slides and pages now come from the skills store (issues
 // #492, #536). The deploy's install takes out the copies an earlier release
 // put in ~/.agents/skills, so that a Bot gets each once, and does not install
@@ -395,18 +446,33 @@ func TestAStoreSkillIsTakenOutOfTheAgentsFolder(t *testing.T) { //nolint:paralle
 	assert.NoDirExists(t, pdf, "the store places it, not the install")
 }
 
-// The skill the control plane publishes into the store is pdf as this
-// binary ships it, whole, their scripts executable as `skills
-// install` made them; the list of built-in skills leaves them to the store.
+// The skills the control plane publishes into the store are the folders
+// this binary ships, whole, their scripts executable as `skills install`
+// made them, each guide requiring what it teaches; the list of built-in
+// skills leaves them to the store.
 func TestTheStoreSkillsAreTheShippedFolders(t *testing.T) {
 	t.Parallel()
 
 	skills, err := StoreSkills()
 	require.NoError(t, err)
-	require.Len(t, skills, 3)
-	assert.Equal(t, "pdf", skills[0].Name)
-	assert.Equal(t, "slides", skills[1].Name)
-	assert.Equal(t, "pages", skills[2].Name)
+
+	names := make([]string, len(skills))
+	requires := map[string][]string{}
+
+	for i, sk := range skills {
+		names[i] = sk.Name
+		requires[sk.Name] = sk.Requires
+	}
+
+	assert.Equal(t, []string{"pdf", "slides", "pages", "google-workspace", "lark", "aws", "superset", "android-device"},
+		names)
+
+	// A guide goes only to an agent that may use its Integration, or while a node holds the phone (issue #536).
+	assert.Equal(t, map[string][]string{
+		"pdf": nil, "slides": nil, "pages": nil,
+		"google-workspace": {"integration:google"}, "lark": {"integration:lark"}, "aws": {"integration:aws"},
+		"superset": {"integration:superset"}, "android-device": {"device:android"},
+	}, requires)
 
 	for _, sk := range skills {
 		shipped, err := fs.Sub(skillFiles, "skills/"+sk.Name)

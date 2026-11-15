@@ -131,8 +131,8 @@ func (q *Queries) InsertSkill(ctx context.Context, arg InsertSkillParams) error 
 
 const insertSkillRevision = `-- name: InsertSkillRevision :exec
 INSERT INTO skill_revisions (skill, revision, description, digest, size, files, source, source_commit, archive,
-    created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+    requires, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
 `
 
 type InsertSkillRevisionParams struct {
@@ -145,6 +145,7 @@ type InsertSkillRevisionParams struct {
 	Source       string
 	SourceCommit sql.NullString
 	Archive      []byte
+	Requires     sql.NullString
 	Now          int64
 }
 
@@ -159,6 +160,7 @@ func (q *Queries) InsertSkillRevision(ctx context.Context, arg InsertSkillRevisi
 		arg.Source,
 		arg.SourceCommit,
 		arg.Archive,
+		arg.Requires,
 		arg.Now,
 	)
 	return err
@@ -182,7 +184,7 @@ func (q *Queries) LatestSkillRevision(ctx context.Context, skill string) (Latest
 }
 
 const latestSkillRevisions = `-- name: LatestSkillRevisions :many
-SELECT s.name, s.everyone, r.revision, r.digest
+SELECT s.name, s.everyone, r.revision, r.digest, r.requires
 FROM skills s JOIN skill_revisions r ON r.skill = s.name
 WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
 ORDER BY s.name
@@ -193,6 +195,7 @@ type LatestSkillRevisionsRow struct {
 	Everyone int64
 	Revision int64
 	Digest   string
+	Requires sql.NullString
 }
 
 func (q *Queries) LatestSkillRevisions(ctx context.Context) ([]LatestSkillRevisionsRow, error) {
@@ -209,6 +212,7 @@ func (q *Queries) LatestSkillRevisions(ctx context.Context) ([]LatestSkillRevisi
 			&i.Everyone,
 			&i.Revision,
 			&i.Digest,
+			&i.Requires,
 		); err != nil {
 			return nil, err
 		}
@@ -224,13 +228,16 @@ func (q *Queries) LatestSkillRevisions(ctx context.Context) ([]LatestSkillRevisi
 }
 
 const listDispatchSkills = `-- name: ListDispatchSkills :many
-SELECT skill, revision, digest FROM dispatch_skills WHERE dispatch_id = ?1 ORDER BY skill
+SELECT ds.skill, ds.revision, ds.digest, r.requires FROM dispatch_skills ds
+JOIN skill_revisions r ON r.skill = ds.skill AND r.revision = ds.revision
+WHERE ds.dispatch_id = ?1 ORDER BY ds.skill
 `
 
 type ListDispatchSkillsRow struct {
 	Skill    string
 	Revision int64
 	Digest   string
+	Requires sql.NullString
 }
 
 func (q *Queries) ListDispatchSkills(ctx context.Context, dispatchID string) ([]ListDispatchSkillsRow, error) {
@@ -242,7 +249,12 @@ func (q *Queries) ListDispatchSkills(ctx context.Context, dispatchID string) ([]
 	items := []ListDispatchSkillsRow{}
 	for rows.Next() {
 		var i ListDispatchSkillsRow
-		if err := rows.Scan(&i.Skill, &i.Revision, &i.Digest); err != nil {
+		if err := rows.Scan(
+			&i.Skill,
+			&i.Revision,
+			&i.Digest,
+			&i.Requires,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -257,7 +269,7 @@ func (q *Queries) ListDispatchSkills(ctx context.Context, dispatchID string) ([]
 }
 
 const listSkillRevisions = `-- name: ListSkillRevisions :many
-SELECT skill, revision, description, digest, size, files, source, source_commit, created_at
+SELECT skill, revision, description, digest, size, files, source, source_commit, requires, created_at
 FROM skill_revisions WHERE skill = ?1 ORDER BY revision DESC
 `
 
@@ -270,6 +282,7 @@ type ListSkillRevisionsRow struct {
 	Files        int64
 	Source       string
 	SourceCommit sql.NullString
+	Requires     sql.NullString
 	CreatedAt    int64
 }
 
@@ -291,6 +304,7 @@ func (q *Queries) ListSkillRevisions(ctx context.Context, skill string) ([]ListS
 			&i.Files,
 			&i.Source,
 			&i.SourceCommit,
+			&i.Requires,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -308,8 +322,8 @@ func (q *Queries) ListSkillRevisions(ctx context.Context, skill string) ([]ListS
 
 const listSkills = `-- name: ListSkills :many
 SELECT s.name, s.everyone, s.created_at, s.updated_at,
-    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.created_at AS revised_at,
-    f.source AS first_source
+    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.requires,
+    r.created_at AS revised_at, f.source AS first_source
 FROM skills s JOIN skill_revisions r ON r.skill = s.name
 JOIN skill_revisions f ON f.skill = s.name AND f.revision = 1
 WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
@@ -328,6 +342,7 @@ type ListSkillsRow struct {
 	Files        int64
 	Source       string
 	SourceCommit sql.NullString
+	Requires     sql.NullString
 	RevisedAt    int64
 	FirstSource  string
 }
@@ -353,6 +368,7 @@ func (q *Queries) ListSkills(ctx context.Context) ([]ListSkillsRow, error) {
 			&i.Files,
 			&i.Source,
 			&i.SourceCommit,
+			&i.Requires,
 			&i.RevisedAt,
 			&i.FirstSource,
 		); err != nil {
