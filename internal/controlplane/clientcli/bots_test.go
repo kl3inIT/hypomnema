@@ -47,6 +47,9 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 	assert.Contains(t, out, "do not look for another way to do it.\n\n## About the owner")
 	assert.Contains(t, out, "You are the bot `vmap` (id ")
 	assert.Contains(t, out, "Your memory is empty.")
+	assert.Contains(t, out, "(the memory tool, target bot)")
+	assert.Contains(t, out, "(the memory tool, target owner)")
+	assert.NotContains(t, out, "hypomnema memory", "a Bot changes a memory with its tool, not a command (issue #536)")
 
 	_, err = pi.cmd(t, "memory", "add", "Linh leads the maps team.")
 	require.ErrorContains(t, err, "name the memory", "outside pi, the bot is named")
