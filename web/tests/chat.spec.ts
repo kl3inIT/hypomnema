@@ -1336,7 +1336,11 @@ test("a subscription's model is chosen under its subscription", async ({ page })
   await expect(page.getByRole("group").getByText("codex-subscription")).toBeVisible()
   await shot(page, "chat-model-subscriptions")
 
-  await page.getByRole("option", { name: /claude-opus-5-5/ }).click()
+  await page
+    .getByRole("group")
+    .filter({ hasText: "claude-subscription" })
+    .getByRole("option", { name: /Claude Opus 5.5/ })
+    .click()
   await expect(model).toHaveAccessibleName(/Opus/)
   await expect
     .poll(() => calls.filter((c) => c.startsWith("PATCH {")).at(-1))
