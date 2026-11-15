@@ -51,7 +51,7 @@ export function toolDuration(ms?: number): string | null {
 
 // previewLimit is how much of an output an open row shows before "Show all", OpenMausBot's preview of a step's
 // output (src/components/ToolActivity.tsx; Apache License 2.0).
-export const previewLimit = 1000
+const previewLimit = 1000
 
 // outputPreview is the start of an output and whether there is more.
 export function outputPreview(output: string, all: boolean): { text: string; more: boolean } {

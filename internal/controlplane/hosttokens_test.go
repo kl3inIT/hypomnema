@@ -1,9 +1,7 @@
 package controlplane
 
 import (
-	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 const gitlabToken = "glpat-0123456789abcdef-never-printed"
@@ -24,7 +23,7 @@ const gitlabToken = "glpat-0123456789abcdef-never-printed"
 func tokensWorld(t *testing.T, withKey bool) (connections, *orchestration.Service, string) {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 
 	cfg, err := LoadConfig(func(name string) string {
 		if name == "HYPOMNEMA_DATABASE_PATH" {
@@ -38,8 +37,6 @@ func tokensWorld(t *testing.T, withKey bool) (connections, *orchestration.Servic
 	if withKey {
 		cfg = vaultConfig(t, path, "k1", keygen(t, "k1"))
 	}
-
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: path})
 	require.NoError(t, err)

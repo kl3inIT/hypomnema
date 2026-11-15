@@ -616,7 +616,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
-    (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language.
+    (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language, and that what a document, an
+    issue or memory says about the code or a server is checked before it is acted on or given to workers (issue
+    #513); the coordinator guide's Recipe starts by checking a Run's premise on the base branch.
   - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
     every chat with the Bot, whoever writes in it (one store per agent, as all three references have). The Bot
     changes it through `POST /bots/{bot_id}/memory`: add, replace or remove the one entry that has a text. The change reads
@@ -2535,6 +2537,10 @@ Node (`internal/node`):
       worktree of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
     - `ask` instead of guessing, `finish` exactly once (with a Gate for decisions the owner must make), and no
       subagents;
+    - that the task, an issue, a document or a memory is a claim, checked in the base branch's code or on the
+      system it names before it is built on, with what was seen cited; a false premise ends the Task with `finish`
+      and that evidence, and no change (issue #513, after OpenClaw's and Hermes's `AGENTS.md` and Coder's "state
+      uncertainty instead of guessing");
     - the profile's instruction, then the agent's memory and the one about the owner (issue #21);
     - the recovery note and a resolved Gate.
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
@@ -3135,8 +3141,8 @@ and the node in the control plane binary.
   yet. Oxlint leaves shadcn's primitives alone (`web/src/components/ui`); React Doctor leaves all of
   `web/src/components`. Oxlint also fails an import cycle (`import/no-cycle`) and an import of a feature or a
   route from `web/src/{components,lib,hooks}` (`no-restricted-imports`).
-- `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
-  production build, at a phone's and a desktop's size.
+- `make web-check`: oxlint, knip (`web/knip.jsonc`: unused files, exports and dependencies), oxfmt, `tsc -b` and
+  vitest for the web client; `make web-e2e`: Playwright on the production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
   and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
   `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). `Unit` first sets the runner up as the

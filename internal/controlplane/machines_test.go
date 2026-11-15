@@ -1,7 +1,6 @@
 package controlplane
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // Scenario: the owner sets up AWS as a machine provider. Its key must
@@ -22,9 +22,8 @@ import (
 func TestOwnerSetsUpAMachineProvider(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	add := []string{
 		"machines", "providers", "add", "aws", "--kind", "aws", "--key", "vault:aws", "--region", "ap-southeast-1",
@@ -80,9 +79,8 @@ func TestOwnerSetsUpAMachineProvider(t *testing.T) {
 func TestOwnerMovesAMachineProviderToAnAWSRole(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
 	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	file := filepath.Join(t.TempDir(), "aws.key")
 	require.NoError(t, os.WriteFile(file, []byte("AKIAEXAMPLE:not-a-real-secret\n"), 0o600))

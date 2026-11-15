@@ -18,24 +18,24 @@ export interface View extends Point {
   scale: number
 }
 
-export interface Box extends Point {
+interface Box extends Point {
   width: number
   height: number
 }
 
 export const CARD_WIDTH = 256
 export const CARD_HEIGHT = 112
-export const GAP = 16
+const GAP = 16
 // The column titles ("Bots", "Machines") sit above the cards.
 export const HEADER_HEIGHT = 28
-export const LINK_WIDTH = 96
+const LINK_WIDTH = 96
 export const MACHINE_WIDTH = 320
 export const MACHINE_HEAD = 40
 export const LINE_HEIGHT = 52
-export const IDLE_HEIGHT = 36
+const IDLE_HEIGHT = 36
 
-export const MIN_SCALE = 0.3
-export const MAX_SCALE = 1.5
+const MIN_SCALE = 0.3
+const MAX_SCALE = 1.5
 
 // machineHeight is a machine card's height: its head, then a line a live Dispatch or one line saying it is idle.
 export function machineHeight(lines: number) {

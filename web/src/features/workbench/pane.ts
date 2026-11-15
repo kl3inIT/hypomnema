@@ -13,7 +13,7 @@ export type PaneTab =
   // A file of a chat's folder, opened from the Files panel (issue #255): its text, or its diff since HEAD.
   | { kind: "file"; chat: string; workspace: string; path: string; view: FileView }
 
-export type FileView = "file" | "diff"
+type FileView = "file" | "diff"
 
 // files says whether the Files panel is open beside the pane's tabs; artifact is the artifact open there instead
 // (issue #402), as one panel at a time stands beside the chat.

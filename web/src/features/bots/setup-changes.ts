@@ -12,7 +12,7 @@ import { botsKey } from "./use-bots"
 // The setup changes of a chat (issue #169): what the main Bot made, changed or removed of Bots and
 // profiles there, read and undone. Their card is setup-change-card.tsx.
 
-export const setupChangesKey = (chatId: string) => ["setup-changes", chatId] as const
+const setupChangesKey = (chatId: string) => ["setup-changes", chatId] as const
 
 // useSetupChanges reads the changes made from a chat; read again while the chat is open, as the Bot makes them in
 // its turn without an event.

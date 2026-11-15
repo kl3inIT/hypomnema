@@ -15,9 +15,9 @@ import type {
 // the live text is shown until the kept reply that ends it arrives, and a tool shows as running until its kept
 // result arrives.
 
-export type LiveBlock = { kind: "text" | "thinking"; text: string }
+type LiveBlock = { kind: "text" | "thinking"; text: string }
 
-export type RunningTool = { id: string; name: string; args?: Record<string, unknown> }
+type RunningTool = { id: string; name: string; args?: Record<string, unknown> }
 
 export type ChatView = {
   messages: ChatMessage[]

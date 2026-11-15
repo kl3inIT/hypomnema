@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -14,8 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // codexIssuer stands in for auth.openai.com for one login that the owner
@@ -52,9 +53,8 @@ func codexIssuer(t *testing.T) string {
 func TestOwnerLogsACodexSubscriptionInAndRemovesIt(t *testing.T) {
 	t.Parallel()
 
-	cfg := vaultConfig(t, filepath.Join(t.TempDir(), "hypomnema.db"), "k1", keygen(t, "k1"))
+	cfg := vaultConfig(t, sqlitetest.Migrated(t, orchestration.Migrate), "k1", keygen(t, "k1"))
 	cfg.CodexIssuer = codexIssuer(t)
-	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
 
 	var printed strings.Builder
 

@@ -32,7 +32,7 @@ export type Draft = {
   timeZone: string
 }
 
-export const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
 
 // timeZones lists the IANA zones the browser knows, UTC first, as OpenMausBot's CronScheduleFields does.
 export const timeZones = (): string[] => [

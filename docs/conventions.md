@@ -287,6 +287,9 @@ How the references keep a UI consistent is in
   - Features may import each other (every reference does). `components`, `lib` and `hooks` never import a
     feature or a route; the linter refuses it with `no-restricted-imports` (Coder's layering, Onyx's mechanism).
   - One part, or one close family of parts, a file; file names are kebab-case; no barrel files (Coder, t3code).
+  - Dead code is caught by knip in `pnpm check`: a file, an export or a dependency nothing uses fails it, and an
+    export used only in its own file is not exported. shadcn's primitives and the generated client are left out
+    (Coder, t3code, Orca, assistant-ui run knip; the exclusions follow memoryos and new-api).
 - **What is its own design stays its own**: a control that is not an ordinary button, input, select or dialog (a
   card that is pressed, a row that opens, the chat's composer, a switch whose state the primitive shows less
   clearly) is not forced into a primitive. The reason is written where it is kept (owner, 2026-11-10).

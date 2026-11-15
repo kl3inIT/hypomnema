@@ -95,7 +95,7 @@ export function settled(list: Row[]): { before: Row[]; last?: Row } {
 }
 
 // liveTail is how many of a running worker's last steps stay out of the fold (Omnigent STREAMING_TAIL).
-export const liveTail = 3
+const liveTail = 3
 
 // fold splits a group of work into what folds under one line and what stays in view. A finished group folds
 // whole; in a running worker's newest group the last steps stay out, so the reader watches them (Omnigent
@@ -204,7 +204,7 @@ export function rest(entry: Call): string | undefined {
 // The most of a result shown before the reader asks for all of it (Omnigent ToolCodePanel: 80 lines or 12 000
 // characters).
 export const previewLines = 80
-export const previewChars = 12_000
+const previewChars = 12_000
 
 // preview is the start of a long output and how many lines were left out.
 export function preview(text: string): { text: string; hidden: number } {

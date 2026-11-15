@@ -8,8 +8,8 @@ import {
   listProviders,
 } from "@/api/generated/sdk.gen"
 
-export const accountsKey = ["accounts"] as const
-export const providersKey = ["model-providers"] as const
+const accountsKey = ["accounts"] as const
+const providersKey = ["model-providers"] as const
 export const gatewayModelsKey = ["gateway-models"] as const
 
 // An account rests and comes back on its own, so the list is read again now and then while the page is open.

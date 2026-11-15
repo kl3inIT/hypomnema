@@ -31,12 +31,12 @@ import { toast } from "@/components/ui/toast"
 
 // Routines (issue #211): work a Bot does on a schedule. They change by themselves (a run starts, ends, waits),
 // without an event, so a page that shows them reads them again every few seconds, as the Bots pages do.
-export const routinesKey = ["routines"] as const
+const routinesKey = ["routines"] as const
 
 const whileOpen = 5000
 
 // runsPage is how many runs a page of a Routine's runs holds.
-export const runsPage = 20
+const runsPage = 20
 
 // useRoutines lists the Routines of a Bot, or those made in a chat; every Routine when neither is given.
 export function useRoutines(where: { bot?: string; chatId?: string } = {}) {

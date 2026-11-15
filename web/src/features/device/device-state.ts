@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import "@/api/client"
 import { getDevice } from "@/api/generated/sdk.gen"
 
-export const deviceKey = ["device"] as const
+const deviceKey = ["device"] as const
 
 const whileOpen = 5000
 

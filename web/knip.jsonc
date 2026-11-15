@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // Entry points come from knip's plugins, as in new-api's web client: Vite (index.html, so src/main.tsx), TanStack
+  // Router (src/routes and the route tree it generates), Vitest (src/**/*.test.*, src/test/setup.ts) and Playwright
+  // (tests/*.spec.ts).
+  "ignore": [
+    // The generated client; make openapi-check keeps it in step with the contract.
+    "src/api/generated/**",
+    // shadcn's primitives, kept whole even where unused, as the CLI installs them.
+    "src/components/ui/**",
+    // shadcn installed it with the sidebar primitive, its only importer.
+    "src/hooks/use-mobile.ts",
+  ],
+  // Runtime packages of the vendored shadcn primitives (command, carousel, input-otp, calendar, resizable,
+  // message-scroller, questionnaire), kept with them.
+  "ignoreDependencies": [
+    "@shadcn/react",
+    "cmdk",
+    "embla-carousel-react",
+    "input-otp",
+    "react-day-picker",
+    "react-resizable-panels",
+  ],
+  "ignoreIssues": {
+    // shadcn's dark-mode provider keeps its upstream surface: useTheme is its hook for a theme switch.
+    "src/components/theme-provider.tsx": ["exports"],
+  },
+}

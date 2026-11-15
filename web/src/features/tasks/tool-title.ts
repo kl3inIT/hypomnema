@@ -213,7 +213,7 @@ const LEADING_VERBS = new Set([
  * todo list". Drops a `sys_` prefix and a repeat of the server name
  * (`slack_read_api_call` on the slack server -> "Read API call").
  */
-export function humanizeToolName(tool: string, server?: string): string {
+function humanizeToolName(tool: string, server?: string): string {
   let words = identifierWords(tool)
   if (words.length > 1 && words[0] === "sys") words = words.slice(1)
   const serverWords = server === undefined ? [] : identifierWords(server)
@@ -277,7 +277,7 @@ const SECRET_KEY_WORDS = new Set([
  * Key argument values for a collapsed row, joined with " · "; skips long,
  * multi-line, nested and secret-looking values.
  */
-export function summarizeArgs(args: Record<string, unknown>): string {
+function summarizeArgs(args: Record<string, unknown>): string {
   const parts: string[] = []
   for (const [key, value] of Object.entries(args)) {
     if (parts.length >= ARG_SUMMARY_PARTS) break
@@ -368,7 +368,7 @@ function runPhrase(category: RunCategory, n: number): string {
 }
 
 /** A tool name without Hypomnema's `mcp__hypomnema__` prefix. */
-export function stripOwnPrefix(name: string): string {
+function stripOwnPrefix(name: string): string {
   return name.startsWith("mcp__hypomnema__") ? name.slice("mcp__hypomnema__".length) : name
 }
 
@@ -407,7 +407,7 @@ function decodeShellWord(text: string): string | null {
 }
 
 /** Whether `name` is a shell-command tool in any harness (Bash, shell, bash). */
-export function isShellTool(name: string): boolean {
+function isShellTool(name: string): boolean {
   return ownValue(RUN_CATEGORIES, stripOwnPrefix(name)) === "shell"
 }
 
