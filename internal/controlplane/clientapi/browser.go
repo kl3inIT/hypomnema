@@ -143,17 +143,25 @@ func (s *Server) GetBrowser(ctx context.Context, _ openapi.GetBrowserRequestObje
 	return openapi.GetBrowser200JSONResponse(out), nil
 }
 
-// browserTab says whose a tab is. An agent's name in the browser begins with
-// the kind of its credential (agentapi).
+// browserTab says whose a tab is and the chat it belongs to (issue #557). An
+// agent's name in the browser begins with the kind of its credential
+// (agentapi): a worker's tab is its Run's chat's, and a Bot's pi's, "b-"
+// and its chat, is that chat's.
 func (s *Server) browserTab(ctx context.Context, t shared.Tab) openapi.BrowserTab {
 	tab := openapi.BrowserTab{Id: t.ID, Kind: openapi.BrowserTabKindToken, Url: t.URL, Title: t.Title, Views: t.Views}
 
 	switch {
 	case t.ID == shared.OwnerTab:
 		tab.Kind = openapi.BrowserTabKindOwner
-	// A coordinator token's tab, or a chat's pi's (issue #260).
-	case strings.HasPrefix(t.ID, "c-"), strings.HasPrefix(t.ID, "b-"):
+	case strings.HasPrefix(t.ID, "c-"):
 		tab.Kind = openapi.BrowserTabKindCoordinator
+	// A chat's pi's (issue #260).
+	case strings.HasPrefix(t.ID, "b-"):
+		tab.Kind = openapi.BrowserTabKindCoordinator
+
+		if chat, err := s.svc.GetChat(ctx, strings.TrimPrefix(t.ID, "b-")); err == nil {
+			tab.ChatId, tab.BotId = &chat.ID, &chat.Bot
+		}
 	case strings.HasPrefix(t.ID, "d-"):
 		tab.Kind = openapi.BrowserTabKindWorker
 
@@ -165,6 +173,10 @@ func (s *Server) browserTab(ctx context.Context, t shared.Tab) openapi.BrowserTa
 
 			if task, err := s.svc.GetTask(ctx, d.TaskID); err == nil {
 				tab.RunId = &task.RunID
+
+				if run, err := s.svc.GetRun(ctx, task.RunID); err == nil && run.ChatID != "" {
+					tab.ChatId = &run.ChatID
+				}
 			}
 		}
 	}

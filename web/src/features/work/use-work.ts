@@ -12,7 +12,6 @@ import {
   listProfilesOptions,
   listQuestionsOptions,
   listQuestionsQueryKey,
-  listRunsOptions,
   listRunsQueryKey,
   listTasksOptions,
   listTasksQueryKey,
@@ -62,15 +61,6 @@ export function useRun(runId: string | undefined, enabled = true) {
 // useTask reads one Task, for a Task off the board (an old Run's).
 export function useTask(taskId: string, enabled: boolean) {
   return useQuery({ ...getTaskOptions({ path: { task_id: taskId } }), enabled })
-}
-
-// useRecentRuns reads the latest Runs, a hundred at most, while enabled.
-export function useRecentRuns(enabled: boolean) {
-  return useQuery({
-    ...listRunsOptions({ query: { limit: 100 } }),
-    select: (page) => page.data,
-    enabled,
-  })
 }
 
 // everyWorkRead matches every cached read of the work an event may change: the Tasks, the questions, the lists of
