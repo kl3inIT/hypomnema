@@ -135,6 +135,9 @@ async function fakeServer(
     if (path === `/chats/${chat.id}/stream`) {
       return route.fulfill({ status: 200, contentType: "text/event-stream", body: frames })
     }
+    if (path === `/chats/${chat.id}/messages` && route.request().method() === "GET") {
+      return json({ data: [], next_after: 0, has_more: false })
+    }
     if (path === `/chats/${chat.id}/messages`) {
       sent.push((route.request().postDataJSON() as { text: string }).text)
       return json(message(9, { role: "owner", text: sent.at(-1) }), 201)

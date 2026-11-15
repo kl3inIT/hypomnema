@@ -60,7 +60,7 @@ export function ChatBody({
   onOpenArtifact?: OpenArtifact
 }) {
   const queryClient = useQueryClient()
-  const view = useChatStream(chatId)
+  const { view, loadEarlier, loadingEarlier } = useChatStream(chatId)
   const chat = useQuery({
     queryKey: ["chat", chatId],
     queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
@@ -172,6 +172,8 @@ export function ChatBody({
               local={{ sending }}
               bot={bot}
               setups={setups}
+              onLoadEarlier={() => void loadEarlier()}
+              loadingEarlier={loadingEarlier}
               empty={
                 <p className="text-center text-sm text-muted-foreground">
                   Send a message to start.
