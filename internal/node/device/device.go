@@ -359,6 +359,10 @@ func (m *Manager) boot(ctx context.Context) error {
 		return err
 	}
 
+	if err := m.clearStaleLocks(ctx); err != nil {
+		return err
+	}
+
 	m.set(nodeproto.DeviceStarting, "")
 
 	if err := os.MkdirAll(m.path(runDir), 0o700); err != nil {
@@ -415,6 +419,28 @@ func (m *Manager) boot(ctx context.Context) error {
 	m.set(nodeproto.DeviceRunning, "")
 
 	return nil
+}
+
+// clearStaleLocks removes the AVD's lock files that an emulator ended
+// without its own clean-up left behind (avd.go, clearLocks), before the next
+// one boots. They are left while any emulator of the node's SDK runs, the
+// node's own or one it did not start: its locks are not stale. The caller
+// holds op, so no start of this node's runs meanwhile.
+func (m *Manager) clearStaleLocks(ctx context.Context) error {
+	if m.opts.System.Running(emuNeedle) {
+		m.opts.Logger.WarnContext(ctx, "an emulator of the phone runs already; its locks are left",
+			slog.String("event", "device.locks_kept"))
+
+		return nil
+	}
+
+	removed, err := clearLocks(m.opts.Dir)
+	if len(removed) > 0 {
+		m.opts.Logger.InfoContext(ctx, "the phone's stale locks are removed",
+			slog.String("event", "device.locks_removed"), slog.String("locks", strings.Join(removed, " ")))
+	}
+
+	return err
 }
 
 // startDisplay starts Xvfb on the first free display and waits until it

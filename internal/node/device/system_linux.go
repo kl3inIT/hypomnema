@@ -141,6 +141,16 @@ func (linuxSystem) Alive(pgid int, needle string) bool {
 		return false
 	}
 
+	return anyProcess(needle, func(group int) bool { return group == pgid })
+}
+
+func (linuxSystem) Running(needle string) bool {
+	return anyProcess(needle, func(int) bool { return true })
+}
+
+// anyProcess reads /proc: a process whose group is one asked for, that is
+// not a zombie, and whose command line holds needle.
+func anyProcess(needle string, inGroup func(group int) bool) bool {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return false
@@ -153,7 +163,7 @@ func (linuxSystem) Alive(pgid int, needle string) bool {
 		}
 
 		group, state, ok := procStat(pid)
-		if !ok || group != pgid || state == "Z" {
+		if !ok || !inGroup(group) || state == "Z" {
 			continue
 		}
 

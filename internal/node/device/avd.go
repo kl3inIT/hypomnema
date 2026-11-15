@@ -58,6 +58,37 @@ func writeAVD(dir string) error {
 	return writeOnce(filepath.Join(folder, "config.ini"), avdConfig)
 }
 
+// clearLocks removes the lock files a running emulator keeps in the AVD's
+// folder (hardware-qemu.ini.lock, multiinstance.lock and the disks' own) and
+// returns their names. An emulator that ends cleanly removes them; one that is
+// killed, or whose machine is powered off, leaves them, and the next emulator
+// of the AVD then refuses to boot: "Running multiple emulators with the same
+// AVD is an experimental feature" (issue #417, 2026-11-15). Google's emulator
+// container deletes them before each launch, as "leftovers from hard exits"
+// (android-emulator-container-scripts, emu/templates/launch-emulator.sh,
+// clean_up: rm -rf $ANDROID_AVD_HOME/MediumPhone.avd/*.lock); Firefox's mach
+// removes hardware-qemu.ini.lock and multiinstance.lock the same way (bug
+// 1722483). The caller makes sure no emulator of the AVD runs.
+func clearLocks(dir string) ([]string, error) {
+	locks, err := filepath.Glob(filepath.Join(dir, avdDir, avdName+".avd", "*.lock"))
+	if err != nil {
+		return nil, err
+	}
+
+	var removed []string
+
+	for _, lock := range locks {
+		// RemoveAll: a lock is a file, a link or a folder, depending on the emulator's version and the host.
+		if err := os.RemoveAll(lock); err != nil {
+			return removed, fmt.Errorf("removing the phone's stale %s: %w", filepath.Base(lock), err)
+		}
+
+		removed = append(removed, filepath.Base(lock))
+	}
+
+	return removed, nil
+}
+
 func lines(pairs [][2]string) string {
 	var b strings.Builder
 	for _, p := range pairs {
