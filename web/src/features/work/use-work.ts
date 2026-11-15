@@ -3,9 +3,11 @@ import { useEffect, useMemo, useRef } from "react"
 
 import "@/api/client"
 import {
+  diffWorkspaceFileQueryKey,
   getRunOptions,
   getRunQueryKey,
   getTaskOptions,
+  listChatWorkspacesQueryKey,
   listNodesOptions,
   listProfilesOptions,
   listQuestionsOptions,
@@ -14,9 +16,10 @@ import {
   listRunsQueryKey,
   listTasksOptions,
   listTasksQueryKey,
+  listWorkspaceChangesQueryKey,
+  listWorkspaceDirectoryQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
 import { streamEvents } from "@/api/generated/sdk.gen"
-import { isFileQuery, workspaceKey } from "@/features/files/files-state"
 import { callsOf } from "@/lib/query-keys"
 
 import { boardCards } from "./work-state"
@@ -79,6 +82,17 @@ const everyWorkRead = callsOf(
   getRunQueryKey({ path: { run_id: "" } }),
 )
 
+// everyFolderList matches every cached read of a chat's folders but a file's own text and bytes
+// (readWorkspaceFile, readWorkspaceRaw) and what is read from them: the folders, their changes, directories and
+// diffs, which the hand-written ["workspace"] prefix without its "file" and "raw" keys covered.
+const folder = { chat_id: "", workspace_id: "" }
+const everyFolderList = callsOf(
+  listChatWorkspacesQueryKey({ path: { chat_id: "" } }),
+  listWorkspaceChangesQueryKey({ path: folder }),
+  listWorkspaceDirectoryQueryKey({ path: folder }),
+  diffWorkspaceFileQueryKey({ path: folder }),
+)
+
 // reopenAfter is the pause before the stream is opened again once the server ended it (a restart).
 const reopenAfter = 2000
 // settle gathers a burst of events (a Run's Tasks created together) into one refresh.
@@ -105,10 +119,7 @@ export function useLiveUpdates(after: number | undefined) {
         void queryClient.invalidateQueries({ predicate: everyWorkRead })
         // A chat's folders, as Omnigent refreshes them when its runner says files changed; a file that is open
         // reads itself again.
-        void queryClient.invalidateQueries({
-          queryKey: workspaceKey,
-          predicate: (query) => !isFileQuery(query.queryKey),
-        })
+        void queryClient.invalidateQueries({ predicate: everyFolderList })
       }, settle)
     }
 
