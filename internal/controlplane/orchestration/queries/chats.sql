@@ -159,3 +159,29 @@ DELETE FROM chat_messages WHERE chat_id = @chat_id;
 
 -- name: DeleteChat :exec
 DELETE FROM chats WHERE id = @id;
+
+-- name: InsertChatQueued :one
+INSERT INTO chat_queue (chat_id, text, attachments, created_at)
+VALUES (@chat_id, @text, @attachments, @now)
+RETURNING *;
+
+-- name: ListChatQueue :many
+SELECT * FROM chat_queue WHERE chat_id = @chat_id ORDER BY id;
+
+-- name: GetChatQueued :one
+SELECT * FROM chat_queue WHERE chat_id = @chat_id AND id = @id;
+
+-- name: DeleteChatQueued :execrows
+DELETE FROM chat_queue WHERE chat_id = @chat_id AND id = @id;
+
+-- name: ChatsWithQueue :many
+SELECT DISTINCT chat_id FROM chat_queue;
+
+-- name: DeleteChatQueue :exec
+DELETE FROM chat_queue WHERE chat_id = @chat_id;
+
+-- name: MarkChatMessageDelivered :exec
+UPDATE chat_messages SET delivered_at = @now WHERE chat_id = @chat_id AND seq = @seq AND delivered_at IS NULL;
+
+-- name: CountChatQueue :one
+SELECT count(*) FROM chat_queue WHERE chat_id = @chat_id;

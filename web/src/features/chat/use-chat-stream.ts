@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   ChatState,
   ChatToolActivity,
+  QueuedChatMessageList,
 } from "@/api/generated/types.gen"
 
 import { chatReducer, emptyChat, type ChatAction } from "./chat-state"
@@ -22,7 +23,8 @@ const reopenAfter = 2000
 // after the last kept message. Remount (key) to switch chats. While the stream is down the view says it is
 // reconnecting, as Omnigent's ConnectionIndicator (web/src/pages/ChatIndicators.tsx); the server's first frame on
 // every open, the state, says it is back. A usage frame (issue #384) is pi's new report of its context window: it
-// goes into the chat as GET /chats/{id} read it, where the composer's meter reads it.
+// goes into the chat as GET /chats/{id} read it, where the composer's meter reads it. A queue frame is the
+// chat's whole queue (issue #497).
 export function useChatStream(chatId: string) {
   const [view, dispatch] = useReducer(chatReducer, emptyChat)
   const queryClient = useQueryClient()
@@ -50,6 +52,8 @@ export function useChatStream(chatId: string) {
           return { type: "tool", activity: data as ChatToolActivity }
         case "state":
           return { type: "state", working: (data as ChatState).working }
+        case "queue":
+          return { type: "queue", items: (data as QueuedChatMessageList).items }
         default:
           return null
       }

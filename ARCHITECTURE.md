@@ -33,8 +33,13 @@ The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` r
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
 and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
-messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
-them. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
+messages and wake-ups go as one `prompt` when pi is idle and are marked delivered once pi accepted them. An owner
+message written while pi works, from the web, the CLI or Lark, or while others still wait, goes into the chat's
+queue (`chat_queue`, issue #497, after OpenMausBot's `server/channel-queue.ts`): off the transcript until the turn
+settles, when the supervisor moves the queue into the chat in order and sends it with the wake-ups. Wake-ups also
+wait for the turn. The owner may remove a queued message or send it now, which moves it into the chat and goes to
+pi at once as a `steer` (read after the running tool calls, before the next model call). The chat's stream sends the
+whole queue as a `queue` frame when it opens and whenever it changes. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
 the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
 its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
 the chat's watchers from memory only and are never stored. A reply that ends in an error is followed by a `failed`
@@ -1471,8 +1476,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       quoted), shows the tool that is running before and under the text, as the Bot's tool display shows it (`⚡ name`,
       `⚡ name: arguments` at full, nothing at off; see Bots), and ends with a
       link to the same chat on the web when `HYPOMNEMA_PUBLIC_URL` is set and the Channel's `web_link` is on,
-      read at each reply. A message sent while a turn runs is
-      told it is queued, by the name of the chat's Bot. A reply longer than 8,000 characters goes on in further
+      read at each reply. A message sent while a turn runs waits in
+      the chat's queue and is told it is queued, by the name of the chat's Bot. A reply longer than 8,000 characters goes on in further
       cards. Lark's mention tags in a reply are written out, so nobody is notified. A card Lark stopped writing
       after ten minutes is switched on again. `/new` gives the person's next message a new chat; `/stop` stops
       the turn that runs. The relay reads each system row's `kind`: a `stopped` row (from `/stop` or the web's
@@ -2616,6 +2621,11 @@ Node (`internal/node`):
     the start or end of the text, ↓ past the newest gives the empty box back, and typing ends the walk. Not built:
     drafts on the server or shared between devices, dropping the draft of a chat that is gone (the server
     has no delete) or of a closed tab, opencode's Shift+↑ search.
+  - The queue (issue #497, `features/chat/queued-strip.tsx`, adapted from Omnigent's `QueuedMessagesStrip.tsx`):
+    what the owner wrote while the Bot works sits in a strip above the composer, a row each with its text and
+    files, and Edit (takes it out and puts it back in the composer after what is typed, its files attached again),
+    Send now (a steer) and Remove, from the stream's `queue` frame. Not built: reordering; the files of a removed
+    message stay in the folder.
   - The model and effort (issue #369, `features/chat/chat-model-picker.tsx`, after t3code's
     `ProviderModelPicker.tsx`, `TraitsPicker.tsx` and `ComposerModelEffort.tsx`): in the composer's footer, left of
     Send, a quiet button with the model's mark and name opens the app's model list (`features/agents/model-choices.ts`:

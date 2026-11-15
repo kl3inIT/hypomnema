@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -183,6 +184,17 @@ func (s *Supervisor) pass(ctx context.Context) {
 	}
 
 	chats, err := s.svc.ChatsWithUndelivered(ctx)
+	if err == nil {
+		var queued []string
+
+		queued, err = s.svc.ChatsWithQueue(ctx)
+		for _, id := range queued {
+			if !slices.Contains(chats, id) {
+				chats = append(chats, id)
+			}
+		}
+	}
+
 	if err != nil {
 		if ctx.Err() == nil {
 			s.cfg.Logger.ErrorContext(ctx, "listing chats failed", slog.Any("error", err))
@@ -201,12 +213,30 @@ func (s *Supervisor) pass(ctx context.Context) {
 	s.reapIdle()
 }
 
-// deliver gives pi the chat's waiting messages as one prompt, or as a
-// follow-up while it works, and marks them delivered once pi accepted them.
+// deliver gives pi what the chat has for it and marks it delivered once pi accepted it. While pi works, only the
+// owner messages sent now go, as a steer, and the rest waits for the turn to settle, as pi's own follow-ups did
+// (rpc-commands.md: a followUp "is delivered only when agent stops"). When pi is idle the chat's queue moves into
+// the chat first (issue #497), so it goes with the wake-ups as one prompt.
 func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
+	working := s.Working(chatID)
+
+	if !working {
+		if _, err := s.svc.TakeChatQueue(ctx, chatID); err != nil {
+			return err
+		}
+	}
+
 	msgs, err := s.svc.Undelivered(ctx, chatID)
-	if err != nil || len(msgs) == 0 {
+	if err != nil {
 		return err
+	}
+
+	if working {
+		msgs = ownerOnly(msgs)
+	}
+
+	if len(msgs) == 0 {
+		return nil
 	}
 
 	p, err := s.procFor(ctx, chatID)
@@ -227,7 +257,29 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 		return err
 	}
 
+	if working {
+		seqs := make([]int64, 0, len(msgs))
+		for _, m := range msgs {
+			seqs = append(seqs, m.Seq)
+		}
+
+		return s.svc.MarkDeliveredSeqs(ctx, chatID, seqs)
+	}
+
 	return s.svc.MarkDelivered(ctx, chatID, msgs[len(msgs)-1].Seq)
+}
+
+// ownerOnly keeps the owner messages: what is sent while pi works.
+func ownerOnly(msgs []orchestration.ChatMessage) []orchestration.ChatMessage {
+	out := msgs[:0:0]
+
+	for _, m := range msgs {
+		if m.Role == orchestration.ChatOwner {
+			out = append(out, m)
+		}
+	}
+
+	return out
 }
 
 // promptText joins the owner's messages and the wake-ups into one turn.

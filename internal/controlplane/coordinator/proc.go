@@ -123,11 +123,13 @@ func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string
 	return p, nil
 }
 
-// send gives pi a message: a prompt when idle, a follow-up while it works.
+// send gives pi a message: a prompt when idle, a steer while it works, which pi reads after the tool calls that run
+// and before its next model call (rpc-commands.md): the supervisor sends only what the owner sent now while pi
+// works (issue #497).
 func (p *proc) send(ctx context.Context, text string) error {
 	cmd := map[string]any{"type": "prompt", "message": text}
 	if p.isWorking() {
-		cmd["streamingBehavior"] = "followUp"
+		cmd["streamingBehavior"] = "steer"
 	}
 
 	r, err := p.call(ctx, cmd)

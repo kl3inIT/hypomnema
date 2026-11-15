@@ -225,8 +225,11 @@ var policies = map[string]policy{
 	"CompactChat":        {scope: scopeOwner},
 	// pi reads its own key (issue #204). The handler lets one token through, pi's, by its name: no scope here
 	// says that.
-	"GetChatGatewayKey": {},
-	"SendChatMessage":   {scope: scopeOwner},
+	"GetChatGatewayKey":       {},
+	"SendChatMessage":         {scope: scopeOwner},
+	"ListChatQueue":           {scope: scopeOwner},
+	"RemoveQueuedChatMessage": {scope: scopeOwner},
+	"SendQueuedChatMessage":   {scope: scopeOwner},
 	// The web (issue #354): any token, a Bot's above all. A search may try every provider, longer than the
 	// write timeout at worst.
 	"SearchWeb": {long: true},
