@@ -346,6 +346,8 @@ func (s *Server) drop(sess *session) {
 	if s.sessions[sess.nodeID] == sess {
 		delete(s.sessions, sess.nodeID)
 	}
+
+	s.loseDeviceCalls(sess)
 }
 
 // session is one node's WebSocket.

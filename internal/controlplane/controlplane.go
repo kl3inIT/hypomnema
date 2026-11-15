@@ -312,7 +312,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}},
 	})
 	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
-	agents.WithWeb(workerWeb{metered}, dispatchRuntime(svc))
+	agents.WithRuntimes(dispatchRuntime(svc)).WithWeb(workerWeb{metered})
 
 	// The phone a node holds (issue #417), given to every worker as the browser is. A call that finds its
 	// machine stopped starts it as `machines start` does.
@@ -354,6 +354,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Web:                webSearch,
 	})
 	gatewayServer.Register(mux)
+	// Every worker's generate_image (issue #492), recorded on its Dispatch's key; before anything is served.
+	agents.WithImages(workerImages{server: gatewayServer, gateway: gateway, logger: logger})
 	// The subscriptions the owner logged in search too, through the gateway's calls to them (issue #354); the
 	// gateway is made after the search it serves, before anything is served.
 	webSearch.WithSubscriptions(gatewayServer.SubscriptionSearch())

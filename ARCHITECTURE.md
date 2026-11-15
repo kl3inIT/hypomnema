@@ -290,8 +290,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish`, `memory` (below, under
     Memories) and what the control plane lists, under agent-browser's names, so the list changes without a node release; any other tool's call is
     passed to `POST /agent/v1/browser/call` and its answer, a screenshot as image content, is passed back as it
-    is. The control plane's list also holds a worker's web tools, by its runtime (see "Web search and fetch"),
-    and lists them when it gives no browser. A control plane that gives neither leaves the worker `ask`, `finish`
+    is. The control plane's list also holds a worker's gateway tools, by its runtime (below), and lists them when
+    it gives no browser. A control plane that gives neither leaves the worker `ask`, `finish`
     and `memory`. The tab is not closed when
     the Dispatch settles: the idle rules close it.
   - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
@@ -1917,7 +1917,7 @@ capabilities do not exist yet.
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
 model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker as tools (see "A
-browser every agent shares") and the client API gives a Bot as commands (see Bots). It holds no key and stores
+worker's gateway tools", below) and the client API gives a Bot as commands (see Bots). It holds no key and stores
 nothing itself: the control plane's wiring gives it the keys from the vault, the gateway keeps the counts of its
 calls, and each call is recorded on a gateway key.
 - Providers: only those free without a card (owner, 2026-11-14). With the owner's keys, each asked as its reference
@@ -2050,8 +2050,8 @@ calls, and each call is recorded on a gateway key.
 
 Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `codex/images.go`, `antigravity/images.go`;
 issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
-(`/v1/images/*`, above), for workers (omp and opencode name the gateway as their image model, see their runtime
-below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no reference has it).
+(`/v1/images/*`, above), for workers (`generate_image`, see "A worker's gateway tools", below) and for Bots
+(`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
   answers gives the images, and the answer says why those before it did not (as a web search). Each provider makes
   images with its one model, not chosen (issue #453, owner, 2026-11-14): Codex `gpt-image-2` (codex-rs's
@@ -2105,6 +2105,32 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   prints the size and quality the provider says it made.
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
+
+A worker's gateway tools (`internal/controlplane/agentapi/web.go`, `images.go`; issues #354 and #492,
+[research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): the web's `web_search` and `web_fetch`
+and `generate_image`, listed and called on the browser's routes of the agent API (see "A browser every agent
+shares"), so that a worker's tools server offers them without a node release, as OpenMausBot gives every engine one
+`agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Each call is recorded on the Dispatch's
+gateway key, when it has one.
+- Which worker gets which (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
+  when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
+  three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker
+  keeps its own `web.run` search, which the gateway answers on `/v1/alpha/search`, and gets `web_fetch` and
+  `generate_image` (Codex's own `image_gen` is offered only under an OpenAI login); omp and opencode get all three,
+  their own web and image tools off (see their runtime, below). A runtime not named, and any agent that is not a
+  worker, gets none; a tool this control plane does not have (no web, no images) is not listed.
+- `generate_image` `{prompt, images?, path?, size?, quality?}` makes one image a call (OpenMausBot's and
+  opencode's), with "Images" above, `n` 1. The images to edit are files of the worker's machine, at most 8, each a
+  PNG, JPEG, WebP or GIF of up to 20 MiB (opencode's bounds): the worker's tools server reads them and sends them
+  whole, in base64 (`agenttool.ImageCall`; a call's body may be 64 MiB, the gateway's own bound for an image
+  request). The control plane answers what made the image (provider, model, the size and quality the provider
+  says it made, the providers that failed first) as text and the image as MCP image content; the tools server
+  saves it at `path` (its extension the image's real one) or as a new `hypomnema-image-*` file in the temporary
+  folder, and answers the text with `Saved to <absolute path>` instead of the image, as opencode's and omp's image
+  tools answer a path. A request no provider could make, or one they refuse, is the tool's error. The call waits up
+  to 11 minutes.
+- Not built: image URLs as references (opencode downloads them); the tools on a Bot (it has `hypomnema web` and
+  `hypomnema image`); a switch per profile or Bot.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2356,13 +2382,10 @@ Node (`internal/node`):
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
-  own, away from the user's and the project's). Each CLI's own web tools are off, so that the worker has the control
-  plane's (issue #354): omp's `web_search.enabled: false`; opencode's `websearch` and `webfetch` denied in its
-  `permissions`, which takes them out of its tools. The gateway is their image model too (issue #431): omp's
-  `models.yml` has a model `auto` of `api: openai-images` under the gateway, named as `modelRoles.image`, so its
-  `generate_image` calls `/v1/images/*`; opencode's has a model `auto` of `type: image` under the same
-  openai-compatible provider, named as `experimental.image_generate.model`. `auto` is "Images" above with each
-  provider's own model. A turn is `initialize`, `session/new` with the tools server as an
+  own, away from the user's and the project's). Each CLI's own web and image tools are off, so that the worker has
+  the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
+  opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
+  out of its tools. Neither is given an image model. A turn is `initialize`, `session/new` with the tools server as an
   MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
   `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
@@ -2429,7 +2452,8 @@ Node (`internal/node`):
     - A transcript the control plane has whole after the worker exited is marked `sent.done`. A new daemon sends the
       journals under `run/` that are not marked, those from before this existed too.
   - The worker's tools (`internal/node/workertools`, `hypomnema-node mcp`) come in through `--mcp-config` with
-    `--strict-mcp-config`; AskUserQuestion and the subagent tool (`Task`, `Agent`) are disallowed. `ask` and `finish` reach the
+    `--strict-mcp-config`; AskUserQuestion, the subagent tool (`Task`, `Agent`), `WebSearch` and `WebFetch` are
+    disallowed, the worker searching and reading pages with the gateway's tools (issue #492). `ask` and `finish` reach the
     Supervisor only through a bridge directory beside the journal (`internal/node/bridge`), so a question survives a
     daemon restart; the shared browser's tools go to the control plane (see "A browser every agent shares").
     - `ask`: the Supervisor submits the question (also one asked just before the worker exited), records the control plane's id, writes the answer for the waiting
@@ -2438,6 +2462,10 @@ Node (`internal/node`):
     - `finish`: the final report, with summary, evidence and an optional Gate. It is the outcome once the worker
       exits.
   - Without `finish`, the outcome is one of:
+    - `worker_error`, "the worker's tools server (hypomnema) did not start", when `system/init` names it with the
+      status `failed`: the turn is interrupted at once (issue #492, as OpenClaw fails a turn whose Claude Code
+      reports its MCP server not connected at start). A server still `pending` is not taken as failed. Other
+      runtimes are not checked.
     - `rate_limited`, after a rejected rate-limit event;
     - `needs_auth`, on a login error;
     - `worker_error`, "stopped without finish", as Orca reports a stop without `worker_done`;
@@ -2953,7 +2981,7 @@ the internet, so that a machine created at a provider can install the node from 
 ```
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
-internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's and the web's tools
+internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's tools and the gateway's (web, images)
 internal/controlplane/artifactpack  an Artifact's files: the rules a Bot's file or folder is read by, its tar, its type from bytes and name, its limits
 internal/controlplane/spreadsheet  an xlsx workbook read into CSV text a sheet for the web's preview, within its limits
 internal/controlplane/bearertoken  client token format: making, checking and hashing
@@ -2988,7 +3016,7 @@ internal/node/skills      the skills an offer names: fetched once by digest, and
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
 internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvfb, adb and the emulator, the idle stop
-internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the web's) passed on to it
+internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the gateway's) passed on to it, generate_image's files read and saved here
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat

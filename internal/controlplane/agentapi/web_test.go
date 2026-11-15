@@ -3,6 +3,7 @@ package agentapi_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -45,9 +47,46 @@ func (f *fakeWeb) Fetch(_ context.Context, dispatchID, url string) (websearch.Pa
 	return websearch.Page{URL: url, Title: "Go", Content: "# Go"}, f.err
 }
 
+// fakeImages stands for the gateway's images: it records which Dispatch
+// asked what, and fails with err when it is set.
+type fakeImages struct {
+	asked []string
+	err   error
+}
+
+func (f *fakeImages) Make(_ context.Context, dispatchID string, req modelgateway.ImageRequest,
+) (modelgateway.ImageResult, error) {
+	refs := make([]string, 0, len(req.Images))
+	for _, img := range req.Images {
+		refs = append(refs, img.MIME+":"+string(img.Data))
+	}
+
+	f.asked = append(f.asked, fmt.Sprintf("%s %q n=%d size=%s quality=%s refs=%v", dispatchID, req.Prompt, req.N,
+		req.Size, req.Quality, refs))
+
+	if f.err != nil {
+		return modelgateway.ImageResult{}, f.err
+	}
+
+	return modelgateway.ImageResult{
+		Provider: "antigravity", Model: "gemini-3.1-flash-image", Size: "1024x1536",
+		Images: []modelgateway.GeneratedImage{{B64JSON: base64.StdEncoding.EncodeToString([]byte("PNG")),
+			MIME: "image/png"}},
+		Errors: []modelgateway.ImageFailure{{Provider: "codex", Model: "gpt-image-2", Message: "rate limited"}},
+	}, nil
+}
+
 // webWorld is a control plane whose workers run the runtimes named, with the
-// web, and with the browser or without it.
+// web and the gateway's images, and with the browser or without it.
 func webWorld(t *testing.T, withBrowser bool, runtimes map[string]string) (*world, *fakeWeb) {
+	t.Helper()
+
+	w, web, _ := gatewayWorld(t, withBrowser, runtimes)
+
+	return w, web
+}
+
+func gatewayWorld(t *testing.T, withBrowser bool, runtimes map[string]string) (*world, *fakeWeb, *fakeImages) {
 	t.Helper()
 
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
@@ -57,17 +96,17 @@ func webWorld(t *testing.T, withBrowser bool, runtimes map[string]string) (*worl
 
 	w := &world{t: t, svc: orchestration.New(db, platform.SystemClock{}, platform.NewID), logs: &bytes.Buffer{},
 		browser: &sharedBrowser{}}
-	web := &fakeWeb{}
+	web, images := &fakeWeb{}, &fakeImages{}
 
 	api := agentapi.New(w.svc, nil, slog.New(slog.NewTextHandler(w.logs, nil))).
-		WithWeb(web, func(_ context.Context, dispatchID string) (string, error) {
+		WithRuntimes(func(_ context.Context, dispatchID string) (string, error) {
 			runtime, ok := runtimes[dispatchID]
 			if !ok {
 				return "", orchestration.ErrNotFound
 			}
 
 			return runtime, nil
-		})
+		}).WithWeb(web).WithImages(images)
 	if withBrowser {
 		api.WithBrowser(w.browser)
 	}
@@ -78,7 +117,7 @@ func webWorld(t *testing.T, withBrowser bool, runtimes map[string]string) (*worl
 	w.srv = httptest.NewServer(mux)
 	t.Cleanup(w.srv.Close)
 
-	return w, web
+	return w, web, images
 }
 
 func (w *world) toolNames(key string) []string {
@@ -98,9 +137,10 @@ func (w *world) toolNames(key string) []string {
 	return names
 }
 
-// Scenario: each worker is offered the web's tools its runtime gets, after
-// the browser's: a Claude Code worker none, a Codex worker web_fetch, omp
-// and opencode both. A coordinator gets none: a Bot has its CLI.
+// Scenario: each worker is offered the gateway's tools its runtime gets,
+// after the browser's: a Codex worker web_fetch and generate_image, its own
+// search being the gateway's; Claude Code, omp and opencode all three, their
+// own being off (issue #492). A coordinator gets none: a Bot has its CLI.
 func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
 	t.Parallel()
 
@@ -109,10 +149,10 @@ func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
 	ctx := t.Context()
 
 	want := map[string][]string{
-		"d_claude": {"agent_browser_open"},
-		"d_codex":  {"agent_browser_open", "web_fetch"},
-		"d_omp":    {"agent_browser_open", "web_search", "web_fetch"},
-		"d_oc":     {"agent_browser_open", "web_search", "web_fetch"},
+		"d_claude": {"agent_browser_open", "web_search", "web_fetch", "generate_image"},
+		"d_codex":  {"agent_browser_open", "web_fetch", "generate_image"},
+		"d_omp":    {"agent_browser_open", "web_search", "web_fetch", "generate_image"},
+		"d_oc":     {"agent_browser_open", "web_search", "web_fetch", "generate_image"},
 	}
 
 	for dispatch, names := range want {
@@ -132,8 +172,9 @@ func TestEachRuntimeIsOfferedItsWebTools(t *testing.T) {
 
 	_, body := w.call(http.MethodGet, agenttool.PathBrowserTools, key, nil)
 	require.NoError(t, json.Unmarshal(body, &list))
-	require.Len(t, list.Data, 3)
+	require.Len(t, list.Data, 4)
 	assert.JSONEq(t, `["query"]`, mustField(t, list.Data[1].InputSchema, "required"))
+	assert.JSONEq(t, `["prompt"]`, mustField(t, list.Data[3].InputSchema, "required"))
 }
 
 func mustField(t *testing.T, raw json.RawMessage, field string) string {
@@ -161,7 +202,8 @@ func TestAWorkerSearchesAndReadsThroughTheAgentAPI(t *testing.T) {
 	omp, err := w.svc.AddAgentSession(ctx, "d_omp", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"web_search", "web_fetch"}, w.toolNames(omp), "no browser, still the web")
+	assert.Equal(t, []string{"web_search", "web_fetch", "generate_image"}, w.toolNames(omp),
+		"no browser, still the gateway's tools")
 
 	status, body := w.browse(omp, "web_search", `{"query":"go","max_results":3,"provider":"exa"}`)
 	require.Equal(t, http.StatusOK, status, body)
@@ -203,4 +245,63 @@ func TestAWorkerSearchesAndReadsThroughTheAgentAPI(t *testing.T) {
 
 	status, _ = w.browse(omp, "web_fetch", `["not an object"]`)
 	assert.Equal(t, http.StatusBadRequest, status)
+}
+
+// Scenario: a Claude Code worker makes an image from a description and then
+// edits one. Each call reaches the gateway as its Dispatch's, so that it is
+// recorded on its key, makes one image, and answers what made it, the
+// providers that failed first included, then the image as MCP image
+// content. What no provider could make is the tool's error, for the agent to
+// read; a call the tool cannot read says what it takes.
+func TestAWorkerMakesAnImageThroughTheAgentAPI(t *testing.T) {
+	t.Parallel()
+
+	w, _, images := gatewayWorld(t, false, map[string]string{"d_claude": "claude"})
+
+	key, err := w.svc.AddAgentSession(t.Context(), "d_claude", nil)
+	require.NoError(t, err)
+
+	status, body := w.browse(key, "generate_image", `{"prompt":"a red fox","size":"1024x1536","quality":"high"}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	var result struct {
+		Content []struct{ Type, Text, Data, MimeType string } `json:"content"`
+		IsError bool                                          `json:"isError"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(body), &result))
+	assert.False(t, result.IsError)
+	require.Len(t, result.Content, 2)
+	assert.Equal(t, "Made by antigravity with gemini-3.1-flash-image at 1024x1536, after codex failed (rate limited).",
+		result.Content[0].Text)
+	assert.Equal(t, "image", result.Content[1].Type)
+	assert.Equal(t, "image/png", result.Content[1].MimeType)
+	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("PNG")), result.Content[1].Data)
+
+	ref := base64.StdEncoding.EncodeToString([]byte("GIF89a"))
+	status, _ = w.browse(key, "generate_image",
+		`{"prompt":"make it blue","images":[{"mime_type":"image/gif","data":"`+ref+`"}]}`)
+	require.Equal(t, http.StatusOK, status)
+
+	assert.Equal(t, []string{
+		`d_claude "a red fox" n=1 size=1024x1536 quality=high refs=[]`,
+		`d_claude "make it blue" n=1 size= quality= refs=[image/gif:GIF89a]`,
+	}, images.asked)
+	assert.Contains(t, w.logs.String(), "agentapi.image_call")
+	assert.NotContains(t, w.logs.String(), "fox", "what a worker asks for is not logged")
+
+	images.err = &modelgateway.ImageError{Failures: []modelgateway.ImageFailure{
+		{Provider: "codex", Model: "gpt-image-2", Status: http.StatusTooManyRequests, Message: "rate limited"},
+	}}
+
+	status, body = w.browse(key, "generate_image", `{"prompt":"a red fox"}`)
+	require.Equal(t, http.StatusOK, status)
+	require.NoError(t, json.Unmarshal([]byte(body), &result))
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content[0].Text, "no image provider made the image: codex gpt-image-2: rate limited")
+
+	status, body = w.browse(key, "generate_image", `{"prompt":"x","images":["fox.png"]}`)
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Contains(t, body, "generate_image takes")
+	assert.Len(t, images.asked, 3, "a call the tool cannot read reaches no provider")
 }

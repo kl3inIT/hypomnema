@@ -23,10 +23,6 @@ const (
 	// examples of a custom model (omp docs/models.md, opencode models.mdx).
 	contextWindow = 128000
 	maxOutput     = 16384
-	// imageModel is the gateway's image model as a worker names it: auto, the
-	// providers the owner set in their order, each with its own model (issue
-	// #431, modelgateway/images.go).
-	imageModel = "auto"
 )
 
 // launch is how to start one turn of an agent.
@@ -69,12 +65,11 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 // Conversation's own (PI_CODING_AGENT_DIR, as Orca gives an account its
 // own), with the tools server's tools shown as plain tools (tools.xdev:
 // false) and sessions kept beside it (--session-dir). omp's own web_search
-// is off (web_search.enabled, omp src/tools/settings.ts), so that the worker
-// has one search, the control plane's (issue #354). The gateway is its image
-// model too (issue #431): a model of api openai-images, which its
-// generate_image tool calls at <base URL>/images/generations and
-// /images/edits (packages/ai/src/images/openai-images.ts), named as the
-// image role (modelRoles.image, docs/settings.md).
+// and generate_image are off (web_search.enabled, generate_image.enabled,
+// omp src/tools/settings.ts), so that the worker has one search and one image
+// tool, the tools server's (issues #354, #492): a CLI's own tool is off when
+// Hypomnema serves the same, as OpenClaw turns a CLI's search off for its
+// own (resolveCliNativeWebSearchEnabled).
 func prepareOmp(l launch) ([]string, []string, error) {
 	agentDir, sessions := filepath.Join(l.Dir, "agent"), filepath.Join(l.Dir, "sessions")
 
@@ -90,13 +85,9 @@ func prepareOmp(l launch) ([]string, []string, error) {
         reasoning: %t
         contextWindow: %d
         maxTokens: %d
-      - id: %s
-        name: "Images through Hypomnema"
-        api: openai-images
 `, providerID, quoteYAML(l.URL), keyVariable, quoteYAML(l.Model), quoteYAML(l.Model), l.Effort != "",
-		contextWindow, maxOutput, imageModel)
-	config := fmt.Sprintf("tools:\n  xdev: false\nweb_search:\n  enabled: false\nmodelRoles:\n  image: %s\n",
-		quoteYAML(providerID+"/"+imageModel))
+		contextWindow, maxOutput)
+	config := "tools:\n  xdev: false\nweb_search:\n  enabled: false\ngenerate_image:\n  enabled: false\n"
 
 	for name, content := range map[string]string{
 		filepath.Join(agentDir, "models.yml"): models,
@@ -125,13 +116,12 @@ func prepareOmp(l launch) ([]string, []string, error) {
 // project's, with its data under the same directory. Every action is
 // allowed but `execute`, the tool that would hide the tools server's tools
 // behind code: denied, they are plain tools (opencode core/src/tool.ts).
-// Its own `websearch` and `webfetch` are denied too, which takes them out of
-// its tools (core/src/tool.ts, whollyDisabled), so that the worker has the
-// control plane's web tools only (issue #354). The gateway is its image model
-// too (issue #431): a model of type image of the same openai-compatible
-// provider, whose package makes images through OpenAI's Images routes
-// (packages/ai/src/protocols/openai-images.ts), named as the default of its
-// experimental_image_generate tool (schema/src/config/experimental.ts).
+// Its own `websearch`, `webfetch` and `experimental_image_generate` are
+// denied too, which takes them out of its tools (core/src/tool.ts,
+// whollyDisabled; for the image tool "permissions are the supported way to
+// turn it off", core/src/tool/plugin/image-generate.ts), so that the worker
+// has the tools server's web and image tools only (issues #354, #492). It is
+// given no image model either, without which its image tool is not offered.
 func prepareOpencode(l launch) ([]string, []string, error) {
 	model := map[string]any{
 		"capabilities": map[string]any{"tools": true, "input": []string{"text"}, "output": []string{"text"}},
@@ -143,17 +133,14 @@ func prepareOpencode(l launch) ([]string, []string, error) {
 		"providers": map[string]any{providerID: map[string]any{
 			"package":  "@opencode/ai/providers/openai-compatible",
 			"settings": map[string]any{"baseURL": l.URL, "apiKey": "{env:" + keyVariable + "}"},
-			"models": map[string]any{l.Model: model, imageModel: map[string]any{
-				"type": "image", "name": "Images through Hypomnema",
-				"capabilities": map[string]any{"input": []string{"text", "image"}, "output": []string{"image"}},
-			}},
+			"models":   map[string]any{l.Model: model},
 		}},
-		"experimental": map[string]any{"image_generate": map[string]any{"model": providerID + "/" + imageModel}},
 		"permissions": []map[string]string{
 			{"action": "*", "resource": "*", "effect": "allow"},
 			{"action": "execute", "resource": "*", "effect": "deny"},
 			{"action": "websearch", "resource": "*", "effect": "deny"},
 			{"action": "webfetch", "resource": "*", "effect": "deny"},
+			{"action": "experimental_image_generate", "resource": "*", "effect": "deny"},
 		},
 	}
 	if l.Skills != "" {
