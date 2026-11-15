@@ -8,9 +8,12 @@ import {
   listBots,
   putBot,
   renameBot,
+  reorderBots as putBotOrder,
   setBotMemory,
 } from "@/api/generated/sdk.gen"
 import type { Bot, BotSettings } from "@/api/generated/types.gen"
+
+import { reorderBots } from "@/features/shell/bot-rows"
 
 import { botNameOf, mainBotOf } from "./bots-state"
 
@@ -97,6 +100,50 @@ export function useRenameBot() {
       (await renameBot({ path: { bot_id: id }, body: { name } })).data,
     onSuccess: saved,
   })
+}
+
+// useBotsChange changes the Bots in the cache at once and then on the server, as onyx shows a new pin or order of its
+// agents before the server answers and puts back what it had when the server refuses (web/src/lib/agents/hooks.ts,
+// usePinnedAgents); the Bots are read again either way.
+function useBotsChange<T>(
+  change: (bots: Bot[], to: T) => Bot[],
+  send: (to: T) => Promise<unknown>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: send,
+    onMutate: async (to: T) => {
+      await queryClient.cancelQueries({ queryKey: botsKey, exact: true })
+      const had = queryClient.getQueryData<Bot[]>(botsKey)
+      if (had) queryClient.setQueryData(botsKey, change(had, to))
+
+      return { had }
+    },
+    onError: (_error, _to, context) => {
+      if (context?.had) queryClient.setQueryData(botsKey, context.had)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: botsKey }),
+  })
+}
+
+// useReorderBots moves the Bots named in the one order every client lists them in (issue #470): they take the
+// places they hold together, the others keep theirs.
+export function useReorderBots() {
+  return useBotsChange(reorderBots, async (ids: string[]) => {
+    await putBotOrder({ body: { bot_ids: ids } })
+  })
+}
+
+// usePinBot pins or unpins a Bot (issue #470), listed then in the sidebar's Pinned section.
+export function usePinBot() {
+  return useBotsChange(
+    (bots, { id, pinned }: { id: string; pinned: boolean }) =>
+      bots.map((bot) => (bot.id === id ? { ...bot, pinned } : bot)),
+    async ({ id, pinned }) => {
+      await renameBot({ path: { bot_id: id }, body: { pinned } })
+    },
+  )
 }
 
 // useSetBotMemory replaces a Bot's whole memory with the owner's text, a line an entry.
