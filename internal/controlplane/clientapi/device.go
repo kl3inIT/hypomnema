@@ -17,6 +17,8 @@ import (
 type Devices interface {
 	// DeviceState is the phone's state a node said last, and false when it said none.
 	DeviceState(nodeID string) (nodeproto.DeviceState, bool)
+	// Online says whether the node holds its socket now, on which it says the phone's state.
+	Online(nodeID string) bool
 	StartDevice(ctx context.Context, nodeID string) error
 	StopDevice(ctx context.Context, nodeID string) error
 }
@@ -109,10 +111,15 @@ func (s *Server) deviceAsk(ctx context.Context, nodeID string, start bool) (orch
 }
 
 // deviceNode is a node's phone as the API shows it; the state of a node
-// that is not connected is left out, being of an earlier time.
+// that is not connected is left out, being of an earlier time. A node is
+// connected here while it holds its socket, on which it says the phone's
+// state, as well as heard from lately: a node whose machine was stopped
+// has closed its socket though it was heard from within NodeOfflineAfter
+// (issue #545).
 func (s *Server) deviceNode(n orchestration.Node) openapi.DeviceNode {
+	connected := n.Connected && s.devices.Online(n.ID)
 	out := openapi.DeviceNode{
-		NodeId: n.ID, Name: n.Name, Device: openapi.DeviceNodeDevice(n.Device), Connected: n.Connected, Kvm: n.KVM,
+		NodeId: n.ID, Name: n.Name, Device: openapi.DeviceNodeDevice(n.Device), Connected: connected, Kvm: n.KVM,
 		Installed: []openapi.DeviceComponent{},
 	}
 
@@ -125,7 +132,7 @@ func (s *Server) deviceNode(n orchestration.Node) openapi.DeviceNode {
 		out.Installed = append(out.Installed, openapi.DeviceComponent{Name: c.Name, Version: c.Version})
 	}
 
-	if n.Connected {
+	if connected {
 		out.State, out.Reason = ptr(openapi.DeviceNodeState(st.State)), ptr(st.Reason)
 	}
 

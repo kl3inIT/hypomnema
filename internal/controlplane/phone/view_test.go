@@ -320,3 +320,43 @@ func TestViewsAreBounded(t *testing.T) {
 	_, err = none.Watch(t.Context())
 	require.ErrorIs(t, err, ErrUnavailable)
 }
+
+// Scenario: the owner's view opens while the phone's node restarts, for its
+// own update (issue #545): the node is offline though its machine is on. The
+// view waits for the node's hello, does not start the machine, and connects
+// once the node is back; a node that does not come back within the wait ends
+// the view as unavailable.
+func TestAViewWaitsForANodeThatRestarts(t *testing.T) {
+	t.Parallel()
+
+	link := newLink()
+	machines := &fakeMachines{link: link}
+	end := newEnd()
+	p, _ := viewPhone(link, machines, end, phoneNode(""))
+
+	v, err := p.Watch(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { v.Close(context.Background(), true) })
+
+	assert.Equal(t, ControllerAgent, nextUp(t, v).Controller)
+
+	time.Sleep(50 * time.Millisecond)
+	link.connect("n-phone")
+
+	end.says <- nodeproto.DeviceViewMessage{Type: nodeproto.DeviceViewState, State: nodeproto.DeviceStarting}
+	assert.Equal(t, nodeproto.DeviceStarting, nextUp(t, v).Said.State)
+	assert.Empty(t, machines.started, "a machine that is on is not started")
+
+	gone, _ := viewPhone(newLink(), machines, newEnd(), phoneNode(""))
+	lost, err := gone.Watch(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { lost.Close(context.Background(), true) })
+
+	assert.Equal(t, ControllerAgent, nextUp(t, lost).Controller)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	_, err = lost.Next(ctx)
+	require.ErrorIs(t, err, ErrUnavailable)
+}

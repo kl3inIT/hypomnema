@@ -311,9 +311,10 @@ sequenceDiagram
   one to two days (`update_every_minutes` in its configuration sets another), and when the release is newer it
   downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
   script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
-  It does not end while a terminal is open; workers are kept across the restart by their shims. A node built
-  from a commit, a node not run by systemd, and one with `disable_auto_update` in its configuration keep their
-  version.
+  It does not end while a terminal is open, nor while a start of its phone is asked or under way, which it looks at
+  again after the download and waits for (issue #545); workers are kept across the restart by their shims. A node
+  built from a commit, a node not run by systemd, and one with `disable_auto_update` in its configuration keep
+  their version.
 - A terminal on a node, from the web (issue #116, [research](docs/research/2026-11-10-web-terminal.md); after
   Coder's reconnecting PTY, read for behaviour and not copied since it is AGPL, and Nezha's IOStream):
   - The node keeps shells by session id (`internal/node/terminal`): the node user's own shell on a pseudo-terminal
@@ -515,7 +516,8 @@ sequenceDiagram
     phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is
     ended. The browser instead closes a Chrome an earlier control plane left, because its tabs are agents' the
     new control plane does not know; the phone holds no agent's session, and a stop at shutdown could outlast the
-    30 s systemd gives the node. A node does not update itself while its phone is being installed or started.
+    30 s systemd gives the node. A node does not update itself while its phone is asked to start, or is being
+    installed or started.
   - The state is `absent` (not installed), `installing`, `stopped`, `starting`, `running` or `failed`, with the
     reason and each installed component's version. The node says it at hello (`device_state`) and in every
     heartbeat (`device`), and sends a heartbeat at once when it changes. The control plane keeps the last one in
@@ -523,8 +525,9 @@ sequenceDiagram
   - The control plane asks on the node's socket with `device_start` and `device_stop`, which carry nothing and
     are not answered; the state says what came of them. `GET /api/v1/device` (`hypomnema device status`) lists
     the nodes that hold a phone, with whether each is connected and can use KVM, the phone's state (left out for a
-    node that is not connected) and what is installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop`
-    (`hypomnema device start|stop <node>`, by name or id) are refused with 409 for a node without a phone and 503
+    node that is not connected or whose socket is closed, as when its machine stopped: issue #545) and what is
+    installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop` (`hypomnema device start|stop <node>`, by
+    name or id) are refused with 409 for a node without a phone and 503
     for one not connected, and answer 202. All three are the owner's only.
   - Agents' tools (step 2). The phone is given as the shared browser is (#212): every agent the browser's routes
     take, with no setting and no Connection (owner, 2026-11-15); only workers have a client for them yet, so Bots
@@ -593,10 +596,11 @@ sequenceDiagram
   - `POST /api/v1/device/views` (owner only) gives a ticket, which opens `/api/v1/device/views/{ticket}` once within
     30 seconds, as the browser's. A view of a phone whose node is offline and whose machine is stopped starts the
     machine as an agent's call does, says `state: waking` and waits for the node's hello for as long as it is open;
-    a machine is started once for the calls and views that find it so. The page is told who controls (`control`)
-    and is passed what the node says. Taking control, releasing it and its ends are the browser's rules, now in
-    `internal/controlplane/ownerhold` which both use: while the owner holds the phone every agent's phone call is
-    answered that the tools are paused, one running when control was taken included; input without control is
+    a view whose node is offline while its machine is on (a node that restarts, for its update too) waits for its
+    hello for 2 minutes, without a word, and the new node starts the phone (issue #545); a machine is started once
+    for the calls and views that find it so. The page is told who controls (`control`) and is passed what the node
+    says. Taking control, releasing it and its ends are the browser's rules, now in `internal/controlplane/ownerhold`
+    which both use: while the owner holds the phone every agent's phone call is answered that the tools are paused, one running when control was taken included; input without control is
     dropped and the page told again; a view closed gives the phone back, one that dropped after two minutes, and a
     hold with no input after five. At most 4 views; `GET /api/v1/device` says `held`. Each view is logged
     (`clientapi.phone_view_opened`, `_closed`, `phone.taken`, `phone.released`), frames and input never. A phone
