@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -61,32 +62,46 @@ func currentVersions(ctx context.Context, t *testing.T, db *sql.DB) map[string]s
 	return out
 }
 
-// Scenario: a fresh install (issue #462). Migrated to the top, it has the
-// provider model-gateway with three Claude models, gateway models of those
-// names served from the Claude subscription, and its starting profiles on
-// the gateway; so a Task that names no profile is placed as a Claude Code
-// worker through the gateway, with no profile applied and no account on the
-// node.
+// migratedTo is a fresh database migrated up to version, with a Service over
+// it.
+func migratedTo(t *testing.T, version int64) (*Service, *sql.DB) {
+	t.Helper()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, version)
+	require.NoError(t, err)
+
+	n := 0
+
+	return New(db, &fakeClock{now: t0}, func(prefix string) string {
+		n++
+
+		return fmt.Sprintf("%s_%04d", prefix, n)
+	}), db
+}
+
+// Scenario: a fresh install (issues #462, #549). Migrated to the top, its
+// starting profiles name the Claude subscription, in the versions 00081 made,
+// and the gateway's table holds no seeded model nor the provider
+// model-gateway; so a Task that names no profile is placed as a Claude Code
+// worker through the gateway under the subscription's model, with no profile
+// applied and no account on the node, and its offer says to speak Anthropic
+// Messages.
 func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 	t.Parallel()
 
 	w := newSeedWorld(t)
 	ctx := t.Context()
 
-	gateway, err := w.s.GetProvider(ctx, "model-gateway")
-	require.NoError(t, err)
-	assert.Equal(t, ProviderModelGateway, gateway.Kind)
-	assert.ElementsMatch(t, []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}, gateway.Models)
-
-	models := gatewayModelsOf(ctx, t, w.db)
-	assert.Equal(t, map[string][2]string{
-		"claude-opus-5-5": {"claude-subscription:claude-opus-5-5",
-			"name: claude-opus-5-5\ntargets:\n  - {provider: claude-subscription, model: claude-opus-5-5}\n"},
-		"claude-sonnet-5-5": {"claude-subscription:claude-sonnet-5-5",
-			"name: claude-sonnet-5-5\ntargets:\n  - {provider: claude-subscription, model: claude-sonnet-5-5}\n"},
-		"claude-haiku-5-5": {"claude-subscription:claude-haiku-5-5",
-			"name: claude-haiku-5-5\ntargets:\n  - {provider: claude-subscription, model: claude-haiku-5-5}\n"},
-	}, models)
+	_, err := w.s.GetProvider(ctx, "model-gateway")
+	require.ErrorIs(t, err, ErrNotFound, "named by nothing once the profiles moved")
+	assert.Empty(t, gatewayModelsOf(ctx, t, w.db), "the subscription's models need no row")
 
 	assert.Equal(t, map[string]string{
 		"implementer": "pfv_seed3_implementer", "reviewer": "pfv_seed4_reviewer", "explorer": "pfv_seed4_explorer",
@@ -94,6 +109,8 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 
 	reviewer, err := w.s.GetProfile(ctx, "reviewer")
 	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-subscription", "claude-opus-5-5"}, []string{reviewer.Provider, reviewer.Model})
+	assert.Contains(t, reviewer.Source, "  provider: claude-subscription\n", "its YAML says so too")
 	assert.Equal(t, "high", reviewer.Effort, "the reviewer keeps its effort")
 	assert.Contains(t, reviewer.Instruction, "Verdict: `correct` or `incorrect`", "and its instruction")
 	assert.Equal(t, &Availability{Available: true}, reviewer.Availability, "node_a has Claude Code")
@@ -106,18 +123,24 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 	d := w.dispatchOf(created[0])
 	assert.Equal(t, w.node.ID, d.NodeID)
 	assert.Equal(t, "pfv_seed3_implementer", d.ProfileVersionID)
-	assert.Equal(t, "claude-opus-5-5", d.Model)
+	assert.Equal(t, "claude-subscription/claude-opus-5-5", d.Model, "the gateway's name for the subscription's model")
 
 	conv := w.conversation(d.ConversationID)
 	assert.Equal(t, "claude", conv.Runtime)
 	assert.Equal(t, GatewayAccountRef, conv.AccountRef, "through the gateway, under no account of the node")
+
+	pending, err := w.s.NodePending(ctx, w.node.ID)
+	require.NoError(t, err)
+	require.Len(t, pending.Offers, 1)
+	assert.Equal(t, "anthropic-messages", pending.Offers[0].ModelAPI, "the Claude subscription's own wire")
 }
 
 // Scenario: an install where the owner made the gateway by hand, as zm
 // (issue #462): a model_gateway provider of another name, the three gateway
-// models, and an implementer of the owner's. Migrating to the top leaves all
-// of it as it was; with no provider model-gateway, the profiles the owner
-// has not changed stay on their seeds too.
+// models, and an implementer of the owner's. Migrating through 00088 leaves
+// all of it as it was; with no provider model-gateway, the profiles the owner
+// has not changed stay on their seeds too. (00089 then moves them to the
+// subscription: TestMigrationMovesGatewayModelsToTheirSubscription.)
 func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 	t.Parallel()
 
@@ -151,8 +174,8 @@ func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 
 	before := gatewayModelsOf(ctx, t, db)
 
-	require.NoError(t, Migrate(ctx, db))
-	require.NoError(t, CheckSchema(ctx, db))
+	_, err = p.UpTo(ctx, 88)
+	require.NoError(t, err)
 
 	var made int
 	require.NoError(t, db.QueryRowContext(ctx,
@@ -167,12 +190,13 @@ func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 
 // Scenario: the way back (issue #462). On a fresh install the seed versions
 // are taken back and the provider and gateway models go; once the owner put a
-// profile of its own on the provider, the provider and the model it uses stay.
+// profile of its own on the provider, before 00089 moved the seeds off it,
+// the provider and the model it uses stay.
 func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 	t.Parallel()
 
 	for _, owned := range []bool{false, true} {
-		w := newSeedWorld(t)
+		s, db := migratedTo(t, 88)
 		ctx := t.Context()
 
 		var custom Profile
@@ -180,35 +204,102 @@ func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 		if owned {
 			var err error
 
-			custom, _, err = w.s.ApplyProfile(ctx, "",
+			custom, _, err = s.ApplyProfile(ctx, "",
 				"name: explorer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-haiku-5-5}\n")
 			require.NoError(t, err)
 		}
 
-		p, err := provider(w.db)
+		p, err := provider(db)
 		require.NoError(t, err)
 		_, err = p.DownTo(ctx, 80)
 		require.NoError(t, err)
 
 		var providers int
-		require.NoError(t, w.db.QueryRowContext(ctx,
+		require.NoError(t, db.QueryRowContext(ctx,
 			`SELECT count(*) FROM providers WHERE name = 'model-gateway'`).Scan(&providers))
 
 		if !owned {
 			assert.Zero(t, providers, "made here and named by nothing")
-			assert.Empty(t, gatewayModelsOf(ctx, t, w.db))
+			assert.Empty(t, gatewayModelsOf(ctx, t, db))
 			assert.Equal(t, map[string]string{
 				"implementer": "pfv_seed2_implementer", "reviewer": "pfv_seed3_reviewer", "explorer": "pfv_seed3_explorer",
-			}, currentVersions(ctx, t, w.db))
+			}, currentVersions(ctx, t, db))
 
 			continue
 		}
 
 		assert.Equal(t, 1, providers, "the owner's explorer names it")
-		assert.Equal(t, []string{"claude-haiku-5-5"}, slices.Sorted(maps.Keys(gatewayModelsOf(ctx, t, w.db))),
+		assert.Equal(t, []string{"claude-haiku-5-5"}, slices.Sorted(maps.Keys(gatewayModelsOf(ctx, t, db))),
 			"the owner's explorer uses it")
 		assert.Equal(t, map[string]string{
 			"implementer": "pfv_seed2_implementer", "reviewer": "pfv_seed3_reviewer", "explorer": custom.VersionID,
-		}, currentVersions(ctx, t, w.db))
+		}, currentVersions(ctx, t, db))
 	}
+}
+
+// Scenario: an install at 00088 whose Bot, a chat and a profile run on the
+// provider model-gateway (issue #549). The Bot's and the chat's gateway
+// models are served from one subscription model each; the profile's, duo, is
+// the owner's name over two targets. Migrating moves each to the
+// subscription and model of its first target; duo stays, as a name over
+// several targets is made on purpose; the seeded gateway models and the
+// provider, named by nothing any more, go.
+func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
+	t.Parallel()
+
+	s, db := migratedTo(t, 88)
+	ctx := t.Context()
+
+	_, err := s.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\n"+
+		"models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, duo]\n")
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO gateway_models (name, capability, source, created_at, updated_at)
+		VALUES ('duo', 'chat', 'name: duo', 100, 100);
+		INSERT INTO gateway_model_targets (model, position, provider, upstream_model)
+		VALUES ('duo', 0, 'claude-subscription', 'claude-opus-5-5'),
+		       ('duo', 1, 'claude-subscription', 'claude-sonnet-5-5');
+		UPDATE bots SET provider = 'model-gateway', model = 'claude-sonnet-5-5' WHERE id = ?;
+		INSERT INTO chats (id, title, bot_id, provider, model, created_at, updated_at)
+		VALUES ('cht_1', 'hi', ?, 'model-gateway', 'claude-haiku-5-5', 100, 100);`, DefaultBotID, DefaultBotID)
+	require.NoError(t, err)
+
+	reviewer, _, err := s.ApplyProfile(ctx, "",
+		"name: reviewer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: duo}\n")
+	require.NoError(t, err)
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 89)
+	require.NoError(t, err)
+
+	read := func(query string, args ...any) [2]string {
+		t.Helper()
+
+		var a, b string
+		require.NoError(t, db.QueryRowContext(ctx, query, args...).Scan(&a, &b))
+
+		return [2]string{a, b}
+	}
+
+	assert.Equal(t, [2]string{"claude-subscription", "claude-sonnet-5-5"},
+		read(`SELECT provider, model FROM bots WHERE id = ?`, DefaultBotID))
+	assert.Equal(t, [2]string{"claude-subscription", "claude-haiku-5-5"},
+		read(`SELECT provider, model FROM chats WHERE id = 'cht_1'`))
+	assert.Equal(t, [2]string{"claude-subscription", "claude-opus-5-5"},
+		read(`SELECT provider, model FROM profile_versions WHERE id = ?`, reviewer.VersionID),
+		"duo's first target, in the same version")
+	assert.Contains(t, read(`SELECT source, '' FROM profile_versions WHERE id = ?`, reviewer.VersionID)[0],
+		"model: {provider: claude-subscription, name: claude-opus-5-5}", "its YAML too")
+	assert.Equal(t, [2]string{"claude-subscription", "claude-opus-5-5"},
+		read(`SELECT provider, model FROM profile_versions WHERE id = 'pfv_seed3_implementer'`), "a seed too")
+
+	assert.Equal(t, []string{"duo"}, slices.Sorted(maps.Keys(gatewayModelsOf(ctx, t, db))),
+		"a name over two targets stays; the single ones nothing uses go")
+
+	var providers int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT count(*) FROM providers WHERE name = 'model-gateway'`).Scan(&providers))
+	assert.Zero(t, providers, "named by nothing any more")
 }

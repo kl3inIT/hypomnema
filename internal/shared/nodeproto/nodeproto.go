@@ -460,6 +460,9 @@ type Offer struct {
 	// Claude Code worker its /v1/messages), for the offer's Model only. It is made as the offer is sent and revoked when
 	// the Dispatch settles; the node keeps it with the offer until then.
 	ModelKey string `json:"model_key,omitempty"`
+	// ModelAPI is the wire a worker that can choose one speaks to the gateway for the model: "anthropic-messages"
+	// for a Claude subscription's, "openai-responses" for a Codex subscription's, empty for chat (issue #549).
+	ModelAPI string `json:"model_api,omitempty"`
 	// Uses are the Connections the Run's workers may use ("google:work");
 	// AgentKey is this Dispatch's own key to the control plane's agent API,
 	// with which the tool launcher asks for a token of one of them. It is

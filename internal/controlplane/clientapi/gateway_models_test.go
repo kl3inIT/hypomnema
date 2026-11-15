@@ -67,10 +67,11 @@ func TestTheOwnerSetsAGatewayModelsAttributes(t *testing.T) {
 	listed, err := coord.ListGatewayModelsWithResponse(ctx)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
-	// By name: the three Claude models a fresh install is seeded with (issue #462), then the two applied.
-	require.Len(t, listed.JSON200.Data, 5)
+	// By name: the two applied. A fresh install seeds no gateway model (issue #549), and this gateway is given no
+	// list of providers, so no subscription's model is listed beside them.
+	require.Len(t, listed.JSON200.Data, 2)
 
-	sol := listed.JSON200.Data[3]
+	sol := listed.JSON200.Data[0]
 	assert.Equal(t, "cx/sol", sol.Name)
 	codexWindow := int64(272_000)
 	assert.Equal(t, openapi.GatewayModelTokens{

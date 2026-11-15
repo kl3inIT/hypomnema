@@ -139,6 +139,8 @@ type Service struct {
 	newID     func(prefix string) string
 	providers Providers
 	secrets   Secrets
+	// allProviders lists every provider, for the models of the subscriptions (issue #549).
+	allProviders func(ctx context.Context) ([]ProviderInfo, error)
 }
 
 // New returns a Service over an opened, migrated database. providers looks
@@ -272,12 +274,58 @@ func (s *Service) checkTarget(ctx context.Context, provider, model string) (stri
 	return p.Kind, nil
 }
 
-// GetModel returns one model with its targets.
+// subscriptionKinds are the providers whose accounts are logged in on the control plane: the gateway serves each
+// one's models under "<provider>/<model>" without a row in its table (issue #549), as 9router-go lists the models
+// of every active connection (internal/handlers/chat/models_list.go) and CLIProxyAPI's registry fills from its
+// logged-in accounts (internal/registry/model_registry.go). The table is left for a name made on purpose.
+var subscriptionKinds = []string{"claude_subscription", "codex_subscription", "antigravity_subscription"}
+
+// subscriptionModel is the model a subscription offers under "<provider>/<model>", or ok false when the name is
+// not one.
+func (s *Service) subscriptionModel(ctx context.Context, name string) (Model, bool, error) {
+	provider, upstream, found := strings.Cut(name, "/")
+	if !found || upstream == "" {
+		return Model{}, false, nil
+	}
+
+	p, err := s.providers(ctx, provider)
+	if errors.Is(err, ErrNotFound) {
+		return Model{}, false, nil
+	}
+
+	if err != nil {
+		return Model{}, false, fmt.Errorf("reading provider %q: %w", provider, err)
+	}
+
+	if !slices.Contains(subscriptionKinds, p.Kind) || !slices.Contains(p.Models, upstream) {
+		return Model{}, false, nil
+	}
+
+	return subscriptionModelOf(p, upstream), true, nil
+}
+
+func subscriptionModelOf(p ProviderInfo, upstream string) Model {
+	return Model{
+		Name: p.Name + "/" + upstream, Capability: CapabilityChat,
+		Targets: []Target{{Provider: p.Name, UpstreamModel: upstream}},
+	}
+}
+
+// GetModel returns one model with its targets: a row of the gateway's table, or a model of a subscription.
 func (s *Service) GetModel(ctx context.Context, name string) (Model, error) {
 	q := store.New(s.db)
 
 	row, err := q.GetGatewayModel(ctx, name)
 	if errors.Is(err, sql.ErrNoRows) {
+		m, ok, err := s.subscriptionModel(ctx, name)
+		if err != nil {
+			return Model{}, err
+		}
+
+		if ok {
+			return m, nil
+		}
+
 		return Model{}, fmt.Errorf("%w: model %q", ErrNotFound, name)
 	}
 
@@ -293,8 +341,46 @@ func (s *Service) GetModel(ctx context.Context, name string) (Model, error) {
 	return modelFromRow(row, targets), nil
 }
 
-// ListModels returns every model, by name.
+// ListModels returns every model, by name: the gateway's table and, when the gateway was given its list of
+// providers, every model of every subscription (issue #549).
 func (s *Service) ListModels(ctx context.Context) ([]Model, error) {
+	out, err := s.tableModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.allProviders == nil {
+		return out, nil
+	}
+
+	providers, err := s.allProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing providers: %w", err)
+	}
+
+	for _, p := range providers {
+		if !slices.Contains(subscriptionKinds, p.Kind) {
+			continue
+		}
+
+		for _, m := range p.Models {
+			out = append(out, subscriptionModelOf(p, m))
+		}
+	}
+
+	slices.SortFunc(out, func(a, b Model) int { return strings.Compare(a.Name, b.Name) })
+
+	return out, nil
+}
+
+// WithProviderList gives the gateway the providers it serves, so that it lists every subscription's models.
+func (s *Service) WithProviderList(list func(ctx context.Context) ([]ProviderInfo, error)) *Service {
+	s.allProviders = list
+
+	return s
+}
+
+func (s *Service) tableModels(ctx context.Context) ([]Model, error) {
 	q := store.New(s.db)
 
 	rows, err := q.ListGatewayModels(ctx)

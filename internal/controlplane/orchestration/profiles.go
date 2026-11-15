@@ -56,18 +56,99 @@ const (
 // whose model the gateway serves: no account on the node runs it.
 const GatewayAccountRef = "gateway"
 
+// subscriptionKinds are the providers whose accounts are logged in on the control plane. The gateway serves each
+// one's models under "<provider>/<model>" with no table row (issue #549, as 9router-go lists the models of every
+// active connection and CLIProxyAPI's registry fills from its logged-in accounts), so a model chosen under a
+// subscription runs through the gateway: no subscription token leaves the control plane (issue #381).
+var subscriptionKinds = []string{
+	ProviderClaudeSubscription, ProviderCodexSubscription, ProviderAntigravitySubscription,
+}
+
+// throughGateway reports whether a provider of the kind is reached through the model gateway: the gateway itself,
+// for a name made in its table, or a subscription it serves.
+func throughGateway(kind string) bool {
+	return kind == ProviderModelGateway || slices.Contains(subscriptionKinds, kind)
+}
+
+// GatewayModelName is the name the gateway serves a provider's model under: "<provider>/<model>" for a
+// subscription (issue #549), the model's own name for the gateway's table.
+func GatewayModelName(kind, provider, model string) string {
+	if slices.Contains(subscriptionKinds, kind) {
+		return provider + "/" + model
+	}
+
+	return model
+}
+
+// PiProvider is the one provider of pi's models.json (clientcli pi-models): every model the gateway serves, each
+// under its gateway name with the wire of its subscription (issue #549).
+const PiProvider = "hypomnema"
+
+// PiModel is a chat's model as pi names it: the gateway's name under PiProvider when the gateway serves it, as it
+// was otherwise.
+func (s *Service) PiModel(ctx context.Context, m ChatModel) (ChatModel, error) {
+	if m.Model == "" || m.Provider == "" {
+		return m, nil
+	}
+
+	row, err := s.read().GetProvider(ctx, m.Provider)
+	if err != nil {
+		return ChatModel{}, notFound(err, "provider", m.Provider)
+	}
+
+	if throughGateway(row.Kind) {
+		m.Model, m.Provider = GatewayModelName(row.Kind, m.Provider, m.Model), PiProvider
+	}
+
+	return m, nil
+}
+
+// GatewayWires is the wire a worker speaks to the gateway for a subscription's model, where it can choose
+// (issue #549): the subscription's own, as Claude Code and Codex speak; chat for the rest. Measured on zm on
+// 2026-11-15 with pi, a Claude turn is a fifth smaller on Messages with the same cache, and Codex's cache is the
+// same on Responses.
+var GatewayWires = map[string]string{
+	ProviderClaudeSubscription: "anthropic-messages",
+	ProviderCodexSubscription:  "openai-responses",
+}
+
+// modelAPI is the wire for a Dispatch's model: its subscription's, when the gateway serves it under
+// "<provider>/<model>".
+func modelAPI(ctx context.Context, q *store.Queries, accountRef, model string) (string, error) {
+	provider, _, found := strings.Cut(model, "/")
+	if accountRef != GatewayAccountRef || !found {
+		return "", nil
+	}
+
+	row, err := q.GetProvider(ctx, provider)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("reading provider %s: %w", provider, err)
+	}
+
+	return GatewayWires[row.Kind], nil
+}
+
+// gatewayKinds are the gateway and every subscription it serves.
+var gatewayKinds = append([]string{ProviderModelGateway}, subscriptionKinds...)
+
 // runtimeProviders lists, per runtime, the provider kinds it can run against.
 // A Runtime is code on the node; a profile only names one.
 var runtimeProviders = map[string][]string{
 	// Claude Code runs only through the gateway's /v1/messages, with its Dispatch's key: the subscription token
 	// never leaves the control plane (issue #381).
-	"claude": {ProviderModelGateway},
-	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible, ProviderModelGateway},
+	"claude": gatewayKinds,
+	// A Codex worker under a Codex subscription runs through the gateway too (issue #549); one under no provider
+	// logs in with an account its node holds.
+	"codex": append([]string{ProviderOpenAICompatible}, gatewayKinds...),
 	// pi reaches its model through the gateway as omp and opencode do (issue #204).
-	"pi": {ProviderAnthropic, ProviderOpenAICompatible, ProviderModelGateway},
+	"pi": append([]string{ProviderAnthropic, ProviderOpenAICompatible}, gatewayKinds...),
 	// omp and opencode are workers whose model the gateway serves (issue #107).
-	"omp":      {ProviderModelGateway},
-	"opencode": {ProviderModelGateway},
+	"omp":      gatewayKinds,
+	"opencode": gatewayKinds,
 }
 
 // gatewayOnly reports whether a worker of the runtime runs only through the
@@ -78,7 +159,7 @@ func gatewayOnly(runtime string) bool { return runtime == TokenRuntime }
 
 // needsGatewayMessage says why a Claude Code worker cannot run elsewhere.
 const needsGatewayMessage = "a Claude Code worker runs through the model gateway; its profile must name a " +
-	"provider of kind " + ProviderModelGateway
+	"subscription or a provider of kind " + ProviderModelGateway
 
 // Efforts lists the reasoning efforts a profile or a Task may name.
 var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
@@ -576,7 +657,7 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 				return notFound(err, "provider", pr.Provider)
 			}
 
-			gateway = row.Kind == ProviderModelGateway
+			gateway = throughGateway(row.Kind)
 		}
 
 		a := p.availability(pr.Runtime, gateway)
@@ -952,6 +1033,7 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 	}
 
 	gateway := false
+	model = or(task.Model.String, model)
 
 	if provider != "" {
 		row, err := q.GetProvider(ctx, provider)
@@ -959,11 +1041,14 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 			return resolved{}, notFound(err, "provider", provider)
 		}
 
-		gateway = row.Kind == ProviderModelGateway
+		gateway = throughGateway(row.Kind)
+		if model != "" {
+			model = GatewayModelName(row.Kind, provider, model)
+		}
 	}
 
 	return resolved{
-		runtime: or(task.Runtime.String, v.Runtime), model: or(task.Model.String, model),
+		runtime: or(task.Runtime.String, v.Runtime), model: model,
 		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
 	}, nil
 }

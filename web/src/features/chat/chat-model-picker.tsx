@@ -84,7 +84,7 @@ export function ChatModelControls({
         }}
       />
       <EffortButton
-        model={now.model}
+        model={now}
         gateway={gateway}
         effort={now.effort}
         chosen={choice.effort}
@@ -198,7 +198,7 @@ function EffortButton({
   disabled,
   onPick,
 }: {
-  model: string
+  model: { provider: string; model: string }
   gateway: GatewayModel[]
   // effort is what the chat runs with, chosen the chat's own ("" for the Bot's).
   effort: string
