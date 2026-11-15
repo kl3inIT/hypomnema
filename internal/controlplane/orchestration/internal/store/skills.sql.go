@@ -51,6 +51,17 @@ func (q *Queries) DeleteSkill(ctx context.Context, name string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const firstSkillSource = `-- name: FirstSkillSource :one
+SELECT source FROM skill_revisions WHERE skill = ?1 AND revision = 1
+`
+
+func (q *Queries) FirstSkillSource(ctx context.Context, skill string) (string, error) {
+	row := q.db.QueryRowContext(ctx, firstSkillSource, skill)
+	var source string
+	err := row.Scan(&source)
+	return source, err
+}
+
 const getSkill = `-- name: GetSkill :one
 SELECT name, everyone, created_at, updated_at FROM skills WHERE name = ?1
 `
@@ -154,18 +165,19 @@ func (q *Queries) InsertSkillRevision(ctx context.Context, arg InsertSkillRevisi
 }
 
 const latestSkillRevision = `-- name: LatestSkillRevision :one
-SELECT revision, digest FROM skill_revisions WHERE skill = ?1 ORDER BY revision DESC LIMIT 1
+SELECT revision, digest, source FROM skill_revisions WHERE skill = ?1 ORDER BY revision DESC LIMIT 1
 `
 
 type LatestSkillRevisionRow struct {
 	Revision int64
 	Digest   string
+	Source   string
 }
 
 func (q *Queries) LatestSkillRevision(ctx context.Context, skill string) (LatestSkillRevisionRow, error) {
 	row := q.db.QueryRowContext(ctx, latestSkillRevision, skill)
 	var i LatestSkillRevisionRow
-	err := row.Scan(&i.Revision, &i.Digest)
+	err := row.Scan(&i.Revision, &i.Digest, &i.Source)
 	return i, err
 }
 
@@ -296,8 +308,10 @@ func (q *Queries) ListSkillRevisions(ctx context.Context, skill string) ([]ListS
 
 const listSkills = `-- name: ListSkills :many
 SELECT s.name, s.everyone, s.created_at, s.updated_at,
-    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.created_at AS revised_at
+    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.created_at AS revised_at,
+    f.source AS first_source
 FROM skills s JOIN skill_revisions r ON r.skill = s.name
+JOIN skill_revisions f ON f.skill = s.name AND f.revision = 1
 WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
 ORDER BY s.name
 `
@@ -315,6 +329,7 @@ type ListSkillsRow struct {
 	Source       string
 	SourceCommit sql.NullString
 	RevisedAt    int64
+	FirstSource  string
 }
 
 func (q *Queries) ListSkills(ctx context.Context) ([]ListSkillsRow, error) {
@@ -339,6 +354,7 @@ func (q *Queries) ListSkills(ctx context.Context) ([]ListSkillsRow, error) {
 			&i.Source,
 			&i.SourceCommit,
 			&i.RevisedAt,
+			&i.FirstSource,
 		); err != nil {
 			return nil, err
 		}
