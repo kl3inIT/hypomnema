@@ -4,6 +4,7 @@ import { MoreHorizontal, Trash2 } from "lucide-react"
 import { useRef, useState } from "react"
 
 import "@/api/client"
+import { listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import { deleteChat } from "@/api/generated/sdk.gen"
 import type { Chat } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
@@ -16,8 +17,6 @@ import {
 import { toast } from "@/components/ui/toast"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { cn } from "@/lib/utils"
-
-import { chatsKey } from "./chats"
 
 // ChatMenu is the menu of a chat's row in the sidebar (issue #484), as t3code's Sidebar has a thread's menu with
 // Delete (apps/web/src/components/Sidebar.tsx, handleThreadContextMenu). Delete asks first in ConfirmDialog, as the
@@ -68,7 +67,7 @@ export function ChatMenu({
         }}
         onDone={async () => {
           if (current) await navigate({ to: "/", search: { bot: chat.bot } })
-          await queryClient.invalidateQueries({ queryKey: chatsKey, exact: true })
+          await queryClient.invalidateQueries({ queryKey: listChatsQueryKey(), exact: true })
           if (left.current.length > 0) {
             toast.add({
               type: "warning",

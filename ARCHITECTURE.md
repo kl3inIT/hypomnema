@@ -521,8 +521,11 @@ sequenceDiagram
     (1280x1024x24, GLX), adb's server of the SDK started before the emulator with the node user's own
     `~/.android`, so its key exists for the Play image to authorize (HOME and `ANDROID_USER_HOME` are not
     changed: a trial with another HOME left adb unauthorized), then `emulator -avd phone -no-window -no-audio
-    -no-boot-anim -gpu host -memory 4096 -cores 6 -port 5554` with `DISPLAY`, `ANDROID_SDK_ROOT` and
-    `ANDROID_AVD_HOME` set, and the default Quick Boot. The phone is running once `sys.boot_completed` is 1, within
+    -no-boot-anim -gpu <mode> -memory 4096 -cores <half the CPUs, at least 2> -port 5554` with `DISPLAY`,
+    `ANDROID_SDK_ROOT` and `ANDROID_AVD_HOME` set, and the default Quick Boot. The mode is `device_gpu` in the
+    node's `config.json`, `host` when it is not set; `auto`, `software`, `lavapipe`, `swiftshader` and `swangle` are
+    taken too (the emulator's modes that are not deprecated), on Xvfb still, and any other value fails the start
+    with what it can be. Only `host` passed the trial's sign-in flow (deploy/machines/device.md, "The renderer"). The phone is running once `sys.boot_completed` is 1, within
     5 minutes; then the three animation scales are set to 0. Xvfb and the emulator run in process groups of their
     own, write to `run/xvfb.log` and `run/emulator.log`, and are recorded in `run/run.json`. A start that fails
     ends what it started, and the phone is `failed` with the reason (the emulator's last lines when it ended).
@@ -557,12 +560,16 @@ sequenceDiagram
     issue #536, step 4) list them after the one list's (`GET /agent/v1/tools`) and pass a call of a `device_*`
     tool there. They stay on their own routes rather than on the one list because a node of the release before
     step 4 lists both and would offer them twice. A Bot's pi calls as its chat (`b-<chat>`), so its last screen is
-    its chat's own, as its browser tab is. Which agent used which tool is logged, never the arguments.
+    its chat's own, as its browser tab is. Which agent used which tool is logged, with the call's
+    `duration_ms`, never the arguments.
   - The tools (`internal/shared/devicetool`, run in `internal/node/device/tools.go`) are Android CLI's and adb's,
     as Google's android-cli skill drives a device (notice in `third_party/android-cli-plugin`; the syntax read
-    from Android CLI 1.1.16919734's own help): `device_screen` is `android screen capture --annotate`, returned as
-    a PNG image with numbered boxes and kept as the agent's last screen; `device_layout` is `android layout
-    --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with `android screen resolve`
+    from Android CLI 1.1.16919734's own help): `device_screen` is `adb exec-out screencap -p` (OpenMausBot),
+    written whole to a file and returned as a PNG image once its signature is checked; with `boxes: true` it is
+    `android screen capture --annotate` instead, a PNG with numbered boxes kept as the agent's last screen with
+    boxes (Android CLI finds boxes only as it captures, so that is a capture of its own); `device_layout` is
+    `android layout --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with boxes
+    with `android screen resolve`
     and tapped with `adb shell input tap x y`, or `x,y`, or an Android CLI selector (`android input tap`);
     `device_swipe` is `adb shell input swipe` between two such points; `device_type` is `android input text
     [--submit] -- <text> <selector>`, the focused field by default, which types any language; `device_key` is
@@ -604,8 +611,8 @@ sequenceDiagram
     `scrcpy.go`, `sps.go`) one scrcpy-server serves every view open, started with the first and ended with the last,
     as Orca runs its pane's (notice in `third_party/orca`): pushed to `/data/local/tmp`, an adb forward from a
     local port to its abstract socket, started with `app_process` at the pinned 3.3.4 with audio off, H.264, at most
-    1280 pixels and 8 Mbps (`run/scrcpy.log`), then its video socket, tried until the server's dummy byte, and its
-    control socket. The stream is read as serve-emu documents scrcpy 3 (notice in `third_party/serve-emu`), and
+    1280 pixels, 60 frames a second (serve-emu's cap) and 8 Mbps (`run/scrcpy.log`; a key frame every 10 s is
+    scrcpy's own default), then its video socket, tried until the server's dummy byte, and its control socket. The stream is read as serve-emu documents scrcpy 3 (notice in `third_party/serve-emu`), and
     passed on as serve-emu passes it: each frame behind its 16-byte SEMU header, the codec's SPS and PPS kept and put
     before every key frame, a view that joins waits for the next key frame and the server is asked for one at once,
     and a view more than 24 frames behind drops frames until a key frame, asking for one. A size in a new SPS (the
@@ -2988,16 +2995,15 @@ Node (`internal/node`):
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
   Its `@tanstack/react-query` plugin generates query keys, query options and mutation options for every operation
   but the two Server-Sent Event streams, `StreamEvents` and `StreamChat` (issue #494, after Omnara and MemoryOS);
-  `PreviewRoutineSchedule`, a read sent as a POST, gets query options too, as MemoryOS's document search does.
-  A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
-  settings (Channels, Integrations with their services, accounts and agent actions, Repositories, the Vault and
-  the Skills), the memories (an agent's and About you), and the models and the gateway (the accounts with their
-  limits, the providers, the gateway's models and keys, Images, Web search and Usage), and the machines with
-  their providers, the browser's tabs and the phone (their REST reads only: the screen streams and the take-over
-  sockets stay hand-written), and the agents with their versions and models, the Bots, a chat's setup changes and
-  the Approvals, and the Routines with their runs, a page at a time, and a schedule's preview read and refresh
-  through them; the other screens still use hand-written keys, moved one area at a
-  time.
+  `PreviewRoutineSchedule` and `OpenArtifactFrame`, reads sent as a POST, get query options too, as MemoryOS's
+  document search does. A key is one object named by the operation's `_id`, with the base URL and the call's
+  path, query and body. Every screen reads and refreshes server data through them: the settings, the memories,
+  the models and the gateway, the machines with the browser's tabs and the phone, the agents, the Bots, a chat's
+  setup changes and the Approvals, the Routines, the artifacts, the chats, the Runs, Tasks and questions, and a
+  chat's folders and files. What stays hand-written: the two event streams and a chat's message pages (read into
+  the chat's own state), the screen streams and take-over sockets, chunked uploads, and what is read from bytes
+  already read (an artifact page's text, an SVG's text, a file's preview), keyed by the bytes' generated key with
+  a word after it. An image's bytes keep their own read, typed by the file's name, under the generated key.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
@@ -3460,6 +3466,12 @@ the internet, so that a machine created at a provider can install the node from 
   added with the default limit of 2 and then drained, so it shows on Machines with its stats and takes no work
   (owner, 2026-11-15: watch it, run workers when it is idle). `hypomnema nodes resume zm` lets it take work; its
   workers would then run as the user that holds the control plane's `env` and vault keys.
+- Node beyondpilot, since 2026-11-15 (v0.9.52): BeyondPilot's production EC2 (`BeyondPilotProductionApp/Server`,
+  account `891762599330`, `ap-southeast-1`), which has no SSH port. Installed through Session Manager
+  (`aws ssm send-command`, `AWS-RunShellScript`) with the steps of the first-boot script: the user `hypomnema`
+  (in `docker`, and `NOPASSWD:ALL` in `/etc/sudoers.d/hypomnema`, owner, 2026-11-15: root is fine), git from dnf,
+  Node.js, Claude Code and Codex. Drained, so no Run places work there; agents reach it with `node_exec`. The node's
+  token is in that command's parameters in the account's SSM command history.
 - Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
   control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
   sent to the node with each Dispatch of a Claude Code worker and is also served by the gateway. The earlier hand-kept

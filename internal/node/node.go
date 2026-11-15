@@ -65,6 +65,10 @@ type Config struct {
 	// to run an Android emulator, which its first-boot script sets with
 	// `install --device android`; empty for none (issue #417).
 	Device string `json:"device,omitempty"`
+	// DeviceGPU is the phone emulator's renderer, its -gpu mode
+	// (device.GPUModes); empty: device.DefaultGPU. Set here, on the machine,
+	// to measure another renderer (issue #554).
+	DeviceGPU string `json:"device_gpu,omitempty"`
 	// An "accounts" key, where a node kept the paths of Claude token files
 	// until issue #381, is ignored when read and dropped when written.
 }
@@ -225,7 +229,9 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	)
 
 	if cfg.Device == nodeproto.DeviceAndroid {
-		phone = device.New(device.Options{Dir: filepath.Join(home, "device"), KVM: CanUseKVM, Logger: logger})
+		phone = device.New(device.Options{
+			Dir: filepath.Join(home, "device"), KVM: CanUseKVM, Logger: logger, GPU: cfg.DeviceGPU,
+		})
 		phoneSays = phone
 		watchPhone = func(ctx context.Context) daemon.PhoneView { return phone.Watch(ctx) }
 

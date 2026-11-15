@@ -1,4 +1,4 @@
-import { useQueries, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import {
   ChevronRight,
@@ -19,7 +19,6 @@ import {
 import { useRef, useState } from "react"
 
 import "@/api/client"
-import { listWorkspaceDirectory } from "@/api/generated/sdk.gen"
 import type {
   Workspace,
   WorkspaceEntry,
@@ -49,7 +48,7 @@ import { cn } from "@/lib/utils"
 
 import { type FileAction, FileActionDialogs } from "./file-actions"
 import { problemOf } from "@/lib/server-error"
-import { rawURL, useChanges, useWorkspaces, workspaceKey } from "./files-state"
+import { rawURL, refreshChat, useChanges, useDirectories, useWorkspaces } from "./files-state"
 import { useUploads } from "./upload"
 import { UploadList } from "./upload-list"
 
@@ -129,12 +128,7 @@ export function FilesPanel({
               </SelectContent>
             </Select>
           </div>
-          <PanelButton
-            label="Refresh"
-            onClick={() =>
-              void queryClient.invalidateQueries({ queryKey: [...workspaceKey, chat] })
-            }
-          >
+          <PanelButton label="Refresh" onClick={() => refreshChat(queryClient, chat)}>
             <RefreshCw />
           </PanelButton>
           <PanelButton label="Close files" onClick={onClose}>
@@ -454,20 +448,8 @@ function FileTree({
     },
   })
   const dirs = ["", ...open]
-  // The open directories are read together, as Omnigent fetches its expanded directories centrally.
-  const listings = useQueries({
-    queries: dirs.map((path) => ({
-      queryKey: [...workspaceKey, chat, workspace, "tree", path],
-      queryFn: async () =>
-        (
-          await listWorkspaceDirectory({
-            path: { chat_id: chat, workspace_id: workspace },
-            query: { path },
-          })
-        ).data,
-      staleTime: 5_000,
-    })),
-  })
+  // The open directories are read together.
+  const listings = useDirectories(chat, workspace, dirs)
   const byDir = new Map(dirs.map((path, i) => [path, listings[i]]))
   const wanted = filter.trim().toLowerCase()
 

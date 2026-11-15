@@ -1,13 +1,17 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
-import type { Artifact, ArtifactCard as Card, ArtifactRevision } from "@/api/generated/types.gen"
+import { getArtifactQueryKey } from "@/api/generated/@tanstack/react-query.gen"
+import type {
+  ArtifactCard as Card,
+  ArtifactRevision,
+  GetArtifactResponse,
+} from "@/api/generated/types.gen"
 import { since } from "@/lib/time"
 
 import { ArtifactFullScreen } from "./artifact-full-screen"
 import { ArtifactIcon } from "./artifact-icon"
 import {
-  artifactKey,
   isPhone,
   revisionOf,
   typeLabel,
@@ -34,9 +38,10 @@ export function ArtifactCard({ card }: { card: Card }) {
   const revision = artifact.data && revisionOf(artifact.data)
 
   useEffect(() => {
-    const kept = queryClient.getQueryData<Artifact>(artifactKey(card.id))
+    const key = getArtifactQueryKey({ path: { artifact_id: card.id } })
+    const kept = queryClient.getQueryData<GetArtifactResponse>(key)
     if (kept && kept.revision !== card.revision) {
-      void queryClient.invalidateQueries({ queryKey: artifactKey(card.id), exact: true })
+      void queryClient.invalidateQueries({ queryKey: key, exact: true })
     }
   }, [queryClient, card.id, card.revision])
 
