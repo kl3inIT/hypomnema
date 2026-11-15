@@ -1482,6 +1482,8 @@ func TestStreamChatShowsPiLive(t *testing.T) {
 	assert.Equal(t, "id: "+strconv.FormatInt(old.Seq+1, 10), next(), "resumes after Last-Event-ID")
 	assert.Equal(t, "event: message", next())
 	assert.Contains(t, next(), "add a health page")
+	assert.Equal(t, "event: queue", next(), "the queue comes as the stream opens, empty or not")
+	assert.JSONEq(t, `{"items":[]}`, strings.TrimPrefix(next(), "data: "))
 
 	w.pi.live <- coordinator.Frame{Event: coordinator.FrameDelta, Data: map[string]any{
 		"kind": "text", "index": 0, "delta": "On ",
