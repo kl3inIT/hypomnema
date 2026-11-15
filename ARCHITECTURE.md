@@ -866,7 +866,7 @@ sequenceDiagram
     the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
     records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
     when the Bot's list, read then, has that backup; otherwise it waits for the reset.
-  - **A Bot's scope of a Connection** (issue #562; `orchestration/botaccess.go`, migration 00092,
+  - **A Bot's scope of a Connection** (issue #562; `orchestration/botaccess.go`, migration 00093,
     `bots.connection_scopes`): beside `connections`, a map keyed `integration:label` of what the Bot may reach of
     that Connection; today only a Superset Connection's `dashboards`, by number (`{"superset:prod":
     {"dashboards": [9]}}`). A Connection not in the map is reached whole, as before (OpenMausBot's connector
