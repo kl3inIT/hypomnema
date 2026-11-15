@@ -102,6 +102,8 @@ const vmap = {
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  position: 1,
+  pinned: false,
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
   tool_display: "on",

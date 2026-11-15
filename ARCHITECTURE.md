@@ -771,7 +771,16 @@ sequenceDiagram
   `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): each chat is deleted as a chat is
   (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
   made in them stay without the chat, and the chats' gateway keys are revoked and kept. Their files on the
-  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
+  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then.
+  - **Order and pins** (issue #470, migration 00089; after OpenMausBot's one fleet order with a `pinned` flag and
+    onyx's dense `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
+    column came, so the main Bot is 0); a new Bot goes last and a removed one leaves no gap. `PUT /bots/order`
+    `{bot_ids}` (`ReorderBots`) names the Bots it moves: they take, in the order given, the places they already
+    hold together, and every other Bot keeps its place (OpenMausBot's `reorderStable`); it answers every Bot's id
+    in the new order. An empty list, a repeated or unknown id and the main Bot are refused (400). `bots.pinned` is
+    set with `PATCH /bots/{bot_id}` `{pinned}`; the main Bot is not pinned. Both are the owner's alone, not a Bot
+    setting: the main Bot's pi is refused (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the
+    Bots oldest first, each with its `position` and `pinned`. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -3230,14 +3239,20 @@ Node (`internal/node`):
     other file is its name and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
-    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
-    `coordinator` always, ordered by its latest chat. A row shows the Bot's avatar with a dot when one of its chats
-    is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
+    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
+    not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then a
+    "Pinned" section of the pinned Bots, then the others, each section by `Bot.position`. The owner drags a Bot by
+    its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
+    the mouse or the keyboard, within its section; the page shows the new order at once and sends
+    `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
+    shows the Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its latest
+    chat's title, and "Needs you", "Working" or the time.
     Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
     each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
     with that Bot picked (`/?bot=`). A chat's row has a menu (issue #484, after t3code's thread menu), shown on
     hover or focus and always on a phone, whose Delete asks first and, for the open chat, then opens New chat with
-    its Bot. The phone's start page lists the same Bots.
+    its Bot; a Bot row that stands for its one chat carries that chat's Delete ("Delete chat") in its own menu.
+    The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its

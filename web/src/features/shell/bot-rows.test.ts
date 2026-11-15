@@ -1,8 +1,8 @@
 import { beforeEach, expect, test } from "vitest"
 
-import type { Chat } from "@/api/generated/types.gen"
+import type { Bot, Chat } from "@/api/generated/types.gen"
 
-import { botRows, keepOpenBots, readOpenBots } from "./bot-rows"
+import { botSections, keepOpenBots, readOpenBots, reorderBots } from "./bot-rows"
 
 beforeEach(() => window.localStorage.clear())
 
@@ -16,33 +16,76 @@ const chat = (id: string, bot: string, updated: string): Chat => ({
   updated_at: updated,
 })
 
-// Scenario: the sidebar lists a Bot a row, the one whose chat moved last first, each with its chats newest first.
-test("chats are grouped by their Bot, the Bot whose chat moved last first", () => {
-  const rows = botRows(
-    [
-      chat("old", "coordinator", "2026-11-10T09:00:00Z"),
-      chat("research", "researcher", "2026-11-12T09:00:00Z"),
-      chat("new", "coordinator", "2026-11-11T09:00:00Z"),
-    ],
-    "coordinator",
-  )
-
-  expect(rows.map((r) => [r.bot, r.chats.map((c) => c.id)])).toEqual([
-    ["researcher", ["research"]],
-    ["coordinator", ["new", "old"]],
-  ])
+const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
+  id,
+  name: id,
+  main: id === "coordinator",
+  position,
+  pinned: false,
+  persona: "",
+  memory: "",
+  memory_limit: 2200,
+  skills: [],
+  skills_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
+  tool_display: "on",
+  created_at: "2026-11-01T00:00:00Z",
+  updated_at: "2026-11-01T00:00:00Z",
+  ...m,
 })
 
-// Scenario: coordinator is listed even before it has a chat, so a first chat can be started from it; it comes
-// after the Bots that have chats.
-test("coordinator is always listed, last while it has no chat", () => {
-  expect(botRows([], "coordinator").map((r) => [r.bot, r.chats.length])).toEqual([
+const ids = (rows: { bot: string }[]) => rows.map((r) => r.bot)
+
+// Scenario: the sidebar lists every Bot, with chats or not, in the order the owner set (issue #470): the main Bot
+// first whatever its place, the pinned ones next, the others after; each Bot's chats newest first.
+test("every Bot is listed by its position, the main one first and the pinned ones next", () => {
+  const sections = botSections(
+    [
+      bot("reporter", 1),
+      bot("researcher", 3, { pinned: true }),
+      bot("coordinator", 2, { pinned: true }),
+      bot("writer", 0),
+      bot("tester", 4, { pinned: true }),
+    ],
+    [
+      chat("old", "researcher", "2026-11-10T09:00:00Z"),
+      chat("new", "researcher", "2026-11-11T09:00:00Z"),
+    ],
+  )
+
+  expect(sections.main?.bot).toBe("coordinator")
+  expect(ids(sections.pinned)).toEqual(["researcher", "tester"])
+  expect(ids(sections.rest)).toEqual(["writer", "reporter"])
+  expect(sections.pinned[0]!.chats.map((c) => c.id)).toEqual(["new", "old"])
+  expect(sections.rest[0]!.chats).toEqual([])
+})
+
+// Scenario: a chat whose Bot is not read yet, made a moment ago, is listed at the end rather than lost.
+test("a chat of a Bot not read yet is listed after the others", () => {
+  const sections = botSections(
+    [bot("coordinator", 0)],
+    [chat("a", "fresh", "2026-11-12T09:00:00Z")],
+  )
+
+  expect(sections.main?.bot).toBe("coordinator")
+  expect(ids(sections.rest)).toEqual(["fresh"])
+  expect(botSections([], [])).toEqual({ main: undefined, pinned: [], rest: [] })
+})
+
+// Scenario: a drag in one section names only that section's Bots; they take the places they held together and the
+// others keep theirs, as the server orders them.
+test("a reorder moves the Bots named into the places they held", () => {
+  const bots = [bot("coordinator", 0), bot("a", 1), bot("b", 2), bot("c", 3), bot("d", 4)]
+
+  expect(reorderBots(bots, ["d", "b"]).map((b) => [b.id, b.position])).toEqual([
     ["coordinator", 0],
+    ["a", 1],
+    ["d", 2],
+    ["c", 3],
+    ["b", 4],
   ])
-  expect(botRows([], "")).toEqual([])
-  expect(
-    botRows([chat("a", "reporter", "2026-11-12T09:00:00Z")], "coordinator").map((r) => r.bot),
-  ).toEqual(["reporter", "coordinator"])
+  expect(reorderBots(bots, ["a", "b"])[1]).toBe(bots[1])
 })
 
 // Scenario: which Bots the owner opened survives a reload; what the browser kept that is not such a record is

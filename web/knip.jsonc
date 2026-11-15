@@ -8,8 +8,6 @@
     "src/api/generated/**",
     // shadcn's primitives, kept whole even where unused, as the CLI installs them.
     "src/components/ui/**",
-    // shadcn installed it with the sidebar primitive, its only importer.
-    "src/hooks/use-mobile.ts",
   ],
   // Runtime packages of the vendored shadcn primitives (command, carousel, input-otp, calendar, resizable,
   // message-scroller, questionnaire), kept with them.
