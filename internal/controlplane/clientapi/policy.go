@@ -129,6 +129,7 @@ var policies = map[string]policy{
 	"SetLarkChannelGroup":         {scope: scopeOwner},
 	"PatchIntegrationConnection":  {scope: scopeOwner},
 	"ListConnectionActions":       {scope: scopeOwner},
+	"CheckIntegrationConnection":  {scope: scopeOwner},
 	"SetConnectionAction":         {scope: scopeOwner},
 
 	// Routines (issue #211). Every token reads them. A Bot, with its pi's token, makes or changes one of its own

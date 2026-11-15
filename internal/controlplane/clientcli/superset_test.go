@@ -39,6 +39,8 @@ type supersetWorld struct {
 
 	superset *supersettest.Superset
 	logs     *syncBuffer
+	// integrations signs the stand-in in; a test that reads what the account can do wires its check.
+	integrations *integration.Service
 }
 
 func newSupersetWorld(t *testing.T, hold time.Duration) *supersetWorld {
@@ -96,7 +98,7 @@ func newSupersetWorld(t *testing.T, hold time.Duration) *supersetWorld {
 
 	return &supersetWorld{
 		world:    &world{svc: svc, url: hs.URL, home: filepath.Join(t.TempDir(), "home")},
-		superset: supersettest.New(t), logs: logs,
+		superset: supersettest.New(t), logs: logs, integrations: integrations,
 	}
 }
 

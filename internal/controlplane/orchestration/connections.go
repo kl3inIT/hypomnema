@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -54,9 +55,55 @@ type Connection struct {
 	// control plane signed in.
 	SignInFailed bool
 	// Chats says the coordinator may use the Connection in chats.
-	Chats     bool
+	Chats bool
+	// Access is what the account can really do, action by action, as it was last read at the service (issue
+	// #567); empty until it was read once.
+	Access    ConnectionAccess
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// The access of an action (issue #567): what the account can do at the service, beside the owner's answer for it.
+// lark-cli's `auth check` answers granted and missing (cmd/auth/check.go); unknown is what could not be read, which
+// lark-cli's pre-flight lets through (cmd/service/service.go, checkServiceScopes).
+const (
+	AccessGranted = "granted"
+	AccessMissing = "missing"
+	AccessUnknown = "unknown"
+)
+
+// ActionAccess is whether the account can do one action, and why, in a few words.
+type ActionAccess struct {
+	Access string `json:"access"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ConnectionAccess is what the account can do, action by action, and when it was read.
+type ConnectionAccess struct {
+	CheckedAt time.Time               `json:"checked_at"`
+	Actions   map[string]ActionAccess `json:"actions"`
+}
+
+// Of is an action's access; unknown when it was not read.
+func (a ConnectionAccess) Of(action string) ActionAccess {
+	if got, ok := a.Actions[action]; ok {
+		return got
+	}
+
+	return ActionAccess{Access: AccessUnknown}
+}
+
+// Missing counts the actions the account cannot do.
+func (a ConnectionAccess) Missing() int {
+	n := 0
+
+	for _, got := range a.Actions {
+		if got.Access == AccessMissing {
+			n++
+		}
+	}
+
+	return n
 }
 
 var connectionLabelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
@@ -140,6 +187,69 @@ func (s *Service) SetConnectionSignInFailed(ctx context.Context, integration, la
 	})
 	if err != nil {
 		return fmt.Errorf("recording the sign-in of %s:%s: %w", integration, label, err)
+	}
+
+	return nil
+}
+
+// SetConnectionAccess keeps what a Connection's account can do, as it was just read at the service.
+func (s *Service) SetConnectionAccess(ctx context.Context, integration, label string, a ConnectionAccess) error {
+	raw, err := json.Marshal(a)
+	if err != nil {
+		return fmt.Errorf("encoding the access of %s:%s: %w", integration, label, err)
+	}
+
+	err = s.write(ctx, func(q *store.Queries, _ int64) error {
+		n, err := q.SetConnectionAccess(ctx, store.SetConnectionAccessParams{
+			Integration: integration, Label: label, Access: nullString(string(raw)),
+		})
+		if err == nil && n == 0 {
+			return fmt.Errorf("%w: %s has no connection %s", ErrNotFound, integration, label)
+		}
+
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("recording the access of %s:%s: %w", integration, label, err)
+	}
+
+	return nil
+}
+
+// MarkConnectionAction changes the access of one action of a Connection and leaves the others as they were read:
+// the service itself said that the account cannot do it (Lark's code for a missing scope, issue #567).
+func (s *Service) MarkConnectionAction(ctx context.Context, integration, label, action string, got ActionAccess,
+) error {
+	err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		row, err := q.GetConnection(ctx, store.GetConnectionParams{Integration: integration, Label: label})
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %s has no connection %s", ErrNotFound, integration, label)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		access := connectionFromRow(row).Access
+		if access.Actions == nil {
+			access.Actions = map[string]ActionAccess{}
+		}
+
+		access.Actions[action] = got
+
+		raw, err := json.Marshal(access)
+		if err != nil {
+			return err
+		}
+
+		_, err = q.SetConnectionAccess(ctx, store.SetConnectionAccessParams{
+			Integration: integration, Label: label, Access: nullString(string(raw)),
+		})
+
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("recording the access of %s of %s:%s: %w", action, integration, label, err)
 	}
 
 	return nil
@@ -406,11 +516,18 @@ func connectionFromRow(r store.Connection) Connection {
 		services = strings.Split(r.Services.String, ",")
 	}
 
+	// What cannot be read counts as never read: every action is then unknown.
+	var access ConnectionAccess
+	if r.Access.Valid {
+		_ = json.Unmarshal([]byte(r.Access.String), &access)
+	}
+
 	return Connection{
 		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret, Services: services,
 		Address: r.Address.String, Version: r.Version.String, AppID: r.AppID.String, AppLabel: r.AppLabel.String,
 		SignInFailed: r.SignInFailed != 0,
 		Chats:        r.Chats != 0,
+		Access:       access,
 		CreatedAt:    millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
 }

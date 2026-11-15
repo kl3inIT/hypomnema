@@ -288,8 +288,14 @@ var commands = []command{
 	},
 	{
 		name: "integrations actions", args: "<integration>:<label>", min: 1, max: 1,
-		summary: "what agents may do with an account, action by action (owner)", flags: jsonFlag,
-		run: integrationsActions,
+		summary: "what agents may do with an account, action by action, and whether the account can (owner)",
+		flags:   jsonFlag,
+		run:     integrationsActions,
+	},
+	{
+		name: "integrations check", args: "<integration>:<label>", min: 1, max: 1,
+		summary: "read again at the service what an account can really do, and list what it cannot (owner)",
+		flags:   jsonFlag, run: integrationsCheck,
 	},
 	{
 		name: "integrations actions set", args: "<integration>:<label> <action> allow|ask|never", min: 3, max: 3,

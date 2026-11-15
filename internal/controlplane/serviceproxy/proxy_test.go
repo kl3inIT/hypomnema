@@ -46,10 +46,22 @@ type sent struct {
 	Header                     http.Header
 }
 
-// service stands for Google: it records what reaches it and answers 200.
+// service stands for Google: it records what reaches it and answers 200, or
+// what refuse says.
 type service struct {
 	mu  sync.Mutex
 	got []sent
+	// status and body, when set, are its answer instead.
+	status int
+	body   string
+}
+
+// refuse makes the service answer every request with status and body.
+func (s *service) refuse(status int, body string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.status, s.body = status, body
 }
 
 func (s *service) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -57,12 +69,17 @@ func (s *service) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	s.mu.Lock()
 	s.got = append(s.got, sent{r.Method, r.URL.String(), r.Header.Get("Authorization"), body, r.Header.Clone()})
+	status, answer := s.status, s.body
 	s.mu.Unlock()
 
+	if status == 0 {
+		status, answer = http.StatusOK, `{"id":"from-the-service"}`
+	}
+
 	return &http.Response{
-		StatusCode: http.StatusOK, Proto: "HTTP/2.0", ProtoMajor: 2, ContentLength: -1,
+		StatusCode: status, Proto: "HTTP/2.0", ProtoMajor: 2, ContentLength: -1,
 		Header:  http.Header{"Content-Type": {"application/json"}},
-		Body:    io.NopCloser(strings.NewReader(`{"id":"from-the-service"}`)),
+		Body:    io.NopCloser(strings.NewReader(answer)),
 		Request: r,
 	}, nil
 }
@@ -83,6 +100,8 @@ type world struct {
 	logs    *bytes.Buffer
 	pi      string
 	chat    string
+	// rechecked gets each Connection whose access the proxy reads again (issue #567).
+	rechecked chan string
 }
 
 // newWorld is a control plane with the owner's Google account "work", which
@@ -99,7 +118,7 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 
 	w := &world{
 		t: t, svc: orchestration.New(db, platform.SystemClock{}, platform.NewID), service: &service{},
-		logs: &bytes.Buffer{},
+		logs: &bytes.Buffer{}, rechecked: make(chan string, 16),
 	}
 	logger := slog.New(slog.NewTextHandler(w.logs, nil))
 
@@ -131,6 +150,12 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 		AWS: func(context.Context, string, string) (aws.Credentials, error) {
 			return aws.Credentials{AccessKeyID: roleKeyID, SecretAccessKey: roleSecret, SessionToken: roleSession}, nil
 		},
+		Recheck: func(_ context.Context, integration, label string) error {
+			w.rechecked <- integration + ":" + label
+
+			return nil
+		},
+		Mark: w.svc.MarkConnectionAction,
 	})
 	require.NoError(t, err)
 

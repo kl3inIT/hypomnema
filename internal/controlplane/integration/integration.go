@@ -95,6 +95,8 @@ type Service struct {
 	stsEndpoint string
 	// after is time.After outside tests: the pause between two polls of a device sign-in (larkuser.go).
 	after func(time.Duration) <-chan time.Time
+	// checker reads and keeps what a Connection's account can do (holdings.go); nil when none was wired.
+	checker Checker
 }
 
 // signIn is one sign-in the owner started and has not completed.
@@ -152,7 +154,9 @@ type Connection struct {
 	RoleARN string
 	Key     string
 	// Chats says the coordinator may use the Connection in chats.
-	Chats     bool
+	Chats bool
+	// Access is what the account can really do, action by action, as last read at the service (issue #567).
+	Access    orchestration.ConnectionAccess
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -242,8 +246,8 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connection) Connection {
 	out := Connection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Chats: c.Chats,
-		Address: c.Address, Version: c.Version, AppID: c.AppID, AppLabel: c.AppLabel, CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
+		Address: c.Address, Version: c.Version, AppID: c.AppID, AppLabel: c.AppLabel, Access: c.Access,
+		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 
 	if d.IsRole() {
@@ -493,7 +497,7 @@ func (s *Service) save(
 		return Connection{}, err
 	}
 
-	return s.view(ctx, d, saved), nil
+	return s.checked(ctx, d, saved), nil
 }
 
 // SetChats says whether the coordinator may use a Connection in chats.

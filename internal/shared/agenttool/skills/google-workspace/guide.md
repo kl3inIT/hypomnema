@@ -59,10 +59,19 @@ shows more than you can say. What the command answers tells you what happened:
 | You are told it was **approved** | Run the same command again, with the same arguments and the same content. It passes once, without another question. If you change anything, it is a new request and asks again. |
 | `Rejected by the owner` or you are told it was **rejected** | Do not run it, and do not look for another way to do the same thing. Say so in your answer. |
 | `Refused: the owner set … to never` | The same: say so, do not work around it. |
+| `Refused: <account> cannot "…" at <integration>:<label>: <reason>` | The account itself cannot do it at the service; nothing was sent. Do not try it another way. Say what is missing in your answer: the owner grants it there. |
 
 - Prefer `--dry-run` to see what a command would send before you send it.
 - A request for a summary, a search or a brief is not a request to send or change anything: do not start a write
   the owner did not ask for.
+
+## What the account cannot do
+
+The control plane knows what each account was granted when the owner signed it in: Gmail, Calendar, Drive, Docs
+and Sheets, each to read or to read and write. Before `gws` runs, a line starting
+`hypomnema: google:<label> cannot do these at the service:` names what the account cannot do. **Read it before the
+first command** and do not run what it rules out: it is refused before it is sent. Only the owner can sign the
+account in again with more.
 
 ## Never
 

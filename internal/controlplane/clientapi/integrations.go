@@ -7,6 +7,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 )
 
 // Integrations that sign in with an account (issue #103). Every token reads
@@ -31,6 +32,8 @@ type Integrations interface {
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
 	// SetChats says whether the coordinator may use a Connection in chats.
 	SetChats(ctx context.Context, id, label string, allowed bool) (integration.Connection, error)
+	// Check reads again what a Connection's account can do at the service (issue #567).
+	Check(ctx context.Context, id, label string) (integration.Connection, error)
 }
 
 // WithIntegrations sets the service that signs accounts in.
@@ -48,8 +51,19 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Services: make([]string, 0, len(c.Grants)),
 		SignInRequired: c.SignInRequired, Chats: c.Chats, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 		Address: opt(c.Address), Version: opt(c.Version), AppId: opt(c.AppID), App: opt(c.AppLabel),
-		RoleArn: opt(c.RoleARN), Key: opt(c.Key),
+		RoleArn: opt(c.RoleARN), Key: opt(c.Key), Cannot: []openapi.ConnectionCannot{},
 	}
+
+	for _, no := range serviceproxy.CannotOf(c.Integration, c.Access) {
+		out.Cannot = append(out.Cannot, openapi.ConnectionCannot{
+			Action: no.Action.ID, Service: no.Action.Service, Name: no.Action.Name, Reason: no.Reason,
+		})
+	}
+
+	if !c.Access.CheckedAt.IsZero() {
+		out.AccessCheckedAt = &c.Access.CheckedAt
+	}
+
 	for _, g := range c.Grants {
 		out.Services = append(out.Services, g.String())
 	}
@@ -228,6 +242,21 @@ func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.Pat
 	}
 
 	return openapi.PatchIntegrationConnection200JSONResponse(toIntegrationConnection(conn)), nil
+}
+
+// CheckIntegrationConnection reads again what a Connection's account can do: the owner's "Check again".
+func (s *Server) CheckIntegrationConnection(ctx context.Context, req openapi.CheckIntegrationConnectionRequestObject,
+) (openapi.CheckIntegrationConnectionResponseObject, error) {
+	if s.integrations == nil {
+		return nil, errNoIntegrations
+	}
+
+	conn, err := s.integrations.Check(ctx, req.Integration, req.Label)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.CheckIntegrationConnection200JSONResponse(toIntegrationConnection(conn)), nil
 }
 
 // DeleteIntegrationConnection forgets a Connection and its tokens.

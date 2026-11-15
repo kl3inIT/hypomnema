@@ -1141,8 +1141,32 @@ export type IntegrationConnection = {
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
+  /**
+   * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
+   */
+  cannot: Array<ConnectionCannot>;
+  /**
+   * When what the account can do was last read at the service; absent when never.
+   */
+  access_checked_at?: string;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * One action a Connection's account cannot do at the service, and why.
+ */
+export type ConnectionCannot = {
+  /**
+   * The action's name in commands, such as superset.logs.read.
+   */
+  action: string;
+  service: string;
+  name: string;
+  /**
+   * Why, such as role ServiceReader has no can_read on Log.
+   */
+  reason: string;
 };
 
 /**
@@ -1307,7 +1331,17 @@ export type ConnectionAction = {
   kind: 'reads' | 'changes' | 'needs_care';
   policy: ActionPolicy;
   default: ActionPolicy;
+  access: ActionAccess;
+  /**
+   * Why, in a few words, such as "role ServiceReader has no can_read on Log". Empty when nothing was read.
+   */
+  reason?: string;
 };
+
+/**
+ * Whether the account can really do the action at the service, as last read: granted, missing (a request for it is refused before it is sent, whatever the policy), or unknown (it could not be read; requests go on).
+ */
+export type ActionAccess = 'granted' | 'missing' | 'unknown';
 
 export type ConnectionActionList = {
   data: Array<ConnectionAction>;
@@ -4745,6 +4779,34 @@ export type SetLarkChannelGroupResponses = {
 };
 
 export type SetLarkChannelGroupResponse = SetLarkChannelGroupResponses[keyof SetLarkChannelGroupResponses];
+
+export type CheckIntegrationConnectionData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/check';
+};
+
+export type CheckIntegrationConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CheckIntegrationConnectionError = CheckIntegrationConnectionErrors[keyof CheckIntegrationConnectionErrors];
+
+export type CheckIntegrationConnectionResponses = {
+  /**
+   * The Connection, with what it can do as just read.
+   */
+  200: IntegrationConnection;
+};
+
+export type CheckIntegrationConnectionResponse = CheckIntegrationConnectionResponses[keyof CheckIntegrationConnectionResponses];
 
 export type ListConnectionActionsData = {
   body?: never;

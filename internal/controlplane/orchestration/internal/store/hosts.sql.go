@@ -126,7 +126,7 @@ func (q *Queries) GetAgentSessionByHash(ctx context.Context, keyHash string) (Ag
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections WHERE integration = ?1 AND label = ?2
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections WHERE integration = ?1 AND label = ?2
 `
 
 type GetConnectionParams struct {
@@ -151,6 +151,7 @@ func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (C
 		&i.SignInFailed,
 		&i.AppID,
 		&i.AppLabel,
+		&i.Access,
 	)
 	return i, err
 }
@@ -241,7 +242,7 @@ func (q *Queries) InsertSecretRead(ctx context.Context, arg InsertSecretReadPara
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections ORDER BY integration, created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections ORDER BY integration, created_at, label
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
@@ -267,6 +268,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 			&i.SignInFailed,
 			&i.AppID,
 			&i.AppLabel,
+			&i.Access,
 		); err != nil {
 			return nil, err
 		}
@@ -282,7 +284,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 }
 
 const listConnectionsBySecret = `-- name: ListConnectionsBySecret :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections WHERE secret = ?1 ORDER BY integration, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections WHERE secret = ?1 ORDER BY integration, label
 `
 
 func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([]Connection, error) {
@@ -308,6 +310,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 			&i.SignInFailed,
 			&i.AppID,
 			&i.AppLabel,
+			&i.Access,
 		); err != nil {
 			return nil, err
 		}
@@ -323,7 +326,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 }
 
 const listConnectionsOf = `-- name: ListConnectionsOf :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label FROM connections WHERE integration = ?1 ORDER BY created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections WHERE integration = ?1 ORDER BY created_at, label
 `
 
 func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
@@ -349,6 +352,7 @@ func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]
 			&i.SignInFailed,
 			&i.AppID,
 			&i.AppLabel,
+			&i.Access,
 		); err != nil {
 			return nil, err
 		}
@@ -565,6 +569,25 @@ type RevokeAgentSessionsOfDispatchParams struct {
 
 func (q *Queries) RevokeAgentSessionsOfDispatch(ctx context.Context, arg RevokeAgentSessionsOfDispatchParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeAgentSessionsOfDispatch, arg.Now, arg.DispatchID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setConnectionAccess = `-- name: SetConnectionAccess :execrows
+UPDATE connections SET access = ?1 WHERE integration = ?2 AND label = ?3
+`
+
+type SetConnectionAccessParams struct {
+	Access      sql.NullString
+	Integration string
+	Label       string
+}
+
+// What the account can do, action by action (issue #567). It is not a change of the Connection: updated_at stays.
+func (q *Queries) SetConnectionAccess(ctx context.Context, arg SetConnectionAccessParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setConnectionAccess, arg.Access, arg.Integration, arg.Label)
 	if err != nil {
 		return 0, err
 	}

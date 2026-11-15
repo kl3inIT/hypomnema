@@ -1419,6 +1419,8 @@ flowchart LR
       and other high-risk changes (ask). A request to a service's part of the API that lark-cli's list does not
       name, as sending a message is not, is that service's write; a GET it does not name is a read; anything
       else asks as unnamed. The app's id, which lark-cli will not run without, is told with the list of accounts.
+      Each method also carries the scopes lark-cli checks before calling it, as a person and as the app (issue
+      #567): any one of a catalog method's scopes, all of a shortcut's.
     - **An Approval** (migration 00042) is the owner's answer to a request that asked. The request is held up to
       100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
       decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.
@@ -1439,6 +1441,29 @@ flowchart LR
       Task of the worker that asked; once answered, the chat shows its row (`approval-row.tsx`): Approved or
       Denied, what was asked, the action and how far it reaches, and when, whatever the Bot shows of its tools; an account on the Integrations page says what agents may do with it and
       opens the list of actions.
+    - **What the account can really do** (issue #567, migration 00093: `connections.access`, JSON). Beside the
+      owner's answer, each action of a Connection is **granted**, **missing** or **unknown** at the service, with a
+      short reason, read when the Connection is made or signed in again and when the owner checks it
+      (`POST /integrations/{integration}/connections/{label}/check`; `hypomnema integrations check`; "Check again"
+      in the web's list of actions); nothing reads it on a timer. `integration.Service.Holdings` reads what the
+      account holds: a Google account's grants as its sign-in stored them; a Lark app's enabled scopes from
+      `application/v6/applications/:app_id`, the tenant ones (lark-cli's `auth scopes`); a person's Lark sign-in's
+      scope string, kept with its tokens in the vault (`scope`, as lark-cli's token store keeps it); a Superset
+      account's roles from `GET /api/v1/me/roles/`. `serviceproxy.Assess` says each listed action from them:
+      Google by service and read-only grant; Lark granted when any of the action's methods has its scopes, unknown
+      when lark-cli names none; Superset by `can_read`/`can_write`/`can_export`/`can_import_`/
+      `can_execute_sql_query` on the view menus each part's API classes name (`class_permission_name`; the mapping
+      is inference), unknown for the parts no view names. What the service would not say (a refused
+      `/me/roles`, Lark's refusal to name the app's scopes, an AWS role) is unknown everywhere. A request for a
+      **missing** action is refused before the owner's answer is read, with "Refused: <account> cannot <action> at
+      <connection>: <reason>"; granted and unknown go on as before. A 403 from the service reads the Connection's
+      access again, at most once a minute and after the answer was given; Lark's codes 99991672 and 99991679 mark
+      the action missing at once with Lark's words. The service's answer is passed back unchanged. The agents are
+      told before they try: the agent API's list of accounts carries each one's `cannot`, which the tool launcher
+      prints in one line before the tool runs; the client API's Connection carries it too, which
+      `hypomnema integrations list` counts and `hypomnema superset dashboards` lists; `integrations actions` has a
+      column for it. On the web a row the account cannot do stays, muted, with "This account cannot: <reason>",
+      and the line under the account adds "N the account cannot".
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
       Dispatch settles, as its model gateway key is. A coordinator presents its coordinator token, and pi its own

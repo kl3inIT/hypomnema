@@ -77,6 +77,9 @@ const (
 	KeyAccessToken  = "access_token"
 	KeyRefreshToken = "refresh_token"
 	KeyIDToken      = "id_token"
+	// KeyScope is the scopes the service granted the token set, as it said them: not a secret, kept with the
+	// tokens as lark-cli keeps a user token's scope beside it (internal/auth/token_store.go, issue #567).
+	KeyScope = "scope"
 )
 
 const (
@@ -572,7 +575,7 @@ func validPayload(kind Kind, p Payload) error {
 	case KindGeneric:
 		required, allowed = []string{KeyValue}, []string{KeyValue}
 	case KindOAuthTokenSet:
-		required, allowed = []string{KeyRefreshToken}, []string{KeyAccessToken, KeyRefreshToken, KeyIDToken}
+		required, allowed = []string{KeyRefreshToken}, []string{KeyAccessToken, KeyRefreshToken, KeyIDToken, KeyScope}
 	default:
 		return fmt.Errorf("%w: kind is %s or %s", ErrInvalid, KindGeneric, KindOAuthTokenSet)
 	}

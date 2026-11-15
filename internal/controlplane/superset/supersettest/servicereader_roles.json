@@ -1,0 +1,41 @@
+{
+  "result": {
+    "username": "svc-lark-report",
+    "firstName": "Lark",
+    "lastName": "Report",
+    "userId": 7,
+    "isActive": true,
+    "isAnonymous": false,
+    "createdOn": "2026-11-14T08:12:31.402115",
+    "email": "svc-lark-report@example.com",
+    "loginCount": 41,
+    "roles": {
+      "ServiceReader": [
+        ["can_read", "AdvancedDataType"],
+        ["can_read", "AvailableDomains"],
+        ["can_read", "Chart"],
+        ["can_read", "CssTemplate"],
+        ["can_read", "CurrentUserRestApi"],
+        ["can_read", "Dashboard"],
+        ["can_read", "DashboardFilterStateRestApi"],
+        ["can_read", "DashboardPermalinkRestApi"],
+        ["can_read", "Database"],
+        ["can_read", "Dataset"],
+        ["can_read", "DynamicPlugin"],
+        ["can_read", "EmbeddedDashboard"],
+        ["can_read", "Explore"],
+        ["can_read", "ExploreFormDataRestApi"],
+        ["can_read", "ExplorePermalinkRestApi"],
+        ["can_read", "SecurityRestApi"],
+        ["can_read", "SqlLabPermalinkRestApi"],
+        ["can_read", "Tag"],
+        ["can_read", "Theme"],
+        ["can_read", "user"],
+        ["can_read", "Datasource"],
+        ["all_datasource_access", "all_datasource_access"]
+      ]
+    },
+    "permissions": {},
+    "groups": []
+  }
+}
