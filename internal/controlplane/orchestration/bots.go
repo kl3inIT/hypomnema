@@ -420,13 +420,19 @@ func (s *Service) deleteBot(ctx context.Context, chat, id string) error {
 // (backend/onyx/db/chat.py, delete_chat_session). Runs, Routines, their runs and approvals made in those chats stay
 // and lose the chat; the chats' gateway keys are revoked and kept, so the gateway's usage records stay whole. It is
 // still refused for the main Bot, and for one with Routines or Lark
-// Channels: those are live and are removed or moved first.
-func (s *Service) ForceDeleteBot(ctx context.Context, id string) error {
+// Channels: those are live and are removed or moved first. The chats are
+// returned: their files, outside the database, are the caller's to remove
+// after the commit, as DeleteChat's are (issue #503).
+func (s *Service) ForceDeleteBot(ctx context.Context, id string) ([]Chat, error) {
 	if id == DefaultBotID {
-		return fmt.Errorf("%w: the main bot is always there", ErrConflict)
+		return nil, fmt.Errorf("%w: the main bot is always there", ErrConflict)
 	}
 
+	var deleted []Chat
+
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		deleted = nil
+
 		row, err := q.GetBot(ctx, id)
 		if err != nil {
 			return notFound(err, "bot", id)
@@ -443,18 +449,35 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) error {
 
 		// Each chat goes as DeleteChat deletes one (issue #484), its artifacts with it.
 		for _, chat := range chats {
+			row, err := q.GetChat(ctx, chat)
+			if err != nil {
+				return fmt.Errorf("reading chat %s: %w", chat, err)
+			}
+
 			if err := deleteChatTx(ctx, q, chat, now); err != nil {
 				return fmt.Errorf("deleting chat %s: %w", chat, err)
 			}
+
+			deleted = append(deleted, chatFromRow(row))
 		}
 
 		return q.DeleteBot(ctx, id)
 	})
 	if err != nil {
-		return fmt.Errorf("removing bot %s with its chats: %w", id, err)
+		return nil, fmt.Errorf("removing bot %s with its chats: %w", id, err)
 	}
 
-	return nil
+	return deleted, nil
+}
+
+// ChatIDsOfBot returns the ids of a Bot's chats.
+func (s *Service) ChatIDsOfBot(ctx context.Context, id string) ([]string, error) {
+	ids, err := s.read().ListChatIDsOfBot(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("listing the chats of bot %s: %w", id, err)
+	}
+
+	return ids, nil
 }
 
 // botRemovable refuses to remove a Bot something depends on.

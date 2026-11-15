@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
@@ -133,4 +134,53 @@ func TestADeletedChatsFilesThatStayAreReported(t *testing.T) {
 	require.NotNil(t, unset.JSON200, "%s", unset.Body)
 	require.Len(t, unset.JSON200.FilesLeft, 1)
 	assert.Contains(t, unset.JSON200.FilesLeft[0], "HYPOMNEMA_CHAT_RM_COMMAND is not set")
+}
+
+// Scenario: the owner removes a Bot with its two chats (issue #503). While pi works in one of them the removal is
+// refused and nothing goes. Once pi is idle, each chat goes as one deleted alone does: its pi is stopped, its
+// attachments are deleted in the Bot's folder and pi's run folder and sessions are removed, after the commit.
+func TestRemovingABotWithItsChatsRemovesTheirFiles(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("owner", bearertoken.Owner)
+	ctx := t.Context()
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "trial"})
+	require.NoError(t, err)
+	first, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	second, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+
+	f := &folders{answer: func(_ string, req workspacefs.Request) workspacefs.Result {
+		return workspacefs.Result{Done: &workspacefs.Done{Path: req.Path}}
+	}}
+	files := &piFiles{svc: w.svc}
+	w.srv.WithWorkspaces(f.node, f).WithChatFiles(files)
+	force := true
+
+	w.pi.working.Store(second.ID)
+
+	refused, err := owner.DeleteBotWithResponse(ctx, bot.ID, &openapi.DeleteBotParams{Force: &force})
+	require.NoError(t, err)
+	errorCode(t, refused.Body, refused.StatusCode(), http.StatusConflict)
+	assert.Contains(t, string(refused.Body), "stop it first")
+	_, err = w.svc.GetChat(ctx, first.ID)
+	require.NoError(t, err, "nothing goes")
+	assert.Empty(t, files.removed)
+
+	w.pi.working.Store("")
+
+	removed, err := owner.DeleteBotWithResponse(ctx, bot.ID, &openapi.DeleteBotParams{Force: &force})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, removed.StatusCode(), "%s", removed.Body)
+
+	chats := []string{first.ID, second.ID}
+	assert.ElementsMatch(t, chats, w.pi.stops, "each chat's pi is stopped")
+	assert.ElementsMatch(t, []string{
+		"bot " + bot.ID + " delete attachments/" + first.ID, "bot " + bot.ID + " delete attachments/" + second.ID,
+	}, f.asked)
+	assert.ElementsMatch(t, chats, files.removed)
+	assert.Equal(t, []bool{false, false}, files.present, "pi's files go after the commit")
 }
