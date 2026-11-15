@@ -1724,7 +1724,8 @@ capabilities do not exist yet.
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
     to its betas; any other gets the chat route's disguise (billing block, identity, its system in the first user
     turn with its cache breakpoints kept, a user id) and Claude Code's headers with the betas it asked for. Tools
-    are never renamed.
+    are never renamed. Breakpoints past Anthropic's four, a top-level `cache_control` counted, are removed as on the
+    chat route (issue #504).
   - `stream` stays as the client sent it; a stream goes back line for line, a whole answer as it came. The usage is
     read from `message_start` and `message_delta`, or the answer's `usage`; `count_tokens` records none.
   - The session is `X-Claude-Code-Session-Id`, else one per gateway key. The account, a refused token, a usage
@@ -1916,7 +1917,12 @@ capabilities do not exist yet.
     A client's breakpoint on a text or image part stays on its block (a blank text part is dropped and hands its
     breakpoint to the block before), one on a whole message goes on its last block, and a tool message's goes on the
     `tool_result` block, never inside its content, which Anthropic refuses (issue #482, CLIProxyAPI
-    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A probe
+    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A system or developer
+    message (pi sends its system prompt as one to a model that reasons) becomes system text blocks keeping their
+    breakpoints, which the disguise carries onto their reminders. Anthropic takes four breakpoints at most, a 400
+    past that: the extra ones go, the system's but its last first, then the tools' but the last, then the
+    messages' earliest first, then the system's and tools' last, then a top-level one (issue #504, CLIProxyAPI
+    `enforceCacheControlLimitDoc`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.

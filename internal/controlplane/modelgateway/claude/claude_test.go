@@ -295,15 +295,16 @@ func TestABlankTextPartPassesItsBreakpointBack(t *testing.T) {
 }
 
 // Scenario: a client marked a whole message for the cache (issue #482). The
-// mark lands on the message's last block; a part's own mark there wins.
+// mark lands on the message's last block; a part's own mark there wins. The
+// answer is the last message, so the gateway's own mark is the part's and the
+// request holds four, all Anthropic takes (issue #504).
 func TestAMessagesBreakpointLandsOnItsLastBlock(t *testing.T) {
 	t.Parallel()
 
 	body := buildChat(t, `{"role":"user","content":[{"type":"text","text":"a long document"},`+
 		`{"type":"text","text":"the question"}],"cache_control":{"type":"ephemeral","ttl":"5m"}},`+
 		`{"role":"assistant","content":[{"type":"text","text":"an answer","cache_control":{"type":"ephemeral"}}],`+
-		`"cache_control":{"type":"ephemeral","ttl":"5m"}},`+
-		`{"role":"user","content":"and another"}`)
+		`"cache_control":{"type":"ephemeral","ttl":"5m"}}`)
 
 	first := blocksOfMessage(t, body, 0)
 	require.Len(t, first, 2)
@@ -313,7 +314,7 @@ func TestAMessagesBreakpointLandsOnItsLastBlock(t *testing.T) {
 	answer := blocksOfMessage(t, body, 1)
 	assert.Equal(t, map[string]any{"type": "ephemeral"}, answer[0]["cache_control"],
 		"the part's own mark wins, and is not kept an hour after a five-minute mark")
-	assert.Equal(t, []string{"1h", "1h", "5m", "", ""}, ttlsInOrder(t, body))
+	assert.Equal(t, []string{"1h", "1h", "5m", ""}, ttlsInOrder(t, body))
 }
 
 // Scenario: a tool message marked as a whole or on a text part (issue #482).
@@ -340,6 +341,111 @@ func TestAToolMessagesBreakpointIsOnItsToolResult(t *testing.T) {
 	result = toolResultOf(t, part)
 	assert.True(t, cached(result), "the part's mark wins and is kept an hour")
 	assert.Zero(t, nestedMarks(result), "no mark stays inside the result")
+}
+
+// Scenario: pi sends its system prompt as a developer message to a model that
+// reasons (issue #504, seen on zm with pi 1.5.2). It reaches Anthropic as the
+// client's system does, a system-reminder in the first user turn, not as plain
+// text of the user.
+func TestADeveloperMessageIsTheClientsSystem(t *testing.T) {
+	t.Parallel()
+
+	body := buildChat(t, `{"role":"developer","content":"You are pi."},{"role":"user","content":"hi"}`)
+
+	messages, ok := body["messages"].([]any)
+	require.True(t, ok)
+	require.Len(t, messages, 1, "the developer message is not a turn of its own")
+
+	first := blocksOfMessage(t, body, 0)
+	require.Len(t, first, 2)
+	assert.Equal(t, "<system-reminder>\nYou are pi.\n</system-reminder>", first[0]["text"])
+	assert.Equal(t, "hi", first[1]["text"])
+}
+
+// Scenario: a client marked its system message for the cache, on a part or on
+// the whole message (issue #504). The mark reaches Anthropic on the reminder
+// that carries that text, kept an hour like the gateway's; the unmarked part
+// stays unmarked.
+func TestAClientsBreakpointOnItsSystemReachesAnthropic(t *testing.T) {
+	t.Parallel()
+
+	parts := buildChat(t, `{"role":"system","content":[{"type":"text","text":"the rules",`+
+		`"cache_control":{"type":"ephemeral"}},{"type":"text","text":"today is Monday"}]},`+
+		`{"role":"user","content":"hi"}`)
+
+	first := blocksOfMessage(t, parts, 0)
+	require.Len(t, first, 3)
+	assert.Contains(t, first[0]["text"], "the rules")
+	assert.True(t, cached(first[0]), "the marked part's reminder is marked")
+	assert.Contains(t, first[1]["text"], "today is Monday")
+	assert.NotContains(t, first[1], "cache_control")
+
+	whole := buildChat(t, `{"role":"system","content":"the rules","cache_control":{"type":"ephemeral"}},`+
+		`{"role":"user","content":"hi"}`)
+	assert.True(t, cached(blocksOfMessage(t, whole, 0)[0]), "the marked message's reminder is marked")
+}
+
+// Scenario: a client marked four earlier messages for the cache; with the
+// gateway's three that is seven, and Anthropic refuses more than four ("A
+// maximum of 4 blocks with cache_control may be provided. Found 7.", issue
+// #504, seen on zm). The earliest of the client's go; the tools', the
+// system's and the last message's stay.
+func TestNoMoreThanFourBreakpointsReachAnthropic(t *testing.T) {
+	t.Parallel()
+
+	var turns []string
+	for _, note := range []string{"one", "two", "three", "four"} {
+		turns = append(turns, `{"role":"user","content":[{"type":"text","text":"note `+note+`",`+
+			`"cache_control":{"type":"ephemeral"}}]}`, `{"role":"assistant","content":"noted"}`)
+	}
+
+	body := buildChat(t, strings.Join(append(turns, `{"role":"user","content":"say ok"}`), ","))
+
+	assert.Len(t, ttlsInOrder(t, body), 4)
+	assert.True(t, cached(lastOf(t, body["tools"])), "the tools' mark stays")
+	assert.True(t, cached(lastOf(t, body["system"])), "the system's mark stays")
+
+	for i, want := range []bool{false, false, false, true} {
+		assert.Equal(t, want, cached(blocksOfMessage(t, body, 2*i)[0]), "note %d", i+1)
+	}
+
+	last := blocksOfMessage(t, body, 8)
+	assert.True(t, cached(last[len(last)-1]), "the last message's mark stays")
+}
+
+// Scenario: a client's own Messages body carries five breakpoints, a top-level
+// one among them (issue #504). It leaves with four: the system's earlier one
+// goes first, as CLIProxyAPI removes them.
+func TestAPassedOnBodyKeepsFourBreakpoints(t *testing.T) {
+	t.Parallel()
+
+	raw := `{"model":"m","cache_control":{"type":"ephemeral"},` +
+		`"tools":[{"name":"read","cache_control":{"type":"ephemeral"}}],` +
+		`"system":[{"type":"text","text":"a","cache_control":{"type":"ephemeral"}},` +
+		`{"type":"text","text":"b","cache_control":{"type":"ephemeral"}}],` +
+		`"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}]}]}`
+
+	out, err := claude.PassThrough([]byte(raw), claude.PassOptions{Model: "claude-sonnet-5-5"})
+	require.NoError(t, err)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(out, &body))
+
+	assert.Contains(t, body, "cache_control", "the top-level one stays")
+
+	system, ok := body["system"].([]any)
+	require.True(t, ok)
+	assert.False(t, marked(system[0]), "the system's earlier one goes")
+	assert.True(t, marked(system[1]))
+	assert.True(t, marked(lastOf(t, body["tools"])))
+	assert.Len(t, ttlsInOrder(t, body), 3, "with the top-level one, four")
+}
+
+// marked reports whether a block carries a cache_control.
+func marked(block any) bool {
+	b, ok := block.(map[string]any)
+
+	return ok && b["cache_control"] != nil
 }
 
 // Scenario: a probe (Claude Code's own "quota" check) stays minimal — no decoy

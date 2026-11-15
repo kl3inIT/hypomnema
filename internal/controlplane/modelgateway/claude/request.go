@@ -99,7 +99,7 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 	system, messages := convertMessages(in.Messages)
 	body["messages"] = messages
 
-	if system != "" {
+	if len(system) > 0 {
 		body["system"] = system
 	}
 
@@ -222,16 +222,16 @@ func maxTokens(in chatBody) int {
 	return defaultMaxTokens
 }
 
-// convertMessages lifts the system messages to a top-level system and turns
-// the rest into Messages turns, merging turns of the same role, as 9router-go
-// does (convertOpenAIMessagesToClaude).
-func convertMessages(raw []json.RawMessage) (system string, messages []any) {
+// convertMessages lifts the system and developer messages to top-level system
+// blocks and turns the rest into Messages turns, merging turns of the same
+// role, as 9router-go does (convertOpenAIMessagesToClaude). A developer message
+// ranks with a system one in OpenAI's instruction hierarchy, and pi sends its
+// system prompt as one to a model that reasons (issue #504; CLIProxyAPI
+// claude_openai_request.go, the "system", "developer" case).
+func convertMessages(raw []json.RawMessage) (system []any, messages []any) {
 	ids := map[string]string{}
 
-	var (
-		systemParts []string
-		turns       []item
-	)
+	var turns []item
 
 	for _, m := range raw {
 		var msg struct {
@@ -253,8 +253,8 @@ func convertMessages(raw []json.RawMessage) (system string, messages []any) {
 		}
 
 		switch {
-		case msg.Role == "system":
-			systemParts = append(systemParts, systemTextOf(msg.Content)...)
+		case msg.Role == "system" || msg.Role == "developer":
+			system = append(system, systemBlocks(msg.Content, msg.CacheControl)...)
 		case msg.Role == "tool":
 			result := item{
 				"type": "tool_result", "tool_use_id": sanitizeID(msg.ToolCallID, ids),
@@ -289,7 +289,7 @@ func convertMessages(raw []json.RawMessage) (system string, messages []any) {
 		}
 	}
 
-	return strings.Join(systemParts, "\n\n"), merge(turns)
+	return system, merge(turns)
 }
 
 // merge joins consecutive turns of the same role, which the Messages API wants.
@@ -311,26 +311,23 @@ func merge(turns []item) []any {
 	return out
 }
 
-// systemTextOf reads the text of a system message, a string or text blocks.
-func systemTextOf(content json.RawMessage) []string {
-	var text string
-	if json.Unmarshal(content, &text) == nil {
-		if strings.TrimSpace(text) == "" {
-			return nil
-		}
+// systemBlocks reads a system or developer message as system text blocks,
+// each keeping its part's breakpoint, and the message's own breakpoint on its
+// last block unless a part's is there (issue #504; CLIProxyAPI
+// claude_openai_request.go, the system blocks and their cache_control). What is
+// not text is left out, and a blank part is dropped as contentBlocks drops it.
+func systemBlocks(content, cacheControl json.RawMessage) []any {
+	var out []any
 
-		return []string{text}
-	}
-
-	var out []string
-
-	for _, b := range blocksOf(contentBlocks(content)) {
-		if block, ok := b.(item); ok {
-			if t, ok := block["text"].(string); ok && strings.TrimSpace(t) != "" {
-				out = append(out, t)
+	for _, b := range contentBlocks(content) {
+		if block, ok := b.(item); ok && block["type"] == "text" {
+			if text, ok := block["text"].(string); ok && strings.TrimSpace(text) != "" {
+				out = append(out, block)
 			}
 		}
 	}
+
+	attachMessageCache(out, cacheControl)
 
 	return out
 }
