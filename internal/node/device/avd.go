@@ -70,20 +70,31 @@ func writeAVD(dir string) error {
 // removes hardware-qemu.ini.lock and multiinstance.lock the same way (bug
 // 1722483). The caller makes sure no emulator of the AVD runs.
 func clearLocks(dir string) ([]string, error) {
-	locks, err := filepath.Glob(filepath.Join(dir, avdDir, avdName+".avd", "*.lock"))
+	// The folder is read rather than globbed: a node's directory may hold the glob's own characters.
+	folder := filepath.Join(dir, avdDir, avdName+".avd")
+
+	entries, err := os.ReadDir(folder)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading the phone's folder: %w", err)
 	}
 
 	var removed []string
 
-	for _, lock := range locks {
-		// RemoveAll: a lock is a file, a link or a folder, depending on the emulator's version and the host.
-		if err := os.RemoveAll(lock); err != nil {
-			return removed, fmt.Errorf("removing the phone's stale %s: %w", filepath.Base(lock), err)
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".lock") {
+			continue
 		}
 
-		removed = append(removed, filepath.Base(lock))
+		// RemoveAll: a lock is a file, a link or a folder, depending on the emulator's version and the host.
+		if err := os.RemoveAll(filepath.Join(folder, e.Name())); err != nil {
+			return removed, fmt.Errorf("removing the phone's stale %s: %w", e.Name(), err)
+		}
+
+		removed = append(removed, e.Name())
 	}
 
 	return removed, nil
