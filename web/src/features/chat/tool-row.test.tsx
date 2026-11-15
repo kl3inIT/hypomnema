@@ -21,7 +21,7 @@ const drawn = (steps: Step[]) =>
     <ChatItemView
       item={{ kind: "activity", key: "a1", steps, open: true }}
       working={false}
-      bot="reporter"
+      botName="reporter"
     />,
   )
 
