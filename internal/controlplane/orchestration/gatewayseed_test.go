@@ -147,7 +147,7 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 // (issue #462): a model_gateway provider of another name, the three gateway
 // models, and an implementer of the owner's. Migrating through 00088 leaves
 // all of it as it was; with no provider model-gateway, the profiles the owner
-// has not changed stay on their seeds too. (00089 then moves them to the
+// has not changed stay on their seeds too. (00090 then moves them to the
 // subscription: TestMigrationMovesGatewayModelsToTheirSubscription.)
 func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 	t.Parallel()
@@ -198,7 +198,7 @@ func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 
 // Scenario: the way back (issue #462). On a fresh install the seed versions
 // are taken back and the provider and gateway models go; once the owner put a
-// profile of its own on the provider, before 00089 moved the seeds off it,
+// profile of its own on the provider, before 00090 moved the seeds off it,
 // the provider and the model it uses stay.
 func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 	t.Parallel()
@@ -245,7 +245,7 @@ func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 	}
 }
 
-// Scenario: an install at 00088 whose Bot, a chat and two profiles run on the
+// Scenario: an install at 00089 whose Bot, a chat and two profiles run on the
 // provider model-gateway (issue #549). The Bot's, the chat's and the
 // explorer's gateway models are served from one subscription model each, the
 // explorer's YAML naming its keys in another order; the reviewer's, duo, is
@@ -256,7 +256,7 @@ func TestMigrationDownTakesTheGatewaySeedBack(t *testing.T) {
 func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 	t.Parallel()
 
-	s, db := migratedTo(t, 88)
+	s, db := migratedTo(t, 89)
 	ctx := t.Context()
 
 	_, err := s.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\n"+
@@ -284,7 +284,7 @@ func TestMigrationMovesGatewayModelsToTheirSubscription(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 89)
+	_, err = p.UpTo(ctx, 90)
 	require.NoError(t, err)
 
 	read := func(query string, args ...any) [2]string {

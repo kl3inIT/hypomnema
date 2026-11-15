@@ -23,6 +23,8 @@ const now = Date.parse("2026-11-13T12:00:00Z")
 const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   id: name,
   name,
+  position: 0,
+  pinned: false,
   main: name === "coordinator",
   persona: "",
   memory: "",

@@ -58,7 +58,7 @@ func TestOnlyTheMainBotManagesBotsAndProfiles(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusForbidden, put.StatusCode(), name)
 
-		renamed, err := c.RenameBotWithResponse(ctx, vmapBot.ID, openapi.BotChange{Name: "maps"})
+		renamed, err := c.RenameBotWithResponse(ctx, vmapBot.ID, openapi.BotChange{Name: ptr("maps")})
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusForbidden, renamed.StatusCode(), name)
 
@@ -94,7 +94,7 @@ func TestOnlyTheMainBotManagesBotsAndProfiles(t *testing.T) {
 	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
 	assert.Contains(t, string(changed.Body), "Linh leads")
 
-	renamed, err := pi.RenameBotWithResponse(ctx, vmapBot.ID, openapi.BotChange{Name: "Bản đồ"})
+	renamed, err := pi.RenameBotWithResponse(ctx, vmapBot.ID, openapi.BotChange{Name: ptr("Bản đồ")})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, renamed.StatusCode(), string(renamed.Body))
 	assert.Equal(t, "Bản đồ", renamed.JSON200.Name)

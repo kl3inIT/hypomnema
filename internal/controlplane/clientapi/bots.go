@@ -137,7 +137,8 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 	return bot
 }
 
-// RenameBot gives a Bot another name.
+// RenameBot gives a Bot another name, or pins or unpins it (issue #470). Only the owner pins: the order and the
+// pins are how his sidebar lists the Bots, not a Bot's setting the main Bot changes.
 func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObject,
 ) (openapi.RenameBotResponseObject, error) {
 	chat, err := setupChat(principal(ctx))
@@ -145,18 +146,45 @@ func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObje
 		return nil, err
 	}
 
-	var b orchestration.Bot
-	if chat == "" {
-		b, err = s.svc.RenameBot(ctx, req.BotId, req.Body.Name)
-	} else {
-		b, err = s.svc.RenameBotFromChat(ctx, chat, req.BotId, req.Body.Name)
+	if req.Body.Pinned != nil && chat != "" {
+		return nil, fmt.Errorf("%w: only the owner pins a bot", errForbidden)
+	}
+
+	b, err := s.svc.GetBot(ctx, req.BotId)
+	if err != nil {
+		return nil, err
+	}
+
+	switch {
+	case req.Body.Name == nil:
+	case chat == "":
+		b, err = s.svc.RenameBot(ctx, req.BotId, *req.Body.Name)
+	default:
+		b, err = s.svc.RenameBotFromChat(ctx, chat, req.BotId, *req.Body.Name)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
+	if req.Body.Pinned != nil {
+		if b, err = s.svc.PinBot(ctx, req.BotId, *req.Body.Pinned); err != nil {
+			return nil, err
+		}
+	}
+
 	return openapi.RenameBot200JSONResponse(toBot(b)), nil
+}
+
+// ReorderBots moves the Bots named in the one order every client lists them in; only the owner (issue #470).
+func (s *Server) ReorderBots(ctx context.Context, req openapi.ReorderBotsRequestObject,
+) (openapi.ReorderBotsResponseObject, error) {
+	order, err := s.svc.ReorderBots(ctx, req.Body.BotIds)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.ReorderBots200JSONResponse{BotIds: order}, nil
 }
 
 // DeleteBot removes a Bot nothing depends on; with force, the owner removes one with its chats and its memory.
@@ -263,7 +291,8 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers),
-		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
+		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), Position: b.Position, Pinned: b.Pinned,
+		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }
 

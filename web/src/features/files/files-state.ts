@@ -1,43 +1,42 @@
-import { useQuery, type QueryClient } from "@tanstack/react-query"
+import { useQueries, useQuery, type QueryClient } from "@tanstack/react-query"
 import { useSyncExternalStore } from "react"
 
 import { client } from "@/api/client"
 import {
+  diffWorkspaceFileOptions,
+  diffWorkspaceFileQueryKey,
+  listChatWorkspacesOptions,
+  listChatWorkspacesQueryKey,
+  listWorkspaceChangesOptions,
+  listWorkspaceChangesQueryKey,
+  listWorkspaceDirectoryOptions,
+  listWorkspaceDirectoryQueryKey,
+  readWorkspaceFileOptions,
+  readWorkspaceFileQueryKey,
+  readWorkspaceRawQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import {
   deleteWorkspaceEntry,
-  diffWorkspaceFile,
-  listChatWorkspaces,
-  listWorkspaceChanges,
   makeWorkspaceFolder,
   moveWorkspaceEntry,
-  readWorkspaceFile,
   readWorkspaceRaw,
   writeWorkspaceFile,
 } from "@/api/generated/sdk.gen"
+import { callsOf } from "@/lib/query-keys"
 
 // A chat's working folders, as the Files panel reads them (issue #255). As Omnigent's useWorkspaceChangedFiles.ts:
 // nothing polls the lists; they are read again when an event may have changed them (work/use-work.ts refreshes every
-// key under workspaceKey but the files themselves), when the window comes back, and with Refresh. An open file of
+// read of the folders but the files themselves), when the window comes back, and with Refresh. An open file of
 // 256 KiB or less is read again every two seconds while it is shown (Omnigent's useFileContent).
-
-export const workspaceKey = ["workspace"] as const
-
-const key = (chat: string, workspace: string, ...rest: unknown[]) => [
-  ...workspaceKey,
-  chat,
-  workspace,
-  ...rest,
-]
-
-// Whether a query of the panel is the content of a file or an image, which an event does not refresh.
-export const isFileQuery = (queryKey: readonly unknown[]) =>
-  queryKey[0] === workspaceKey[0] && (queryKey[3] === "file" || queryKey[3] === "raw")
 
 const liveFileBytes = 256 << 10
 
+const where = (chat: string, workspace: string) => ({ chat_id: chat, workspace_id: workspace })
+
 export function useWorkspaces(chat: string | null) {
   return useQuery({
-    queryKey: [...workspaceKey, chat, "list"],
-    queryFn: async () => (await listChatWorkspaces({ path: { chat_id: chat ?? "" } })).data.data,
+    ...listChatWorkspacesOptions({ path: { chat_id: chat ?? "" } }),
+    select: (page) => page.data,
     enabled: chat !== null,
     staleTime: 30_000,
   })
@@ -45,28 +44,30 @@ export function useWorkspaces(chat: string | null) {
 
 export function useChanges(chat: string, workspace: string, enabled = true) {
   return useQuery({
-    queryKey: key(chat, workspace, "changes"),
-    queryFn: async () =>
-      (await listWorkspaceChanges({ path: { chat_id: chat, workspace_id: workspace } })).data,
+    ...listWorkspaceChangesOptions({ path: where(chat, workspace) }),
     enabled,
     staleTime: 5_000,
   })
 }
 
+// useDirectories reads the open directories of a folder together, as Omnigent fetches its expanded directories
+// centrally.
+export function useDirectories(chat: string, workspace: string, dirs: string[]) {
+  return useQueries({
+    queries: dirs.map((path) => ({
+      ...listWorkspaceDirectoryOptions({ path: where(chat, workspace), query: { path } }),
+      staleTime: 5_000,
+    })),
+  })
+}
+
 // fileKey is the query of a file's text, which a save sets to what it wrote.
 export const fileKey = (chat: string, workspace: string, path: string) =>
-  key(chat, workspace, "file", path)
+  readWorkspaceFileQueryKey({ path: where(chat, workspace), query: { path } })
 
 export function useFile(chat: string, workspace: string, path: string, shown: boolean) {
   return useQuery({
-    queryKey: fileKey(chat, workspace, path),
-    queryFn: async () =>
-      (
-        await readWorkspaceFile({
-          path: { chat_id: chat, workspace_id: workspace },
-          query: { path },
-        })
-      ).data,
+    ...readWorkspaceFileOptions({ path: where(chat, workspace), query: { path } }),
     staleTime: 5_000,
     refetchInterval: (query) => {
       const file = query.state.data
@@ -80,14 +81,7 @@ export function useFile(chat: string, workspace: string, path: string, shown: bo
 
 export function useDiff(chat: string, workspace: string, path: string) {
   return useQuery({
-    queryKey: key(chat, workspace, "diff", path),
-    queryFn: async () =>
-      (
-        await diffWorkspaceFile({
-          path: { chat_id: chat, workspace_id: workspace },
-          query: { path },
-        })
-      ).data,
+    ...diffWorkspaceFileOptions({ path: where(chat, workspace), query: { path } }),
     staleTime: 5_000,
   })
 }
@@ -100,8 +94,6 @@ export const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1) 
 
 // MaxWrite is the largest text saved from here: what fits the message that carries it to a node.
 export const maxWrite = 1 << 20
-
-const where = (chat: string, workspace: string) => ({ chat_id: chat, workspace_id: workspace })
 
 export async function saveFile(
   chat: string,
@@ -140,9 +132,39 @@ export async function deleteEntry(chat: string, workspace: string, path: string,
   })
 }
 
+// folderReads matches every cached read of the folders by its operation: the chat's folders, a folder's changes,
+// directories and diffs, a file's text and bytes, and what is read from them after (a preview, an SVG's text).
+const folderReads = callsOf(
+  listChatWorkspacesQueryKey({ path: { chat_id: "" } }),
+  listWorkspaceChangesQueryKey({ path: where("", "") }),
+  listWorkspaceDirectoryQueryKey({ path: where("", "") }),
+  diffWorkspaceFileQueryKey({ path: where("", "") }),
+  readWorkspaceFileQueryKey({ path: where("", "") }),
+  readWorkspaceRawQueryKey({ path: where("", "") }),
+)
+
+// readsOf matches the reads of a chat's folders, or of one of its folders, by the chat and folder in the generated
+// key's path, as the hand-written ["workspace", chat] and ["workspace", chat, workspace] prefixes did.
+function readsOf(chat: string, workspace?: string) {
+  return (query: { queryKey: readonly unknown[] }) => {
+    const path = (query.queryKey[0] as { path?: { chat_id?: string; workspace_id?: string } }).path
+
+    return (
+      folderReads(query) &&
+      path?.chat_id === chat &&
+      (workspace === undefined || path.workspace_id === workspace)
+    )
+  }
+}
+
 // refreshFolder reads a folder's lists again after a change made here.
 export function refreshFolder(queryClient: QueryClient, chat: string, workspace: string) {
-  void queryClient.invalidateQueries({ queryKey: [...workspaceKey, chat, workspace] })
+  void queryClient.invalidateQueries({ predicate: readsOf(chat, workspace) })
+}
+
+// refreshChat reads every folder of a chat again, and which folders it has.
+export function refreshChat(queryClient: QueryClient, chat: string) {
+  void queryClient.invalidateQueries({ predicate: readsOf(chat) })
 }
 
 // rawURL is where a file's bytes are downloaded, as an attachment.
@@ -172,11 +194,28 @@ export const imageType = (path: string) => images[extension(path)]
 
 export const isMarkdown = (path: string) => ["md", "markdown", "mdx"].includes(extension(path))
 
+// useSvgText is an SVG's text, read from its bytes, which is drawn in the locked frame rather than given a blob:
+// address. It is no call of its own, so its key is the file's generated key with "svg" after it.
+export function useSvgText(
+  chat: string,
+  workspace: string,
+  path: string,
+  bytes: Blob | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: [...fileKey(chat, workspace, path), "svg"],
+    queryFn: () => (bytes as Blob).text(),
+    enabled: enabled && bytes !== undefined,
+  })
+}
+
 // useImage is an image's bytes as an object URL, for as long as it is shown (Orca's useLocalImageSrc, Omnigent's
 // CodeViewer: bytes, a Blob, a URL revoked after).
-// rawKey is the query of a file's bytes, which an event does not refresh (isFileQuery).
+// rawKey is the query of a file's bytes, which an event does not refresh (work/use-work.ts). Its image is typed
+// here, so it keeps its own read under the generated key.
 export const rawKey = (chat: string, workspace: string, path: string) =>
-  key(chat, workspace, "raw", path)
+  readWorkspaceRawQueryKey({ path: where(chat, workspace), query: { path } })
 
 export function useImage(chat: string, workspace: string, path: string, enabled = true) {
   return useQuery({

@@ -45,7 +45,24 @@ func (linuxSystem) Run(ctx context.Context, c Command) (Output, error) {
 	// `adb start-server` leaves the server behind, holding what it inherited open: the run still ends.
 	cmd.WaitDelay = 5 * time.Second
 
+	if c.Out != "" {
+		file, err := os.OpenFile(c.Out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			return Output{}, err
+		}
+		defer file.Close() //nolint:errcheck // Closed once more after the run, where its error is read.
+
+		cmd.Stdout = file
+	}
+
 	err := cmd.Run()
+
+	if file, ok := cmd.Stdout.(*os.File); ok {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			return Output{}, closeErr
+		}
+	}
+
 	out := Output{Stdout: stdout.String(), Stderr: stderr.String()}
 
 	var exit *exec.ExitError

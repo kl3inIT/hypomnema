@@ -22,14 +22,22 @@ func TestEveryToolHasAnObjectSchema(t *testing.T) {
 	}
 }
 
-// A call is read into what its tool runs: a box, coordinates or a selector
-// for a tap; and a call no tool takes is refused with what is wrong.
+// A call is read into what its tool runs: whether a screen has boxes; a box,
+// coordinates or a selector for a tap; and a call no tool takes is refused with what is wrong.
 func TestACallIsReadOrRefused(t *testing.T) {
 	t.Parallel()
 
 	read := func(tool, arguments string) (Call, error) { return Read(tool, json.RawMessage(arguments)) }
 
-	c, err := read(Tap, `{"target":"#12"}`)
+	c, err := read(Screen, `{}`)
+	require.NoError(t, err)
+	assert.False(t, c.Boxes, "a plain screen unless the boxes are asked for")
+
+	c, err = read(Screen, `{"boxes":true}`)
+	require.NoError(t, err)
+	assert.True(t, c.Boxes)
+
+	c, err = read(Tap, `{"target":"#12"}`)
 	require.NoError(t, err)
 	assert.Equal(t, &Point{Box: 12}, c.Target)
 

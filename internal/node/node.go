@@ -26,6 +26,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/device"
+	"github.com/kl3inIT/hypomnema/internal/node/nodeexec"
 	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
@@ -64,6 +65,10 @@ type Config struct {
 	// to run an Android emulator, which its first-boot script sets with
 	// `install --device android`; empty for none (issue #417).
 	Device string `json:"device,omitempty"`
+	// DeviceGPU is the phone emulator's renderer, its -gpu mode
+	// (device.GPUModes); empty: device.DefaultGPU. Set here, on the machine,
+	// to measure another renderer (issue #554).
+	DeviceGPU string `json:"device_gpu,omitempty"`
 	// An "accounts" key, where a node kept the paths of Claude token files
 	// until issue #381, is ignored when read and dropped when written.
 }
@@ -210,6 +215,11 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		defer terminals.Close()
 	}
 
+	// An agent's commands on this machine (issue #543), and those it left running in the background, end with the
+	// node.
+	commands := nodeexec.New()
+	defer commands.Close()
+
 	// The phone of a machine made to hold one (issue #417): installed and started when the control plane asks.
 	// It is left running when the node ends, and the next node takes it back.
 	var (
@@ -219,7 +229,9 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	)
 
 	if cfg.Device == nodeproto.DeviceAndroid {
-		phone = device.New(device.Options{Dir: filepath.Join(home, "device"), KVM: CanUseKVM, Logger: logger})
+		phone = device.New(device.Options{
+			Dir: filepath.Join(home, "device"), KVM: CanUseKVM, Logger: logger, GPU: cfg.DeviceGPU,
+		})
 		phoneSays = phone
 		watchPhone = func(ctx context.Context) daemon.PhoneView { return phone.Watch(ctx) }
 
@@ -276,8 +288,8 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 			return found
 		},
-		Terminal: terminals,
-		Device:   cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone,
+		Terminal: terminals, Commands: commands,
+		Device: cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems

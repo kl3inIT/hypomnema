@@ -1,16 +1,20 @@
-import type { Chat } from "@/api/generated/types.gen"
+import type { Bot, Chat } from "@/api/generated/types.gen"
 
 // A Bot as the sidebar lists it (issue #361): its id and its chats, newest first.
 export type BotRow = { bot: string; chats: Chat[] }
 
+// The sidebar's sections (issue #470): the main Bot first, then the pinned Bots, then the others, each in the one
+// order the owner sets.
+export type BotSections = { main?: BotRow; pinned: BotRow[]; rest: BotRow[] }
+
 const newest = (a: Chat, b: Chat) => Date.parse(b.updated_at) - Date.parse(a.updated_at)
 
-// botRows groups the chats by their Bot, as OpenMausBot lists a Bot with its threads (Apache License 2.0,
-// https://github.com/milind-soni/OpenMausBot; src/components/Sidebar.tsx BotListItem, BotThreadList). The Bot
-// whose chat moved last comes first: OpenMausBot keeps an order the person drags, which is left out here until
-// dragging comes (issue #361, owner, 2026-11-13). The main Bot, whose id the server names (Bot.main), is always
-// listed, last while it has no chat.
-export function botRows(chats: readonly Chat[], main: string): BotRow[] {
+// botSections lists every Bot, with chats or not, as OpenMausBot's sidebar lists every bot with its threads
+// (Apache License 2.0, https://github.com/milind-soni/OpenMausBot; src/lib/sidebar-layout.ts partitionSidebarBots and
+// withPrimaryTile; src/components/Sidebar.tsx BotListItem, BotThreadList). The main Bot, whose id the server names
+// (Bot.main), keeps the top place and is never pinned; the pinned Bots come next and the others after, both by the
+// Bot's position. A chat whose Bot is not read yet (one made a moment ago) is listed at the end, so it is not lost.
+export function botSections(bots: readonly Bot[], chats: readonly Chat[]): BotSections {
   const byBot = new Map<string, Chat[]>()
   for (const chat of [...chats].sort(newest)) {
     const list = byBot.get(chat.bot)
@@ -18,10 +22,38 @@ export function botRows(chats: readonly Chat[], main: string): BotRow[] {
     else byBot.set(chat.bot, [chat])
   }
 
-  const rows = [...byBot].map(([bot, list]) => ({ bot, chats: list }))
-  if (main && !byBot.has(main)) rows.push({ bot: main, chats: [] })
+  const row = (bot: string): BotRow => ({ bot, chats: byBot.get(bot) ?? [] })
+  const ordered = [...bots].sort((a, b) => a.position - b.position)
+  const main = ordered.find((bot) => bot.main)
+  const others = ordered.filter((bot) => !bot.main)
+  const known = new Set(bots.map((bot) => bot.id))
+  const unread = [...byBot.keys()].filter((bot) => !known.has(bot))
 
-  return rows
+  return {
+    main: main && row(main.id),
+    pinned: others.filter((bot) => bot.pinned).map((bot) => row(bot.id)),
+    rest: [...others.filter((bot) => !bot.pinned).map((bot) => row(bot.id)), ...unread.map(row)],
+  }
+}
+
+// reorderBots is the Bots as the server orders them after a reorder that names some of them: those named take, in
+// the order given, the places they already hold together; every other Bot keeps its place. It is OpenMausBot's
+// reorderStable (shared/bot-order.ts, Apache License 2.0), so the sidebar shows the new order before the server
+// answers.
+export function reorderBots(bots: readonly Bot[], ids: readonly string[]): Bot[] {
+  const rank = new Map(ids.map((id, index) => [id, index] as const))
+  const items = [...bots].sort((a, b) => a.position - b.position)
+  const slots: number[] = []
+  items.forEach((item, index) => {
+    if (rank.has(item.id)) slots.push(index)
+  })
+  const moved = slots.map((slot) => items[slot]!).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!)
+  const out = [...items]
+  slots.forEach((slot, index) => {
+    out[slot] = moved[index]!
+  })
+
+  return out.map((bot, position) => (bot.position === position ? bot : { ...bot, position }))
 }
 
 // Which Bots the owner opened to their chats, kept in this browser as t3code keeps which projects are expanded

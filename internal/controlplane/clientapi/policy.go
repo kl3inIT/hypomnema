@@ -180,10 +180,12 @@ var policies = map[string]policy{
 	"ListBots":                  {},
 	"GetBot":                    {},
 	// The owner, or the main Bot from its chat: the handler decides (setupchanges.go).
-	"CreateBot":           {},
-	"PutBot":              {},
-	"RenameBot":           {},
-	"DeleteBot":           {},
+	"CreateBot": {},
+	"PutBot":    {},
+	"RenameBot": {},
+	"DeleteBot": {},
+	// The order the sidebar lists the Bots in (issue #470) is the owner's.
+	"ReorderBots":         {scope: scopeOwner},
 	"ChangeBotMemory":     {},
 	"SetBotMemory":        {scope: scopeOwner},
 	"ListProfiles":        {},
