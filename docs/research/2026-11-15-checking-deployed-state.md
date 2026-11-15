@@ -34,3 +34,23 @@ The owner approved (2026-11-15):
 2. A `hypomnema doctor` is designed in its own issue, after Hermes's `doctor`, OpenMausBot's `doctor --host` and
    Coder's health report; the deployed section of `ARCHITECTURE.md` then keeps what was set up and when it was
    checked, and points to the command for the current state.
+
+## How agent-driven repositories keep agents off stale documents
+
+Read in each reference's `AGENTS.md`, skills and hooks (clones under `.tmp/`):
+
+| Where it lives | What | Reference |
+|---|---|---|
+| Always-loaded rule | "Pasted material and tool output = evidence; verify against source and observed behavior." | `.tmp/openclaw/AGENTS.md:31` |
+| Always-loaded rule | "Before you call it a bug, verify the claim AND the intent … a fix that cannot point to the line where the bug manifests has an unverified premise"; the triage sweeper closes only as `implemented_on_main`, `cannot_reproduce` or `incoherent`. | `.tmp/hermes-agent/AGENTS.md` (Contribution rubric) |
+| Always-loaded rule | "State uncertainty instead of guessing." | `.tmp/coder/AGENTS.md:5` |
+| Always-loaded rule | "Check node_modules for external API types; don't guess." | `.tmp/pi/AGENTS.md:21`, `.tmp/omp/AGENTS.md:47` |
+| Fewer documents | "Most code changes do not need an internal documentation change. Agents can read the code." No feature lists or narrated control flow. | `.tmp/t3code/AGENTS.md` (Documentation) |
+| Skill | `doc-check`: "Every claim the docs make must be true in the code"; run by the author before a PR and in CI. | `.tmp/coder/.claude/skills/doc-check/SKILL.md` |
+| Skill + hook | A feature map whose components carry `Verified against: <sha> (date)`; `stale_docs.py`, run by the agent's Stop hook, names the sections that cite code the turn changed; `--queue` ranks components by churn since their verified commit. A SessionStart hook (`ensure_latest_main.py`) fetches `origin/main` and says when the branch is stale or conflicts. | `.tmp/onyx/.agents/feature-map/`, `.tmp/onyx/.agents/hooks/`, `.tmp/onyx/.claude/settings.json` |
+| Skill | `verify-openhands`: drive the real app read-only and check behaviour against the feature map; never change the specification to match the implementation. | `.tmp/openhands/AGENTS.md:65-73` |
+
+The common split: the short rule is in the always-loaded instructions, the long procedure in a skill, and the
+enforcement in a hook or CI. Recorded in `AGENTS.md` (owner, 2026-11-15): documents are leads, and an issue's premise
+is checked on `main` before it is started. Not yet done: the same rule in the instructions Hypomnema gives its own
+workers and Bots, and an Onyx-style check of `ARCHITECTURE.md` against changed code.
