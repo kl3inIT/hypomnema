@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -196,4 +197,51 @@ func TestUpdateLoopEndsTheNodeOnlyAfterItUpdated(t *testing.T) {
 	}
 
 	assert.Equal(t, "the newer node", contentOf(t, exe))
+}
+
+// Scenario: the phone is asked to start while the node downloads its update
+// (issue #545). The node puts the new binary in place but does not end
+// until the phone's start is over: a restart would cut the boot short.
+func TestUpdateLoopWaitsForWhatBecameBusyDuringTheDownload(t *testing.T) {
+	t.Parallel()
+
+	r := newRelease(t, "v0.4.1", []byte("the newer node"))
+	u, exe := installed(t, "v0.4.0", "v0.4.1")
+
+	var busy atomic.Bool
+
+	// The download is checked by running it; the phone's start is asked meanwhile.
+	u.Reports = func(context.Context, string) (string, error) {
+		busy.Store(true)
+
+		return "v0.4.1", nil
+	}
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- u.updateLoop(t.Context(), func() string { return r.srv.URL }, busy.Load,
+			20*time.Millisecond, 20*time.Millisecond, slog.New(slog.DiscardHandler))
+	}()
+
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(exe) //nolint:gosec // a file this test wrote
+
+		return err == nil && string(data) == "the newer node" // Windows refuses a read during the rename.
+	}, 10*time.Second, 10*time.Millisecond)
+
+	select {
+	case err := <-done:
+		t.Fatalf("the node ended while its phone was starting: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	busy.Store(false)
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrUpdated)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the node did not end once its phone had started")
+	}
 }

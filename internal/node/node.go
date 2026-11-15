@@ -294,23 +294,15 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	defer cancel(nil)
 
 	go func() {
-		// An update waits for a terminal, and for the phone while it is installed or started: a restart would cut
-		// that short. A phone that runs is left running by the restart and taken back after it.
+		// An update waits for a terminal, and for the phone while a start is asked, or it is installed or
+		// started: a restart would cut that short. A phone that runs is left running by the restart and taken
+		// back after it.
 		busy := func() bool {
 			if terminals != nil && terminals.Count() > 0 {
 				return true
 			}
 
-			if phone == nil {
-				return false
-			}
-
-			switch phone.Status().State {
-			case nodeproto.DeviceInstalling, nodeproto.DeviceStarting:
-				return true
-			default:
-				return false
-			}
+			return phone != nil && phone.Busy()
 		}
 		every := time.Duration(cfg.UpdateEveryMinutes) * time.Minute
 
