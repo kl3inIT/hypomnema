@@ -464,6 +464,79 @@ func TestAPassedOnBodyKeepsFourBreakpoints(t *testing.T) {
 	assert.Len(t, ttlsInOrder(t, body), 3, "with the top-level one, four")
 }
 
+// passOn passes a Messages body on as the gateway does, disguised or not.
+func passOn(t *testing.T, raw string, disguise bool) map[string]any {
+	t.Helper()
+
+	out, err := claude.PassThrough([]byte(raw), claude.PassOptions{
+		Model: "claude-sonnet-5-5", Token: "tok", Disguise: disguise,
+	})
+	require.NoError(t, err)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(out, &body))
+
+	return body
+}
+
+// Scenario: a client that is not Claude Code sends a Messages body that marks
+// nothing for the cache (issue #524, measured on zm: nothing was read from the
+// cache, a second turn included). The disguised body gets the chat route's
+// breakpoints: its system, its last tool, its last message.
+func TestADisguisedMessagesBodyIsCached(t *testing.T) {
+	t.Parallel()
+
+	body := passOn(t, `{"model":"m","system":"the rules","tools":[{"name":"read","input_schema":{}}],`+
+		`"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"},`+
+		`{"role":"user","content":"and now?"}]}`, true)
+
+	first := blocksOfMessage(t, body, 0)
+	assert.Contains(t, first[0]["text"], "the rules")
+	assert.True(t, cached(first[0]), "the client's system")
+	assert.True(t, cached(lastOf(t, body["tools"])), "the last tool")
+	last := blocksOfMessage(t, body, 2)
+	assert.True(t, cached(last[len(last)-1]), "the last message")
+	assert.False(t, marked(lastOf(t, body["system"])), "none on Claude Code's identity line")
+}
+
+// Scenario: Claude Code's own body places its own breakpoints; the gateway
+// adds none to it.
+func TestClaudeCodesBodyGetsNoBreakpointOfTheGateways(t *testing.T) {
+	t.Parallel()
+
+	body := passOn(t, `{"model":"m","system":"the rules","messages":[{"role":"user","content":"hi"}]}`, false)
+
+	assert.Empty(t, ttlsInOrder(t, body))
+}
+
+// Scenario: a passed-on body ends on a thinking block, which cannot hold a
+// breakpoint (issue #524). The mark goes on the last block that can.
+func TestTheLastMessagesBreakpointSkipsThinking(t *testing.T) {
+	t.Parallel()
+
+	body := passOn(t, `{"model":"m","messages":[{"role":"user","content":"hi"},`+
+		`{"role":"assistant","content":[{"type":"text","text":"so"},`+
+		`{"type":"thinking","thinking":"hmm","signature":"s"}]}]}`, true)
+
+	answer := blocksOfMessage(t, body, 1)
+	assert.True(t, cached(answer[0]), "the text before it")
+	assert.False(t, marked(answer[1]), "not the thinking block")
+}
+
+// Scenario: a client asks for Anthropic's automatic caching with a top-level
+// cache_control (issue #524). It moves onto the last message's block, where
+// the gateway's own would go, so no two marks of different ttl meet there.
+func TestATopLevelBreakpointMovesOntoTheLastMessage(t *testing.T) {
+	t.Parallel()
+
+	body := passOn(t, `{"model":"m","cache_control":{"type":"ephemeral"},`+
+		`"messages":[{"role":"user","content":"hi"}]}`, true)
+
+	assert.NotContains(t, body, "cache_control")
+	first := blocksOfMessage(t, body, 0)
+	assert.True(t, cached(first[len(first)-1]), "kept an hour, as no shorter one is before it")
+}
+
 // marked reports whether a block carries a cache_control.
 func marked(block any) bool {
 	b, ok := block.(map[string]any)
