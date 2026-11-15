@@ -46,7 +46,7 @@ export function DraftChat({
           A new chat with {name}
         </p>
         <Composer
-          bot={of}
+          botName={name}
           onSend={(text, files) => start.mutateAsync({ text, files })}
           onStop={() => {}}
           working={false}

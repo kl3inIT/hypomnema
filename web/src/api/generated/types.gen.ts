@@ -1910,6 +1910,10 @@ export type Skill = {
    * Given to every worker and Bot that does not turn it off.
    */
   everyone: boolean;
+  /**
+   * Shipped with the control plane, which publishes a new revision when a release changes it, unless the newest revision is one the owner added. It is turned off for everyone, never removed.
+   */
+  built_in: boolean;
   latest: SkillRevision;
   /**
    * Every revision, newest first; only when the skill is read alone.
@@ -1932,7 +1936,7 @@ export type SkillRevision = {
   size: number;
   files: number;
   /**
-   * upload, or github:owner/repo[/path]@ref.
+   * upload, github:owner/repo[/path]@ref, or builtin:<release> for a skill the control plane ships.
    */
   source: string;
   /**

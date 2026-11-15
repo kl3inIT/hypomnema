@@ -64,6 +64,7 @@ const models: Model[] = [
 const skill = (name: string, everyone = false): Skill => ({
   name,
   everyone,
+  built_in: false,
   latest: {
     revision: 1,
     description: `What ${name} teaches.`,

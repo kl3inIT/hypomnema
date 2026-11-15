@@ -244,6 +244,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	publishBuiltinSkills(ctx, svc, logger)
 
 	// The scheduler runs while the server does; if it fails, the server stops.
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -582,6 +583,29 @@ func nodeTerminals(nodes *nodeapi.Server) clientapi.Terminals {
 		}
 
 		return end, nil
+	}
+}
+
+// publishBuiltinSkills puts the skills this binary gives every agent kind
+// (pdf) into the skills store as this release's revision (issue
+// #492). A failure is logged and the control plane serves on, as Codex goes
+// on when it cannot install its system skills (ext/skills/src/host_service.rs,
+// ensure_system_skills_installed): the store keeps the last release's.
+func publishBuiltinSkills(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) {
+	skills, err := clientcli.StoreSkills()
+	if err == nil {
+		var done []orchestration.BuiltinPublish
+
+		done, err = svc.PublishBuiltinSkills(ctx, skills, orchestration.SkillBuiltin+":"+platform.Version)
+		for _, d := range done {
+			logger.InfoContext(ctx, "built-in skill published", slog.String("event", "controlplane.builtin_skill"),
+				slog.String("skill", d.Name), slog.String("did", d.Did))
+		}
+	}
+
+	if err != nil {
+		logger.ErrorContext(ctx, "publishing the built-in skills failed",
+			slog.String("event", "controlplane.builtin_skills_failed"), slog.String("error", err.Error()))
 	}
 }
 

@@ -399,6 +399,7 @@ test("fallbacks are chosen in order from the other workers and saved with the ag
 const skill = (name: string, everyone = false): Skill => ({
   name,
   everyone,
+  built_in: false,
   latest: {
     revision: 1,
     description: `What ${name} teaches.`,

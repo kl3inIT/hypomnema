@@ -96,7 +96,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
             onSend={(text, files) => start.mutateAsync({ text, files })}
             onStop={() => {}}
             working={false}
-            bot={bot}
+            botName={botNameOf(bots, bot)}
             attachments={attachments}
             draft={{ key: newChatDraft, chat: chatId, bot }}
             controls={<ChatModelControls bot={bot} choice={model} onChange={setModel} />}

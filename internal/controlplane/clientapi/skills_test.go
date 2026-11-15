@@ -279,3 +279,37 @@ func TestTheOwnerAddsASkillFoundOnSkillsSh(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.InvalidRequest, errorCode(t, unknown.Body, unknown.StatusCode(), http.StatusBadRequest))
 }
+
+// Scenario: the control plane published pdf as a built-in skill (issue
+// #492). The owner sees it marked built in and for everyone, turns it off,
+// and cannot remove it: the answer says to turn it off instead.
+func TestABuiltinSkillIsSwitchedNotRemoved(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+
+	sk, err := skillpack.FromArchive(archiveOfManifest("---\nname: pdf\ndescription: PDF files.\n---\n"))
+	require.NoError(t, err)
+
+	_, err = w.svc.PublishBuiltinSkills(ctx, []skillpack.Skill{sk}, "builtin:v0.9.42")
+	require.NoError(t, err)
+
+	list, err := owner.ListSkillsWithResponse(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, list.JSON200)
+	require.Len(t, list.JSON200.Data, 1)
+	assert.True(t, list.JSON200.Data[0].BuiltIn)
+	assert.True(t, list.JSON200.Data[0].Everyone)
+	assert.Equal(t, "builtin:v0.9.42", list.JSON200.Data[0].Latest.Source)
+
+	off, err := owner.SetSkillEveryoneWithResponse(ctx, "pdf", openapi.SkillEveryone{Everyone: false})
+	require.NoError(t, err)
+	require.NotNil(t, off.JSON200)
+	assert.False(t, off.JSON200.Everyone)
+	assert.True(t, off.JSON200.BuiltIn)
+
+	gone, err := owner.DeleteSkillWithResponse(ctx, "pdf")
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Conflict, errorCode(t, gone.Body, gone.StatusCode(), http.StatusConflict))
+	assert.Contains(t, string(gone.Body), "turn it off for everyone instead")
+}

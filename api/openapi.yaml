@@ -5699,12 +5699,17 @@ components:
           description: The YAML document; its name must equal the one in the path.
     Skill:
       type: object
-      required: [name, everyone, latest, created_at, updated_at]
+      required: [name, everyone, built_in, latest, created_at, updated_at]
       properties:
         name: { type: string }
         everyone:
           type: boolean
           description: Given to every worker and Bot that does not turn it off.
+        built_in:
+          type: boolean
+          description: >-
+            Shipped with the control plane, which publishes a new revision when a release changes it, unless the
+            newest revision is one the owner added. It is turned off for everyone, never removed.
         latest: { $ref: "#/components/schemas/SkillRevision" }
         revisions:
           type: array
@@ -5728,7 +5733,7 @@ components:
         files: { type: integer }
         source:
           type: string
-          description: upload, or github:owner/repo[/path]@ref.
+          description: upload, github:owner/repo[/path]@ref, or builtin:<release> for a skill the control plane ships.
         commit:
           type: string
           description: The commit the ref was, for a repository.

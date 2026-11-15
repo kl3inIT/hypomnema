@@ -3,16 +3,13 @@
 import { useQuery } from "@tanstack/react-query"
 
 import "@/api/client"
-import { getDevice } from "@/api/generated/sdk.gen"
-
-const deviceKey = ["device"] as const
+import { getDeviceOptions } from "@/api/generated/@tanstack/react-query.gen"
 
 const whileOpen = 5000
 
 export function useDevice() {
   return useQuery({
-    queryKey: deviceKey,
-    queryFn: async () => (await getDevice()).data,
+    ...getDeviceOptions(),
     // A control plane with no phone is not asked again and again.
     refetchInterval: (query) => (query.state.status === "error" ? false : whileOpen),
     retry: false,
