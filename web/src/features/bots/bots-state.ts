@@ -19,9 +19,16 @@ export function botNameOf(bots: Pick<Bot, "id" | "name">[] | undefined, id: stri
 // 64 characters, any letters.
 const maxName = 64
 
-// modelLine is a Bot's model as a card says it: the name, or that pi chooses.
+// defaultBotModel is the model of a Bot that names none (owner, 2026-11-15): Claude Opus 5.5 under the Claude
+// subscription, which pi is given as its default (clientcli pisettings.go, piDefaultModel).
+export const defaultBotModel = "claude-opus-5-5"
+
+// defaultModelLabel says which model a Bot with none runs on.
+export const defaultModelLabel = `Default (${modelName(defaultBotModel)})`
+
+// modelLine is a Bot's model as a card says it: the name, or the default.
 export function modelLine(bot: Pick<Bot, "model">) {
-  return bot.model ? modelName(bot.model) : "pi's default model"
+  return bot.model ? modelName(bot.model) : defaultModelLabel
 }
 
 // memoryEntries is a Bot's memory as a list: one entry a line.

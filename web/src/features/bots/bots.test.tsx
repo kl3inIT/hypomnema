@@ -279,7 +279,7 @@ test("a card says the Bot's model and how much memory it uses", async () => {
 
   const first = await screen.findByRole("article", { name: "coordinator" })
   expect(first).toHaveTextContent("No persona.")
-  expect(first).toHaveTextContent("Model:pi's default model")
+  expect(first).toHaveTextContent("Model:Default (Claude Opus 5.5)")
   expect(first).toHaveTextContent("Memory:58 of 2,200 characters")
 
   const second = screen.getByRole("article", { name: "researcher" })

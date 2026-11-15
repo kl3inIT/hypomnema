@@ -2014,7 +2014,10 @@ capabilities do not exist yet.
     Claude subscription's model, `openai-responses` at `/v1` for a Codex subscription's, OpenAI chat for the rest
     (measured on zm on 2026-11-15: a Claude turn is about a fifth smaller on Messages with the same cache, and
     Codex's cache is the same on Responses). The supervisor gives pi `--provider hypomnema` and the gateway name,
-    and makes the chat's key for that name. An omp worker is given the same wire for its model, as the offer's
+    and makes the chat's key for that name. A Bot that names no model runs on Claude Opus 5.5 under the Claude
+    subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
+    `defaultProvider` and `defaultModel` when the gateway serves it, and the pages call it "Default (Claude Opus
+    5.5)"; without it pi takes the first model it is given. An omp worker is given the same wire for its model, as the offer's
     `model_api`. A Bot may name a subscription or a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
     OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when

@@ -28,6 +28,7 @@ import { choices, matches, type Choice, type Group } from "@/features/agents/mod
 import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
 import { splitModel } from "@/features/agents/profiles-state"
 import { useModels } from "@/features/agents/use-profiles"
+import { defaultBotModel } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import { useGatewayModels } from "@/features/models/use-models"
 import { modelName } from "@/lib/model-name"
@@ -116,7 +117,7 @@ function ModelButton({
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
-  const botsLabel = botModel ? `${bot}'s model: ${modelName(botModel)}` : `${bot}'s model`
+  const botsLabel = `${bot}'s model: ${modelName(botModel || defaultBotModel)}`
   const groups = choices(models, chosen, botsLabel)
   const value = groups.flatMap((g) => g.items).find((c) => c.key === chosen) ?? null
   const name = model ? modelName(model) : "Default model"
