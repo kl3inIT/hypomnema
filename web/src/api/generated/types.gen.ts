@@ -675,6 +675,10 @@ export type Browser = {
   installed: boolean;
   running: boolean;
   /**
+   * The browser the control plane runs, by name and pinned version.
+   */
+  chrome: string;
+  /**
    * Whether the owner holds the browser; agents' calls are refused meanwhile.
    */
   held: boolean;

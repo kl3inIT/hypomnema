@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
 func tarOf(t *testing.T, files ...artifactpack.File) *bytes.Reader {

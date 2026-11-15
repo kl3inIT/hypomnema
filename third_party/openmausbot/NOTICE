@@ -9,6 +9,15 @@ What is adapted from it here: the egress gate for the shared browser
 and policy.ts and its electron/egress-addresses.mjs. Changed: written in Go in
 place of Node, and only the rules of a self-hosted server are kept.
 
+The shared browser's identity and its frame window (issue #540): what the
+browser tells pages it is (internal/controlplane/browser/identity.go and
+sidecar.go), from its server/browser/chrome/identity.ts, calibrate.ts,
+flags.ts, wrapper.ts and sidecar.ts, and the two frames a view may have
+unacknowledged (internal/controlplane/browser/view.go), from its
+server/browser-live.ts. Changed: written in Go, one sidecar for the one shared
+Chrome, the switches passed through agent-browser's AGENT_BROWSER_ARGS and the
+time zone through its environment in place of a launcher script.
+
 The web client's Team page (web/src/features/team/), from its team map:
 src/components/TeamMapPage.tsx, TeamCanvas.tsx and ComputerNode.tsx, and
 src/lib/team-map.ts, team-canvas.ts and team-canvas-computers.ts with their
@@ -18,7 +27,7 @@ and edges worked out from Hypomnema's records; each file names what changed.
 
 The built-in pages skill (internal/controlplane/clientcli/skills/pages/), from
 its skills/data-dashboards at a6cd67c78610 (SKILL.md and dashboard.html, with
-this LICENSE in the folder). Changed: shown with `hypomnema artifact show`, no
+this LICENSE in the folder). Changed: shown with the show_artifact tool, no
 public link, its data from Superset, and the template drawing its charts as SVG
 with no library or network request.
 

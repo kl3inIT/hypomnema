@@ -14,14 +14,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
-// Artifacts from the terminal (issue #402). A Bot shows a page, a PDF, an image or any file to the owner in its
-// chat with `artifact show`, as OpenMausBot's bots call show_html (server/drivers/agents-app-tools.ts: html, path,
-// app_id); the file or folder is read in the Bot's directory, which is pi's working directory, and the id printed
-// is what replaces it later. Every token lists and reads artifacts.
+// Artifacts from the terminal (issue #402). The owner and a Routine's script show a page, a PDF, an image or any
+// file with `artifact show` (a Bot's pi and a worker have the show_artifact tool since issue #536), as
+// OpenMausBot's bots call show_html (server/drivers/agents-app-tools.ts: html, path, app_id); the file or folder is
+// read in the working directory, and the id printed is what replaces it later. Every token lists and reads
+// artifacts.
 
 func artifactShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	htmlFile, target, id := str(fs, "html-file"), str(fs, "path"), str(fs, "id")

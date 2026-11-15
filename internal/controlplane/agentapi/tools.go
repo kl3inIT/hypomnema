@@ -19,6 +19,8 @@ import (
 // (server/drivers/agents-catalog.ts). Which kind gets which:
 //
 //   - memory (memory.go): a worker and a Bot's pi, each its own targets;
+//   - show_artifact (artifacts.go): a worker into its Run's chat, a Bot's pi
+//     into its own;
 //   - web_search, web_fetch, generate_image (web.go): a worker by its
 //     runtime, a Bot's pi all three;
 //   - the browser's: a worker; a Bot's pi not yet (issue #536, step 4).
@@ -28,12 +30,17 @@ import (
 // release.
 
 // toolList is the definitions of the tools an agent gets, in the shape of
-// tools/list: the memory's, the gateway's, and a worker's the browser's. A
+// tools/list: the memory's, show_artifact, the gateway's, and a worker's the
+// browser's. A
 // browser that cannot list its tools takes none of the others away.
 func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool {
 	out := []agenttool.BrowserTool{}
 
 	if t, ok := memoryTool(a); ok {
+		out = append(out, t)
+	}
+
+	if t, ok := artifactTool(a); ok {
 		out = append(out, t)
 	}
 
@@ -95,6 +102,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case asked.Tool == agenttool.ToolMemory && memoryTargets(a) != nil:
 		s.memoryCall(w, r, a, asked)
+	case asked.Tool == agenttool.ToolShowArtifact && showsArtifacts(a):
+		s.artifactCall(w, r, a, asked)
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
 		s.gatewayCall(w, r, a, asked)
 	case s.hasBrowser(a):

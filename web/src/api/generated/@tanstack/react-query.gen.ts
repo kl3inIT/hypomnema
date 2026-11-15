@@ -2509,6 +2509,26 @@ export const undoSetupChangeMutation = (options?: Partial<Options<UndoSetupChang
   return mutationOptions;
 };
 
+export const previewRoutineScheduleQueryKey = (options: Options<PreviewRoutineScheduleData>) => createQueryKey('previewRoutineSchedule', options);
+
+/**
+ * A schedule in words and its next three times, as a Routine made now would have them
+ *
+ * The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+ */
+export const previewRoutineScheduleOptions = (options: Options<PreviewRoutineScheduleData>) => queryOptions<PreviewRoutineScheduleResponse, PreviewRoutineScheduleError, PreviewRoutineScheduleResponse, ReturnType<typeof previewRoutineScheduleQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await previewRoutineSchedule({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: previewRoutineScheduleQueryKey(options)
+});
+
 /**
  * A schedule in words and its next three times, as a Routine made now would have them
  *
