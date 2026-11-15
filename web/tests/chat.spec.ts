@@ -1292,7 +1292,8 @@ test("a long chat opens at its end and brings older messages on scroll", async (
   await write(page, state(false))
 
   const log = page.getByRole("log")
-  await expect(log.getByText("message 260", { exact: true })).toBeVisible()
+  // The chat opens at its end before the owner scrolls.
+  await expect(log.getByText("message 260", { exact: true })).toBeInViewport()
   await expect(log.getByText("message 61", { exact: true })).toHaveCount(1)
   await expect(log.getByText("message 60", { exact: true })).toHaveCount(0)
   await expect(log.getByRole("button", { name: "Load earlier messages" })).toBeAttached()

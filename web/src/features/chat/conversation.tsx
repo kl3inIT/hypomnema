@@ -68,8 +68,10 @@ export function Conversation({
 // History brings older pages as the reader scrolls up, as OpenMausBot's use-transcript-viewport.ts does: a sentinel
 // at the top, watched ahead of the viewport (600 px, as Orca's history viewport), loads the next page while the
 // reader is not following the bottom, and a button does the same where the sentinel cannot (Orca's "Load earlier").
-// The scroll height before the page is kept and the growth added back once it is drawn, so the reader stays on the
-// row they were reading (OpenMausBot's holdRowForPrepend).
+// The row the reader was on is put back where it was once the page is drawn, and held there while late layout
+// (markdown, code colouring) settles, until it holds for two frames, 60 frames pass or the reader scrolls
+// (OpenMausBot's settleScroll, transcript-follow.ts). A row that went, as a group the page joined, falls back to
+// the growth of the scroll height.
 function History({
   more,
   loading,
@@ -83,19 +85,58 @@ function History({
 }) {
   const { scrollRef, isAtBottom } = useStickToBottomContext()
   const sentinel = useRef<HTMLDivElement>(null)
-  const height = useRef<number | null>(null)
+  const hold = useRef<{ row: Element | null; top: number; height: number } | null>(null)
 
   const load = useCallback(() => {
-    if (loading || !onLoad) return
-    height.current = scrollRef.current?.scrollHeight ?? null
+    const el = scrollRef.current
+    if (loading || !onLoad || !el) return
+    const row = sentinel.current?.nextElementSibling ?? null
+    hold.current = {
+      row,
+      top: row ? row.getBoundingClientRect().top - el.getBoundingClientRect().top : 0,
+      height: el.scrollHeight,
+    }
     onLoad()
   }, [loading, onLoad, scrollRef])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
-    if (height.current === null || !el) return
-    el.scrollTop += el.scrollHeight - height.current
-    height.current = null
+    const h = hold.current
+    if (!el || !h) return
+    hold.current = null
+
+    const row = h.row?.isConnected ? h.row : null
+    if (!row) {
+      el.scrollTop += el.scrollHeight - h.height
+      return
+    }
+
+    const target = () =>
+      el.scrollTop + row.getBoundingClientRect().top - el.getBoundingClientRect().top - h.top
+    let moved = false
+    let frames = 0
+    let stable = 0
+    const stop = () => {
+      moved = true
+    }
+    const done = () => {
+      el.removeEventListener("wheel", stop)
+      el.removeEventListener("touchstart", stop)
+    }
+    el.addEventListener("wheel", stop, { passive: true })
+    el.addEventListener("touchstart", stop, { passive: true })
+    el.scrollTop = target()
+
+    const settle = () => {
+      if (moved || !row.isConnected || ++frames > 60) return done()
+      const t = target()
+      if (Math.abs(el.scrollTop - t) > 1) {
+        stable = 0
+        el.scrollTop = t
+      } else if (++stable >= 2) return done()
+      requestAnimationFrame(settle)
+    }
+    requestAnimationFrame(settle)
   }, [oldest, scrollRef])
 
   useEffect(() => {
