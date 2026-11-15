@@ -179,8 +179,10 @@ var policies = map[string]policy{
 	"RevokeGatewayKey":          {scope: scopeOwner},
 	"ListBots":                  {},
 	"GetBot":                    {},
-	// The owner, or the Bot coordinator from its chat: the handler decides (setupchanges.go).
+	// The owner, or the main Bot from its chat: the handler decides (setupchanges.go).
+	"CreateBot":           {},
 	"PutBot":              {},
+	"RenameBot":           {},
 	"DeleteBot":           {},
 	"ChangeBotMemory":     {},
 	"SetBotMemory":        {scope: scopeOwner},
@@ -321,7 +323,7 @@ func botAllowed(tok orchestration.Token, bot string) error {
 }
 
 // botReadable refuses a pi's token to read a Bot other than its own, except
-// the Bot coordinator's, which manages the Bots (issue #169, setupchanges.go)
+// the main Bot's, which manages the Bots (issue #169, setupchanges.go)
 // and reads them as the owner's CLI does before it changes one.
 func botReadable(tok orchestration.Token, bot string) error {
 	if _, err := setupChat(tok); err == nil {

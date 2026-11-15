@@ -8,7 +8,15 @@ import { shot } from "./shot.js"
 // under it with the files.
 
 const at = "2026-11-13T10:00:00Z"
-const bot = (name: string) => ({ name, model: "", persona: "", memory: "", updated_at: at })
+const bot = (name: string) => ({
+  id: name,
+  main: name === "coordinator",
+  name,
+  model: "",
+  persona: "",
+  memory: "",
+  updated_at: at,
+})
 
 // The models a chat may run with (issue #369) and the gateway's word on whether each reasons, and at which levels.
 const models = [

@@ -352,7 +352,7 @@ func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m
 	}
 
 	if bot == "" {
-		bot = DefaultBot
+		bot = DefaultBotID
 	}
 
 	title = strings.TrimSpace(title)
@@ -519,7 +519,7 @@ func pageLimit(limit int) int {
 
 func chatFromRow(r store.Chat) Chat {
 	return Chat{
-		ID: r.ID, Title: r.Title, Bot: r.Bot,
+		ID: r.ID, Title: r.Title, Bot: r.BotID,
 		Choice:    ChatModel{Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String},
 		Usage:     usageFromRow(r),
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),

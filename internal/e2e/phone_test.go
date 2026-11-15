@@ -42,12 +42,21 @@ type fakePhone struct {
 	asked   []string
 	calls   []string
 	changed chan struct{}
+	// reached and hold, when set, make a call say it arrived and then wait
+	// until hold is closed: a phone busy when its node goes away.
+	reached chan struct{}
+	hold    chan struct{}
 }
 
 func (p *fakePhone) Call(_ context.Context, agent, tool string, arguments json.RawMessage) nodeproto.DeviceAnswer {
 	p.mu.Lock()
 	p.calls = append(p.calls, agent+" "+tool+" "+string(arguments))
 	p.mu.Unlock()
+
+	if p.hold != nil {
+		close(p.reached)
+		<-p.hold
+	}
 
 	return nodeproto.DeviceAnswer{Content: []nodeproto.DeviceContent{
 		{Type: "image", Data: "cG5n", MimeType: "image/png"}, {Type: "text", Text: "Numbered boxes."},

@@ -8,6 +8,8 @@ import { shot } from "./shot.js"
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
 
 const bot = (name: string) => ({
+  id: name,
+  main: name === "coordinator",
   name,
   persona: "",
   memory: "",

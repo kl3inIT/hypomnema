@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { usePending } from "@/features/approvals/use-approvals"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
+import { useBotName, useMainBot } from "@/features/bots/use-bots"
 import { setDragged, tabDrag } from "@/features/workbench/use-grid"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -26,6 +27,7 @@ export function BotList({ current }: { current?: string }) {
   const pending = usePending()
   const waiting = new Set(pending.data?.flatMap((a) => (a.chat_id ? [a.chat_id] : [])))
   const [open, setOpen] = useState(readOpenBots)
+  const main = useMainBot()
 
   function toggle(bot: string) {
     const next = { ...open, [bot]: !open[bot] }
@@ -38,7 +40,7 @@ export function BotList({ current }: { current?: string }) {
       <p className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">Bots</p>
       {chats.data && (
         <div className="flex flex-col gap-px">
-          {botRows(chats.data).map((row) => (
+          {botRows(chats.data, main).map((row) => (
             <BotItem
               key={row.bot}
               row={row}
@@ -68,6 +70,8 @@ function BotItem({
   onToggle: () => void
 }) {
   const { bot, chats } = row
+  // The row is the Bot's id; it is shown by its name, which may change (issue #466).
+  const name = useBotName(bot)
   const latest = chats.at(0)
   // OpenMausBot's hasThreadList: a Bot with one chat has nothing to open.
   const hasChatList = chats.length > 1
@@ -95,7 +99,7 @@ function BotItem({
           )}
         >
           <span className="relative flex shrink-0">
-            <AgentAvatar name={bot} className="size-7" />
+            <AgentAvatar name={name} className="size-7" />
             {/* OpenMausBot's status dots, at the avatar's foot: needs you before working (L744-761). */}
             {needsYou ? (
               <span
@@ -116,7 +120,7 @@ function BotItem({
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex items-baseline gap-2">
               <span className="min-w-0 flex-1 truncate text-sm leading-5 font-medium text-foreground">
-                {bot}
+                {name}
               </span>
               {!expanded && (
                 <span className="shrink-0 text-xs text-secondary-label tabular-nums transition-opacity md:group-focus-within/bot:opacity-0 md:group-hover/bot:opacity-0">
@@ -134,7 +138,7 @@ function BotItem({
         {hasChatList && (
           <button
             type="button"
-            aria-label={`${open ? "Hide" : "Show"} the chats of ${bot}`}
+            aria-label={`${open ? "Hide" : "Show"} the chats of ${name}`}
             aria-expanded={open}
             onClick={onToggle}
             className="absolute start-0.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -159,7 +163,7 @@ function BotItem({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label={`New chat with ${bot}`}
+                  aria-label={`New chat with ${name}`}
                   nativeButton={false}
                   render={<Link to="/" search={{ bot }} />}
                 />
@@ -167,14 +171,14 @@ function BotItem({
             >
               <Plus aria-hidden />
             </TooltipTrigger>
-            <TooltipContent>New chat with {bot}</TooltipContent>
+            <TooltipContent>New chat with {name}</TooltipContent>
           </Tooltip>
         </span>
       </div>
       {expanded && (
         // The Bot's chats, under it, as t3code nests a project's threads (components/ui/sidebar.tsx SidebarMenuSub).
         <ul
-          aria-label={`Chats of ${bot}`}
+          aria-label={`Chats of ${name}`}
           className="ms-5 flex flex-col gap-px border-s border-sidebar-border ps-1.5"
         >
           {chats.map((c) => (

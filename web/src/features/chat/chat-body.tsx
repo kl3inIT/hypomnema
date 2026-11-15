@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { usePending } from "@/features/approvals/use-approvals"
-import { firstBot } from "@/features/bots/bots-state"
+import { useMainBot } from "@/features/bots/use-bots"
 import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
 import { OpenArtifactContext, type OpenArtifact } from "@/features/artifacts/open-artifact-context"
@@ -64,7 +64,8 @@ export function ChatBody({
   // What waits above the composer: the Approvals, the questions of this chat's Runs and the Runs themselves.
   const approvals = usePending({ chatId })
   const work = useDockedWork(chatId, wakeCount(view.messages), approvals.data?.length ?? 0)
-  const bot = chat.data?.bot ?? firstBot
+  const main = useMainBot()
+  const bot = chat.data?.bot ?? main
   // The Routines the Bot set up from this chat have their card where they were set up.
   const routines = useRoutines({ chatId })
   // So do the Bots and profiles the Bot coordinator made, changed or removed here (issue #169).

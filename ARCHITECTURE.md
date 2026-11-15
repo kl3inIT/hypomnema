@@ -22,7 +22,7 @@ messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo
 /usr/local/bin/hypomnema files serve --root <the Bots' folders>`) reads a Bot's folder for the Files panel and for
 the files a Bot sends into a Lark chat; unset, the panel shows only the Tasks' worktrees and a Bot's files are not
 sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
-the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
+the Bot's id and the Routine's id appended to it; unset, a script Routine's run fails and says so.
 `HYPOMNEMA_CHAT_RM_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm`) removes a
 deleted chat's files of pi for the chat's id appended to it (issue #484); unset, they stay and the deletion says so.
 The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
@@ -70,7 +70,7 @@ meanwhile waits, `abort` stops it with a `stopped` row, a failure ends in a `fai
 …"), and a chat whose pi works is refused (409), as pi aborts a running turn to compact. pi's compaction settings are
 its own (reserve 16384, keep 20000). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
-a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
+a clean environment, only a chat id, a Bot's id and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
 and `sessions/<chat>` (`hypomnema-chat-rm`, accepting only a chat id of the shape the control plane makes; issue
 #484), one sudoers rule limited to the three, the instructions
@@ -285,8 +285,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish`, `memory` (below, under
     Memories) and what the control plane lists, under agent-browser's names, so the list changes without a node release; any other tool's call is
     passed to `POST /agent/v1/browser/call` and its answer, a screenshot as image content, is passed back as it
-    is. The control plane's list also holds a worker's web tools, by its runtime (see "Web search and fetch"),
-    and lists them when it gives no browser. A control plane that gives neither leaves the worker `ask`, `finish`
+    is. The control plane's list also holds a worker's gateway tools, by its runtime (below), and lists them when
+    it gives no browser. A control plane that gives neither leaves the worker `ask`, `finish`
     and `memory`. The tab is not closed when
     the Dispatch settles: the idle rules close it.
   - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
@@ -576,11 +576,26 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     shows less when it has less room). That is decided once for a Run; then the strip stays as the owner left it.
   - A wake-up's Run chip pins its Run to the dock, open, even when it has ended, until the chat is left.
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
-  Bot is a row with a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona and a
-  memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is
-  what the profile `coordinator` was, and a chat that names no Bot talks with it. A chat records its Bot. A Bot with
-  chats or a memory, or one a Lark Channel talks to, is not removed, and `coordinator` never is; a Bot is not
-  renamed. The owner may remove one with its chats and its memory (`DELETE /bots/{name}?force=true`,
+  Bot is a row with an id, a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona
+  and a memory. It is apart from the workers' profiles (owner, 2026-11-11).
+  - **Ids and names** (issue #466, migration 00085; after the nodes' ids, OpenMausBot's bot ids and t3code's
+    project ids). A Bot's id (`bot_` and 26 base32 characters, `platform.NewID`) never changes; its name is only
+    shown and may change. Every record names the Bot by its id: `chats.bot_id`, `runs.bot_id`, `routines.bot_id`
+    and `channels.bot_id` (foreign keys to `bots (id)`), `artifacts.bot_id`, a Bot's `setup_changes.name`, a bot
+    token's claim, `HYPOMNEMA_BOT`, the launchers' `--bot` and the Bot's folder; the API's `bot` fields and
+    `/bots/{bot_id}` paths carry it. A name is trimmed, 1 to 64 characters of any letters, and one Bot's only
+    (`bots_name`), as a node's. `POST /bots` `{name, settings}` makes a Bot, `PUT /bots/{bot_id}` changes its
+    settings, `PATCH /bots/{bot_id}` `{name}` renames it (`hypomnema bots rename <bot> <name>`, the Bot's page);
+    a rename touches one row. The CLI takes a Bot by its id or its name, the id first, as `nodes` does
+    (`findBot`), and prints names; `bots set <name>` makes a Bot when none has that id or name. What is shown to
+    a person (Lark notices, Routine alerts, a Routine's sentence, the Bot's folder in the Files panel) reads the
+    name when it is said. An old name is not kept: it names nothing after a rename.
+  - **The main Bot** is the Bot of the fixed id `bot_mainaaaaaaaaaaaaaaaaaaaaaa` (`DefaultBotID`), which the
+    migration gave the Bot `coordinator`, as Hermes's default profile keeps the id `default` and OpenClaw names its
+    system agent by id. It is always there, is renamed like any other, and the API marks it (`Bot.main`), so the
+    web names no Bot: a chat that names no Bot talks with it. A chat records its Bot. A Bot with
+    chats or a memory, or one a Lark Channel talks to, is not removed, and the main Bot never is. The owner may
+    remove one with its chats and its memory (`DELETE /bots/{bot_id}?force=true`,
   `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): each chat is deleted as a chat is
   (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
   made in them stay without the chat, and the chats' gateway keys are revoked and kept. Their files on the
@@ -591,17 +606,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language.
   - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
     every chat with the Bot, whoever writes in it (one store per agent, as all three references have). The Bot
-    changes it through `POST /bots/{name}/memory`: add, replace or remove the one entry that has a text. The change reads
+    changes it through `POST /bots/{bot_id}/memory`: add, replace or remove the one entry that has a text. The change reads
     the memory again inside its transaction, and one that would pass the limit is refused and changes nothing, as
     Hermes's memory tool does (`tools/memory_tool_store.py`): the Bot makes room itself. The control plane keeps
     the memory in its database, not as a file in the Bot's directory as the references do: the control plane's
     user cannot read the `coordinator` user's home, and the owner reads the memory on the web. The owner edits it
     by hand, as the owner of a reference's agent edits its memory file (owner, 2026-11-11): `PUT
-    /bots/{name}/memory` replaces the whole memory with his lines (empty lines and repeats dropped, the same
+    /bots/{bot_id}/memory` replaces the whole memory with his lines (empty lines and repeats dropped, the same
     limit), from the Bot's page or `hypomnema memory set`. No journal, no undo.
-  - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<name>/`, pi's
-    working directory; for `coordinator` a link to the directory pi always worked in, so its chats go on), reads
-    `hypomnema bots prompt <name>` with the coordinator token (the persona, the memory and how to change it) and
+  - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<id>/`, pi's
+    working directory; for the main Bot a link to the directory pi always worked in, so its chats go on; for a Bot
+    from before ids a link, made once, to the directory of its old name, the path its sessions record), reads
+    `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory and how to change it) and
     gives it to pi with `--append-system-prompt`. The memory is thus read once per pi process, as Hermes gives its
     memory once per session; a change is in the prompt from pi's next start. pi changes the memory with
     `hypomnema memory add|replace|remove`, which names the Bot of `HYPOMNEMA_BOT`; pi's token decides which Bot it
@@ -658,11 +674,11 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     when the Bot's list, read then, has that backup; otherwise it waits for the reset.
   - **Managing Bots and profiles** (issue #169, part 3, after OpenMausBot's Chief: the tools that make bots are
     its alone, `server/drivers/agents-catalog.ts` L907-909, checked again on the server, `server/index.ts`
-    L14147, L14183). Besides the owner, only the Bot `coordinator` makes, changes and removes Bots
-    (`PUT`/`DELETE /bots/{name}`) and makes and changes worker profiles (`PUT /profiles/{name}`), with the
-    commands the owner uses, from its own chat: a pi's token of `coordinator`. Another Bot's token, a Routine's
+    L14147, L14183). Besides the owner, only the main Bot makes, changes, renames and removes Bots
+    (`POST /bots`, `PUT`/`PATCH`/`DELETE /bots/{bot_id}`) and makes and changes worker profiles (`PUT
+    /profiles/{name}`), with the commands the owner uses, from its own chat: a pi's token of the main Bot. Another Bot's token, a Routine's
     script's and the coordinator token outside every box are refused (403); a fixed rule of the role, not a
-    setting. It never removes itself (`coordinator` is always there). It reads every Bot's settings, as the CLI
+    setting. It never removes itself (the main Bot is always there). It reads every Bot's settings, as the CLI
     reads one before changing it, memory included; another Bot's token still reads only its own. It has every
     right on the Bots, widening a Bot's lists and changing its own included (owner, 2026-11-12, confirmed
     2026-11-13). A change applies at once and is
@@ -673,7 +689,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     with the old source) or removed; it is refused once the thing was changed since (its revision differs, or a
     later setup change was made of it) or used since (the Bot answered in a chat other than the one of the
     change; a Task was given to the profile, or a worker ran the version the change made), as OpenMausBot refuses a stale team setup undo
-    (`server/team-setup-requests.ts` L393-425). `hypomnema bots prompt coordinator` tells it that it makes one
+    (`server/team-setup-requests.ts` L393-425). A rename is a change too, and its undo gives the name back. `hypomnema
+    bots prompt` of the main Bot tells it that it makes one
     without asking and says so in one line (OpenMausBot, `server/chief-of-staff.ts` L21).
 - Memories of agents and the one about the owner (issue #21,
   [research](docs/research/2026-11-13-agent-memory.md)): rows of `memories`, entries one per line, changed as a
@@ -882,7 +899,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `succeeded`, `failed` or `canceled`; when it started and ended; a script's exit code and the last 16 KiB of
     what it printed; a prompt run's chat and the Bot's last answer. The newest 2,000 runs of a Routine are kept,
     for 7 days after they ended (OpenClaw); a run still going is never removed.
-  - **A script run.** The control plane runs `HYPOMNEMA_ROUTINE_COMMAND` with the Bot's name and the Routine's
+  - **A script run.** The control plane runs `HYPOMNEMA_ROUTINE_COMMAND` with the Bot's id and the Routine's
     id, and the run's own token as the first line of its stdin (above). On the server that is `sudo -n -u
     coordinator /usr/local/bin/hypomnema-routine` (`deploy/coordinator/hypomnema-routine`, root-owned), which
     accepts those two arguments only and refuses to run without the token. Outside the box, it runs `hypomnema
@@ -974,7 +991,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   created: a known runtime (`claude`, `codex`, `omp`, `opencode`; `pi` is a Bot's and is refused), an effort from `low` to `max`, and a model a provider of a
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
-  The owner applies a profile, and the Bot `coordinator` from its chat (Bots, above); a provider only the owner.
+  The owner applies a profile, and the main Bot from its chat (Bots, above); a provider only the owner.
   Only the owner deletes a profile (issue #485; `DELETE /profiles/{name}`, `hypomnema profiles rm`, the Delete
   section at the bottom of an agent's page, as the Bot page's Removal). One no Task named and no Dispatch ran goes
   with its versions, as Omnigent removes an agent no session uses; one used before is marked deleted
@@ -1934,7 +1951,7 @@ capabilities do not exist yet.
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
 model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker as tools (see "A
-browser every agent shares") and the client API gives a Bot as commands (see Bots). It holds no key and stores
+worker's gateway tools", below) and the client API gives a Bot as commands (see Bots). It holds no key and stores
 nothing itself: the control plane's wiring gives it the keys from the vault, the gateway keeps the counts of its
 calls, and each call is recorded on a gateway key.
 - Providers: only those free without a card (owner, 2026-11-14). With the owner's keys, each asked as its reference
@@ -2067,8 +2084,8 @@ calls, and each call is recorded on a gateway key.
 
 Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `codex/images.go`, `antigravity/images.go`;
 issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
-(`/v1/images/*`, above), for workers (omp and opencode name the gateway as their image model, see their runtime
-below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no reference has it).
+(`/v1/images/*`, above), for workers (`generate_image`, see "A worker's gateway tools", below) and for Bots
+(`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
   answers gives the images, and the answer says why those before it did not (as a web search). Each provider makes
   images with its one model, not chosen (issue #453, owner, 2026-11-14): Codex `gpt-image-2` (codex-rs's
@@ -2122,6 +2139,32 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   prints the size and quality the provider says it made.
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
+
+A worker's gateway tools (`internal/controlplane/agentapi/web.go`, `images.go`; issues #354 and #492,
+[research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): the web's `web_search` and `web_fetch`
+and `generate_image`, listed and called on the browser's routes of the agent API (see "A browser every agent
+shares"), so that a worker's tools server offers them without a node release, as OpenMausBot gives every engine one
+`agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Each call is recorded on the Dispatch's
+gateway key, when it has one.
+- Which worker gets which (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
+  when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
+  three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker
+  keeps its own `web.run` search, which the gateway answers on `/v1/alpha/search`, and gets `web_fetch` and
+  `generate_image` (Codex's own `image_gen` is offered only under an OpenAI login); omp and opencode get all three,
+  their own web and image tools off (see their runtime, below). A runtime not named, and any agent that is not a
+  worker, gets none; a tool this control plane does not have (no web, no images) is not listed.
+- `generate_image` `{prompt, images?, path?, size?, quality?}` makes one image a call (OpenMausBot's and
+  opencode's), with "Images" above, `n` 1. The images to edit are files of the worker's machine, at most 8, each a
+  PNG, JPEG, WebP or GIF of up to 20 MiB (opencode's bounds): the worker's tools server reads them and sends them
+  whole, in base64 (`agenttool.ImageCall`; a call's body may be 64 MiB, the gateway's own bound for an image
+  request). The control plane answers what made the image (provider, model, the size and quality the provider
+  says it made, the providers that failed first) as text and the image as MCP image content; the tools server
+  saves it at `path` (its extension the image's real one) or as a new `hypomnema-image-*` file in the temporary
+  folder, and answers the text with `Saved to <absolute path>` instead of the image, as opencode's and omp's image
+  tools answer a path. A request no provider could make, or one they refuse, is the tool's error. The call waits up
+  to 11 minutes.
+- Not built: image URLs as references (opencode downloads them); the tools on a Bot (it has `hypomnema web` and
+  `hypomnema image`); a switch per profile or Bot.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2313,6 +2356,16 @@ The owner's commands:
   artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
   OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
   a page kept current is a folder page a Routine shows again with `--id`.
+- The slides skill (`internal/controlplane/clientcli/skills/slides`, issue #479) is built in the same way:
+  zarazhangrui/frontend-slides at `9906a34d640d` (MIT, its `LICENSE` in the folder, the notice in
+  `third_party/frontend-slides/NOTICE`), for slide decks; dashboards and single pages are not its. A deck is one
+  self-contained HTML page on a fixed 1920×1080 stage scaled to the frame, shown with `hypomnema artifact show`
+  (`--html-file`, or `--path` for a folder whose images are in `assets/` beside `index.html`) and revised with
+  `--id`. Adapted to the artifact frame: fonts are system font stacks (Modern Font Stacks, CC0) in place of
+  Fontshare and Google Fonts, nothing loads from the network, and there is no inline editing or `localStorage`;
+  `scripts/extract-pptx.py` turns a `.pptx` into text and images with the documents environment's python-pptx.
+  Vercel deploy, PDF export (Playwright downloads Chromium), the Claude Code plugin and the bold template pack (its
+  fonts and charts come from the network) are left out.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
@@ -2363,13 +2416,10 @@ Node (`internal/node`):
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
-  own, away from the user's and the project's). Each CLI's own web tools are off, so that the worker has the control
-  plane's (issue #354): omp's `web_search.enabled: false`; opencode's `websearch` and `webfetch` denied in its
-  `permissions`, which takes them out of its tools. The gateway is their image model too (issue #431): omp's
-  `models.yml` has a model `auto` of `api: openai-images` under the gateway, named as `modelRoles.image`, so its
-  `generate_image` calls `/v1/images/*`; opencode's has a model `auto` of `type: image` under the same
-  openai-compatible provider, named as `experimental.image_generate.model`. `auto` is "Images" above with each
-  provider's own model. A turn is `initialize`, `session/new` with the tools server as an
+  own, away from the user's and the project's). Each CLI's own web and image tools are off, so that the worker has
+  the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
+  opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
+  out of its tools. Neither is given an image model. A turn is `initialize`, `session/new` with the tools server as an
   MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
   `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
@@ -2436,7 +2486,8 @@ Node (`internal/node`):
     - A transcript the control plane has whole after the worker exited is marked `sent.done`. A new daemon sends the
       journals under `run/` that are not marked, those from before this existed too.
   - The worker's tools (`internal/node/workertools`, `hypomnema-node mcp`) come in through `--mcp-config` with
-    `--strict-mcp-config`; AskUserQuestion and the subagent tool (`Task`, `Agent`) are disallowed. `ask` and `finish` reach the
+    `--strict-mcp-config`; AskUserQuestion, the subagent tool (`Task`, `Agent`), `WebSearch` and `WebFetch` are
+    disallowed, the worker searching and reading pages with the gateway's tools (issue #492). `ask` and `finish` reach the
     Supervisor only through a bridge directory beside the journal (`internal/node/bridge`), so a question survives a
     daemon restart; the shared browser's tools go to the control plane (see "A browser every agent shares").
     - `ask`: the Supervisor submits the question (also one asked just before the worker exited), records the control plane's id, writes the answer for the waiting
@@ -2445,6 +2496,10 @@ Node (`internal/node`):
     - `finish`: the final report, with summary, evidence and an optional Gate. It is the outcome once the worker
       exits.
   - Without `finish`, the outcome is one of:
+    - `worker_error`, "the worker's tools server (hypomnema) did not start", when `system/init` names it with the
+      status `failed`: the turn is interrupted at once (issue #492, as OpenClaw fails a turn whose Claude Code
+      reports its MCP server not connected at start). A server still `pending` is not taken as failed. Other
+      runtimes are not checked.
     - `rate_limited`, after a rejected rate-limit event;
     - `needs_auth`, on a login error;
     - `worker_error`, "stopped without finish", as Orca reports a stop without `worker_done`;
@@ -2909,7 +2964,7 @@ the internet, so that a machine created at a provider can install the node from 
   logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` only.
   Until 2026-11-10 its second target was `ninerouter`, 9router on the same machine; the gateway no longer calls it.
   Migration 00074 removed the provider `ninerouter` (2026-11-14); its key is still the vault's secret `ninerouter`.
-  pi calls the gateway with its own key (provider `model-gateway` since migration 00073, the Bot `coordinator`, which
+  pi calls the gateway with its own key (provider `model-gateway` since migration 00073, the main Bot, which
   the profile `coordinator` became on 2026-11-12 with the launcher that takes `--bot`; the Bot's memory is empty).
 - An Antigravity account of the owner's is logged in too, since 2026-11-10; the OAuth secret of the IDE's client is
   in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
@@ -2955,7 +3010,7 @@ the internet, so that a machine created at a provider can install the node from 
 ```
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
-internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's and the web's tools
+internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's tools and the gateway's (web, images)
 internal/controlplane/artifactpack  an Artifact's files: the rules a Bot's file or folder is read by, its tar, its type from bytes and name, its limits
 internal/controlplane/spreadsheet  an xlsx workbook read into CSV text a sheet for the web's preview, within its limits
 internal/controlplane/bearertoken  client token format: making, checking and hashing
@@ -2990,7 +3045,7 @@ internal/node/skills      the skills an offer names: fetched once by digest, and
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
 internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvfb, adb and the emulator, the idle stop
-internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the web's) passed on to it
+internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the gateway's) passed on to it, generate_image's files read and saved here
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat

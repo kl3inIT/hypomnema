@@ -122,20 +122,25 @@ func (w workerWeb) Fetch(ctx context.Context, dispatchID, url string) (websearch
 }
 
 func (w workerWeb) dispatchKey(dispatchID string) func(context.Context) (string, bool) {
-	return func(ctx context.Context) (string, bool) {
-		k, err := w.gateway.DispatchKey(ctx, dispatchID)
-		if err != nil {
-			if !errors.Is(err, modelgateway.ErrNotFound) {
-				w.logger.ErrorContext(ctx, "reading a dispatch's gateway key",
-					slog.String("event", "controlplane.web_key_failed"), slog.String("dispatch_id", dispatchID),
-					slog.String("error", err.Error()))
-			}
+	return func(ctx context.Context) (string, bool) { return dispatchKeyID(ctx, w.gateway, w.logger, dispatchID) }
+}
 
-			return "", false
+// dispatchKeyID is the id of a Dispatch's gateway key; false for a Dispatch
+// that has none (a worker whose model the gateway does not serve).
+func dispatchKeyID(ctx context.Context, gateway *modelgateway.Service, logger *slog.Logger, dispatchID string,
+) (string, bool) {
+	k, err := gateway.DispatchKey(ctx, dispatchID)
+	if err != nil {
+		if !errors.Is(err, modelgateway.ErrNotFound) {
+			logger.ErrorContext(ctx, "reading a dispatch's gateway key",
+				slog.String("event", "controlplane.web_key_failed"), slog.String("dispatch_id", dispatchID),
+				slog.String("error", err.Error()))
 		}
 
-		return k.ID, true
+		return "", false
 	}
+
+	return k.ID, true
 }
 
 // chatKeyHolder is what holds the gateway key of each chat's running pi:

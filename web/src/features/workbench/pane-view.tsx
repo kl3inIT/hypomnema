@@ -38,8 +38,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
-import { firstBot } from "@/features/bots/bots-state"
-import { useBots } from "@/features/bots/use-bots"
+import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
+import { useBotName, useBots } from "@/features/bots/use-bots"
 import { ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserView } from "@/features/browser/browser-view"
 import { ChatBody } from "@/features/chat/chat-body"
@@ -165,7 +165,10 @@ export function PaneView({
                     closeLabel="Close New chat"
                     {...common}
                   >
-                    <AgentAvatar name={tab.bot || firstBot} className="size-5 shrink-0" />
+                    <AgentAvatar
+                      name={botNameOf(bots, tab.bot || mainBotOf(bots))}
+                      className="size-5 shrink-0"
+                    />
                     <span className="truncate">New chat</span>
                   </TabButton>
                 )
@@ -239,7 +242,7 @@ export function PaneView({
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent>
                         {bots.map((bot) => (
-                          <DropdownMenuItem key={bot.name} onClick={() => newChat(bot.name)}>
+                          <DropdownMenuItem key={bot.id} onClick={() => newChat(bot.id)}>
                             <AgentAvatar name={bot.name} className="size-4" />
                             {bot.name}
                           </DropdownMenuItem>
@@ -463,15 +466,17 @@ function ChatTab({ chat, onClose, ...props }: TabProps & { chat: string }) {
     queryFn: async () => (await getChat({ path: { chat_id: chat } })).data,
   })
   const title = info.data?.title ?? "Chat"
+  // The chat names its Bot by id; the tab shows its name (issue #466).
+  const name = useBotName(info.data?.bot ?? "")
 
   return (
     <TabButton
-      title={info.data && `Chat with ${info.data.bot}`}
+      title={info.data && `Chat with ${name}`}
       onClose={onClose}
       closeLabel={`Close ${title}`}
       {...props}
     >
-      {info.data && <AgentAvatar name={info.data.bot} className="size-5 shrink-0" />}
+      {info.data && <AgentAvatar name={name} className="size-5 shrink-0" />}
       <span className="truncate">{title}</span>
     </TabButton>
   )

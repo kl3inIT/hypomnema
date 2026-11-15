@@ -98,6 +98,8 @@ const builtin = [
 ]
 
 const namer = (name: string, skills: string[] = [], skills_off: string[] = []) => ({
+  id: name,
+  main: name === "coordinator",
   name,
   skills,
   skills_off,

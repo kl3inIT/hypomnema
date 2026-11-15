@@ -344,7 +344,7 @@ var commands = []command{
 			"and app_secret, the owner's email at Lark, who may talk through it, whether it is on, and whether " +
 			"a reply ends with a link to the web client (owner)",
 		flags: func(fs *flag.FlagSet) {
-			fs.String("bot", "", "the bot the channel talks to; coordinator for a new channel")
+			fs.String("bot", "", "the bot the channel talks to, by id or name; the main bot for a new channel")
 			fs.String("app-file", "", "a JSON file with the app's app_id and app_secret, or - for standard input")
 			fs.String("owner", "", "the owner's email in the app's Lark organization, or his open_id")
 			fs.String("mode", "", "who may talk through the channel: owner, allowlist or everyone")
@@ -380,7 +380,7 @@ var commands = []command{
 	},
 	{
 		name: "bots set", args: "<bot>", min: 1, max: 1,
-		summary: "make a bot, or change its settings; what is left out stays (owner, or the bot coordinator)",
+		summary: "change a bot's settings, or make a bot of that name; what is left out stays (owner, or the main bot)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("provider", "", "the provider of the model, when more than one offers it")
 			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
@@ -399,8 +399,13 @@ var commands = []command{
 		run: botsSet,
 	},
 	{
+		name: "bots rename", args: "<bot> <new name>", min: 2, max: 2,
+		summary: "give a bot another name; its id, chats, routines and channels stay (owner, or the main bot)",
+		flags:   jsonFlag, run: botsRename,
+	},
+	{
 		name: "bots rm", args: "<bot>", min: 1, max: 1,
-		summary: "remove a bot that has no chats and no memory (owner, or the bot coordinator)",
+		summary: "remove a bot that has no chats and no memory (owner, or the main bot)",
 		flags: func(fs *flag.FlagSet) {
 			fs.Bool("force", false, "also remove its chats and its memory (owner)")
 			jsonFlag(fs)
@@ -417,7 +422,7 @@ var commands = []command{
 	},
 	{
 		name:    "setup list",
-		summary: "what the bot coordinator made, changed or removed of bots and profiles in a chat (owner)",
+		summary: "what the main bot made, changed or removed of bots and profiles in a chat (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("chat", "", "the chat")
 			jsonFlag(fs)

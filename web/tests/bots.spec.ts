@@ -13,7 +13,9 @@ import type {
 const hours = (n: number) => new Date(Date.now() - n * 3_600_000).toISOString()
 
 const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
+  id: name,
   name,
+  main: name === "coordinator",
   persona: "",
   memory: "",
   memory_limit: 2200,
@@ -163,14 +165,41 @@ async function fakeServer(
         return json({ code: "invalid", message: "the memory is over its limit of 2200" }, 422)
       }
 
-      const stored = { ...bots.find((b) => b.name === memoryOf[1])!, memory: kept }
-      bots = [...bots.filter((b) => b.name !== memoryOf[1]), stored]
+      const stored = { ...bots.find((b) => b.id === memoryOf[1])!, memory: kept }
+      bots = [...bots.filter((b) => b.id !== memoryOf[1]), stored]
 
       return json(stored)
     }
 
+    // A Bot is made under an id of its own and renamed by it (issue #466); the fixtures' ids are their names.
+    if (call === "POST /bots") {
+      const { name, settings } = request.postDataJSON() as { name: string; settings: Partial<Bot> }
+
+      if (settings.model === "gpt-sol") {
+        return json({ code: "invalid", message: "pi cannot use the model gpt-sol" }, 422)
+      }
+
+      const made = { ...bot(name), ...settings, id: `bot_${name}`, persona: settings.persona ?? "" }
+      bots = [...bots, made]
+
+      return json(made, 201)
+    }
+
     const one = /^\/bots\/([^/]+)$/.exec(path)
-    const found = one && bots.find((b) => b.name === one[1])
+    const found = one && bots.find((b) => b.id === one[1])
+
+    if (one && request.method() === "PATCH") {
+      const { name } = request.postDataJSON() as { name: string }
+
+      if (bots.some((b) => b.name === name && b.id !== one[1])) {
+        return json({ code: "conflict", message: `another bot is named "${name}"` }, 409)
+      }
+
+      const renamed = { ...found!, name, updated_at: hours(0) }
+      bots = bots.map((b) => (b.id === one[1] ? renamed : b))
+
+      return json(renamed)
+    }
 
     if (one && request.method() === "GET") {
       return found ? json(found) : json({ code: "not_found", message: "no such bot" }, 404)
@@ -185,7 +214,7 @@ async function fakeServer(
 
       const { provider: _provider, model: _model, effort: _effort, ...kept } = found ?? bot(one[1]!)
       const stored = { ...kept, ...set, persona: set.persona ?? "", updated_at: hours(0) }
-      bots = [...bots.filter((b) => b.name !== one[1]), stored]
+      bots = [...bots.filter((b) => b.id !== one[1]), stored]
 
       return json(stored)
     }
@@ -204,7 +233,7 @@ async function fakeServer(
         )
       }
 
-      bots = bots.filter((b) => b.name !== one[1])
+      bots = bots.filter((b) => b.id !== one[1])
 
       return route.fulfill({ status: 204 })
     }
@@ -312,22 +341,18 @@ test("the Bots show as cards and as a table, each with its model and its memory"
   await shot(page, "bots-table")
 })
 
-// Scenario: the owner makes a Bot. A name with a capital, or one a Bot has, keeps Create off; a model pi cannot use is refused in
-// the server's words; with a model it can use the Bot is stored and its page opens, its memory empty.
+// Scenario: the owner makes a Bot. A name a Bot has keeps Create off; a model pi cannot use is refused in the server's
+// words; with a model it can use the Bot is made under an id of its own and its page opens, its memory empty.
 test("a new Bot is made with a name, a model and a persona", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/bots")
   await page.getByRole("link", { name: "New bot" }).click()
 
-  await page.getByLabel("Name").fill("Researcher")
-  await expect(page.getByText("Use lowercase letters, digits and dashes")).toBeVisible()
-  await expect(page.getByRole("button", { name: "Create Bot" })).toBeDisabled()
-
   await page.getByLabel("Name").fill("coordinator")
   await expect(page.getByText("A Bot has this name already.")).toBeVisible()
   await expect(page.getByRole("button", { name: "Create Bot" })).toBeDisabled()
 
-  await page.getByLabel("Name").fill("researcher")
+  await page.getByLabel("Name").fill("Researcher")
   await page.getByLabel("Model", { exact: true }).click()
   await page.getByRole("option", { name: "gpt-sol" }).click()
   await page.getByLabel("Persona").fill("You are the team's researcher. Answer with sources.")
@@ -343,21 +368,54 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
     .click()
   await page.getByRole("button", { name: "Create Bot" }).click()
 
-  await expect(page).toHaveURL(/\/bots\/researcher$/)
-  await expect(page.getByRole("heading", { name: "researcher", level: 2 })).toBeVisible()
+  await expect(page).toHaveURL(/\/bots\/bot_Researcher$/)
+  await expect(page.getByRole("heading", { name: "Researcher", level: 2 })).toBeVisible()
   await expect(page.getByText("Bot · Claude Opus 5.5 (claude-subscription)")).toBeVisible()
   await expect(page.getByRole("textbox", { name: "Memory" })).toHaveValue("")
   expect(calls.at(-1)).toEqual({
-    call: "PUT /bots/researcher",
+    call: "POST /bots",
     body: {
-      provider: "claude-subscription",
-      model: "claude-opus-5-5",
-      effort: "high",
-      persona: "You are the team's researcher. Answer with sources.",
-      skills: [],
-      skills_off: [],
+      name: "Researcher",
+      settings: {
+        provider: "claude-subscription",
+        model: "claude-opus-5-5",
+        effort: "high",
+        persona: "You are the team's researcher. Answer with sources.",
+        skills: [],
+        skills_off: [],
+      },
     },
   })
+})
+
+// Scenario: the owner renames a Bot on its page (issue #466). A name another Bot has keeps Rename off; the new name
+// is the page's and the list's, and the address, which carries the id, stays.
+test("a Bot is renamed and keeps its page", async ({ page }) => {
+  const calls = await fakeServer(page, [coordinator, bot("researcher")])
+  await page.goto("/bots/researcher")
+
+  const name = page.getByRole("form", { name: "Name" })
+  await expect(name.getByRole("textbox")).toHaveValue("researcher")
+  await expect(name.getByRole("button", { name: "Rename" })).toBeDisabled()
+  await shot(page, "bot-rename")
+
+  await name.getByRole("textbox").fill("coordinator")
+  await expect(name).toContainText("A Bot has this name already.")
+  await expect(name.getByRole("button", { name: "Rename" })).toBeDisabled()
+  await shot(page, "bot-rename-taken")
+
+  await name.getByRole("textbox").fill("Nhà nghiên cứu")
+  await name.getByRole("button", { name: "Rename" }).click()
+  await expect(page.getByRole("heading", { name: "Nhà nghiên cứu", level: 2 })).toBeVisible()
+  await expect(page).toHaveURL(/\/bots\/researcher$/)
+  await expect(name.getByRole("button", { name: "Rename" })).toBeDisabled()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-renamed")
+  expect(calls).toEqual([{ call: "PATCH /bots/researcher", body: { name: "Nhà nghiên cứu" } }])
+
+  await page.goto("/bots")
+  await expect(page.getByRole("article", { name: "Nhà nghiên cứu" })).toBeVisible()
+  await shot(page, "bots-renamed")
 })
 
 // Scenario: the owner gives the first Bot a skill and turns off one given to everyone (issue #21); both are

@@ -159,6 +159,8 @@ const approval = {
 }
 
 const coordinator = {
+  id: "coordinator",
+  main: true,
   name: "coordinator",
   provider: "gateway",
   model: "gpt-luna",

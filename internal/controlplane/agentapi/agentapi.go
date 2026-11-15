@@ -13,8 +13,9 @@
 //     vault.
 //
 // A worker also lists and calls here the tools of the browser every agent
-// shares (issue #212), its web tools (issue #354, web.go), and the tools of
-// the phone a node holds (issue #417, device.go).
+// shares (issue #212), the gateway's tools, the web's (issue #354, web.go)
+// and generate_image (issue #492, images.go), and the tools of the phone a
+// node holds (issue #417, device.go).
 //
 // A refresh token and a client secret never pass through here: the token it
 // returns is the access token, good for about an hour. It is handed only for
@@ -76,8 +77,10 @@ type Server struct {
 	store   Store
 	tokens  Tokens
 	browser Browser
-	// web and runtimeOf give workers the web's tools (issue #354); nil when the control plane gave none.
+	// web and images are the gateway's tools a worker is given by its runtime, which runtimeOf reads
+	// (issues #354, #492); nil when the control plane gave none.
 	web       Web
+	images    Images
 	runtimeOf RuntimeOf
 	// device is the phone a node holds (issue #417); nil when the control plane gave none.
 	device Device
@@ -337,13 +340,9 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// maxBrowserCallBytes bounds a browser call's body: the text a tool types is
-// the largest part of one.
-const maxBrowserCallBytes = 1 << 20
-
 // browserTools lists the tools the control plane gives the agent: the
-// browser's, and a worker's web tools (issue #354), which a browser that
-// cannot be used does not take away.
+// browser's, and a worker's gateway tools (issues #354, #492), which a
+// browser that cannot be used does not take away.
 func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {
@@ -352,7 +351,7 @@ func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	web := webToolList(s.webTools(r.Context(), a))
+	web := gatewayToolList(s.gatewayTools(r.Context(), a))
 
 	if s.browser == nil && len(web) == 0 {
 		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
@@ -394,16 +393,17 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var asked agenttool.BrowserCall
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBrowserCallBytes)).Decode(&asked); err != nil ||
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, agenttool.MaxCallBytes)).Decode(&asked); err != nil ||
 		asked.Tool == "" {
 		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
 
 		return
 	}
 
-	// A web tool is the worker's when its runtime is given it; for any other agent it is no tool of the browser.
-	if slices.Contains(s.webTools(r.Context(), a), asked.Tool) {
-		s.webCall(w, r, a, asked)
+	// A gateway tool is the worker's when its runtime is given it; for any other agent it is no tool of the
+	// browser.
+	if slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool) {
+		s.gatewayCall(w, r, a, asked)
 
 		return
 	}

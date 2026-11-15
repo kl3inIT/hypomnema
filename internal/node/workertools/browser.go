@@ -57,6 +57,11 @@ func agentOf(dir string) *agentAPI {
 // do sends one request and returns the answer's body when it is a 200. Its
 // errors hold the control plane's own message and never the key.
 func (a *agentAPI) do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	return a.doWithin(ctx, method, path, body, maxAnswerBytes)
+}
+
+// doWithin is do with an answer of up to limit bytes.
+func (a *agentAPI) doWithin(ctx context.Context, method, path string, body any, limit int64) ([]byte, error) {
 	var reader io.Reader
 
 	if body != nil {
@@ -87,7 +92,7 @@ func (a *agentAPI) do(ctx context.Context, method, path string, body any) ([]byt
 	}
 	defer resp.Body.Close() //nolint:errcheck // The answer was read or the read failed; closing adds nothing.
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswerBytes))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
 		return nil, fmt.Errorf("reading the control plane's answer: %w", err)
 	}
@@ -146,22 +151,22 @@ func (a *agentAPI) toolList(ctx context.Context, path string) []map[string]any {
 // tool's result as the control plane gave it: text, or a screenshot as image
 // content.
 func (a *agentAPI) browserCall(ctx context.Context, tool string, arguments json.RawMessage) (any, error) {
-	return a.toolCall(ctx, agenttool.PathBrowserCall, callTimeout, tool, arguments)
+	return a.toolCall(ctx, agenttool.PathBrowserCall, callTimeout, maxAnswerBytes, tool, arguments)
 }
 
 // deviceCall runs one of the phone's tools; a screen comes back as image
 // content.
 func (a *agentAPI) deviceCall(ctx context.Context, tool string, arguments json.RawMessage) (any, error) {
-	return a.toolCall(ctx, agenttool.PathDeviceCall, deviceCallTimeout, tool, arguments)
+	return a.toolCall(ctx, agenttool.PathDeviceCall, deviceCallTimeout, maxAnswerBytes, tool, arguments)
 }
 
-func (a *agentAPI) toolCall(ctx context.Context, path string, within time.Duration, tool string,
+func (a *agentAPI) toolCall(ctx context.Context, path string, within time.Duration, limit int64, tool string,
 	arguments json.RawMessage,
-) (any, error) {
+) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, within)
 	defer cancel()
 
-	raw, err := a.do(ctx, http.MethodPost, path, agenttool.BrowserCall{Tool: tool, Arguments: arguments})
+	raw, err := a.doWithin(ctx, http.MethodPost, path, agenttool.BrowserCall{Tool: tool, Arguments: arguments}, limit)
 	if err != nil {
 		return nil, err
 	}

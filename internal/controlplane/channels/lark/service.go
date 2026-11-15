@@ -86,7 +86,7 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (channels.
 
 	if fresh {
 		ch = channelstore.Channel{
-			Name: name, Kind: channelstore.KindLark, Bot: orchestration.DefaultBot, Mode: channelstore.ChannelOwner,
+			Name: name, Kind: channelstore.KindLark, Bot: orchestration.DefaultBotID, Mode: channelstore.ChannelOwner,
 			Secret: secretPrefix + name,
 		}
 	}

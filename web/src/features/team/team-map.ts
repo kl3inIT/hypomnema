@@ -15,6 +15,8 @@ import { firstLine } from "@/features/work/work-state"
 export type BotActivity = "waiting-on-you" | "no-signal" | "working" | "idle"
 
 export type TeamBot = {
+  // id is the Bot's, which never changes; name is shown (issue #466).
+  id: string
   name: string
   model?: string
   provider?: string
@@ -73,15 +75,15 @@ export function teamBots({
   const byId = new Map(chats.map((c) => [c.id, c]))
 
   return bots.map((bot) => {
-    const own = chats.filter((c) => c.bot === bot.name).sort(newest)
+    const own = chats.filter((c) => c.bot === bot.id).sort(newest)
     const ids = new Set(own.map((c) => c.id))
     const asking = approvals.filter((a) => a.chat_id && ids.has(a.chat_id))
-    const work = cards.filter((c) => botOf(c, byId) === bot.name)
+    const work = cards.filter((c) => botOf(c, byId) === bot.id)
     const needs = work.filter((c) => c.column === "you")
     const questions = needs.filter((c) => c.question)
     const live = work.filter((c) => liveDispatch(c))
     const working = own.filter((c) => c.working)
-    const base = { name: bot.name, model: bot.model, provider: bot.provider }
+    const base = { id: bot.id, name: bot.name, model: bot.model, provider: bot.provider }
     const newestChat = own[0]?.id
 
     if (asking.length > 0 || needs.length > 0) {

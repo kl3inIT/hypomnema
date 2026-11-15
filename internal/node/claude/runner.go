@@ -30,6 +30,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/workertools"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
@@ -42,8 +43,13 @@ const (
 	// disallowedTools are the tools a worker does not get: questions go through
 	// ask, and a worker does not start subagents (the tool is Task in older
 	// Claude Code, Agent in newer). The list keeps it, not the instructions
-	// (docs/research/2026-11-09-agent-roles-and-tool-limits.md).
-	disallowedTools = "AskUserQuestion,Task,Agent"
+	// (docs/research/2026-11-09-agent-roles-and-tool-limits.md). Its own
+	// WebSearch, which Anthropic runs and not the gateway's search chain, and
+	// WebFetch are off: the worker searches and reads pages with the tools
+	// server's web_search and web_fetch (issue #492), as OpenClaw turns
+	// WebSearch off when its own search serves Claude Code
+	// (injectClaudeWebSearchDisabledArgs, src/agents/cli-runner/bundle-mcp-claude.ts).
+	disallowedTools = "AskUserQuestion,Task,Agent,WebSearch,WebFetch"
 )
 
 // ClaudeRuntime runs Claude Code workers.
@@ -141,17 +147,18 @@ func (rt *ClaudeRuntime) Adopted(state []byte) runner.Turn {
 
 	var s saved
 	if json.Unmarshal(state, &s) == nil {
-		t.result, t.limited = s.Result, s.Limited
+		t.result, t.limited, t.toolsDown = s.Result, s.Limited, s.ToolsDown
 	}
 
 	return t
 }
 
-// saved is what a turn keeps across a daemon restart: the result event and
-// a rate limit's reset.
+// saved is what a turn keeps across a daemon restart: the result event, a
+// rate limit's reset, and a tools server that failed.
 type saved struct {
-	Result  *event     `json:"result,omitempty"`
-	Limited *time.Time `json:"limited,omitempty"`
+	Result    *event     `json:"result,omitempty"`
+	Limited   *time.Time `json:"limited,omitempty"`
+	ToolsDown string     `json:"tools_down,omitempty"`
 }
 
 // gatewayAccount is the offer's AccountRef when the model gateway serves the
@@ -220,7 +227,7 @@ func (rt *ClaudeRuntime) env(configDir string, credentials []string) []string {
 // command over the bridge directory.
 func (rt *ClaudeRuntime) writeMCPConfig(dir string) error {
 	raw, err := json.Marshal(map[string]any{"mcpServers": map[string]any{
-		"hypomnema": map[string]any{
+		workertools.Name: map[string]any{
 			"type": "stdio", "command": rt.Exe, "args": []string{"mcp", "--dir", bridge.Dir(dir)},
 			"timeout": toolTimeout.Milliseconds(),
 		},
@@ -251,6 +258,12 @@ type event struct {
 		Status   string `json:"status"`
 		ResetsAt int64  `json:"resetsAt"`
 	} `json:"rate_limit_info"`
+	// MCPServers are the MCP servers system/init names, with whether each
+	// connected.
+	MCPServers []struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	} `json:"mcp_servers,omitempty"`
 }
 
 // turn is one stream-JSON turn. Its lines come from one goroutine, and it is
@@ -258,6 +271,8 @@ type event struct {
 type turn struct {
 	result  *event
 	limited *time.Time
+	// toolsDown is the tools server's status when it failed to start.
+	toolsDown string
 }
 
 func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
@@ -269,6 +284,17 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 	switch {
 	case e.Type == "system" && e.Subtype == "init":
 		w.Started(ctx, e.SessionID)
+
+		// A worker whose tools server failed has no finish, ask or gateway tools: its turn is stopped at once
+		// and fails (issue #492), as OpenClaw fails a turn whose Claude Code reports its MCP server not
+		// connected at start (docs/gateway/cli-backends.md, "Bundle MCP overlays"). Only "failed" is taken:
+		// one still "pending" may connect yet.
+		for _, srv := range e.MCPServers {
+			if srv.Name == workertools.Name && srv.Status == "failed" && t.toolsDown == "" {
+				t.toolsDown = srv.Status
+				w.Report(ctx, w.Send(ctx, t.Interrupt()))
+			}
+		}
 	case e.Type == "control_request":
 		permission(ctx, w, e)
 	case e.Type == "result":
@@ -329,7 +355,7 @@ func (t *turn) Result() runner.Result {
 
 func (t *turn) State() []byte {
 	//nolint:errchkjson // The event as it was decoded, and a time.
-	raw, _ := json.Marshal(saved{Result: t.result, Limited: t.limited})
+	raw, _ := json.Marshal(saved{Result: t.result, Limited: t.limited, ToolsDown: t.toolsDown})
 
 	return raw
 }
@@ -353,6 +379,9 @@ func (t *turn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
 	lower := strings.ToLower(res.Result)
 
 	switch {
+	case t.toolsDown != "":
+		f.Class = "worker_error"
+		f.Summary = "the worker's tools server (" + workertools.Name + ") did not start: its status was " + t.toolsDown
 	case t.limited != nil:
 		f.Class, f.ResetsAt = "rate_limited", t.limited
 	case strings.Contains(lower, "invalid api key") || strings.Contains(lower, "please run /login") ||

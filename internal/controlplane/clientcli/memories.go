@@ -69,8 +69,8 @@ func memoryFlags(fs *flag.FlagSet) {
 	fs.Bool("owner", false, "the memory about the owner, which every worker and bot gets")
 }
 
-// memoryTarget is --owner, --agent, --bot, or the Bot the calling pi is.
-func memoryTarget(fs *flag.FlagSet) (memoryOf, error) {
+// memoryTarget is --owner, --agent, --bot (by id or name), or the Bot the calling pi is.
+func memoryTarget(ctx context.Context, e *env, fs *flag.FlagSet) (memoryOf, error) {
 	owner, agent, bot := boolean(fs, "owner"), str(fs, "agent"), str(fs, "bot")
 
 	n := 0
@@ -89,7 +89,12 @@ func memoryTarget(fs *flag.FlagSet) (memoryOf, error) {
 	case agent != "":
 		return memoryOf{agent: agent}, nil
 	case bot != "":
-		return memoryOf{bot: bot}, nil
+		id, err := botIDOf(ctx, e, bot)
+		if err != nil {
+			return memoryOf{}, err
+		}
+
+		return memoryOf{bot: id}, nil
 	}
 
 	if name := os.Getenv(botEnv); name != "" {
@@ -100,7 +105,7 @@ func memoryTarget(fs *flag.FlagSet) (memoryOf, error) {
 }
 
 func memoryShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	target, err := memoryTarget(fs)
+	target, err := memoryTarget(ctx, e, fs)
 	if err != nil {
 		return err
 	}
@@ -149,7 +154,7 @@ func readKept(ctx context.Context, e *env, target memoryOf) (kept, error) {
 
 // memorySet replaces a memory with a file's lines: the owner edits it by hand.
 func memorySet(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	target, err := memoryTarget(fs)
+	target, err := memoryTarget(ctx, e, fs)
 	if err != nil {
 		return err
 	}
@@ -214,7 +219,7 @@ const (
 // as a worker reads its tool's result.
 func memoryChange(kind openapi.MemoryChangeKind) func(context.Context, *env, *flag.FlagSet) error {
 	return func(ctx context.Context, e *env, fs *flag.FlagSet) error {
-		target, err := memoryTarget(fs)
+		target, err := memoryTarget(ctx, e, fs)
 		if err != nil {
 			return err
 		}
