@@ -29,6 +29,37 @@ Every agent that has the shared browser's tools has the phone's (`device_screen`
 others; skill `android-device`). One agent's call runs at a time. While the owner holds control in the view, agents'
 calls are answered that the phone is paused.
 
+## The renderer
+
+The emulator draws with `-gpu host` on an Xvfb display, which Mesa's llvmpipe renders on the CPU. It is the only
+mode that passed the trial: under SwiftShader the emulator died 4 times out of 4 when the map app's "sign in with"
+link opened the toll app's authorize screen, and `swangle_indirect` crashed as the map app started
+([research, section 2](../../docs/research/2026-11-14-android-device-for-agents.md)). Another mode can be set to
+measure it: `auto`, `software`, `lavapipe`, `swiftshader` or `swangle`. Keep one only once that sign-in flow passes
+on it. On the phone's machine, as the node's user (the Machines page's terminal, which closes as the node restarts):
+
+```sh
+# set the mode (remove the key, or set "host", to go back)
+python3 - lavapipe <<'PY'
+import json, os, sys
+p = os.path.expanduser("~/.hypomnema-node/config.json")
+c = json.load(open(p)); c["device_gpu"] = sys.argv[1]
+open(p, "w").write(json.dumps(c, indent=2) + "\n")
+PY
+systemctl --user restart hypomnema-node   # the node reads its configuration as it starts
+```
+
+Then, from anywhere with the CLI, start the phone again so the emulator takes the mode (a running phone is taken
+back as it is by the restarted node):
+
+```sh
+hypomnema device stop phone && hypomnema device start phone
+```
+
+`run/emulator.log` under `~/.hypomnema-node/device/` shows the mode the emulator chose. A value that is not a mode
+leaves the phone `failed`, with the modes it can be, in `hypomnema device status`. Each agent's call is logged on
+the control plane as `agentapi.device_call` with its `duration_ms`.
+
 ## When it runs
 
 | What | When | Started again by |
