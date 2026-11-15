@@ -3328,6 +3328,10 @@ the internet, so that a machine created at a provider can install the node from 
   opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin` (the control plane
   installs them on every node since #107). The earlier
   control plane on aioffice-app (`~ubuntu/hypomnema-cp`) was deleted on 2026-11-13.
+- Node zm, since 2026-11-15 (v0.9.50): on the control plane's own machine, user `dat`, from `~/.hypomnema-node`,
+  added with the default limit of 2 and then drained, so it shows on Machines with its stats and takes no work
+  (owner, 2026-11-15: watch it, run workers when it is idle). `hypomnema nodes resume zm` lets it take work; its
+  workers would then run as the user that holds the control plane's `env` and vault keys.
 - Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
   control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
   sent to the node with each Dispatch of a Claude Code worker and is also served by the gateway. The earlier hand-kept
