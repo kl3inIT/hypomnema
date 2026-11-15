@@ -17,7 +17,15 @@ import type { Node } from "@/api/generated/types.gen"
 import { cn } from "@/lib/utils"
 import { MachineActions } from "./machine-actions"
 import { Meter } from "@/components/meter"
-import { GpuRows, IndicatorDot, LoadDot, MachineProblem, StateText } from "./machine-cells"
+import {
+  Amount,
+  GpuRows,
+  WithAmount,
+  IndicatorDot,
+  LoadDot,
+  MachineProblem,
+  StateText,
+} from "./machine-cells"
 import { RuntimeList } from "./runtime-list"
 import {
   diskPercent,
@@ -104,12 +112,14 @@ export const columns: Column[] = [
       if (value === undefined) return none
 
       return (
-        <Meter
-          label="Memory"
-          value={value}
-          connected={node.connected}
-          title={usedOfTotal(node.stats?.memory_used_bytes, node.system?.memory_bytes)}
-        />
+        <WithAmount used={node.stats?.memory_used_bytes} total={node.system?.memory_bytes}>
+          <Meter
+            label="Memory"
+            value={value}
+            connected={node.connected}
+            title={usedOfTotal(node.stats?.memory_used_bytes, node.system?.memory_bytes)}
+          />
+        </WithAmount>
       )
     },
   },
@@ -123,12 +133,14 @@ export const columns: Column[] = [
       if (value === undefined) return none
 
       return (
-        <Meter
-          label="Disk"
-          value={value}
-          connected={node.connected}
-          title={usedOfTotal(node.stats?.disk_used_bytes, node.system?.disk_bytes)}
-        />
+        <WithAmount used={node.stats?.disk_used_bytes} total={node.system?.disk_bytes}>
+          <Meter
+            label="Disk"
+            value={value}
+            connected={node.connected}
+            title={usedOfTotal(node.stats?.disk_used_bytes, node.system?.disk_bytes)}
+          />
+        </WithAmount>
       )
     },
   },
@@ -180,6 +192,7 @@ export const columns: Column[] = [
               title={usedOfTotal(gpu.memory_used_bytes, gpu.memory_total_bytes)}
             />
           ),
+          after: <Amount used={gpu.memory_used_bytes} total={gpu.memory_total_bytes} />,
         })}
       </GpuRows>
     ),

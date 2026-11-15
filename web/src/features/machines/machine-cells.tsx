@@ -1,11 +1,18 @@
-import type { ReactNode } from "react"
+import { useContext, type ReactNode } from "react"
 
 import type { Node, NodeGpu } from "@/api/generated/types.gen"
 import { dimmed, meterTone, toneColors } from "@/lib/meter-tone"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
-import { machineProblem, machineState, stateNames, type MachineState } from "./machines-state"
+import {
+  amountOf,
+  machineProblem,
+  machineState,
+  stateNames,
+  type MachineState,
+} from "./machines-state"
+import { OnCard } from "./on-card"
 
 // What the Machines page's cells are made of, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx).
@@ -89,17 +96,54 @@ export function GpuRows({
         const { meter, after } = children(gpu)
 
         return (
-          <span key={gpu.index} className="flex w-full min-w-0 items-center gap-2">
+          <span key={gpu.index} className={rowWithAmount}>
             {gpus.length > 1 && (
               <span className="w-2 shrink-0 text-xs text-muted-foreground tabular-nums">
                 {gpu.index}
               </span>
             )}
-            {meter}
+            <span className="min-w-22 flex-1">{meter}</span>
             {after}
           </span>
         )
       })}
+    </span>
+  )
+}
+
+// rowWithAmount is a meter's row with what comes after it: on one line while the meter keeps 5.5rem, else what comes
+// after goes under it, at the end.
+const rowWithAmount = "flex w-full min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5"
+
+// WithAmount is a meter with its Amount after it.
+export function WithAmount({
+  used,
+  total,
+  children,
+}: {
+  used: number | undefined
+  total: number | undefined
+  children: ReactNode
+}) {
+  return (
+    <span className={rowWithAmount}>
+      <span className="min-w-22 flex-1">{children}</span>
+      <Amount used={used} total={total} />
+    </span>
+  )
+}
+
+// Amount is how much is used of how much, after a meter on a card (issue #563), as Coder's agent metadata reads
+// `coder stat mem` and `coder stat disk` (used/total GiB). Its slot has one width, so the bars of a card line up.
+// The table keeps it in the meter's title, as Beszel's table keeps its numbers to the system's page.
+export function Amount({ used, total }: { used: number | undefined; total: number | undefined }) {
+  const onCard = useContext(OnCard)
+  const amount = amountOf(used, total)
+  if (!onCard || amount === undefined) return null
+
+  return (
+    <span className="w-[6.5rem] shrink-0 text-end text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+      {amount}
     </span>
   )
 }
