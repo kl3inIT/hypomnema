@@ -90,6 +90,9 @@ func TestABackgroundCommandIsReadWhileItRunsAndKilled(t *testing.T) {
 	assert.Equal(t, started.ProcessID, ended.ProcessID)
 
 	endless := m.Start(Request{Command: "echo up; sleep 300"})
+	require.Eventually(t, func() bool {
+		return m.Output(t.Context(), endless.ProcessID, 0).Output == "up\n"
+	}, 10*time.Second, 20*time.Millisecond)
 
 	killed := m.Kill(endless.ProcessID)
 	assert.False(t, killed.Running)
