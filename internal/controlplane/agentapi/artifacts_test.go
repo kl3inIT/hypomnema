@@ -16,8 +16,9 @@ import (
 )
 
 // workerOf runs one Task of a Run made from the chat named (the owner's own
-// Run when it is empty) on a node of its own, and returns its Dispatch's key.
-func (w *world) workerOf(node, chatID string) string {
+// Run when it is empty) on a node of its own, given the Connections named,
+// and returns its Dispatch's key.
+func (w *world) workerOf(node, chatID string, uses ...string) string {
 	w.t.Helper()
 
 	ctx := w.t.Context()
@@ -35,7 +36,7 @@ func (w *world) workerOf(node, chatID string) string {
 	require.NoError(w.t, w.svc.NodeHeartbeat(ctx, n.ID))
 
 	run, err := w.svc.CreateRun(ctx, orchestration.NewRun{Objective: "a sales dashboard", CreatedBy: "owner",
-		ChatID: chatID})
+		ChatID: chatID, Uses: uses})
 	require.NoError(w.t, err)
 
 	_, err = w.svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{
@@ -47,7 +48,7 @@ func (w *world) workerOf(node, chatID string) string {
 	require.NoError(w.t, err)
 	require.Len(w.t, sch.Created, 1)
 
-	key, err := w.svc.AddAgentSession(ctx, sch.Created[0], nil)
+	key, err := w.svc.AddAgentSession(ctx, sch.Created[0], uses)
 	require.NoError(w.t, err)
 
 	return key

@@ -23,6 +23,9 @@ import (
 //     into its own;
 //   - web_search, web_fetch, generate_image (web.go): a worker by its
 //     runtime, a Bot's pi all three;
+//   - superset_dashboards, superset_dashboard, superset_chart_data,
+//     superset_api (superset.go): a worker given a Superset Connection by its
+//     Run, a Bot's pi one switched on for chats and on its Bot's list;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
 //     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's).
 //
@@ -33,8 +36,9 @@ import (
 // release.
 
 // toolList is the definitions of the tools an agent gets, in the shape of
-// tools/list: the memory's, show_artifact, the gateway's and the browser's. A
-// browser that cannot list its tools takes none of the others away.
+// tools/list: the memory's, show_artifact, the gateway's, Superset's and the
+// browser's. A browser that cannot list its tools takes none of the others
+// away.
 func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool {
 	out := []agenttool.BrowserTool{}
 
@@ -47,6 +51,7 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 	}
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
+	out = append(out, s.supersetToolList(ctx, a)...)
 
 	if !s.hasBrowser(a) {
 		return out
@@ -98,6 +103,26 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, agenttool.MaxCallBytes)).Decode(&asked); err != nil ||
 		asked.Tool == "" {
 		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
+
+		return
+	}
+
+	if slices.Contains(supersetTools, asked.Tool) {
+		// The Connections are read again at each call: one taken back since the list is refused.
+		labels, err := s.supersetLabels(r.Context(), a)
+		if err != nil {
+			s.fail(w, r, err)
+
+			return
+		}
+
+		if len(labels) == 0 {
+			refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
+
+			return
+		}
+
+		s.supersetCall(w, r, a, labels, asked)
 
 		return
 	}

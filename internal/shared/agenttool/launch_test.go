@@ -460,3 +460,31 @@ func TestANodePreparesADispatchForThePhone(t *testing.T) {
 	assert.Contains(t, brief, "Never sign in")
 	assert.NotContains(t, brief, "Accounts you may use")
 }
+
+// Scenario: a Dispatch is given a Superset account (issue #536). Its tools
+// are the control plane's superset_* tools, so no script is written; its
+// guide is, where the worker is told to read it, and it names the tools,
+// never a hypomnema command a worker lacks.
+func TestANodePreparesADispatchForSuperset(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+
+	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"superset:vmaps"}, "the-key", "")
+	require.NoError(t, err)
+
+	place := Place{Home: home}
+	assert.Contains(t, env, EnvSkills+"="+place.SkillsDir())
+	assert.NoDirExists(t, place.Bin(), "Superset has no command of its own")
+
+	guide, err := os.ReadFile(filepath.Join(place.SkillsDir(), "superset", "guide.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(guide), "`superset_chart_data`")
+	assert.NotContains(t, string(guide), "hypomnema superset")
+
+	brief := Brief([]string{"superset:vmaps"}, "")
+	assert.Contains(t, brief, "Accounts you may use for this task: superset:vmaps.")
+	assert.Contains(t, brief, "superset_* tools")
+	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/superset/guide.md"`)
+	assert.NotContains(t, brief, "PATH")
+}

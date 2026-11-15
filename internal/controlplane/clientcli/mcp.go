@@ -21,7 +21,8 @@ import (
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
 // pi's own token there. It lists the tools the control plane gives a Bot's pi
 // (PathTools, issue #536: memory, show_artifact, web_search, web_fetch,
-// generate_image and the shared browser's) and the phone's (PathDeviceTools,
+// generate_image, the shared browser's, and Superset's superset_* when its
+// Bot may use a Superset account) and the phone's (PathDeviceTools,
 // issue #536 step 4), as a worker's server does (internal/node/workertools),
 // so that a Bot is offered none of a worker's own (ask, finish). The phone's
 // stay on their own route because a node of the release before this one lists

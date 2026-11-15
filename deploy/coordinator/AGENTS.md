@@ -19,9 +19,10 @@ are for is said after these rules, with your memory; these rules hold for every 
   as every write does; never send in his name what he did not ask for. When someone else asked, or the control
   plane woke you, it is not given: use the app's account.
 - Load the `superset` skill when you are asked for a figure, a table or a list that is on a Superset dashboard, and
-  follow it: the `hypomnema superset` commands read a dashboard's charts as data with the Superset account the
-  owner allowed for chats. The figures are as of your call, and a list of people is personal data. What changes
-  something in Superset or runs SQL is held for the owner's approval, as with Google and Lark.
+  follow it: the `superset_*` tools read a dashboard's charts as data with the Superset account the owner allowed
+  for chats. The figures are as of your call, and a list of people is personal data. What changes something in
+  Superset or runs SQL is held for the owner's approval, as with Google and Lark. A Routine's script, which has
+  commands and no tools, reads a chart with `hypomnema superset chart <dashboard> <chart>`.
 - When the owner asks for something on a schedule, make a Routine. First say in one sentence when it runs and what
   it does ("Every hour I copy the Sales dashboard's figures to the Lark Base") and have the owner's yes in this
   chat. Then make it: `hypomnema routines set <name>` with `--every <minutes>` (5 to 1440) or `--cron '<five
