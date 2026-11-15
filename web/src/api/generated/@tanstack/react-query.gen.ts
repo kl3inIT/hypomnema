@@ -3510,6 +3510,8 @@ export const listChatMessagesQueryKey = (options: Options<ListChatMessagesData>)
 
 /**
  * A chat's messages after a cursor, oldest first; optionally wait for the next one
+ *
+ * With after, the messages that follow that seq; with before, the newest messages older than it, so a chat is read from its end a page at a time (issue #502).
  */
 export const listChatMessagesOptions = (options: Options<ListChatMessagesData>) => queryOptions<ListChatMessagesResponse, ListChatMessagesError, ListChatMessagesResponse, ReturnType<typeof listChatMessagesQueryKey>>({
   queryFn: async ({ queryKey, signal }) => {
@@ -3528,6 +3530,8 @@ export const listChatMessagesInfiniteQueryKey = (options: Options<ListChatMessag
 
 /**
  * A chat's messages after a cursor, oldest first; optionally wait for the next one
+ *
+ * With after, the messages that follow that seq; with before, the newest messages older than it, so a chat is read from its end a page at a time (issue #502).
  */
 export const listChatMessagesInfiniteOptions = (options: Options<ListChatMessagesData>) => {
   const opts = infiniteQueryOptions<ListChatMessagesResponse, ListChatMessagesError, InfiniteData<ListChatMessagesResponse>, QueryKey<Options<ListChatMessagesData>>, number | Pick<QueryKey<Options<ListChatMessagesData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
