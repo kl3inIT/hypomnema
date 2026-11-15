@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 const index = "index.html"
@@ -37,10 +39,26 @@ func Available(assets fs.FS) bool {
 	return err == nil && !info.IsDir()
 }
 
+// compressionLevel is gzip's, Coder's for its site (coderd/coderd.go
+// compressHandler).
+const compressionLevel = 5
+
+// compressed are the types the build is sent gzipped in, when the browser
+// accepts it (issue #510): text, scripts, styles and JSON. Fonts and images
+// other than SVG are compressed already.
+var compressed = []string{
+	"text/html", "text/css", "text/javascript", "application/javascript", "application/json", "image/svg+xml",
+}
+
 // Handler serves assets. A file is served as it is, with a year's cache under
 // assets/ (Vite names them by content); a missing file or a reserved path is a
-// 404; any other path gets index.html.
+// 404; any other path gets index.html. What the browser accepts gzipped of the
+// compressed types goes gzipped, through chi's Compressor as Coder's site does.
 func Handler(assets fs.FS) http.Handler {
+	return middleware.NewCompressor(compressionLevel, compressed...).Handler(serve(assets))
+}
+
+func serve(assets fs.FS) http.Handler {
 	files := http.FileServerFS(assets)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
