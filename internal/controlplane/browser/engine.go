@@ -95,6 +95,10 @@ type Config struct {
 	// OwnPorts are the ports the control plane listens on: the browser never
 	// reaches them on this machine, whatever Allow says.
 	OwnPorts []uint16
+	// Language is the language pages are told (see Language), and TimeZone
+	// the zone the browser tells time in (see TimeZone); empty: the system's.
+	Language string
+	TimeZone string
 	Logger   *slog.Logger
 	Clock    platform.Clock
 }
@@ -113,8 +117,12 @@ type Engine struct {
 	// gate is what Chrome sends every connection through, and launch the
 	// environment that makes it. They are set before Chrome's first start and
 	// kept: a Chrome keeps the port it was launched with.
-	gate     *egress.Gate
-	launch   []string
+	gate   *egress.Gate
+	launch []string
+	// identity is what Chrome tells pages it is, read once (identity.go), and sidecar gives it to every page
+	// of the running Chrome (sidecar.go).
+	identity *chromeIdentity
+	sidecar  *sidecar
 	cdp      string
 	checked  time.Time
 	cleared  bool
@@ -166,7 +174,7 @@ func (e *Engine) download(ctx context.Context) (string, string, error) {
 		return "", "", err
 	}
 
-	chrome, err := in.install(ctx, headlessShell())
+	chrome, err := in.install(ctx, chromeForTesting())
 	if err != nil {
 		return "", "", err
 	}
@@ -346,6 +354,7 @@ func (e *Engine) running(ctx context.Context) error {
 	if e.cdp != "" {
 		if address := e.address(ctx); address == e.cdp {
 			e.checked = now
+			e.identified(ctx)
 
 			return nil
 		}
@@ -357,8 +366,7 @@ func (e *Engine) running(ctx context.Context) error {
 	}
 
 	// Chrome is never started without its gate: it would reach the control plane's own machine and network.
-	//nolint:contextcheck // The gate outlives the call that first needs it.
-	if err := e.gated(); err != nil {
+	if err := e.gated(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
@@ -384,34 +392,78 @@ func (e *Engine) running(ctx context.Context) error {
 	e.devToolsPort.Store(portOf(e.cdp))
 	e.checked, e.lastUsed = now, now
 	e.cfg.Logger.InfoContext(ctx, "the browser started", slog.String("event", "browser.started"))
+	e.identified(ctx)
 
 	return nil
 }
 
+// identified has the identity's sidecar attached to the running Chrome
+// (sidecar.go), again when it was dropped. A browser without it still
+// browses, so a failure is logged and tried again at the next check
+// (OpenMausBot's browser-runtime.ts, launched). The caller holds mu.
+func (e *Engine) identified(ctx context.Context) {
+	if e.sidecar != nil {
+		select {
+		case <-e.sidecar.done():
+			e.sidecar = nil
+		default:
+			return
+		}
+	}
+
+	if e.identity == nil {
+		return
+	}
+
+	s, err := startSidecar(ctx, e.cdp, *e.identity, languageList(e.cfg.Language))
+	if err != nil {
+		e.cfg.Logger.WarnContext(ctx, "the browser's identity could not be applied",
+			slog.String("event", "browser.identity_failed"), slog.Any("err", err))
+
+		return
+	}
+
+	e.sidecar = s
+}
+
 // gated has the gate open and Chrome's launch settings made for it, as
-// OpenMausBot's engine does (server/browser-engine.ts, agentBrowserEgressEnv).
-// The caller holds mu.
-func (e *Engine) gated() error {
-	if e.gate != nil {
+// OpenMausBot's engine does (server/browser-engine.ts, agentBrowserEgressEnv),
+// with the browser's identity read from it (identity.go). The caller holds mu.
+func (e *Engine) gated(ctx context.Context) error {
+	if e.gate == nil {
+		//nolint:contextcheck // The gate outlives the call that first needs it.
+		gate, err := egress.Open(egress.Rules{Allow: e.cfg.Allow, OwnPort: e.ownPort}, e.refused)
+		if err != nil {
+			return err
+		}
+
+		e.gate = gate
+		e.gatePort.Store(uint32(gate.Port()))
+	}
+
+	if e.launch != nil {
 		return nil
 	}
 
-	gate, err := egress.Open(egress.Rules{Allow: e.cfg.Allow, OwnPort: e.ownPort}, e.refused)
+	proxy, bypass, args := e.gate.ChromeSettings()
+
+	// Chrome is not started without its identity, which is read until it can be: a binary that cannot be
+	// read cannot be started either, and says why (OpenMausBot fails the call too: launcher.ts, ready).
+	id, err := e.identityOf(ctx, append([]string{"--proxy-server=" + proxy}, args...))
 	if err != nil {
 		return err
 	}
 
-	proxy, bypass, args := gate.ChromeSettings()
+	args = append(args, identityArgs(id, e.cfg.Language)...)
 	if e.cfg.NoSandbox {
 		args = append(args, "--no-sandbox")
 	}
 
-	e.gate = gate
-	e.gatePort.Store(uint32(gate.Port()))
+	e.identity = &id
 	e.launch = []string{
 		"AGENT_BROWSER_PROXY=" + proxy,
 		"AGENT_BROWSER_PROXY_BYPASS=" + bypass,
-		// agent-browser reads one argument a line.
+		// agent-browser 0.42 reads one argument a line, so the user agent's commas stay in it (cli/src/flags.rs).
 		"AGENT_BROWSER_ARGS=" + strings.Join(args, "\n"),
 	}
 
@@ -468,6 +520,11 @@ func (e *Engine) forget(ctx context.Context) {
 		e.end(ctx, s.name, e.cdp)
 
 		delete(e.sessions, agent)
+	}
+
+	if e.sidecar != nil {
+		e.sidecar.close()
+		e.sidecar = nil
 	}
 
 	e.cdp = ""
@@ -590,6 +647,11 @@ func (e *Engine) env(name, cdp string) []string {
 		// The engine ends what is idle; agent-browser's own hour would end a daemon under a tab still in use.
 		"AGENT_BROWSER_IDLE_TIMEOUT_MS=0",
 		"AGENT_BROWSER_STREAM_QUALITY=" + streamQuality,
+	}
+
+	// Chrome tells time in the zone of the daemon that starts it, whichever command started that daemon.
+	if e.cfg.TimeZone != "" {
+		env = append(env, "TZ="+e.cfg.TimeZone)
 	}
 
 	if cdp != "" {
@@ -731,6 +793,8 @@ func (e *Engine) Close(ctx context.Context) {
 type Status struct {
 	Installed bool
 	Running   bool
+	// Chrome names the browser the engine runs, by its pinned version.
+	Chrome string
 	// Agents are the agents that hold a tab.
 	Agents []string
 }
@@ -740,7 +804,9 @@ func (e *Engine) Status() Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	st := Status{Installed: e.catalog != nil, Running: e.cdp != ""}
+	st := Status{
+		Installed: e.catalog != nil, Running: e.cdp != "", Chrome: "Chrome for Testing " + chromeForTesting().Version,
+	}
 	for agent := range e.sessions {
 		st.Agents = append(st.Agents, agent)
 	}

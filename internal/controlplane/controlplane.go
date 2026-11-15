@@ -132,6 +132,13 @@ type Config struct {
 	// `10.0.0.5`, `192.168.1.0/24` or `10.0.0.5:8080`, separated by commas.
 	// Empty: the public internet only.
 	BrowserAllow egress.Allow
+	// BrowserLanguage is the language the shared browser's pages are told,
+	// from HYPOMNEMA_BROWSER_LANG, else the control plane's locale (issue
+	// #540; browser.Language).
+	BrowserLanguage string
+	// BrowserTimeZone is the zone the shared browser tells time in, from
+	// HYPOMNEMA_BROWSER_TIMEZONE, else the control plane's TZ (browser.TimeZone).
+	BrowserTimeZone string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -159,6 +166,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BrowserDir:       env.String(envPrefix+"_BROWSER_DIR", ""),
 		BrowserOff:       env.String(envPrefix+"_BROWSER", "1") == "0",
 		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
+		BrowserLanguage:  browser.Language(env.String(envPrefix+"_BROWSER_LANG", ""), getenv),
+		BrowserTimeZone:  browser.TimeZone(env.String(envPrefix+"_BROWSER_TIMEZONE", ""), getenv),
 	}
 
 	if cfg.BrowserDir == "" {
@@ -296,7 +305,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	shared := browser.New(browser.Config{
-		Dir: browserDir, NoSandbox: cfg.BrowserNoSandbox, Allow: cfg.BrowserAllow, OwnPorts: ownPorts, Logger: logger,
+		Dir: browserDir, NoSandbox: cfg.BrowserNoSandbox, Allow: cfg.BrowserAllow, OwnPorts: ownPorts,
+		Language: cfg.BrowserLanguage, TimeZone: cfg.BrowserTimeZone, Logger: logger,
 	})
 	if !cfg.BrowserOff {
 		agents.WithBrowser(shared)

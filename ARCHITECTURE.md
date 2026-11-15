@@ -375,10 +375,24 @@ sequenceDiagram
     agent-browser session attached to that Chrome and pinned to a tab of its own
     (`--cdp`, `--pin-tab`); a worker's session is named after its Dispatch, and a chat's pi's after its chat
     (issue #260), so the pi that follows goes on in the same tab.
-  - Both programs are pinned by version, size and SHA-256 (`release.go`) and fetched at the first use into
-    `HYPOMNEMA_BROWSER_DIR` (default: `browser` beside the database), which also holds the profile and
-    agent-browser's sockets: `tools/<name>/<version>/`, `profile/`, `home/`, `run/`. A file that does not match
-    its pin is not installed. agent-browser is run with none of the control plane's environment but `PATH`.
+  - Both programs, agent-browser 0.42.0 and Chrome for Testing's full browser (157, run with `--headless=new`;
+    not its headless shell, issue #540), are pinned by version, size and SHA-256 (`release.go`) and fetched at
+    the first use into `HYPOMNEMA_BROWSER_DIR` (default: `browser` beside the database), which also holds the
+    profile, agent-browser's sockets and the browser's identity: `tools/<name>/<version>/`, `profile/`, `home/`,
+    `run/`, `identity/`. A file that does not match its pin is not installed. agent-browser is run with none of
+    the control plane's environment but `PATH` (and `TZ`, below).
+  - Chrome looks like Chrome to the sites it opens (issue #540; `identity.go`, `sidecar.go`, adapted from
+    OpenMausBot's `server/browser/chrome/`). Before its first launch the binary is started once on a throwaway
+    profile and asked by a page of its own on loopback what it is; its user agent with `HeadlessChrome` made
+    `Chrome`, and its client hints (brands, full versions, platform), are kept in `identity/` for that binary.
+    Chrome is not launched until that is read. It is launched with `--disable-blink-features=AutomationControlled`,
+    that user agent, `--screen-info={1920x1080}` and `--lang`, through agent-browser's `AGENT_BROWSER_ARGS`
+    (one a line, so the user agent's commas stay); and a DevTools connection of the control plane's own, the
+    sidecar, attaches to every page, frame and worker paused at its start and gives it the same user agent with
+    its client hints and languages (`Emulation`/`Network.setUserAgentOverride`) before it runs. The language is
+    `HYPOMNEMA_BROWSER_LANG`, else the control plane's locale (`C` gives `en-US`); the time zone
+    `HYPOMNEMA_BROWSER_TIMEZONE`, else its `TZ`, passed to agent-browser as `TZ`. A sidecar that cannot attach is
+    logged as `browser.identity_failed` and tried again at the next check; the browser still browses.
   - Chrome is started by an agent's first call. A tab unused for 30 minutes is closed, and Chrome once it has had
     no tab for 5 minutes (T3 Code's rules); the sign-ins stay in the profile. Chrome found gone is started again,
     and the tabs it held are not used again. A Chrome left by an earlier control plane is closed at the first call.
@@ -391,7 +405,8 @@ sequenceDiagram
     every tool (`session`, `extraArgs`, `restore` and the like) and a screenshot's path are dropped. `open` takes
     an http(s) address or `about:blank`; a bare host means https.
   - Chrome keeps its sandbox. On a machine that blocks it (Ubuntu 23.10 and later) a call fails and says to run
-    `deploy/browser/setup-browser.sh` once with sudo, which writes an AppArmor profile and installs missing
+    `deploy/browser/setup-browser.sh` once with sudo (and again when the pinned browser's path changes, as it did
+    in issue #540), which writes an AppArmor profile and installs missing
     libraries (T3 Code's `t3 browser setup`, MIT, its license in `third_party/t3code/`).
     `HYPOMNEMA_BROWSER_SANDBOX=0` runs Chrome without the sandbox; nothing else does.
   - Every worker has the tools (issue #212), as T3 Code's and OpenMausBot's agents have theirs unless a setting
@@ -417,8 +432,10 @@ sequenceDiagram
     `owner`, which is made when it is first watched and is where a sign-in is made. `POST
     /api/v1/browser/tabs/{tab}/views` gives a ticket (owner only, once, 30 seconds), which opens the WebSocket
     `/api/v1/browser/views/{ticket}`, as a terminal's does. The control plane connects to that session's stream,
-    which agent-browser serves on a loopback port named in `run/<session>.stream`, with `pacing=ack`: a frame
-    (JPEG, quality 70) goes to the page as a binary message and the next one waits for the page's `ack`; a page
+    which agent-browser serves on a loopback port named in `run/<session>.stream`, with `pacing=ack&maxFps=15`:
+    a frame (JPEG, quality 70) goes to the page as a binary message, and up to 2 frames may be on their way to the
+    page unacknowledged: the control plane acknowledges agent-browser's frame itself while the page has fewer,
+    and otherwise when the page's `ack` comes for its oldest (issue #540, OpenMausBot's `FRAME_WINDOW`); a page
     that does not take a message within 10 seconds is disconnected. The JSON messages are T3 Code's: to the page
     `control` (`agent` or `you`), `viewport` and `url`; from it `takeControl`, `releaseControl`, `resize`,
     `mouse`, `wheel`, `key`, `navigate`, `history` and `reload`. The tab fills the pane it is watched in
@@ -430,8 +447,8 @@ sequenceDiagram
     tab that is watched is not closed as idle. Each view and each take-over is logged
     (`clientapi.browser_view_opened`, `_closed`, `browser.taken`, `browser.released`) with who, which tab, from
     where and how long; frames and keys are not.
-  - `GET /api/v1/browser` (owner only) and `hypomnema browser status` say whether the browser is installed and
-    running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
+  - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
+    say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
     Run), and its address and title as Chrome's own DevTools port lists them.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
