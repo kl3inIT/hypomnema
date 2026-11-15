@@ -363,7 +363,7 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
   await shot(page, "bot-new-refused")
 
   await page.getByLabel("Model", { exact: true }).click()
-  await page.getByRole("option", { name: "opus", exact: true }).click()
+  await page.getByRole("option", { name: "Claude Opus 5.5", exact: true }).click()
   await page
     .getByRole("group", { name: "Effort" })
     .getByRole("button", { name: "High", exact: true })
