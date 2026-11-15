@@ -31,6 +31,9 @@ const (
 	// call's id as ?request= (issue #417), and the WebSocket it opens for a view
 	// of its phone, with the stream it was given as ?stream= (step 3).
 	PathDevice = "/node/v1/device"
+	// PathExec is where a node posts the answer to an exec, with the request's
+	// id as ?request= (issue #543).
+	PathExec = "/node/v1/exec"
 )
 
 // DeviceAnswerWithin is how long the control plane waits for a node's answer
@@ -48,6 +51,28 @@ const FilesAnswerWithin = workspacefs.GitTimeout + 5*time.Second
 
 // MaxFilesAnswerBytes bounds a node's answer: a file read whole, as JSON.
 const MaxFilesAnswerBytes = 4*workspacefs.MaxRead + 1<<20
+
+// An agent's command on a node (issue #543): how long one may run, and how
+// long a background process's output is waited for at most (Nezha's
+// server.exec: 30 s by default, 300 s at most).
+const (
+	ExecTimeoutDefault = 60 * time.Second
+	ExecTimeoutMax     = 300 * time.Second
+	ExecWaitMax        = 300 * time.Second
+)
+
+// ExecAnswerSlack is how much longer than a command's own time the control
+// plane waits for the node's answer: the kill, and the post.
+const ExecAnswerSlack = 30 * time.Second
+
+// MaxExecAnswerBytes bounds a node's answer to an exec: an output of
+// ExecOutputBytes as JSON, which may escape every byte.
+const MaxExecAnswerBytes = 1 << 20
+
+// ExecOutputBytes is how much of a command's output an answer holds: the
+// first and the last half of it, as Coder's head-and-tail buffer keeps the
+// start and the end (agent/agentproc/headtail.go), at Nezha's 64 KB.
+const ExecOutputBytes = 64 << 10
 
 // TerminalMeetWithin is how long the two ends of a terminal connection have
 // to meet at the control plane (Nezha io_stream.go: 10 s).
@@ -105,6 +130,10 @@ const (
 	// the owner (issue #417, step 3); the node opens a connection to PathDevice,
 	// as it does to PathTerminal for a terminal.
 	TypeDeviceView Type = "device_view"
+	// TypeExec runs a command on the node for an agent, or asks about or ends
+	// one it runs in the background (issue #543); the node answers on
+	// PathExec, as it answers a device_call.
+	TypeExec Type = "exec"
 )
 
 // Message is one envelope.
@@ -319,6 +348,49 @@ type DeviceCall struct {
 	Agent     string          `json:"agent"`
 	Tool      string          `json:"tool"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
+// The actions of an Exec.
+const (
+	// ExecRun runs the command and answers when it ends, or when its time
+	// is up and it was killed.
+	ExecRun = "run"
+	// ExecStart starts the command in the background and answers at once
+	// with its ProcessID.
+	ExecStart = "start"
+	// ExecOutput answers about a background process: once it has ended, or
+	// after WaitSeconds while it runs.
+	ExecOutput = "output"
+	// ExecKill kills a background process and what it started.
+	ExecKill = "kill"
+)
+
+// Exec is one agent's command on a node (issue #543), or a question about
+// one it started in the background. SudoPassword is the node's sudo
+// password from the owner's vault, given to sudo through its askpass
+// helper; it is never logged or answered.
+type Exec struct {
+	RequestID      string `json:"request_id"`
+	Action         string `json:"action"`
+	Command        string `json:"command,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	ProcessID      string `json:"process_id,omitempty"`
+	WaitSeconds    int    `json:"wait_seconds,omitempty"`
+	SudoPassword   string `json:"sudo_password,omitempty"`
+}
+
+// ExecAnswer is what came of an Exec. Output is stdout and stderr together,
+// as a terminal shows them; CutBytes is how much of its middle was left out.
+// A command that could not be started, or a process not known, is Error.
+type ExecAnswer struct {
+	ProcessID string `json:"process_id,omitempty"`
+	Running   bool   `json:"running,omitempty"`
+	ExitCode  *int   `json:"exit_code,omitempty"`
+	TimedOut  bool   `json:"timed_out,omitempty"`
+	Output    string `json:"output,omitempty"`
+	CutBytes  int64  `json:"cut_bytes,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // DeviceAnswer is a phone tool's result as MCP has it: what the tool says,

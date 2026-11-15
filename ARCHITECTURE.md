@@ -770,7 +770,16 @@ sequenceDiagram
   `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): each chat is deleted as a chat is
   (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
   made in them stay without the chat, and the chats' gateway keys are revoked and kept. Their files on the
-  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
+  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then.
+  - **Order and pins** (issue #470, migration 00089; after OpenMausBot's one fleet order with a `pinned` flag and
+    onyx's dense `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
+    column came, so the main Bot is 0); a new Bot goes last and a removed one leaves no gap. `PUT /bots/order`
+    `{bot_ids}` (`ReorderBots`) names the Bots it moves: they take, in the order given, the places they already
+    hold together, and every other Bot keeps its place (OpenMausBot's `reorderStable`); it answers every Bot's id
+    in the new order. An empty list, a repeated or unknown id and the main Bot are refused (400). `bots.pinned` is
+    set with `PATCH /bots/{bot_id}` `{pinned}`; the main Bot is not pinned. Both are the owner's alone, not a Bot
+    setting: the main Bot's pi is refused (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the
+    Bots oldest first, each with its `position` and `pinned`. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -1083,7 +1092,7 @@ flowchart LR
     `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
     and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
     frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
-    its description (`skill_revisions.requires`, migration 00089). A skill is given, whether for everyone or named
+    its description (`skill_revisions.requires`, migration 00090). A skill is given, whether for everyone or named
     by a profile or Bot, only to an agent that has every requirement, as OpenClaw leaves out a skill whose
     requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
     the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
@@ -2549,10 +2558,38 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
+| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
 | `ask`, `finish` (the node's own) | yes | no | no |
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web` and `hypomnema image` are.
+
+Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
+[research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's
+`run_command`, Nezha's `server.exec` and Coder's `coder_workspace_execute`:
+
+- `node_exec {node, command, cwd, timeout_seconds, background}` runs `sh -c <command>` on the node named (its name or
+  id, drained or not; one not connected is refused with the names of those that are), as the node's own user, in
+  `cwd` or the user's home, with stdin empty and Coder's non-interactive environment (`PAGER=cat`, `TERM=dumb`,
+  `GIT_TERMINAL_PROMPT=0`, editors `true`). It runs at once, with no approval (owner, 2026-11-15). In the
+  foreground it is killed with its process group after `timeout_seconds` (60, at most 300); the answer is the exit
+  code and the output, stdout and stderr together, the first and last 32 KB of a longer one with how much was left
+  out. An exit code other than 0, or a time run out, is an error result.
+- `background: true` answers at once with a `process_id`; the command runs with no time limit. `node_process
+  {node, process_id, wait_seconds}` answers once it ended or after `wait_seconds` (at most 300), with the output so
+  far; `node_process_kill` kills its group. An ended one is kept an hour (Coder); the node's restart, as at an
+  update, kills the ones still running.
+- sudo: the vault secret `sudo-<node>` (lowercase, its `value`) is the node's sudo password. When there is one, the
+  control plane sends it with the command, and the node adds `-A` after every `sudo` that is a simple command's
+  command (parsed with `mvdan.cc/sh`) and sets `SUDO_ASKPASS` to a helper that prints it from a file only the
+  node's user reads, removed when the command ends (Hermes's askpass form). The password is not logged, answered or
+  on a command line. A node with none runs `sudo` as it is: it works where sudo needs no password, else fails.
+- The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`) and waits for the answer on
+  `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
+  once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
+- MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
+  and the node's answer.
+- Not built: a PTY, a per-node switch to refuse commands (Nezha), a list of commands always refused (Hermes).
 
 ```mermaid
 flowchart LR
@@ -3254,14 +3291,20 @@ Node (`internal/node`):
     other file is its name and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
-    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
-    `coordinator` always, ordered by its latest chat. A row shows the Bot's avatar with a dot when one of its chats
-    is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
+    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
+    not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then a
+    "Pinned" section of the pinned Bots, then the others, each section by `Bot.position`. The owner drags a Bot by
+    its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
+    the mouse or the keyboard, within its section; the page shows the new order at once and sends
+    `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
+    shows the Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its latest
+    chat's title, and "Needs you", "Working" or the time.
     Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
     each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
     with that Bot picked (`/?bot=`). A chat's row has a menu (issue #484, after t3code's thread menu), shown on
     hover or focus and always on a phone, whose Delete asks first and, for the open chat, then opens New chat with
-    its Bot. The phone's start page lists the same Bots.
+    its Bot; a Bot row that stands for its one chat carries that chat's Delete ("Delete chat") in its own menu.
+    The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its

@@ -10,6 +10,16 @@ import (
 	"database/sql"
 )
 
+const closeBotPosition = `-- name: CloseBotPosition :exec
+UPDATE bots SET position = position - 1 WHERE position > ?1
+`
+
+// The Bots after a removed one move up a place, so the order stays 0 to n-1 (issue #470).
+func (q *Queries) CloseBotPosition(ctx context.Context, position int64) error {
+	_, err := q.db.ExecContext(ctx, closeBotPosition, position)
+	return err
+}
+
 const countRepliesOfBotSince = `-- name: CountRepliesOfBotSince :one
 SELECT count(*) FROM chat_messages m JOIN chats c ON c.id = m.chat_id
 WHERE c.bot_id = ?1 AND m.role = 'coordinator' AND m.created_at >= ?2 AND m.chat_id <> ?3
@@ -39,7 +49,7 @@ func (q *Queries) DeleteBot(ctx context.Context, id string) error {
 }
 
 const getBot = `-- name: GetBot :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name FROM bots WHERE id = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned FROM bots WHERE id = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -60,12 +70,14 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.Workers,
 		&i.ToolDisplay,
 		&i.Name,
+		&i.Position,
+		&i.Pinned,
 	)
 	return i, err
 }
 
 const getBotByName = `-- name: GetBotByName :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name FROM bots WHERE name = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
@@ -86,6 +98,8 @@ func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
 		&i.Workers,
 		&i.ToolDisplay,
 		&i.Name,
+		&i.Position,
+		&i.Pinned,
 	)
 	return i, err
 }
@@ -113,9 +127,9 @@ func (q *Queries) GetSetupChange(ctx context.Context, id string) (SetupChange, e
 
 const insertBot = `-- name: InsertBot :exec
 INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
-                  created_at, updated_at)
+                  position, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-        ?12, ?12)
+        (SELECT coalesce(max(position) + 1, 0) FROM bots), ?12, ?12)
 `
 
 type InsertBotParams struct {
@@ -133,6 +147,7 @@ type InsertBotParams struct {
 	Now         int64
 }
 
+// A new Bot goes last in the order (issue #470).
 func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
 	_, err := q.db.ExecContext(ctx, insertBot,
 		arg.ID,
@@ -208,8 +223,36 @@ func (q *Queries) LastSetupChangeOf(ctx context.Context, arg LastSetupChangeOfPa
 	return i, err
 }
 
+const listBotIDsInOrder = `-- name: ListBotIDsInOrder :many
+SELECT id FROM bots ORDER BY position, created_at, name
+`
+
+// The Bots in the order the owner set (issue #470).
+func (q *Queries) ListBotIDsInOrder(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listBotIDsInOrder)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBots = `-- name: ListBots :many
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name FROM bots ORDER BY created_at, name
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -236,6 +279,8 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.Workers,
 			&i.ToolDisplay,
 			&i.Name,
+			&i.Position,
+			&i.Pinned,
 		); err != nil {
 			return nil, err
 		}
@@ -331,6 +376,37 @@ type SetBotMemoryParams struct {
 
 func (q *Queries) SetBotMemory(ctx context.Context, arg SetBotMemoryParams) error {
 	_, err := q.db.ExecContext(ctx, setBotMemory, arg.Memory, arg.Now, arg.ID)
+	return err
+}
+
+const setBotPinned = `-- name: SetBotPinned :execrows
+UPDATE bots SET pinned = ?1 WHERE id = ?2
+`
+
+type SetBotPinnedParams struct {
+	Pinned int64
+	ID     string
+}
+
+func (q *Queries) SetBotPinned(ctx context.Context, arg SetBotPinnedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setBotPinned, arg.Pinned, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setBotPosition = `-- name: SetBotPosition :exec
+UPDATE bots SET position = ?1 WHERE id = ?2
+`
+
+type SetBotPositionParams struct {
+	Position int64
+	ID       string
+}
+
+func (q *Queries) SetBotPosition(ctx context.Context, arg SetBotPositionParams) error {
+	_, err := q.db.ExecContext(ctx, setBotPosition, arg.Position, arg.ID)
 	return err
 }
 

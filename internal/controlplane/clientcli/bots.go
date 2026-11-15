@@ -337,7 +337,7 @@ func botsRename(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
-	resp, err := e.api.RenameBotWithResponse(ctx, id, openapi.BotChange{Name: name})
+	resp, err := e.api.RenameBotWithResponse(ctx, id, openapi.BotChange{Name: &name})
 	if err != nil {
 		return fmt.Errorf("renaming bot %s: %w", ref, err)
 	}

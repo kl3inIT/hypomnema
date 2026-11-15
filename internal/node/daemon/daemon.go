@@ -110,6 +110,8 @@ type Config struct {
 	// FindRuntimes finds the agent CLIs again once the tools installed changed, since the control plane has the
 	// node install some (issue #107); nil: Runtimes stay as found at start.
 	FindRuntimes func(ctx context.Context, tools []nodeproto.ToolState) []nodeproto.RuntimeInfo
+	// Commands runs an agent's commands on the machine (issue #543); nil: the node runs none.
+	Commands Commands
 }
 
 // Phone is the phone a node holds (issue #417); *device.Manager is the
