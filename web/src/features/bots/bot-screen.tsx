@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router"
 import { ChevronRight } from "lucide-react"
 import { useState } from "react"
 
+import { getBotQueryKey, listBotsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import type { Bot, Model } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -12,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ModelMark } from "@/components/icons/model-mark"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { ModelField } from "@/features/agents/profile-editor"
+import { everyCall } from "@/lib/query-keys"
 import { errorText } from "@/lib/server-error"
 import { useModels } from "@/features/agents/use-profiles"
 import { LarkIcon } from "@/components/icons/brand-icons"
@@ -35,15 +37,7 @@ import {
   settingsOf,
   type Draft,
 } from "./bots-state"
-import {
-  botsKey,
-  useBot,
-  useBots,
-  useDeleteBot,
-  usePutBot,
-  useRenameBot,
-  useSetBotMemory,
-} from "./use-bots"
+import { useBot, useBots, useDeleteBot, usePutBot, useRenameBot, useSetBotMemory } from "./use-bots"
 
 // Crumbs is the way back to the list, as the Agents pages' "Agents › name".
 function Crumbs({ here }: { here: string }) {
@@ -386,9 +380,9 @@ function Removal({ bot }: { bot: Bot }) {
 
   const gone = async () => {
     // The list is read again before the page leaves; this Bot's own query goes with its page.
-    await queryClient.invalidateQueries({ queryKey: botsKey, exact: true })
+    await queryClient.invalidateQueries({ queryKey: everyCall(listBotsQueryKey()) })
     await navigate({ to: "/bots" })
-    queryClient.removeQueries({ queryKey: [...botsKey, bot.id] })
+    queryClient.removeQueries({ queryKey: getBotQueryKey({ path: { bot_id: bot.id } }) })
   }
 
   return (

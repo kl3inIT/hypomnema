@@ -1,43 +1,50 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
-import { listSetupChanges, undoSetupChange } from "@/api/generated/sdk.gen"
-import type { Bot, SetupChange } from "@/api/generated/types.gen"
-import { profilesKey } from "@/features/agents/use-profiles"
+import {
+  listBotsQueryKey,
+  listSetupChangesOptions,
+  listSetupChangesQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import { undoSetupChange } from "@/api/generated/sdk.gen"
+import type { ListBotsResponse, SetupChange } from "@/api/generated/types.gen"
+import { useRefreshProfiles } from "@/features/agents/use-profiles"
 import { said } from "@/lib/said"
 
 import { botNameOf } from "./bots-state"
-import { botsKey } from "./use-bots"
+import { useRefreshBots } from "./use-bots"
 
 // The setup changes of a chat (issue #169): what the main Bot made, changed or removed of Bots and
 // profiles there, read and undone. Their card is setup-change-card.tsx.
-
-const setupChangesKey = (chatId: string) => ["setup-changes", chatId] as const
 
 // useSetupChanges reads the changes made from a chat; read again while the chat is open, as the Bot makes them in
 // its turn without an event.
 export function useSetupChanges(chatId: string) {
   return useQuery({
-    queryKey: setupChangesKey(chatId),
-    queryFn: async () => (await listSetupChanges({ query: { chat_id: chatId } })).data.data,
+    ...listSetupChangesOptions({ query: { chat_id: chatId } }),
+    select: (page) => page.data,
     refetchInterval: 10_000,
   })
 }
 
 export function useUndoSetupChange() {
   const queryClient = useQueryClient()
+  const refreshBots = useRefreshBots()
+  const refreshProfiles = useRefreshProfiles()
 
   return useMutation({
     mutationFn: async (change: SetupChange) =>
       (await undoSetupChange({ path: { change_id: change.id } })).data,
     onSuccess: async (change) => {
       said(
-        `${verb.undone[change.action]} ${what(change, botNameOf(queryClient.getQueryData<Bot[]>(botsKey), change.name))}`,
+        `${verb.undone[change.action]} ${what(change, botNameOf(queryClient.getQueryData<ListBotsResponse>(listBotsQueryKey())?.data, change.name))}`,
       )
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: setupChangesKey(change.chat_id) }),
-        queryClient.invalidateQueries({ queryKey: botsKey }),
-        queryClient.invalidateQueries({ queryKey: profilesKey }),
+        queryClient.invalidateQueries({
+          queryKey: listSetupChangesQueryKey({ query: { chat_id: change.chat_id } }),
+        }),
+        refreshBots(),
+        refreshProfiles(),
       ])
     },
   })

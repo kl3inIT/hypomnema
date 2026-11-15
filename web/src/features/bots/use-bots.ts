@@ -2,19 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
 import {
-  createBot,
-  deleteBot,
-  getBot,
-  listBots,
-  putBot,
-  renameBot,
-  setBotMemory,
-} from "@/api/generated/sdk.gen"
+  getBotOptions,
+  getBotQueryKey,
+  listBotsOptions,
+  listBotsQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import { createBot, deleteBot, putBot, renameBot, setBotMemory } from "@/api/generated/sdk.gen"
 import type { Bot, BotSettings } from "@/api/generated/types.gen"
+import { callsOf } from "@/lib/query-keys"
 
 import { botNameOf, mainBotOf } from "./bots-state"
-
-export const botsKey = ["bots"] as const
 
 // whileOpen is how often the Bots are read again while a page shows them: a Bot writes its own memory in a
 // chat, without an event.
@@ -23,8 +20,8 @@ const whileOpen = 10_000
 // useBots reads every Bot, with its persona and memory.
 export function useBots() {
   return useQuery({
-    queryKey: botsKey,
-    queryFn: async () => (await listBots()).data.data,
+    ...listBotsOptions(),
+    select: (page) => page.data,
     refetchInterval: whileOpen,
   })
 }
@@ -43,21 +40,32 @@ export function useBotName(id: string) {
 // useBot reads one Bot by its id.
 export function useBot(id: string) {
   return useQuery({
-    queryKey: [...botsKey, id],
-    queryFn: async () => (await getBot({ path: { bot_id: id } })).data,
+    ...getBotOptions({ path: { bot_id: id } }),
     refetchInterval: whileOpen,
     retry: false,
   })
 }
 
-// saved puts a Bot the server answered in the cache and reads the list again.
-function useSaved() {
+// useRefreshBots reads the Bots again after one changes: every cached read of their list and of one Bot, which the
+// hand-written ["bots"] prefix covered.
+export function useRefreshBots() {
   const queryClient = useQueryClient()
 
-  return (bot: Bot) => {
-    queryClient.setQueryData([...botsKey, bot.id], bot)
+  return () =>
+    queryClient.invalidateQueries({
+      predicate: callsOf(listBotsQueryKey(), getBotQueryKey({ path: { bot_id: "" } })),
+    })
+}
 
-    return queryClient.invalidateQueries({ queryKey: botsKey })
+// saved puts a Bot the server answered in the cache, under its generated key, and reads the Bots again.
+function useSaved() {
+  const queryClient = useQueryClient()
+  const refresh = useRefreshBots()
+
+  return (bot: Bot) => {
+    queryClient.setQueryData(getBotQueryKey({ path: { bot_id: bot.id } }), bot)
+
+    return refresh()
   }
 }
 
