@@ -110,12 +110,11 @@ hypomnema device status         # absent, installing, starting, running, stopped
 hypomnema device stop phone     # its disk, with what is signed in on it, stays
 ```
 
-The phone stops by itself 15 minutes after it was last started: using it over adb does not put that off yet, and
-another `device start` does. The machine keeps running until `machines stop phone`.
+How the phone is used, signed in to, and stopped when idle, with its machine: [the phone](device.md).
 
 Cost in Singapore (`ap-southeast-1`), on demand, as tried in
 [the research note](../../docs/research/2026-11-14-android-device-for-agents.md): about $0.39 an hour while it
-runs, and about $3.84 a month for the 40 GB gp3 disk while it is stopped (`machines stop phone`).
+runs, and about $3.84 a month for the 40 GB gp3 disk while it is stopped.
 
 `machines providers check` also lists instances that carry this provider's tag and that no node stands for. They
 cost money and nothing here destroys them.

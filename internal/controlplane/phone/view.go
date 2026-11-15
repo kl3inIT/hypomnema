@@ -89,6 +89,8 @@ func (p *Phone) Watch(ctx context.Context) (*View, error) {
 		return nil, ErrTooManyViews
 	}
 
+	p.busy()
+
 	// The view outlives the request that opened it.
 	streaming, stop := context.WithCancel(context.WithoutCancel(ctx))
 	v := &View{p: p, stop: stop, said: make(chan Update, 8), again: make(chan struct{}, 1)}
@@ -324,5 +326,7 @@ func (v *View) Close(ctx context.Context, clean bool) {
 		if reason := v.p.hold.Closed(clean, v.p.cfg.Clock.Now()); reason != "" {
 			v.p.released(ctx, reason)
 		}
+
+		v.p.busy()
 	})
 }
