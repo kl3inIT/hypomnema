@@ -673,6 +673,33 @@ func TestAChatsKeyLivesAsLongAsItsPi(t *testing.T) {
 	assert.False(t, keys.ended("gwk_2"))
 }
 
+// Scenario: a chat is deleted (issue #484). Stop ends its idle pi and returns once it has exited, so its files can go:
+// it holds no key then, and the key ends with it. A chat with no pi is stopped with nothing to do.
+func TestStopEndsTheChatsPi(t *testing.T) {
+	t.Parallel()
+
+	keys := &fakeKeys{}
+	svc, sup := newSupervisorWith(t, keys)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	sup.Stop(chat.ID)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: hello")
+	require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 10*time.Second, 20*time.Millisecond)
+
+	sup.Stop(chat.ID)
+
+	_, ok := sup.Key(chat.ID)
+	assert.False(t, ok, "pi exited before Stop returned")
+	require.Eventually(t, func() bool { return keys.ended("gwk_1") }, 10*time.Second, 20*time.Millisecond,
+		"the key ends with the pi")
+}
+
 // answerAndExit plays a pi that answers each command and exits at once: its
 // response is handed over and then done closes, as the reader does.
 type answerAndExit struct{ p *proc }

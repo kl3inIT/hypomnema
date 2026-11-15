@@ -105,6 +105,32 @@ func TestLoadConfigReadsTheCommandForScriptRoutines(t *testing.T) {
 	}
 }
 
+// The command that removes a deleted chat's files (issue #484) is a JSON array, as the other commands are; anything
+// else is refused when the control plane starts.
+func TestLoadConfigReadsTheCommandForADeletedChatsFiles(t *testing.T) {
+	t.Parallel()
+
+	load := func(command string) (controlplane.Config, error) {
+		return controlplane.LoadConfig(func(name string) string {
+			return map[string]string{
+				"HYPOMNEMA_DATABASE_PATH":   filepath.Join(t.TempDir(), "hypomnema.db"),
+				"HYPOMNEMA_CHAT_RM_COMMAND": command,
+			}[name]
+		})
+	}
+
+	cfg, err := load(`["sudo","-n","-u","coordinator","/usr/local/bin/hypomnema-chat-rm"]`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-chat-rm"}, cfg.ChatRmCommand)
+
+	cfg, err = load("")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.ChatRmCommand)
+
+	_, err = load("sudo hypomnema-chat-rm")
+	require.ErrorContains(t, err, "HYPOMNEMA_CHAT_RM_COMMAND is not a JSON array of strings")
+}
+
 // serve starts the control plane on a port of the system's choosing (HYPOMNEMA_HTTP_ADDR 127.0.0.1:0) and returns
 // the address it listens on, read from its "server started" log line, and the channel Serve's end is sent on. A
 // port picked first and closed again could be taken by another test before Serve listened on it, and the test

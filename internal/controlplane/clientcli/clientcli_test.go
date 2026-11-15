@@ -1022,6 +1022,20 @@ func TestProfilesFromTheCLI(t *testing.T) {
 
 	_, err = coordinator.cmd(t, "profiles", "apply", file)
 	require.ErrorContains(t, err, "forbidden")
+
+	// Deleting one is the owner's (issue #485); the starting implementer is always there.
+	_, err = coordinator.cmd(t, "profiles", "rm", "reviewer")
+	require.ErrorContains(t, err, "forbidden")
+
+	_, err = w.cmd(t, "profiles", "rm", "implementer")
+	require.ErrorContains(t, err, "always there")
+
+	out, err = w.cmd(t, "profiles", "rm", "reviewer")
+	require.NoError(t, err)
+	assert.Contains(t, out, "profile reviewer is deleted")
+
+	coordinator.jsonCmd(t, &profiles, "", "profiles", "list")
+	assert.Len(t, profiles.Data, 2, "a deleted profile is not listed")
 }
 
 // replier plays pi for chat tests: it takes each owner message and answers.
@@ -1037,6 +1051,8 @@ func (replier) Abort(_ context.Context, _ string) error { return nil }
 func (replier) Compact(_ context.Context, _ string) error { return nil }
 
 func (replier) Key(_ string) (string, bool) { return "", false }
+
+func (replier) Stop(_ string) {}
 
 func (r replier) run(ctx context.Context) {
 	for {

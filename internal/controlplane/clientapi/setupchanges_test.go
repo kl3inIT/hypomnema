@@ -10,6 +10,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Scenario: who manages Bots and profiles (issue #169). The Bot coordinator's
@@ -37,10 +38,10 @@ func TestOnlyTheCoordinatorBotManagesBotsAndProfiles(t *testing.T) {
 	pi := w.piToken("pi-coordinator", mine.ID, orchestration.DefaultBot)
 	vmap := w.piToken("pi-coordinator", theirs.ID, "vmap")
 
-	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "sync", Kind: orchestration.RoutineScript, Script: "sync.sh",
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
 		ScriptText: "#!/bin/sh\n", EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	script, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", routine.ID)

@@ -75,6 +75,8 @@ func (d *Daemon) handle(ctx context.Context, msg nodeproto.Message) error {
 		d.phone(msg.Type)
 
 		return nil
+	case nodeproto.TypeDeviceCall:
+		return d.answerDevice(msg.Payload) //nolint:contextcheck // answered on the daemon's own context
 	case nodeproto.TypeHeartbeat, nodeproto.TypeReport, nodeproto.TypeItems, nodeproto.TypeHeartbeatAck:
 		fallthrough
 	default:

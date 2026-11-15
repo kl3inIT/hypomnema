@@ -43,6 +43,10 @@ func Write(
 	return nil
 }
 
+// MaxChatText bounds one chat message, and a Routine's prompt and script,
+// which are bounded as a message is.
+const MaxChatText = 100_000
+
 // NamePattern is what a name the owner gives (a profile, a Bot, a user) is:
 // lowercase letters, digits and dashes.
 var NamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)

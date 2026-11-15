@@ -60,6 +60,8 @@ type Server struct {
 	terminals Terminals
 	nodeFiles NodeFiles
 	botFiles  BotFiles
+	// chatFiles removes a deleted chat's files of pi (issue #484); nil when the control plane wired none.
+	chatFiles ChatFiles
 	// devices reaches the nodes' phones; nil when the control plane wired none.
 	devices Devices
 	tickets terminalTickets
@@ -213,6 +215,8 @@ type Coordinator interface {
 	Key(chatID string) (string, bool)
 	// Compact asks the chat's pi to compact its context now.
 	Compact(ctx context.Context, chatID string) error
+	// Stop ends the chat's pi, if one runs, and waits for it to exit: the chat was deleted.
+	Stop(chatID string)
 }
 
 // WithCoordinator lets chats report whether pi is working on them.

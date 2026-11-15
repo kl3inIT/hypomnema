@@ -13,7 +13,7 @@ import (
 )
 
 // Profiles, providers and models (issue #42): every token lists them; only
-// the owner applies them.
+// the owner applies them and deletes a profile (issue #485).
 
 func profilesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	resp, err := e.api.ListProfilesWithResponse(ctx)
@@ -160,6 +160,21 @@ func profilesApply(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, p, func() { e.printf("profile %s: %s v%d (%s)\n", p.Name, verb, p.Version, p.VersionId) })
+}
+
+func profilesRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	name := fs.Arg(0)
+
+	resp, err := e.api.DeleteProfileWithResponse(ctx, name)
+	if err != nil {
+		return fmt.Errorf("deleting profile %s: %w", name, err)
+	}
+
+	if resp.StatusCode() != 204 {
+		return apiError("deleting profile "+name, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, map[string]bool{"deleted": true}, func() { e.printf("profile %s is deleted\n", name) })
 }
 
 func providersList(ctx context.Context, e *env, fs *flag.FlagSet) error {

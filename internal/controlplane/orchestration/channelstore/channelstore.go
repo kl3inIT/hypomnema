@@ -442,10 +442,11 @@ func ResetChannelChatTx(ctx context.Context, q *store.Queries, channel, external
 	return err
 }
 
-// DeleteChannelChatsOfBotTx forgets the Lark chats of a Bot's chats,
-// with the caller's queries, as the root removes the Bot with its chats.
-func DeleteChannelChatsOfBotTx(ctx context.Context, q *store.Queries, bot string) error {
-	return q.DeleteChannelChatsOfBot(ctx, bot)
+// DeleteChannelChatOfChatTx forgets the Lark chat a chat answered, with
+// the caller's queries, as the root deletes the chat (issue #484), on its
+// own or with its Bot.
+func DeleteChannelChatOfChatTx(ctx context.Context, q *store.Queries, chatID string) error {
+	return q.DeleteChannelChatOfChat(ctx, chatID)
 }
 
 // ChannelChats returns the Lark chats a Channel answers in, oldest

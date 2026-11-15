@@ -130,6 +130,23 @@ async function fakeServer(page: Page) {
       return found ? json(found) : json({ code: "not_found", message: "no such profile" }, 404)
     }
 
+    // A profile another names as its fallback is refused, as the server refuses it (issue #485).
+    if (one && request.method() === "DELETE") {
+      if (profiles.some((p) => (p.fallbacks as string[]).includes(one[1]!))) {
+        return json(
+          {
+            code: "conflict",
+            message: `deleting profile ${one[1]}: 1 profiles name ${one[1]} as a backup; change them first`,
+          },
+          409,
+        )
+      }
+
+      profiles = profiles.filter((p) => p.name !== one[1])
+
+      return route.fulfill({ status: 204 })
+    }
+
     if (one && request.method() === "PUT") {
       const { source } = request.postDataJSON() as { source: string }
       applied.push({ name: one[1]!, source })
@@ -398,4 +415,36 @@ test("an agent is duplicated", async ({ page }) => {
   await page.getByRole("button", { name: "Create profile" }).click()
   await expect(page.getByRole("heading", { name: "reviewer-copy", level: 2 })).toBeVisible()
   expect(applied.at(-1)?.name).toBe("reviewer-copy")
+})
+
+// Scenario: the owner deletes an agent from the bottom of its page (issue #485), after a question. One another
+// agent names as its fallback is refused and the dialog says why; a deleted one leaves the list.
+test("an agent is deleted after a question, unless another names it", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/agents/codex-implementer")
+
+  const removal = page.getByRole("region", { name: "Delete" })
+  await removal.scrollIntoViewIfNeeded()
+  await expect(removal).toContainText("implementer is always there")
+  await shot(page, "agent-delete")
+
+  await removal.getByRole("button", { name: "Delete agent" }).click()
+  const refused = page.getByRole("alertdialog")
+  await expect(refused).toContainText("Delete codex-implementer?")
+  await refused.getByRole("button", { name: "Delete", exact: true }).click()
+  await expect(refused).toContainText("as a backup; change them first")
+  await shot(page, "agent-delete-refused")
+  await refused.getByRole("button", { name: "Cancel" }).click()
+
+  await page.goto("/agents/explorer")
+  await page.getByRole("button", { name: "Delete agent" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm).toContainText("New tasks can no longer go to it")
+  await shot(page, "agent-delete-confirm")
+  await confirm.getByRole("button", { name: "Delete", exact: true }).click()
+
+  await expect(page).toHaveURL(/\/agents$/)
+  await expect(page.getByText("explorer deleted")).toBeVisible()
+  await expect(page.getByRole("article", { name: "explorer" })).toHaveCount(0)
+  await expect(page.getByRole("article", { name: "reviewer" })).toBeVisible()
 })

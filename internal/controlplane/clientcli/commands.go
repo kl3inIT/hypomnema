@@ -173,6 +173,11 @@ var commands = []command{
 		flags: jsonFlag, run: chatsList,
 	},
 	{
+		name: "chats rm", args: "<chat>", min: 1, max: 1,
+		summary: "delete a chat for good, with its messages and its files; runs started in it stay (owner)",
+		flags:   jsonFlag, run: chatsRemove,
+	},
+	{
 		name: "hosts list", summary: "the git hosts a Run can be on", flags: jsonFlag, run: hostsList,
 	},
 	{
@@ -593,6 +598,12 @@ var commands = []command{
 		name: "profiles apply", args: "<file>", min: 1, max: 1,
 		summary: "store a profile's YAML (owner, or the bot coordinator); a changed source makes a new version",
 		flags:   jsonFlag, run: profilesApply,
+	},
+	{
+		name: "profiles rm", args: "<profile>", min: 1, max: 1,
+		summary: "delete a profile no unfinished task, backup or bot's workers list names; one used before is " +
+			"hidden and kept for its runs, and applying it again brings it back (owner)",
+		flags: jsonFlag, run: profilesRemove,
 	},
 	{
 		name: "providers list", summary: "the sources of models, with the models each offers",

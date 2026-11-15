@@ -13,7 +13,8 @@
 //     vault.
 //
 // A worker also lists and calls here the tools of the browser every agent
-// shares (issue #212) and its web tools (issue #354, web.go).
+// shares (issue #212), its web tools (issue #354, web.go), and the tools of
+// the phone a node holds (issue #417, device.go).
 //
 // A refresh token and a client secret never pass through here: the token it
 // returns is the access token, good for about an hour. It is handed only for
@@ -78,7 +79,9 @@ type Server struct {
 	// web and runtimeOf give workers the web's tools (issue #354); nil when the control plane gave none.
 	web       Web
 	runtimeOf RuntimeOf
-	logger    *slog.Logger
+	// device is the phone a node holds (issue #417); nil when the control plane gave none.
+	device Device
+	logger *slog.Logger
 }
 
 // New returns a Server.
@@ -101,6 +104,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathBrowserTools, s.browserTools)
 	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.browserCall)
 	mux.HandleFunc("POST "+agenttool.PathMemory, s.memory)
+	mux.HandleFunc("GET "+agenttool.PathDeviceTools, s.deviceTools)
+	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.deviceCall)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of
