@@ -1,29 +1,29 @@
 ---
 name: pages
-description: "Build a fast, good-looking page: a data dashboard, or any other page (a landing page, a pricing page, a tool), shown to the owner in this chat as an artifact with `hypomnema artifact show`. Use when the owner asks for a dashboard, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures."
+description: "Build a fast, good-looking page: a data dashboard, or any other page (a landing page, a pricing page, a tool), shown to the owner in this chat as an artifact with the `show_artifact` tool. Use when the owner asks for a dashboard, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures."
 ---
 
 # Data dashboards and pages
 
-A page shown with `hypomnema artifact show` appears in the chat as one card. The owner opens it beside the chat,
+A page shown with the `show_artifact` tool appears in the chat as one card. The owner opens it beside the chat,
 full screen or on its own page, and steps back through its revisions; on Lark your next reply links to it. To change
-it, run the same command with `--id <id>` (the id the first run printed): it becomes the card's next revision. Never
+it, call the tool again with its `id` (the id the first call returned): it becomes the card's next revision. Never
 make a second artifact for the same page.
 
-```bash
-hypomnema artifact show --title '<one line>' --html-file index.html     # one page, at most 256 KB
-hypomnema artifact show --title '<one line>' --path dashboard            # a folder: index.html and its data, at most 5 MB
-hypomnema artifact show --id <id> --html-file index.html                # the next revision of the same page
-```
+| Call `show_artifact` with | Shows |
+|---|---|
+| `title`, `path: "index.html"` | one page, at most 256 KB |
+| `title`, `path: "dashboard"` | a folder: `index.html` and its data, at most 5 MB |
+| `id`, `path: "dashboard"` | the next revision of the same page |
 
 ## Pick the right home
 
 | The owner wants | Build |
 |---|---|
 | A quick answer or one chart | No page. Read the figures (`hypomnema superset chart …`, see the `superset` skill) and answer with the number or a markdown table. |
-| A small summary to look at | One page (`--html-file`) with the aggregated rows embedded as JSON. |
-| Bigger data | A folder (`--path`): `index.html` and `data.json` beside it, the template's `CONFIG.dataFile`. Aggregate first all the same. |
-| "Keep it up to date", "every morning" | A folder page and a Routine (see your instructions on Routines) whose script reads the figures again into its data, `hypomnema superset chart <dashboard> <chart> > dashboard/data.json`, and runs `hypomnema artifact show --id <id> --path dashboard`. The card shows the new revision. |
+| A small summary to look at | One page (a `path` to one HTML file) with the aggregated rows embedded as JSON. |
+| Bigger data | A folder (a `path` to the folder): `index.html` and `data.json` beside it, the template's `CONFIG.dataFile`. Aggregate first all the same. |
+| "Keep it up to date", "every morning" | A folder page and a Routine (see your instructions on Routines) whose script reads the figures again into its data, `hypomnema superset chart <dashboard> <chart> > dashboard/data.json`, and runs `hypomnema artifact show --id <id> --path dashboard`: a script runs commands, not tools. The card shows the new revision. |
 
 The page is seen by the owner in Hypomnema only: there is no public link. Still, put in it only the rows the owner
 asked for; a list of people is personal data (the `superset` skill).

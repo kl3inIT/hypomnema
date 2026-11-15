@@ -283,7 +283,8 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 
 	// The worker's tools server reaches the shared browser with the Dispatch's key (issue #212).
 	if s.URL != "" && o.AgentKey != "" {
-		if err := bridge.SetAgent(bridge.Dir(dir), bridge.Agent{URL: s.URL, Key: o.AgentKey}); err != nil {
+		agent := bridge.Agent{URL: s.URL, Key: o.AgentKey, Worktree: o.Worktree}
+		if err := bridge.SetAgent(bridge.Dir(dir), agent); err != nil {
 			return err
 		}
 	}

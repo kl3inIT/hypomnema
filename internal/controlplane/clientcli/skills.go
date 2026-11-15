@@ -34,13 +34,15 @@ import (
 // slides (issue #479), adapted from zarazhangrui/frontend-slides, whose
 // references and script are read from the installed folder.
 //
-// pdf reaches every agent kind, Bots and workers alike, through the skills
-// store instead (issue #492): the control plane publishes it as a built-in
-// revision at each start (StoreSkills), and `skills install` takes out the
-// copy earlier releases put in ~/.agents/skills, so that a Bot gets it once.
-// pages and slides stay here, for Bots only: they name `hypomnema artifact
-// show`, which a worker lacks, and a skill that names a command is given only
-// to the agent kinds that have it
+// pdf and slides reach every agent kind, Bots and workers alike, through the
+// skills store instead (issues #492, #536): the control plane publishes them
+// as built-in revisions at each start (StoreSkills), and `skills install`
+// takes out the copies earlier releases put in ~/.agents/skills, so that a
+// Bot gets each once. slides names the show_artifact tool, which both kinds
+// have, since issue #536. pages stays here, for Bots only: it names
+// `hypomnema superset chart` and Routines, which a worker lacks, and its
+// template's path in ~/.agents/skills; a skill that names a command is given
+// only to the agent kinds that have it
 // (docs/decisions/2026-11-15-one-tool-for-every-agent.md).
 
 // The all: prefix keeps files whose names start with _ (pdf's _raster.py).
@@ -117,9 +119,12 @@ var releasedStubs = map[string][]string{
 		"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774",
 		"f3acc3af4bb9045de0285f5b2fc2ce7a648117f89f3aeaedb0577578951a6c88",
 	},
-	"superset":       {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
-	"aws":            {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
-	"android-device": {"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127"},
+	"superset": {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
+	"aws":      {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
+	"android-device": {
+		"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127",
+		"354020b3fc5f96ee9be92432902284298b21164c8cc37c3510906f1f6efe7df4", // #536: Bots have the phone too
+	},
 }
 
 // retiredStubs holds, as releasedStubs does, the digests of the stubs of the
@@ -140,10 +145,13 @@ var retiredStubs = map[string][]string{
 // install` replaces an installed folder only when its digest is one of these
 // (Hermes's .bundled_manifest origin hashes, tools/skills_sync.py). A changed
 // folder adds its digest here (TestShippedFoldersAreReleased). Those of pdf
-// are what `skills install` removes, now that the store places it
-// (storeSkills).
+// and slides are what `skills install` removes, now that the store places
+// them (storeSkills).
 var releasedFolders = map[string][]string{
-	"pages": {"4d876aa95c82401380832a67a0a51d435845bcfc70b27d543330b617bc32a2b1"}, // #423
+	"pages": {
+		"4d876aa95c82401380832a67a0a51d435845bcfc70b27d543330b617bc32a2b1", // #423
+		"c9c4d76decceacba2d9ef276cde823ed9296e4a39f142d09d4a26935498e2ed7", // #536: the show_artifact tool
+	},
 	"pdf": {
 		"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b", // #458
 		"5a21174acf72f04f8a75d55451d35094ff66a46117f42ce6f77202ce3dd0f020", // #474: JSON samples, pdf_read modes, a TTF for Vietnamese
@@ -159,7 +167,7 @@ var releasedFolders = map[string][]string{
 // library's skills to every engine (server/skill-library.ts, everyBot).
 // `skills install` no longer installs them; it removes a copy it installed.
 // Only a skill that names no command an agent may lack goes here.
-var storeSkills = []string{"pdf"}
+var storeSkills = []string{"pdf", "slides"}
 
 // StoreSkills are the skills the control plane publishes into its skills
 // store at each start, read from this binary: what is under scripts/ is
@@ -749,7 +757,7 @@ type BuiltinSkill struct {
 
 // BuiltinSkills are the skills this binary ships that reach agents by their
 // own rule, by name: the coordinator's, those of the Integrations' tools and
-// pages and slides. pdf is in the skills store, listed there.
+// pages. pdf and slides are in the skills store, listed there.
 func BuiltinSkills() ([]BuiltinSkill, error) {
 	var out []BuiltinSkill
 

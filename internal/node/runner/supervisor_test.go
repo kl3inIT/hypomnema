@@ -478,11 +478,13 @@ func TestAskIsRelayedAndAnswered(t *testing.T) {
 	assert.Equal(t, "goth or hand-written?", r.asks[0].Text)
 
 	// The tools server finds the control plane's agent API and the Dispatch's key where it finds the rest: with
-	// them it reaches the shared browser (issue #212).
+	// them it reaches the shared browser (issue #212); and the worktree, where show_artifact reads the path it is
+	// given (issue #536).
 	agent, ok, err := bridge.AgentOf(bridge.Dir(g.sup.dir("dsp_1")))
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, bridge.Agent{URL: "https://hypomnema.example", Key: "the-dispatch's-key"}, agent)
+	assert.Equal(t, bridge.Agent{URL: "https://hypomnema.example", Key: "the-dispatch's-key",
+		Worktree: d.Offer.Worktree}, agent)
 
 	g.sup.Asked("dsp_1", "rep_q", "q_1")
 

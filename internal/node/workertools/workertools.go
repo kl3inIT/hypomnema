@@ -5,9 +5,11 @@
 // #492) with a worker's tools. It offers two tools of its own, which talk to
 // the node daemon only through the bridge directory, and the tools the
 // control plane lists for a worker (PathTools, issue #536: the memory's, the
-// gateway's and the browser every agent shares) and the phone's (issue #417),
-// which it passes on to the control plane; generate_image's files are read
-// and written on the node (toolsmcp/image.go). Until issue #536 the memory's
+// gateway's, show_artifact and the browser every agent shares) and the
+// phone's (issue #417), which it passes on to the control plane;
+// generate_image's files are read and written on the node
+// (toolsmcp/image.go), and show_artifact's read in the worker's worktree
+// (toolsmcp/artifact.go). Until issue #536 the memory's
 // tool was defined here; a node of that release still defines it and calls
 // agenttool.PathMemory, which the control plane keeps.
 //
@@ -26,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -53,24 +56,30 @@ type server struct {
 	// agent reaches the control plane's agent API with the Dispatch's key;
 	// nil when the runner gave none.
 	agent *toolsmcp.Agent
+	// worktree is the folder the worker works in, where show_artifact reads
+	// its path; empty when the runner did not say, and then the folder the
+	// server was started in.
+	worktree string
 }
 
 // Serve answers MCP requests on in until it closes.
 func Serve(ctx context.Context, in io.Reader, out io.Writer, dir string) error {
-	s := &server{dir: dir, poll: pollEvery, progress: ProgressEvery, agent: agentOf(dir)}
+	s := &server{dir: dir, poll: pollEvery, progress: ProgressEvery}
+	s.agent, s.worktree = agentOf(dir)
 
 	return toolsmcp.Serve(ctx, in, out, s.config())
 }
 
 // agentOf is the agent API of the Dispatch whose bridge directory dir is, or
-// nil when the runner gave none: the worker then has no browser.
-func agentOf(dir string) *toolsmcp.Agent {
+// nil when the runner gave none: the worker then has no browser; and the
+// worker's worktree, when the runner named it.
+func agentOf(dir string) (*toolsmcp.Agent, string) {
 	agent, ok, err := bridge.AgentOf(dir)
 	if err != nil || !ok {
-		return nil
+		return nil, ""
 	}
 
-	return toolsmcp.NewAgent(agent.URL, agent.Key)
+	return toolsmcp.NewAgent(agent.URL, agent.Key), agent.Worktree
 }
 
 // config is the worker's tools: ask and finish, and with the agent API those
@@ -153,7 +162,7 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 		return s.finish(c.Arguments)
 	default:
 		// The phone's tools are named device_* (issue #417); generate_image's files are read and written here
-		// (issue #492); any other tool is one the control plane lists for the worker (issue #536): it knows which
+		// (issue #492), show_artifact's read here (issue #536); any other tool is one the control plane lists for the worker (issue #536): it knows which
 		// it offers.
 		if s.agent != nil && strings.HasPrefix(c.Name, devicetool.Prefix) {
 			return s.agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
@@ -163,12 +172,37 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 			return s.agent.ImageCall(ctx, c.Arguments, toolsmcp.Images{Path: agenttool.PathToolsCall})
 		}
 
+		if s.agent != nil && c.Name == agenttool.ToolShowArtifact {
+			dir, err := s.workFolder()
+			if err != nil {
+				return nil, err
+			}
+
+			return s.agent.ArtifactCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
+		}
+
 		if s.agent != nil {
 			return s.agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
 		}
 
 		return nil, fmt.Errorf("unknown tool %q", c.Name)
 	}
+}
+
+// workFolder is where show_artifact reads the path it names: the worktree
+// the runner named, else the folder the server was started in, which is the
+// worktree for the CLIs that start their servers in their own folder.
+func (s *server) workFolder() (string, error) {
+	if s.worktree != "" {
+		return s.worktree, nil
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("reading the working folder: %w", err)
+	}
+
+	return dir, nil
 }
 
 func options(labels []string) []nodeproto.Option {

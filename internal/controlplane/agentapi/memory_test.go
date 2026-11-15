@@ -134,14 +134,14 @@ func TestBotsAndWorkersKeepMemoriesWithOneTool(t *testing.T) {
 	require.NoError(t, err)
 
 	piTools := w.tools(pi)
-	assert.Equal(t, []string{"memory", "web_search", "web_fetch", "generate_image"}, toolNames(piTools),
-		"a Bot's pi is offered none of the browser's yet")
+	assert.Equal(t, []string{"memory", "show_artifact", "web_search", "web_fetch", "generate_image",
+		"agent_browser_open"}, toolNames(piTools), "a Bot's pi is offered the browser's as a worker is (step 4)")
 	assert.Contains(t, string(piTools[0].InputSchema), `"enum":["bot","owner"]`)
 	assert.Contains(t, piTools[0].Description, "your own memory, the same in every chat")
 
 	workerTools := w.tools(worker)
-	assert.Equal(t, []string{"memory", "web_search", "web_fetch", "generate_image", "agent_browser_open"},
-		toolNames(workerTools))
+	assert.Equal(t, []string{"memory", "show_artifact", "web_search", "web_fetch", "generate_image",
+		"agent_browser_open"}, toolNames(workerTools))
 	assert.Contains(t, string(workerTools[0].InputSchema), `"enum":["agent","owner"]`)
 	assert.Contains(t, workerTools[0].Description, "the agent you run as")
 
@@ -196,17 +196,18 @@ func TestBotsAndWorkersKeepMemoriesWithOneTool(t *testing.T) {
 	assert.NotContains(t, w.logs.String(), "Vietnamese")
 }
 
-// Scenario: a worker's tools server of this release finds the browser's
-// tools on the control plane's one route too, and a call of one reaches the
-// browser in the worker's own tab; a Bot's pi calling one is refused, the
-// browser not being its yet (issue #536, step 4).
-func TestAWorkerUsesTheBrowserOnTheOneRoute(t *testing.T) {
+// Scenario: a worker's tools server and a Bot's find the browser's tools on
+// the control plane's one route, and a call of one reaches the browser in the
+// agent's own tab: a worker's its Dispatch's, a Bot's pi's its chat's, so the
+// pi that follows goes on in the same tab (issue #536, step 4). The
+// coordinator token, which has no tools server, is offered no browser there.
+func TestWorkersAndBotsUseTheBrowserOnTheOneRoute(t *testing.T) {
 	t.Parallel()
 
 	w, _, _ := gatewayWorld(t, true, map[string]string{"d_1": "codex"})
 	ctx := t.Context()
 
-	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
 	worker, err := w.svc.AddAgentSession(ctx, "d_1", nil)
@@ -221,8 +222,17 @@ func TestAWorkerUsesTheBrowserOnTheOneRoute(t *testing.T) {
 	status, text, _ := w.use(worker, "agent_browser_open", `{"url":"https://go.dev"}`)
 	require.Equal(t, http.StatusOK, status, text)
 
-	status, _, _ = w.use(pi, "agent_browser_open", `{"url":"https://go.dev"}`)
+	status, text, _ = w.use(pi, "agent_browser_open", `{"url":"https://go.dev"}`)
+	require.Equal(t, http.StatusOK, status, text)
+
+	assert.NotContains(t, toolNames(w.tools(coordinator)), "agent_browser_open")
+
+	status, _, _ = w.use(coordinator, "agent_browser_open", `{"url":"https://go.dev"}`)
 	assert.Equal(t, http.StatusNotFound, status)
 
-	assert.Equal(t, []string{`d-d_1 agent_browser_open {"url":"https://go.dev"}`}, w.browser.calls)
+	assert.Equal(t, []string{
+		`d-d_1 agent_browser_open {"url":"https://go.dev"}`,
+		`b-` + chat.ID + ` agent_browser_open {"url":"https://go.dev"}`,
+	}, w.browser.calls)
+	assert.Contains(t, w.logs.String(), "bot "+orchestration.DefaultBotID+" in chat "+chat.ID)
 }
