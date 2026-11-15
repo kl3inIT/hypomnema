@@ -231,7 +231,7 @@ esac
 
 # The box. Its own PID, IPC and UTS namespaces, ended with the launcher (OpenMausBot's plan.ts options). Read-only:
 # the system (/usr, with merged /bin, /lib, /lib64 and /sbin, and /etc), the resolver Ubuntu's /etc/resolv.conf
-# links to, the CPU list Node reads, Node, pi, the integrations' tools and their guides, the documents environment
+# links to, the CPU list Node reads, Node, pi, the integrations' tools, the documents environment
 # (under the tools), the skills every Bot gets (~/.agents/skills), and this pi's prompt, models.json, settings.json and mcp.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
 # home, in which ~/.hypomnema/client.json holds pi's own token. pi's agent directory is private too: pi locks
 # auth.json and models-store.json there as it reads them (auth-storage.ts), so it cannot be read-only; the shared

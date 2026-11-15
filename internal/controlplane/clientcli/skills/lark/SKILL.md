@@ -6,6 +6,10 @@ description: >-
   something in Lark: reading or writing a document or a sheet, a Base table, a wiki page, a file, sending a message
   as the bot, a calendar the app can see; and, when you were given the owner's own sign-in, reading what only he
   sees (his groups, his tickets, his Bases).
+metadata:
+  hypomnema:
+    requires:
+      integration: lark
 ---
 
 # Lark through Hypomnema

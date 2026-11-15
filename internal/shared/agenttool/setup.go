@@ -1,9 +1,7 @@
 package agenttool
 
 import (
-	"embed"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,45 +10,19 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
-// Skills are the guides that teach an agent each Integration's tool, one
-// directory an Integration's skill: a stub (SKILL.md), the guide (guide.md)
-// and its references. They are taken from the references and adapted, with
-// each file naming its source (issue #103, section 9).
-//
-//go:embed skills
-var Skills embed.FS
-
-// SkillOf names the skill of an Integration.
-func SkillOf(integration string) (string, bool) {
-	switch integration {
-	case "google":
-		return "google-workspace", true
-	case "lark":
-		return "lark", true
-	case "aws":
-		return "aws", true
-	case Superset:
-		// Superset's tools are the control plane's (issue #536): a guide with no command of its own.
-		return "superset", true
-	case nodeproto.DeviceAndroid:
-		// The phone every worker and Bot is given (issues #417, #536): a guide with no command of its own, since its tools
-		// are the worker's MCP tools.
-		return "android-device", true
-	}
-
-	return "", false
-}
+// The guides that teach an agent each Integration's tool (issue #103,
+// section 9) and the phone are skills of the control plane's skills store
+// (issue #536, internal/controlplane/clientcli/skills): each requires its
+// Integration in its frontmatter and reaches a worker with its offer's
+// skills, only when its Run was given a Connection of it. A node writes no
+// guide of its own (HelloRequest.StoreGuides).
 
 // Superset is the Integration whose tools are the control plane's own
 // superset_* tools (issue #536), not a command on the agent's PATH.
 const Superset = "superset"
 
-// EnvSkills is the directory an agent on a node finds its skills' guides in.
-const EnvSkills = "HYPOMNEMA_SKILLS"
-
 // Place is where a machine keeps the tools and what goes with them, under
-// one home: the real tools (ToolPath), the scripts agents call them by, and
-// the skills' guides.
+// one home: the real tools (ToolPath) and the scripts agents call them by.
 type Place struct {
 	// Home is the directory everything is under.
 	Home string
@@ -61,13 +33,9 @@ type Place struct {
 // Bin is the directory to put first on an agent's PATH.
 func (p Place) Bin() string { return filepath.Join(p.Home, "tools", "bin") }
 
-// SkillsDir is the directory the guides are written to.
-func (p Place) SkillsDir() string { return filepath.Join(p.Home, "skills") }
-
-// Prepare writes the script of each tool and the guide of each skill the
-// Integrations need, and the phone's guide, which has no tool. It can be run
-// again: a file is rewritten whole. The real tools are installed apart, by
-// ToolInstaller.
+// Prepare writes the script of each tool the Integrations need. It can be
+// run again: a file is rewritten whole. The real tools are installed apart,
+// by ToolInstaller.
 func (p Place) Prepare(integrations []string) error {
 	for _, integration := range integrations {
 		if def, ok := Of(integration); ok {
@@ -75,39 +43,9 @@ func (p Place) Prepare(integrations []string) error {
 				return fmt.Errorf("writing the script of %s: %w", def.Name, err)
 			}
 		}
-
-		if skill, ok := SkillOf(integration); ok {
-			if err := p.writeSkill(skill); err != nil {
-				return err
-			}
-		}
 	}
 
 	return nil
-}
-
-// writeSkill copies a skill's guide and references, not its stub: an agent
-// on a node is pointed at the guide itself.
-func (p Place) writeSkill(skill string) error {
-	root := "skills/" + skill
-
-	return fs.WalkDir(Skills, root, func(file string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || entry.Name() == "SKILL.md" {
-			return err
-		}
-
-		raw, err := Skills.ReadFile(file)
-		if err != nil {
-			return err
-		}
-
-		target := filepath.Join(p.SkillsDir(), skill, filepath.FromSlash(strings.TrimPrefix(file, root+"/")))
-		if err := writeWhole(target, raw, 0o600); err != nil {
-			return fmt.Errorf("writing the %s skill: %w", skill, err)
-		}
-
-		return nil
-	})
 }
 
 // writeWhole writes a file beside its place and renames it into it, so that
@@ -147,11 +85,11 @@ func writeWhole(target string, content []byte, mode os.FileMode) error {
 
 // Env is what an agent's environment gains to use its Connections: the
 // scripts first on PATH, where the launcher finds the control plane and the
-// real tools, the agent's key, and where the guides are.
+// real tools, and the agent's key.
 func (p Place) Env(url, key, path string) []string {
 	return []string{
 		"PATH=" + p.Bin() + string(os.PathListSeparator) + path,
-		EnvURL + "=" + url, EnvKey + "=" + key, EnvTools + "=" + p.Home, EnvSkills + "=" + p.SkillsDir(),
+		EnvURL + "=" + url, EnvKey + "=" + key, EnvTools + "=" + p.Home,
 	}
 }
 
@@ -170,18 +108,18 @@ func IntegrationsOf(uses []string) []string {
 	return out
 }
 
-// Brief is what an agent is told about the accounts it may use: which, the
-// command for each Integration (Superset's tools for Superset), and where its
-// guide is; and about the phone
-// when it is given one (device). It goes into a worker's first message.
+// Brief is what an agent is told about the accounts it may use: which, and
+// the command for each Integration (Superset's tools for Superset); and about
+// the phone when it is given one (device). It goes into a worker's first
+// message. Each one's guide is a skill the worker's CLI finds by itself
+// (issue #536), so it is not named here.
 func Brief(uses []string, device string) string {
 	var b strings.Builder
 
-	if skill, ok := SkillOf(device); ok && device == nodeproto.DeviceAndroid {
-		fmt.Fprintf(&b, "\nAn Android phone is shared by the workers; its device_* tools drive it, one call at a "+
-			"time. Read \"$%s/%s/guide.md\" before the first call. Look with device_screen before each action and "+
-			"tap its numbered boxes. Never sign in to an account on it, and never buy or pay: ask the owner.\n",
-			EnvSkills, skill)
+	if device == nodeproto.DeviceAndroid {
+		b.WriteString("\nAn Android phone is shared by the workers; its device_* tools drive it, one call at a " +
+			"time. Look with device_screen before each action and tap its numbered boxes. Never sign in to an " +
+			"account on it, and never buy or pay: ask the owner.\n")
 	}
 
 	if len(uses) == 0 {
@@ -192,9 +130,8 @@ func Brief(uses []string, device string) string {
 
 	for _, integration := range IntegrationsOf(uses) {
 		if integration == Superset {
-			fmt.Fprintf(&b, "- superset: your superset_* tools read its dashboards and charts; read "+
-				"\"$%s/superset/guide.md\" before the first call. With several accounts of it, name one on each "+
-				"call as account.\n", EnvSkills)
+			b.WriteString("- superset: your superset_* tools read its dashboards and charts. With several accounts " +
+				"of it, name one on each call as account.\n")
 
 			continue
 		}
@@ -207,28 +144,18 @@ func Brief(uses []string, device string) string {
 		fmt.Fprintf(&b, "- %s: the `%s` command is on your PATH and already signed in; never log in yourself. ",
 			integration, def.Name)
 
-		if skill, ok := SkillOf(integration); ok {
-			fmt.Fprintf(&b, "Read \"$%s/%s/guide.md\" before the first call; its references are in the folder "+
-				"beside it. ", EnvSkills, skill)
-		}
-
 		b.WriteString("With several accounts of it, name one on each call: `" + def.Name + " --account <label> ...`.\n")
 	}
 
 	return b.String()
 }
 
-// ForDispatch prepares a node for a Dispatch that may use Connections, or is
-// given the phone (device), and returns what the worker's environment gains.
-// With neither it does nothing and adds nothing. home is the node's home,
-// where its tools are installed; exe the node's binary; key the Dispatch's
-// own.
-func ForDispatch(home, exe, url string, uses []string, key, device string) ([]string, error) {
+// ForDispatch prepares a node for a Dispatch that may use Connections and
+// returns what the worker's environment gains. Without any it does nothing
+// and adds nothing. home is the node's home, where its tools are installed;
+// exe the node's binary; key the Dispatch's own.
+func ForDispatch(home, exe, url string, uses []string, key string) ([]string, error) {
 	needs := IntegrationsOf(uses)
-	if device != "" {
-		needs = append(needs, device)
-	}
-
 	if len(needs) == 0 {
 		return nil, nil
 	}

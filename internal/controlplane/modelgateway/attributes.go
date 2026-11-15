@@ -282,6 +282,11 @@ func (s *Service) SetAttributes(ctx context.Context, name string, a Attributes) 
 		return Model{}, err
 	}
 
+	if m.Source == "" {
+		return Model{}, fmt.Errorf("%w: model %q is a subscription's, served with no row in the gateway's table: "+
+			"its attributes are its provider's", ErrInvalid, name)
+	}
+
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(m.Source), &doc); err != nil || len(doc.Content) != 1 ||
 		doc.Content[0].Kind != yaml.MappingNode {

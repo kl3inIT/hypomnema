@@ -697,6 +697,14 @@ export type BrowserTab = {
   dispatch_id?: string;
   task_id?: string;
   run_id?: string;
+  /**
+   * The chat the tab belongs to, whichever agent opened it: a worker's through its Run's chat, a Bot's pi's from its own. Absent for a tab of no chat.
+   */
+  chat_id?: string;
+  /**
+   * The Bot whose pi opened the tab, for a Bot's tab in a chat.
+   */
+  bot_id?: string;
   url: string;
   title: string;
   /**
@@ -2111,6 +2119,14 @@ export type Bot = {
    * The skills given to everyone that the Bot does not get.
    */
   skills_off: Array<string>;
+  /**
+   * The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+   */
+  tools: Array<string>;
+  /**
+   * The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
+   */
+  tools_off: Array<string>;
   connections: AllowList;
   workers: AllowList;
   tool_display: ToolDisplay;
@@ -2406,6 +2422,14 @@ export type BotSettings = {
    * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
    */
   skills_off?: Array<string>;
+  /**
+   * The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+   */
+  tools?: Array<string>;
+  /**
+   * The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
+   */
+  tools_off?: Array<string>;
   connections?: AllowList;
   workers?: AllowList;
   tool_display?: ToolDisplay;
@@ -2471,17 +2495,25 @@ export type Profile = {
    */
   skills_off: Array<string>;
   /**
+   * The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+   */
+  tools: Array<string>;
+  /**
+   * The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
+   */
+  tools_off: Array<string>;
+  /**
    * The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
    */
   fallbacks: Array<string>;
   source: string;
   created_at: string;
   /**
-   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A Claude Code profile must name a provider of kind `model_gateway`. A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
+   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A Claude Code profile must name a subscription or a provider of kind `model_gateway`, both served by the gateway. A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
    */
   available?: boolean;
   /**
-   * Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; every account of the runtime cools down; or the profile is Claude Code's and names no provider of kind `model_gateway`, the only way a Claude Code worker runs.
+   * Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; every account of the runtime cools down; or the profile is Claude Code's and names neither a subscription nor a provider of kind `model_gateway`: a Claude Code worker runs only through the gateway.
    */
   unavailable_reason?: 'no_node' | 'no_account' | 'accounts_cooling' | 'needs_gateway';
   /**
@@ -2515,6 +2547,20 @@ export type Model = {
   provider: string;
   name: string;
   kind: string;
+};
+
+export type ToolFamily = {
+  name: string;
+  description: string;
+  /**
+   * The entry of tools or tools_off that names every tool of the family.
+   */
+  pattern: string;
+  tools: Array<string>;
+};
+
+export type ToolFamilyList = {
+  data: Array<ToolFamily>;
 };
 
 export type ModelList = {
@@ -7543,6 +7589,31 @@ export type ListModelsResponses = {
 };
 
 export type ListModelsResponse = ListModelsResponses[keyof ListModelsResponses];
+
+export type ListToolsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/tools';
+};
+
+export type ListToolsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListToolsError = ListToolsErrors[keyof ListToolsErrors];
+
+export type ListToolsResponses = {
+  /**
+   * The tools.
+   */
+  200: ToolFamilyList;
+};
+
+export type ListToolsResponse = ListToolsResponses[keyof ListToolsResponses];
 
 export type GetBrowserData = {
   body?: never;

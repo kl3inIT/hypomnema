@@ -6,6 +6,10 @@ description: >-
   the SQL Superset ran. Can also send any other request to Superset's API. Use when the owner asks for a number, a
   table or a list that is on a Superset dashboard, or to copy a chart's data somewhere. Not for drawing charts and
   not for pictures of a dashboard.
+metadata:
+  hypomnema:
+    requires:
+      integration: superset
 ---
 
 # Superset through Hypomnema

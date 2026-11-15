@@ -128,6 +128,8 @@ type Bot struct {
 	Name        string
 	Position    int64
 	Pinned      int64
+	Tools       string
+	ToolsOff    string
 }
 
 type Channel struct {
@@ -540,6 +542,8 @@ type ProfileVersion struct {
 	Fallbacks   string
 	Skills      string
 	SkillsOff   string
+	Tools       string
+	ToolsOff    string
 }
 
 type Provider struct {
@@ -732,6 +736,7 @@ type SkillRevision struct {
 	SourceCommit sql.NullString
 	Archive      []byte
 	CreatedAt    int64
+	Requires     sql.NullString
 }
 
 type Task struct {

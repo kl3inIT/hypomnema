@@ -123,6 +123,20 @@ function gib(bytes: number) {
   return `${(bytes / 2 ** 30).toFixed(1)} GiB`
 }
 
+// amountOf is how much is used of how much in GiB, the unit once, as Coder's `coder stat mem` reads it: "12.4 / 31
+// GiB"; a whole number drops its ".0", and from 100 GiB no decimal is shown.
+export function amountOf(used: number | undefined, total: number | undefined) {
+  if (used === undefined || !total) return undefined
+
+  const short = (bytes: number) => {
+    const value = bytes / 2 ** 30
+
+    return value >= 100 ? Math.round(value).toString() : value.toFixed(1).replace(/\.0$/, "")
+  }
+
+  return `${short(used)} / ${short(total)} GiB`
+}
+
 // usedOfTotal is a meter's title: "12.4 GiB of 31.3 GiB".
 export function usedOfTotal(used: number | undefined, total: number | undefined) {
   if (used === undefined || !total) return undefined

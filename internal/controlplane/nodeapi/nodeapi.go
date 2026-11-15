@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,6 +65,9 @@ type Server struct {
 	answers map[string]*pendingAnswer
 	// devices are the states of their phones nodes said last, by node id (device.go).
 	devices map[string]nodeproto.DeviceState
+	// storeGuides are the nodes that said at their last hello that they write no guides of their own
+	// (HelloRequest.StoreGuides), kept in memory as devices are: a node says hello before each socket.
+	storeGuides map[string]bool
 	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
 	deviceCalls map[string]*pendingDevice
 	// execs are the agents' commands nodes have been sent, by request id (exec.go).
@@ -74,7 +78,7 @@ type Server struct {
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{},
 		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{},
-		deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
+		storeGuides: map[string]bool{}, deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
 }
 
 // WithHostTokens sets where an offer's git host token comes from.
@@ -116,6 +120,38 @@ func (s *Server) toolsFor(ctx context.Context, os, arch, version string) []nodep
 	}
 
 	return out
+}
+
+// guidesSaid records whether a node writes no guides of its own.
+func (s *Server) guidesSaid(nodeID string, store bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !store {
+		delete(s.storeGuides, nodeID)
+
+		return
+	}
+
+	s.storeGuides[nodeID] = true
+}
+
+// skillsFor are the skills of an offer as a node is sent them. A node of a
+// release before issue #536 writes the guides of its Run's Integrations and
+// of the phone itself and names them in the worker's first message, so it is
+// sent none of the skills that require something, which are those guides:
+// its worker gets each guide once, from the node, until the node takes the
+// release that leaves them to the store.
+func (s *Server) skillsFor(nodeID string, skills []nodeproto.Skill) []nodeproto.Skill {
+	s.mu.Lock()
+	store := s.storeGuides[nodeID]
+	s.mu.Unlock()
+
+	if store {
+		return skills
+	}
+
+	return slices.DeleteFunc(slices.Clone(skills), func(sk nodeproto.Skill) bool { return len(sk.Requires) > 0 })
 }
 
 // WithPhone sets how an offer learns whether workers are given a phone.
@@ -262,6 +298,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.deviceSaid(n.ID, req.DeviceState)
+	s.guidesSaid(n.ID, req.StoreGuides)
 
 	resp := nodeproto.HelloResponse{
 		NodeID: n.ID, Dispositions: make([]nodeproto.Disposition, 0, len(dispositions)),
@@ -526,10 +563,12 @@ func (c *session) push(ctx context.Context) error {
 			}
 		}
 
-		// And whether a phone is there to be used (issue #417): the worker is then told of its tools' guide.
+		// And whether a phone is there to be used (issue #417): the worker is then told of its tools.
 		if c.srv.phoneHeld != nil && o.AgentKey != "" && c.srv.phoneHeld(ctx) {
 			o.Device = nodeproto.DeviceAndroid
 		}
+
+		o.Skills = c.srv.skillsFor(c.nodeID, o.Skills)
 
 		if err := c.send(ctx, nodeproto.TypeOffer, nodeproto.Offer(o)); err != nil {
 			return err

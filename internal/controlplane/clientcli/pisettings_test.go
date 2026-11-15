@@ -10,6 +10,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Scenario: a Bot that names no model runs on Claude Opus 5.5 under the Claude subscription (owner, 2026-11-15): pi
+// is given it as its default when the gateway serves it, and is given none otherwise.
+func TestPiDefaultsToClaudeOpus(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	dir := t.TempDir()
+
+	settingsOf := func(models string) (string, string) {
+		file := filepath.Join(dir, "models.json")
+		require.NoError(t, os.WriteFile(file, []byte(models), 0o600))
+
+		out, err := w.cmd(t, "pi-settings", file)
+		require.NoError(t, err)
+
+		var s struct {
+			Provider string `json:"defaultProvider"`
+			Model    string `json:"defaultModel"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(out), &s))
+
+		return s.Provider, s.Model
+	}
+
+	provider, model := settingsOf(`{"providers": {"hypomnema": {"models": [
+		{"id": "antigravity-subscription/claude-opus-4-6-thinking"},
+		{"id": "claude-subscription/claude-opus-5-5"}
+	]}}}`)
+	assert.Equal(t, "hypomnema", provider)
+	assert.Equal(t, "claude-subscription/claude-opus-5-5", model, "not the first model of the list")
+
+	provider, model = settingsOf(`{"providers": {"hypomnema": {"models": [{"id": "codex-subscription/gpt-6.1-sol"}]}}}`)
+	assert.Empty(t, provider+model, "without the Claude subscription pi takes the first model it is given")
+}
+
 // Scenario: the launcher has written a chat's models.json and writes pi's
 // settings from it (issue #395). A model with a window gets a reserve of 15%
 // of it, at least 16,384; one without a window keeps pi's; grep, find and ls

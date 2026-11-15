@@ -207,6 +207,7 @@ var policies = map[string]policy{
 	"ListProviders":     {},
 	"ApplyProvider":     {scope: scopeOwner},
 	"ListModels":        {},
+	"ListTools":         {},
 	// Artifacts (issue #402): every token reads them, a Bot's only its own chat's; only a Bot's shows one, and
 	// only the owner's web opens a folder page's frame (artifacts.go).
 	"ListArtifacts":      {},

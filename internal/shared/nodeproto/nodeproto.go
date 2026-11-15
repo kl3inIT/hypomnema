@@ -269,6 +269,11 @@ type HelloRequest struct {
 	KVM bool `json:"kvm,omitempty"`
 	// DeviceState is the state of the phone the node holds; nil for none.
 	DeviceState *DeviceState `json:"device_state,omitempty"`
+	// StoreGuides says the node writes no guide of an Integration or of the
+	// phone itself: they come with an offer's skills (issue #536). A node of
+	// an earlier release, which writes them, does not say it and is sent
+	// none of the skills that require something (Skill.Requires).
+	StoreGuides bool `json:"store_guides,omitempty"`
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).
@@ -532,6 +537,9 @@ type Offer struct {
 	// Claude Code worker its /v1/messages), for the offer's Model only. It is made as the offer is sent and revoked when
 	// the Dispatch settles; the node keeps it with the offer until then.
 	ModelKey string `json:"model_key,omitempty"`
+	// ModelAPI is the wire a worker that can choose one speaks to the gateway for the model: "anthropic-messages"
+	// for a Claude subscription's, "openai-responses" for a Codex subscription's, empty for chat (issue #549).
+	ModelAPI string `json:"model_api,omitempty"`
 	// Uses are the Connections the Run's workers may use ("google:work");
 	// AgentKey is this Dispatch's own key to the control plane's agent API,
 	// with which the tool launcher asks for a token of one of them. It is
@@ -562,6 +570,11 @@ type Skill struct {
 	Name     string `json:"name"`
 	Revision int    `json:"revision"`
 	Digest   string `json:"digest"`
+	// Requires is what the agent had to have to be given it
+	// ("integration:superset", issue #536): an Integration's guide is one. A
+	// node that writes guides of its own is not sent one
+	// (HelloRequest.StoreGuides).
+	Requires []string `json:"requires,omitempty"`
 }
 
 // Stop asks the node to stop a Dispatch's worker.

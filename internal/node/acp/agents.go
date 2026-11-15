@@ -31,8 +31,10 @@ type launch struct {
 	// configuration and its sessions, kept between turns.
 	Dir string
 	// URL is the gateway's base URL, ending in /v1.
-	URL    string
-	Model  string
+	URL   string
+	Model string
+	// API is the wire for the model when it is a subscription's (nodeproto.Offer.ModelAPI); empty is chat.
+	API    string
 	Effort string
 	// Skills is the folder the Dispatch's skills were placed in, which the
 	// CLI is told of when it does not find it by itself; empty without skills.
@@ -73,11 +75,21 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 func prepareOmp(l launch) ([]string, []string, error) {
 	agentDir, sessions := filepath.Join(l.Dir, "agent"), filepath.Join(l.Dir, "sessions")
 
+	// The subscription's own wire when it has one (issue #549), as pi is given it: Messages at the gateway's root,
+	// Responses or chat under /v1.
+	api, base := "openai-completions", l.URL
+	switch l.API {
+	case "anthropic-messages":
+		api, base = l.API, strings.TrimSuffix(l.URL, "/v1")
+	case "openai-responses":
+		api = l.API
+	}
+
 	models := fmt.Sprintf(`providers:
   %s:
     baseUrl: %s
     apiKey: %s
-    api: openai-completions
+    api: %s
     models:
       - id: %s
         name: %s
@@ -85,7 +97,7 @@ func prepareOmp(l launch) ([]string, []string, error) {
         reasoning: %t
         contextWindow: %d
         maxTokens: %d
-`, providerID, quoteYAML(l.URL), keyVariable, quoteYAML(l.Model), quoteYAML(l.Model), l.Effort != "",
+`, providerID, quoteYAML(base), keyVariable, api, quoteYAML(l.Model), quoteYAML(l.Model), l.Effort != "",
 		contextWindow, maxOutput)
 	config := "tools:\n  xdev: false\nweb_search:\n  enabled: false\ngenerate_image:\n  enabled: false\n"
 

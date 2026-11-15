@@ -55,6 +55,8 @@ const profile = (name: string, m: Partial<Profile> = {}): Profile => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   source: `name: ${name}\ndescription: What ${name} is for.\nruntime: claude\n`,
   created_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   available: true,
@@ -569,6 +571,8 @@ const draft = (m: Partial<Draft>): Draft => ({
   fallbacks: [],
   skills: [],
   skillsOff: [],
+  tools: [],
+  toolsOff: [],
   ...m,
 })
 
@@ -593,6 +597,10 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
   // The builder does not edit an agent's skills yet; saving it keeps them (issue #21).
   expect(toYaml(draft({ skills: ["review-go"], skillsOff: ["pdf"] }), models)).toBe(
     'name: a\ndescription: "d"\nruntime: claude\nskills: [review-go]\nskills_off: [pdf]\n',
+  )
+  // So are its tool switches (issue #536).
+  expect(toYaml(draft({ tools: ["web_*"], toolsOff: ["web_fetch"] }), models)).toBe(
+    'name: a\ndescription: "d"\nruntime: claude\ntools: ["web_*"]\ntools_off: [web_fetch]\n',
   )
   expect(toYaml(draft({ instruction: "  indented first line\nsecond" }), models)).toContain(
     'instruction: "  indented first line\\nsecond"\n',

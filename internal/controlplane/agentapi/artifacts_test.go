@@ -21,12 +21,19 @@ import (
 func (w *world) workerOf(node, chatID string, uses ...string) string {
 	w.t.Helper()
 
+	return w.workerUnder("", node, chatID, uses...)
+}
+
+// workerUnder is workerOf under a profile with more in its YAML: its tool switches (issue #536).
+func (w *world) workerUnder(more, node, chatID string, uses ...string) string {
+	w.t.Helper()
+
 	ctx := w.t.Context()
 
 	_, err := w.svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
 	require.NoError(w.t, err)
 	_, _, err = w.svc.ApplyProfile(ctx, "",
-		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-opus-5-5}\n")
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-opus-5-5}\n"+more)
 	require.NoError(w.t, err)
 
 	n, _, err := w.svc.AddNode(ctx, node, 1)
