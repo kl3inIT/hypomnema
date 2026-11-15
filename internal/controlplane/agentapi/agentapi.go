@@ -72,6 +72,8 @@ type Store interface {
 	ShowArtifact(ctx context.Context, by orchestration.ArtifactMaker, in orchestration.ShowArtifact,
 	) (orchestration.Artifact, bool, error)
 	ArtifactMakerOfDispatch(ctx context.Context, dispatchID string) (orchestration.ArtifactMaker, error)
+	// ToolSwitchesOfDispatch are a worker's tool switches, its profile version's (issue #536, step 7).
+	ToolSwitchesOfDispatch(ctx context.Context, dispatchID string) (agenttool.ToolSwitches, error)
 	Memories() *memorystore.Store
 	// Routines keeps the Routines, for a Bot's pi's routines tool (issue #536).
 	Routines() *routinestore.Store
@@ -167,6 +169,8 @@ type agent struct {
 	// key names the agent's own tab in the shared browser: a worker's is its
 	// Dispatch's, so a new Dispatch starts on a new tab.
 	key string
+	// botSwitches are a Bot's pi's tool switches, its Bot's as read for this request (tools.go).
+	botSwitches agenttool.ToolSwitches
 }
 
 // who is whose the agent's gateway calls are.
@@ -248,7 +252,8 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
 			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
-			scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
+			botSwitches: bot.ToolSwitches(),
+			scope:       func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 		}, nil
 	default:
 		return agent{}, errNoCredential
@@ -473,7 +478,14 @@ func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	answer(w, agenttool.BrowserToolList{Data: append(out.Data, web...)})
+	listed, err := s.narrowed(r.Context(), a, append(out.Data, web...))
+	if err != nil {
+		s.fail(w, r, err)
+
+		return
+	}
+
+	answer(w, agenttool.BrowserToolList{Data: listed})
 }
 
 func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
@@ -489,6 +501,10 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 		asked.Tool == "" {
 		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
 
+		return
+	}
+
+	if s.switchedOff(w, r, a, asked.Tool) {
 		return
 	}
 

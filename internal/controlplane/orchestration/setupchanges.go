@@ -65,6 +65,8 @@ type botSettings struct {
 	Persona     string    `json:"persona,omitempty"`
 	Skills      []string  `json:"skills,omitempty"`
 	SkillsOff   []string  `json:"skills_off,omitempty"`
+	Tools       []string  `json:"tools,omitempty"`
+	ToolsOff    []string  `json:"tools_off,omitempty"`
 	Connections AllowList `json:"connections"`
 	Workers     AllowList `json:"workers"`
 	// ToolDisplay is empty for ToolsOn, so a Bot's revision from before it was a setting stays the same.
@@ -81,8 +83,8 @@ func settingsOfBot(b Bot) botSettings {
 
 	return botSettings{
 		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
-		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers, ToolDisplay: display,
-		Scopes: b.Scopes,
+		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
+		ToolDisplay: display, Scopes: b.Scopes,
 	}
 }
 
@@ -96,8 +98,8 @@ func (b botSettings) bot(id string) Bot {
 
 	return Bot{
 		ID: id, Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
-		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers, ToolDisplay: b.ToolDisplay,
-		Scopes: b.Scopes,
+		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
+		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes,
 	}
 }
 
@@ -412,6 +414,10 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 		return err
 	}
 
+	if err := checkTools(b.Tools, b.ToolsOff); err != nil {
+		return err
+	}
+
 	return restoreBot(ctx, q, now, b, r.Action == actionRemoved)
 }
 
@@ -463,6 +469,6 @@ func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, 
 		ID: id, Profile: r.Name, Version: current.Version + 1, Source: before.Source, Digest: before.Digest,
 		Description: before.Description, Runtime: before.Runtime, Provider: before.Provider, Model: before.Model,
 		Effort: before.Effort, Instruction: before.Instruction, Fallbacks: before.Fallbacks, Skills: before.Skills,
-		SkillsOff: before.SkillsOff, Now: now,
+		SkillsOff: before.SkillsOff, Tools: before.Tools, ToolsOff: before.ToolsOff, Now: now,
 	})
 }

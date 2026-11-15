@@ -2760,6 +2760,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ModelList" }
         default: { $ref: "#/components/responses/Error" }
+  /tools:
+    get:
+      operationId: ListTools
+      summary: >-
+        Hypomnema's tools by family, the names a profile's or a Bot's tools and tools_off take (issue #536)
+      responses:
+        "200":
+          description: The tools.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ToolFamilyList" }
+        default: { $ref: "#/components/responses/Error" }
   /browser:
     get:
       operationId: GetBrowser
@@ -5863,8 +5875,8 @@ components:
     Bot:
       type: object
       required:
-        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, connections, workers,
-         scopes, tool_display, created_at, updated_at]
+        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
+         connections, workers, scopes, tool_display, created_at, updated_at]
       properties:
         id:
           type: string
@@ -5905,6 +5917,16 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that the Bot does not get.
+        tools:
+          type: array
+          items: { type: string }
+          description: >-
+            The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty,
+            every tool a Bot gets. A CLI's own tools are not switched here.
+        tools_off:
+          type: array
+          items: { type: string }
+          description: The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
         connections:
           $ref: "#/components/schemas/AllowList"
           description: >-
@@ -6206,6 +6228,16 @@ components:
           type: array
           items: { type: string }
           description: The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
+        tools:
+          type: array
+          items: { type: string }
+          description: >-
+            The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out,
+            the Bot keeps those it has.
+        tools_off:
+          type: array
+          items: { type: string }
+          description: The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
         connections:
           $ref: "#/components/schemas/AllowList"
           description: The Connections the Bot may use; left out, the Bot keeps its list.
@@ -6262,7 +6294,9 @@ components:
           description: Part of the one entry to replace or remove.
     Profile:
       type: object
-      required: [name, description, version_id, version, runtime, fallbacks, skills, skills_off, source, created_at]
+      required:
+        [name, description, version_id, version, runtime, fallbacks, skills, skills_off, tools, tools_off, source,
+         created_at]
       properties:
         name: { type: string }
         description:
@@ -6283,6 +6317,16 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that its workers do not get.
+        tools:
+          type: array
+          items: { type: string }
+          description: >-
+            The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty,
+            every tool a worker gets. A CLI's own tools are not switched here.
+        tools_off:
+          type: array
+          items: { type: string }
+          description: The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
         fallbacks:
           type: array
           items: { type: string }
@@ -6356,6 +6400,25 @@ components:
         provider: { type: string }
         name: { type: string }
         kind: { type: string }
+    ToolFamily:
+      type: object
+      required: [name, description, pattern, tools]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        pattern:
+          type: string
+          description: The entry of tools or tools_off that names every tool of the family.
+        tools:
+          type: array
+          items: { type: string }
+    ToolFamilyList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ToolFamily" }
     ModelList:
       type: object
       required: [data]

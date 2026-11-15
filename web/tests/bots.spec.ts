@@ -7,6 +7,7 @@ import type {
   SetupChange as Change,
   ChatMessage as Message,
 } from "../src/api/generated/types.gen.js"
+import { toolFamilies } from "./fixtures/tools.js"
 
 // The Bots pages and the Bot of a chat, built, against a fake client API, on a phone and a desktop.
 
@@ -23,6 +24,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
   scopes: {},
@@ -110,6 +113,8 @@ const profile = (name: string, runtime: string, description: string) => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   source: "",
   created_at: hours(100),
   available: true,
@@ -255,6 +260,8 @@ async function fakeServer(
         return json({ data: models })
       case "GET /skills":
         return json({ data: skills })
+      case "GET /tools":
+        return json({ data: toolFamilies })
       case "POST /chats": {
         const made = request.postDataJSON() as { title?: string; bot?: string }
         chat = {
@@ -391,6 +398,8 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
         persona: "You are the team's researcher. Answer with sources.",
         skills: [],
         skills_off: [],
+        tools: [],
+        tools_off: [],
       },
     },
   })
@@ -426,8 +435,8 @@ test("a Bot is renamed and keeps its page", async ({ page }) => {
   await shot(page, "bots-renamed")
 })
 
-// Scenario: the owner gives the first Bot a skill and turns off one given to everyone (issue #21); both are
-// saved with the Bot.
+// Scenario: the owner gives the first Bot a skill and turns off one given to everyone (issue #21), and turns its
+// browser off by its family (issue #536); all are saved with the Bot.
 test("a Bot's skills are chosen in its form", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/bots/coordinator")
@@ -443,6 +452,14 @@ test("a Bot's skills are chosen in its form", async ({ page }) => {
   expect(await fits(page)).toBe(true)
   await shot(page, "bot-skills")
 
+  const tools = page.getByRole("list", { name: "Tools" })
+  await expect(tools.getByRole("switch", { name: /browser/ })).toBeChecked()
+  await tools.getByRole("switch", { name: /browser/ }).click()
+  await expect(tools.getByRole("switch", { name: /browser/ })).not.toBeChecked()
+  await tools.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-tools")
+
   await page.getByRole("button", { name: "Save", exact: true }).click()
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
   expect(calls.at(-1)).toEqual({
@@ -453,6 +470,8 @@ test("a Bot's skills are chosen in its form", async ({ page }) => {
       persona: "Plan the work, give it to workers and report what they did, briefly.",
       skills: ["review-go"],
       skills_off: ["pdf"],
+      tools: [],
+      tools_off: ["agent_browser_*"],
     },
   })
 })
@@ -519,6 +538,8 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
         persona: "Plan the work and report in Vietnamese.",
         skills: [],
         skills_off: [],
+        tools: [],
+        tools_off: [],
       },
     },
     { call: "DELETE /bots/coordinator", body: null },

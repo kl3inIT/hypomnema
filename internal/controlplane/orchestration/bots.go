@@ -66,6 +66,11 @@ type Bot struct {
 	// SkillsOff the ones given to everyone it does not get (issue #21).
 	Skills    []string
 	SkillsOff []string
+	// Tools are the only control-plane tools its pi gets, when any is named,
+	// and ToolsOff those it never gets, each a name or a family (issue #536;
+	// agenttool.ToolSwitches).
+	Tools    []string
+	ToolsOff []string
 	// Connections are the Connections the Bot may use and Workers the
 	// profiles it may give work to (issue #169, part 3; botaccess.go).
 	Connections AllowList
@@ -87,7 +92,8 @@ func botFromRow(r store.Bot) Bot {
 	return Bot{
 		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
-		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
+		Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff), Connections: allowListOf(r.Connections),
+		Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		Position: int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
@@ -280,6 +286,10 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 		return err
 	}
 
+	if err := checkTools(b.Tools, b.ToolsOff); err != nil {
+		return err
+	}
+
 	return checkAllowLists(ctx, q, *b, had)
 }
 
@@ -291,7 +301,8 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 	err := q.InsertBot(ctx, store.InsertBotParams{
 		ID: b.ID, Name: b.Name, Provider: nullString(b.Provider), Model: nullString(b.Model),
 		Effort: nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
-		SkillsOff: strings.Join(b.SkillsOff, ","), Connections: b.Connections.stored(), Workers: b.Workers.stored(),
+		SkillsOff: strings.Join(b.SkillsOff, ","), Tools: strings.Join(b.Tools, ","),
+		ToolsOff: strings.Join(b.ToolsOff, ","), Connections: b.Connections.stored(), Workers: b.Workers.stored(),
 		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes), Now: now,
 	})
 	if err != nil {
@@ -309,6 +320,7 @@ func updateBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 	return q.UpdateBot(ctx, store.UpdateBotParams{
 		Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
 		Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
+		Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay),
 		ConnectionScopes: storedScopes(b.Scopes), Now: now, ID: b.ID,
 	})

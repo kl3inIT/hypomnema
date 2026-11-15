@@ -62,6 +62,14 @@ func printBot(e *env, b *openapi.Bot) {
 		e.printf("skills off: %s\n", strings.Join(b.SkillsOff, ", "))
 	}
 
+	if len(b.Tools) > 0 {
+		e.printf("tools: only %s\n", strings.Join(b.Tools, ", "))
+	}
+
+	if len(b.ToolsOff) > 0 {
+		e.printf("tools off: %s\n", strings.Join(b.ToolsOff, ", "))
+	}
+
 	e.printf("connections: %s\n", allowLine(b.Connections, "every one switched on for chats"))
 	e.printf("workers: %s\n", allowLine(b.Workers, "every profile"))
 
@@ -351,6 +359,10 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			set.Skills = list(v)
 		case "skills-off":
 			set.SkillsOff = list(v)
+		case "tools":
+			set.Tools = list(v)
+		case "tools-off":
+			set.ToolsOff = list(v)
 		case "connections":
 			set.Connections = &openapi.AllowList{Limited: true, Names: *list(v)}
 		case "all-connections":

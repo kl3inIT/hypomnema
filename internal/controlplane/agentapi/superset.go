@@ -57,10 +57,10 @@ import (
 
 // The tools' names.
 const (
-	toolSupersetDashboards = "superset_dashboards"
-	toolSupersetDashboard  = "superset_dashboard"
-	toolSupersetChartData  = "superset_chart_data"
-	toolSupersetAPI        = "superset_api"
+	toolSupersetDashboards = agenttool.ToolSupersetDashboards
+	toolSupersetDashboard  = agenttool.ToolSupersetDashboard
+	toolSupersetChartData  = agenttool.ToolSupersetChartData
+	toolSupersetAPI        = agenttool.ToolSupersetAPI
 )
 
 var supersetTools = []string{toolSupersetDashboards, toolSupersetDashboard, toolSupersetChartData, toolSupersetAPI}

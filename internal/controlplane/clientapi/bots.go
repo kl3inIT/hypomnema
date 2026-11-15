@@ -122,6 +122,14 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 		bot.SkillsOff = *in.SkillsOff
 	}
 
+	if in.Tools != nil {
+		bot.Tools = *in.Tools
+	}
+
+	if in.ToolsOff != nil {
+		bot.ToolsOff = *in.ToolsOff
+	}
+
 	if l := in.Connections; l != nil {
 		bot.Connections = fromAllowList(*l)
 	}
@@ -294,6 +302,7 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		Id: b.ID, Name: b.Name, Main: b.Main(), Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
 		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
+		Tools: append([]string{}, b.Tools...), ToolsOff: append([]string{}, b.ToolsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), Position: b.Position, Pinned: b.Pinned,
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,

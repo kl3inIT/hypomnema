@@ -56,8 +56,8 @@ var toolsOf = map[string][]string{
 var botTools = []string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage}
 
 const (
-	toolWebSearch = "web_search"
-	toolWebFetch  = "web_fetch"
+	toolWebSearch = agenttool.ToolWebSearch
+	toolWebFetch  = agenttool.ToolWebFetch
 )
 
 // Who is whose a gateway call is, for the gateway key it is recorded on: a
@@ -158,7 +158,14 @@ func (s *Server) listGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	answer(w, agenttool.BrowserToolList{Data: append([]agenttool.BrowserTool{}, s.gatewayToolList(r.Context(), a)...)})
+	listed, err := s.narrowed(r.Context(), a, append([]agenttool.BrowserTool{}, s.gatewayToolList(r.Context(), a)...))
+	if err != nil {
+		s.fail(w, r, err)
+
+		return
+	}
+
+	answer(w, agenttool.BrowserToolList{Data: listed})
 }
 
 // callGateway runs one of the gateway's tools (PathGatewayCall); any other
@@ -182,6 +189,10 @@ func (s *Server) callGateway(w http.ResponseWriter, r *http.Request) {
 	if !slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool) {
 		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
 
+		return
+	}
+
+	if s.switchedOff(w, r, a, asked.Tool) {
 		return
 	}
 
