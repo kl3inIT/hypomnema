@@ -2274,6 +2274,16 @@ The owner's commands:
   artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
   OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
   a page kept current is a folder page a Routine shows again with `--id`.
+- The slides skill (`internal/controlplane/clientcli/skills/slides`, issue #479) is built in the same way:
+  zarazhangrui/frontend-slides at `9906a34d640d` (MIT, its `LICENSE` in the folder, the notice in
+  `third_party/frontend-slides/NOTICE`), for slide decks; dashboards and single pages are not its. A deck is one
+  self-contained HTML page on a fixed 1920×1080 stage scaled to the frame, shown with `hypomnema artifact show`
+  (`--html-file`, or `--path` for a folder whose images are in `assets/` beside `index.html`) and revised with
+  `--id`. Adapted to the artifact frame: fonts are system font stacks (Modern Font Stacks, CC0) in place of
+  Fontshare and Google Fonts, nothing loads from the network, and there is no inline editing or `localStorage`;
+  `scripts/extract-pptx.py` turns a `.pptx` into text and images with the documents environment's python-pptx.
+  Vercel deploy, PDF export (Playwright downloads Chromium), the Claude Code plugin and the bold template pack (its
+  fonts and charts come from the network) are left out.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
