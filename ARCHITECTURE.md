@@ -1921,7 +1921,9 @@ capabilities do not exist yet.
   - Prompt caching, as the Codex adapter has it: the billing block's fingerprint is deterministic (CLIProxyAPI
     `computeFingerprint`, not 9router-go's random build and body hash) so the prompt's top is byte-identical between
     turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool, the last message
-    (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
+    (pi/omp `applyAnthropicCacheControl`); the system's is on the last block of the client's own system (its last
+    reminder), not on Claude Code's identity line, so a new conversation reads that prompt from the cache, and a
+    client that marked its system keeps its own instead (issue #520, omp `applyHeadCaching`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
     the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
     with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
     its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`).
