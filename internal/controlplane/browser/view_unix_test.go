@@ -334,7 +334,8 @@ func TestAViewKeepsTwoFramesOnTheWayToThePage(t *testing.T) {
 	frame := func(seq string) {
 		t.Helper()
 
-		st.send <- `{"type":"frame","seq":` + seq + `,"data":"YSBmcmFtZQ==","metadata":{"deviceWidth":1280,"deviceHeight":720}}`
+		st.send <- `{"type":"frame","seq":` + seq +
+			`,"data":"YSBmcmFtZQ==","metadata":{"deviceWidth":1280,"deviceHeight":720}}`
 		assert.Equal(t, "a frame", string(next(t, v).JPEG))
 	}
 

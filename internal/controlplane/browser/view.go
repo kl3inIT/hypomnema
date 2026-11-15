@@ -191,10 +191,10 @@ func (e *Engine) watch(ctx context.Context, tab string) (*View, error) {
 	// The stream outlives the request that opened it.
 	streaming, stop := context.WithCancel(context.WithoutCancel(ctx))
 
-	// No Origin is sent, which agent-browser takes from a program on this machine.
-	//nolint:bodyclose // A WebSocket's response has no body left to close.
 	address := "ws://127.0.0.1:" + strings.TrimSpace(string(port)) + "/?pacing=ack&maxFps=" + streamFPS
 
+	// No Origin is sent, which agent-browser takes from a program on this machine.
+	//nolint:bodyclose // A WebSocket's response has no body left to close.
 	conn, _, err := websocket.Dial(ctx, address, nil)
 	if err != nil {
 		stop()
