@@ -37,11 +37,18 @@ const (
 	// (BrowserToolList, BrowserCall).
 	PathDeviceTools = "/agent/v1/device/tools"
 	PathDeviceCall  = "/agent/v1/device/call"
-	// PathGatewayTools lists the gateway's tools alone (web_search,
-	// web_fetch, generate_image) an agent gets, and PathGatewayCall runs one,
-	// in the browser's shape: a Bot's tools server lists them here (issue
-	// #492), so that it offers a Bot none of the browser's. A worker's server
-	// finds them on the browser's routes.
+	// PathTools lists every tool of the control plane's own an agent gets
+	// (issue #536), each by the agent kinds its definition names: memory,
+	// the gateway's (web_search, web_fetch, generate_image) and, for a
+	// worker, the browser's; PathToolsCall runs one. Both in the browser's
+	// shape (BrowserToolList, BrowserCall). The tools server of a Bot
+	// (`hypomnema mcp`) and of a worker (`hypomnema-node mcp`) list them here;
+	// the phone's stay on PathDeviceTools.
+	PathTools     = "/agent/v1/tools"
+	PathToolsCall = "/agent/v1/tools/call"
+	// PathGatewayTools lists the gateway's tools alone and PathGatewayCall
+	// runs one (issue #492): kept for a `hypomnema mcp` of a release before
+	// PathTools. A node of such a release finds them on the browser's routes.
 	PathGatewayTools = "/agent/v1/gateway/tools"
 	PathGatewayCall  = "/agent/v1/gateway/call"
 )

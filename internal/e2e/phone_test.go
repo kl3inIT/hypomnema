@@ -126,7 +126,7 @@ func TestTheOwnerStartsAndStopsANodesPhone(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	run := func(name, device string, phone daemon.Phone) orchestration.Node {
+	run := func(name, device string, phone daemon.Phone) (orchestration.Node, func()) {
 		n, token, err := svc.AddNode(t.Context(), name, 1)
 		require.NoError(t, err)
 
@@ -143,15 +143,20 @@ func TestTheOwnerStartsAndStopsANodesPhone(t *testing.T) {
 
 		go func() { done <- d.Run(ctx) }()
 
-		t.Cleanup(func() {
-			cancel()
+		var ending sync.Once
 
-			if err := <-done; err != nil {
-				t.Logf("the node ended with: %v", err)
-			}
+		leave := func() {
+			ending.Do(func() {
+				cancel()
 
-			_ = state.Close()
-		})
+				if err := <-done; err != nil {
+					t.Logf("the node ended with: %v", err)
+				}
+
+				_ = state.Close()
+			})
+		}
+		t.Cleanup(leave)
 
 		// Ready once its socket is in: a question asked on it is answered.
 		require.Eventually(t, func() bool {
@@ -160,12 +165,12 @@ func TestTheOwnerStartsAndStopsANodesPhone(t *testing.T) {
 			return !errors.Is(err, orchestration.ErrUnavailable)
 		}, wait, 20*time.Millisecond)
 
-		return n
+		return n, leave
 	}
 
 	phone := newFakePhone()
-	held := run("phone", nodeproto.DeviceAndroid, phone)
-	plain := run("build", "", nil)
+	held, leave := run("phone", nodeproto.DeviceAndroid, phone)
+	plain, _ := run("build", "", nil)
 
 	_, owner, err := svc.AddToken(t.Context(), "owner", bearertoken.Owner)
 	require.NoError(t, err)
@@ -251,4 +256,15 @@ func TestTheOwnerStartsAndStopsANodesPhone(t *testing.T) {
 	phone.mu.Unlock()
 
 	assert.Equal(t, []string{"start", "stop"}, asked)
+
+	// A node that left, as one whose machine was stopped, is offline at once, not running for the 30 s it was
+	// heard from lately (issue #545).
+	cli("device", "start", "phone")
+	require.Eventually(t, func() bool { return stateOf() == nodeproto.DeviceRunning }, wait, 20*time.Millisecond)
+
+	leave()
+	require.Eventually(t, func() bool { return !nodes.Online(held.ID) }, wait, 20*time.Millisecond)
+
+	assert.Empty(t, stateOf(), "the state of a node that left is not shown")
+	assert.Contains(t, cli("device", "status"), held.ID+"\tphone\tkvm\toffline")
 }

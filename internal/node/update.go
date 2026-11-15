@@ -123,6 +123,12 @@ func (u Updater) updateLoop(
 		soon = every
 	}
 
+	// recheck is the wait, after the binary was replaced, for what keeps the node busy.
+	recheck := 5 * time.Second
+	if every > 0 && every < recheck {
+		recheck = every
+	}
+
 	wait := first
 
 	for {
@@ -153,10 +159,29 @@ func (u Updater) updateLoop(
 		}
 
 		if version != "" {
+			// What became busy during the download is waited for too: the new binary is in place, and the node
+			// ends once it is free (issue #545).
+			if err := waitFree(ctx, busy, recheck); err != nil {
+				return err
+			}
+
 			logger.InfoContext(ctx, "the node updated itself and restarts",
 				slog.String("event", "node.updated"), slog.String("from", u.Version), slog.String("to", version))
 
 			return ErrUpdated
 		}
 	}
+}
+
+// waitFree returns once busy says the node may end, looking every interval.
+func waitFree(ctx context.Context, busy func() bool, every time.Duration) error {
+	for busy() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(every):
+		}
+	}
+
+	return nil
 }

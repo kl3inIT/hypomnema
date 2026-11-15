@@ -16,12 +16,12 @@ import (
 // pi (server/drivers/pi.ts, pi-mcp-servers.ts): the server a worker's CLI
 // runs (internal/shared/toolsmcp), started by pi inside the Bot's box as
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
-// pi's own token there. It lists the gateway's tools alone, as the control
-// plane gives them to the token (PathGatewayTools: web_search, web_fetch,
-// generate_image), so that a Bot is offered none of a worker's (ask, finish,
-// the browser, the phone). An image is saved under images/ in the folder pi
-// works in, the Bot's, whose files its chat sends, and the answer gives the
-// MEDIA line that sends it.
+// pi's own token there. It lists the tools the control plane gives a Bot's pi
+// (PathTools, issue #536: memory, web_search, web_fetch, generate_image), so
+// that a Bot is offered none of a worker's (ask, finish, the browser, the
+// phone). An image is saved under images/ in the folder pi works in, the
+// Bot's, whose files its chat sends, and the answer gives the MEDIA line that
+// sends it.
 
 const (
 	// mcpName is the server's name in mcp.json; pi names its tools mcp__hypomnema__<tool>.
@@ -49,15 +49,15 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	return toolsmcp.Serve(ctx, e.in, e.out, toolsmcp.Config{
 		Name: mcpName,
 		List: func(ctx context.Context) []map[string]any {
-			return agent.Tools(ctx, agenttool.PathGatewayTools)
+			return agent.Tools(ctx, agenttool.PathTools)
 		},
 		Call: func(ctx context.Context, c toolsmcp.Call) (any, error) {
 			if c.Name == agenttool.ToolGenerateImage {
 				return agent.ImageCall(ctx, c.Arguments,
-					toolsmcp.Images{Path: agenttool.PathGatewayCall, Folder: mcpImages})
+					toolsmcp.Images{Path: agenttool.PathToolsCall, Folder: mcpImages})
 			}
 
-			return agent.ToolCall(ctx, agenttool.PathGatewayCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
+			return agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
 		},
 	})
 }

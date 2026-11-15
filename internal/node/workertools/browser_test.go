@@ -17,8 +17,9 @@ import (
 
 const dispatchKey = "the-dispatch's-key"
 
-// controlPlane stands for the control plane's agent API: it lists one browser
-// tool and answers a call with what `result` holds, or refuses with `refuse`.
+// controlPlane stands for the control plane's agent API: it lists a worker's
+// memory's tool and one browser tool and answers a call with what `result`
+// holds, or refuses with `refuse`.
 type controlPlane struct {
 	mu      sync.Mutex
 	refuse  string
@@ -46,10 +47,11 @@ func (cp *controlPlane) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.Method + " " + r.URL.Path {
-	case "GET " + agenttool.PathBrowserTools:
-		_, _ = io.WriteString(w, `{"data":[{"name":"agent_browser_open","description":"Open a page.",`+
+	case "GET " + agenttool.PathTools:
+		_, _ = io.WriteString(w, `{"data":[{"name":"memory","description":"Keep a fact.",`+
+			`"inputSchema":{"type":"object"}},{"name":"agent_browser_open","description":"Open a page.",`+
 			`"inputSchema":{"type":"object","properties":{"url":{"type":"string"}}}}]}`)
-	case "POST " + agenttool.PathBrowserCall:
+	case "POST " + agenttool.PathToolsCall:
 		var call agenttool.BrowserCall
 
 		_ = json.NewDecoder(r.Body).Decode(&call)
@@ -120,10 +122,11 @@ func names(t *testing.T, msg map[string]any) []string {
 	return out
 }
 
-// Scenario: a worker lists its tools and takes a screenshot. The browser's
-// tools are the control plane's, listed beside the worker's own; a call goes
-// to the control plane with the Dispatch's key, and its answer, an image
-// here, reaches the worker as the control plane gave it.
+// Scenario: a worker lists its tools and takes a screenshot. The memory's
+// and the browser's tools are the control plane's (issue #536), listed
+// beside the worker's own; a call goes to the control plane with the
+// Dispatch's key, and its answer, an image here, reaches the worker as the
+// control plane gave it.
 func TestAWorkerUsesTheSharedBrowser(t *testing.T) {
 	t.Parallel()
 
@@ -138,6 +141,7 @@ func TestAWorkerUsesTheSharedBrowser(t *testing.T) {
 	assert.Equal(t, []string{"ask", "finish", "memory", "agent_browser_open"}, names(t, list))
 
 	listed := list["result"].(map[string]any)["tools"].([]any)[3].(map[string]any) //nolint:forcetypeassert // test
+	assert.Equal(t, "agent_browser_open", listed["name"])
 	assert.Equal(t, "Open a page.", listed["description"])
 	assert.Equal(t, "object", listed["inputSchema"].(map[string]any)["type"]) //nolint:forcetypeassert // test
 
@@ -152,19 +156,19 @@ func TestAWorkerUsesTheSharedBrowser(t *testing.T) {
 	require.Len(t, cp.calls, 1)
 	assert.Equal(t, "agent_browser_screenshot", cp.calls[0].Tool)
 	assert.JSONEq(t, `{"fullPage":true}`, string(cp.calls[0].Arguments))
-	// The browser's list, the phone's list (none here) and the call.
+	// The control plane's list, the phone's list (none here) and the call.
 	assert.Equal(t, []string{"Bearer " + dispatchKey, "Bearer " + dispatchKey, "Bearer " + dispatchKey}, cp.keys)
 }
 
-// A control plane that gives no browser leaves the worker its own tools, and
-// a browser tool called anyway says why in the control plane's words.
+// A control plane that cannot list its tools leaves the worker its own, and a
+// tool called anyway says why in the control plane's words.
 func TestAWorkerWithoutABrowserKeepsItsOwnTools(t *testing.T) {
 	t.Parallel()
 
 	c := browsing(t, &controlPlane{refuse: "this control plane has no browser"})
 
 	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-	assert.Equal(t, []string{"ask", "finish", "memory"}, names(t, c.read()))
+	assert.Equal(t, []string{"ask", "finish"}, names(t, c.read()))
 
 	c.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
 		"name": "agent_browser_open", "arguments": map[string]any{"url": "example.com"},
@@ -174,7 +178,7 @@ func TestAWorkerWithoutABrowserKeepsItsOwnTools(t *testing.T) {
 	assert.Equal(t, "this control plane has no browser", text(t, answer))
 	assert.Equal(t, true, answer["result"].(map[string]any)["isError"]) //nolint:forcetypeassert // test
 
-	// A worker whose runner recorded no agent API has no browser tool at all.
+	// A worker whose runner recorded no agent API has none of the control plane's tools at all.
 	alone := newClient(t)
 
 	alone.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
@@ -240,4 +244,27 @@ func TestAWorkerUsesThePhone(t *testing.T) {
 
 	without.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	assert.Equal(t, []string{"ask", "finish", "memory", "agent_browser_open"}, names(t, without.read()))
+}
+
+// Scenario: a worker keeps a fact with the memory's tool, which the control
+// plane lists and defines (issue #536): the call goes to the control plane's
+// tools route with the Dispatch's key, as the worker gave it, and the
+// control plane's answer, how full the memory is, reaches the worker.
+func TestAWorkersMemoryIsTheControlPlanesTool(t *testing.T) {
+	t.Parallel()
+
+	const saved = `{"content":[{"type":"text","text":"Saved. memory: 31 of 1,375 characters (2%)"}],"isError":false}`
+
+	cp := &controlPlane{result: saved}
+	c := browsing(t, cp)
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{
+		"name": "memory", "arguments": map[string]any{"target": "owner", "action": "add", "text": "Vietnamese."},
+	}})
+	assert.Equal(t, "Saved. memory: 31 of 1,375 characters (2%)", text(t, c.read()))
+
+	require.Len(t, cp.calls, 1)
+	assert.Equal(t, "memory", cp.calls[0].Tool)
+	assert.JSONEq(t, `{"target":"owner","action":"add","text":"Vietnamese."}`, string(cp.calls[0].Arguments))
+	assert.Equal(t, []string{"Bearer " + dispatchKey}, cp.keys)
 }

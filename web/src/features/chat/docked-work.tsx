@@ -14,7 +14,7 @@ import {
 import { useMemo } from "react"
 
 import "@/api/client"
-import { listProfiles } from "@/api/generated/sdk.gen"
+import { listProfilesOptions } from "@/api/generated/@tanstack/react-query.gen"
 import type { RunDetail, TaskDetail } from "@/api/generated/types.gen"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { RuntimeMark } from "@/components/icons/runtime-mark"
@@ -87,10 +87,7 @@ export function DockedQuestions({ work }: { work: DockedWork }) {
 
 // DockedRuns are the chat's open Runs, a strip each.
 export function DockedRuns({ chatId, work }: { chatId: string; work: DockedWork }) {
-  const profiles = useQuery({
-    queryKey: ["profiles"],
-    queryFn: async () => (await listProfiles()).data.data,
-  })
+  const profiles = useQuery({ ...listProfilesOptions(), select: (page) => page.data })
   const runtimes = useMemo(
     () => new Map((profiles.data ?? []).map((p) => [p.name, p.runtime])),
     [profiles.data],
