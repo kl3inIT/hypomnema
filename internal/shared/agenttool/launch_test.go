@@ -375,22 +375,22 @@ func TestTheLauncherSaysWhatIsMissing(t *testing.T) {
 
 // Scenario: a node prepares a Dispatch that may use a Google account. The
 // script named gws is first on the worker's PATH and runs the node's
-// launcher; the guide and its references are where the worker is told to
-// read them; the worker's first message names the account and both. A
-// Dispatch that uses no account gets nothing.
+// launcher; the worker's first message names the account and the command.
+// No guide is written: it is a skill of the offer (issue #536). A Dispatch
+// that uses no account gets nothing.
 func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
 
-	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "", "")
+	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "")
 	require.NoError(t, err)
 	assert.Empty(t, env)
 
-	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"google:work"}, "", "")
+	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"google:work"}, "")
 	require.ErrorContains(t, err, "no key")
 
-	env, err = ForDispatch(home, "/opt/it's/hypomnema-node", "https://cp.example", []string{"google:work"}, "the-key", "")
+	env, err = ForDispatch(home, "/opt/it's/hypomnema-node", "https://cp.example", []string{"google:work"}, "the-key")
 	require.NoError(t, err)
 
 	place := Place{Home: home}
@@ -398,93 +398,49 @@ func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 	assert.Contains(t, env, EnvURL+"=https://cp.example")
 	assert.Contains(t, env, EnvKey+"=the-key")
 	assert.Contains(t, env, EnvTools+"="+home)
-	assert.Contains(t, env, EnvSkills+"="+place.SkillsDir())
 
 	script, err := os.ReadFile(filepath.Join(place.Bin(), "gws"))
 	require.NoError(t, err)
 	assert.Contains(t, string(script), `exec '/opt/it'\''s/hypomnema-node' tool gws "$@"`)
-
-	guide, err := os.ReadFile(filepath.Join(place.SkillsDir(), "google-workspace", "guide.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(guide), "Never run `gws auth")
-
-	for _, reference := range []string{"gws-gmail-triage", "gws-calendar-agenda", "gmail-search-syntax", "daily-brief"} {
-		assert.FileExists(t, filepath.Join(place.SkillsDir(), "google-workspace", "references", reference+".md"))
-	}
-
-	assert.NoFileExists(t, filepath.Join(place.SkillsDir(), "google-workspace", "SKILL.md"),
-		"the stub is for an agent with the hypomnema CLI; a worker reads the guide itself")
+	assert.NoDirExists(t, filepath.Join(home, "skills", "google-workspace"), "the guide comes with the offer")
 
 	brief := Brief([]string{"google:work", "google:personal"}, "")
 	assert.Contains(t, brief, "google:work, google:personal")
 	assert.Contains(t, brief, "`gws` command is on your PATH and already signed in")
-	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/google-workspace/guide.md"`)
 	assert.Contains(t, brief, "gws --account <label>")
+	assert.NotContains(t, brief, "guide.md")
 	assert.Empty(t, Brief(nil, ""))
-
-	// A Dispatch given the Lark app gets Lark's script and guide instead; the guide has no references of its
-	// own, since lark-cli carries its guides itself.
-	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"lark:work"}, "the-key", "")
-	require.NoError(t, err)
-	assert.FileExists(t, filepath.Join(place.Bin(), "lark-cli"))
-
-	guide, err = os.ReadFile(filepath.Join(place.SkillsDir(), "lark", "guide.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(guide), "Never run `lark-cli auth")
-	assert.Contains(t, Brief([]string{"lark:work"}, ""), `"$HYPOMNEMA_SKILLS/lark/guide.md"`)
 }
 
 // Scenario: a Dispatch is given the phone (issue #417) and no account. The
-// phone's guide is written where the worker is told to read it, with no
-// script, since its tools are the worker's own; the first message names the
-// guide and the rules that matter most.
+// node prepares nothing for it, since its tools are the worker's own and its
+// guide a skill of the offer; the first message names the rules that matter
+// most.
 func TestANodePreparesADispatchForThePhone(t *testing.T) {
 	t.Parallel()
 
-	home := t.TempDir()
-
-	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "the-key", nodeproto.DeviceAndroid)
-	require.NoError(t, err)
-
-	place := Place{Home: home}
-	assert.Contains(t, env, EnvSkills+"="+place.SkillsDir())
-
-	guide, err := os.ReadFile(filepath.Join(place.SkillsDir(), "android-device", "guide.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(guide), "Never sign in or out of an account")
-	assert.NoDirExists(t, place.Bin(), "the phone has no command of its own")
-
 	brief := Brief(nil, nodeproto.DeviceAndroid)
-	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/android-device/guide.md"`)
 	assert.Contains(t, brief, "device_screen")
 	assert.Contains(t, brief, "Never sign in")
+	assert.NotContains(t, brief, "guide.md")
 	assert.NotContains(t, brief, "Accounts you may use")
 }
 
 // Scenario: a Dispatch is given a Superset account (issue #536). Its tools
-// are the control plane's superset_* tools, so no script is written; its
-// guide is, where the worker is told to read it, and it names the tools,
-// never a hypomnema command a worker lacks.
+// are the control plane's superset_* tools, so no script is written, and the
+// first message names the tools.
 func TestANodePreparesADispatchForSuperset(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
 
-	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"superset:vmaps"}, "the-key", "")
+	_, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"superset:vmaps"}, "the-key")
 	require.NoError(t, err)
-
-	place := Place{Home: home}
-	assert.Contains(t, env, EnvSkills+"="+place.SkillsDir())
-	assert.NoDirExists(t, place.Bin(), "Superset has no command of its own")
-
-	guide, err := os.ReadFile(filepath.Join(place.SkillsDir(), "superset", "guide.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(guide), "`superset_chart_data`")
-	assert.NotContains(t, string(guide), "hypomnema superset")
+	assert.NoDirExists(t, Place{Home: home}.Bin(), "Superset has no command of its own")
 
 	brief := Brief([]string{"superset:vmaps"}, "")
 	assert.Contains(t, brief, "Accounts you may use for this task: superset:vmaps.")
 	assert.Contains(t, brief, "superset_* tools")
-	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/superset/guide.md"`)
+	assert.NotContains(t, brief, "guide.md")
 	assert.NotContains(t, brief, "PATH")
 }

@@ -73,7 +73,11 @@ type File struct {
 type Skill struct {
 	Name        string
 	Description string
-	Files       []File
+	// Requires is what an agent must have to be given the skill, each a
+	// Requirement ("integration:superset"), from its frontmatter; empty for
+	// every agent.
+	Requires []string
+	Files    []File
 	// Digest is the SHA-256 of the files, in hex.
 	Digest string
 }
@@ -279,7 +283,75 @@ func build(files []File) (Skill, error) {
 		return Skill{}, err
 	}
 
-	return Skill{Name: name, Description: description, Files: files, Digest: digest(files)}, nil
+	requires, err := requirements(files[i].Data)
+	if err != nil {
+		return Skill{}, err
+	}
+
+	return Skill{
+		Name: name, Description: description, Requires: requires, Files: files, Digest: digest(files),
+	}, nil
+}
+
+// What a skill may require of an agent (issue #536), as OpenClaw's skills
+// declare requires.bins, requires.env and requires.config in their
+// frontmatter's metadata.openclaw (docs/tools/skills.md, "Gating";
+// src/skills/loading/config.ts, shouldIncludeSkill) and OpenMausBot's
+// manifests requiredCapabilities (server/skill-library.ts,
+// selectBundledSkills): a skill whose requirement an agent does not meet is
+// not given to it.
+const (
+	// RequiresIntegration is a Connection of an Integration the agent may
+	// use: "integration:superset".
+	RequiresIntegration = "integration"
+	// RequiresDevice is a device the agent is given: "device:android".
+	RequiresDevice = "device"
+)
+
+// Requirement is one requirement as a skill's revision keeps it: "kind:name".
+func Requirement(kind, name string) string { return kind + ":" + name }
+
+// requirements reads metadata.hypomnema.requires of a SKILL.md, the
+// namespace the Agent Skills standard leaves to a client's own keys, as
+// OpenClaw's is metadata.openclaw; other keys of metadata are left alone.
+func requirements(manifest []byte) ([]string, error) {
+	head, err := frontmatterText(manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	var fm struct {
+		Metadata struct {
+			Hypomnema struct {
+				Requires struct {
+					Integration string `yaml:"integration"`
+					Device      string `yaml:"device"`
+				} `yaml:"requires"`
+			} `yaml:"hypomnema"`
+		} `yaml:"metadata"`
+	}
+
+	if err := yaml.Unmarshal([]byte(head), &fm); err != nil {
+		return nil, fmt.Errorf("%w: metadata.hypomnema of %s: %w", ErrInvalid, Manifest, err)
+	}
+
+	var out []string
+
+	req := fm.Metadata.Hypomnema.Requires
+	for _, r := range [][2]string{
+		{RequiresIntegration, strings.TrimSpace(req.Integration)}, {RequiresDevice, strings.TrimSpace(req.Device)},
+	} {
+		switch {
+		case r[1] == "":
+		case !namePattern.MatchString(r[1]):
+			return nil, fmt.Errorf("%w: metadata.hypomnema.requires.%s %q is not lowercase letters, digits and "+
+				"single hyphens", ErrInvalid, r[0], r[1])
+		default:
+			out = append(out, Requirement(r[0], r[1]))
+		}
+	}
+
+	return out, nil
 }
 
 // Frontmatter reads the name and description of a SKILL.md, as a skill in
@@ -290,16 +362,9 @@ func Frontmatter(manifest []byte) (name, description string, err error) {
 
 // frontmatter reads the name and description of a SKILL.md.
 func frontmatter(manifest []byte) (name, description string, err error) {
-	text := strings.ReplaceAll(string(manifest), "\r\n", "\n")
-
-	rest, ok := strings.CutPrefix(text, "---\n")
-	if !ok {
-		return "", "", fmt.Errorf("%w: %s does not start with a frontmatter (---)", ErrInvalid, Manifest)
-	}
-
-	head, _, ok := strings.Cut(rest, "\n---")
-	if !ok {
-		return "", "", fmt.Errorf("%w: the frontmatter of %s does not end (---)", ErrInvalid, Manifest)
+	head, err := frontmatterText(manifest)
+	if err != nil {
+		return "", "", err
 	}
 
 	var fm struct {
@@ -326,6 +391,23 @@ func frontmatter(manifest []byte) (name, description string, err error) {
 	}
 
 	return name, description, nil
+}
+
+// frontmatterText is the YAML between a SKILL.md's two --- lines.
+func frontmatterText(manifest []byte) (string, error) {
+	text := strings.ReplaceAll(string(manifest), "\r\n", "\n")
+
+	rest, ok := strings.CutPrefix(text, "---\n")
+	if !ok {
+		return "", fmt.Errorf("%w: %s does not start with a frontmatter (---)", ErrInvalid, Manifest)
+	}
+
+	head, _, ok := strings.Cut(rest, "\n---")
+	if !ok {
+		return "", fmt.Errorf("%w: the frontmatter of %s does not end (---)", ErrInvalid, Manifest)
+	}
+
+	return head, nil
 }
 
 // rootOf drops the one folder every file is in when the manifest is not at

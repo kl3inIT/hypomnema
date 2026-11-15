@@ -269,6 +269,11 @@ type HelloRequest struct {
 	KVM bool `json:"kvm,omitempty"`
 	// DeviceState is the state of the phone the node holds; nil for none.
 	DeviceState *DeviceState `json:"device_state,omitempty"`
+	// StoreGuides says the node writes no guide of an Integration or of the
+	// phone itself: they come with an offer's skills (issue #536). A node of
+	// an earlier release, which writes them, does not say it and is sent
+	// none of the skills that require something (Skill.Requires).
+	StoreGuides bool `json:"store_guides,omitempty"`
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).
@@ -565,6 +570,11 @@ type Skill struct {
 	Name     string `json:"name"`
 	Revision int    `json:"revision"`
 	Digest   string `json:"digest"`
+	// Requires is what the agent had to have to be given it
+	// ("integration:superset", issue #536): an Integration's guide is one. A
+	// node that writes guides of its own is not sent one
+	// (HelloRequest.StoreGuides).
+	Requires []string `json:"requires,omitempty"`
 }
 
 // Stop asks the node to stop a Dispatch's worker.

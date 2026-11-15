@@ -5,6 +5,10 @@ description: >-
   the screen with numbered boxes, taps, swipes, types in any language, presses keys, opens apps and reads the log.
   Use to test or use an Android app on that phone, such as the owner's own apps. Not for signing in to accounts or
   paying, which the owner does.
+metadata:
+  hypomnema:
+    requires:
+      device: android
 ---
 
 # The Android phone through Hypomnema

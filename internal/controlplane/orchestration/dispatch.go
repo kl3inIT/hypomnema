@@ -98,7 +98,7 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("inserting dispatch: %w", err)
 	}
 
-	if err := recordSkills(ctx, q, id, r.versionID); err != nil {
+	if err := recordSkills(ctx, q, id, r.versionID, run); err != nil {
 		return err
 	}
 

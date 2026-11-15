@@ -39,6 +39,8 @@ type plane struct {
 	node    orchestration.Node
 	token   string
 	reports int
+	// storeGuides is what the node says at hello: it writes no guides of its own (issue #536).
+	storeGuides bool
 }
 
 func newPlane(t *testing.T) *plane {
@@ -77,7 +79,7 @@ func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.H
 		InstanceID: "inst_1", DaemonVersion: "test", WorktreeRoot: "/srv/wt",
 		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
 		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64"},
-		Claims:   claims,
+		Claims:   claims, StoreGuides: p.storeGuides,
 	})
 	require.NoError(p.t, err)
 
@@ -890,4 +892,58 @@ func TestANodeFetchesTheSkillsItsOfferNames(t *testing.T) {
 
 	status, _ = get(p.token, strings.Repeat("0", 64))
 	assert.Equal(t, http.StatusNotFound, status)
+}
+
+// Scenario: a Run given a Superset account is offered the Superset guide, a
+// skill that requires its Integration (issue #536). A node of an earlier
+// release, which writes the guide itself and does not say otherwise at
+// hello, is sent the offer without it, so its worker gets the guide once; a
+// node that says it writes none is sent it.
+func TestANodeThatWritesItsOwnGuidesIsSentNone(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	ctx := t.Context()
+
+	archive, err := skillpack.Skill{Files: []skillpack.File{{Path: "SKILL.md", Data: []byte(
+		"---\nname: superset\ndescription: d.\nmetadata:\n  hypomnema:\n    requires:\n      integration: superset\n" +
+			"---\n")}}}.Archive()
+	require.NoError(t, err)
+
+	sk, err := skillpack.FromArchive(archive)
+	require.NoError(t, err)
+
+	_, err = p.svc.PublishBuiltinSkills(ctx, []skillpack.Skill{sk}, "builtin:v1")
+	require.NoError(t, err)
+
+	_, err = p.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "superset", Label: "vmaps", Secret: "s",
+	})
+	require.NoError(t, err)
+
+	run, err := p.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "read a chart", CreatedBy: "owner", Repo: "kl3inIT/second-bite", Uses: []string{"superset:vmaps"},
+	})
+	require.NoError(t, err)
+
+	_, err = p.svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{{Ref: "a", Profile: "implementer", Spec: "read it"}})
+	require.NoError(t, err)
+
+	conn := p.connect()
+
+	sch, err := p.svc.Schedule(ctx)
+	require.NoError(t, err)
+	require.Len(t, sch.Created, 1)
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, []string{"superset:vmaps"}, offer.Uses)
+	assert.Empty(t, offer.Skills, "the node writes the guide itself")
+
+	p.storeGuides = true
+
+	require.NoError(t, json.Unmarshal(p.next(p.connect(), nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, []nodeproto.Skill{
+		{Name: "superset", Revision: 1, Digest: sk.Digest, Requires: []string{"integration:superset"}},
+	}, offer.Skills)
 }
