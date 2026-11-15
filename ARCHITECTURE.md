@@ -1474,7 +1474,7 @@ flowchart LR
       Task of the worker that asked; once answered, the chat shows its row (`approval-row.tsx`): Approved or
       Denied, what was asked, the action and how far it reaches, and when, whatever the Bot shows of its tools; an account on the Integrations page says what agents may do with it and
       opens the list of actions.
-    - **What the account can really do** (issue #567, migration 00093: `connections.access`, JSON). Beside the
+    - **What the account can really do** (issue #567, migration 00094: `connections.access`, JSON). Beside the
       owner's answer, each action of a Connection is **granted**, **missing** or **unknown** at the service, with a
       short reason, read when the Connection is made or signed in again and when the owner checks it
       (`POST /integrations/{integration}/connections/{label}/check`; `hypomnema integrations check`; "Check again"
