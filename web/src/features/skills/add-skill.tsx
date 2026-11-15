@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Search, Upload } from "lucide-react"
 import { useId, useRef, useState, type ReactElement } from "react"
@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils"
 
 import { SkillsShSearch } from "./skills-sh"
 import { size } from "./skills-state"
-import { skillsKey } from "./use-skills"
+import { useRefreshSkills } from "./use-skills"
 
 // The largest archive the server takes (internal/shared/skillpack MaxArchive).
 const maxArchive = 25 * 1024 * 1024
@@ -52,7 +52,7 @@ export function AddSkill({
   // github fills the field, as the skill's page does to fetch its source again.
   github?: string
 }) {
-  const queryClient = useQueryClient()
+  const refresh = useRefreshSkills()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [way, setWay] = useState<Way>(first)
@@ -85,7 +85,7 @@ export function AddSkill({
       return { skill: res.data, added: res.response.status === 201 }
     },
     onSuccess: async ({ skill, added }) => {
-      await queryClient.invalidateQueries({ queryKey: skillsKey })
+      await refresh()
       setOpen(false)
       said(
         added
