@@ -104,10 +104,13 @@ const defaultSkill = "hypomnema-coordinator"
 var releasedStubs = map[string][]string{
 	"hypomnema-coordinator": {"a47e4460588d8d58dfc994b34b6aaf8cad11dd7ec13c9151d9188f2c2d587e2a"},
 	"google-workspace":      {"129a8091fdeb9d028e8b0550625f2efd54c3eb27b38eba618407d68b82fdd894"},
-	"lark":                  {"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774"},
-	"superset":              {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
-	"aws":                   {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
-	"android-device":        {"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127"},
+	"lark": {
+		"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774",
+		"f3acc3af4bb9045de0285f5b2fc2ce7a648117f89f3aeaedb0577578951a6c88",
+	},
+	"superset":       {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
+	"aws":            {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
+	"android-device": {"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127"},
 }
 
 // retiredStubs holds, as releasedStubs does, the digests of the stubs of the

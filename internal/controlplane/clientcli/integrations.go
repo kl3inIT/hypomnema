@@ -192,7 +192,7 @@ func integrationsSignIn(ctx context.Context, e *env, fs *flag.FlagSet, id string
 		services = strings.Split(given, ",")
 	}
 
-	begun, err := e.api.BeginIntegrationSignInWithResponse(ctx, id, openapi.NewSignIn{Label: label, Services: services})
+	begun, err := e.api.BeginIntegrationSignInWithResponse(ctx, id, openapi.NewSignIn{Label: label, Services: &services})
 	if err != nil {
 		return fmt.Errorf("starting the sign-in of %s:%s: %w", id, label, err)
 	}
@@ -228,6 +228,46 @@ func integrationsSignIn(ctx context.Context, e *env, fs *flag.FlagSet, id string
 
 	return e.print(fs, c, func() {
 		e.printf("%s:%s is connected as %s, with %s\n", id, c.Label, c.Account, strings.Join(c.Services, ","))
+	})
+}
+
+// integrationsSignInAsUser signs the owner in to an app Integration (Lark) as
+// himself, through the app of the Connection --app names (issue #468): it
+// prints the link and the code, as lark-cli's `auth login` does, and waits
+// until he entered the code on that page, on any device.
+func integrationsSignInAsUser(ctx context.Context, e *env, fs *flag.FlagSet, id string) error {
+	label, app := str(fs, "label"), str(fs, "app")
+	if app == "" {
+		return errors.New("--as-user signs in through one of your apps: name it with --app, such as --app work")
+	}
+
+	begun, err := e.api.BeginIntegrationSignInWithResponse(ctx, id, openapi.NewSignIn{Label: label, App: &app})
+	if err != nil {
+		return fmt.Errorf("starting the sign-in of %s:%s: %w", id, label, err)
+	}
+
+	if begun.JSON200 == nil {
+		return apiError("starting the sign-in of "+id+":"+label, begun.StatusCode(), begun.JSONDefault)
+	}
+
+	e.printf("Open this link on any device, sign in as yourself and enter the code %s:\n\n  %s\n\n"+
+		"Waiting for it, for %d minutes...\n", val(begun.JSON200.UserCode), begun.JSON200.Url,
+		max(1, begun.JSON200.ExpiresInSeconds/60))
+
+	done, err := e.api.CompleteIntegrationSignInWithResponse(ctx, id, begun.JSON200.Id, openapi.SignInCallback{})
+	if err != nil {
+		return fmt.Errorf("completing the sign-in of %s:%s: %w", id, label, err)
+	}
+
+	if done.JSON200 == nil {
+		return apiError("completing the sign-in of "+id+":"+label, done.StatusCode(), done.JSONDefault)
+	}
+
+	c := done.JSON200
+
+	return e.print(fs, c, func() {
+		e.printf("%s:%s is connected as you, %s, through the app %s. Agents use it only when you switch it on "+
+			"for chats, and only the main Bot when you ask it yourself\n", id, c.Label, c.Account, val(c.App))
 	})
 }
 

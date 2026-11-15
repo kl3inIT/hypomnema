@@ -1259,18 +1259,52 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - Its tool is `lark-cli` 1.0.100 (`github.com/larksuite/cli`) for Linux on amd64 and arm64, in the tool
       catalog beside `gws` (`internal/shared/agenttool`) and installed and launched the same way. It will not run
       on a token alone, so the agent API lists each account with its app's id, and the launcher sets
-      `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` of the account it acts as and
-      `LARKSUITE_CLI_BRAND=lark` for it.
+      `LARKSUITE_CLI_APP_ID` of the account it acts as and `LARKSUITE_CLI_BRAND=lark` for it, and the
+      placeholder in `LARKSUITE_CLI_TENANT_ACCESS_TOKEN` with `LARKSUITE_CLI_STRICT_MODE=bot` for an app's
+      account, or in `LARKSUITE_CLI_USER_ACCESS_TOKEN` with `LARKSUITE_CLI_STRICT_MODE=user` for a user
+      Connection (the agent API marks it `user`), so a call never changes whom it acts as (lark-cli's
+      environment provider acts as the user whenever a user token is set). The agent's own `LARKSUITE_CLI_*`
+      tokens, app secret, strict mode and default identity are taken away first.
     - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s
-      `lark-shared` skill (MIT): the command is already signed in, acts as the app and never as a person, an
-      empty answer may mean the app was not given the thing, nothing is written without the owner's yes, and
-      `lark-cli auth`, `config`, `profile` and `update` are never run. It has no references of its own: for each
+      `lark-shared` skill (MIT): the command is already signed in, an app's account acts as the app, `--account
+      me` acts as the owner and is for reading what only he sees, is given only when he asked himself, and
+      anything sent as him needs his yes; an empty answer may mean the app was not given the thing, nothing is
+      written without the owner's yes, and `lark-cli auth`, `config`, `profile` and `update` are never run. The
+      Bots' rules (`deploy/coordinator/AGENTS.md`) say the same. It has no references of its own: for each
       kind of work it names the guide `lark-cli` carries itself (`lark-cli skills read lark-doc`), which matches
       the installed version. It reaches a worker and the coordinator as Google's does.
     - `integrations disconnect lark:work` forgets the Connection and its token, and removes its secret from the
-      vault once no other Connection names it.
-    - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
-      mail, calendar and drive) is not built: a Connection acts as the app.
+      vault once no other Connection names it. It is refused while a user Connection signs in with its app.
+    - Only Lark international (`open.larksuite.com`, `accounts.larksuite.com`) is declared; Feishu is not.
+    - **The owner as himself** ([issue #468](https://github.com/kl3inIT/hypomnema/issues/468), migration 00088):
+      a **user Connection**, such as `lark:me`, is the owner signed in to Lark as himself through the app of one
+      of the app Connections, as lark-cli's user login uses an app's id and secret. `connections.app_label`
+      names that app Connection and `app_id` its app's id at sign-in; a Connection whose app was changed since
+      needs a sign-in again.
+      - `integrations connect lark --label me --app work --as-user` (`POST /integrations/lark/sign-ins` with
+        `app`) asks Lark for a device code (`accounts.larksuite.com/oauth/v1/device_authorization`, the app's id
+        and secret as Basic, `offline_access` always asked) and prints the link and the code, which the owner
+        enters on any device; `POST .../sign-ins/{id}` with no callback waits, polling `/oauth/v3/token` at
+        Lark's interval (5 s, 5 s more on `slow_down`), for as long as the code lives (lark-cli
+        `internal/auth/device_flow.go`). The command waits with it. A pending sign-in is held in memory as
+        Google's are.
+      - An answer without a refresh token is refused, naming the console setting "Refresh user_access_token"
+        and the app's security page (lark-cli `no_refresh_token.go`); so is a token that is not a plain
+        Bearer. A token issued with no DPoP proof is a Bearer another process may send (probed on zm,
+        2026-11-15). The account is the owner's name at Lark (`/open-apis/authen/v1/user_info`); the tokens are
+        the Connection's token set in the vault (`conn-lark-<label>`).
+      - `Token` refreshes it five minutes before it ends (lark-cli `token_store.go`) under the vault's lease,
+        which stores the new refresh token before the access token is used: Lark's is single use. A refresh is
+        JSON to `/oauth/v3/token` with the app's id and secret; Lark's codes 20026, 20037, 20064 and 20073, or
+        `invalid_grant`, mark the Connection as needing a sign-in.
+      - `integrations disconnect lark:me` revokes its refresh and access tokens at `/oauth/v1/revoke` with the
+        app's id and secret (lark-cli `revoke.go`), then forgets it; the answer says when Lark could not be asked.
+      - **Who may use it**: only the owner's own token, and the main Bot's pi (`Bot.Main()`) on the owner's turn
+        in its chat (see the Channels below), when the Connection is also switched on for chats. A worker given
+        it, a coordinator token, a Routine's script and every other Bot never get it (OpenMausBot's per-bot
+        grants, `docs/composio.md`, and personal connections kept out of a team, `server/cloud-team.ts`). The
+        agent API applies it in its list of accounts and so in the service proxy's check of every request;
+        actions and approvals are the Lark catalog's.
   - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
     [research](docs/research/2026-11-12-superset-integration.md)): a third kind beside `oauth` and `app`, for a
     self-hosted service. It has no client and no fixed address: a Connection is one deployment's address, a user
@@ -1437,6 +1471,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       by the mode: the people he added, or every member of the organization. People are kept per Channel
       (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
       not text and a pi that is not running are answered with a short notice.
+    - Each person's message keeps who wrote it (issue #468, migration 00087, after OpenMausBot's
+      `Message.sender {name, id}`): `chat_messages.sender_id` and `sender_name` (and the same on `chat_queue`,
+      kept when a queued message goes in) are NULL for the owner (the web, the CLI, the Channel's owner at Lark)
+      and a Channel person's id and name otherwise, in a direct chat and in a group. The migration gave the rows
+      of a direct chat with someone else that person, and the rows of a group's chat a sender not known (`''`).
+      `orchestration.OwnerTurn` says a chat is on **the owner's turn** when the last of its messages pi is given
+      as a turn (a person's message, a wake-up, an answered Approval for the coordinator), delivered or not, is
+      the owner's own: another person's message, a Run's event, a Routine's run and an Approval answered after
+      its request each end it (OpenMausBot `outside-lineage.ts`, OpenClaw "a wake is never an owner turn").
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
       roster of the Lark groups its bot is in (`channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
@@ -2969,7 +3012,9 @@ Node (`internal/node`):
     the address the browser ended on. "Disconnect" asks first. A service without its OAuth client shows the
     command that gives one; the client itself is given from the CLI only. Lark's card
     ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)) has "Connect app", which takes a name only,
-    and its Connection has no "Sign in again".
+    and its Connection has no "Sign in again". Once an app is there it has "Sign in as me" (issue #468): a name
+    (`me`) and the app, then the code and a link to Lark's page while the dialog waits; the owner's account
+    shows "You, through <app>" and who may use it, with "Sign in again" and "Disconnect".
   - Both pages do only what `hosts ...`, `repos ...` and `integrations ...` do in the CLI.
   - `/settings/web-search` (under Gateway, issues #354 and #393, `web/src/features/models/web-search-screen.tsx`)
     lists the web search chain above in three parts, a row each as the Models page's account rows: "With your

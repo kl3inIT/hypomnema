@@ -19,6 +19,8 @@ type Integrations interface {
 	List(ctx context.Context) ([]integration.Integration, error)
 	SetClient(ctx context.Context, id, clientID, clientSecret string) error
 	Begin(ctx context.Context, id, label string, services []string) (integration.SignIn, error)
+	// BeginAsUser starts the owner's own sign-in to an app Integration through one of its app Connections.
+	BeginAsUser(ctx context.Context, id, label, app string) (integration.SignIn, error)
 	Complete(ctx context.Context, id, signInID, pasted string) (integration.Connection, error)
 	// Connect connects an Integration that is an app: each Connection is an app of its own.
 	Connect(ctx context.Context, id, label string, app integration.App) (integration.Connection, error)
@@ -45,8 +47,8 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 	out := openapi.IntegrationConnection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Services: make([]string, 0, len(c.Grants)),
 		SignInRequired: c.SignInRequired, Chats: c.Chats, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
-		Address: opt(c.Address), Version: opt(c.Version), AppId: opt(c.AppID), RoleArn: opt(c.RoleARN),
-		Key: opt(c.Key),
+		Address: opt(c.Address), Version: opt(c.Version), AppId: opt(c.AppID), App: opt(c.AppLabel),
+		RoleArn: opt(c.RoleARN), Key: opt(c.Key),
 	}
 	for _, g := range c.Grants {
 		out.Services = append(out.Services, g.String())
@@ -122,25 +124,39 @@ func (s *Server) PutIntegrationClient(ctx context.Context, req openapi.PutIntegr
 	return nil, fmt.Errorf("%w: integration %q", orchestration.ErrNotFound, req.Integration)
 }
 
-// BeginIntegrationSignIn starts a sign-in and answers with its link.
+// BeginIntegrationSignIn starts a sign-in and answers with its link: an
+// account's, or with app the owner's own through that app Connection, which
+// has a code to enter (issue #468).
 func (s *Server) BeginIntegrationSignIn(ctx context.Context, req openapi.BeginIntegrationSignInRequestObject,
 ) (openapi.BeginIntegrationSignInResponseObject, error) {
 	if s.integrations == nil {
 		return nil, errNoIntegrations
 	}
 
-	started, err := s.integrations.Begin(ctx, req.Integration, req.Body.Label, req.Body.Services)
+	var (
+		started integration.SignIn
+		err     error
+	)
+
+	if app := val(req.Body.App); app != "" {
+		started, err = s.integrations.BeginAsUser(ctx, req.Integration, req.Body.Label, app)
+	} else {
+		started, err = s.integrations.Begin(ctx, req.Integration, req.Body.Label, val(req.Body.Services))
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
 	return openapi.BeginIntegrationSignIn200JSONResponse{
-		Id: started.ID, Url: started.URL, ExpiresInSeconds: int(started.ExpiresIn.Seconds()),
+		Id: started.ID, Url: started.URL, UserCode: opt(started.UserCode),
+		ExpiresInSeconds: int(started.ExpiresIn.Seconds()),
 	}, nil
 }
 
 // CompleteIntegrationSignIn finishes a sign-in with the address the browser
-// ended on. The address holds the code, so it is not logged.
+// ended on, or, for one by device code, by waiting until the owner entered
+// it. The address holds the code, so it is not logged.
 func (s *Server) CompleteIntegrationSignIn(ctx context.Context, req openapi.CompleteIntegrationSignInRequestObject,
 ) (openapi.CompleteIntegrationSignInResponseObject, error) {
 	if s.integrations == nil {

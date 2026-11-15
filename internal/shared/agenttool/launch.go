@@ -170,6 +170,8 @@ type Connection struct {
 	// without it (Def.ClientEnv): a Lark app's id, each account being an app
 	// of its own (issue #311). Not a secret.
 	ClientID string `json:"client_id,omitempty"`
+	// User says the account is the owner's own sign-in through an app (issue #468): the tool acts as him.
+	User bool `json:"user,omitempty"`
 }
 
 // ConnectionList answers PathConnections.
@@ -186,6 +188,11 @@ func (l ConnectionList) clientOf(label string) string {
 	}
 
 	return ""
+}
+
+// isUser says whether the account named label is the owner's own sign-in.
+func (l ConnectionList) isUser(label string) bool {
+	return slices.ContainsFunc(l.Data, func(c Connection) bool { return c.Label == label && c.User })
 }
 
 // TokenRequest is the body of PathToken.
@@ -280,7 +287,7 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 	cmd.Env = append(without(os.Environ(), append([]string{EnvKey}, def.Unset...)...), def.Env...)
 
 	// The tool holds no token: its requests go through the control plane's proxy, which adds it.
-	env, refused, stop, err := l.bridge(fetchCtx, def, label)
+	env, refused, stop, err := l.bridge(fetchCtx, def, label, list.isUser(label))
 	if err != nil {
 		return err
 	}

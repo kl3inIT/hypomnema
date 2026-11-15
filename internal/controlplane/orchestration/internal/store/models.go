@@ -212,6 +212,8 @@ type ChatMessage struct {
 	Attachments   sql.NullString
 	Kind          string
 	ApprovalID    sql.NullString
+	SenderID      sql.NullString
+	SenderName    sql.NullString
 }
 
 type ChatQueue struct {
@@ -220,6 +222,8 @@ type ChatQueue struct {
 	Text        string
 	Attachments sql.NullString
 	CreatedAt   int64
+	SenderID    sql.NullString
+	SenderName  sql.NullString
 }
 
 type ClientToken struct {
@@ -244,6 +248,7 @@ type Connection struct {
 	Version      sql.NullString
 	SignInFailed int64
 	AppID        sql.NullString
+	AppLabel     sql.NullString
 }
 
 type Conversation struct {
