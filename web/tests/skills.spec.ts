@@ -32,6 +32,7 @@ function start(): Skill[] {
     {
       name: "review-go",
       everyone: true,
+      built_in: false,
       latest: revision(
         3,
         reviewGo,
@@ -50,6 +51,7 @@ function start(): Skill[] {
     {
       name: "pdf",
       everyone: true,
+      built_in: false,
       latest: revision(
         1,
         "Read, fill and merge PDF files: extract text and tables, fill forms, split and join pages.",
@@ -63,6 +65,7 @@ function start(): Skill[] {
     {
       name: "lark-docs",
       everyone: false,
+      built_in: false,
       latest: revision(
         2,
         "Write a weekly report as a Lark doc from the tasks closed this week, in the team's template.",
@@ -71,6 +74,29 @@ function start(): Skill[] {
       ),
       created_at: ago(100),
       updated_at: ago(72),
+    },
+    // Put in the store by the control plane (issue #492).
+    {
+      name: "pages",
+      everyone: true,
+      built_in: true,
+      latest: revision(
+        2,
+        "Build a fast, good-looking page: a data dashboard, or any other page, shown to the owner as an artifact.",
+        "builtin:v0.9.42",
+        3,
+      ),
+      revisions: [
+        revision(
+          2,
+          "Build a fast, good-looking page: a data dashboard, or any other page, shown to the owner as an artifact.",
+          "builtin:v0.9.42",
+          3,
+        ),
+        revision(1, "Build a page shown to the owner as an artifact.", "builtin:v0.9.41", 30),
+      ],
+      created_at: ago(30),
+      updated_at: ago(3),
     },
   ]
 }
@@ -255,13 +281,31 @@ test("the owner looks through the skills", async ({ page }) => {
   await expect(review).toContainText("Everyone but reviewer")
   await expect(page.getByRole("link", { name: "lark-docs" })).toContainText("vmap, reporter")
   await expect(page.getByRole("article", { name: "lark" })).toContainText("Agents given a Lark app")
+  const builtIn = page.getByRole("region", { name: "Built in" })
+  await expect(builtIn.getByRole("link", { name: "pages" })).toContainText("Hypomnema v0.9.42")
   expect(await fits(page)).toBe(true)
   await shot(page, "skills-list")
+  await builtIn.scrollIntoViewIfNeeded()
+  await shot(page, "skills-list-built-in")
 
   await page.getByRole("button", { name: "table" }).click()
   await expect(page.getByRole("row", { name: /review-go/ })).toBeVisible()
+  await expect(page.getByRole("row", { name: /pages/ })).toContainText("Everyone")
   expect(await fits(page)).toBe(true)
   await shot(page, "skills-table")
+  await page.getByRole("region", { name: "Built in" }).scrollIntoViewIfNeeded()
+  await shot(page, "skills-table-built-in")
+
+  await page.evaluate(`localStorage.setItem("theme", "light")`)
+  await page.reload()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+  await page.getByRole("region", { name: "Built in" }).scrollIntoViewIfNeeded()
+  await shot(page, "skills-table-built-in-light")
+  await page.getByRole("button", { name: "grid" }).click()
+  await page.getByRole("region", { name: "Built in" }).scrollIntoViewIfNeeded()
+  await shot(page, "skills-list-built-in-light")
+  await page.evaluate(`localStorage.setItem("theme", "dark")`)
+  await page.reload()
 
   await page.getByRole("button", { name: "grid" }).click()
   await page.getByLabel("Search skills").fill("lark")
@@ -352,4 +396,30 @@ test("the owner manages one skill", async ({ page }) => {
   await shot(page, "skill-remove-refused")
 
   expect(calls).toEqual(["PUT /skills/review-go/everyone", "DELETE /skills/lark-docs"])
+})
+
+// Scenario: the owner opens pages, a skill the control plane put in the store (issue #492): it says it is built in,
+// each version names the release it came with, it can be turned off for everyone, and it has no Remove.
+test("the owner switches a built-in skill off", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/skills/pages")
+
+  await expect(page.getByTestId("revision")).toHaveCount(2)
+  await expect(page.getByTestId("revision").first()).toContainText("Hypomnema v0.9.42")
+  await expect(page.getByText("Built in", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Remove" })).toHaveCount(0)
+  expect(await fits(page)).toBe(true)
+  await shot(page, "skill-built-in")
+
+  await page.getByRole("switch", { name: "For every worker and bot" }).click()
+  await expect(page.getByRole("switch", { name: "For every worker and bot" })).not.toBeChecked()
+  await shot(page, "skill-built-in-off")
+
+  await page.evaluate(`localStorage.setItem("theme", "light")`)
+  await page.reload()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+  await expect(page.getByTestId("revision")).toHaveCount(2)
+  await shot(page, "skill-built-in-light")
+
+  expect(calls).toEqual(["PUT /skills/pages/everyone"])
 })

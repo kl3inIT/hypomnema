@@ -58,6 +58,8 @@ type Manager struct {
 	publicURL string
 	clock     platform.Clock
 	logger    *slog.Logger
+	// steps lets one power step, or one settle step, run for a node at a time (issue #538).
+	steps nodeLocks
 }
 
 // New returns a Manager. publicURL is the control plane's URL as a new
@@ -190,6 +192,12 @@ func (m *Manager) Remove(ctx context.Context, nodeID string) error {
 // while the node runs Dispatches. When the provider does not stop it now, the
 // machine stays `stopping`, the loop asks again, and the error is returned.
 func (m *Manager) Stop(ctx context.Context, nodeID string) (orchestration.Node, error) {
+	unlock, err := m.steps.lock(ctx, nodeID)
+	if err != nil {
+		return orchestration.Node{}, err
+	}
+	defer unlock()
+
 	if err := m.reg.BeginMachineStop(ctx, nodeID); err != nil {
 		return orchestration.Node{}, err
 	}
@@ -201,6 +209,12 @@ func (m *Manager) Stop(ctx context.Context, nodeID string) (orchestration.Node, 
 // hello. When the provider does not start it now, the machine stays
 // `starting`, the loop asks again, and the error is returned.
 func (m *Manager) Start(ctx context.Context, nodeID string) (orchestration.Node, error) {
+	unlock, err := m.steps.lock(ctx, nodeID)
+	if err != nil {
+		return orchestration.Node{}, err
+	}
+	defer unlock()
+
 	if err := m.reg.BeginMachineStart(ctx, nodeID); err != nil {
 		return orchestration.Node{}, err
 	}
@@ -235,17 +249,7 @@ func (m *Manager) stop(ctx context.Context, node orchestration.Node) error {
 		return p.Stop(ctx, node.Machine.Region, node.ID)
 	})
 	if err == nil {
-		err = m.reg.MachineStopped(ctx, node.ID)
-		// The settle loop and a stop asked by hand or by the phone's idle stop can carry out the same step at once,
-		// as it is safe to repeat; the one that records it second finds it recorded (issue #417, 2026-11-15).
-		if errors.Is(err, orchestration.ErrNotFound) {
-			if now, getErr := m.reg.GetNode(ctx, node.ID); getErr == nil && now.Machine != nil &&
-				now.Machine.Power == orchestration.MachineStopped {
-				return nil
-			}
-		}
-
-		return err
+		return m.reg.MachineStopped(ctx, node.ID)
 	}
 
 	return m.powerFailed(ctx, node, "stopped", err)
@@ -317,6 +321,13 @@ func (m *Manager) call(ctx context.Context, fn func(context.Context) error) erro
 // long is marked failed, one whose create was cut short is looked up at the
 // provider, and a deletion that is due is tried again. An error with one
 // machine does not stop the others; they are joined.
+//
+// A machine whose stop or start runs now is left to the next pass, and each
+// other one is read again before its step, under its lock: the list may be
+// minutes old by its turn, and the owner may have started the machine the
+// list says is being stopped (issue #538). Learned from client-go's workqueue
+// controller, which reads the object by its key when it handles it
+// (examples/workqueue/main.go, syncToStdout).
 func (m *Manager) Settle(ctx context.Context) error {
 	nodes, err := m.reg.ListUnsettledMachines(ctx)
 	if err != nil {
@@ -326,12 +337,35 @@ func (m *Manager) Settle(ctx context.Context) error {
 	var errs []error
 
 	for _, n := range nodes {
-		if err := m.settle(ctx, n); err != nil {
+		if err := m.settleNow(ctx, n.ID); err != nil {
 			errs = append(errs, fmt.Errorf("node %s: %w", n.ID, err))
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+func (m *Manager) settleNow(ctx context.Context, nodeID string) error {
+	unlock, _ := m.steps.tryLock(nodeID)
+	if unlock == nil {
+		return nil
+	}
+	defer unlock()
+
+	n, err := m.reg.GetNode(ctx, nodeID)
+	if errors.Is(err, orchestration.ErrNotFound) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if n.Machine == nil {
+		return nil
+	}
+
+	return m.settle(ctx, n)
 }
 
 func (m *Manager) settle(ctx context.Context, n orchestration.Node) error {

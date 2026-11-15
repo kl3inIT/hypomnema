@@ -21,17 +21,39 @@ Create PDFs from structured specs, build and fill AcroForm forms (with layout li
 ## Prerequisites
 
 - Python 3.10+ with `pypdf`, `reportlab`, `pdfplumber`.
-- `python` is the documents environment, first on PATH, which already imports
-  the libraries. The helpers are installed with this skill in
-  `~/.agents/skills/pdf/scripts`:
+- The helpers are in `scripts/` beside this SKILL.md. Set `S` to that folder's
+  absolute path (this skill's folder, the one SKILL.md is in, then `/scripts`):
 
   ```bash
-  S=~/.agents/skills/pdf/scripts
+  S="<this skill's folder>/scripts"
   python -c "import pypdf, reportlab, pdfplumber" && python "$S/pdf_create.py" --help
   ```
 
-  Run every helper below with `python`. Never `pip install` into the
-  documents environment; it is read-only.
+- In a Bot's box `python` is the documents environment, first on PATH, which
+  already imports the libraries. Never `pip install` into it; it is read-only.
+- Elsewhere (a worker on a node), when that check fails, put one environment
+  with the same pinned versions first on PATH; it is made once in the home and
+  is safe to run from several agents at once:
+
+  ```bash
+  python -c "import pypdf, reportlab, pdfplumber" 2>/dev/null || (
+    # Each caller builds a private venv; a symlink publishes the first finished one atomically, the others
+    # delete theirs; a published build is replaced only while it still fails to import.
+    mkdir -p "$HOME/.cache" && cd "$HOME/.cache" && stage="$(mktemp -d hypomnema-docs-venv.XXXXXX)" || exit 1
+    old="$(readlink hypomnema-docs-venv)"
+    python3 -m venv "$stage" &&
+      "$stage/bin/python" -m pip install -q --disable-pip-version-check python-docx==1.2.0 openpyxl==3.1.5 python-pptx==1.0.2 reportlab==5.1.0 pypdf==6.21.4 pdfplumber==0.11.10 pypdfium2==5.14.0 &&
+      "$stage/bin/python" -c "import docx, openpyxl, pptx, reportlab, pypdf, pdfplumber, pypdfium2" &&
+      if [ -z "$old" ]; then python3 -c 'import os, sys; os.symlink(*sys.argv[1:])' "$stage" hypomnema-docs-venv
+      elif [ "$(readlink hypomnema-docs-venv)" = "$old" ] && ! "$old/bin/python" -c "import docx, openpyxl, pptx, reportlab, pypdf, pdfplumber, pypdfium2" 2>/dev/null; then
+        ln -s "$stage" "$stage.lnk" && python3 -c 'import os, sys; os.replace(*sys.argv[1:])' "$stage.lnk" hypomnema-docs-venv &&
+          case "$old" in hypomnema-docs-venv.??????) rm -rf "$old" ;; esac
+      fi 2>/dev/null
+    [ "$(readlink hypomnema-docs-venv)" = "$stage" ] || rm -rf "$stage" "$stage.lnk"
+  ) && export PATH="$HOME/.cache/hypomnema-docs-venv/bin:$PATH"
+  ```
+
+  Run every helper below with `python`.
 - Page rasterization (`pdf_page_image.py`, overlay rendering) uses `pypdfium2`, which the documents environment already has, or poppler's `pdftoppm` on PATH. Scripts fall back pypdfium2 → pdftoppm and report `{"rendered": false, "missing": [...]}` (exit 0) when neither exists.
 - Each helper script checks imports lazily and prints an install hint if a dependency is missing.
 

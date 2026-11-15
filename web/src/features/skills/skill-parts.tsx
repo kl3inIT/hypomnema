@@ -48,11 +48,17 @@ export function EveryoneBadge() {
   )
 }
 
-// SourceIcon is where a revision came from: GitHub's mark for a repository, an arrow for an upload.
+// SourceIcon is where a revision came from: GitHub's mark for a repository, Hypomnema's for a release of it, an
+// arrow for an upload.
 export function SourceIcon({ source, className }: { source: string; className?: string }) {
-  return source.startsWith("github:") ? (
-    <GitHubIcon className={className} />
-  ) : (
-    <Upload className={cn("text-muted-foreground", className)} aria-hidden />
-  )
+  if (source.startsWith("github:")) return <GitHubIcon className={className} />
+  if (source === "builtin" || source.startsWith("builtin:"))
+    return <HypomnemaIcon className={className} />
+
+  return <Upload className={cn("text-muted-foreground", className)} aria-hidden />
+}
+
+// BuiltinBadge says a skill comes with Hypomnema.
+export function BuiltinBadge() {
+  return <Badge variant="secondary">Built in</Badge>
 }

@@ -256,7 +256,9 @@ func TestAViewThatFallsBehindDropsUntilAKeyFrame(t *testing.T) {
 
 		return n
 	}
-	assert.Equal(t, 1, resets(), "the server was asked for a key frame")
+	// askKeyFrame writes outside the lock, after the view is marked: wait for the write, not only the mark.
+	require.Eventually(t, func() bool { return resets() == 1 }, time.Second, time.Millisecond,
+		"the server was asked for a key frame")
 
 	// The queue drains; the frames after it wait for a key frame.
 	for range viewQueue {

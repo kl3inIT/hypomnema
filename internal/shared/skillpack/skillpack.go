@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -144,6 +145,37 @@ func FromTarball(r io.Reader, dir string) (Skill, error) {
 
 	if len(files) == 0 {
 		return Skill{}, fmt.Errorf("%w: the repository has no folder %q", ErrInvalid, strings.TrimSuffix(dir, "/"))
+	}
+
+	return build(files)
+}
+
+// FromFS reads a skill from a folder tree, as a binary that ships a skill
+// has it: every file under root, with exec saying which are executable,
+// since an embedded tree keeps no modes. Line endings are kept as they are.
+func FromFS(fsys fs.FS, exec func(path string) bool) (Skill, error) {
+	var files []File
+
+	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%w: %s is not a file", ErrInvalid, name)
+		}
+
+		b, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			return err
+		}
+
+		files = append(files, File{Path: name, Exec: exec(name), Data: b})
+
+		return nil
+	})
+	if err != nil {
+		return Skill{}, fmt.Errorf("reading the skill: %w", err)
 	}
 
 	return build(files)

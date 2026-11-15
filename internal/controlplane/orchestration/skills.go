@@ -21,12 +21,24 @@ import (
 // SkillUpload is where a skill given as an archive came from.
 const SkillUpload = "upload"
 
+// SkillBuiltin begins the source of a revision the control plane published
+// from its own binary ("builtin:v0.9.42"), issue #492.
+const SkillBuiltin = "builtin"
+
+// builtinSource says whether a revision's source is a built-in one.
+func builtinSource(source string) bool {
+	return source == SkillBuiltin || strings.HasPrefix(source, SkillBuiltin+":")
+}
+
 // Skill is a skill at its newest revision; Revisions are every one, newest
 // first, when the skill was read alone.
 type Skill struct {
 	Name string
 	// Everyone gives it to every worker and Bot that does not turn it off.
-	Everyone  bool
+	Everyone bool
+	// BuiltIn is a skill the control plane's binary ships: its first revision
+	// is a built-in one. It is switched like any other and never removed.
+	BuiltIn   bool
 	Latest    SkillRevision
 	Revisions []SkillRevision
 	CreatedAt time.Time
@@ -108,7 +120,8 @@ func (s *Service) ListSkills(ctx context.Context) ([]Skill, error) {
 	out := make([]Skill, len(rows))
 	for i, r := range rows {
 		out[i] = Skill{
-			Name: r.Name, Everyone: r.Everyone == 1, CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
+			Name: r.Name, Everyone: r.Everyone == 1, BuiltIn: builtinSource(r.FirstSource),
+			CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 			Latest: SkillRevision{
 				Revision: int(r.Revision), Description: r.Description, Digest: r.Digest, Size: r.Size,
 				Files: int(r.Files), Source: r.Source, Commit: r.SourceCommit.String, CreatedAt: millis(r.RevisedAt),
@@ -147,6 +160,7 @@ func (s *Service) GetSkill(ctx context.Context, name string) (Skill, error) {
 
 	if len(out.Revisions) > 0 {
 		out.Latest = out.Revisions[0]
+		out.BuiltIn = builtinSource(out.Revisions[len(out.Revisions)-1].Source)
 	}
 
 	return out, nil
@@ -178,10 +192,21 @@ func (s *Service) SetSkillEveryone(ctx context.Context, name string, on bool) (S
 }
 
 // DeleteSkill removes a skill and its revisions, unless a profile names it,
-// as Omnara refuses while an agent config does. What a Dispatch was given
-// stays recorded.
+// as Omnara refuses while an agent config does, or it is built in. What a
+// Dispatch was given stays recorded.
 func (s *Service) DeleteSkill(ctx context.Context, name string) error {
 	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		first, err := q.FirstSkillSource(ctx, name)
+		if err != nil {
+			return notFound(err, "skill", name)
+		}
+
+		// The next start would publish it again: a built-in skill is turned off, as OpenMausBot's bundled ones
+		// are (server/skill-library.ts, editable: false) and Codex's system skills (install_system_skills).
+		if builtinSource(first) {
+			return fmt.Errorf("%w: skill %s is built in; turn it off for everyone instead", ErrConflict, name)
+		}
+
 		profiles, err := q.ProfilesNamingSkill(ctx, nullString(name))
 		if err != nil {
 			return fmt.Errorf("finding the profiles of skill %s: %w", name, err)
@@ -333,4 +358,110 @@ func (s *Service) SkillArchiveForNode(ctx context.Context, nodeID, digest string
 	}
 
 	return archive, nil
+}
+
+// BuiltinPublish is what publishing one built-in skill did.
+type BuiltinPublish struct {
+	Name string
+	// Did is "added", "updated", "current", "edited" (the newest revision is
+	// the owner's, which is kept) or "owner's" (the owner added a skill of that
+	// name before the binary shipped one, which is left alone).
+	Did string
+}
+
+// PublishBuiltinSkills puts the skills the control plane's binary ships into
+// the store, each as a revision whose source is source ("builtin:<release>"),
+// at every start (issue #492). A new one is given to everyone, as Codex's
+// system skills reach every session and OpenMausBot's bundled skills every
+// bot; its switch is the owner's after that. One whose files changed gets the
+// next revision, as Hermes's skills_sync.py updates a bundled skill by its
+// origin hash, unless the newest revision is one the owner added (Hermes
+// skips a user-modified skill), and a skill of that name the owner added is
+// never touched (Hermes never overwrites a same-named user skill,
+// tools/skills_sync.py).
+func (s *Service) PublishBuiltinSkills(ctx context.Context, skills []skillpack.Skill, source string,
+) ([]BuiltinPublish, error) {
+	if !builtinSource(source) {
+		return nil, fmt.Errorf("%w: a built-in skill's source is %s:<release>", ErrInvalid, SkillBuiltin)
+	}
+
+	out := make([]BuiltinPublish, 0, len(skills))
+
+	for _, sk := range skills {
+		did, err := s.publishBuiltinSkill(ctx, sk, source)
+		if err != nil {
+			return out, err
+		}
+
+		out = append(out, BuiltinPublish{Name: sk.Name, Did: did})
+	}
+
+	return out, nil
+}
+
+func (s *Service) publishBuiltinSkill(ctx context.Context, sk skillpack.Skill, source string) (string, error) {
+	archive, err := sk.Archive()
+	if err != nil {
+		return "", fmt.Errorf("packing skill %s: %w", sk.Name, err)
+	}
+
+	did := ""
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		revision := int64(1)
+
+		latest, err := q.LatestSkillRevision(ctx, sk.Name)
+
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			did = "added"
+
+			if err := q.InsertSkill(ctx, store.InsertSkillParams{Name: sk.Name, Now: now}); err != nil {
+				return err
+			}
+
+			every := store.SetSkillEveryoneParams{Everyone: 1, Now: now, Name: sk.Name}
+			if _, err := q.SetSkillEveryone(ctx, every); err != nil {
+				return err
+			}
+		case err != nil:
+			return err
+		default:
+			first, err := q.FirstSkillSource(ctx, sk.Name)
+			if err != nil {
+				return err
+			}
+
+			switch {
+			case !builtinSource(first):
+				did = "owner's"
+
+				return nil
+			case latest.Digest == sk.Digest:
+				did = "current"
+
+				return nil
+			case !builtinSource(latest.Source):
+				did = "edited"
+
+				return nil
+			}
+
+			did, revision = "updated", latest.Revision+1
+		}
+
+		if err := q.InsertSkillRevision(ctx, store.InsertSkillRevisionParams{
+			Skill: sk.Name, Revision: revision, Description: sk.Description, Digest: sk.Digest,
+			Size: sk.Size(), Files: int64(len(sk.Files)), Source: source, Archive: archive, Now: now,
+		}); err != nil {
+			return err
+		}
+
+		return q.TouchSkill(ctx, store.TouchSkillParams{Name: sk.Name, Now: now})
+	})
+	if err != nil {
+		return "", fmt.Errorf("publishing built-in skill %s: %w", sk.Name, err)
+	}
+
+	return did, nil
 }

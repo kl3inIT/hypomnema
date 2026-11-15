@@ -6,6 +6,49 @@ statement true or false.
 
 ## Binaries
 
+The two binaries and what talks to them, as `serve` wires them (`internal/controlplane/controlplane.go`) and the node
+runs them (`internal/node`); each box names its package.
+
+```mermaid
+flowchart TB
+    OW["Owner: web client, hypomnema CLI"]
+    LK["Lark app"]
+    subgraph CP["cmd/hypomnema serve: the control plane, on zm"]
+        CAPI["client API, web client<br/>clientapi, webui"]
+        CH["Lark Channels<br/>channels, channels/lark"]
+        ORC["Runs, Tasks, Dispatches, chats, scheduler<br/>orchestration"]
+        CO["coordinator: one pi per chat<br/>coordinator"]
+        AAPI["agent API<br/>agentapi"]
+        GW["model gateway, web search, Images<br/>modelgateway, websearch"]
+        SP["service proxy, Integrations<br/>serviceproxy, integration"]
+        DB[("one SQLite file<br/>shared/sqlite; the vault's secrets in it")]
+    end
+    BOT["Bot: pi --mode rpc in a bubblewrap box<br/>deploy/coordinator/hypomnema-pi"]
+    subgraph ND["cmd/hypomnema-node run: each node"]
+        D["daemon<br/>node/daemon"]
+        W["workers under a shim: Claude Code,<br/>Codex, omp, opencode (node/runner)"]
+    end
+    PROV["subscription accounts: Codex, Claude, Antigravity;<br/>OpenAI-compatible providers"]
+    EXT["Google, Lark, Superset, AWS"]
+
+    OW -- "/api/v1" --> CAPI
+    LK <-- "persistent connection (Lark SDK)" --> CH
+    CAPI --> ORC
+    CH --> ORC
+    ORC --> DB
+    ORC -- "messages, wake-ups" --> CO
+    CO -- "RPC on stdin and stdout" --> BOT
+    BOT -- "hypomnema CLI, pi's token" --> CAPI
+    BOT -- "hypomnema mcp" --> AAPI
+    BOT -- "/v1, chat's key" --> GW
+    D <-- "nodeapi: /node/v1 hello, WebSocket" --> ORC
+    D --> W
+    W -- "hypomnema-node mcp" --> AAPI
+    W -- "/v1, Dispatch's key" --> GW
+    AAPI --> SP --> EXT
+    GW --> PROV
+```
+
 | Binary | Commands | What it does today |
 |---|---|---|
 | `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
@@ -28,6 +71,42 @@ deleted chat's files of pi for the chat's id appended to it (issue #484); unset,
 The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
 which providers are on and the keyed ones' order are set on Settings → Gateway → Web search and stored (see "Web
 search and fetch").
+
+How a message reaches a Bot's pi and its reply comes back (`internal/controlplane/coordinator`,
+`orchestration/chats.go` and `chatqueue.go`, `internal/controlplane/channels`, `deploy/coordinator/hypomnema-pi`).
+
+```mermaid
+flowchart TB
+    WEB["web chat, hypomnema chat<br/>client API, SSE stream"]
+    LK["Lark: a direct message,<br/>a group's mention"]
+    CH["Lark Channel<br/>channels, channels/lark"]
+    CHAT["the chat: chat_messages<br/>orchestration/chats.go"]
+    Q["chat_queue<br/>while pi works"]
+    WK["wake-ups from its Runs' events<br/>WakeChats"]
+    SUP["supervisor: one pi per chat,<br/>stopped after 30 min idle (coordinator)"]
+    subgraph BOX["bubblewrap box, user coordinator (hypomnema-pi)"]
+        PI["pi --mode rpc"]
+        RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
+        RW["read-write: the Bot's folder,<br/>the chat's sessions"]
+        MCP["hypomnema mcp: web_search,<br/>web_fetch, generate_image"]
+    end
+    GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
+
+    WEB <-- "the owner's messages in;<br/>messages, artifacts out" --> CHAT
+    LK <--> CH
+    CH <-- "a person's message, with its sender, in;<br/>reply relay out: text, MEDIA: files, artifact links" --> CHAT
+    CHAT <-- "held while pi works,<br/>moved in when the turn settles" --> Q
+    WK --> CHAT
+    CHAT <-- "a prompt when pi is idle, a steer on send now;<br/>replies and tool calls kept" --> SUP
+    SUP <-- "RPC on stdin and stdout" --> PI
+    SUP -. "live text, tools, working: memory only" .-> WEB
+    PI --- RO
+    PI --- RW
+    PI -- "MCP stdio" --> MCP
+    MCP -- "agent API, pi's token" --> CP["control plane: agent API"]
+    PI --> GW
+    PI -- "hypomnema artifact show" --> CHAT
+```
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
@@ -94,10 +173,43 @@ holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispa
 cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
+The life of a Run, from its creation to the report that wakes its chat (`orchestration` `scheduler.go`, `dispatch.go`,
+`questions.go`, `chats.go`; `nodeapi`; `internal/node/daemon`, `runner`, `workertools`).
+
+```mermaid
+sequenceDiagram
+    participant C as Owner or a Bot's pi
+    participant CP as Control plane<br/>(clientapi, orchestration)
+    participant N as Node daemon
+    participant W as Worker
+    participant G as Git host
+    C->>CP: create a Run (repository, base branch), then Tasks with dependencies
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the least loaded node with the runtime and a worktree root,<br/>an account or a gateway model, at most 4 Dispatches unsettled
+    CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
+    N->>CP: accept (new epoch, 90 s lease)
+    N->>N: fetch the skills, add the Task's worktree, start the shim
+    N->>W: start the CLI with the first turn
+    N->>CP: started, then heartbeats renewing the lease, transcript items
+    opt the worker asks
+        W->>N: ask (hypomnema-node mcp, bridge)
+        N->>CP: question, to the coordinator or the owner
+        CP-->>C: a wake-up in the chat (to the coordinator), or an open question (to the owner)
+        C->>CP: answer (the first wins)
+        CP->>N: answer
+        N->>W: the answer to the waiting call
+    end
+    W->>G: push the branch, gh pr create
+    W->>N: finish (summary, evidence, optional Gate)
+    N->>CP: final report
+    Note over CP: the Dispatch settles and its gateway key is revoked,<br/>the Task succeeds, fails, or is blocked by a Gate
+    CP-->>C: a wake-up in the chat whose pi made the Run
+    C->>CP: finish the Run
+```
+
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
   Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
   it; reopening a failed Task resets its failure count and unblocks them.
-- Dispatches: the coordinator creates one for a ready Task, in a new Conversation or continuing the open one; a node
+- Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
   outcome unknown and blocks the Task; a report from the same epoch, a reattach by the same node and process, a
@@ -184,7 +296,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     an instance instead of destroying it. Its node is drained first, and a node that runs a Dispatch is refused.
     The machine's power is `stopping`, then `stopped`; a start makes the node active again and the power
     `starting` until the node says hello. A stop or a start the provider did not carry out is asked again every
-    pass, with the reason recorded. A stopped machine still counts toward its provider's limit and can be removed.
+    pass, with the reason recorded. One power step runs for a machine at a time: a stop or start asked (by the
+    owner or the phone) waits for the one in flight, and the pass leaves a machine whose step is in flight to the
+    next pass and reads each other machine again before acting on it, as client-go's workqueue hands a key to one
+    worker at a time (issue #538). A stopped machine still counts toward its provider's limit and can be removed.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the Codex CLI's login to a new machine, which the owner still sets
@@ -818,6 +933,39 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, the Bot coordinator deleting a
     profile (only the owner does, below), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
     user or a container per Bot (issue #260).
+
+How a skill goes from the store to a worker and to a Bot (`orchestration/skills.go`, `shared/skillpack`,
+`skillsource`, `skillssh`, `node/skills`, `clientcli/skills.go` and `skilllibrary.go`, `deploy/coordinator/hypomnema-pi`).
+
+```mermaid
+flowchart LR
+    UP["upload: skills add --file<br/>POST /skills/archive"]
+    SSH["skills.sh search, audits<br/>skillssh"]
+    GH["GitHub: skills add --github<br/>skillsource, the ref's commit"]
+    PK["checked, digest, gzipped tar<br/>shared/skillpack"]
+    ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
+    PR["a profile's YAML<br/>skills, skills_off"]
+    BL["a Bot's lists<br/>skills, skills_off"]
+    DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
+    NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
+    PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
+    SY["hypomnema-pi: skills sync --bot<br/>GET /bots/{bot}/skills, revision archives"]
+    PI["pi --skill (the chat's skills folder,<br/>read-only in the box)"]
+    BS["built-in pdf: published at each serve start<br/>source builtin:release (PublishBuiltinSkills)"]
+    BI["other built-in skills for Bots: skills install<br/>~/.agents/skills, bound into every box"]
+
+    UP --> PK
+    SSH --> GH --> PK
+    BS --> ST
+    PK --> ST
+    ST --> PR
+    ST --> BL
+    PR --> DS
+    DS -- "offer: name, revision, digest" --> NF --> PL
+    BL --> SY --> PI
+    BI --> PI
+```
+
 - Skills (`orchestration/skills.go`, issue #21, [research](docs/research/2026-11-12-skills.md)): a skill the owner
   adds, in the Agent Skills format (a folder with a `SKILL.md` whose frontmatter has `name` and `description`, and
   the files beside it), kept whole in revisions that never change, after Omnara's `skills` and `skill_revisions`
@@ -842,6 +990,24 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     must exist and be named once (migration 00051). A skill a profile's current version names is not removed, as
     Omnara refuses while an agent config names one; otherwise it is removed with its revisions. The web's agent
     builder keeps both lists when it saves and does not edit them yet.
+  - Built-in skills in the store (issue #492, [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md),
+    sections 3 and 4): `pdf`, which the binary ships (`clientcli.StoreSkills`), reaches every agent kind,
+    Bots and every worker runtime, by the path above, as Codex gives its system skills to every session, OpenClaw
+    its bundled skills to every agent (Claude CLI runs included) and OpenMausBot its library's skills to every
+    engine (`everyBot`). At each start, `serve` publishes it (`PublishBuiltinSkills`): a skill not in the store is
+    added as revision 1 for everyone, its source `builtin:<release>`; one whose files changed gets the next revision,
+    as Hermes's `tools/skills_sync.py` updates a bundled skill by its hash, unless the newest revision is one the
+    owner uploaded (Hermes skips a user-modified skill); a skill of that name the owner added before is never
+    touched (Hermes never overwrites a same-named user skill). The "for everyone" switch is the owner's after the
+    first start, and a profile or Bot turns it off as any other. A skill whose first revision is built in is
+    `built_in` in the API and cannot be removed (409: turn it off instead), as OpenMausBot's bundled skills are not
+    deletable and Codex reinstalls its system skills. A failure to publish is logged and the control plane serves on
+    with the store as it was (Codex's `ensure_system_skills_installed`). pdf names its scripts relative to its
+    folder, since each runtime places it elsewhere; its `python` is the documents environment in a Bot's box, and
+    on a worker, when it does not import the libraries, the venv of Hermes's sandbox branch with the same pins
+    (`~/.cache/hypomnema-docs-venv`). Only a skill that names no command an agent may lack goes to the store:
+    `pages` and `slides` name `hypomnema artifact show`, which a worker does not have, so they stay Bots' skills in
+    `~/.agents/skills` ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15).
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -857,8 +1023,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Dispatch on the account; Codex gets them in the Conversation's `CODEX_HOME/skills`, made again at each start so
     that a skill taken away is gone, beside Codex's own `.system`. omp gets them in its agent directory's `skills`
     (`PI_CODING_AGENT_DIR`, which omp reads skills from); opencode in the Conversation's `skills` folder, which its
-    configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The built-in skills
-    reach workers as before.
+    configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The other built-in
+    skills reach workers as before: the Integration guides through `$HYPOMNEMA_SKILLS` (below).
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
     removed. When pi starts for a chat, `hypomnema-pi` runs `hypomnema skills sync --bot <bot> --dir
@@ -876,7 +1042,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     flags), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`, and `GET /built-in-skills` (the name and
     description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
     `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are still the built-in skills',
-    which are not listed.
+    which are not listed, but for pdf, which is in the store.
   - skills.sh (`internal/controlplane/skillssh`, step 5, after the skills CLI `vercel-labs/skills`): `GET
     /skill-search?q=&owner=` asks skills.sh's search and, when a query of two to six words finds fewer than ten,
     asks again without each word and puts those after, at most 25 (`exact` says how many lead); `GET
@@ -1704,6 +1870,40 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
   error code only.
 
+What the model gateway serves and from where (`modelgateway/http.go`, `chat.go`, `accounts.go`, `images.go`;
+`subscription/rank.go`; `websearch/chain.go`).
+
+```mermaid
+flowchart LR
+    CW["Workers<br/>a Dispatch's key"]
+    CB["A Bot's pi<br/>its chat's key"]
+    CT["Owner's tools (opencode, omp)<br/>keys from Settings, Gateway keys"]
+    CA["Owner, a Routine's script<br/>client API: hypomnema web, image"]
+    K["key check: Bearer or x-api-key<br/>gateway_keys, the models it may use"]
+    CHAT["chat routes: /v1/chat/completions,<br/>/v1/messages, /v1/responses, /v1/models"]
+    MT["model table: a public name,<br/>its targets in order (gateway_models)"]
+    OC["openai_compatible providers<br/>key in the vault (vault:name)"]
+    SUB["built-in providers: codex-, claude-,<br/>antigravity-subscription"]
+    ACC["subscription accounts: a session's home account,<br/>ranked (rank.go), reserve last, cooldowns;<br/>next account on 401, 402, 403, 429, 502-504"]
+    WS["web search chain: keyed providers in the owner's order,<br/>then the keyless ring, then Codex, Claude, Antigravity"]
+    WP["Exa, Firecrawl, Parallel,<br/>Tavily, TinyFish, You.com"]
+    IMG["Images: Codex, then Antigravity"]
+
+    CW --> K
+    CB --> K
+    CT --> K
+    K --> CHAT --> MT
+    MT -- "next target on no answer, 429, 5xx,<br/>while nothing was sent" --> OC
+    MT --> SUB --> ACC
+    K -- "/v1/search, /v1/web/fetch, /v1/alpha/search" --> WS
+    K -- "/v1/images/generations, /edits" --> IMG
+    CA --> WS
+    CA --> IMG
+    WS --> WP
+    WS --> ACC
+    IMG --> ACC
+```
+
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
 OpenAI-compatible providers the owner declares and from three built-in providers, the owner's Codex, Antigravity and
@@ -2444,9 +2644,11 @@ The owner's commands:
   (otherwise only with `--force`, keeping a backup). The stub of a skill this binary no longer ships (`web-search`
   and `images` since issue #492, `retiredStubs`) is taken out of both folders when it matches a released one, and
   its folder when nothing else is in it, as Codex replaces its whole system skills folder at an update; an edited
-  one is left and named. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
+  one is left and named. The same goes for the pdf folder in `~/.agents/skills` (issue #492): an unedited copy (its
+  digest in `releasedFolders`) is removed, since the skills store now places it, and it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
-- The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder: Hermes's
+- The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder (until
+  issue #492 installed as described here; since then published into the skills store, above): Hermes's
   `skills/productivity/pdf` at `022a14437b2d` (MIT, its `LICENSE` in the folder, the notice in
   `third_party/hermes-agent/NOTICE`), adapted to the Bots' box: `python` is the documents environment (above), the
   scripts are named where the skill is installed (`~/.agents/skills/pdf/scripts`), and OCR, nano-pdf editing and
@@ -2457,7 +2659,8 @@ The owner's commands:
   (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
   does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
   with no `skills add`. It is listed among the built-in skills.
-- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder:
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder
+  installed in `~/.agents/skills` for Bots only:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
   `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
   Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
@@ -2671,8 +2874,10 @@ Node (`internal/node`):
   A key is one object named by the operation's `_id`, with the base URL and the call's path, query and body. The
   settings (Channels, Integrations with their services, accounts and agent actions, Repositories, the Vault and
   the Skills), the memories (an agent's and About you), and the models and the gateway (the accounts with their
-  limits, the providers, the gateway's models and keys, Images, Web search and Usage) read and refresh through
-  them; the other screens still use hand-written keys, moved one area at a time.
+  limits, the providers, the gateway's models and keys, Images, Web search and Usage), and the machines with
+  their providers, the browser's tabs and the phone (their REST reads only: the screen streams and the take-over
+  sockets stay hand-written) read and refresh through them; the other screens still use hand-written keys, moved
+  one area at a time.
 - Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
@@ -3002,7 +3207,8 @@ Node (`internal/node`):
   - `/settings/skills` (under Agents, [issue #21](https://github.com/kl3inIT/hypomnema/issues/21)) lists the added
     skills and the built-in ones as two sections of cards or a table, chosen as on the Machines page, with a search
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
-    one book icon. "Add skill" takes a GitHub source, an archive (Omnara's drop zone), or a skill found on skills.sh:
+    one book icon. A built-in skill in the store (pdf; issue #492) is listed with the built-in ones as a card
+    or row that opens its page, its source the release it came with; its page has a "Built in" badge and no Remove. "Add skill" takes a GitHub source, an archive (Omnara's drop zone), or a skill found on skills.sh:
     its "skills.sh" tab searches as the skills CLI's prompt does (two characters, a shorter wait for a longer
     query), lists each result's name, repository and installs, marks one already here (same name and repository),
     shows a picked result's audits, and adds it by repository and name. A skill's page
@@ -3130,6 +3336,10 @@ the internet, so that a machine created at a provider can install the node from 
   opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin` (the control plane
   installs them on every node since #107). The earlier
   control plane on aioffice-app (`~ubuntu/hypomnema-cp`) was deleted on 2026-11-13.
+- Node zm, since 2026-11-15 (v0.9.50): on the control plane's own machine, user `dat`, from `~/.hypomnema-node`,
+  added with the default limit of 2 and then drained, so it shows on Machines with its stats and takes no work
+  (owner, 2026-11-15: watch it, run workers when it is idle). `hypomnema nodes resume zm` lets it take work; its
+  workers would then run as the user that holds the control plane's `env` and vault keys.
 - Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
   control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
   sent to the node with each Dispatch of a Claude Code worker and is also served by the gateway. The earlier hand-kept

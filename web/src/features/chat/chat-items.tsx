@@ -43,11 +43,11 @@ import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } 
 export function ChatItemView({
   item,
   working,
-  bot,
+  botName,
 }: {
   item: ChatItem
   working: boolean
-  bot: string
+  botName: string
 }) {
   switch (item.kind) {
     case "owner":
@@ -64,7 +64,12 @@ export function ChatItemView({
       return <ApprovalRow approval={item.approval} />
     case "reply":
       return (
-        <Reply text={item.text} streaming={item.streaming} createdAt={item.createdAt} bot={bot} />
+        <Reply
+          text={item.text}
+          streaming={item.streaming}
+          createdAt={item.createdAt}
+          botName={botName}
+        />
       )
     case "activity":
       return <Activity steps={item.steps} live={item.open && working} />
@@ -156,19 +161,19 @@ function Reply({
   text,
   streaming,
   createdAt,
-  bot,
+  botName,
 }: {
   text: string
   streaming: boolean
   createdAt?: string
-  bot: string
+  botName: string
 }) {
   return (
     <div
       className="group/assistant relative min-w-0 px-1 py-0.5 pb-2"
       data-testid={streaming ? "reply-streaming" : "reply"}
     >
-      <h3 className="sr-only">{bot}</h3>
+      <h3 className="sr-only">{botName}</h3>
       <Markdown text={text} streaming={streaming} />
       {!streaming && <Meta text={text} createdAt={createdAt} align="start" />}
     </div>
