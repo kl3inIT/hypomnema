@@ -12,7 +12,7 @@ import {
 import { useState, type ReactNode } from "react"
 
 import "@/api/client"
-import { getChat, listRuns } from "@/api/generated/sdk.gen"
+import { getChat } from "@/api/generated/sdk.gen"
 import type { BrowserTab } from "@/api/generated/types.gen"
 import {
   AlertDialog,
@@ -40,7 +40,7 @@ import {
 import { AgentAvatar } from "@/components/agent-avatar"
 import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBotName, useBots } from "@/features/bots/use-bots"
-import { ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
+import { chatTabs, ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserView } from "@/features/browser/browser-view"
 import { ChatBody } from "@/features/chat/chat-body"
 import { hasPhone, useDevice } from "@/features/device/device-state"
@@ -68,7 +68,7 @@ import { setDragged, tabDrag } from "./use-grid"
 export type Beside = { open: (tab: PaneTab) => void; has: (key: string) => boolean }
 
 // PaneView is a pane (issue #235): a strip of its tabs, and the tab in front under it. "+" opens a new chat, the
-// owner's browser tab, the phone (issue #417), or a browser tab of a worker of a chat in the pane, as Orca's tab bar does
+// owner's browser tab, the phone (issue #417), or a browser tab of a chat in the pane, its Bot's or a worker's (issue #557), as Orca's tab bar does
 // (tab-bar-static-create-menu.tsx: New Terminal, New Browser Tab, New Mobile Emulator) and Omnigent's workspace
 // panel ("Open new", WorkspacePanel.tsx). An item is offered only when the control plane has it; the owner's own
 // browser tab and the phone, of which there is one each, are gone to when open, as Orca's emulator is. The strip is the top of the
@@ -100,20 +100,10 @@ export function PaneView({
   const browser = useBrowser()
   const device = useDevice()
   const bots = useBots().data ?? []
-  const runs = useQuery({
-    queryKey: ["runs"],
-    queryFn: async () => (await listRuns({ query: { limit: 100 } })).data,
-    enabled: browser.isSuccess,
-  })
 
-  // The browser tabs of the workers of the chats in this pane: those of the Runs their coordinators created.
-  const chats = new Set(paneChats(pane))
-  const mine = new Set(
-    runs.data?.data.filter((r) => r.chat_id && chats.has(r.chat_id)).map((r) => r.id),
-  )
-  const workers = (browser.data?.tabs ?? []).filter(
-    (t) => t.kind === "worker" && t.run_id !== undefined && mine.has(t.run_id),
-  )
+  // The browser tabs of the chats in this pane, a worker's or a Bot's (issue #557).
+  const theirs = chatTabs(browser.data?.tabs, new Set(paneChats(pane)))
+  const botName = (id: string) => botNameOf(bots, id)
   const known = (tab: string): BrowserTab =>
     browser.data?.tabs.find((t) => t.id === tab) ?? {
       id: tab,
@@ -217,7 +207,7 @@ export function PaneView({
                 return (
                   <TabButton
                     key={key}
-                    title={whose(shown).line}
+                    title={whose(shown, botName).line}
                     onClose={close}
                     closeLabel={`Close ${label(shown)}`}
                     {...common}
@@ -225,7 +215,9 @@ export function PaneView({
                     <Globe className="size-3.5 shrink-0" aria-hidden />
                     <span className="truncate">{label(shown)}</span>
                     {shown.id !== ownerTab && (
-                      <span className="text-xs text-secondary-label">{whose(shown).mark}</span>
+                      <span className="text-xs text-secondary-label">
+                        {whose(shown, botName).mark}
+                      </span>
                     )}
                   </TabButton>
                 )
@@ -280,18 +272,21 @@ export function PaneView({
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuGroup>
-                {workers.length > 0 && (
+                {theirs.length > 0 && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel>Workers of this pane's chats</DropdownMenuLabel>
-                      {workers.map((tab) => (
+                      <DropdownMenuLabel>Tabs of this pane's chats</DropdownMenuLabel>
+                      {theirs.map((tab) => (
                         <DropdownMenuItem
                           key={tab.id}
                           onClick={() => open({ kind: "browser", tab: tab.id })}
                         >
                           <Globe />
                           <span className="truncate">{tabName(tab)}</span>
+                          <span className="ms-auto ps-2 text-xs text-secondary-label">
+                            {whose(tab, botName).mark}
+                          </span>
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuGroup>

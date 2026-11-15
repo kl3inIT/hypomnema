@@ -14,6 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	shared "github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // sharedBrowser stands for the browser every agent shares: it has the tabs
@@ -132,6 +133,87 @@ func TestTheOwnerSeesTheBrowserAndItsTabs(t *testing.T) {
 	ticket, err := pi.OpenBrowserViewWithResponse(t.Context(), shared.OwnerTab)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, ticket.StatusCode())
+}
+
+// Scenario: every tab names the chat it belongs to, whichever agent opened
+// it (issue #557). A worker's is its Run's chat's and a Bot's pi's is its
+// own chat's, with its Bot; a worker of a Run the owner made, a coordinator
+// token's tab and a pi's of a chat that is gone belong to no chat.
+func TestATabNamesItsChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("owner", bearertoken.Owner)
+	ctx := t.Context()
+
+	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap"})
+	require.NoError(t, err)
+	chat, err := w.svc.CreateChat(ctx, vmap.ID, "maps")
+	require.NoError(t, err)
+
+	ofChat, err := w.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "add a health page", CreatedBy: "pi", Repo: "kl3inIT/demo", ChatID: chat.ID,
+	})
+	require.NoError(t, err)
+	ofOwner := w.createRun(owner, "tidy the docs")
+
+	node, _, err := w.svc.AddNode(ctx, "box", 0)
+	require.NoError(t, err)
+	require.NoError(t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{
+		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
+	}))
+
+	for _, run := range []string{ofChat.ID, ofOwner.Id} {
+		made, err := owner.CreateTasksWithResponse(ctx, run, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
+			{Ref: "a", Spec: "work"},
+		}})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, made.StatusCode(), string(made.Body))
+	}
+
+	scheduled, err := w.svc.Schedule(ctx)
+	require.NoError(t, err)
+	require.Len(t, scheduled.Created, 2)
+
+	tabs := []shared.Tab{{ID: "b-" + chat.ID}, {ID: "b-cht_gone"}, {ID: "c-tok_1"}}
+	for _, dispatch := range scheduled.Created {
+		tabs = append(tabs, shared.Tab{ID: "d-" + dispatch})
+	}
+
+	w.srv.WithBrowser(newSharedBrowser(tabs...))
+
+	resp, err := owner.GetBrowserWithResponse(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, resp.JSON200, "%s", resp.Body)
+
+	chatOf := map[string]string{}
+	runOf := map[string]string{}
+
+	for _, tab := range resp.JSON200.Tabs {
+		if tab.ChatId != nil {
+			chatOf[tab.Id] = *tab.ChatId
+		}
+
+		if tab.RunId != nil {
+			runOf[tab.Id] = *tab.RunId
+		}
+	}
+
+	bots := resp.JSON200.Tabs[0]
+	assert.Equal(t, openapi.BrowserTabKindCoordinator, bots.Kind)
+	require.NotNil(t, bots.BotId)
+	assert.Equal(t, vmap.ID, *bots.BotId, "a Bot's tab says whose Bot it is")
+
+	want := map[string]string{"b-" + chat.ID: chat.ID}
+
+	for _, dispatch := range scheduled.Created {
+		if runOf["d-"+dispatch] == ofChat.ID {
+			want["d-"+dispatch] = chat.ID
+		}
+	}
+
+	assert.Len(t, want, 2, "one worker is of the chat's Run")
+	assert.Equal(t, want, chatOf)
 }
 
 // Scenario: the owner watches a tab. The ticket opens the WebSocket once.

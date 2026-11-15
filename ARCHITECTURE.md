@@ -374,8 +374,7 @@ sequenceDiagram
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
   engine on the control plane, an agent's calls to it, the tools in a worker's and a Bot's pi's hands, and the
   control plane's side of the owner watching a tab and taking control, and its tabs in a chat's pane in the web
-  client. Not built: a node holding the browser instead; a Bot's own tab in its chat's pane (the pane lists its
-  Runs' workers' tabs; the Bot's is in `hypomnema browser status`).
+  client. Not built: a node holding the browser instead.
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -459,11 +458,14 @@ sequenceDiagram
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
     say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
-    Run), and its address and title as Chrome's own DevTools port lists them.
+    Run), the chat it belongs to (`chat_id`, issue #557), and its address and title as Chrome's own DevTools port lists them. A tab's
+    chat is named whichever agent opened it: a worker's is its Run's chat, when the Run has one; a Bot's pi's
+    (`b-<chat>`) is that chat, with the chat's Bot (`bot_id`); the owner's own tab, a coordinator token's and a
+    worker's of a Run with no chat belong to none.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
-    `GET /api/v1/browser`, read again every five seconds, that belong to Runs of that chat, each named by its
-    page's title with a mark of whose it is. The tab is shown as `BrowserView`, one piece that holds the address
+    `GET /api/v1/browser`, read again every five seconds, whose `chat_id` is a chat of the pane, its Bot's and its
+    workers' alike, each named by its page's title with a mark of whose it is (a Bot's tab carries its Bot's name). The tab is shown as `BrowserView`, one piece that holds the address
     row, the control button and the picture. While the owner holds the browser the sidebar says so on every
     page, since every agent's browser tools wait meanwhile. It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;

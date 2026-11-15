@@ -697,6 +697,14 @@ export type BrowserTab = {
   dispatch_id?: string;
   task_id?: string;
   run_id?: string;
+  /**
+   * The chat the tab belongs to, whichever agent opened it: a worker's through its Run's chat, a Bot's pi's from its own. Absent for a tab of no chat.
+   */
+  chat_id?: string;
+  /**
+   * The Bot whose pi opened the tab, for a Bot's tab in a chat.
+   */
+  bot_id?: string;
   url: string;
   title: string;
   /**
