@@ -21,7 +21,8 @@ import {
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 
-import { errorText, machineProblem } from "./machines-state"
+import { errorText } from "@/lib/server-error"
+import { machineProblem } from "./machines-state"
 import { nodesKey, providersKey, useMachineProviders } from "./use-machines"
 
 // own is the choice of a machine the owner installs the node on; any other choice is a provider's name.

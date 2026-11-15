@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { Bot as BotIcon, Layers } from "lucide-react"
 
 import type { SetupChange } from "@/api/generated/types.gen"
-import { errorText } from "@/features/agents/profiles-state"
+import { errorText } from "@/lib/server-error"
 import { cn } from "@/lib/utils"
 
 import { changeLine, useUndoSetupChange, verb, what } from "./setup-changes"

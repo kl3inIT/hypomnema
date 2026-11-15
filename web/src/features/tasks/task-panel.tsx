@@ -11,18 +11,18 @@ import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { since, span } from "@/lib/time"
 
-import { RuntimeMark } from "@/features/agents/runtime-mark"
+import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { QuestionForm } from "@/features/questions/question-form"
 import { boardKey, questionsKey, useWork } from "@/features/work/use-work"
 import {
   boardCards,
-  firstLine,
   evidenceLink,
   pullRequest,
   repoLabel,
   type Card,
 } from "@/features/work/work-state"
+import { firstLine } from "@/lib/text"
 
 import { Transcript } from "./transcript"
 

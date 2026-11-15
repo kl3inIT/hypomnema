@@ -275,8 +275,18 @@ How the references keep a UI consistent is in
   `web/src/components/icons` (Orca, Omnigent).
 - **A thing that has a logo is shown with it** beside its name: a git host, a runtime, a service, a model's
   maker (owner, 2026-11-10). A generic icon is for what has none.
-- **A shared component is made when a second screen needs it**, not before (Coder). What Settings shares is in
-  `web/src/features/settings/settings-parts.tsx`.
+- **Where code lives** ([research](research/2026-11-15-web-code-organisation.md); owner, 2026-11-15). A screen
+  and what only it uses are in `web/src/features/<area>`; a route file stays thin (t3code, Omnara, Onyx,
+  Infisical).
+  - `web/src/components` holds shared UI that takes props and fetches nothing. A shared part that fetches data
+    stays in its feature, and other features import it from there (Coder `contributing/frontend.md`).
+  - A part moves there when at least two features other than its owner import it, in the change that adds the
+    second importer, not before (Coder `site/AGENTS.md`; the threshold is the owner's).
+  - Shared helpers that are not UI go in `web/src/lib`, generic hooks in `web/src/hooks`. Files only the moved
+    part uses move with it (Coder, Omnara).
+  - Features may import each other (every reference does). `components`, `lib` and `hooks` never import a
+    feature or a route; the linter refuses it with `no-restricted-imports` (Coder's layering, Onyx's mechanism).
+  - One part, or one close family of parts, a file; file names are kebab-case; no barrel files (Coder, t3code).
 - **What is its own design stays its own**: a control that is not an ordinary button, input, select or dialog (a
   card that is pressed, a row that opens, the chat's composer, a switch whose state the primitive shows less
   clearly) is not forced into a primitive. The reason is written where it is kept (owner, 2026-11-10).

@@ -5,15 +5,15 @@ import { useState } from "react"
 
 import type { Model, Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { ConfirmDialog } from "@/features/settings/settings-parts"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { MemoryEditor } from "@/features/memory/memory-editor"
 import { useAgentMemory, useSetAgentMemory } from "@/features/memory/use-memory"
-import { PageHeader } from "@/features/shell/app-shell"
-import { AgentAvatar } from "./agent-avatar"
+import { PageHeader } from "@/components/page-header"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { StandingText } from "./agents-screen"
 import { ProfileEditor } from "./profile-editor"
 import { copyName, draftOf, emptyDraft, runtimeName, savedAgo, type Draft } from "./profiles-state"
-import { RuntimeMark } from "./runtime-mark"
+import { RuntimeMark } from "@/components/icons/runtime-mark"
 import {
   profilesKey,
   useApplyProfile,

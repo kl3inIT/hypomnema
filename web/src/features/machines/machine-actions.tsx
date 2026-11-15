@@ -20,7 +20,8 @@ import { drainNode, removeNode, resumeNode, updateNode } from "@/api/generated/s
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 
-import { errorText, machineState, noTerminal } from "./machines-state"
+import { errorText } from "@/lib/server-error"
+import { machineState, noTerminal } from "./machines-state"
 import { nodesKey, useMachinePower } from "./use-machines"
 
 const itemClass =

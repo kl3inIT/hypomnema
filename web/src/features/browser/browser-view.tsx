@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { errorText } from "@/features/machines/machines-state"
+import { errorText } from "@/lib/server-error"
 
 import {
   buttonOf,

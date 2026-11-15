@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 
-import { problemOf } from "@/features/files/files-state"
+import { problemOf } from "@/lib/server-error"
 
 import { DownloadView } from "./download-view"
 import { FilePreview } from "./file-preview"

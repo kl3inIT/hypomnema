@@ -6,7 +6,7 @@
     "dist/**",
     "src/routeTree.gen.ts",
     "src/api/generated/**",
-    "src/components/**"
+    "src/components/ui/**"
   ],
   "rules": {
     "react/rules-of-hooks": "error",
@@ -16,6 +16,7 @@
         "allowConstantExport": true
       }
     ],
+    "import/no-cycle": "error",
     "shadcn/no-raw-colors": "error",
     "shadcn/no-restyle": "error",
     "shadcn/no-unknown-classes": "error",
@@ -37,6 +38,28 @@
       "files": ["src/routes/**"],
       "rules": {
         "react/only-export-components": "off"
+      }
+    },
+    {
+      "files": ["src/components/**", "src/lib/**", "src/hooks/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@/components/ui/native-select",
+                "message": "A choice uses Select (@/components/ui/select): the native list is drawn by the system (docs/conventions.md)."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@/features/**", "@/routes/**", "**/features/**", "**/routes/**"],
+                "message": "components/, lib/ and hooks/ never import a feature or a route (docs/conventions.md, Web client)."
+              }
+            ]
+          }
+        ]
       }
     }
   ]

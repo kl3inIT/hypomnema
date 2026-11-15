@@ -17,7 +17,7 @@ import type { ChatWake } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useWork } from "@/features/work/use-work"
-import { firstLine } from "@/features/work/work-state"
+import { firstLine } from "@/lib/text"
 import { cn } from "@/lib/utils"
 
 import { useDock } from "./dock-context"

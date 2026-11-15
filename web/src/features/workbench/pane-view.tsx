@@ -37,7 +37,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { AgentAvatar } from "@/features/agents/agent-avatar"
+import { AgentAvatar } from "@/components/agent-avatar"
 import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBotName, useBots } from "@/features/bots/use-bots"
 import { ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"

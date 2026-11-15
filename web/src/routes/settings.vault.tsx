@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 
-import { SettingsSidebar } from "@/features/settings/settings-shell"
+import { SettingsSidebar } from "@/components/settings-page"
 import { VaultScreen } from "@/features/settings/vault-screen"
 
 export const Route = createFileRoute("/settings/vault")({

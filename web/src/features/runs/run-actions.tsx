@@ -14,8 +14,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { ErrorAlert } from "@/features/settings/settings-parts"
-import { firstLine } from "@/features/work/work-state"
+import { ErrorAlert } from "@/components/error-alert"
+import { firstLine } from "@/lib/text"
 
 import { allEnded, useRunActions } from "./use-run-actions"
 

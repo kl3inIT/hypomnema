@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { PageHeader, PageHeading } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/components/page-header"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -13,8 +13,8 @@ import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
 import { isVisible, useColumnVisibility, useStatusFilter } from "./column-visibility"
 import { ViewMenu } from "./columns-menu"
 import { columns, hiddenColumns, shownColumns, type Column } from "./machines-columns"
+import { errorText } from "@/lib/server-error"
 import {
-  errorText,
   filterStates,
   machineNote,
   machineState,

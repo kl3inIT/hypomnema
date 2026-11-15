@@ -254,12 +254,3 @@ export function toYaml(draft: Draft, models: Model[]) {
 
   return out
 }
-
-// errorText is what the server said when it refused, or a plain line when it said nothing.
-export function errorText(error: unknown) {
-  if (error && typeof error === "object" && "message" in error && error.message) {
-    return String(error.message)
-  }
-
-  return "The server refused. Try again."
-}

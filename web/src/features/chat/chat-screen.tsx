@@ -8,17 +8,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { AvatarName } from "@/features/agents/agent-avatar"
+import { AvatarName } from "@/components/agent-avatar"
 import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
-import {
-  AppSidebar,
-  MenuLink,
-  PageHeader,
-  Places,
-  SettingsLink,
-  SignOut,
-} from "@/features/shell/app-shell"
+import { AppSidebar, Places, SettingsLink, SignOut } from "@/features/shell/app-shell"
+import { MenuLink, PageHeader } from "@/components/page-header"
 import { BotList } from "@/features/shell/bot-list"
 import { SoloPane } from "@/features/workbench/solo-pane"
 

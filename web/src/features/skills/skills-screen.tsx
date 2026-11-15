@@ -6,7 +6,7 @@ import type { BuiltinSkill, Skill } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
-import { SettingsPage } from "@/features/settings/settings-shell"
+import { SettingsPage } from "@/components/settings-page"
 import { since } from "@/lib/time"
 
 import { AddSkill } from "./add-skill"

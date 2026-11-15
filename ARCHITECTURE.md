@@ -2941,7 +2941,7 @@ Node (`internal/node`):
     reason in that issue: the chat, the question form, a transcript's rows, the
     Machines cards, table, switch and menu, the Task panel as a side panel.
   - A change the owner made in Settings that succeeded says so in a toast (`said` in
-    `web/src/features/settings/use-integrations.ts`).
+    `web/src/lib/said.ts`).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
     `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's
@@ -3108,7 +3108,9 @@ and the node in the control plane binary.
   transcript's reads stop on their abort signal.
 - Oxlint loads `@shadcn/lint` (`jsPlugins` in `web/.oxlintrc.json`) with `no-raw-colors`, `no-restyle`,
   `no-unknown-classes` and `require-static-classes`; `no-arbitrary-values` and `no-inline-styles` are not enabled
-  yet. Both tools leave the primitives alone (`web/src/components`: shadcn's components and theme provider).
+  yet. Oxlint leaves shadcn's primitives alone (`web/src/components/ui`); React Doctor leaves all of
+  `web/src/components`. Oxlint also fails an import cycle (`import/no-cycle`) and an import of a feature or a
+  route from `web/src/{components,lib,hooks}` (`no-restricted-imports`).
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request

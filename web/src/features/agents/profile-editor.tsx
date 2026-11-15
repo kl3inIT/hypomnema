@@ -23,16 +23,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { AvatarName } from "@/features/agents/agent-avatar"
+import { AvatarName } from "@/components/agent-avatar"
 import { SkillsField } from "@/features/skills/skills-field"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 import { ModelPicker } from "./model-picker"
+import { errorText } from "@/lib/server-error"
 import {
   efforts,
   emptyDraft,
-  errorText,
   maxFallbacks,
   modelKey,
   problem,
@@ -42,7 +42,7 @@ import {
   toYaml,
   type Draft,
 } from "./profiles-state"
-import { RuntimeMark } from "./runtime-mark"
+import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { useApplyProfile, useProfiles } from "./use-profiles"
 
 type Mode = "builder" | "yaml"

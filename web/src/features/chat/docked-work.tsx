@@ -17,10 +17,11 @@ import "@/api/client"
 import { listProfiles } from "@/api/generated/sdk.gen"
 import type { RunDetail, TaskDetail } from "@/api/generated/types.gen"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { RuntimeMark } from "@/features/agents/runtime-mark"
+import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { QuestionForm } from "@/features/questions/question-form"
 import { RunActions } from "@/features/runs/run-actions"
-import { firstLine, runtimeOf } from "@/features/work/work-state"
+import { firstLine } from "@/lib/text"
+import { runtimeOf } from "@/features/work/work-state"
 import { cn } from "@/lib/utils"
 
 import {

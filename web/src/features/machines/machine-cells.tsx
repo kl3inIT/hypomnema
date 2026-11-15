@@ -1,19 +1,11 @@
-import { Meter as BaseMeter } from "@base-ui/react/meter"
 import type { ReactNode } from "react"
 
 import type { Node, NodeGpu } from "@/api/generated/types.gen"
+import { dimmed, meterTone, toneColors } from "@/lib/meter-tone"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
-import {
-  decimal,
-  machineProblem,
-  machineState,
-  meterTone,
-  stateNames,
-  type MachineState,
-  type MeterTone,
-} from "./machines-state"
+import { machineProblem, machineState, stateNames, type MachineState } from "./machines-state"
 
 // What the Machines page's cells are made of, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx).
@@ -31,15 +23,6 @@ const stateDots: Record<MachineState, string> = {
   stopped: "bg-muted-foreground/50",
   starting: "bg-running animate-pulse",
 }
-
-const toneColors: Record<MeterTone, string> = {
-  good: "bg-done",
-  warn: "bg-needs-you",
-  crit: "bg-failed",
-}
-
-// A machine that is not connected shows its last measurement dimmed, as Beszel dims a paused or down system.
-const dimmed = "bg-muted-foreground/40"
 
 // IndicatorDot is Beszel's status dot.
 export function IndicatorDot({ node }: { node: Node }) {
@@ -86,39 +69,6 @@ export function LoadDot({ percent, connected }: { percent: number; connected: bo
       )}
       aria-hidden
     />
-  )
-}
-
-// Meter is Beszel's TableCellWithMeter on Base UI's Meter: the number on the left and a bar on the right that is
-// green, then amber from 65 %, then red from 90 %.
-export function Meter({
-  label,
-  value,
-  connected,
-  title,
-}: {
-  label: string
-  value: number
-  connected: boolean
-  title?: string
-}) {
-  const tone = meterTone(value)
-
-  return (
-    <BaseMeter.Root
-      value={value}
-      aria-label={label}
-      data-tone={connected ? tone : "off"}
-      title={title}
-      className="flex w-full min-w-0 items-center gap-2 tracking-tight tabular-nums"
-    >
-      <span className="min-w-8 shrink-0">{decimal(value)}%</span>
-      <BaseMeter.Track className="block h-[1em] min-w-8 flex-1 overflow-hidden rounded-sm bg-muted">
-        <BaseMeter.Indicator
-          className={cn("block h-full", connected ? toneColors[tone] : dimmed)}
-        />
-      </BaseMeter.Track>
-    </BaseMeter.Root>
   )
 }
 

@@ -22,7 +22,8 @@ import {
 } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
-import { capital, errorText } from "./routines-state"
+import { errorText } from "@/lib/server-error"
+import { capital } from "./routines-state"
 import {
   choices,
   minutePresets,

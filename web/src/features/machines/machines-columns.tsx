@@ -16,7 +16,8 @@ import type { ReactNode } from "react"
 import type { Node } from "@/api/generated/types.gen"
 import { cn } from "@/lib/utils"
 import { MachineActions } from "./machine-actions"
-import { GpuRows, IndicatorDot, LoadDot, MachineProblem, Meter, StateText } from "./machine-cells"
+import { Meter } from "@/components/meter"
+import { GpuRows, IndicatorDot, LoadDot, MachineProblem, StateText } from "./machine-cells"
 import { RuntimeList } from "./runtime-list"
 import {
   diskPercent,

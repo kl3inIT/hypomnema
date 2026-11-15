@@ -4,7 +4,7 @@ import { lazy, Suspense } from "react"
 import { openArtifactFrame, readArtifactFile, readArtifactSheets } from "@/api/generated/sdk.gen"
 import type { Artifact, ArtifactRevision } from "@/api/generated/types.gen"
 import { Spinner } from "@/components/ui/spinner"
-import { problemOf } from "@/features/files/files-state"
+import { problemOf } from "@/lib/server-error"
 import { FileView, type PreviewReader } from "@/features/preview/preview-loader"
 
 import { artifactKey, downloadURL, useArtifactFile, useFrameFiles } from "./artifact-state"

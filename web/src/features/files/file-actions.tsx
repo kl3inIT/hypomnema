@@ -24,12 +24,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 
+import { problemOf } from "@/lib/server-error"
 import {
   baseName,
   deleteEntry,
   makeFolder,
   moveEntry,
-  problemOf,
   refreshFolder,
   saveFile,
 } from "./files-state"

@@ -37,9 +37,9 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
-import { ErrorAlert } from "@/features/settings/settings-parts"
-import { SettingsPage } from "@/features/settings/settings-shell"
+import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
+import { ErrorAlert } from "@/components/error-alert"
+import { SettingsPage } from "@/components/settings-page"
 import { modelName } from "@/lib/model-name"
 
 import {
