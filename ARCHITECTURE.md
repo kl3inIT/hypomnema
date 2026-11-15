@@ -1204,7 +1204,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       No generation is removed. `hypomnema-pi` reads `active.json` as pi starts and puts that generation's `bin`
       first on `PATH`, inside the box's read-only tools, so `python` there imports the libraries and a running pi
       keeps its generation through a rebuild; without one, pi starts with the system's Python. No sudo and no
-      system `python3-venv` are needed. A Routine's script does not get it.
+      system `python3-venv` are needed. `hypomnema-routine` gives a Routine's script the same, read the same way as
+      its run starts (issue #507).
     - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
       CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
       Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
