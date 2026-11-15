@@ -35,8 +35,7 @@ const (
 
 // Images says where generate_image asks and saves.
 type Images struct {
-	// Path is the agent API's route of the call: PathBrowserCall for a
-	// worker, PathGatewayCall for a Bot.
+	// Path is the agent API's route of the call, PathToolsCall.
 	Path string
 	// Folder, when set, is where an image is saved when no path is asked, and
 	// the answer gives a saved image in it as the MEDIA:<path> line, relative
