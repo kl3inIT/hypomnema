@@ -1,36 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
-import { decideApproval, listApprovals } from "@/api/generated/sdk.gen"
+import {
+  listApprovalsOptions,
+  listApprovalsQueryKey,
+} from "@/api/generated/@tanstack/react-query.gen"
+import { decideApproval } from "@/api/generated/sdk.gen"
 import type { Approval, ApprovalDecision } from "@/api/generated/types.gen"
+import { everyCall } from "@/lib/query-keys"
 
 // Approvals (issue #154): requests agents made to the owner's accounts that wait for his answer. The list is
 // read again every few seconds while a screen that shows it is open, as Onyx reads a session's approvals.
-const approvalsKey = ["approvals"] as const
-
 const everyMs = 3000
 
 // usePending lists what waits for the owner: everywhere, in one chat, for one Task, or in one Routine's runs.
 export function usePending(where: { chatId?: string; taskId?: string; routineId?: string } = {}) {
   return useQuery({
-    queryKey: [
-      ...approvalsKey,
-      "pending",
-      where.chatId ?? "",
-      where.taskId ?? "",
-      where.routineId ?? "",
-    ],
-    queryFn: async () =>
-      (
-        await listApprovals({
-          query: {
-            status: "pending",
-            chat_id: where.chatId,
-            task_id: where.taskId,
-            routine_id: where.routineId,
-          },
-        })
-      ).data.data,
+    ...listApprovalsOptions({
+      query: {
+        status: "pending",
+        chat_id: where.chatId,
+        task_id: where.taskId,
+        routine_id: where.routineId,
+      },
+    }),
+    select: (page) => page.data,
     refetchInterval: everyMs,
   })
 }
@@ -42,7 +36,8 @@ export function useDecide(approval: Approval) {
   return useMutation({
     mutationFn: async (decision: ApprovalDecision["decision"]) =>
       (await decideApproval({ path: { approval_id: approval.id }, body: { decision } })).data,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: approvalsKey }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: everyCall(listApprovalsQueryKey()) }),
   })
 }
 
