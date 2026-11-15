@@ -209,7 +209,7 @@ sequenceDiagram
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
   Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
   it; reopening a failed Task resets its failure count and unblocks them.
-- Dispatches: the coordinator creates one for a ready Task, in a new Conversation or continuing the open one; a node
+- Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
   outcome unknown and blocks the Task; a report from the same epoch, a reattach by the same node and process, a
