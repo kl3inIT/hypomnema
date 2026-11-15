@@ -102,6 +102,25 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	}, nil
 }
 
+// gatewayProviderList lists every provider for the gateway, which serves each subscription's models (issue #549).
+func gatewayProviderList(svc *orchestration.Service) func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
+	return func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
+		ps, err := svc.ListProviders(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		out := make([]modelgateway.ProviderInfo, 0, len(ps))
+		for _, p := range ps {
+			out = append(out, modelgateway.ProviderInfo{
+				Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
+			})
+		}
+
+		return out, nil
+	}
+}
+
 // gatewayProviders gives the gateway the providers orchestration keeps.
 func gatewayProviders(svc *orchestration.Service) modelgateway.Providers {
 	return func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {

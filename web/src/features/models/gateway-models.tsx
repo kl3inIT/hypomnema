@@ -83,6 +83,13 @@ export function GatewayModels({ models }: { models: GatewayModel[] }) {
   )
 }
 
+// subscriptionsOwn says the gateway serves a subscription's model under "<provider>/<model>" with no row in its table
+// (issue #549, modelgateway subscriptionModel): its attributes are its provider's, not set here.
+function subscriptionsOwn(model: GatewayModel) {
+  const [t] = model.targets
+  return model.targets.length === 1 && model.name === `${t?.provider}/${t?.upstream_model}`
+}
+
 function GatewayModelRow({ model }: { model: GatewayModel }) {
   const a = model.attributes
 
@@ -146,11 +153,13 @@ function GatewayModelRow({ model }: { model: GatewayModel }) {
           </span>
         </ItemDescription>
       </ItemContent>
-      <div className="self-start">
-        <ItemActions>
-          <EditGatewayModel model={model} />
-        </ItemActions>
-      </div>
+      {!subscriptionsOwn(model) && (
+        <div className="self-start">
+          <ItemActions>
+            <EditGatewayModel model={model} />
+          </ItemActions>
+        </div>
+      )}
     </Item>
   )
 }

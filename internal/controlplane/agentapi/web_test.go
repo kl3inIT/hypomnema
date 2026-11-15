@@ -115,7 +115,7 @@ func gatewayWorld(t *testing.T, withBrowser bool, runtimes map[string]string) (*
 			}
 
 			return runtime, nil
-		}).WithWeb(web).WithImages(images)
+		}).WithWeb(web).WithImages(images).WithRoutines(nowRunner{w.svc})
 	if withBrowser {
 		api.WithBrowser(w.browser)
 	}

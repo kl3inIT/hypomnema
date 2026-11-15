@@ -134,8 +134,9 @@ func TestBotsAndWorkersKeepMemoriesWithOneTool(t *testing.T) {
 	require.NoError(t, err)
 
 	piTools := w.tools(pi)
-	assert.Equal(t, []string{"memory", "show_artifact", "web_search", "web_fetch", "generate_image",
-		"agent_browser_open"}, toolNames(piTools), "a Bot's pi is offered the browser's as a worker is (step 4)")
+	assert.Equal(t, []string{"memory", "show_artifact", "routines", "web_search", "web_fetch", "generate_image",
+		"agent_browser_open"}, toolNames(piTools), "a Bot's pi is offered the browser's as a worker is (step 4), "+
+		"and its own routines (step 5)")
 	assert.Contains(t, string(piTools[0].InputSchema), `"enum":["bot","owner"]`)
 	assert.Contains(t, piTools[0].Description, "your own memory, the same in every chat")
 

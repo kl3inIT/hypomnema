@@ -88,7 +88,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -105,7 +105,7 @@ flowchart TB
     PI -- "MCP stdio" --> MCP
     MCP -- "agent API, pi's token" --> CP["control plane: agent API"]
     PI --> GW
-    MCP -. "show_artifact: the files of the Bot's folder" .-> CP
+    MCP -. "show_artifact, routines: the files of the Bot's folder" .-> CP
     CP -. "artifact card" .-> CHAT
 ```
 
@@ -806,7 +806,7 @@ sequenceDiagram
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
-  - A Bot's pi has the tools `memory` and `show_artifact` (issue #536), `web_search`, `web_fetch` and
+  - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch` and
     `generate_image`, and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
     server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
     step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
@@ -1193,12 +1193,14 @@ flowchart LR
     chat tells its result nowhere. The message names its run in a part (`routine_run`, with the Routine's id),
     which the web draws as the run's card; its text is for every other reader.
   - **Who makes one.** The owner and a Bot use the same operation, `PUT /bots/{name}/routines/{routine}`
-    (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`).
+    (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`). A
+    Bot's pi does it with its `routines` tool (issue #536, see "An agent's tools"), which calls the same store
+    with the same checks; a worker has no such tool.
     A coordinator's token is taken for a Bot: it must name a chat that talks with that Bot, and its change
     records what undoes it. `POST /routines/{id}/undo` (`routines undo`, the owner's) removes a Routine the Bot
     made, or puts back what it was before the Bot's change; it is refused once the Routine was changed again
     (OpenMausBot's undo, `routine-requests.ts` L1099-1147). That the Bot first restates the schedule and the work
-    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions
+    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions, which teach the tool
     (`deploy/coordinator/AGENTS.md`, after OpenClaw's `how-it-works.md`), not a state the server keeps. A
     Routine's run makes and changes no Routines: the chat of a run, and a request that says it comes from a run
     (`HYPOMNEMA_ROUTINE`), are refused (Hermes's loop prevention, not a wall).
@@ -1248,7 +1250,8 @@ flowchart LR
     "…" menu when a Routine's run asked.
   - **Commands**: `hypomnema routines list|show|set|pause|resume|run|rm|undo|revoke`, and `routines script` for
     the launcher. Every token reads Routines; a coordinator's token makes, changes and runs one; pausing,
-    removing, undoing and revoking are the owner's.
+    removing, undoing and revoking are the owner's. Since issue #536 a Bot uses the `routines` tool instead; the
+    commands stay for the owner.
   - Not built: a Routine on a node, a one-time Routine, a run started by an outside event, a Routine that feeds
     another, stopping a run by hand. A prompt run's chat is listed among the chats like any other.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
@@ -1271,7 +1274,14 @@ flowchart LR
   profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
   belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
-  it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
+  it, and a Task under it needs no account on a node. A subscription (`claude_subscription`, `codex_subscription`,
+  `antigravity_subscription`) is reached through the gateway too (issue #549): every runtime may name one but
+  `codex`, which names only `codex_subscription` (it speaks only `/v1/responses`, which the gateway passes on to a
+  Codex subscription alone); its Dispatch runs under the gateway with the model `<provider>/<model>`, and no
+  subscription token leaves the control plane. Such a profile is available, and its Task placed, only while the
+  control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise); whether that account
+  cools down is the gateway's to find. A Task's own model picks its provider again, as it is checked when the Task
+  is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
   another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
@@ -2002,10 +2012,19 @@ capabilities do not exist yet.
   `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
-- A fresh install has the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, each
-  served from `claude-subscription`'s model of the same name, and the provider `model-gateway` (kind
-  `model_gateway`) offering them, which the starting profiles name (migration 00081, issue #462; models as the
-  owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
+- The gateway serves every model of every subscription under `<provider>/<model>`, such as
+  `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
+  every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
+  logged-in accounts). The table is left for a name made on purpose, such as one over several targets. The
+  pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
+  table name has. Migration 00090 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
+  to the subscription and model of the name they used when it had one target only, a subscription's model (a
+  version whose YAML was not matched stayed); a name over several targets and what names it stayed. It then removed
+  the names of one target nothing used any more (a working key keeps its model) and the provider when nothing named
+  it.
+- Migration 00081 (issue #462) seeded the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and
+  `claude-haiku-5-5` and the provider `model-gateway` for the starting profiles; 00090 then moves those profiles to
+  `claude-subscription` and removes them (models as the owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
   subscription offers, and the provider only when no provider of its kind exists. A Claude Code worker then
   needs only a Claude account on the control plane (`accounts login claude` or `accounts add claude`).
 - A model's attributes (issue #367, after 9router-go, omniroute, LiteLLM's `model_info`, CLIProxyAPI and omp) are
@@ -2044,9 +2063,16 @@ capabilities do not exist yet.
     `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only the token of that chat's pi gets it: a chat's id
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
-    `hypomnema pi-models`: one provider of pi for
-    each provider of the control plane of kind `model_gateway`, with the models that provider lists. A Bot may
-    name a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
+    `hypomnema pi-models`: one provider of pi, `hypomnema`, with every model the gateway serves (issue #549), each
+    under its gateway name and with its subscription's wire: `anthropic-messages` at the gateway's root for a
+    Claude subscription's model, `openai-responses` at `/v1` for a Codex subscription's, OpenAI chat for the rest
+    (measured on zm on 2026-11-15: a Claude turn is about a fifth smaller on Messages with the same cache, and
+    Codex's cache is the same on Responses). The supervisor gives pi `--provider hypomnema` and the gateway name,
+    and makes the chat's key for that name. A Bot that names no model runs on Claude Opus 5.5 under the Claude
+    subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
+    `defaultProvider` and `defaultModel` when the gateway serves it, and the pages call it "Default (Claude Opus
+    5.5)"; without it pi takes the first model it is given. An omp worker is given the same wire for its model, as the offer's
+    `model_api`. A Bot may name a subscription or a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
     OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when
     known), `thinkingLevelMap` (pi's minimal to max as the model's level of that name, null for one it lacks; off
@@ -2513,8 +2539,8 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
-An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `web.go`, `images.go`,
-`superset.go`;
+An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
+`images.go`, `superset.go`;
 issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md),
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
@@ -2531,6 +2557,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 |---|---|---|---|
 | `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
+| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
 | `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
@@ -2574,6 +2601,7 @@ flowchart LR
         L["agent API: /agent/v1/tools<br/>one list, each tool's kinds"] --> G["gateway services<br/>search chain, fetch, Images"]
         L --> M["memories<br/>Bot's, agent's, owner's"]
         L --> A["artifacts<br/>the Bot's chat, a worker's Run's chat"]
+        L --> RT["Routines and their runner<br/>a Bot's pi's own"]
         L --> BR["shared browser<br/>a tab an agent"]
         L --> SP["service proxy: Relay<br/>a Superset Connection the agent may use"]
         D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
@@ -2583,10 +2611,11 @@ flowchart LR
     B -- "chat pi's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
     N -- "Dispatch key" --> D
-    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset" --> C["client API"] --> G
+    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
     C --> M
     C --> A
     C --> SP
+    C --> RT
 ```
 - Which worker gets which gateway tool (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
@@ -2630,6 +2659,23 @@ flowchart LR
   as they are: `html` works, `path` is refused with "this node's tools cannot send a folder yet; send html, or
   wait for its update". No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
   commands stay for the owner and Routine scripts.
+- `routines` `{action: list | set | run, name?, every_minutes?, cron?, timezone?, prompt?, script?,
+  timeout_seconds?, summary?, quiet?}` (issue #536, step 5) is a Bot's pi's own Routines as one tool with an
+  action, as Hermes's `cronjob_manage` (`tools/cronjob_tools.py`) and OpenClaw's `cron` tool
+  (`src/agents/tools/cron-tool.ts`) are. Only a Bot's pi gets it; a worker is not offered it and its call is a
+  404, as Hermes keeps `cronjob_manage` from its sub-agents (`tools/delegate_tool_toolsets.py`). It does what the
+  client API lets a pi's token do, through the same store and runner: `set` is `PUT /bots/{id}/routines/{name}`
+  for its own Bot from its own chat (a Bot's change, which the owner can undo), what it leaves out staying, as
+  `routines set` reads its flags; `run` is `POST /routines/{id}/runs` for a Routine of its Bot, refused while a
+  run of it is live; `list` shows its Bot's Routines (id, sentence, state, next time, last run), and one by name
+  with its last 5 runs, its prompt and the end of its last output, as OpenMausBot's `trigger_info` does with a
+  `trigger_id`. Pausing, removing, undoing and taking back a grant stay the owner's (OpenMausBot leaves deleting a
+  trigger to the person). `script` is a file of the Bot's folder, where pi starts `hypomnema mcp`: the tools
+  server reads it there (`os.Root`, at most 100 KB) and sends its text with the call (`agenttool.RoutineCall`),
+  never a text the agent sent itself; the Routine keeps the file's name and that text. A tools server of an
+  earlier release sends the path alone, which is refused ("this tools server cannot send a script yet"). What the
+  store refuses (a schedule out of bounds, a name of another Bot's, a change from a Routine's run's own chat, a
+  run still going) is the tool's error. A Routine's script itself has no MCP and keeps the commands.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its

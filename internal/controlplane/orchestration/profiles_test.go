@@ -23,7 +23,7 @@ func TestTheStartingSetIsThere(t *testing.T) {
 	require.NoError(t, err)
 
 	// The seed, the seed with its description, for the two that report in a set form that form (issue #155), and
-	// the model gateway's model (issue #462).
+	// the model gateway's model (issue #462), now its subscription's (issue #549).
 	versions := map[string]int{"explorer": 4, "implementer": 3, "reviewer": 4}
 	models := map[string]string{
 		"explorer": "claude-sonnet-5-5", "implementer": "claude-opus-5-5", "reviewer": "claude-opus-5-5",
@@ -34,7 +34,7 @@ func TestTheStartingSetIsThere(t *testing.T) {
 		names[p.Name] = p.Runtime
 		assert.NotEmpty(t, p.Description, "%s says what it is for", p.Name)
 		assert.Equal(t, versions[p.Name], p.Version, p.Name)
-		assert.Equal(t, []string{"model-gateway", models[p.Name]}, []string{p.Provider, p.Model}, p.Name)
+		assert.Equal(t, []string{"claude-subscription", models[p.Name]}, []string{p.Provider, p.Model}, p.Name)
 
 		// A seeded row holds what applying its own source would store.
 		same, created, err := w.s.ApplyProfile(ctx, p.Name, p.Source)
@@ -73,14 +73,14 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 	w.tasks(NewTask{Ref: "a", Spec: "a"})
 	first := w.dispatchOf(w.schedule().Created[0])
 
-	source := "name: implementer\ndescription: d\nruntime: claude\nmodel:\n  name: claude-sonnet-5-5\n  effort: high\n" +
-		"instruction: Run the tests before finishing.\n"
+	source := "name: implementer\ndescription: d\nruntime: claude\nmodel:\n  provider: model-gateway\n" +
+		"  name: claude-sonnet-5-5\n  effort: high\ninstruction: Run the tests before finishing.\n"
 
 	v2, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
 	assert.True(t, created)
 	assert.Equal(t, 5, v2.Version, "after the three seeded and the world's own")
-	assert.Equal(t, "model-gateway", v2.Provider, "found from the model")
+	assert.Equal(t, "model-gateway", v2.Provider)
 
 	same, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
@@ -113,7 +113,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 
 // A profile is checked when it is applied: its name, fields, runtime,
 // effort, and whether its provider offers the model to that runtime. A
-// Claude Code profile must name the model gateway (issue #381).
+// Claude Code profile must name the model gateway or a subscription it
+// serves (issues #381, #549).
 func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	t.Parallel()
 
@@ -129,9 +130,8 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 		"name: x\ndescription: d\nruntime: gemini\n":                                               "unknown runtime",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5, effort: huge}\n": "unknown effort",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: gpt-5}\n":                         "no provider",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n":        "must name a provider of kind model_gateway",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: claude-subscription}\n":       "must name a provider of kind model_gateway",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n":              "no provider of kind model_gateway offers",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n":        "must name a subscription or a provider of kind model_gateway",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-mythos}\n":                 "no provider of kind model_gateway offers",
 		"name: x\ndescription: d\nruntime: omp\nmodel: {provider: router, name: gpt-5}\n":          "cannot run against",
 		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: router, name: opus}\n":         "does not offer",
 		"name: x\ndescription: d\nruntime: pi\n":                                                   "a bot's",
@@ -151,24 +151,26 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	assert.Equal(t, "router", p.Provider, "only router offers gpt-5 to codex")
 
 	p, _, err = w.s.ApplyProfile(t.Context(), "",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n")
 	require.NoError(t, err)
-	assert.Equal(t, "model-gateway", p.Provider, "claude can use the gateway's kind alone")
-
-	_, err = w.s.ApplyProvider(t.Context(), "", "name: anthropic\nkind: anthropic\nmodels: [claude-sonnet-5-5]\n")
-	require.NoError(t, err)
+	assert.Equal(t, "claude-subscription", p.Provider, "only the Claude subscription offers claude-haiku-5-5")
 
 	p, _, err = w.s.ApplyProfile(t.Context(), "",
-		"name: y\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
-	require.NoError(t, err)
-	assert.Equal(t, "model-gateway", p.Provider, "nor an API of Anthropic's")
+		"name: v\ndescription: d\nruntime: claude\nmodel: {provider: claude-subscription}\n")
+	require.NoError(t, err, "a subscription is reached through the gateway (issue #549)")
+	assert.Equal(t, "claude-subscription", p.Provider)
 
-	_, err = w.s.ApplyProvider(t.Context(), "", "name: gateway-2\nkind: model_gateway\nmodels: [claude-sonnet-5-5]\n")
+	_, err = w.s.ApplyProvider(t.Context(), "", "name: anthropic\nkind: anthropic\nmodels: [claude-mythos]\n")
 	require.NoError(t, err)
 
 	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: y\ndescription: d\nruntime: claude\nmodel: {name: claude-mythos}\n")
+	require.ErrorContains(t, err, "no provider of kind model_gateway offers", "nor an API of Anthropic's")
+
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: w\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
-	require.ErrorContains(t, err, "name the provider", "claude now reaches claude-sonnet-5-5 two ways")
+	require.ErrorContains(t, err, "name the provider",
+		"claude reaches claude-sonnet-5-5 through the world's gateway and the subscription")
 }
 
 // A provider names where its key is kept, never the key; and it cannot drop
@@ -193,16 +195,19 @@ func TestAProviderKeepsItsProfilesWorking(t *testing.T) {
 	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\nmodels: [m2]\n")
 	require.ErrorIs(t, err, ErrConflict, "the bot coordinator uses m1")
 
-	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: codex_subscription\nmodels: [m1]\n")
-	require.ErrorIs(t, err, ErrConflict, "pi cannot use a codex subscription")
-
-	p, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: anthropic\nmodels: [m1, m3]\n")
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: z\ndescription: d\nruntime: codex\nmodel: {provider: router, name: m2}\n")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"m1", "m3"}, p.Models, "the models are replaced")
+
+	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: anthropic\nmodels: [m1, m2]\n")
+	require.ErrorIs(t, err, ErrConflict, "codex cannot run against an API of Anthropic's")
+
+	p, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: codex_subscription\nmodels: [m1, m2, m3]\n")
+	require.NoError(t, err, "pi and codex both reach a codex subscription through the gateway")
+	assert.Equal(t, []string{"m1", "m2", "m3"}, p.Models, "the models are replaced")
 
 	models, err := w.s.ListModels(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, models, Model{Provider: "router", Name: "m3", Kind: ProviderAnthropic})
+	assert.Contains(t, models, Model{Provider: "router", Name: "m3", Kind: ProviderCodexSubscription})
 }
 
 // A Task is checked against its profile when it is created; one that names
@@ -227,7 +232,7 @@ func TestATaskIsCheckedAgainstItsProfile(t *testing.T) {
 		require.ErrorContains(t, err, want, nt.Ref)
 	}
 
-	ok := w.tasks(NewTask{Ref: "h", Profile: "reviewer", Spec: "h", Model: "claude-opus-5-5", Effort: "max"})
+	ok := w.tasks(NewTask{Ref: "h", Profile: "reviewer", Spec: "h", Model: "claude-haiku-5-5", Effort: "max"})
 	assert.Equal(t, "reviewer", ok[0].Profile)
 }
 

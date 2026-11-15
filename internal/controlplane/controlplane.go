@@ -272,7 +272,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
-		gatewaySecrets(secrets))
+		gatewaySecrets(secrets)).WithProviderList(gatewayProviderList(svc))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
@@ -422,6 +422,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Command: cfg.RoutineCommand, Coordinator: sup, Owner: runtime, Logger: logger,
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken},
 	})
+	// A Bot's pi runs its own Routines with its routines tool, through the same runner (issue #536).
+	agents.WithRoutines(routineRunner)
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
