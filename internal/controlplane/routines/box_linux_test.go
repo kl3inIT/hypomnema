@@ -13,9 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // The launcher of a Routine's script, run for real in its box (issue #211,

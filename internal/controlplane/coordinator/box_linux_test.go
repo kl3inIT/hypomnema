@@ -11,9 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // The launcher's box (issue #260), run for real: the launcher is the file
