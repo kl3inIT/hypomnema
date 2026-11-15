@@ -1245,9 +1245,13 @@ flowchart LR
   belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. A subscription (`claude_subscription`, `codex_subscription`,
-  `antigravity_subscription`) is reached through the gateway too (issue #549): every runtime may name one, its
-  Dispatch runs under the gateway with the model `<provider>/<model>`, and no subscription token leaves the control
-  plane. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
+  `antigravity_subscription`) is reached through the gateway too (issue #549): every runtime may name one but
+  `codex`, which names only `codex_subscription` (it speaks only `/v1/responses`, which the gateway passes on to a
+  Codex subscription alone); its Dispatch runs under the gateway with the model `<provider>/<model>`, and no
+  subscription token leaves the control plane. Such a profile is available, and its Task placed, only while the
+  control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise); whether that account
+  cools down is the gateway's to find. A Task's own model picks its provider again, as it is checked when the Task
+  is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
   another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
@@ -1964,10 +1968,12 @@ capabilities do not exist yet.
   `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
   every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
   logged-in accounts). The table is left for a name made on purpose, such as one over several targets. The
-  pickers group the models by subscription. Migration 00089 moved the Bots, chats and Profile versions on a
-  provider of kind `model_gateway` to the subscription and model of the first target of the name they used, then
-  removed the names of one target nothing used any more (a working key keeps its model) and the provider when
-  nothing named it.
+  pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
+  table name has. Migration 00089 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
+  to the subscription and model of the name they used when it had one target only, a subscription's model (a
+  version whose YAML was not matched stayed); a name over several targets and what names it stayed. It then removed
+  the names of one target nothing used any more (a working key keeps its model) and the provider when nothing named
+  it.
 - Migration 00081 (issue #462) seeded the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and
   `claude-haiku-5-5` and the provider `model-gateway` for the starting profiles; 00089 then moves those profiles to
   `claude-subscription` and removes them (models as the owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the

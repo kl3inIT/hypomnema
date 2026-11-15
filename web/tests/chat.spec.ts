@@ -1344,7 +1344,7 @@ test("a subscription's model is chosen under its subscription", async ({ page })
   await expect(model).toHaveAccessibleName(/Opus/)
   await expect
     .poll(() => calls.filter((c) => c.startsWith("PATCH {")).at(-1))
-    .toBe('PATCH {"provider":"claude-subscription","model":"claude-opus-5-5","effort":"high"}')
+    .toBe('PATCH {"provider":"claude-subscription","model":"claude-opus-5-5","effort":""}')
 
   await page.getByRole("button", { name: /^Effort/ }).click()
   await expect(page.getByRole("menuitemradio")).toHaveText([

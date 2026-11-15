@@ -85,6 +85,11 @@ func TestTheListHoldsEverySubscriptionsModels(t *testing.T) {
 		"name: sol\ntargets: [{provider: claude-subscription, model: claude-sonnet-5-5}]\n")
 	require.NoError(t, err)
 
+	// A name in the table that is also a subscription's is listed once, from its row.
+	_, err = g.ApplyModel(t.Context(), "name: claude-subscription/claude-haiku-5-5\n"+
+		"targets: [{provider: claude-subscription, model: claude-haiku-5-5}]\n")
+	require.NoError(t, err)
+
 	listed, err := g.ListModels(t.Context())
 	require.NoError(t, err)
 
@@ -96,5 +101,16 @@ func TestTheListHoldsEverySubscriptionsModels(t *testing.T) {
 	assert.Contains(t, names, "sol")
 	assert.Contains(t, names, "claude-subscription/claude-opus-5-5")
 	assert.Contains(t, names, "antigravity-subscription/gemini-3.1-pro-high")
-	assert.IsIncreasing(t, names)
+	assert.IsIncreasing(t, names, "each name once")
+}
+
+// Scenario: a subscription's model has no row whose attributes could be set; setting them is refused and says why.
+func TestASubscriptionsModelHasNoAttributesToSet(t *testing.T) {
+	t.Parallel()
+
+	g := newSubscriptionGateway(t)
+
+	_, err := g.SetAttributes(t.Context(), "claude-subscription/claude-opus-5-5", modelgateway.Attributes{})
+	require.ErrorIs(t, err, modelgateway.ErrInvalid)
+	assert.ErrorContains(t, err, "is a subscription's")
 }

@@ -1,8 +1,10 @@
 -- A model is chosen under its subscription and runs through the gateway, which serves each subscription's models
 -- without a row in its table (issue #549). Bots, chats and Profile versions on a provider of kind model_gateway
--- move to the subscription and model of the first target of the gateway model they name, when that target is a
--- subscription's. A Profile version's YAML is changed the same way, as 00073 changed it; its digest is left, so
--- applying the old YAML again makes a new version.
+-- move to the subscription and model of the gateway model they name when it has one target only, a subscription's
+-- model: such a name is the subscription's model by another name. A name over several targets was made on purpose,
+-- for its failover, and stays. A Profile version's YAML is changed the same way, as 00073 changed it; a version
+-- whose YAML says its model in a form not matched here stays as it is, columns and text alike. Its digest is left:
+-- applying the old YAML again keeps the moved version, which runs the same model.
 --
 -- Then what nothing uses any more goes: a gateway model of one target that a key that works does not list (a running
 -- Dispatch's key keeps its model until it settles), and a provider of kind model_gateway that nothing names, with its
@@ -13,9 +15,9 @@ CREATE TEMP TABLE subscription_move AS
 SELECT g.name AS model, t.provider AS provider, t.upstream_model AS upstream
 FROM gateway_models g
 JOIN gateway_model_targets t ON t.model = g.name
-    AND t.position = (SELECT min(position) FROM gateway_model_targets WHERE model = g.name)
 JOIN providers p ON p.name = t.provider
 WHERE p.kind IN ('claude_subscription', 'codex_subscription', 'antigravity_subscription')
+  AND (SELECT count(*) FROM gateway_model_targets WHERE model = g.name) = 1
   AND EXISTS (SELECT 1 FROM models m WHERE m.provider = t.provider AND m.name = t.upstream_model);
 
 CREATE TEMP TABLE gateway_providers AS SELECT name FROM providers WHERE kind = 'model_gateway';
@@ -30,15 +32,33 @@ SET provider = (SELECT provider FROM subscription_move WHERE model = chats.model
     model    = (SELECT upstream FROM subscription_move WHERE model = chats.model)
 WHERE provider IN (SELECT name FROM gateway_providers) AND model IN (SELECT model FROM subscription_move);
 
+-- The model block in flow ({provider: X, name: M, ...}, keys in any order) or block form; a top-level "name:" is the
+-- profile's and starts its line, so the model's name is matched after "{" or a space only.
+CREATE TEMP TABLE version_move AS
+SELECT v.id, v.provider AS old, s.provider, s.upstream,
+    replace(replace(replace(replace(replace(replace(replace(replace(v.source,
+        'provider: ' || v.provider || ',', 'provider: ' || s.provider || ','),
+        'provider: ' || v.provider || '}', 'provider: ' || s.provider || '}'),
+        'provider: ' || v.provider || char(10), 'provider: ' || s.provider || char(10)),
+        '{name: ' || v.model || ',', '{name: ' || s.upstream || ','),
+        '{name: ' || v.model || '}', '{name: ' || s.upstream || '}'),
+        ' name: ' || v.model || ',', ' name: ' || s.upstream || ','),
+        ' name: ' || v.model || '}', ' name: ' || s.upstream || '}'),
+        ' name: ' || v.model || char(10), ' name: ' || s.upstream || char(10)) AS source
+FROM profile_versions v
+JOIN subscription_move s ON s.model = v.model
+WHERE v.provider IN (SELECT name FROM gateway_providers);
+
+DELETE FROM version_move
+WHERE instr(source, 'provider: ' || old) > 0
+   OR instr(source, 'provider: ' || provider) = 0
+   OR instr(source, 'name: ' || upstream) = 0;
+
 UPDATE profile_versions
-SET source = replace(replace(replace(replace(source,
-        'provider: ' || provider || ',', 'provider: ' || (SELECT provider FROM subscription_move s WHERE s.model = profile_versions.model) || ','),
-        'provider: ' || provider || char(10), 'provider: ' || (SELECT provider FROM subscription_move s WHERE s.model = profile_versions.model) || char(10)),
-        'name: ' || model || '}', 'name: ' || (SELECT upstream FROM subscription_move s WHERE s.model = profile_versions.model) || '}'),
-        '  name: ' || model || char(10), '  name: ' || (SELECT upstream FROM subscription_move s WHERE s.model = profile_versions.model) || char(10)),
-    provider = (SELECT provider FROM subscription_move WHERE model = profile_versions.model),
-    model    = (SELECT upstream FROM subscription_move WHERE model = profile_versions.model)
-WHERE provider IN (SELECT name FROM gateway_providers) AND model IN (SELECT model FROM subscription_move);
+SET source   = (SELECT source FROM version_move m WHERE m.id = profile_versions.id),
+    provider = (SELECT provider FROM version_move m WHERE m.id = profile_versions.id),
+    model    = (SELECT upstream FROM version_move m WHERE m.id = profile_versions.id)
+WHERE id IN (SELECT id FROM version_move);
 
 -- A starting profile's version as 00081 seeded it gets the digest of its YAML as now written, as 00081 wrote its own,
 -- so applying that YAML again makes no new version.
@@ -75,6 +95,7 @@ WHERE name IN (SELECT name FROM gateway_providers)
   AND NOT EXISTS (SELECT 1 FROM bots WHERE provider = providers.name)
   AND NOT EXISTS (SELECT 1 FROM chats WHERE provider = providers.name);
 
+DROP TABLE version_move;
 DROP TABLE subscription_move;
 DROP TABLE gateway_providers;
 

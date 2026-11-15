@@ -16,7 +16,8 @@ import (
 // each model's gateway name.
 const piProviderID = "hypomnema"
 
-// piWires is the wire pi speaks to the gateway for a model served from a provider of the kind (issue #549): the
+// piWires is the wire pi speaks to the gateway for a model of a subscription of the kind (issue #549), as
+// orchestration.GatewayWires gives omp: the
 // subscription's own, as Claude Code and Codex speak to it; the gateway's chat for the rest. Measured on zm on
 // 2026-11-15, a Claude turn is a fifth smaller on Messages with the same cache, and Codex's cache is the same on
 // Responses.
@@ -116,19 +117,10 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	for _, m := range served.JSON200.Data {
 		pm := piModelOf(m.Name, m.Attributes)
 
-		// One wire for every target: a name over several kinds is asked in chat's format, which the gateway turns
-		// into each target's.
-		wire := ""
-		for i, t := range m.Targets {
-			w := piWires[kinds[t.Provider]]
-			if i > 0 && w != wire {
-				wire = ""
-
-				break
-			}
-
-			wire = w
-		}
+		// The wire is chosen as a worker's offer chooses it (orchestration modelAPI): a subscription's own for a
+		// name "<subscription>/<model>"; chat, which the gateway turns into each target's, for a name of its table.
+		provider, _, _ := strings.Cut(m.Name, "/")
+		wire := piWires[kinds[provider]]
 
 		switch wire {
 		case "anthropic-messages":

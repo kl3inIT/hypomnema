@@ -70,6 +70,14 @@ func throughGateway(kind string) bool {
 	return kind == ProviderModelGateway || slices.Contains(subscriptionKinds, kind)
 }
 
+// subscriptionAccounts is the runtime of the accounts logged in on the control plane that each subscription runs
+// under, as the gateway's adapters ask for them (modelgateway codexRuntime, antigravityRuntime; TokenRuntime).
+var subscriptionAccounts = map[string]string{
+	ProviderClaudeSubscription:      TokenRuntime,
+	ProviderCodexSubscription:       "codex",
+	ProviderAntigravitySubscription: "antigravity",
+}
+
 // GatewayModelName is the name the gateway serves a provider's model under: "<provider>/<model>" for a
 // subscription (issue #549), the model's own name for the gateway's table.
 func GatewayModelName(kind, provider, model string) string {
@@ -142,8 +150,9 @@ var runtimeProviders = map[string][]string{
 	// never leaves the control plane (issue #381).
 	"claude": gatewayKinds,
 	// A Codex worker under a Codex subscription runs through the gateway too (issue #549); one under no provider
-	// logs in with an account its node holds.
-	"codex": append([]string{ProviderOpenAICompatible}, gatewayKinds...),
+	// logs in with an account its node holds. Codex speaks only /v1/responses, which the gateway passes on to a
+	// Codex subscription alone (modelgateway serveResponses), so no other subscription is offered to it.
+	"codex": {ProviderOpenAICompatible, ProviderModelGateway, ProviderCodexSubscription},
 	// pi reaches its model through the gateway as omp and opencode do (issue #204).
 	"pi": append([]string{ProviderAnthropic, ProviderOpenAICompatible}, gatewayKinds...),
 	// omp and opencode are workers whose model the gateway serves (issue #107).
@@ -649,7 +658,7 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 	}
 
 	for i, pr := range profiles {
-		gateway := false
+		gateway, accounts := false, ""
 
 		if pr.Provider != "" {
 			row, err := q.GetProvider(ctx, pr.Provider)
@@ -657,10 +666,10 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 				return notFound(err, "provider", pr.Provider)
 			}
 
-			gateway = throughGateway(row.Kind)
+			gateway, accounts = throughGateway(row.Kind), subscriptionAccounts[row.Kind]
 		}
 
-		a := p.availability(pr.Runtime, gateway)
+		a := p.availability(pr.Runtime, gateway, accounts)
 		profiles[i].Availability = &a
 	}
 
@@ -979,6 +988,9 @@ type resolved struct {
 	// gateway says the model gateway serves the model, so no account on a
 	// node is needed.
 	gateway bool
+	// accounts is the runtime of the control plane's accounts the gateway serves the model under, for a
+	// subscription's: without an active one, nothing can serve it.
+	accounts string
 	// fallbackFor is the Task's own profile when these are a backup's values,
 	// and fallbackUntil when that profile's accounts are free again.
 	fallbackFor   string
@@ -1032,8 +1044,22 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 		model, provider = "", "" // the profile's model and provider belong to its runtime
 	}
 
-	gateway := false
-	model = or(task.Model.String, model)
+	runtime := or(task.Runtime.String, v.Runtime)
+
+	// A Task's own model picks its provider again, as checkTaskProfile checked it: the profile's provider may not
+	// offer it.
+	if task.Model.String != "" {
+		model = task.Model.String
+
+		p, err := checkModel(ctx, q, runtime, "", model, "")
+		if err != nil {
+			return resolved{}, err
+		}
+
+		provider = p
+	}
+
+	gateway, accounts := false, ""
 
 	if provider != "" {
 		row, err := q.GetProvider(ctx, provider)
@@ -1041,14 +1067,15 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 			return resolved{}, notFound(err, "provider", provider)
 		}
 
-		gateway = throughGateway(row.Kind)
+		gateway, accounts = throughGateway(row.Kind), subscriptionAccounts[row.Kind]
 		if model != "" {
 			model = GatewayModelName(row.Kind, provider, model)
 		}
 	}
 
 	return resolved{
-		runtime: or(task.Runtime.String, v.Runtime), model: model,
+		runtime: runtime, model: model,
 		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
+		accounts: accounts,
 	}, nil
 }
