@@ -148,6 +148,17 @@ func (v *View) connect(ctx context.Context, nodeID string) (ViewEnd, error) {
 			return nil, err
 		}
 
+		// A node offline while its machine is on, or on a machine the control plane did not make, may be
+		// restarting, for its own update too (issue #545): the view waits for its hello for WakeWithin, as it
+		// waits for a machine it started, and the new node starts the phone again.
+		if n.Machine == nil || n.Machine.Power == "" {
+			if err := p.hello(ctx, n); err != nil {
+				return nil, fmt.Errorf("%w: the phone's node %s is offline", ErrUnavailable, n.Name)
+			}
+
+			continue
+		}
+
 		select {
 		case v.said <- Update{Said: &nodeproto.DeviceViewMessage{Type: nodeproto.DeviceViewState, State: StateWaking}}:
 		case <-ctx.Done():

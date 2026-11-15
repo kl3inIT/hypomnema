@@ -659,6 +659,27 @@ func TestAStartDuringAStopBootsAfterIt(t *testing.T) {
 	assert.Equal(t, 2, emulators, "the start booted a second one after the stop")
 }
 
+// Scenario: a start is asked while a stop still holds the phone (issue
+// #545). The phone is busy, and the node does not update itself, from the
+// ask on, while its state still says stopped, until the start has ended.
+func TestAStartAskedIsBusyBeforeItBegins(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	assert.False(t, r.m.Busy(), "a phone nobody asked for is not busy")
+
+	r.m.op.Lock() // A stop under way.
+	r.m.Ask(context.WithoutCancel(t.Context()), true)
+
+	assert.True(t, r.m.Busy(), "a start asked is busy before it begins")
+	assert.Equal(t, nodeproto.DeviceAbsent, r.m.Status().State)
+
+	r.m.op.Unlock()
+
+	require.Eventually(t, func() bool { return !r.m.Busy() }, 5*time.Second, time.Millisecond)
+	assert.Equal(t, nodeproto.DeviceRunning, r.m.Status().State)
+}
+
 // A start whose programs cannot be recorded in run.json, where the next node
 // would find them, fails and ends what it started.
 func TestAStartThatCannotRecordItsProgramsFails(t *testing.T) {

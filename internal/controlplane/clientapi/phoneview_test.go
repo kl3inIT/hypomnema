@@ -159,5 +159,6 @@ type noDevices struct{}
 func (noDevices) DeviceState(string) (nodeproto.DeviceState, bool) {
 	return nodeproto.DeviceState{}, false
 }
+func (noDevices) Online(string) bool                        { return false }
 func (noDevices) StartDevice(context.Context, string) error { return nil }
 func (noDevices) StopDevice(context.Context, string) error  { return nil }
