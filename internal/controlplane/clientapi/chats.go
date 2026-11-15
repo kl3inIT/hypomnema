@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"net/http"
 	"strconv"
 	"time"
@@ -174,12 +175,19 @@ func (s *Server) SendChatMessage(ctx context.Context, req openapi.SendChatMessag
 		})
 	}
 
-	m, err := s.svc.AddChatMessages(ctx, req.ChatId, msg)
+	// Written while pi works, it waits in the chat's queue until the turn settles (issue #497).
+	busy := s.coordinator != nil && s.coordinator.Working(req.ChatId)
+
+	m, queued, err := s.svc.SendOwnerMessage(ctx, req.ChatId, msg, busy)
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.SendChatMessage201JSONResponse(toChatMessage(m[0])), nil
+	if queued != nil {
+		return openapi.SendChatMessage202JSONResponse(toQueued(*queued)), nil
+	}
+
+	return openapi.SendChatMessage201JSONResponse(toChatMessage(*m)), nil
 }
 
 // ListChatMessages returns the messages after the cursor. With wait, an
@@ -303,14 +311,7 @@ func toChatMessage(m orchestration.ChatMessage) openapi.ChatMessage {
 		}
 	}
 
-	if len(m.Attachments) > 0 {
-		files := make([]openapi.ChatAttachment, 0, len(m.Attachments))
-		for _, a := range m.Attachments {
-			files = append(files, openapi.ChatAttachment{Name: a.Name, Path: a.Path, Size: a.Size, Type: opt(a.Type)})
-		}
-
-		out.Attachments = &files
-	}
+	out.Attachments = toAttachments(m.Attachments)
 
 	if m.Parts != nil {
 		var parts []openapi.ChatPart
@@ -459,6 +460,9 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 
 	var display orchestration.ToolDisplay
 
+	// The queue last sent, as its ids; nil before the first, so the stream opens with it (issue #497).
+	var queued []int64
+
 	for {
 		msgs, err := s.svc.ListChatMessages(ctx, chatID, after, orchestration.ChatPageMax)
 		if err == nil {
@@ -495,6 +499,10 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 		}
 
 		if !s.sendRevised(ctx, w, chatID, after, shown) {
+			return nil
+		}
+
+		if !s.sendQueue(ctx, w, chatID, &queued) {
 			return nil
 		}
 
@@ -584,4 +592,32 @@ func writeSSE(w io.Writer, id string, data any, event string) bool {
 	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, body)
 
 	return err == nil
+}
+
+// sendQueue sends the chat's whole queue when it differs from what the stream sent last (issue #497), as pi's
+// queue_update carries the whole queue (json.md). It returns false once the client is gone; a queue that cannot be
+// read is logged and sent at the next wake-up.
+func (s *Server) sendQueue(ctx context.Context, w http.ResponseWriter, chatID string, sent *[]int64) bool {
+	q, err := s.svc.ChatQueue(ctx, chatID)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.ErrorContext(ctx, "reading the chat's queue failed",
+				slog.String("event", "clientapi.chat_queue_failed"), slog.String("error", err.Error()))
+		}
+
+		return true
+	}
+
+	ids := make([]int64, 0, len(q))
+	for _, m := range q {
+		ids = append(ids, m.ID)
+	}
+
+	if *sent != nil && slices.Equal(ids, *sent) {
+		return true
+	}
+
+	*sent = ids
+
+	return writeSSE(w, "", toQueueList(q), "queue")
 }

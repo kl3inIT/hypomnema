@@ -48,7 +48,7 @@ func fakePi() int {
 	token := ""
 	model, level := flagOf("--provider")+"/"+flagOf("--model"), flagOf("--thinking")
 
-	hanging := ""
+	hanging, steered := "", ""
 	measured, small, compacted, answers := false, false, false, 0
 
 	for {
@@ -75,7 +75,22 @@ func fakePi() int {
 				emit(out, rec)
 			}
 
-			hanging = ""
+			// What was steered in meanwhile is answered next, as pi goes on with its queue after an abort.
+			if steered != "" {
+				for _, rec := range turn("steered: " + steered) {
+					emit(out, rec)
+				}
+			}
+
+			hanging, steered = "", ""
+
+			continue
+		}
+
+		if cmd["type"] == "prompt" && cmd["streamingBehavior"] == "steer" && hanging != "" {
+			steered, _, _ = strings.Cut(fmt.Sprint(cmd["message"]), "\n")
+			reply["data"] = map[string]any{"disposition": "queued"}
+			emit(out, reply)
 
 			continue
 		}
@@ -945,4 +960,71 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 	keys.mu.Lock()
 	assert.Len(t, keys.models, 2, "the same model keeps its key")
 	keys.mu.Unlock()
+}
+
+// A message written while pi works waits in the chat's queue, off the transcript, and goes to pi as a new prompt
+// once the turn settles (issue #497); one sent now goes at once as a steer. Wake-ups are not steered.
+func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hang aborted")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sup.Working(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+
+	_, later, err := svc.SendOwnerMessage(ctx, chat.ID,
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: "later"}, sup.Working(chat.ID))
+	require.NoError(t, err)
+	require.NotNil(t, later)
+
+	_, now, err := svc.SendOwnerMessage(ctx, chat.ID,
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: "look here"}, sup.Working(chat.ID))
+	require.NoError(t, err)
+	require.NotNil(t, now)
+
+	_, err = svc.SendQueuedNow(ctx, chat.ID, now.ID)
+	require.NoError(t, err)
+
+	// The steer is delivered while pi still works; the other stays queued.
+	require.Eventually(t, func() bool {
+		msgs, err := svc.Undelivered(ctx, chat.ID)
+
+		return err == nil && len(msgs) == 0
+	}, 10*time.Second, 10*time.Millisecond)
+
+	queue, err := svc.ChatQueue(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, queue, 1)
+	assert.Equal(t, "later", queue[0].Text)
+	assert.True(t, sup.Working(chat.ID))
+
+	require.NoError(t, sup.Abort(ctx, chat.ID))
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "steered: look here")
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: later")
+
+	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+
+	var got []string
+
+	for _, m := range msgs {
+		// The tool calls and the thinking before them are other tests' business.
+		if m.Role != orchestration.ChatTool && m.Text != "" {
+			got = append(got, fmt.Sprintf("%s: %s", m.Role, m.Text))
+		}
+	}
+
+	assert.Equal(t, []string{
+		"owner: hang aborted", "owner: look here", "coordinator: half an answer", "system: Stopped",
+		"coordinator: steered: look here", "owner: later", "coordinator: echo: later",
+	}, got)
+
+	queue, err = svc.ChatQueue(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, queue)
 }

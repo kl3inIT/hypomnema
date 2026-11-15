@@ -70,6 +70,8 @@ type Store interface {
 	CloseQuestionCard(ctx context.Context, questionID string, seq int) error
 	AddChatMessage(ctx context.Context, chatID string, role orchestration.ChatRole, text string,
 	) (orchestration.ChatMessage, error)
+	SendOwnerMessage(ctx context.Context, chatID string, m orchestration.NewChatMessage, busy bool,
+	) (*orchestration.ChatMessage, *orchestration.QueuedMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
 	ArtifactsBeforeReply(ctx context.Context, chatID string, seq int64) ([]orchestration.ArtifactRef, error)
 	ChatToolDisplay(ctx context.Context, chatID string) (orchestration.ToolDisplay, error)
@@ -845,7 +847,9 @@ func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.Channe
 		r.awaits(m.ID)
 	}
 
-	if _, err := store.AddChatMessage(ctx, chat.ChatID, orchestration.ChatOwner, text); err != nil {
+	// A message written while pi works waits in the chat's queue until the turn settles (issue #497).
+	if _, _, err := store.SendOwnerMessage(ctx, chat.ChatID,
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: text}, busy); err != nil {
 		r.forget(m.ID)
 
 		return err

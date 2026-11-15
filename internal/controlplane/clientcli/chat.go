@@ -47,6 +47,13 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return fmt.Errorf("sending the message: %w", err)
 	}
 
+	if sent.JSON202 != nil {
+		// pi works on the chat: the message waits in its queue until the turn settles (issue #497).
+		e.printf("chat %s\nqueued: the coordinator is still working; it reads this when its turn ends\n", c.Id)
+
+		return nil
+	}
+
 	if sent.JSON201 == nil {
 		return apiError("sending the message", sent.StatusCode(), sent.JSONDefault)
 	}
