@@ -134,14 +134,14 @@ func TestBotsAndWorkersKeepMemoriesWithOneTool(t *testing.T) {
 	require.NoError(t, err)
 
 	piTools := w.tools(pi)
-	assert.Equal(t, []string{"memory", "web_search", "web_fetch", "generate_image"}, toolNames(piTools),
+	assert.Equal(t, []string{"memory", "show_artifact", "web_search", "web_fetch", "generate_image"}, toolNames(piTools),
 		"a Bot's pi is offered none of the browser's yet")
 	assert.Contains(t, string(piTools[0].InputSchema), `"enum":["bot","owner"]`)
 	assert.Contains(t, piTools[0].Description, "your own memory, the same in every chat")
 
 	workerTools := w.tools(worker)
-	assert.Equal(t, []string{"memory", "web_search", "web_fetch", "generate_image", "agent_browser_open"},
-		toolNames(workerTools))
+	assert.Equal(t, []string{"memory", "show_artifact", "web_search", "web_fetch", "generate_image",
+		"agent_browser_open"}, toolNames(workerTools))
 	assert.Contains(t, string(workerTools[0].InputSchema), `"enum":["agent","owner"]`)
 	assert.Contains(t, workerTools[0].Description, "the agent you run as")
 

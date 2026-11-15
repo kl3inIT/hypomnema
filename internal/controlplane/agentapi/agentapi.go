@@ -22,10 +22,10 @@
 //
 // An agent's tools server lists and calls here the control plane's tools
 // (tools.go, issue #536), each given to the agent kinds its definition names:
-// the memory's (memory.go), the gateway's, the web's (issue #354, web.go) and
-// generate_image (issue #492, images.go), and a worker's the browser every
-// agent shares (issue #212); and a worker the tools of the phone a node holds
-// (issue #417, device.go).
+// the memory's (memory.go), show_artifact (artifacts.go), the gateway's, the
+// web's (issue #354, web.go) and generate_image (issue #492, images.go), and
+// a worker's the browser every agent shares (issue #212); and a worker the
+// tools of the phone a node holds (issue #417, device.go).
 //
 // A refresh token and a client secret never pass through here: the token it
 // returns is the access token, good for about an hour. It is handed only for
@@ -63,6 +63,11 @@ type Store interface {
 	ChangeBotMemory(ctx context.Context, id string, op orchestration.MemoryOp) (orchestration.Bot, error)
 	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
 	OwnerTurn(ctx context.Context, chatID string) (bool, error)
+	// ShowArtifact and ArtifactMakerOfDispatch show an artifact for the show_artifact tool (issue #536), a
+	// worker's as its Run's chat's.
+	ShowArtifact(ctx context.Context, by orchestration.ArtifactMaker, in orchestration.ShowArtifact,
+	) (orchestration.Artifact, bool, error)
+	ArtifactMakerOfDispatch(ctx context.Context, dispatchID string) (orchestration.ArtifactMaker, error)
 	Memories() *memorystore.Store
 }
 

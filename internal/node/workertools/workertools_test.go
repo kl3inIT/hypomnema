@@ -37,7 +37,8 @@ func newClientIn(t *testing.T, dir string) *client {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 
-	s := &server{dir: dir, poll: 10 * time.Millisecond, progress: 30 * time.Millisecond, agent: agentOf(dir)}
+	s := &server{dir: dir, poll: 10 * time.Millisecond, progress: 30 * time.Millisecond}
+	s.agent, s.worktree = agentOf(dir)
 
 	done := make(chan struct{})
 

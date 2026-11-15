@@ -1,7 +1,8 @@
-// Package artifactpack is what an Artifact's files are (issue #402): the rules a Bot's file or folder is read by,
+// Package artifactpack is what an Artifact's files are (issue #402): the rules an agent's file or folder is read by,
 // how it goes to the control plane, and what kind of thing it is, found from its bytes and its name. The command
-// `hypomnema artifact show` reads it in the Bot's directory and the control plane checks it again, so both use one
-// set of rules.
+// `hypomnema artifact show` and the show_artifact tool's server (internal/shared/toolsmcp, issue #536) read it in
+// the folder the agent works in, and the control plane checks it again, so all use one set of rules. It is shared
+// because a worker's tools server runs on its node, which links no package of the control plane.
 //
 // The rules are OpenMausBot's for a page (server/pages/bundle.ts, packages/phone-protocol/src/app.ts and
 // published-page.ts, Apache-2.0): one HTML file at most 256 KB, a folder with index.html at its top and its other
