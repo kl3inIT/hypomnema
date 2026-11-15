@@ -41,54 +41,43 @@ func (runningPi) Stop(_ string) {}
 func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p.chat && p.key != "" }
 
 // Scenario: the launcher starts pi for a chat (issue #204). It writes pi's
-// models.json from what the control plane says: every provider that is the
-// model gateway, with its models, and never one pi cannot reach through the
-// gateway. pi then runs the key command the file names, and gets the key of
-// its own chat.
+// models.json from what the control plane says: one provider, the model
+// gateway, with every model the gateway serves (issue #549), and never a
+// provider pi would call past the gateway. pi then runs the key command the
+// file names, and gets the key of its own chat.
 func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	pi := &runningPi{}
-	w := newWorldWith(t, pi)
+	g := newGatewayModels(t, false)
+	w := newWorldWith(t, pi, func(srv *clientapi.Server) { srv.WithGatewayModels(g) })
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 
-	// The gateway a fresh install is seeded with (issue #462) offers nothing once the starting profiles leave it.
-	for _, name := range []string{"implementer", "reviewer", "explorer"} {
-		_, _, err := w.svc.ApplyProfile(ctx, "", "name: "+name+"\ndescription: d\nruntime: codex\n")
-		require.NoError(t, err)
-	}
-
-	_, err := w.svc.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: []\n")
-	require.NoError(t, err)
-
-	_, err = w.cmd(t, "pi-models")
+	_, err := w.cmd(t, "pi-models")
 	require.ErrorIs(t, err, errNoGatewayProvider, "pi would start with no model it can use")
 
-	for _, source := range []string{
-		"name: model-gateway\nkind: model_gateway\nmodels: [gpt-sol, claude-sonnet]\n",
-		"name: gateway\nkind: openai_compatible\nbase_url: " + w.url + "/v1\napi_key_ref: file:pi.key\nmodels: [gpt-sol]\n",
-		"name: ninerouter\nkind: openai_compatible\nbase_url: http://172.22.0.1:20128/v1\n" +
-			"api_key_ref: file:ninerouter.key\nmodels: [cx/gpt-sol]\n",
-	} {
-		_, err := w.svc.ApplyProvider(ctx, "", source)
-		require.NoError(t, err)
-	}
+	_, err = g.ApplyModel(ctx, "name: duo\ntargets:\n"+
+		"  - {provider: claude-subscription, model: claude-sonnet-5-5}\n  - {provider: codex-subscription, model: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	_, err = w.svc.ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
+		"base_url: http://172.22.0.1:20128/v1\napi_key_ref: file:ninerouter.key\nmodels: [cx/gpt-sol]\n")
+	require.NoError(t, err)
 
 	out, err := w.cmd(t, "pi-models")
 	require.NoError(t, err)
 
 	var file piModelsFile
 	require.NoError(t, json.Unmarshal([]byte(out), &file))
-	require.Len(t, file.Providers, 1, "a provider pi would call past the gateway is left out, and one at its address "+
-		"that is not of its kind")
+	require.Len(t, file.Providers, 1, "a provider pi would call past the gateway is left out")
 
-	workers := file.Providers["model-gateway"]
+	workers := file.Providers["hypomnema"]
 	assert.Equal(t, w.url+"/v1", workers.BaseURL)
 	assert.Equal(t, "openai-completions", workers.API)
 	assert.Equal(t, "!hypomnema model-key", workers.APIKey, "pi runs the command at each request; no key is in the file")
-	assert.Equal(t, []piModel{
-		{ID: "claude-sonnet", Name: "claude-sonnet (gateway)", Input: []string{"text", "image"}},
-		{ID: "gpt-sol", Name: "gpt-sol (gateway)", Input: []string{"text", "image"}},
-	}, workers.Models, "a model the gateway does not know of has pi's defaults, but reads pictures")
+	require.Len(t, workers.Models, 1)
+	assert.Equal(t, "duo", workers.Models[0].ID)
+	assert.Empty(t, workers.Models[0].API+workers.Models[0].BaseURL,
+		"a name over two kinds of subscription is asked in chat's format")
 
 	chat, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
@@ -117,8 +106,9 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 }
 
 // newGatewayModels is a model gateway over a database of its own, with the
-// built-in subscriptions as its providers.
-func newGatewayModels(t *testing.T) *modelgateway.Service {
+// built-in subscriptions as its providers. A gateway given its list of
+// providers serves every subscription's models besides its table's.
+func newGatewayModels(t *testing.T, listed bool) *modelgateway.Service {
 	t.Helper()
 
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
@@ -127,15 +117,71 @@ func newGatewayModels(t *testing.T) *modelgateway.Service {
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
-	return modelgateway.New(db, platform.SystemClock{}, platform.NewID,
+	info := func(p orchestration.Provider) modelgateway.ProviderInfo {
+		return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, Models: p.Models}
+	}
+
+	g := modelgateway.New(db, platform.SystemClock{}, platform.NewID,
 		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
 			p, err := orch.GetProvider(ctx, name)
 			if err != nil {
 				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
 			}
 
-			return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, Models: p.Models}, nil
+			return info(p), nil
 		}, func(context.Context, string) (string, error) { return "", nil })
+
+	if !listed {
+		return g
+	}
+
+	return g.WithProviderList(func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
+		providers, err := orch.ListProviders(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		out := make([]modelgateway.ProviderInfo, 0, len(providers))
+		for _, p := range providers {
+			out = append(out, info(p))
+		}
+
+		return out, nil
+	})
+}
+
+// Scenario: pi is given every subscription's models under their gateway
+// names, each speaking its subscription's own wire (issue #549): a Claude
+// model Anthropic Messages at the gateway's root, where pi adds /v1/messages;
+// a Codex model OpenAI Responses at the provider's /v1; any other model, and a
+// name over several kinds, the provider's chat.
+func TestPiSpeaksEachSubscriptionsOwnWire(t *testing.T) {
+	t.Parallel()
+
+	g := newGatewayModels(t, true)
+	w := newWorldWith(t, nil, func(srv *clientapi.Server) { srv.WithGatewayModels(g) })
+	w.login(t, bearertoken.Coordinator)
+	ctx := t.Context()
+
+	_, err := g.ApplyModel(ctx, "name: duo\ntargets:\n"+
+		"  - {provider: claude-subscription, model: claude-sonnet-5-5}\n  - {provider: codex-subscription, model: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	out, err := w.cmd(t, "pi-models")
+	require.NoError(t, err)
+
+	var file piModelsFile
+	require.NoError(t, json.Unmarshal([]byte(out), &file))
+
+	wires := map[string][2]string{}
+	for _, m := range file.Providers["hypomnema"].Models {
+		wires[m.ID] = [2]string{m.API, m.BaseURL}
+	}
+
+	assert.Equal(t, [2]string{"anthropic-messages", w.url}, wires["claude-subscription/claude-opus-5-5"])
+	assert.Equal(t, [2]string{"openai-responses", ""}, wires["codex-subscription/gpt-6.1-sol"])
+	assert.Equal(t, [2]string{"", ""}, wires["antigravity-subscription/gemini-3.1-pro-high"])
+	assert.Equal(t, [2]string{"", ""}, wires["duo"])
 }
 
 // Scenario: pi starts with the gateway's Codex and Claude models (issue
@@ -146,7 +192,7 @@ func newGatewayModels(t *testing.T) *modelgateway.Service {
 func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	t.Parallel()
 
-	g := newGatewayModels(t)
+	g := newGatewayModels(t, false)
 	w := newWorldWith(t, nil, func(srv *clientapi.Server) { srv.WithGatewayModels(g) })
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
@@ -159,9 +205,6 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	_, err = g.ApplyModel(ctx, "name: claude-opus-5-5\n"+
 		"targets: [{provider: claude-subscription, model: claude-opus-5-5}]\n")
 	require.NoError(t, err)
-	_, err = w.svc.ApplyProvider(ctx, "",
-		"name: model-gateway\nkind: model_gateway\nmodels: [sol, claude-sonnet-5-5, claude-opus-5-5]\n")
-	require.NoError(t, err)
 
 	out, err := w.cmd(t, "pi-models")
 	require.NoError(t, err)
@@ -169,7 +212,7 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	var file piModelsFile
 	require.NoError(t, json.Unmarshal([]byte(out), &file))
 
-	listed := file.Providers["model-gateway"].Models
+	listed := file.Providers["hypomnema"].Models
 	require.Len(t, listed, 3)
 
 	models := map[string]piModel{}

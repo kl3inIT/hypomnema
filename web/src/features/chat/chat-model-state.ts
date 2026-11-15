@@ -11,8 +11,15 @@ export type ChatChoice = { provider: string; model: string; effort: string }
 export const botsChoice: ChatChoice = { provider: "", model: "", effort: "" }
 
 // The kinds of provider pi reaches its model through, as the server checks a chat's model
-// (orchestration/profiles.go, runtimeProviders["pi"]).
-const piKinds = ["model_gateway", "openai_compatible", "anthropic"]
+// (orchestration/profiles.go, runtimeProviders["pi"]): a subscription's models run through the gateway (issue #549).
+const piKinds = [
+  "claude_subscription",
+  "codex_subscription",
+  "antigravity_subscription",
+  "model_gateway",
+  "openai_compatible",
+  "anthropic",
+]
 
 // piModels are the models a chat may choose: those of a provider pi can use.
 export function piModels(models: Model[]) {
@@ -35,9 +42,16 @@ export function running(
 
 // levelsOf are the effort levels a model offers, in their order, as the gateway gives its attributes (issue #367);
 // none for a model that does not reason, or one the gateway does not serve. t3code's TraitsPicker shows no control
-// for a trait a model lacks.
-export function levelsOf(model: string, gateway: GatewayModel[]): GatewayModelEffort[] {
-  const attributes = gateway.find((m) => m.name === model)?.attributes
+// for a trait a model lacks. The gateway serves a subscription's model as "<provider>/<model>" (issue #549), and a
+// name made in its table as it is.
+export function levelsOf(
+  chosen: { provider: string; model: string },
+  gateway: GatewayModel[],
+): GatewayModelEffort[] {
+  const served =
+    gateway.find((m) => m.name === `${chosen.provider}/${chosen.model}`) ??
+    gateway.find((m) => m.name === chosen.model)
+  const attributes = served?.attributes
   if (!attributes?.reasoning.value) return []
 
   const offered = attributes.efforts.value ?? []
@@ -60,7 +74,7 @@ export function withModel(
   next: { provider: string; model: string },
   gateway: GatewayModel[],
 ): ChatChoice {
-  const levels = levelsOf(next.model, gateway)
+  const levels = levelsOf(next, gateway)
   const effort = levels.includes(choice.effort as GatewayModelEffort) ? choice.effort : ""
 
   return { provider: next.provider, model: next.model, effort }

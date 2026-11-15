@@ -37,6 +37,12 @@ func (s *Supervisor) chatModel(ctx context.Context, chatID string) (string, orch
 		m.Effort = chat.Choice.Effort
 	}
 
+	// pi knows the model by the gateway's name (issue #549), as do the chat's key and set_model.
+	m, err = s.svc.PiModel(ctx, m)
+	if err != nil {
+		return "", orchestration.ChatModel{}, err
+	}
+
 	return b.ID, m, nil
 }
 

@@ -36,6 +36,8 @@ const gateway = [
   gatewayModel("gpt-sol", true, ["high", "low", "medium", "xhigh"]),
   gatewayModel("gpt-luna", true, ["none", "low"]),
   gatewayModel("plain-mini", false),
+  // A subscription's model, as the gateway serves it with no row of its table (issue #549).
+  gatewayModel("claude-subscription/claude-opus-5-5", true, ["low", "max"]),
 ]
 
 const models: Model[] = [
@@ -65,9 +67,12 @@ describe("a chat's model and effort (issue #369)", () => {
   })
 
   it("offers only the model's levels, in order, and none for a model that does not reason", () => {
-    expect(levelsOf("gpt-sol", gateway)).toEqual(["low", "medium", "high", "xhigh"])
-    expect(levelsOf("plain-mini", gateway)).toEqual([])
-    expect(levelsOf("unknown", gateway)).toEqual([])
+    const of = (provider: string, model: string) => levelsOf({ provider, model }, gateway)
+
+    expect(of("gateway", "gpt-sol")).toEqual(["low", "medium", "high", "xhigh"])
+    expect(of("gateway", "plain-mini")).toEqual([])
+    expect(of("gateway", "unknown")).toEqual([])
+    expect(of("claude-subscription", "claude-opus-5-5")).toEqual(["low", "max"])
   })
 
   it("keeps the chat's effort when the new model has it, else gives it back to the Bot", () => {
@@ -82,8 +87,14 @@ describe("a chat's model and effort (issue #369)", () => {
     ).toBe("")
   })
 
+  // A subscription's model runs through the gateway too (issue #549).
   it("lists the models pi can use", () => {
-    expect(piModels(models).map((m) => m.name)).toEqual(["gpt-sol", "gpt-luna", "plain-mini"])
+    expect(piModels(models).map((m) => m.name)).toEqual([
+      "gpt-sol",
+      "gpt-luna",
+      "plain-mini",
+      "claude-opus-5-5",
+    ])
   })
 })
 
@@ -151,7 +162,8 @@ test("the owner picks a model and an effort in the composer", async () => {
   )
 
   await user.click(await screen.findByRole("combobox", { name: "Model: gpt-sol" }))
-  expect(screen.queryByRole("option", { name: /opus/i })).not.toBeInTheDocument()
+  // The subscription's models are offered, under the subscription (issue #549).
+  expect(await screen.findByRole("option", { name: /opus/i })).toBeInTheDocument()
   await user.click(await screen.findByRole("option", { name: /gpt-luna/i }))
   expect(changes.at(-1)).toEqual({ provider: "gateway", model: "gpt-luna", effort: "" })
 

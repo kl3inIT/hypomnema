@@ -1276,7 +1276,14 @@ flowchart LR
   profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
   belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
-  it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
+  it, and a Task under it needs no account on a node. A subscription (`claude_subscription`, `codex_subscription`,
+  `antigravity_subscription`) is reached through the gateway too (issue #549): every runtime may name one but
+  `codex`, which names only `codex_subscription` (it speaks only `/v1/responses`, which the gateway passes on to a
+  Codex subscription alone); its Dispatch runs under the gateway with the model `<provider>/<model>`, and no
+  subscription token leaves the control plane. Such a profile is available, and its Task placed, only while the
+  control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise); whether that account
+  cools down is the gateway's to find. A Task's own model picks its provider again, as it is checked when the Task
+  is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
   another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
@@ -2007,10 +2014,19 @@ capabilities do not exist yet.
   `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
-- A fresh install has the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, each
-  served from `claude-subscription`'s model of the same name, and the provider `model-gateway` (kind
-  `model_gateway`) offering them, which the starting profiles name (migration 00081, issue #462; models as the
-  owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
+- The gateway serves every model of every subscription under `<provider>/<model>`, such as
+  `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
+  every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
+  logged-in accounts). The table is left for a name made on purpose, such as one over several targets. The
+  pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
+  table name has. Migration 00090 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
+  to the subscription and model of the name they used when it had one target only, a subscription's model (a
+  version whose YAML was not matched stayed); a name over several targets and what names it stayed. It then removed
+  the names of one target nothing used any more (a working key keeps its model) and the provider when nothing named
+  it.
+- Migration 00081 (issue #462) seeded the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and
+  `claude-haiku-5-5` and the provider `model-gateway` for the starting profiles; 00090 then moves those profiles to
+  `claude-subscription` and removes them (models as the owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
   subscription offers, and the provider only when no provider of its kind exists. A Claude Code worker then
   needs only a Claude account on the control plane (`accounts login claude` or `accounts add claude`).
 - A model's attributes (issue #367, after 9router-go, omniroute, LiteLLM's `model_info`, CLIProxyAPI and omp) are
@@ -2049,9 +2065,16 @@ capabilities do not exist yet.
     `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only the token of that chat's pi gets it: a chat's id
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
-    `hypomnema pi-models`: one provider of pi for
-    each provider of the control plane of kind `model_gateway`, with the models that provider lists. A Bot may
-    name a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
+    `hypomnema pi-models`: one provider of pi, `hypomnema`, with every model the gateway serves (issue #549), each
+    under its gateway name and with its subscription's wire: `anthropic-messages` at the gateway's root for a
+    Claude subscription's model, `openai-responses` at `/v1` for a Codex subscription's, OpenAI chat for the rest
+    (measured on zm on 2026-11-15: a Claude turn is about a fifth smaller on Messages with the same cache, and
+    Codex's cache is the same on Responses). The supervisor gives pi `--provider hypomnema` and the gateway name,
+    and makes the chat's key for that name. A Bot that names no model runs on Claude Opus 5.5 under the Claude
+    subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
+    `defaultProvider` and `defaultModel` when the gateway serves it, and the pages call it "Default (Claude Opus
+    5.5)"; without it pi takes the first model it is given. An omp worker is given the same wire for its model, as the offer's
+    `model_api`. A Bot may name a subscription or a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
     OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when
     known), `thinkingLevelMap` (pi's minimal to max as the model's level of that name, null for one it lacks; off

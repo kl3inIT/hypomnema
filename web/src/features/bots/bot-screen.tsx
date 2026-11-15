@@ -29,6 +29,7 @@ import { ToolsField } from "@/features/tools/tools-field"
 
 import { BotAccess } from "./bot-access"
 import {
+  defaultModelLabel,
   draftOf,
   emptyDraft,
   modelLine,
@@ -235,9 +236,9 @@ function BotForm({
         effort={draft.effort}
         models={models}
         onChange={set}
-        defaultLabel="pi's default model"
+        defaultLabel={defaultModelLabel}
         description="The model the Bot thinks with. Saving says so when pi cannot use the one chosen."
-        gone="No provider offers this model any more. Pick another, or pi's default."
+        gone="No provider offers this model any more. Pick another, or the default."
       />
 
       <Field>
