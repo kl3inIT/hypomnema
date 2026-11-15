@@ -34,7 +34,8 @@ import { Spinner } from "@/components/ui/spinner"
 
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
-import { nameOf, reposKey, said, useRepos } from "./use-integrations"
+import { said } from "@/lib/said"
+import { nameOf, reposKey, useRepos } from "./use-integrations"
 
 // RepositoriesScreen lists the repositories registered under a name, which a Run can then be started on by that
 // name. A list of rows with one action each, as t3code's and Orca's settings list their projects and repositories.

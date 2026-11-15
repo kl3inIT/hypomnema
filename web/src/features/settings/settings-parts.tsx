@@ -19,7 +19,8 @@ import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 
-import { errorText, said } from "./use-integrations"
+import { errorText } from "@/lib/server-error"
+import { said } from "@/lib/said"
 
 // The pieces every Settings screen shares, built on the standard components (issue #123).
 

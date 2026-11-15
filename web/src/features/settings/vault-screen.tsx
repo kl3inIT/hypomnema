@@ -62,7 +62,8 @@ import { cn } from "@/lib/utils"
 
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
-import { errorText, said } from "./use-integrations"
+import { errorText } from "@/lib/server-error"
+import { said } from "@/lib/said"
 
 const secretsKey = ["secrets"] as const
 

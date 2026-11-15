@@ -22,7 +22,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { said } from "@/features/settings/use-integrations"
+import { said } from "@/lib/said"
 import { ErrorAlert } from "@/features/settings/settings-parts"
 import { cn } from "@/lib/utils"
 

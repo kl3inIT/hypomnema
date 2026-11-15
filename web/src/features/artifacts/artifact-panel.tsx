@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/toast"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { problemOf } from "@/features/files/files-state"
+import { problemOf } from "@/lib/server-error"
 import { since } from "@/lib/time"
 
 import { ArtifactIcon } from "./artifact-icon"

@@ -78,7 +78,7 @@ import {
 import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
 import { ConfirmDialog, ErrorAlert, TextField } from "@/features/settings/settings-parts"
 import { SettingsPage } from "@/features/settings/settings-shell"
-import { said } from "@/features/settings/use-integrations"
+import { said } from "@/lib/said"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 

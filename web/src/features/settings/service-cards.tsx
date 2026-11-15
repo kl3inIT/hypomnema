@@ -73,7 +73,8 @@ import { Switch } from "@/components/ui/switch"
 
 import { AgentActions } from "./agent-actions"
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
-import { said, servicesKey } from "./use-integrations"
+import { said } from "@/lib/said"
+import { servicesKey } from "./use-integrations"
 
 // The services that sign in with an account (issue #103, step 4): Google is the first. A card a service, as the
 // git hosts have theirs, with the accounts the owner signed in under it. A service of kind app (Lark, issue #135)

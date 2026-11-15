@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { errorText } from "@/features/agents/profiles-state"
+import { errorText } from "@/lib/server-error"
 import { memoryEntries, memoryUsed } from "@/features/bots/bots-state"
 
 // MemoryEditor is a memory kept by agents, an entry a line, that the owner reads and edits by hand, as the owner

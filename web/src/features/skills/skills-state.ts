@@ -117,14 +117,6 @@ export function matches(query: string, name: string, description: string) {
   return q === "" || name.toLowerCase().includes(q) || description.toLowerCase().includes(q)
 }
 
-export function errorText(error: unknown) {
-  if (error && typeof error === "object" && "message" in error && error.message) {
-    return String(error.message)
-  }
-
-  return "The server refused. Try again."
-}
-
 // What the skills.sh tab says, as the skills CLI says it (MIT, Copyright (c) 2026 Vercel, Inc.,
 // https://github.com/vercel-labs/skills).
 

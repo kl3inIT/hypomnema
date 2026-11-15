@@ -28,7 +28,7 @@ import { Switch } from "@/components/ui/switch"
 import { ProviderMark } from "@/features/agents/model-mark"
 import { ErrorAlert, SettingsSection } from "@/features/settings/settings-parts"
 import { SettingsPage } from "@/features/settings/settings-shell"
-import { said } from "@/features/settings/use-integrations"
+import { said } from "@/lib/said"
 
 import { accountsText, imageProviderName, imageState, madeText } from "./images-state"
 import { moved } from "./web-search-state"

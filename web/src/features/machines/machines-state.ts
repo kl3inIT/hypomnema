@@ -164,12 +164,3 @@ export function statusChoices(nodes: Node[]) {
 export function withStatus(nodes: Node[], status: FilterState | "all") {
   return status === "all" ? nodes : nodes.filter((n) => machineState(n) === status)
 }
-
-// errorText is the server's message for a refused request (a problem's `message`), or a plain fallback.
-export function errorText(error: unknown) {
-  if (error && typeof error === "object" && "message" in error && error.message) {
-    return String(error.message)
-  }
-
-  return "The server refused. Try again."
-}

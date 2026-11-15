@@ -75,7 +75,7 @@ import {
   TextField,
 } from "@/features/settings/settings-parts"
 import { SettingsPage } from "@/features/settings/settings-shell"
-import { said } from "@/features/settings/use-integrations"
+import { said } from "@/lib/said"
 import { since } from "@/lib/time"
 
 import {

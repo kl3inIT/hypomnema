@@ -29,10 +29,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 import { ModelPicker } from "./model-picker"
+import { errorText } from "@/lib/server-error"
 import {
   efforts,
   emptyDraft,
-  errorText,
   maxFallbacks,
   modelKey,
   problem,

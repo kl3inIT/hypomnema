@@ -9,8 +9,8 @@ import { ConfirmDialog } from "@/features/settings/settings-parts"
 import { cn } from "@/lib/utils"
 
 import { FixButton, StatusMark } from "./parts"
+import { errorText } from "@/lib/server-error"
 import {
-  errorText,
   kindLine,
   lastWhen,
   lasted,

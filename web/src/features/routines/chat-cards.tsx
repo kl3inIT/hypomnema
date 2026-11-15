@@ -6,7 +6,8 @@ import type { RoutineRun } from "@/api/generated/types.gen"
 import { cn } from "@/lib/utils"
 
 import { RoutineForm } from "./routine-form"
-import { errorText, lastWhen, routineStatus, statusLine, capital } from "./routines-state"
+import { errorText } from "@/lib/server-error"
+import { lastWhen, routineStatus, statusLine, capital } from "./routines-state"
 import { useRoutine, useRoutineRuns, useSwitch, useUndo } from "./use-routines"
 
 // The cards a Routine has in a chat (issue #211), adapted from OpenMausBot (Apache License 2.0, Copyright 2026

@@ -10,7 +10,7 @@ import "@/api/client"
 import { openNodeTerminal } from "@/api/generated/sdk.gen"
 import { Button } from "@/components/ui/button"
 
-import { errorText } from "./machines-state"
+import { errorText } from "@/lib/server-error"
 import { closedBecause, retryIn, socketUrl, type TerminalStatus } from "./terminal-state"
 import { useMachines } from "./use-machines"
 

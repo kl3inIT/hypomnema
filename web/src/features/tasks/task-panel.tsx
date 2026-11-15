@@ -17,12 +17,12 @@ import { QuestionForm } from "@/features/questions/question-form"
 import { boardKey, questionsKey, useWork } from "@/features/work/use-work"
 import {
   boardCards,
-  firstLine,
   evidenceLink,
   pullRequest,
   repoLabel,
   type Card,
 } from "@/features/work/work-state"
+import { firstLine } from "@/lib/text"
 
 import { Transcript } from "./transcript"
 

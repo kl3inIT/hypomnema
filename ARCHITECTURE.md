@@ -2837,7 +2837,7 @@ Node (`internal/node`):
     reason in that issue: the chat, the question form, a transcript's rows, the
     Machines cards, table, switch and menu, the Task panel as a side panel.
   - A change the owner made in Settings that succeeded says so in a toast (`said` in
-    `web/src/features/settings/use-integrations.ts`).
+    `web/src/lib/said.ts`).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
     `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's

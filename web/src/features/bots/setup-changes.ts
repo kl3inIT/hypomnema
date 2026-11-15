@@ -4,7 +4,7 @@ import "@/api/client"
 import { listSetupChanges, undoSetupChange } from "@/api/generated/sdk.gen"
 import type { SetupChange } from "@/api/generated/types.gen"
 import { profilesKey } from "@/features/agents/use-profiles"
-import { said } from "@/features/settings/use-integrations"
+import { said } from "@/lib/said"
 
 import { botsKey } from "./use-bots"
 

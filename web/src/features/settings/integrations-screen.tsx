@@ -41,12 +41,12 @@ import { Spinner } from "@/components/ui/spinner"
 import { ServiceCard } from "./service-cards"
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
+import { said } from "@/lib/said"
 import {
   hostName,
   hostOf,
   hostsKey,
   kindName,
-  said,
   tokenHelp,
   useHosts,
   useServices,

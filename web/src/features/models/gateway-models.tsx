@@ -49,7 +49,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { ModelMark } from "@/features/agents/model-mark"
 import { ErrorAlert, TextField } from "@/features/settings/settings-parts"
-import { said } from "@/features/settings/use-integrations"
+import { said } from "@/lib/said"
 import { modelName } from "@/lib/model-name"
 
 import {

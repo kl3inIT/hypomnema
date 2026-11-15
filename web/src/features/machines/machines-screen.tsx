@@ -13,8 +13,8 @@ import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
 import { isVisible, useColumnVisibility, useStatusFilter } from "./column-visibility"
 import { ViewMenu } from "./columns-menu"
 import { columns, hiddenColumns, shownColumns, type Column } from "./machines-columns"
+import { errorText } from "@/lib/server-error"
 import {
-  errorText,
   filterStates,
   machineNote,
   machineState,

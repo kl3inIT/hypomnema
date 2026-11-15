@@ -67,7 +67,7 @@ import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
 import { Meter } from "@/features/machines/machine-cells"
 import { ConfirmDialog, ErrorAlert, SettingsSection } from "@/features/settings/settings-parts"
 import { SettingsPage } from "@/features/settings/settings-shell"
-import { said } from "@/features/settings/use-integrations"
+import { said } from "@/lib/said"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 

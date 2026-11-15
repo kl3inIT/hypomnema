@@ -20,7 +20,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { RuntimeMark } from "@/features/agents/runtime-mark"
 import { QuestionForm } from "@/features/questions/question-form"
 import { RunActions } from "@/features/runs/run-actions"
-import { firstLine, runtimeOf } from "@/features/work/work-state"
+import { firstLine } from "@/lib/text"
+import { runtimeOf } from "@/features/work/work-state"
 import { cn } from "@/lib/utils"
 
 import {

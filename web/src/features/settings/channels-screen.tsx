@@ -93,7 +93,8 @@ import {
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
 import { useLarkChannels, useRefreshChannels } from "./use-channels"
-import { said, useServices } from "./use-integrations"
+import { said } from "@/lib/said"
+import { useServices } from "./use-integrations"
 
 // Channels are the doors to the Bots from outside the web client (issues #136 and #169). A Lark Channel is a
 // Lark app, the Bot it talks to and who may talk through it; there may be several, and several may talk to one
