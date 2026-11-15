@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 
 import { GatewayKeysScreen } from "@/features/models/gateway-keys-screen"
-import { SettingsSidebar } from "@/features/settings/settings-shell"
+import { SettingsSidebar } from "@/components/settings-page"
 
 export const Route = createFileRoute("/settings/gateway-keys")({
   component: () => (

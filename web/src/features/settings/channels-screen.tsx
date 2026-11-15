@@ -80,7 +80,7 @@ import { Switch } from "@/components/ui/switch"
 import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 
-import { AvatarName } from "@/features/agents/agent-avatar"
+import { AvatarName } from "@/components/agent-avatar"
 import {
   appNameOf,
   botChoices,
@@ -90,8 +90,10 @@ import {
   modeNames,
   nameProblem,
 } from "./channels-state"
-import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
-import { SettingsPage } from "./settings-shell"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ErrorAlert } from "@/components/error-alert"
+import { TextField } from "@/components/text-field"
+import { SettingsPage } from "@/components/settings-page"
 import { useLarkChannels, useRefreshChannels } from "./use-channels"
 import { said } from "@/lib/said"
 import { useServices } from "./use-integrations"

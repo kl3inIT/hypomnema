@@ -72,7 +72,9 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
 import { AgentActions } from "./agent-actions"
-import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ErrorAlert } from "@/components/error-alert"
+import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
 import { servicesKey } from "./use-integrations"
 

@@ -48,10 +48,10 @@ Each adapted file names its source.
 - The grouping of the work in flight into what needs the owner, what works and what is done
   (`src/features/work/work-state.ts`) is adapted from Orca (https://github.com/stablyai/orca,
   src/renderer/src/components/dashboard), MIT.
-- The Machines page's cards, table, meters and actions menu (`src/features/machines`), the View menu of the
-  Machines and Agents pages, with its Status group that counts and filters the list and its columns to show or
-  hide (`columns-menu.tsx`, `column-visibility.ts`), and the list pages' header (`PageHeading` in
-  `src/features/shell/app-shell.tsx`) are adapted from Beszel (https://github.com/henrygd/beszel,
+- The Machines page's cards, table, meters and actions menu (`src/features/machines`, the meter in
+  `src/components/meter.tsx`), the View menu of the Machines and Agents pages, with its Status group that counts
+  and filters the list and its columns to show or hide (`columns-menu.tsx`, `column-visibility.ts`), and the list
+  pages' header (`PageHeading` in `src/components/page-header.tsx`) are adapted from Beszel (https://github.com/henrygd/beszel,
   internal/site/src/components/systems-table), MIT. The header also follows Orca's settings section
   (https://github.com/stablyai/orca, src/renderer/src/components/settings/section-layout/SettingsSection.tsx), MIT.
 - GitHub's mark (`src/components/icons/brand-icons.tsx`) is the path Orca uses
@@ -86,10 +86,10 @@ Each adapted file names its source.
 - The runtime marks (Claude, Codex, pi, opencode) are copied from OpenMausBot
   (https://github.com/milind-soni/OpenMausBot, src/components/ProviderIcons.tsx), Apache License 2.0. omp's mark is
   its own icon (https://github.com/can1357/oh-my-pi, assets/icon.svg), MIT, with its bars in the text colour.
-- The model picker (`src/features/agents/model-picker.tsx`, `model-mark.tsx`) follows Omnara's model combobox
-  (frontend/apps/web/src/components/ui/resource-combobox.tsx, Apache License 2.0), t3code's model search and row
-  (packages/client-runtime/src/modelSearch.ts, apps/web/src/components/chat/ModelListRow.tsx, MIT), and the
-  row with its logo of assistant-ui (https://github.com/assistant-ui/assistant-ui, packages/ui/src/components/
+- The model picker (`src/features/agents/model-picker.tsx`, `src/components/icons/model-mark.tsx`) follows
+  Omnara's model combobox (frontend/apps/web/src/components/ui/resource-combobox.tsx, Apache License 2.0),
+  t3code's model search and row (packages/client-runtime/src/modelSearch.ts,
+  apps/web/src/components/chat/ModelListRow.tsx, MIT), and the row with its logo of assistant-ui (https://github.com/assistant-ui/assistant-ui, packages/ui/src/components/
   react/assistant-ui/elements/model-selector.tsx, MIT, Copyright (c) 2026 AgentbaseAI Inc.) and AI Elements
   (https://github.com/vercel/ai-elements, packages/elements/src/model-selector.tsx, Apache License 2.0).
   Gemini's mark (`src/components/icons/brand-icons.tsx`) is copied from Onyx (web/lib/opal/src/logos/gemini.tsx,
@@ -105,7 +105,7 @@ Each adapted file names its source.
   (src/components/bot-settings/HistorySection.tsx: the list of versions; src/components/bot-panel/BackupAis.tsx:
   the ordered list of fallbacks; src/components/ModelPicker.tsx: the effort as a row of choices), all Apache
   License 2.0. Each file says what was changed.
-- An agent's avatar (`src/features/agents/agent-avatar.tsx`, `mascot-bodies.ts`, `agent-look.ts`) is OpenMausBot's
+- An agent's avatar (`src/components/agent-avatar.tsx`, `mascot-bodies.ts`, `agent-look.ts`) is OpenMausBot's
   mascot: its bodies (shared/mascot-bodies.ts), its colours (src/lib/mascot.ts), its idle eyes
   (src/components/cursor-face-data.ts) and the way it is drawn (src/components/CursorAvatar.tsx, Avatar.tsx),
   Apache License 2.0. It is drawn still, and the body and colour come from the agent's name.

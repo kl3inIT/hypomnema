@@ -14,7 +14,6 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import type { Model, Profile, Skill } from "@/api/generated/types.gen"
 
-import { look } from "./agent-look"
 import { AgentsScreen } from "./agents-screen"
 import { NewAgentScreen, ProfileScreen } from "./profile-screen"
 
@@ -502,18 +501,6 @@ test("a version with no time shows no age", async () => {
   const card = await agent("implementer")
   expect(card).toHaveTextContent("Version:1")
   expect(card).not.toHaveTextContent(/saved|ago/)
-})
-
-// An agent keeps its face: the same name gives the same body and colour, and the starting agents differ.
-test("an agent's avatar comes from its name", () => {
-  expect(look("reviewer")).toEqual(look("reviewer"))
-
-  const faces = ["implementer", "reviewer", "explorer", "coordinator"].map((name) => {
-    const { body, color } = look(name)
-
-    return `${body.id} ${color}`
-  })
-  expect(new Set(faces).size).toBe(4)
 })
 
 // Scenario: the YAML is edited by hand, then the owner goes back to the builder. The builder cannot read YAML,

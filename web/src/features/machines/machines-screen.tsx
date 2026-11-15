@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { PageHeader, PageHeading } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/components/page-header"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 

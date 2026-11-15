@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { choices, matches, type Choice, type Group } from "@/features/agents/model-choices"
-import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
+import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
 import { splitModel } from "@/features/agents/profiles-state"
 import { useModels } from "@/features/agents/use-profiles"
 import { useBots } from "@/features/bots/use-bots"

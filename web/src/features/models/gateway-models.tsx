@@ -47,8 +47,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
-import { ModelMark } from "@/features/agents/model-mark"
-import { ErrorAlert, TextField } from "@/features/settings/settings-parts"
+import { ModelMark } from "@/components/icons/model-mark"
+import { ErrorAlert } from "@/components/error-alert"
+import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
 import { modelName } from "@/lib/model-name"
 

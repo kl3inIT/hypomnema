@@ -93,14 +93,6 @@ export function machineProblem(node: Node) {
     : undefined
 }
 
-export type MeterTone = "good" | "warn" | "crit"
-
-// meterTone is Beszel's getMeterStateByThresholds (systems-table-columns.tsx): a meter warns from 65 % and is
-// critical from 90 %.
-export function meterTone(value: number, warn = 65, crit = 90): MeterTone {
-  return value >= crit ? "crit" : value >= warn ? "warn" : "good"
-}
-
 // percent is used of total as 0 to 100, or undefined when either is unknown.
 export function percent(used: number | undefined, total: number | undefined) {
   if (used === undefined || !total) return undefined
@@ -124,11 +116,6 @@ export function loadPercent(node: Node) {
 // gpuTitle names a GPU and what it draws: "NVIDIA RTX 4090 · 312 W".
 export function gpuTitle(gpu: { name: string; power_watts?: number }) {
   return gpu.power_watts === undefined ? gpu.name : `${gpu.name} · ${Math.round(gpu.power_watts)} W`
-}
-
-// decimal is Beszel's rule for a meter's number: one decimal from 10, two below.
-export function decimal(value: number) {
-  return value.toFixed(value >= 10 ? 1 : 2)
 }
 
 // gib writes bytes as "12.4 GiB".

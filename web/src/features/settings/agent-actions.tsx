@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/sheet"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
-import { ErrorAlert } from "./settings-parts"
+import { ErrorAlert } from "@/components/error-alert"
 import { said } from "@/lib/said"
 
 // What agents may do with an account, action by action (issue #154). The list and its three answers follow

@@ -5,7 +5,7 @@ import type { ReactNode } from "react"
 import type { Routine } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { PendingApprovals } from "@/features/approvals/approval-card"
-import { ConfirmDialog } from "@/features/settings/settings-parts"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { cn } from "@/lib/utils"
 
 import { FixButton, StatusMark } from "./parts"

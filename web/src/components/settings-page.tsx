@@ -16,7 +16,7 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 
-import { PageHeader, PageHeading } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/components/page-header"
 import { cn } from "@/lib/utils"
 
 // Settings is what the owner sets up once, kept apart from the places of daily work. The references whose sidebar
@@ -170,5 +170,34 @@ export function SettingsPage({
         </div>
       </div>
     </main>
+  )
+}
+
+// SettingsSection is a group of a page under a heading with its icon and a line of what it is for, as the Models page
+// has its subscriptions, gateway models and API providers.
+export function SettingsSection({
+  id,
+  icon: Icon,
+  title,
+  note,
+  children,
+}: {
+  id: string
+  icon: LucideIcon
+  title: string
+  note: string
+  children: ReactNode
+}) {
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h2 id={id} className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Icon className="size-4 text-muted-foreground" aria-hidden />
+          {title}
+        </h2>
+        <p className="text-xs text-muted-foreground">{note}</p>
+      </div>
+      {children}
+    </section>
   )
 }

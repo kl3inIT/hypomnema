@@ -75,9 +75,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
-import { ConfirmDialog, ErrorAlert, TextField } from "@/features/settings/settings-parts"
-import { SettingsPage } from "@/features/settings/settings-shell"
+import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ErrorAlert } from "@/components/error-alert"
+import { TextField } from "@/components/text-field"
+import { SettingsPage } from "@/components/settings-page"
 import { said } from "@/lib/said"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"

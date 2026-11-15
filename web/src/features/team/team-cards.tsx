@@ -1,9 +1,9 @@
 import { memo } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
-import { AgentAvatar } from "@/features/agents/agent-avatar"
-import { ModelMark } from "@/features/agents/model-mark"
-import { RuntimeMark } from "@/features/agents/runtime-mark"
+import { AgentAvatar } from "@/components/agent-avatar"
+import { ModelMark } from "@/components/icons/model-mark"
+import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { modelLine } from "@/features/bots/bots-state"
 import { IndicatorDot, StateText } from "@/features/machines/machine-cells"
 import { machineState } from "@/features/machines/machines-state"

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
-import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
+import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
 import { type PickGroup, type PickModel } from "./gateway-keys-state"
 
 function matches(model: PickModel, title: string, query: string) {

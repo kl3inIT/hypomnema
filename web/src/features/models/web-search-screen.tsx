@@ -66,15 +66,12 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ProviderMark } from "@/features/agents/model-mark"
-import { Meter } from "@/features/machines/machine-cells"
-import {
-  ConfirmDialog,
-  ErrorAlert,
-  SettingsSection,
-  TextField,
-} from "@/features/settings/settings-parts"
-import { SettingsPage } from "@/features/settings/settings-shell"
+import { ProviderMark } from "@/components/icons/model-mark"
+import { Meter } from "@/components/meter"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ErrorAlert } from "@/components/error-alert"
+import { SettingsSection, SettingsPage } from "@/components/settings-page"
+import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
 import { since } from "@/lib/time"
 

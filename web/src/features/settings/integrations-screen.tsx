@@ -39,8 +39,10 @@ import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/componen
 import { Spinner } from "@/components/ui/spinner"
 
 import { ServiceCard } from "./service-cards"
-import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
-import { SettingsPage } from "./settings-shell"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ErrorAlert } from "@/components/error-alert"
+import { TextField } from "@/components/text-field"
+import { SettingsPage } from "@/components/settings-page"
 import { said } from "@/lib/said"
 import {
   hostName,

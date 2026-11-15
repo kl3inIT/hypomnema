@@ -11,12 +11,12 @@ import {
   useStatusFilter,
 } from "@/features/machines/column-visibility"
 import { ViewMenu } from "@/features/machines/columns-menu"
-import { PageHeader, PageHeading } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/components/page-header"
 import { modelIsId } from "@/lib/model-name"
 import { cn } from "@/lib/utils"
 
-import { AgentAvatar } from "./agent-avatar"
-import { ModelMark } from "./model-mark"
+import { AgentAvatar } from "@/components/agent-avatar"
+import { ModelMark } from "@/components/icons/model-mark"
 import {
   effortLabel,
   filterStates,
@@ -27,7 +27,7 @@ import {
   statusChoices,
   withStatus,
 } from "./profiles-state"
-import { RuntimeMark } from "./runtime-mark"
+import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { useProfiles } from "./use-profiles"
 
 type Layout = "grid" | "table"

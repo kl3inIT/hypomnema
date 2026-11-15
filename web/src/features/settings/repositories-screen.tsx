@@ -32,8 +32,10 @@ import {
 } from "@/components/ui/item"
 import { Spinner } from "@/components/ui/spinner"
 
-import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
-import { SettingsPage } from "./settings-shell"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { ErrorAlert } from "@/components/error-alert"
+import { TextField } from "@/components/text-field"
+import { SettingsPage } from "@/components/settings-page"
 import { said } from "@/lib/said"
 import { nameOf, reposKey, useRepos } from "./use-integrations"
 

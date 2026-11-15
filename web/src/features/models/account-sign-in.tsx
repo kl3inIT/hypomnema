@@ -22,7 +22,8 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ErrorAlert, TextField } from "@/features/settings/settings-parts"
+import { ErrorAlert } from "@/components/error-alert"
+import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
 
 import { useRefreshAccounts } from "./use-models"

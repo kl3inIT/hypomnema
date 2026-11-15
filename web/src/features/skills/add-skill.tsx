@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { said } from "@/lib/said"
-import { ErrorAlert } from "@/features/settings/settings-parts"
+import { ErrorAlert } from "@/components/error-alert"
 import { cn } from "@/lib/utils"
 
 import { SkillsShSearch } from "./skills-sh"
