@@ -317,9 +317,16 @@ async function fakeServer(
     if (queued) {
       const id = Number(queued[1])
       calls.push(`${queued[2] ? "send now" : "remove"} ${id}`)
-      const item = { id, chat_id: chat.id, text: `queued ${id}`, created_at: "2026-11-09T10:00:00Z" }
+      const item = {
+        id,
+        chat_id: chat.id,
+        text: `queued ${id}`,
+        created_at: "2026-11-09T10:00:00Z",
+      }
 
-      return queued[2] ? json(message(20 + id, { role: "owner", text: item.text }), 201) : json(item)
+      return queued[2]
+        ? json(message(20 + id, { role: "owner", text: item.text }), 201)
+        : json(item)
     }
     if (path === `/chats/${chat.id}/messages`) {
       const body = route.request().postDataJSON() as { text: string }
