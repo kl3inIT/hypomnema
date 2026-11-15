@@ -469,7 +469,7 @@ export const putIntegrationClient = <ThrowOnError extends boolean = true>(option
 /**
  * Start signing an account in, as a Connection under a label; only the owner
  *
- * Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+ * Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services. With `app`, the owner signs in to an app Integration (Lark) as himself through the app of that Connection: the answer has a `user_code` he enters on the page the link opens, and completing waits for it. Such a user Connection acts as the owner and is used only by the owner's token and by the main Bot on the owner's own turn.
  */
 export const beginIntegrationSignIn = <ThrowOnError extends boolean = true>(options: Options<BeginIntegrationSignInData, ThrowOnError>): RequestResult<BeginIntegrationSignInResponses, BeginIntegrationSignInErrors, ThrowOnError> => (options.client ?? client).post<BeginIntegrationSignInResponses, BeginIntegrationSignInErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -482,9 +482,9 @@ export const beginIntegrationSignIn = <ThrowOnError extends boolean = true>(opti
 });
 
 /**
- * Complete a sign-in with the address the browser ended on; only the owner
+ * Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
  *
- * The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+ * The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed. A sign-in that answered a `user_code` takes no callback: completing waits until the owner entered the code, for as long as the sign-in stays open, and is refused when the service gives no refresh token.
  */
 export const completeIntegrationSignIn = <ThrowOnError extends boolean = true>(options: Options<CompleteIntegrationSignInData, ThrowOnError>): RequestResult<CompleteIntegrationSignInResponses, CompleteIntegrationSignInErrors, ThrowOnError> => (options.client ?? client).post<CompleteIntegrationSignInResponses, CompleteIntegrationSignInErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

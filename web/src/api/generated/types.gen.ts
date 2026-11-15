@@ -1118,9 +1118,13 @@ export type IntegrationConnection = {
    */
   version?: string;
   /**
-   * The id of the app the Connection is, for an Integration of kind app. Not secret.
+   * The id of the app the Connection is, for an Integration of kind app, or of the app a user Connection signed in through. Not secret.
    */
   app_id?: string;
+  /**
+   * For a user Connection, the owner's own sign-in through an app: the label of the app Connection it signs in with. It acts as the owner, so only the owner's token and the main Bot on the owner's own turn may use it.
+   */
+  app?: string;
   /**
    * The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.
    */
@@ -1379,9 +1383,13 @@ export type NewIntegrationClient = {
 export type NewSignIn = {
   label: string;
   /**
-   * A service alone to read and write, or with ":read" to read only.
+   * A service alone to read and write, or with ":read" to read only. Needed for an Integration that signs in with OAuth.
    */
-  services: Array<string>;
+  services?: Array<string>;
+  /**
+   * For an app Integration: the label of the app Connection the owner signs in as himself through, by device code.
+   */
+  app?: string;
 };
 
 export type SignIn = {
@@ -1390,14 +1398,18 @@ export type SignIn = {
    * The link the owner opens in a browser to sign in.
    */
   url: string;
+  /**
+   * The code the owner enters on the page the link opens, for a sign-in by device code; completing it then takes no callback.
+   */
+  user_code?: string;
   expires_in_seconds: number;
 };
 
 export type SignInCallback = {
   /**
-   * The whole address the browser ended on after consent.
+   * The whole address the browser ended on after consent; none for a sign-in by device code.
    */
-  callback: string;
+  callback?: string;
 };
 
 export type Disconnected = {
