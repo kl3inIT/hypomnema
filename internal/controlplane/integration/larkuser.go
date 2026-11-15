@@ -251,11 +251,21 @@ func (s *Service) completeDevice(ctx context.Context, id string, pending *signIn
 	}
 
 	return s.saveUser(ctx, d, pending.label, account, dev.app, vault.Refreshed{
-		Payload: vault.Payload{
+		Payload: withScope(vault.Payload{
 			vault.KeyAccessToken: tokens.AccessToken, vault.KeyRefreshToken: tokens.RefreshToken,
-		},
+		}, tokens.Scope),
 		AccessTokenExpiresAt: s.expiry(tokens.tokenAnswer),
 	})
+}
+
+// withScope keeps the scopes a token was granted beside it, as lark-cli keeps a user token's (token_store.go):
+// what a person's sign-in can do is read from them (issue #567). An answer that names none keeps nothing.
+func withScope(p vault.Payload, scope string) vault.Payload {
+	if scope = strings.TrimSpace(scope); scope != "" {
+		p[vault.KeyScope] = scope
+	}
+
+	return p
 }
 
 // userTokens is an answer of the token endpoint, with its OAuth error and Lark's code.
@@ -389,7 +399,7 @@ func (s *Service) saveUser(ctx context.Context, d Definition, label, account str
 		return Connection{}, err
 	}
 
-	return s.view(ctx, d, saved), nil
+	return s.checked(ctx, d, saved), nil
 }
 
 // appStillSignsIn says whether a user Connection's app Connection is still the app it signed in with: a refresh
@@ -496,8 +506,15 @@ func (s *Service) refreshUser(ctx context.Context, d Definition, conn orchestrat
 		kept = current[vault.KeyRefreshToken]
 	}
 
+	// A refresh that names no scope keeps the one the sign-in had, as lark-cli does (uat_client.go).
+	scope := answer.Scope
+	if strings.TrimSpace(scope) == "" {
+		scope = current[vault.KeyScope]
+	}
+
 	return vault.Refreshed{
-		Payload:              vault.Payload{vault.KeyAccessToken: answer.AccessToken, vault.KeyRefreshToken: kept},
+		Payload: withScope(vault.Payload{vault.KeyAccessToken: answer.AccessToken, vault.KeyRefreshToken: kept},
+			scope),
 		AccessTokenExpiresAt: s.expiry(answer.tokenAnswer),
 	}, nil
 }

@@ -1,9 +1,12 @@
 import { useMutation } from "@tanstack/react-query"
 import { cn } from "cn"
-import { ChevronRight, ShieldCheck } from "lucide-react"
+import { Ban, ChevronRight, RefreshCw, ShieldCheck } from "lucide-react"
 
 import "@/api/client"
-import { setConnectionActionMutation } from "@/api/generated/@tanstack/react-query.gen"
+import {
+  checkIntegrationConnectionMutation,
+  setConnectionActionMutation,
+} from "@/api/generated/@tanstack/react-query.gen"
 import type {
   ActionPolicy,
   ConnectionAction,
@@ -27,15 +30,23 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { Spinner } from "@/components/ui/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 import { ErrorAlert } from "@/components/error-alert"
 import { said } from "@/lib/said"
-import { useConnectionActions, useRefreshConnectionActions } from "./use-integrations"
+import { since } from "@/lib/time"
+import {
+  useConnectionActions,
+  useRefreshConnectionActions,
+  useRefreshServices,
+} from "./use-integrations"
 
 // What agents may do with an account, action by action (issue #154). The list and its three answers follow
 // Onyx's Tools tab of an app (Auto-approve, Ask, Disabled for each action); the grouping by service and the
-// one-line tally follow affectUI's permissions screen.
+// one-line tally follow affectUI's permissions screen. What the account itself cannot do at the service (issue #567)
+// is said on its row, which stays and is muted, as Onyx keeps a failed check in its list with its message
+// (CredentialChecksCard.tsx); "Check again" reads it again, as Onyx's re-run of a finished check.
 
 const words: Record<ActionPolicy, string> = { allow: "On its own", ask: "Ask", never: "Never" }
 const order: ActionPolicy[] = ["allow", "ask", "never"]
@@ -46,13 +57,15 @@ const dots: Record<ActionPolicy, string> = {
   never: "bg-muted-foreground",
 }
 
-// tally says a list of actions in one line: "5 on their own · ask before 6 · never 2".
+// tally says a list of actions in one line: "5 on their own · ask before 6 · never 2 · 3 the account cannot".
 function tally(actions: ConnectionAction[]): string {
   const count = (policy: ActionPolicy) => actions.filter((a) => a.policy === policy).length
+  const cannot = actions.filter((a) => a.access === "missing").length
   const parts = [
     count("allow") && `${count("allow")} on their own`,
     count("ask") && `ask before ${count("ask")}`,
     count("never") && `never ${count("never")}`,
+    cannot && `${cannot} the account cannot`,
   ]
 
   return parts.filter(Boolean).join(" · ")
@@ -76,7 +89,8 @@ export function AgentActions({
   return (
     <Sheet>
       {/* The line starts where the account's name does. */}
-      <div className="flex px-1">
+      {/* The tally is cut on a phone rather than run past the card. */}
+      <div className="flex min-w-0 px-1 *:max-w-full">
         <SheetTrigger
           render={
             <Button
@@ -104,6 +118,7 @@ export function AgentActions({
             your approval, in the chat or in the Task. Never is refused.
           </SheetDescription>
         </SheetHeader>
+        <CheckAgain service={service} connection={connection} />
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-6">
           {services.map((name) => (
             <section key={name} aria-label={name} className="flex flex-col gap-2">
@@ -132,6 +147,57 @@ export function AgentActions({
   )
 }
 
+// CheckAgain says when what the account can do was last read at the service, and reads it again.
+function CheckAgain({
+  service,
+  connection,
+}: {
+  service: Integration
+  connection: IntegrationConnection
+}) {
+  const refreshActions = useRefreshConnectionActions()
+  const refreshServices = useRefreshServices()
+  const check = useMutation({
+    ...checkIntegrationConnectionMutation(),
+    onSuccess: async (checked) => {
+      await Promise.all([refreshActions(service.id, connection.label), refreshServices()])
+      said(
+        checked.cannot.length
+          ? `Checked: the account cannot do ${checked.cannot.length}`
+          : "Checked: nothing is missing",
+      )
+    },
+  })
+
+  return (
+    <div className="flex flex-col gap-2 px-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          {connection.access_checked_at
+            ? `What the account can do at ${service.name} was read ${since(connection.access_checked_at)}.`
+            : `What the account can do at ${service.name} was not read yet.`}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={check.isPending}
+          onClick={() =>
+            check.mutate({ path: { integration: service.id, label: connection.label } })
+          }
+        >
+          {check.isPending ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <RefreshCw data-icon="inline-start" />
+          )}
+          Check again
+        </Button>
+      </div>
+      {check.error && <ErrorAlert error={check.error} />}
+    </div>
+  )
+}
+
 function ActionRow({
   integration,
   label,
@@ -150,11 +216,23 @@ function ActionRow({
     },
   })
 
+  // A row the account cannot do stays, muted, and says why: the owner's answer still holds for when it can.
+  const cannot = action.access === "missing"
+
   return (
-    <Item variant="outline" size="sm">
+    <Item variant={cannot ? "muted" : "outline"} size="sm">
       <ItemContent>
         <ItemTitle>{action.name}</ItemTitle>
         {action.text && <ItemDescription>{action.text}</ItemDescription>}
+        {cannot && (
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Ban className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <span>
+              <span className="font-medium text-foreground">This account cannot:</span>{" "}
+              {action.reason}
+            </span>
+          </p>
+        )}
         {change.error && <ErrorAlert error={change.error} />}
       </ItemContent>
       <ItemFooter>

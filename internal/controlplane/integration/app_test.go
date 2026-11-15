@@ -40,6 +40,8 @@ type larkApp struct{ secret, name string }
 type lark struct {
 	t   *testing.T
 	srv *httptest.Server
+	// mux takes a test's own routes beside the two.
+	mux *http.ServeMux
 
 	mu     sync.Mutex
 	apps   map[string]*larkApp
@@ -58,7 +60,7 @@ func newLark(t *testing.T) *lark {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token", l.token)
 	mux.HandleFunc("GET /bot", l.bot)
-	l.srv = httptest.NewServer(mux)
+	l.mux, l.srv = mux, httptest.NewServer(mux)
 	t.Cleanup(l.srv.Close)
 
 	return l
@@ -66,7 +68,7 @@ func newLark(t *testing.T) *lark {
 
 func (l *lark) definition() integration.Definition {
 	d := integration.Lark()
-	d.AppTokenURL, d.AppInfoURL = l.srv.URL+"/token", l.srv.URL+"/bot"
+	d.AppTokenURL, d.AppInfoURL, d.AppScopesURL = l.srv.URL+"/token", l.srv.URL+"/bot", l.srv.URL+"/apps/"
 
 	return d
 }

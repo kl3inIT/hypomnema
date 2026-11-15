@@ -91,10 +91,20 @@ tool answers tells you what happened:
 | You are told it was **approved** | Make the same call again, with the same arguments and the same body. It passes once. A changed call is a new request and asks again. |
 | `Rejected by the owner`, or you are told it was **rejected** | Do not make it again, and do not look for another way to do the same thing. Say so in your answer. |
 | `Refused: the owner set … to never` | The same: say so, do not work around it. |
+| `Refused: <account> cannot "…" at <integration>:<label>: <reason>` | The account itself cannot do it at the service; nothing was sent. Do not try it another way. Say what is missing in your answer: the owner grants it there. |
 | `Refused: a request's path …` | The path was not a plain path of Superset's API. Write it as `/api/v1/...` with no `..`, no encoded slash and no host. |
 
 A request to read or summarize is not a request to change anything: do not start a write the owner did not ask
 for.
+
+## What the account cannot do
+
+The control plane reads the account's roles at Superset and knows, part by part, what it cannot do: a read-only
+role reads dashboards, charts and datasets, and is refused SQL Lab, queries, logs, users and roles, row level
+security, annotations and every change. Where you run `hypomnema superset dashboards`, its listing ends with what
+the account cannot do; read it before the first other call. With the tools or the commands, a call to one of them
+is refused before it reaches Superset, with `Refused: … cannot …` and the role that lacks the permission. Do not try it another way: say what is missing, and the
+owner gives the account a role at Superset.
 
 ## Any other request: `superset_api`
 

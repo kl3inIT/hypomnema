@@ -54,6 +54,8 @@ type Definition struct {
 	// AppInfoURL says which app the token is; both are for KindApp.
 	AppTokenURL string
 	AppInfoURL  string
+	// AppScopesURL, followed by an app's id, says which scopes the app has enabled (issue #567), for KindApp.
+	AppScopesURL string
 	// DeviceAuthURL starts a person's own sign-in through one of the Integration's apps, by device code (issue
 	// #468): a user Connection. Only an app Integration has it; TokenURL, RevokeURL and UserInfoURL then serve
 	// that sign-in.
@@ -68,6 +70,8 @@ type Definition struct {
 	RefreshPath string
 	CSRFPath    string
 	VersionPath string
+	// RolesPath says the account's roles with their permissions (issue #567), for KindAccount.
+	RolesPath string
 	// AuthURL is the consent page; TokenURL exchanges a code or a refresh
 	// token; RevokeURL ends a token; UserInfoURL says whose account signed in.
 	AuthURL     string
@@ -309,11 +313,13 @@ func Lark() Definition {
 	)
 
 	return Definition{
-		ID:            LarkID,
-		Name:          "Lark",
-		Kind:          KindApp,
-		AppTokenURL:   host + "/open-apis/auth/v3/tenant_access_token/internal",
-		AppInfoURL:    host + "/open-apis/bot/v3/info",
+		ID:          LarkID,
+		Name:        "Lark",
+		Kind:        KindApp,
+		AppTokenURL: host + "/open-apis/auth/v3/tenant_access_token/internal",
+		AppInfoURL:  host + "/open-apis/bot/v3/info",
+		// The app's own information names its enabled scopes (lark-cli cmd/auth/auth.go, getAppInfo).
+		AppScopesURL:  host + "/open-apis/application/v6/applications/",
 		DeviceAuthURL: accounts + "/oauth/v1/device_authorization",
 		TokenURL:      accounts + "/oauth/v3/token",
 		RevokeURL:     accounts + "/oauth/v1/revoke",
@@ -341,6 +347,8 @@ func Superset() Definition {
 		RefreshPath: "/api/v1/security/refresh",
 		CSRFPath:    "/api/v1/security/csrf_token/",
 		VersionPath: "/version",
+		// The account's roles with their permissions (superset/views/users/api.py, get_my_roles).
+		RolesPath: "/api/v1/me/roles/",
 	}
 }
 

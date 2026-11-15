@@ -2,6 +2,7 @@ package clientapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -113,16 +114,31 @@ func (s *Server) DecideApproval(ctx context.Context, req openapi.DecideApprovalR
 	return openapi.DecideApproval200JSONResponse(toApproval(decided)), nil
 }
 
-func toConnectionAction(a serviceproxy.Action, set map[string]string) openapi.ConnectionAction {
+func toConnectionAction(a serviceproxy.Action, set map[string]string, access orchestration.ConnectionAccess,
+) openapi.ConnectionAction {
 	policy := a.Default()
 	if answer, ok := set[a.ID]; ok {
 		policy = answer
 	}
 
+	got := access.Of(a.ID)
+
 	return openapi.ConnectionAction{
 		Id: a.ID, Service: a.Service, Name: a.Name, Text: a.Text, Kind: openapi.ConnectionActionKind(a.Kind),
 		Policy: openapi.ActionPolicy(policy), Default: openapi.ActionPolicy(a.Default()),
+		Access: openapi.ActionAccess(got.Access), Reason: opt(got.Reason),
 	}
+}
+
+// connectionAccess is what a Connection's account can do, as last read; nothing for one that does not exist.
+func (s *Server) connectionAccess(ctx context.Context, integration, label string,
+) (orchestration.ConnectionAccess, error) {
+	conn, err := s.svc.ConnectionOf(ctx, integration, label)
+	if errors.Is(err, orchestration.ErrNotFound) {
+		return orchestration.ConnectionAccess{}, nil
+	}
+
+	return conn.Access, err
 }
 
 // ListConnectionActions lists what agents may do with a Connection.
@@ -141,17 +157,22 @@ func (s *Server) ListConnectionActions(ctx context.Context, req openapi.ListConn
 		return nil, err
 	}
 
+	access, err := s.connectionAccess(ctx, req.Integration, req.Label)
+	if err != nil {
+		return nil, err
+	}
+
 	listed := map[string]bool{}
 
 	for _, a := range catalog.Listed() {
 		listed[a.ID] = true
-		out.Data = append(out.Data, toConnectionAction(a, set))
+		out.Data = append(out.Data, toConnectionAction(a, set, access))
 	}
 
 	// An Integration whose actions are named by the request (AWS) lists those the owner set an answer for.
 	for _, id := range slices.Sorted(maps.Keys(set)) {
 		if a, ok := catalog.Action(id); ok && !listed[id] {
-			out.Data = append(out.Data, toConnectionAction(a, set))
+			out.Data = append(out.Data, toConnectionAction(a, set, access))
 		}
 	}
 
@@ -186,5 +207,10 @@ func (s *Server) SetConnectionAction(ctx context.Context, req openapi.SetConnect
 		return nil, err
 	}
 
-	return openapi.SetConnectionAction200JSONResponse(toConnectionAction(action, set)), nil
+	access, err := s.connectionAccess(ctx, req.Integration, req.Label)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetConnectionAction200JSONResponse(toConnectionAction(action, set, access)), nil
 }

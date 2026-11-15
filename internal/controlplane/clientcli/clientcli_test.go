@@ -1171,6 +1171,8 @@ type signIns struct {
 	apps      []integration.Connection
 	// userApp is the app a sign-in as the owner goes through.
 	userApp string
+	// access is what a check finds the account can do (issue #567).
+	access orchestration.ConnectionAccess
 }
 
 func (s *signIns) List(context.Context) ([]integration.Integration, error) {
@@ -1288,6 +1290,22 @@ func (s *signIns) SetChats(_ context.Context, _, label string, allowed bool) (in
 	for i := range s.connections {
 		if s.connections[i].Label == label {
 			s.connections[i].Chats = allowed
+
+			return s.connections[i], nil
+		}
+	}
+
+	return integration.Connection{}, integration.ErrNotFound
+}
+
+// Check gives a Google Connection the access the test set for it, as reading it again at Google would.
+func (s *signIns) Check(_ context.Context, _, label string) (integration.Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.connections {
+		if s.connections[i].Label == label {
+			s.connections[i].Access = s.access
 
 			return s.connections[i], nil
 		}
@@ -1516,13 +1534,13 @@ func TestTheOwnerSetsActionsAndAnswersApprovals(t *testing.T) {
 
 	out, err := w.cmd(t, "integrations", "actions", "google:work")
 	require.NoError(t, err)
-	assert.Contains(t, out, "gmail.send         ask    Gmail: Send mail\n")
-	assert.Contains(t, out, "gmail.read         allow  Gmail: Read mail\n")
+	assert.Contains(t, out, "gmail.send         ask    unknown  Gmail: Send mail\n")
+	assert.Contains(t, out, "gmail.read         allow  unknown  Gmail: Read mail\n")
 	assert.NotContains(t, out, "discovery", "what a tool needs to run at all is not the owner's to answer")
 
 	out, err = w.cmd(t, "integrations", "actions", "set", "google:work", "gmail.send", "never")
 	require.NoError(t, err)
-	assert.Equal(t, "gmail.send         never  Gmail: Send mail  (default ask)\n", out)
+	assert.Equal(t, "gmail.send         never  unknown  Gmail: Send mail  (default ask)\n", out)
 
 	_, err = w.cmd(t, "integrations", "actions", "set", "google:work", "gmail.send", "sometimes")
 	require.ErrorContains(t, err, "allow, ask or never")

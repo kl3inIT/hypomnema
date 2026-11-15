@@ -502,6 +502,7 @@ const google: Integration = {
     services: ["gmail"],
     sign_in_required: false,
     chats: label === "work",
+    cannot: [],
     created_at: new Date(0).toISOString(),
     updated_at: new Date(0).toISOString(),
   })),

@@ -179,6 +179,17 @@ type Connection struct {
 	ClientID string `json:"client_id,omitempty"`
 	// User says the account is the owner's own sign-in through an app (issue #468): the tool acts as him.
 	User bool `json:"user,omitempty"`
+	// Cannot are the actions the account cannot do at the service, as last read (issue #567): a request for one
+	// is refused before it is sent.
+	Cannot []Cannot `json:"cannot,omitempty"`
+}
+
+// Cannot is one action an account cannot do, and why.
+type Cannot struct {
+	Action  string `json:"action"`
+	Service string `json:"service"`
+	Name    string `json:"name"`
+	Reason  string `json:"reason"`
 }
 
 // ConnectionList answers PathConnections.
@@ -195,6 +206,38 @@ func (l ConnectionList) clientOf(label string) string {
 	}
 
 	return ""
+}
+
+// cannotLine says in one line what the account named label cannot do, service by service, or nothing when it can
+// do all that was read (issue #567). It is printed before the tool runs, so that an agent is told before it tries,
+// as lark-cli's `auth check` tells an agent which scopes are missing (cmd/auth/check.go).
+func (l ConnectionList) cannotLine(integration, label string) string {
+	i := slices.IndexFunc(l.Data, func(c Connection) bool { return c.Label == label })
+	if i < 0 || len(l.Data[i].Cannot) == 0 {
+		return ""
+	}
+
+	var (
+		services []string
+		names    = map[string][]string{}
+	)
+
+	for _, c := range l.Data[i].Cannot {
+		if _, seen := names[c.Service]; !seen {
+			services = append(services, c.Service)
+		}
+
+		names[c.Service] = append(names[c.Service], c.Name)
+	}
+
+	parts := make([]string, 0, len(services))
+	for _, service := range services {
+		parts = append(parts, service+": "+strings.Join(names[service], ", "))
+	}
+
+	return fmt.Sprintf("hypomnema: %s:%s cannot do these at the service: %s. A command that needs one is refused "+
+		"before it is sent; do not try it, tell the owner what is missing.", integration, label,
+		strings.Join(parts, "; "))
 }
 
 // isUser says whether the account named label is the owner's own sign-in.
@@ -286,6 +329,10 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 	label, err = pick(def, list, label)
 	if err != nil {
 		return err
+	}
+
+	if line := list.cannotLine(def.Integration, label); line != "" && l.Stderr != nil {
+		_, _ = fmt.Fprintln(l.Stderr, line)
 	}
 
 	//nolint:gosec // The pinned tool, installed by this machine's own installer.

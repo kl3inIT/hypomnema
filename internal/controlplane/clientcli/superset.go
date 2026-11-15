@@ -57,6 +57,29 @@ func supersetLabel(ctx context.Context, e *env, fs *flag.FlagSet) (string, error
 	return service.Connections[0].Label, nil
 }
 
+// supersetCannot says what a Superset account cannot do at the service, as last read (issue #567), a line each;
+// nothing when it can do all, or the list cannot be read.
+func supersetCannot(ctx context.Context, e *env, label string) []string {
+	service, err := serviceOf(ctx, e, supersetID)
+	if err != nil || service == nil {
+		return nil
+	}
+
+	var out []string
+
+	for _, c := range service.Connections {
+		if c.Label != label {
+			continue
+		}
+
+		for _, no := range c.Cannot {
+			out = append(out, fmt.Sprintf("  %s: %s (%s)", no.Service, no.Name, no.Reason))
+		}
+	}
+
+	return out
+}
+
 // askingChat is the chat a coordinator runs the command in, so that an
 // Approval its request waits for is answered there.
 func askingChat() *string {
@@ -141,6 +164,12 @@ func supersetDashboards(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 		for _, d := range resp.JSON200.Data {
 			e.printf("%d\t%s\n", d.Id, d.Title)
+		}
+
+		// What the account cannot do is said with the first listing, before anything is tried (issue #567).
+		if cannot := supersetCannot(ctx, e, label); len(cannot) > 0 {
+			e.printf("\nsuperset:%s cannot do these; a request for one is refused before it is sent:\n%s\n", label,
+				strings.Join(cannot, "\n"))
 		}
 	})
 }

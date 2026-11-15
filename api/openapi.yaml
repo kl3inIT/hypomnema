@@ -986,6 +986,25 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LarkChannelGroup" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/check:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    post:
+      operationId: CheckIntegrationConnection
+      summary: Read again what a Connection's account can really do; only the owner
+      description: >-
+        Reads at the service what the account holds (a Google account's grants, a Lark app's enabled scopes or a
+        person's sign-in's, a Superset account's roles) and keeps, for each action, whether the account can do it:
+        granted, missing or unknown. It is read too when the Connection is made or signed in again; nothing reads
+        it on a timer. A request for an action that is missing is refused before it is sent.
+      responses:
+        "200":
+          description: The Connection, with what it can do as just read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntegrationConnection" }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}/actions:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -4767,7 +4786,7 @@ components:
     IntegrationConnection:
       type: object
       description: One account of an Integration the owner signed in, under a label.
-      required: [integration, label, account, services, sign_in_required, chats, created_at, updated_at]
+      required: [integration, label, account, services, sign_in_required, chats, cannot, created_at, updated_at]
       properties:
         integration: { type: string }
         label: { type: string }
@@ -4815,8 +4834,27 @@ components:
           description: >-
             Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
             turns it on.
+        cannot:
+          type: array
+          items: { $ref: "#/components/schemas/ConnectionCannot" }
+          description: >-
+            The actions the account cannot do at the service, as last read, in the order they are listed. A
+            request for one is refused before it is sent. Empty when it can do all, or nothing was read.
+        access_checked_at:
+          type: string
+          format: date-time
+          description: When what the account can do was last read at the service; absent when never.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ConnectionCannot:
+      type: object
+      description: One action a Connection's account cannot do at the service, and why.
+      required: [action, service, name, reason]
+      properties:
+        action: { type: string, description: "The action's name in commands, such as superset.logs.read." }
+        service: { type: string }
+        name: { type: string }
+        reason: { type: string, description: "Why, such as role ServiceReader has no can_read on Log." }
     NewAccountConnection:
       type: object
       description: >-
@@ -4983,7 +5021,7 @@ components:
     ConnectionAction:
       type: object
       description: One thing an agent can do with a Connection, and the owner's answer to it.
-      required: [id, service, name, text, kind, policy, default]
+      required: [id, service, name, text, kind, policy, default, access]
       properties:
         id: { type: string, description: "The action's name in commands, such as gmail.send." }
         service: { type: string, description: "The part of the Integration it belongs to, such as Gmail." }
@@ -4994,6 +5032,17 @@ components:
           enum: [reads, changes, needs_care]
         policy: { $ref: "#/components/schemas/ActionPolicy" }
         default: { $ref: "#/components/schemas/ActionPolicy" }
+        access: { $ref: "#/components/schemas/ActionAccess" }
+        reason:
+          type: string
+          description: >-
+            Why, in a few words, such as "role ServiceReader has no can_read on Log". Empty when nothing was read.
+    ActionAccess:
+      type: string
+      description: >-
+        Whether the account can really do the action at the service, as last read: granted, missing (a request for
+        it is refused before it is sent, whatever the policy), or unknown (it could not be read; requests go on).
+      enum: [granted, missing, unknown]
     ConnectionActionList:
       type: object
       required: [data]

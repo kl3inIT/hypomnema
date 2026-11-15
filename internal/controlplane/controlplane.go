@@ -266,6 +266,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	tokens := connections{svc: svc, vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS())
+	// What each account can really do is read at its service and said action by action from the proxy's
+	// catalog (issue #567): on connect, on sign-in again, on the owner's check, and after a 403.
+	checkAccess := func(ctx context.Context, id, label string) error {
+		held, err := integrations.Holdings(ctx, id, label)
+		if err != nil {
+			return err
+		}
+
+		return svc.SetConnectionAccess(ctx, id, label, serviceproxy.Assess(held, time.Now()))
+	}
+	integrations.WithChecker(checkAccess)
 	machineMgr := machineManager(svc, secrets, awsRoles(integrations), cfg.PublicURL, logger)
 
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
@@ -360,6 +371,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 			return serviceproxy.Answer{Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body}, err
 		},
+		Recheck: checkAccess,
 	})
 	if err != nil {
 		return err

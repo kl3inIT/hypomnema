@@ -23,6 +23,17 @@ import (
 // risks name has the highest. The tool itself asks for --yes before a
 // high-risk write (extension/command/definition.go).
 //
+// Each method also has the scopes lark-cli checks before it calls it (issue
+// #567), for a person (user) and for the app (app): a list of alternatives,
+// each the scopes, space-separated, that are all needed. A method of the
+// catalog passes with any one of its scopes, or with all of its
+// requiredScopes when it names them (cmd/service/service.go,
+// checkServiceScopes); a shortcut's call needs all of the shortcut's Scopes,
+// or its UserScopes or BotScopes for that identity
+// (shortcuts/common/runner.go checkShortcutScopes, types.go
+// ScopesForIdentity), and passes when one of the shortcuts that make it
+// does. A method without them is one lark-cli names no scope for.
+//
 //go:embed lark_methods.json
 var larkMethods []byte
 
@@ -47,17 +58,36 @@ var larkServices = []struct{ key, name string }{
 	{"contact", "Contacts"}, {"attendance", "Attendance"},
 }
 
-var larkCatalog = sync.OnceValue(func() Catalog {
-	var methods []struct {
-		Service string `json:"service"`
-		Method  string `json:"method"`
-		Path    string `json:"path"`
-		Risk    string `json:"risk"`
-	}
+// larkMethod is one method of lark_methods.json.
+type larkMethod struct {
+	Service string `json:"service"`
+	Method  string `json:"method"`
+	Path    string `json:"path"`
+	Risk    string `json:"risk"`
+	// User and App are the scopes the method needs as a person and as the app: alternatives, each all needed.
+	User []string `json:"user"`
+	App  []string `json:"app"`
+}
+
+// action is the id of the action a method is.
+func (m larkMethod) action() string {
+	what := map[string]string{larkRead: "read", larkWrite: "write", larkRisky: "risky"}[m.Risk]
+
+	return "lark." + m.Service + "." + what
+}
+
+var larkMethodList = sync.OnceValue(func() []larkMethod {
+	var methods []larkMethod
 
 	// The file is this package's own; one that does not read is a broken build, and a catalog without its
 	// methods then asks about everything but a plain GET.
 	_ = json.Unmarshal(larkMethods, &methods)
+
+	return methods
+})
+
+var larkCatalog = sync.OnceValue(func() Catalog {
+	methods := larkMethodList()
 
 	routes := map[string][]Route{}
 	// A service's part of the API: "/open-apis/im", from the paths of its methods.

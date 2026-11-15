@@ -254,6 +254,7 @@ type Connection struct {
 	SignInFailed int64
 	AppID        sql.NullString
 	AppLabel     sql.NullString
+	Access       sql.NullString
 }
 
 type Conversation struct {

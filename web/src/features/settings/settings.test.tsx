@@ -58,6 +58,7 @@ function server(
       kind: "reads",
       policy: "allow",
       default: "allow",
+      access: "unknown",
     },
     {
       id: "gmail.send",
@@ -67,6 +68,7 @@ function server(
       kind: "needs_care",
       policy: "ask",
       default: "ask",
+      access: "unknown",
     },
   ]
   const requests: { call: string; body: unknown }[] = []
@@ -91,6 +93,31 @@ function server(
     if (refuse[call]) return json({ code: "invalid", message: refuse[call] }, 422)
 
     const [, kind, name, sub] = path.split("/")
+    if (kind === "integrations" && request.method === "POST" && path.endsWith("/check")) {
+      const label = path.split("/")[4]
+      actions = actions.map((a) => ({
+        ...a,
+        access: a.id === "gmail.send" ? "missing" : "granted",
+        reason: a.id === "gmail.send" ? "gmail granted read only" : "granted gmail:read",
+      }))
+      const cannot = [
+        {
+          action: "gmail.send",
+          service: "Gmail",
+          name: "Send mail",
+          reason: "gmail granted read only",
+        },
+      ]
+      services = services.map((i) => ({
+        ...i,
+        connections: i.connections.map((c) =>
+          c.label === label ? { ...c, cannot, access_checked_at: new Date().toISOString() } : c,
+        ),
+      }))
+
+      return json(services.flatMap((i) => i.connections).find((c) => c.label === label))
+    }
+
     if (kind === "integrations" && path.includes("/actions/")) {
       const id = path.split("/").at(-1)
       const asked = body as unknown as { policy: ConnectionAction["policy"] }
@@ -119,6 +146,7 @@ function server(
         services: signIn?.services ?? [],
         sign_in_required: false,
         chats: false,
+        cannot: [],
         created_at: now,
         updated_at: now,
       }
@@ -139,6 +167,7 @@ function server(
         services: [],
         sign_in_required: false,
         chats: false,
+        cannot: [],
         created_at: now,
         updated_at: now,
         // An account at an address of its own is the user name that signed in there, with what the service runs.
@@ -555,6 +584,57 @@ test("the owner signs a Google account in and disconnects it", async () => {
   ])
 })
 
+// Scenario (issue #567): the owner opens what agents may do with his Google account, which was never read at
+// Google. He checks it again: Gmail turns out to be granted read only. Sending stays in the list, muted, and says
+// why; the line under the account counts what the account cannot do.
+test("an action the account cannot do stays in the list and says why", async () => {
+  const user = userEvent.setup()
+  const now = new Date().toISOString()
+  const requests = server({
+    services: [
+      google({
+        connections: [
+          {
+            integration: "google",
+            label: "work",
+            account: "owner@example.com",
+            services: ["gmail:read"],
+            sign_in_required: false,
+            chats: true,
+            cannot: [],
+            created_at: now,
+            updated_at: now,
+          },
+        ],
+      }),
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  await user.click(await screen.findByRole("button", { name: "What agents may do with work" }))
+  const sheet = within(await screen.findByRole("dialog"))
+  expect(sheet.getByText("What the account can do at Google was not read yet.")).toBeInTheDocument()
+  expect(sheet.queryByText("This account cannot:")).not.toBeInTheDocument()
+
+  await user.click(sheet.getByRole("button", { name: "Check again" }))
+  expect(await sheet.findByText("This account cannot:")).toBeInTheDocument()
+  expect(sheet.getByText("gmail granted read only")).toBeInTheDocument()
+  expect(await sheet.findByText(/was read just now/)).toBeInTheDocument()
+  // The row stays and keeps the owner's answer.
+  expect(
+    within(sheet.getByRole("group", { name: "Send mail" })).getByRole("button", { name: "Ask" }),
+  ).toHaveAttribute("aria-pressed", "true")
+
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  expect(screen.getByRole("button", { name: "What agents may do with work" })).toHaveTextContent(
+    "1 on their own · ask before 1 · 1 the account cannot",
+  )
+  expect(requests).toEqual([
+    { call: "POST /integrations/google/connections/work/check", body: undefined },
+  ])
+})
+
 // Scenario: one Lark organization, two apps (issue #311). The owner adds his own app as "work" with its App ID and
 // App Secret, as a Lark channel's are given, then a second app as "report": no link to open and nothing to paste.
 // Each account shows the app's name and id and offers no sign-in again; nothing is sent without an App Secret.
@@ -642,6 +722,7 @@ test("a service says what it still needs", async () => {
             services: ["gmail:read"],
             sign_in_required: true,
             chats: false,
+            cannot: [],
             created_at: now,
             updated_at: now,
           },
@@ -778,6 +859,7 @@ test("a Superset account whose sign-in was refused says so", async () => {
             services: [],
             sign_in_required: true,
             chats: true,
+            cannot: [],
             created_at: now,
             updated_at: now,
           },

@@ -13,6 +13,7 @@ package supersettest
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,20 @@ import (
 	"sync"
 	"testing"
 )
+
+// ServiceReaderRoles is GET /api/v1/me/roles/ of an account whose one role
+// is ServiceReader, the shape Superset answers (views/users/api.py
+// get_my_roles, views/utils.py bootstrap_user_data with its permissions). The
+// role is the one deployed for svc-lark-report on 2026-11-15: every can_read
+// of Superset's Gamma and all_datasource_access, 22 permissions, built by the
+// deployment's own job (Gamma's can_read are what Superset's
+// security/manager.py gives Gamma: no SQL Lab, Log, users, roles, row level
+// security, annotations or reports). Seen on zm the same day: that account
+// was refused queries, saved queries, logs, users, roles, row level security,
+// annotations and dashboard export.
+//
+//go:embed servicereader_roles.json
+var ServiceReaderRoles []byte
 
 // The account that exists at the stand-in, and what it runs.
 const (
@@ -94,6 +109,17 @@ type Superset struct {
 	requests  []Request
 	queries   []map[string]any
 	charts    map[int64]*chart
+	// roles is the answer to GET /api/v1/me/roles/; nil answers 403.
+	roles []byte
+}
+
+// SetRoles sets what GET /api/v1/me/roles/ answers: the account's roles with their permissions, as Superset's
+// get_my_roles writes them (issue #567).
+func (s *Superset) SetRoles(answer []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.roles = answer
 }
 
 // New starts a stand-in that is closed when the test ends.
@@ -400,6 +426,17 @@ func (s *Superset) route(w http.ResponseWriter, r *http.Request, body []byte) {
 			Name: "session", Value: session, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 		})
 		s.answer(w, http.StatusOK, map[string]any{"result": token})
+	case r.Method == http.MethodGet && path == "me/roles":
+		// The account's roles with their permissions (issue #567), as SetRoles gave them; an account that may not
+		// read them is answered as Superset answers a missing permission.
+		if s.roles == nil {
+			s.answer(w, http.StatusForbidden, map[string]any{"message": "Forbidden"})
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write(s.roles)
 	case r.Method == http.MethodGet && path == "dashboard":
 		s.dashboards(w, r)
 	case r.Method == http.MethodGet && dashboard && len(parts) == 2:

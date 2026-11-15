@@ -371,6 +371,13 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 			conn.ClientID = c.AppID
 		}
 
+		// What the account cannot do at the service, so that the agent is told before it tries (issue #567).
+		for _, no := range serviceproxy.CannotOf(integration, c.Access) {
+			conn.Cannot = append(conn.Cannot, agenttool.Cannot{
+				Action: no.Action.ID, Service: no.Action.Service, Name: no.Action.Name, Reason: no.Reason,
+			})
+		}
+
 		out.Data = append(out.Data, conn)
 	}
 
