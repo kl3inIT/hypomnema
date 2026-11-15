@@ -215,14 +215,19 @@ var commands = []command{
 	{
 		name: "integrations connect", args: "<integration>", min: 1, max: 1,
 		summary: "connect an account under a label: a git host with a token read from a file, a service such as " +
-			"google by signing in, an app of lark with its app_id and app_secret read from a file, superset with " +
-			"its address, a user name and a password read from a file, a role of an aws account with its ARN and " +
-			"the key that assumes it (owner)",
+			"google by signing in, an app of lark with its app_id and app_secret read from a file, yourself at lark " +
+			"through one of its apps (--as-user --app work), superset with its address, a user name and a password " +
+			"read from a file, a role of an aws account with its ARN and the key that assumes it (owner)",
+		// A sign-in as yourself waits until the code was entered.
+		long: true,
 		flags: func(fs *flag.FlagSet) {
 			fs.String("label", "default", "the name of this account, such as work")
 			fs.String("token-file", "", "for a git host: the file holding the token, or - for standard input")
 			fs.String("app-file", "", "for an app such as lark: a JSON file with its app_id and app_secret, or - "+
 				"for standard input; without it, a label that exists is checked again")
+			fs.Bool("as-user", false, "for lark: sign in as yourself, by a code entered on any device; the "+
+				"account acts as you, for the main Bot on your own turn only")
+			fs.String("app", "", "with --as-user: the label of the app to sign in through, such as work")
 			fs.String("services", "", "for a service that signs in: what to connect, such as gmail:read,calendar "+
 				"(:read is read only)")
 			fs.String("url", "", "for superset: its address, such as https://superset.example.com")

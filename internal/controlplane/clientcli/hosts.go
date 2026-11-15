@@ -178,6 +178,10 @@ func integrationsConnect(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
+	if service != nil && service.Kind == openapi.IntegrationKindApp && fs.Lookup("as-user").Value.String() == "true" {
+		return integrationsSignInAsUser(ctx, e, fs, host)
+	}
+
 	if service != nil && service.Kind == openapi.IntegrationKindApp {
 		return integrationsConnectApp(ctx, e, fs, host)
 	}

@@ -290,7 +290,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 }
 
 const getChatQueued = `-- name: GetChatQueued :one
-SELECT id, chat_id, text, attachments, created_at FROM chat_queue WHERE chat_id = ?1 AND id = ?2
+SELECT id, chat_id, text, attachments, created_at, sender_id, sender_name FROM chat_queue WHERE chat_id = ?1 AND id = ?2
 `
 
 type GetChatQueuedParams struct {
@@ -307,6 +307,8 @@ func (q *Queries) GetChatQueued(ctx context.Context, arg GetChatQueuedParams) (C
 		&i.Text,
 		&i.Attachments,
 		&i.CreatedAt,
+		&i.SenderID,
+		&i.SenderName,
 	)
 	return i, err
 }
@@ -364,8 +366,8 @@ func (q *Queries) InsertChatApproval(ctx context.Context, arg InsertChatApproval
 }
 
 const insertChatMessage = `-- name: InsertChatMessage :one
-INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, sender_id, sender_name, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
 RETURNING seq
 `
 
@@ -377,6 +379,8 @@ type InsertChatMessageParams struct {
 	Parts       sql.NullString
 	Attachments sql.NullString
 	EventSeq    sql.NullInt64
+	SenderID    sql.NullString
+	SenderName  sql.NullString
 	Now         int64
 }
 
@@ -389,6 +393,8 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 		arg.Parts,
 		arg.Attachments,
 		arg.EventSeq,
+		arg.SenderID,
+		arg.SenderName,
 		arg.Now,
 	)
 	var seq int64
@@ -397,15 +403,17 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 }
 
 const insertChatQueued = `-- name: InsertChatQueued :one
-INSERT INTO chat_queue (chat_id, text, attachments, created_at)
-VALUES (?1, ?2, ?3, ?4)
-RETURNING id, chat_id, text, attachments, created_at
+INSERT INTO chat_queue (chat_id, text, attachments, sender_id, sender_name, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+RETURNING id, chat_id, text, attachments, created_at, sender_id, sender_name
 `
 
 type InsertChatQueuedParams struct {
 	ChatID      string
 	Text        string
 	Attachments sql.NullString
+	SenderID    sql.NullString
+	SenderName  sql.NullString
 	Now         int64
 }
 
@@ -414,6 +422,8 @@ func (q *Queries) InsertChatQueued(ctx context.Context, arg InsertChatQueuedPara
 		arg.ChatID,
 		arg.Text,
 		arg.Attachments,
+		arg.SenderID,
+		arg.SenderName,
 		arg.Now,
 	)
 	var i ChatQueue
@@ -423,7 +433,31 @@ func (q *Queries) InsertChatQueued(ctx context.Context, arg InsertChatQueuedPara
 		&i.Text,
 		&i.Attachments,
 		&i.CreatedAt,
+		&i.SenderID,
+		&i.SenderName,
 	)
+	return i, err
+}
+
+const lastTurnInput = `-- name: LastTurnInput :one
+SELECT role, sender_id FROM chat_messages
+WHERE chat_id = ?1 AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
+ORDER BY seq DESC
+LIMIT 1
+`
+
+type LastTurnInputRow struct {
+	Role     string
+	SenderID sql.NullString
+}
+
+// The chat's last message of those pi is given as a turn (UndeliveredChatMessages says which): a person's message,
+// a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
+// message, given to pi or about to be, ends his turn (issue #468).
+func (q *Queries) LastTurnInput(ctx context.Context, chatID string) (LastTurnInputRow, error) {
+	row := q.db.QueryRowContext(ctx, lastTurnInput, chatID)
+	var i LastTurnInputRow
+	err := row.Scan(&i.Role, &i.SenderID)
 	return i, err
 }
 
@@ -456,7 +490,7 @@ func (q *Queries) ListArtifactBlobsOfChat(ctx context.Context, chatID string) ([
 }
 
 const listChatArtifactMessages = `-- name: ListChatArtifactMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name,
        artifacts.id         AS artifact_id,
        artifacts.revision   AS artifact_revision,
        artifacts.updated_at AS artifact_updated_at,
@@ -503,6 +537,8 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 			&i.ChatMessage.Attachments,
 			&i.ChatMessage.Kind,
 			&i.ChatMessage.ApprovalID,
+			&i.ChatMessage.SenderID,
+			&i.ChatMessage.SenderName,
 			&i.ArtifactID,
 			&i.ArtifactRevision,
 			&i.ArtifactUpdatedAt,
@@ -550,7 +586,7 @@ func (q *Queries) ListChatIDsOfBot(ctx context.Context, bot string) ([]string, e
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name,
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
@@ -629,6 +665,8 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ChatMessage.Attachments,
 			&i.ChatMessage.Kind,
 			&i.ChatMessage.ApprovalID,
+			&i.ChatMessage.SenderID,
+			&i.ChatMessage.SenderName,
 			&i.EventKind,
 			&i.EventRunID,
 			&i.EventTaskID,
@@ -660,7 +698,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChatQueue = `-- name: ListChatQueue :many
-SELECT id, chat_id, text, attachments, created_at FROM chat_queue WHERE chat_id = ?1 ORDER BY id
+SELECT id, chat_id, text, attachments, created_at, sender_id, sender_name FROM chat_queue WHERE chat_id = ?1 ORDER BY id
 `
 
 func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue, error) {
@@ -678,6 +716,8 @@ func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue
 			&i.Text,
 			&i.Attachments,
 			&i.CreatedAt,
+			&i.SenderID,
+			&i.SenderName,
 		); err != nil {
 			return nil, err
 		}
@@ -868,7 +908,7 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, kind, approval_id FROM chat_messages
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, kind, approval_id, sender_id, sender_name FROM chat_messages
 WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
@@ -896,6 +936,8 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.Attachments,
 			&i.Kind,
 			&i.ApprovalID,
+			&i.SenderID,
+			&i.SenderName,
 		); err != nil {
 			return nil, err
 		}

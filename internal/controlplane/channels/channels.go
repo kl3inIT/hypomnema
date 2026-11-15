@@ -646,6 +646,9 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 	}
 
 	text, title := m.Text, ""
+
+	var sender *orchestration.ChatSender
+
 	if m.Sender != ch.OwnerID {
 		// Someone the owner let in may give work, and is named: the name is a label of the message, not an
 		// instruction, as OpenClaw and MemoryOS fence a sender's name.
@@ -654,6 +657,7 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 		text = fmt.Sprintf("[%s message from %s, who is not the owner. Questions for approval go to the owner.]\n%s",
 			platform, name, defuseLabels(m.Text, platform))
 		title = platform + ": " + name
+		sender = &orchestration.ChatSender{ID: m.Sender, Name: name}
 	}
 
 	chat, err := store.ChannelChatFor(ctx, cn.name, m.ChatID, m.Sender, title)
@@ -661,7 +665,7 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 		return err
 	}
 
-	return cn.deliver(ctx, m, chat, text)
+	return cn.deliver(ctx, m, chat, text, sender)
 }
 
 // inGroup handles a message in a group (issue #246). It is served only when
@@ -756,8 +760,16 @@ func (cn *conn) inGroup(ctx context.Context, ch channelstore.Channel, m Message)
 	}
 
 	// Every message, the owner's too, opens with its sender's name, which the group's prompt says is the only
-	// label Hypomnema adds (MemoryOS, ChannelInboundService.asked).
-	return cn.deliver(ctx, m, chat, "["+cn.nameOf(ctx, m.Sender)+"]: "+defuseLabels(text, cn.caps.Platform))
+	// label Hypomnema adds (MemoryOS, ChannelInboundService.asked). A member who is not the owner is recorded as
+	// its sender (issue #468), so the group's chat knows whose turn it is.
+	name := cn.nameOf(ctx, m.Sender)
+
+	var sender *orchestration.ChatSender
+	if m.Sender != ch.OwnerID {
+		sender = &orchestration.ChatSender{ID: m.Sender, Name: name}
+	}
+
+	return cn.deliver(ctx, m, chat, "["+name+"]: "+defuseLabels(text, cn.caps.Platform), sender)
 }
 
 // addressed is a group message's text without the account's own mentions,
@@ -844,8 +856,10 @@ func (cn *conn) self(ctx context.Context) (string, error) {
 }
 
 // deliver gives a person's message to the Bot of its chat and marks it as
-// being worked on.
-func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.ChannelChat, text string) error {
+// being worked on. sender is who wrote it when it is not the Channel's owner.
+func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.ChannelChat, text string,
+	sender *orchestration.ChatSender,
+) error {
 	store := cn.all.store
 
 	cn.mu.Lock()
@@ -861,7 +875,7 @@ func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.Channe
 
 	// A message written while pi works waits in the chat's queue until the turn settles (issue #497).
 	if _, _, err := store.SendOwnerMessage(ctx, chat.ChatID,
-		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: text}, busy); err != nil {
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: text, Sender: sender}, busy); err != nil {
 		r.forget(m.ID)
 
 		return err

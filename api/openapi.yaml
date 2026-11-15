@@ -750,7 +750,12 @@ paths:
         Answers with a link the owner opens in a browser on any machine. After
         consent the browser ends on an address that does not load; that
         address completes the sign-in. A label that exists is signed in again
-        and takes the new services.
+        and takes the new services. With `app`, the owner signs in to an app
+        Integration (Lark) as himself through the app of that Connection: the
+        answer has a `user_code` he enters on the page the link opens, and
+        completing waits for it. Such a user Connection acts as the owner and
+        is used only by the owner's token and by the main Bot on the owner's
+        own turn.
       requestBody:
         required: true
         content:
@@ -772,11 +777,14 @@ paths:
         schema: { type: string, minLength: 1, maxLength: 64 }
     post:
       operationId: CompleteIntegrationSignIn
-      summary: Complete a sign-in with the address the browser ended on; only the owner
+      summary: Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
       description: >-
         The control plane exchanges the code, keeps the tokens in the vault and
         records the Connection with the account's own name and the services
-        the consent page allowed.
+        the consent page allowed. A sign-in that answered a `user_code` takes
+        no callback: completing waits until the owner entered the code, for as
+        long as the sign-in stays open, and is refused when the service gives
+        no refresh token.
       requestBody:
         required: true
         content:
@@ -4733,7 +4741,16 @@ components:
           description: What the service said it runs when the Connection was made, when it said.
         app_id:
           type: string
-          description: The id of the app the Connection is, for an Integration of kind app. Not secret.
+          description: >-
+            The id of the app the Connection is, for an Integration of kind
+            app, or of the app a user Connection signed in through. Not secret.
+        app:
+          type: string
+          description: >-
+            For a user Connection, the owner's own sign-in through an app: the
+            label of the app Connection it signs in with. It acts as the owner,
+            so only the owner's token and the main Bot on the owner's own turn
+            may use it.
         role_arn:
           type: string
           description: The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.
@@ -5020,16 +5037,23 @@ components:
           writeOnly: true
     NewSignIn:
       type: object
-      required: [label, services]
+      required: [label]
       additionalProperties: false
       properties:
         label: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
         services:
           type: array
-          minItems: 1
           maxItems: 32
           items: { type: string, maxLength: 64 }
-          description: A service alone to read and write, or with ":read" to read only.
+          description: >-
+            A service alone to read and write, or with ":read" to read only.
+            Needed for an Integration that signs in with OAuth.
+        app:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,30}$"
+          description: >-
+            For an app Integration: the label of the app Connection the owner
+            signs in as himself through, by device code.
     SignIn:
       type: object
       required: [id, url, expires_in_seconds]
@@ -5038,10 +5062,14 @@ components:
         url:
           type: string
           description: The link the owner opens in a browser to sign in.
+        user_code:
+          type: string
+          description: >-
+            The code the owner enters on the page the link opens, for a sign-in
+            by device code; completing it then takes no callback.
         expires_in_seconds: { type: integer }
     SignInCallback:
       type: object
-      required: [callback]
       additionalProperties: false
       properties:
         callback:
@@ -5049,7 +5077,7 @@ components:
           minLength: 1
           maxLength: 8192
           writeOnly: true
-          description: The whole address the browser ended on after consent.
+          description: The whole address the browser ended on after consent; none for a sign-in by device code.
     Disconnected:
       type: object
       required: [revoked]

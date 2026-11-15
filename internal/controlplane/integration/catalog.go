@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Kind is how an Integration's credential is obtained (issue #103, credential
@@ -53,6 +54,12 @@ type Definition struct {
 	// AppInfoURL says which app the token is; both are for KindApp.
 	AppTokenURL string
 	AppInfoURL  string
+	// DeviceAuthURL starts a person's own sign-in through one of the Integration's apps, by device code (issue
+	// #468): a user Connection. Only an app Integration has it; TokenURL, RevokeURL and UserInfoURL then serve
+	// that sign-in.
+	DeviceAuthURL string
+	// RefreshLead is how long before its end an access token is refreshed; zero is two minutes.
+	RefreshLead time.Duration
 	// LoginPath signs an account in, RefreshPath gives a new access token for
 	// a refresh token, CSRFPath gives the token a request that is not a GET
 	// carries, and VersionPath says what the service runs; all are paths on a
@@ -211,6 +218,18 @@ func (d Definition) granted(asked []Grant, scopes []string) []Grant {
 // IsApp says whether the Integration's credential is an app's.
 func (d Definition) IsApp() bool { return d.Kind == KindApp }
 
+// SignsInUsers says whether a person can sign in to the Integration as himself through one of its apps.
+func (d Definition) SignsInUsers() bool { return d.IsApp() && d.DeviceAuthURL != "" }
+
+// lead is how long before its end a token is refreshed.
+func (d Definition) lead() time.Duration {
+	if d.RefreshLead > 0 {
+		return d.RefreshLead
+	}
+
+	return refreshLead
+}
+
 // IsAccount says whether a Connection of the Integration is an address, a
 // user name and a password.
 func (d Definition) IsAccount() bool { return d.Kind == KindAccount }
@@ -276,15 +295,30 @@ const LarkID = "lark"
 // The token endpoint is the one Lark documents for a custom app and lark-cli
 // names (internal/core/types.go); the bot's own information is what says
 // which app a token is.
+//
+// The owner may also sign in as himself through one of the apps (issue
+// #468): lark-cli's device flow (internal/auth/device_flow.go), its token
+// endpoint for the code and for a refresh (uat_client.go), its revoke
+// (revoke.go), and the user's own information to read who signed in. lark-cli
+// refreshes a user's token five minutes before it ends (token_store.go). The
+// addresses were tried on 2026-11-15 with the owner's app.
 func Lark() Definition {
-	const host = "https://open.larksuite.com"
+	const (
+		host     = "https://open.larksuite.com"
+		accounts = "https://accounts.larksuite.com"
+	)
 
 	return Definition{
-		ID:          LarkID,
-		Name:        "Lark",
-		Kind:        KindApp,
-		AppTokenURL: host + "/open-apis/auth/v3/tenant_access_token/internal",
-		AppInfoURL:  host + "/open-apis/bot/v3/info",
+		ID:            LarkID,
+		Name:          "Lark",
+		Kind:          KindApp,
+		AppTokenURL:   host + "/open-apis/auth/v3/tenant_access_token/internal",
+		AppInfoURL:    host + "/open-apis/bot/v3/info",
+		DeviceAuthURL: accounts + "/oauth/v1/device_authorization",
+		TokenURL:      accounts + "/oauth/v3/token",
+		RevokeURL:     accounts + "/oauth/v1/revoke",
+		UserInfoURL:   host + "/open-apis/authen/v1/user_info",
+		RefreshLead:   5 * time.Minute,
 	}
 }
 

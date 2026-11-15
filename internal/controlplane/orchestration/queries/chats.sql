@@ -22,9 +22,18 @@ SELECT * FROM chats ORDER BY updated_at DESC, id LIMIT @lim;
 UPDATE chats SET updated_at = @now WHERE id = @id;
 
 -- name: InsertChatMessage :one
-INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, created_at)
-VALUES (@chat_id, @role, @kind, @text, @parts, @attachments, @event_seq, @now)
+INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, sender_id, sender_name, created_at)
+VALUES (@chat_id, @role, @kind, @text, @parts, @attachments, @event_seq, @sender_id, @sender_name, @now)
 RETURNING seq;
+
+-- name: LastTurnInput :one
+-- The chat's last message of those pi is given as a turn (UndeliveredChatMessages says which): a person's message,
+-- a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
+-- message, given to pi or about to be, ends his turn (issue #468).
+SELECT role, sender_id FROM chat_messages
+WHERE chat_id = @chat_id AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
+ORDER BY seq DESC
+LIMIT 1;
 
 -- name: ListChatMessages :many
 -- Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
@@ -161,8 +170,8 @@ DELETE FROM chat_messages WHERE chat_id = @chat_id;
 DELETE FROM chats WHERE id = @id;
 
 -- name: InsertChatQueued :one
-INSERT INTO chat_queue (chat_id, text, attachments, created_at)
-VALUES (@chat_id, @text, @attachments, @now)
+INSERT INTO chat_queue (chat_id, text, attachments, sender_id, sender_name, created_at)
+VALUES (@chat_id, @text, @attachments, @sender_id, @sender_name, @now)
 RETURNING *;
 
 -- name: ListChatQueue :many
