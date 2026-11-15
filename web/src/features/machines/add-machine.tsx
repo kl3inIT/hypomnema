@@ -1,9 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { Check, Copy } from "lucide-react"
 import { useId, useState } from "react"
 
 import "@/api/client"
-import { createNode } from "@/api/generated/sdk.gen"
+import { createNodeMutation } from "@/api/generated/@tanstack/react-query.gen"
 import type { CreatedNode, Node } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input"
 
 import { errorText } from "@/lib/server-error"
 import { machineProblem } from "./machines-state"
-import { nodesKey, providersKey, useMachineProviders } from "./use-machines"
+import { useMachineProviders, useRefreshMachineProviders, useRefreshMachines } from "./use-machines"
 
 // own is the choice of a machine the owner installs the node on; any other choice is a provider's name.
 const own = ""
@@ -33,7 +33,8 @@ const own = ""
 // installs the node. The token lives in this dialog only: closing it forgets it. Where the server has machine
 // providers, the dialog also offers a new machine at one of them, which installs the node itself and needs no token.
 export function AddMachine() {
-  const queryClient = useQueryClient()
+  const refreshMachines = useRefreshMachines()
+  const refreshProviders = useRefreshMachineProviders()
   const formId = useId()
   const [open, setOpen] = useState(false)
   const [where, setWhere] = useState(own)
@@ -46,23 +47,8 @@ export function AddMachine() {
   const full = provider !== undefined && provider.machines >= provider.max_machines
 
   const create = useMutation({
-    mutationFn: async () =>
-      (
-        await createNode({
-          body: {
-            name: name.trim(),
-            ...(max ? { max_dispatches: Number(max) } : {}),
-            ...(provider ? { provider: provider.name } : {}),
-            ...(provider && region.trim() ? { region: region.trim() } : {}),
-            ...(provider && size.trim() ? { size: size.trim() } : {}),
-          },
-        })
-      ).data,
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: nodesKey }),
-        queryClient.invalidateQueries({ queryKey: providersKey }),
-      ]),
+    ...createNodeMutation(),
+    onSuccess: () => Promise.all([refreshMachines(), refreshProviders()]),
   })
 
   function change(next: boolean) {
@@ -99,7 +85,15 @@ export function AddMachine() {
                 className="flex flex-col gap-4"
                 onSubmit={(event) => {
                   event.preventDefault()
-                  create.mutate()
+                  create.mutate({
+                    body: {
+                      name: name.trim(),
+                      ...(max ? { max_dispatches: Number(max) } : {}),
+                      ...(provider ? { provider: provider.name } : {}),
+                      ...(provider && region.trim() ? { region: region.trim() } : {}),
+                      ...(provider && size.trim() ? { size: size.trim() } : {}),
+                    },
+                  })
                 }}
               >
                 {providers.length > 0 && (

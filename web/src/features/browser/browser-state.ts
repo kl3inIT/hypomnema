@@ -2,10 +2,8 @@
 import { useQuery } from "@tanstack/react-query"
 
 import "@/api/client"
-import { getBrowser } from "@/api/generated/sdk.gen"
+import { getBrowserOptions } from "@/api/generated/@tanstack/react-query.gen"
 import type { BrowserTab } from "@/api/generated/types.gen"
-
-const browserKey = ["browser"] as const
 
 // The owner's own tab, where a sign-in is made. Watching it makes it, so it is always offered.
 export const ownerTab = "owner"
@@ -15,8 +13,7 @@ const whileOpen = 5000
 
 export function useBrowser() {
   return useQuery({
-    queryKey: browserKey,
-    queryFn: async () => (await getBrowser()).data,
+    ...getBrowserOptions(),
     // A control plane with no browser is not asked again and again.
     refetchInterval: (query) => (query.state.status === "error" ? false : whileOpen),
     retry: false,
