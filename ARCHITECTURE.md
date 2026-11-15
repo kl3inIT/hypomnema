@@ -602,12 +602,11 @@ sequenceDiagram
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
     `phone.machine_stopped`. The next call or view starts the machine again (above).
   - A worker is told of the phone when one is there: the node API marks an offer with `device: android`, and the
-    node writes the `android-device` guide (`internal/shared/agenttool/skills/android-device`) where the Integrations'
-    guides go and names it in the worker's first message, with the rules that matter most: look before acting,
-    act by box number, never sign in or pay. The guide is written for Claude Code and Codex workers, which are the
-    ones the Integrations' guides are written for; an omp or opencode worker is told the rules only. Its stub is
-    installed for Bots by `skills install` (with every Bot's skills, whether or not a node holds a phone; the tools
-    are listed only when one does); the guide says a Bot asks the owner in its chat, a worker with `ask`.
+    worker's first message gives the rules that matter most: look before acting, act by box number, never sign in
+    or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
+    skill of the skills store that requires the phone (`device: android`, issue #536): every worker and Bot is
+    given it while a node holds a phone, by the path every skill takes (see "Skills"); the guide says a Bot asks
+    the owner in its chat, a worker with `ask`.
   - The owner's view and take-over (step 3), in the browser's shape. On the node (`view.go`, `stream.go`,
     `scrcpy.go`, `sps.go`) one scrcpy-server serves every view open, started with the first and ended with the last,
     as Orca runs its pane's (notice in `third_party/orca`): pushed to `/data/local/tmp`, an adb forward from a
@@ -1005,13 +1004,15 @@ flowchart LR
     ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
     PR["a profile's YAML<br/>skills, skills_off"]
     BL["a Bot's lists<br/>skills, skills_off"]
+    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, the phone"}
+    RB{"requires (metadata.hypomnema):<br/>what the Bot may use now, the phone"}
     DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
     NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
     SY["hypomnema-pi: skills sync --bot<br/>GET /bots/{bot}/skills, revision archives"]
     PI["pi --skill (the chat's skills folder,<br/>read-only in the box)"]
-    BS["built-in pdf: published at each serve start<br/>source builtin:release (PublishBuiltinSkills)"]
-    BI["other built-in skills for Bots: skills install<br/>~/.agents/skills, bound into every box"]
+    BS["built-in pdf, slides, pages and the guides<br/>(google-workspace, lark, aws, superset,<br/>android-device): published at each serve start,<br/>source builtin:release (PublishBuiltinSkills)"]
+    BI["the coordinator's skill: skills install<br/>~/.agents/skills, bound into every box"]
 
     UP --> PK
     SSH --> GH --> PK
@@ -1019,9 +1020,9 @@ flowchart LR
     PK --> ST
     ST --> PR
     ST --> BL
-    PR --> DS
-    DS -- "offer: name, revision, digest" --> NF --> PL
-    BL --> SY --> PI
+    PR --> RW --> DS
+    DS -- "offer: name, revision, digest<br/>(a guide not to a node that writes its own)" --> NF --> PL
+    BL --> RB --> SY --> PI
     BI --> PI
 ```
 
@@ -1073,6 +1074,21 @@ flowchart LR
     one ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install`
     takes out an unedited copy of `slides` and `pages` an earlier release put in `~/.agents/skills`, as it does
     `pdf`'s, and installs no whole-folder skill itself.
+  - The Integrations' guides and the phone's are built-in skills of the store too (issue #536, row 9 of the
+    [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): `google-workspace`, `lark`, `aws`,
+    `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
+    (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
+    tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
+    `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
+    `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
+    and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
+    frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
+    its description (`skill_revisions.requires`, migration 00089). A skill is given, whether for everyone or named
+    by a profile or Bot, only to an agent that has every requirement, as OpenClaw leaves out a skill whose
+    requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
+    the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
+    the owner's own sign-in only for the main Bot, read as `hypomnema-pi` syncs its skills when pi starts for a
+    chat); both have the phone while a node holds one.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -1088,8 +1104,14 @@ flowchart LR
     Dispatch on the account; Codex gets them in the Conversation's `CODEX_HOME/skills`, made again at each start so
     that a skill taken away is gone, beside Codex's own `.system`. omp gets them in its agent directory's `skills`
     (`PI_CODING_AGENT_DIR`, which omp reads skills from); opencode in the Conversation's `skills` folder, which its
-    configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The other built-in
-    skills reach workers as before: the Integration guides through `$HYPOMNEMA_SKILLS` (below).
+    configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The CLI finds them
+    by itself, so the worker's first message names no skill or folder.
+  - A node says at its hello that it writes no guide of its own (`store_guides`, issue #536). Until issue #536 a
+    node wrote the guides of its Run's Integrations and of the phone into `$HYPOMNEMA_SKILLS` and named them in the
+    worker's first message; a node of such a release does not say so, and the node API leaves out of its offers
+    every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
+    guide once, from the node, until the node takes the release that leaves them to the store. The control plane
+    keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
     removed. When pi starts for a chat, `hypomnema-pi` runs `hypomnema skills sync --bot <bot> --dir
@@ -1106,8 +1128,8 @@ flowchart LR
     every revision), `GET /skills/{skill}/revisions/{revision}/files` (a revision's paths, sizes and executable
     flags), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`, and `GET /built-in-skills` (the name and
     description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
-    `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are still the built-in skills',
-    which are not listed, but for pdf, which is in the store.
+    `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are the coordinator skill's
+    (below), which is not in the store.
   - skills.sh (`internal/controlplane/skillssh`, step 5, after the skills CLI `vercel-labs/skills`): `GET
     /skill-search?q=&owner=` asks skills.sh's search and, when a query of two to six words finds fewer than ten,
     asks again without each word and puts those after, at most 25 (`exact` says how many lead); `GET
@@ -1437,10 +1459,10 @@ flowchart LR
       Runs lose too. A Run the owner created keeps what he gave it.
     - **A Task goes to a node that has the tool.** A Run that uses a Google account is placed only on a node
       that reported `gws` installed; while none has, the Task waits with `no_node_has_tool:gws`.
-    - **On a node**, for a Dispatch with Connections, the runner writes the script and the skill's guide under the
-      node's home (`tools/bin`, `skills/google-workspace`) and adds to the worker's environment the scripts'
-      directory on `PATH`, the control plane's address, the Dispatch's key, and where the guide is; the worker's
-      first message names the accounts, the command and the guide. **On the control plane's machine**,
+    - **On a node**, for a Dispatch with Connections, the runner writes the script under the node's home
+      (`tools/bin`) and adds to the worker's environment the scripts' directory on `PATH`, the control plane's
+      address and the Dispatch's key; the worker's first message names the accounts and the command. The guide
+      comes with the offer's skills (see "Skills", issue #536). **On the control plane's machine**,
       `deploy/coordinator/setup-coordinator.sh` installs the tools for the coordinator's user
       (`hypomnema tool install`), `hypomnema-pi` puts the scripts on pi's `PATH`, and the launcher uses the token
       of pi's client configuration: in pi's box, pi's own (issue #260).
@@ -1460,11 +1482,12 @@ flowchart LR
       keeps its generation through a rebuild; without one, pi starts with the system's Python. No sudo and no
       system `python3-venv` are needed. `hypomnema-routine` gives a Routine's script the same, read the same way as
       its run starts (issue #507).
-    - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
+    - **The skill** (`internal/controlplane/clientcli/skills/google-workspace`) is taken from the Google Workspace
       CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
       Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
       tool's own sign-in with Hypomnema's, and tells the agent to get the owner's yes before anything that
-      writes. `hypomnema skills install` installs its stub beside the coordinator's.
+      writes; a reference is read as `references/<name>.md` beside it. It is a built-in skill of the store that
+      requires the Google Integration (issue #536), given to every agent that may use a Google Connection.
     - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
       secret; the answer says when Google could not be asked.
     - `GET /integrations` lists these Integrations with their Connections and their kind (`oauth`, `app`,
@@ -1496,7 +1519,7 @@ flowchart LR
       Connection (the agent API marks it `user`), so a call never changes whom it acts as (lark-cli's
       environment provider acts as the user whenever a user token is set). The agent's own `LARKSUITE_CLI_*`
       tokens, app secret, strict mode and default identity are taken away first.
-    - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s
+    - **Its skill** (`internal/controlplane/clientcli/skills/lark`, a store skill requiring Lark) is one guide, adapted from `lark-cli`'s
       `lark-shared` skill (MIT): the command is already signed in, an app's account acts as the app, `--account
       me` acts as the owner and is for reading what only he sees, is given only when he asked himself, and
       anything sent as him needs his yes; an empty answer may mean the app was not given the thing, nothing is
@@ -1604,12 +1627,12 @@ flowchart LR
       `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
       `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset
       Connection). They wait up to 240 s, longer than the 100 s an Approval is held.
-    - **Its skill** (`internal/shared/agenttool/skills/superset`) is one guide naming the tools: what they
+    - **Its skill** (`internal/controlplane/clientcli/skills/superset`) is one guide naming the tools: what they
       return, that figures are as of the call, that a chart's row limit holds, that lists of people are personal
-      data, and that writes and SQL may wait for the owner's approval. A Bot's stub prints it (`hypomnema skills
-      get superset`); a node writes it to `$HYPOMNEMA_SKILLS/superset/guide.md` for a Dispatch given a Superset
-      Connection (`agenttool.SkillOf`), and the worker's first message names it and the tools, with no command on
-      its `PATH`. The commands stay for the owner and Routine scripts.
+      data, and that writes and SQL may wait for the owner's approval. It is a store skill requiring Superset
+      (issue #536): a Bot that may use a Superset Connection and a worker whose Run was given one get it, and the
+      worker's first message names the tools, with no command on its `PATH`. The commands stay for the owner and
+      Routine scripts.
     - **The log**: each read is one line with who asked, the Connection, the action, the dashboard and chart and
       the number of rows (`superset.read`); each relayed request one with its action, method and status
       (`superset.relayed`), beside the proxy's own line with the verdict. Never a row, the password or a token.
@@ -2762,10 +2785,11 @@ The owner's commands:
   most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
-  (otherwise only with `--force`, keeping a backup). The stub of a skill this binary no longer ships (`web-search`
-  and `images` since issue #492, `retiredStubs`) is taken out of both folders when it matches a released one, and
-  its folder when nothing else is in it, as Codex replaces its whole system skills folder at an update; an edited
-  one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
+  (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
+  (`web-search` and `images` since issue #492; the guides' stubs `google-workspace`, `lark`, `aws`, `superset`
+  and `android-device`, which ran `hypomnema skills get`, since issue #536 put the guides in the store;
+  `retiredStubs`) is taken out of both folders when it matches a released one, and its folder when nothing else
+  is in it, as Codex replaces its whole system skills folder at an update; an edited one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
   #536): an unedited copy (its digest in `releasedFolders`) is removed, since the skills store now places it, and
   it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.

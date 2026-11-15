@@ -12,13 +12,13 @@ DELETE FROM skills WHERE name = @name;
 
 -- name: InsertSkillRevision :exec
 INSERT INTO skill_revisions (skill, revision, description, digest, size, files, source, source_commit, archive,
-    created_at)
-VALUES (@skill, @revision, @description, @digest, @size, @files, @source, @source_commit, @archive, @now);
+    requires, created_at)
+VALUES (@skill, @revision, @description, @digest, @size, @files, @source, @source_commit, @archive, @requires, @now);
 
 -- name: ListSkills :many
 SELECT s.name, s.everyone, s.created_at, s.updated_at,
-    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.created_at AS revised_at,
-    f.source AS first_source
+    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.requires,
+    r.created_at AS revised_at, f.source AS first_source
 FROM skills s JOIN skill_revisions r ON r.skill = s.name
 JOIN skill_revisions f ON f.skill = s.name AND f.revision = 1
 WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
@@ -28,14 +28,14 @@ ORDER BY s.name;
 SELECT * FROM skills WHERE name = @name;
 
 -- name: ListSkillRevisions :many
-SELECT skill, revision, description, digest, size, files, source, source_commit, created_at
+SELECT skill, revision, description, digest, size, files, source, source_commit, requires, created_at
 FROM skill_revisions WHERE skill = @skill ORDER BY revision DESC;
 
 -- name: LatestSkillRevision :one
 SELECT revision, digest, source FROM skill_revisions WHERE skill = @skill ORDER BY revision DESC LIMIT 1;
 
 -- name: LatestSkillRevisions :many
-SELECT s.name, s.everyone, r.revision, r.digest
+SELECT s.name, s.everyone, r.revision, r.digest, r.requires
 FROM skills s JOIN skill_revisions r ON r.skill = s.name
 WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
 ORDER BY s.name;
@@ -44,7 +44,9 @@ ORDER BY s.name;
 INSERT INTO dispatch_skills (dispatch_id, skill, revision, digest) VALUES (@dispatch_id, @skill, @revision, @digest);
 
 -- name: ListDispatchSkills :many
-SELECT skill, revision, digest FROM dispatch_skills WHERE dispatch_id = @dispatch_id ORDER BY skill;
+SELECT ds.skill, ds.revision, ds.digest, r.requires FROM dispatch_skills ds
+JOIN skill_revisions r ON r.skill = ds.skill AND r.revision = ds.revision
+WHERE ds.dispatch_id = @dispatch_id ORDER BY ds.skill;
 
 -- name: ProfilesNamingSkill :many
 SELECT p.name FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id

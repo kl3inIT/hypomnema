@@ -197,7 +197,5 @@ func TestTheBuiltinSkillsAreListed(t *testing.T) {
 		assert.NotEmpty(t, s.Description, s.Name)
 	}
 
-	assert.Equal(t, []string{
-		"android-device", "aws", "google-workspace", "hypomnema-coordinator", "lark", "superset",
-	}, names)
+	assert.Equal(t, []string{"hypomnema-coordinator"}, names, "the others are in the skills store")
 }

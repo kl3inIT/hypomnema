@@ -5,6 +5,10 @@ description: >-
   Hypomnema installs and signs in. Use when the owner asks about their mail, calendar or files: what arrived today,
   what needs an answer, today's or tomorrow's schedule, a morning brief, finding a message or a file, drafting or
   sending a reply, creating an event, uploading a file. Not for a Google account Hypomnema was not given.
+metadata:
+  hypomnema:
+    requires:
+      integration: google
 ---
 
 # Google Workspace through Hypomnema
@@ -95,9 +99,8 @@ parameters before you call it.
 
 ## References
 
-Load only the one the work needs. Each is a file in `references/` beside this guide; when this guide came from
-`hypomnema skills get google-workspace`, load one with
-`hypomnema skills get google-workspace --reference <name>`.
+Load only the one the work needs. Each is a file in the `references` folder beside this SKILL.md: read
+`references/<name>.md`, the path relative to this skill's folder.
 
 | Work | Reference |
 |------|-----------|

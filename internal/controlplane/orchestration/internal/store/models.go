@@ -729,6 +729,7 @@ type SkillRevision struct {
 	SourceCommit sql.NullString
 	Archive      []byte
 	CreatedAt    int64
+	Requires     sql.NullString
 }
 
 type Task struct {

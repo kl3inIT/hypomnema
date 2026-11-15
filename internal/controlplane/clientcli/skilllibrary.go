@@ -20,7 +20,7 @@ import (
 
 // The skills the owner adds to the control plane (issue #21), after Omnara's
 // `omnara skills create|list|get|delete` and Orca's `orca skills list|get|
-// install`. `skills get` and `skills install` stay the built-in skills'.
+// install`. `skills get` and `skills install` stay the coordinator skill's.
 
 func skillLine(s openapi.Skill) string {
 	every := ""

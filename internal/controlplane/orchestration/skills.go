@@ -54,8 +54,11 @@ type SkillRevision struct {
 	Files       int
 	// Source is "upload" or "github:owner/repo[/path]@ref"; Commit is the
 	// commit the ref was, for a repository.
-	Source    string
-	Commit    string
+	Source string
+	Commit string
+	// Requires is what an agent must have to be given this revision
+	// ("integration:superset"), read from its SKILL.md (issue #536).
+	Requires  []string
 	CreatedAt time.Time
 }
 
@@ -95,7 +98,7 @@ func (s *Service) AddSkill(ctx context.Context, sk skillpack.Skill, from SkillSo
 		if err := q.InsertSkillRevision(ctx, store.InsertSkillRevisionParams{
 			Skill: sk.Name, Revision: latest.Revision + 1, Description: sk.Description, Digest: sk.Digest,
 			Size: sk.Size(), Files: int64(len(sk.Files)), Source: from.Source, SourceCommit: nullString(from.Commit),
-			Archive: archive, Now: now,
+			Archive: archive, Requires: nullString(strings.Join(sk.Requires, ",")), Now: now,
 		}); err != nil {
 			return err
 		}
@@ -124,7 +127,8 @@ func (s *Service) ListSkills(ctx context.Context) ([]Skill, error) {
 			CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 			Latest: SkillRevision{
 				Revision: int(r.Revision), Description: r.Description, Digest: r.Digest, Size: r.Size,
-				Files: int(r.Files), Source: r.Source, Commit: r.SourceCommit.String, CreatedAt: millis(r.RevisedAt),
+				Files: int(r.Files), Source: r.Source, Commit: r.SourceCommit.String,
+				Requires: splitNames(r.Requires.String), CreatedAt: millis(r.RevisedAt),
 			},
 		}
 	}
@@ -154,7 +158,8 @@ func (s *Service) GetSkill(ctx context.Context, name string) (Skill, error) {
 	for i, r := range revs {
 		out.Revisions[i] = SkillRevision{
 			Revision: int(r.Revision), Description: r.Description, Digest: r.Digest, Size: r.Size, Files: int(r.Files),
-			Source: r.Source, Commit: r.SourceCommit.String, CreatedAt: millis(r.CreatedAt),
+			Source: r.Source, Commit: r.SourceCommit.String, Requires: splitNames(r.Requires.String),
+			CreatedAt: millis(r.CreatedAt),
 		}
 	}
 
@@ -262,8 +267,8 @@ func checkSkills(ctx context.Context, q *store.Queries, add, off []string) error
 
 // recordSkills gives a new Dispatch its skills at their newest revisions:
 // those for everyone that its profile version does not turn off, and those it
-// adds.
-func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID string) error {
+// adds, each whose requirements its Run meets (workerHas).
+func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID string, run store.Run) error {
 	var add, off []string
 
 	if versionID != "" {
@@ -275,7 +280,12 @@ func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID s
 		add, off = splitNames(v.Skills), splitNames(v.SkillsOff)
 	}
 
-	given, err := givenSkills(ctx, q, add, off)
+	has, err := workerHas(ctx, q, run)
+	if err != nil {
+		return err
+	}
+
+	given, err := givenSkills(ctx, q, add, off, has)
 	if err != nil {
 		return err
 	}
@@ -293,8 +303,15 @@ func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID s
 
 // givenSkills are the skills an agent that adds add and turns off off gets,
 // at their newest revisions: those for everyone it does not turn off, and
-// those it adds.
-func givenSkills(ctx context.Context, q *store.Queries, add, off []string) ([]nodeproto.Skill, error) {
+// those it adds, but only those whose every requirement it has: a guide of
+// an Integration goes only to an agent that may use a Connection of it
+// (issue #536), as OpenClaw leaves out a skill whose requires it does not
+// meet, whatever its allowlists say (src/skills/loading/config.ts,
+// shouldIncludeSkill), and OpenMausBot selects a library skill only when
+// every requiredCapability is available (server/skill-library.ts,
+// selectBundledSkills).
+func givenSkills(ctx context.Context, q *store.Queries, add, off []string, has map[string]bool,
+) ([]nodeproto.Skill, error) {
 	latest, err := q.LatestSkillRevisions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading the skills: %w", err)
@@ -303,12 +320,73 @@ func givenSkills(ctx context.Context, q *store.Queries, add, off []string) ([]no
 	var out []nodeproto.Skill
 
 	for _, r := range latest {
-		if slices.Contains(add, r.Name) || (r.Everyone == 1 && !slices.Contains(off, r.Name)) {
-			out = append(out, nodeproto.Skill{Name: r.Name, Revision: int(r.Revision), Digest: r.Digest})
+		requires := splitNames(r.Requires.String)
+
+		switch {
+		case !slices.Contains(add, r.Name) && (r.Everyone != 1 || slices.Contains(off, r.Name)):
+		case slices.ContainsFunc(requires, func(req string) bool { return !has[req] }):
+		default:
+			out = append(out, nodeproto.Skill{
+				Name: r.Name, Revision: int(r.Revision), Digest: r.Digest, Requires: requires,
+			})
 		}
 	}
 
 	return out, nil
+}
+
+// workerHas is what a worker of a Run has for a skill's requirements: the
+// Integrations of the Connections its Run was given, whose commands the node
+// prepares for it (agenttool.ForDispatch), and the phone while a node holds
+// one, as each offer then names it.
+func workerHas(ctx context.Context, q *store.Queries, run store.Run) (map[string]bool, error) {
+	has := map[string]bool{}
+
+	for _, use := range splitUses(run.Uses) {
+		if integration, _, ok := SplitUse(use); ok {
+			has[skillpack.Requirement(skillpack.RequiresIntegration, integration)] = true
+		}
+	}
+
+	return has, phoneHas(ctx, q, has)
+}
+
+// botHas is what a Bot has for a skill's requirements: the Integrations of
+// which it may use a Connection now (Bot.MayUse: switched on for chats and
+// on its list; the owner's own sign-in only for the main Bot), as the agent
+// API reads them at each call, and the phone while a node holds one.
+func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, error) {
+	conns, err := q.ListConnections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the connections: %w", err)
+	}
+
+	has := map[string]bool{}
+
+	for _, row := range conns {
+		if c := connectionFromRow(row); b.MayUse(c) && (!c.User() || b.Main()) {
+			has[skillpack.Requirement(skillpack.RequiresIntegration, c.Integration)] = true
+		}
+	}
+
+	return has, phoneHas(ctx, q, has)
+}
+
+// phoneHas adds the phone when a node holds one, the node the control plane
+// relays every phone tool to (internal/controlplane/phone).
+func phoneHas(ctx context.Context, q *store.Queries, has map[string]bool) error {
+	nodes, err := q.ListNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the nodes: %w", err)
+	}
+
+	for _, n := range nodes {
+		if n.Device == DeviceAndroid {
+			has[skillpack.Requirement(skillpack.RequiresDevice, DeviceAndroid)] = true
+		}
+	}
+
+	return nil
 }
 
 // BotSkills are the skills a Bot gets now, at their newest revisions: its
@@ -321,7 +399,12 @@ func (s *Service) BotSkills(ctx context.Context, name string) ([]nodeproto.Skill
 		return nil, notFound(err, "bot", name)
 	}
 
-	return givenSkills(ctx, q, splitNames(b.Skills), splitNames(b.SkillsOff))
+	has, err := botHas(ctx, q, botFromRow(b))
+	if err != nil {
+		return nil, err
+	}
+
+	return givenSkills(ctx, q, splitNames(b.Skills), splitNames(b.SkillsOff), has)
 }
 
 // SkillArchive returns the archive of one revision of a skill.
@@ -342,7 +425,9 @@ func dispatchSkills(ctx context.Context, q *store.Queries, dispatchID string) ([
 
 	out := make([]nodeproto.Skill, len(rows))
 	for i, r := range rows {
-		out[i] = nodeproto.Skill{Name: r.Skill, Revision: int(r.Revision), Digest: r.Digest}
+		out[i] = nodeproto.Skill{
+			Name: r.Skill, Revision: int(r.Revision), Digest: r.Digest, Requires: splitNames(r.Requires.String),
+		}
 	}
 
 	return out, nil
@@ -452,7 +537,8 @@ func (s *Service) publishBuiltinSkill(ctx context.Context, sk skillpack.Skill, s
 
 		if err := q.InsertSkillRevision(ctx, store.InsertSkillRevisionParams{
 			Skill: sk.Name, Revision: revision, Description: sk.Description, Digest: sk.Digest,
-			Size: sk.Size(), Files: int64(len(sk.Files)), Source: source, Archive: archive, Now: now,
+			Size: sk.Size(), Files: int64(len(sk.Files)), Source: source, Archive: archive,
+			Requires: nullString(strings.Join(sk.Requires, ",")), Now: now,
 		}); err != nil {
 			return err
 		}
