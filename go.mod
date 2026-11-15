@@ -28,6 +28,7 @@ require (
 	golang.org/x/term v0.48.0
 	golang.org/x/text v0.44.0
 	modernc.org/sqlite v1.62.0
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (

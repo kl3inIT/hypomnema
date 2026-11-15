@@ -21,7 +21,9 @@ import (
 //   - memory (memory.go): a worker and a Bot's pi, each its own targets;
 //   - web_search, web_fetch, generate_image (web.go): a worker by its
 //     runtime, a Bot's pi all three;
-//   - the browser's: a worker; a Bot's pi not yet (issue #536, step 4).
+//   - the browser's: a worker; a Bot's pi not yet (issue #536, step 4);
+//   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
+//     worker and a Bot's pi.
 //
 // The phone's are listed on their own route (device.go). The browser's,
 // gateway's and memory's older routes stay for tools servers of an earlier
@@ -38,6 +40,10 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 	}
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
+
+	if s.hasNodeTools(a) {
+		out = append(out, nodeToolList()...)
+	}
 
 	if !s.hasBrowser(a) {
 		return out
@@ -95,6 +101,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case asked.Tool == agenttool.ToolMemory && memoryTargets(a) != nil:
 		s.memoryCall(w, r, a, asked)
+	case slices.Contains(nodeTools, asked.Tool) && s.hasNodeTools(a):
+		s.nodeCall(w, r, a, asked)
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
 		s.gatewayCall(w, r, a, asked)
 	case s.hasBrowser(a):

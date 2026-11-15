@@ -2474,10 +2474,38 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
 | the browser's (agent-browser) | yes | not yet (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | not yet (issue #536, step 4) | no |
+| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
 | `ask`, `finish` (the node's own) | yes | no | no |
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web` and `hypomnema image` are.
+
+Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
+[research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's
+`run_command`, Nezha's `server.exec` and Coder's `coder_workspace_execute`:
+
+- `node_exec {node, command, cwd, timeout_seconds, background}` runs `sh -c <command>` on the node named (its name or
+  id, drained or not; one not connected is refused with the names of those that are), as the node's own user, in
+  `cwd` or the user's home, with stdin empty and Coder's non-interactive environment (`PAGER=cat`, `TERM=dumb`,
+  `GIT_TERMINAL_PROMPT=0`, editors `true`). It runs at once, with no approval (owner, 2026-11-15). In the
+  foreground it is killed with its process group after `timeout_seconds` (60, at most 300); the answer is the exit
+  code and the output, stdout and stderr together, the first and last 32 KB of a longer one with how much was left
+  out. An exit code other than 0, or a time run out, is an error result.
+- `background: true` answers at once with a `process_id`; the command runs with no time limit. `node_process
+  {node, process_id, wait_seconds}` answers once it ended or after `wait_seconds` (at most 300), with the output so
+  far; `node_process_kill` kills its group. An ended one is kept an hour (Coder); the node's restart, as at an
+  update, kills the ones still running.
+- sudo: the vault secret `sudo-<node>` (lowercase, its `value`) is the node's sudo password. When there is one, the
+  control plane sends it with the command, and the node adds `-A` after every `sudo` that is a simple command's
+  command (parsed with `mvdan.cc/sh`) and sets `SUDO_ASKPASS` to a helper that prints it from a file only the
+  node's user reads, removed when the command ends (Hermes's askpass form). The password is not logged, answered or
+  on a command line. A node with none runs `sudo` as it is: it works where sudo needs no password, else fails.
+- The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`) and waits for the answer on
+  `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
+  once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
+- MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
+  and the node's answer.
+- Not built: a PTY, a per-node switch to refuse commands (Nezha), a list of commands always refused (Hermes).
 
 ```mermaid
 flowchart LR

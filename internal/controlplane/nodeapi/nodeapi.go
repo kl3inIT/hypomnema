@@ -66,13 +66,15 @@ type Server struct {
 	devices map[string]nodeproto.DeviceState
 	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
 	deviceCalls map[string]*pendingDevice
+	// execs are the agents' commands nodes have been sent, by request id (exec.go).
+	execs map[string]*pendingExec
 }
 
 // New returns a Server over the orchestration service.
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{},
 		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{},
-		deviceCalls: map[string]*pendingDevice{}}
+		deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
 }
 
 // WithHostTokens sets where an offer's git host token comes from.
@@ -157,6 +159,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+nodeproto.PathFiles, s.filesAnswer)
 	mux.HandleFunc("POST "+nodeproto.PathDevice, s.deviceAnswer)
 	mux.HandleFunc("GET "+nodeproto.PathDevice, s.deviceView)
+	mux.HandleFunc("POST "+nodeproto.PathExec, s.execAnswer)
 	mux.HandleFunc("GET "+nodeproto.PathSkills+"{digest}", s.skill)
 }
 
@@ -349,6 +352,7 @@ func (s *Server) drop(sess *session) {
 	}
 
 	s.loseDeviceCalls(sess)
+	s.loseExecs(sess)
 }
 
 // session is one node's WebSocket.

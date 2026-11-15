@@ -26,6 +26,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/device"
+	"github.com/kl3inIT/hypomnema/internal/node/nodeexec"
 	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
@@ -210,6 +211,11 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		defer terminals.Close()
 	}
 
+	// An agent's commands on this machine (issue #543), and those it left running in the background, end with the
+	// node.
+	commands := nodeexec.New()
+	defer commands.Close()
+
 	// The phone of a machine made to hold one (issue #417): installed and started when the control plane asks.
 	// It is left running when the node ends, and the next node takes it back.
 	var (
@@ -276,8 +282,8 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 			return found
 		},
-		Terminal: terminals,
-		Device:   cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone,
+		Terminal: terminals, Commands: commands,
+		Device: cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems
