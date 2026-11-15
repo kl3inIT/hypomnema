@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
@@ -96,6 +98,41 @@ func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
 	status, _ = w.useDevice("", devicetool.Screen, `{}`)
 	assert.Equal(t, http.StatusUnauthorized, status)
 	assert.Len(t, p.calls, 1, "a call without a credential does not reach the phone")
+}
+
+// Scenario: a Bot's pi has the phone too (issue #536, step 4), on the same
+// routes as a worker, and its calls are its chat's: the phone keeps the last
+// screen of each chat's pi apart from a worker's, and the log names the Bot
+// and the chat.
+func TestABotsPiUsesThePhoneAsItsChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	p := &sharedPhone{}
+	withPhone(w, p)
+
+	ctx := t.Context()
+
+	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	status, body := w.call(http.MethodGet, agenttool.PathDeviceTools, pi, nil)
+	require.Equal(t, http.StatusOK, status)
+
+	var tools agenttool.BrowserToolList
+	require.NoError(t, json.Unmarshal(body, &tools))
+	assert.Len(t, tools.Data, len(devicetool.Tools()))
+
+	status, _ = w.useDevice(pi, devicetool.Tap, `{"target":"#3"}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []string{`b-` + chat.ID + ` device_tap {"target":"#3"}`}, p.calls)
+	assert.Contains(t, w.logs.String(), "bot "+orchestration.DefaultBotID+" in chat "+chat.ID)
 }
 
 // An agent is told what it did wrong and why the phone cannot be used now;

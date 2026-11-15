@@ -119,9 +119,12 @@ var releasedStubs = map[string][]string{
 		"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774",
 		"f3acc3af4bb9045de0285f5b2fc2ce7a648117f89f3aeaedb0577578951a6c88",
 	},
-	"superset":       {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
-	"aws":            {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
-	"android-device": {"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127"},
+	"superset": {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
+	"aws":      {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
+	"android-device": {
+		"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127",
+		"354020b3fc5f96ee9be92432902284298b21164c8cc37c3510906f1f6efe7df4", // #536: Bots have the phone too
+	},
 }
 
 // retiredStubs holds, as releasedStubs does, the digests of the stubs of the

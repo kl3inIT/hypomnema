@@ -30,7 +30,7 @@ func SkillOf(integration string) (string, bool) {
 	case "aws":
 		return "aws", true
 	case nodeproto.DeviceAndroid:
-		// The phone every worker is given (issue #417): a guide with no command of its own, since its tools
+		// The phone every worker and Bot is given (issues #417, #536): a guide with no command of its own, since its tools
 		// are the worker's MCP tools.
 		return "android-device", true
 	}
