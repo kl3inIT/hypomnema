@@ -2,21 +2,15 @@ package clientcli
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/prices"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
-	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 // runningPi stands in for the supervisor: a pi runs for one chat and holds
@@ -46,8 +40,7 @@ func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p
 // its own chat.
 func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	pi := &runningPi{}
-	db := migratedDB(t)
-	w := newWorldOn(t, db, pi)
+	w := newWorldWith(t, pi)
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 
@@ -58,16 +51,19 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 		require.NoError(t, err)
 	}
 
-	_, err := db.ExecContext(ctx, "DELETE FROM gateway_models")
-	require.NoError(t, err)
+	for _, name := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"} {
+		require.NoError(t, w.gateway.DeleteModel(ctx, name))
+	}
 
-	_, err = w.cmd(t, "pi-models")
+	_, err := w.cmd(t, "pi-models")
 	require.ErrorIs(t, err, errNoGatewayProvider, "pi would start with no model it can use")
 
 	// The provider of kind model_gateway offers the gateway's models (issue #537).
-	for _, name := range []string{"gpt-sol", "claude-sonnet"} {
-		_, err := db.ExecContext(ctx, "INSERT INTO gateway_models (name, capability, source, created_at, updated_at) "+
-			"VALUES (?, 'chat', ?, 0, 0)", name, "name: "+name+"\n")
+	for _, source := range []string{
+		"name: gpt-sol\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n",
+		"name: claude-sonnet\ntargets: [{provider: claude-subscription, model: claude-sonnet-5-5}]\n",
+	} {
+		_, err := w.gateway.ApplyModel(ctx, source)
 		require.NoError(t, err)
 	}
 
@@ -124,22 +120,6 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 	assert.Equal(t, "hyp_gateway_v1_of_this_pi\n", out, "the key alone on its line, as pi reads a command's output")
 }
 
-// newGatewayModels is a model gateway over the control plane's database, whose table a provider of kind
-// model_gateway offers (issue #537), with the built-in subscriptions as its providers.
-func newGatewayModels(db *sql.DB) *modelgateway.Service {
-	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-
-	return modelgateway.New(db, platform.SystemClock{}, platform.NewID,
-		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
-			p, err := orch.GetProvider(ctx, name)
-			if err != nil {
-				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
-			}
-
-			return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, Models: p.Models}, nil
-		}, func(context.Context, string) (string, error) { return "", nil })
-}
-
 // Scenario: pi starts with the gateway's Codex and Claude models (issue
 // #367). Each has its window, largest output, inputs and price, so pi
 // compacts at the model's window and sends images to the Codex model; pi's
@@ -148,9 +128,8 @@ func newGatewayModels(db *sql.DB) *modelgateway.Service {
 func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	t.Parallel()
 
-	db := migratedDB(t)
-	g := newGatewayModels(db)
-	w := newWorldOn(t, db, nil, func(srv *clientapi.Server) { srv.WithGatewayModels(g) })
+	w := newGatewayWorld(t, nil)
+	g := w.gateway
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 

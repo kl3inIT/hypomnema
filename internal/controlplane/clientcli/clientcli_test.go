@@ -3,9 +3,9 @@ package clientcli
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -28,6 +28,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -36,9 +37,12 @@ import (
 
 // world is a control plane serving the client API, and a home for the CLI.
 type world struct {
-	svc  *orchestration.Service
-	url  string
-	home string
+	svc *orchestration.Service
+	// gateway is the model gateway over the same database, whose table the provider of kind model_gateway offers
+	// (issue #537); the API serves it only in a world from newGatewayWorld.
+	gateway *modelgateway.Service
+	url     string
+	home    string
 }
 
 func newWorld(t *testing.T) *world {
@@ -51,25 +55,34 @@ func newWorld(t *testing.T) *world {
 func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clientapi.Server)) *world {
 	t.Helper()
 
-	return newWorldOn(t, migratedDB(t), coord, with...)
+	return buildWorld(t, coord, false, with...)
 }
 
-// migratedDB is a database at the latest schema, closed when the test ends.
-func migratedDB(t *testing.T) *sql.DB {
+// newGatewayWorld also serves the model gateway's models and their attributes.
+func newGatewayWorld(t *testing.T, coord clientapi.Coordinator) *world {
+	t.Helper()
+
+	return buildWorld(t, coord, true)
+}
+
+func buildWorld(t *testing.T, coord clientapi.Coordinator, serveGateway bool, with ...func(*clientapi.Server),
+) *world {
 	t.Helper()
 
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	return db
-}
-
-// newWorldOn serves the API over a database the test also hands to another service, such as the model gateway.
-func newWorldOn(t *testing.T, db *sql.DB, coord clientapi.Coordinator, with ...func(*clientapi.Server)) *world {
-	t.Helper()
-
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID,
+		func(ctx context.Context, name string) (modelgateway.ProviderInfo, error) {
+			p, err := svc.GetProvider(ctx, name)
+			if err != nil {
+				return modelgateway.ProviderInfo{}, fmt.Errorf("%w: %w", modelgateway.ErrNotFound, err)
+			}
+
+			return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, Models: p.Models}, nil
+		}, func(context.Context, string) (string, error) { return "", nil })
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 
@@ -77,6 +90,10 @@ func newWorldOn(t *testing.T, db *sql.DB, coord clientapi.Coordinator, with ...f
 	srv := clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithHostTokens(&keptTokens{svc: svc})
 	if coord != nil {
 		srv.WithCoordinator(coord)
+	}
+
+	if serveGateway {
+		srv.WithGatewayModels(gateway)
 	}
 
 	for _, option := range with {
@@ -88,7 +105,7 @@ func newWorldOn(t *testing.T, db *sql.DB, coord clientapi.Coordinator, with ...f
 	hs := httptest.NewServer(mux)
 	t.Cleanup(hs.Close)
 
-	return &world{svc: svc, url: hs.URL, home: filepath.Join(t.TempDir(), "home")}
+	return &world{svc: svc, gateway: gateway, url: hs.URL, home: filepath.Join(t.TempDir(), "home")}
 }
 
 // login makes a token of kind and logs the CLI in with it.
