@@ -33,6 +33,12 @@ import (
 // OpenMausBot's skills/data-dashboards, whose template is copied from it; and
 // slides (issue #479), adapted from zarazhangrui/frontend-slides, whose
 // references and script are read from the installed folder.
+//
+// pdf and pages reach every agent kind, Bots and workers alike, through the
+// skills store instead (issue #492): the control plane publishes them as a
+// built-in revision at each start (StoreSkills), and `skills install` takes
+// out the copies earlier releases put in ~/.agents/skills, so that a Bot
+// gets each once.
 
 // The all: prefix keeps files whose names start with _ (pdf's _raster.py).
 //
@@ -127,7 +133,9 @@ var retiredStubs = map[string][]string{
 // installed as a whole folder, as releasedStubs does for stubs: `skills
 // install` replaces an installed folder only when its digest is one of these
 // (Hermes's .bundled_manifest origin hashes, tools/skills_sync.py). A changed
-// folder adds its digest here (TestShippedFoldersAreReleased).
+// folder adds its digest here (TestShippedFoldersAreReleased). Those of pdf
+// and pages are what `skills install` removes, now that the store places
+// them (storeSkills).
 var releasedFolders = map[string][]string{
 	"pages": {"4d876aa95c82401380832a67a0a51d435845bcfc70b27d543330b617bc32a2b1"}, // #423
 	"pdf": {
@@ -135,6 +143,38 @@ var releasedFolders = map[string][]string{
 		"5a21174acf72f04f8a75d55451d35094ff66a46117f42ce6f77202ce3dd0f020", // #474: JSON samples, pdf_read modes, a TTF for Vietnamese
 	},
 	"slides": {"ae1d255cf5ebc308b35005cffa50c005e9f70495347388ce89fb8b06861e1f6f"}, // #479
+}
+
+// storeSkills are the whole-folder skills that reach every agent kind
+// through the skills store (issue #492), as Codex gives its system skills to
+// every session (codex-rs skills/src/lib.rs, install_system_skills), OpenClaw
+// its bundled skills to every agent, Claude CLI runs included
+// (src/agents/cli-runner/claude-skills-plugin.ts), and OpenMausBot its
+// library's skills to every engine (server/skill-library.ts, everyBot).
+// `skills install` no longer installs them; it removes a copy it installed.
+var storeSkills = []string{"pages", "pdf"}
+
+// StoreSkills are the skills the control plane publishes into its skills
+// store at each start, read from this binary: what is under scripts/ is
+// executable, as `skills install` made it.
+func StoreSkills() ([]skillpack.Skill, error) {
+	out := make([]skillpack.Skill, 0, len(storeSkills))
+
+	for _, name := range storeSkills {
+		tree, err := fs.Sub(skillFiles, path.Join("skills", name))
+		if err != nil {
+			return nil, fmt.Errorf("reading the %s skill: %w", name, err)
+		}
+
+		sk, err := skillpack.FromFS(tree, func(p string) bool { return strings.HasPrefix(p, "scripts/") })
+		if err != nil {
+			return nil, fmt.Errorf("reading the %s skill: %w", name, err)
+		}
+
+		out = append(out, sk)
+	}
+
+	return out, nil
 }
 
 // folderSkill says whether a skill is installed as a whole folder: it has no
@@ -301,6 +341,10 @@ func skillsInstall(_ context.Context, e *env, fset *flag.FlagSet) error {
 			var err error
 
 			switch {
+			case slices.Contains(storeSkills, name):
+				if agent == "agents" {
+					err = removeRetiredFolder(e, fset, agent, filepath.Join(roots[agent], name), name)
+				}
 			case !folderSkill(name):
 				err = installStub(e, fset, agent, filepath.Join(roots[agent], name), name)
 			case agent == "agents":
@@ -353,6 +397,48 @@ func removeRetired(e *env, fset *flag.FlagSet, agent, dir, name string) error {
 	}
 
 	e.printf("%s: removed %s, which this binary no longer ships\n", agent, target)
+
+	return nil
+}
+
+// removeRetiredFolder takes out a whole-folder skill an earlier release
+// installed and the skills store now places (storeSkills), while its digest
+// is a released one (releasedFolders), as removeRetired does a stub: an
+// edited copy is left and named, as Hermes's skills_sync.py skips a
+// user-modified skill (tools/skills_sync.py).
+func removeRetiredFolder(e *env, fset *flag.FlagSet, agent, dir, name string) error {
+	info, err := os.Lstat(dir)
+
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("reading %s: %w", dir, err)
+	}
+
+	have := ""
+	if info.IsDir() {
+		if have, err = folderDigest(os.DirFS(dir)); err != nil {
+			return fmt.Errorf("reading %s: %w", dir, err)
+		}
+	}
+
+	switch {
+	case !slices.Contains(releasedFolders[name], have):
+		e.printf("%s: %s was edited; left as it is, though %s now comes from the skills store\n", agent, dir, name)
+
+		return nil
+	case boolean(fset, "dry-run"):
+		e.printf("%s: would remove %s, which now comes from the skills store\n", agent, dir)
+
+		return nil
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("removing %s: %w", dir, err)
+	}
+
+	e.printf("%s: removed %s, which now comes from the skills store\n", agent, dir)
 
 	return nil
 }
@@ -654,12 +740,17 @@ type BuiltinSkill struct {
 	Description string
 }
 
-// BuiltinSkills are the skills this binary ships, by name: the coordinator's,
-// those of the Integrations' tools and the whole-folder ones (pages, pdf, slides).
+// BuiltinSkills are the skills this binary ships that reach agents by their
+// own rule, by name: the coordinator's, those of the Integrations' tools and
+// slides. pdf and pages are in the skills store, listed there.
 func BuiltinSkills() ([]BuiltinSkill, error) {
 	var out []BuiltinSkill
 
 	for _, name := range skillNames() {
+		if slices.Contains(storeSkills, name) {
+			continue
+		}
+
 		stub, err := skillFiles.ReadFile(path.Join("skills", name, "SKILL.md"))
 		if err != nil {
 			return nil, fmt.Errorf("reading the %s stub: %w", name, err)

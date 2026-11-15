@@ -28,6 +28,10 @@ func skillLine(s openapi.Skill) string {
 		every = "\tfor everyone"
 	}
 
+	if s.BuiltIn {
+		every += "\tbuilt in"
+	}
+
 	return fmt.Sprintf("%s\trevision %d\t%s%s", s.Name, s.Latest.Revision, s.Latest.Source, every)
 }
 

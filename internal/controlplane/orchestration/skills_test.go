@@ -248,3 +248,105 @@ func TestABotGetsItsSkills(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorContains(t, err, "vmap", "the Bots are named by their names")
 }
+
+// Scenario: the control plane starts with a release that ships pdf (issue
+// #492). pdf is in the store for everyone, a Bot and a worker get it without
+// the owner doing anything, and a restart of the same release keeps nothing
+// new. The owner turns it off for everyone; the next release's pdf is
+// revision 2 and stays off. The owner cannot remove it.
+func TestABuiltinSkillIsPublishedAtEachRelease(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	done, err := w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{namedSkill(t, "pdf", "1")}, "builtin:v1")
+	require.NoError(t, err)
+	assert.Equal(t, []BuiltinPublish{{Name: "pdf", Did: "added"}}, done)
+
+	pdf, err := w.s.GetSkill(ctx, "pdf")
+	require.NoError(t, err)
+	assert.True(t, pdf.Everyone, "a built-in skill starts for everyone")
+	assert.True(t, pdf.BuiltIn)
+	assert.Equal(t, "builtin:v1", pdf.Latest.Source)
+
+	bot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	require.NoError(t, err)
+
+	given, err := w.s.BotSkills(ctx, bot.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []nodeproto.Skill{{Name: "pdf", Revision: 1, Digest: pdf.Latest.Digest}}, given)
+
+	task := w.tasks(NewTask{Ref: "a", Spec: "do a"})[0]
+	w.dispatch(task.ID)
+
+	pending, err := w.s.NodePending(ctx, w.node.ID)
+	require.NoError(t, err)
+	require.Len(t, pending.Offers, 1)
+	assert.Equal(t, given, pending.Offers[0].Skills, "a worker gets it the same way")
+
+	done, err = w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{namedSkill(t, "pdf", "1")}, "builtin:v1")
+	require.NoError(t, err)
+	assert.Equal(t, []BuiltinPublish{{Name: "pdf", Did: "current"}}, done)
+
+	_, err = w.s.SetSkillEveryone(ctx, "pdf", false)
+	require.NoError(t, err)
+
+	done, err = w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{namedSkill(t, "pdf", "2")}, "builtin:v2")
+	require.NoError(t, err)
+	assert.Equal(t, []BuiltinPublish{{Name: "pdf", Did: "updated"}}, done)
+
+	pdf, err = w.s.GetSkill(ctx, "pdf")
+	require.NoError(t, err)
+	assert.Equal(t, 2, pdf.Latest.Revision)
+	assert.Equal(t, "builtin:v2", pdf.Latest.Source)
+	assert.False(t, pdf.Everyone, "the owner's switch is kept")
+
+	err = w.s.DeleteSkill(ctx, "pdf")
+	require.ErrorIs(t, err, ErrConflict)
+	require.ErrorContains(t, err, "turn it off")
+
+	list, err := w.s.ListSkills(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.True(t, list[0].BuiltIn)
+}
+
+// Scenario: the owner uploads his own revision of a built-in skill; the next
+// release leaves it his. A skill the owner added under a name before the
+// binary shipped one of that name is never touched, and is his to remove.
+func TestABuiltinSkillNeverOverwritesTheOwners(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{namedSkill(t, "pdf", "1")}, "builtin:v1")
+	require.NoError(t, err)
+
+	mine, _, err := w.s.AddSkill(ctx, namedSkill(t, "pdf", "my notes"), SkillSource{Source: SkillUpload})
+	require.NoError(t, err)
+
+	_, _, err = w.s.AddSkill(ctx, namedSkill(t, "pages", "my pages"), SkillSource{Source: SkillUpload})
+	require.NoError(t, err)
+
+	done, err := w.s.PublishBuiltinSkills(ctx,
+		[]skillpack.Skill{namedSkill(t, "pdf", "2"), namedSkill(t, "pages", "1")}, "builtin:v2")
+	require.NoError(t, err)
+	assert.Equal(t, []BuiltinPublish{{Name: "pdf", Did: "edited"}, {Name: "pages", Did: "owner's"}}, done)
+
+	pdf, err := w.s.GetSkill(ctx, "pdf")
+	require.NoError(t, err)
+	assert.Equal(t, mine.Latest, pdf.Latest, "the owner's revision stays the newest")
+	assert.True(t, pdf.BuiltIn, "still the binary's skill, edited")
+
+	pages, err := w.s.GetSkill(ctx, "pages")
+	require.NoError(t, err)
+	assert.False(t, pages.BuiltIn)
+	assert.False(t, pages.Everyone)
+	assert.Equal(t, SkillUpload, pages.Latest.Source)
+	require.NoError(t, w.s.DeleteSkill(ctx, "pages"))
+
+	_, err = w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{namedSkill(t, "pdf", "3")}, SkillUpload)
+	require.ErrorIs(t, err, ErrInvalid, "a built-in revision says so in its source")
+}

@@ -45,6 +45,7 @@ const revision = (n: number, m: Partial<SkillRevision> = {}): SkillRevision => (
 const skill = (name: string, m: Partial<Skill> = {}): Skill => ({
   name,
   everyone: false,
+  built_in: false,
   latest: revision(1),
   created_at: now,
   updated_at: now,
@@ -211,6 +212,44 @@ test("each skill says where it came from and who gets it", async () => {
 
   const builtin = await screen.findByRole("article", { name: "lark" })
   expect(builtin).toHaveTextContent("Agents given a Lark app")
+})
+
+// Scenario: the control plane put pdf in the store (issue #492). It is listed with the built-in skills, not the
+// added ones, says the release it came with and who gets it, and opens its page, where it can be switched off but
+// has no Remove.
+test("a built-in skill in the store is switched, not removed", async () => {
+  const user = userEvent.setup()
+  const requests = server([
+    skill("pdf", {
+      everyone: true,
+      built_in: true,
+      latest: revision(1, { source: "builtin:v0.9.42", description: "PDF files." }),
+    }),
+    skill("lark-docs"),
+  ])
+  open("/settings/skills")
+
+  const builtIn = await screen.findByRole("region", { name: "Built in" })
+  const pdf = await within(builtIn).findByRole("link", { name: "pdf" })
+  expect(pdf).toHaveTextContent("Built in")
+  expect(pdf).toHaveTextContent("Hypomnema v0.9.42")
+  expect(await within(pdf).findByText("Everyone")).toBeInTheDocument()
+  expect(
+    within(screen.getByRole("region", { name: "Added" })).queryByRole("link", { name: "pdf" }),
+  ).toBeNull()
+
+  await user.click(pdf)
+  expect(await screen.findByRole("list", { name: "Skill files" })).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Remove" })).toBeNull()
+  expect(screen.queryByRole("button", { name: "Update from GitHub" })).toBeNull()
+
+  await user.click(screen.getByRole("switch", { name: "For every worker and bot" }))
+  expect(requests).toEqual([{ call: "PUT /skills/pdf/everyone", body: { everyone: false } }])
+})
+
+test("a built-in revision's source is the release it came with", () => {
+  expect(sourceLine({ source: "builtin:v0.9.42" })).toBe("Hypomnema v0.9.42")
+  expect(sourceLine({ source: "builtin" })).toBe("Hypomnema")
 })
 
 // Scenario: the owner adds a skill from GitHub. The server is asked for that repository, and the page opens the

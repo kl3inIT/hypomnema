@@ -806,7 +806,8 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	// whole-folder skills in ~/.agents/skills only.
 	stubs, folders := shippedSkills()
 	assert.Equal(t, 2*len(stubs)+len(folders), strings.Count(out, "installed"), out)
-	assert.NoDirExists(t, filepath.Join(home, ".claude", "skills", "pdf"))
+	assert.NoDirExists(t, filepath.Join(home, ".claude", "skills", "slides"))
+	assert.NoDirExists(t, filepath.Join(home, ".agents", "skills", "pdf"), "pdf comes from the skills store")
 
 	claude := filepath.Join(home, ".claude", "skills", "hypomnema-coordinator", "SKILL.md")
 	agents := filepath.Join(home, ".agents", "skills", "hypomnema-coordinator", "SKILL.md")

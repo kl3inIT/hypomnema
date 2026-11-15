@@ -30,9 +30,9 @@ asked for; a list of people is personal data (the `superset` skill).
 
 ## Start from the template
 
-`dashboard.html` sits next to this guide, at `~/.agents/skills/pages/dashboard.html`. It runs in the artifact's locked
-frame, at phone and desktop widths, in light and dark. Copy it into your directory as `index.html` and change only what
-the data needs:
+`dashboard.html` sits next to this guide, in this skill's folder (the one this SKILL.md is in). It runs in the
+artifact's locked frame, at phone and desktop widths, in light and dark. Copy it into your directory as `index.html`
+and change only what the data needs:
 
 1. `CONFIG`: `dataFile` (a folder page's data, `data.json`), `source`, `updated` (when the figures were read, the
    `computed_at` of `superset chart`, ISO time), `currency` (`VND`, `USD`, …).

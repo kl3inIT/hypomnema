@@ -4,13 +4,12 @@ import { useState, type ReactNode } from "react"
 
 import type { BuiltinSkill, Skill } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { SettingsPage } from "@/components/settings-page"
 import { since } from "@/lib/time"
 
 import { AddSkill } from "./add-skill"
-import { EveryoneBadge, SkillMark, SourceIcon } from "./skill-parts"
+import { BuiltinBadge, EveryoneBadge, SkillMark, SourceIcon } from "./skill-parts"
 import { builtinUsers, matches, sourceLine, usersLine, usersOf, type Users } from "./skills-state"
 import { useBuiltinSkills, useNamers, useSkills } from "./use-skills"
 
@@ -32,7 +31,8 @@ function readLayout(): Layout {
 // user's and the organization's under two tabs (frontend/apps/web/src/routes/SkillsPage.tsx); here the owner's and
 // those the binary ships, as two sections of one page (prototype the owner accepted, 2026-11-12). One search box by
 // name, as Omnara's SkillsSection (components/overview/SkillsSection.tsx), also over the description. A card or row
-// opens the skill's page; a built-in skill has none, since nothing about it is set.
+// opens the skill's page; a built-in skill has none, since nothing about it is set, except one the control plane
+// puts in the store (pdf, pages; issue #492), which is switched like an added one and listed with the built-in ones.
 export function SkillsScreen() {
   const skills = useSkills()
   const builtin = useBuiltinSkills()
@@ -50,16 +50,18 @@ export function SkillsScreen() {
     }
   }
 
-  const added = (skills.data ?? [])
+  const found = (skills.data ?? [])
     .filter((s) => matches(query, s.name, s.latest.description))
     .map((skill) => ({ skill, users: usersOf(skill, profiles, bots) }))
+  const added = found.filter(({ skill }) => !skill.built_in)
+  const stored = found.filter(({ skill }) => skill.built_in)
   const shipped = (builtin.data ?? []).filter((s) => matches(query, s.name, s.description))
 
   return (
     <SettingsPage
       title="Skills"
       wide
-      description="Instructions and scripts an agent's CLI reads when its work needs them. A skill is for no one until you give it to everyone, or add it to an agent or a bot."
+      description="Instructions and scripts an agent's CLI reads when its work needs them. A skill you add is for no one until you give it to everyone, or add it to an agent or a bot."
       actions={
         <>
           <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
@@ -119,12 +121,15 @@ export function SkillsScreen() {
         )}
       </Section>
 
-      {shipped.length > 0 && (
-        <Section title="Built in" count={shipped.length}>
+      {stored.length + shipped.length > 0 && (
+        <Section title="Built in" count={stored.length + shipped.length}>
           {layout === "table" ? (
-            <BuiltinTable skills={shipped} />
+            <BuiltinTable stored={stored} skills={shipped} />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {stored.map(({ skill, users }) => (
+                <AddedCard key={skill.name} skill={skill} users={users} />
+              ))}
               {shipped.map((skill) => (
                 <BuiltinCard key={skill.name} skill={skill} />
               ))}
@@ -211,7 +216,7 @@ function AddedCard({ skill, users }: { skill: Skill; users: Users }) {
           <>
             <SkillMark name={skill.name} />
             <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{skill.name}</h3>
-            {skill.everyone && <EveryoneBadge />}
+            {skill.built_in ? <BuiltinBadge /> : skill.everyone && <EveryoneBadge />}
           </>
         }
       >
@@ -238,7 +243,7 @@ function BuiltinCard({ skill }: { skill: BuiltinSkill }) {
           <>
             <SkillMark name={skill.name} builtin />
             <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{skill.name}</h3>
-            <Badge variant="secondary">Built in</Badge>
+            <BuiltinBadge />
           </>
         }
       >
@@ -308,7 +313,15 @@ function AddedTable({ rows }: { rows: { skill: Skill; users: Users }[] }) {
   )
 }
 
-function BuiltinTable({ skills }: { skills: BuiltinSkill[] }) {
+// BuiltinTable lists the built-in skills in the store, each a link to its page as in AddedTable, then those that
+// reach agents by their own rule.
+function BuiltinTable({
+  stored,
+  skills,
+}: {
+  stored: { skill: Skill; users: Users }[]
+  skills: BuiltinSkill[]
+}) {
   return (
     <div className="relative max-w-full overflow-auto rounded-lg border">
       <table className="w-full text-sm">
@@ -326,6 +339,24 @@ function BuiltinTable({ skills }: { skills: BuiltinSkill[] }) {
           </tr>
         </thead>
         <tbody>
+          {stored.map(({ skill, users }) => (
+            <tr key={skill.name} data-testid="skill" className="border-b last:border-b-0">
+              <td className="h-12 px-3">
+                <Link
+                  to="/settings/skills/$name"
+                  params={{ name: skill.name }}
+                  className="flex items-center gap-2.5 font-medium whitespace-nowrap hover:underline"
+                >
+                  <SkillMark name={skill.name} />
+                  {skill.name}
+                </Link>
+              </td>
+              <td className="max-w-md px-3 text-muted-foreground">
+                <span className="line-clamp-1">{skill.latest.description}</span>
+              </td>
+              <td className="px-3 whitespace-nowrap">{usersLine(users)}</td>
+            </tr>
+          ))}
           {skills.map((skill) => (
             <tr key={skill.name} data-testid="built-in-skill" className="border-b last:border-b-0">
               <td className="h-12 px-3">

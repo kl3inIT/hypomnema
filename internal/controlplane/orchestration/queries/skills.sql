@@ -17,8 +17,10 @@ VALUES (@skill, @revision, @description, @digest, @size, @files, @source, @sourc
 
 -- name: ListSkills :many
 SELECT s.name, s.everyone, s.created_at, s.updated_at,
-    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.created_at AS revised_at
+    r.revision, r.description, r.digest, r.size, r.files, r.source, r.source_commit, r.created_at AS revised_at,
+    f.source AS first_source
 FROM skills s JOIN skill_revisions r ON r.skill = s.name
+JOIN skill_revisions f ON f.skill = s.name AND f.revision = 1
 WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
 ORDER BY s.name;
 
@@ -30,7 +32,7 @@ SELECT skill, revision, description, digest, size, files, source, source_commit,
 FROM skill_revisions WHERE skill = @skill ORDER BY revision DESC;
 
 -- name: LatestSkillRevision :one
-SELECT revision, digest FROM skill_revisions WHERE skill = @skill ORDER BY revision DESC LIMIT 1;
+SELECT revision, digest, source FROM skill_revisions WHERE skill = @skill ORDER BY revision DESC LIMIT 1;
 
 -- name: LatestSkillRevisions :many
 SELECT s.name, s.everyone, r.revision, r.digest
@@ -64,3 +66,6 @@ ORDER BY name;
 
 -- name: GetSkillArchive :one
 SELECT archive FROM skill_revisions WHERE skill = @skill AND revision = @revision;
+
+-- name: FirstSkillSource :one
+SELECT source FROM skill_revisions WHERE skill = @skill AND revision = 1;
