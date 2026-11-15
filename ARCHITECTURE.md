@@ -372,9 +372,10 @@ sequenceDiagram
     taken 409, git failing or a machine offline 503).
 - A browser every agent shares (issue #193, step 1 in issue #196,
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
-  engine on the control plane, an agent's calls to it, the tools in a worker's hands, and the control plane's
-  side of the owner watching a tab and taking control, and its tabs in a chat's pane in the web client. Not
-  built: a node holding the browser instead.
+  engine on the control plane, an agent's calls to it, the tools in a worker's and a Bot's pi's hands, and the
+  control plane's side of the owner watching a tab and taking control, and its tabs in a chat's pane in the web
+  client. Not built: a node holding the browser instead; a Bot's own tab in its chat's pane (the pane lists its
+  Runs' workers' tabs; the Bot's is in `hypomnema browser status`).
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -401,8 +402,8 @@ sequenceDiagram
   - Chrome is started by an agent's first call. A tab unused for 30 minutes is closed, and Chrome once it has had
     no tab for 5 minutes (T3 Code's rules); the sign-ins stay in the profile. Chrome found gone is started again,
     and the tabs it held are not used again. A Chrome left by an earlier control plane is closed at the first call.
-  - A worker finds the browser's tools on the agent API's `GET /agent/v1/tools` and calls one on `POST
-    /agent/v1/tools/call` (see "An agent's tools"); `GET /agent/v1/browser/tools` and `POST /agent/v1/browser/call`
+  - A worker and a Bot's pi find the browser's tools on the agent API's `GET /agent/v1/tools` and call one on
+    `POST /agent/v1/tools/call` (see "An agent's tools"; a Bot's since issue #536, step 4); `GET /agent/v1/browser/tools` and `POST /agent/v1/browser/call`
     (`{tool, arguments}`) still serve any agent the API knows, for a node of an earlier release; the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
     of how the engine is set up. Which agent used which tool is logged, never the arguments.
   - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
@@ -415,8 +416,9 @@ sequenceDiagram
     in issue #540), which writes an AppArmor profile and installs missing
     libraries (T3 Code's `t3 browser setup`, MIT, its license in `third_party/t3code/`).
     `HYPOMNEMA_BROWSER_SANDBOX=0` runs Chrome without the sandbox; nothing else does.
-  - Every worker has the tools (issue #212), as T3 Code's and OpenMausBot's agents have theirs unless a setting
-    turns them off; `HYPOMNEMA_BROWSER=0` on the control plane gives them to no agent. Every Dispatch gets a key
+  - Every worker has the tools (issue #212), and every Bot's pi (issue #536, step 4, through `hypomnema mcp`, in
+    its chat's tab), as T3 Code's and OpenMausBot's agents have theirs unless a setting turns them off;
+    `HYPOMNEMA_BROWSER=0` on the control plane gives them to no agent. Every Dispatch gets a key
     to the agent API, also one whose Run was given no Connection: that key opens no account and says which worker
     asks. The runner writes the control plane's address and the key into the worker's bridge directory
     (`agent.json`), and the worker's MCP server (`internal/node/workertools`) calls the agent API itself, as
@@ -549,11 +551,13 @@ sequenceDiagram
     name or id) are refused with 409 for a node without a phone and 503
     for one not connected, and answer 202. All three are the owner's only.
   - Agents' tools (step 2). The phone is given as the shared browser is (#212): every agent the browser's routes
-    take, with no setting and no Connection (owner, 2026-11-15); only workers have a client for them yet, so Bots
-    and chats reach the phone when they reach the browser's tools. The agent API has `GET /agent/v1/device/tools`
+    take, with no setting and no Connection (owner, 2026-11-15). The agent API has `GET /agent/v1/device/tools`
     and `POST /agent/v1/device/call` (`{tool, arguments}`), in the browser's shape; the tools are listed only while
-    a node holds a phone, and a worker's tools server (`internal/node/workertools`) lists them after the browser's
-    and passes a call of a `device_*` tool there. Which agent used which tool is logged, never the arguments.
+    a node holds a phone, and a worker's tools server (`internal/node/workertools`) and a Bot's (`hypomnema mcp`,
+    issue #536, step 4) list them after the one list's (`GET /agent/v1/tools`) and pass a call of a `device_*`
+    tool there. They stay on their own routes rather than on the one list because a node of the release before
+    step 4 lists both and would offer them twice. A Bot's pi calls as its chat (`b-<chat>`), so its last screen is
+    its chat's own, as its browser tab is. Which agent used which tool is logged, never the arguments.
   - The tools (`internal/shared/devicetool`, run in `internal/node/device/tools.go`) are Android CLI's and adb's,
     as Google's android-cli skill drives a device (notice in `third_party/android-cli-plugin`; the syntax read
     from Android CLI 1.1.16919734's own help): `device_screen` is `android screen capture --annotate`, returned as
@@ -593,8 +597,9 @@ sequenceDiagram
     node writes the `android-device` guide (`internal/shared/agenttool/skills/android-device`) where the Integrations'
     guides go and names it in the worker's first message, with the rules that matter most: look before acting,
     act by box number, never sign in or pay. The guide is written for Claude Code and Codex workers, which are the
-    ones the Integrations' guides are written for; an omp or opencode worker is told the rules only. Its stub,
-    installed for Bots by `skills install`, says the tools are a worker's for now.
+    ones the Integrations' guides are written for; an omp or opencode worker is told the rules only. Its stub is
+    installed for Bots by `skills install` (with every Bot's skills, whether or not a node holds a phone; the tools
+    are listed only when one does); the guide says a Bot asks the owner in its chat, a worker with `ask`.
   - The owner's view and take-over (step 3), in the browser's shape. On the node (`view.go`, `stream.go`,
     `scrcpy.go`, `sps.go`) one scrcpy-server serves every view open, started with the first and ended with the last,
     as Orca runs its pane's (notice in `third_party/orca`): pushed to `/data/local/tmp`, an adb forward from a
@@ -785,8 +790,9 @@ sequenceDiagram
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
   - A Bot's pi has the tools `memory` and `show_artifact` (issue #536), `web_search`, `web_fetch` and
-    `generate_image` from Hypomnema's tools server (issue #492, see "An agent's tools"), which its pi mounts through
-    pi's own MCP (below, the box). Until
+    `generate_image` from Hypomnema's tools server (issue #492, see "An agent's tools"), and the shared browser's
+    and the phone's (issue #536, step 4), which its pi mounts through pi's own MCP (below, the box). Those are
+    relayed by the control plane over the same HTTP the other tools use, so the box needs nothing more. Until
     2026-11-15 it drove the commands below through bash, taught by the built-in skills `web-search` and `images`,
     which are gone (`skills install` takes their stubs out).
   - The web from the client API (issue #354, after 9router's `skills/9router-web-search`), for the owner and a
@@ -2476,8 +2482,8 @@ Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots wi
 OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Both
 servers, a Bot's (`hypomnema mcp`) and a worker's (`hypomnema-node mcp`), list them on `GET /agent/v1/tools` and
 run one on `POST /agent/v1/tools/call` (`{tool, arguments}`; the answer is the tool's result as MCP has it); a tool
-an agent was not given is a 404 there. The phone's tools stay on their own routes (see "A phone, on a node that
-holds one"). The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
+an agent was not given is a 404 there. The phone's tools stay on their own routes, which both servers list
+beside the one list (see "A phone, on a node that holds one"). The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
 `POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
 gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
@@ -2486,8 +2492,8 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
-| the browser's (agent-browser) | yes | not yet (issue #536, step 4) | no |
-| the phone's (`device_*`, own routes) | yes | not yet (issue #536, step 4) | no |
+| the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
+| the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
 | `ask`, `finish` (the node's own) | yes | no | no |
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
@@ -2499,10 +2505,14 @@ flowchart LR
         L["agent API: /agent/v1/tools<br/>one list, each tool's kinds"] --> G["gateway services<br/>search chain, fetch, Images"]
         L --> M["memories<br/>Bot's, agent's, owner's"]
         L --> A["artifacts<br/>the Bot's chat, a worker's Run's chat"]
-        L --> BR["shared browser"]
+        L --> BR["shared browser<br/>a tab an agent"]
+        D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
     end
+    PH -- "node socket" --> PN["node holding the phone"]
     P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "chat pi's token" --> L
+    B -- "chat pi's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
+    N -- "Dispatch key" --> D
     O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact" --> C["client API"] --> G
     C --> M
     C --> A
