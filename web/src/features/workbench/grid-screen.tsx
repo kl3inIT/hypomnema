@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 import { GridDrop } from "./grid-drop"
 import { gridPanes, type GridLayout } from "./grid-layout"
 import { alone, dropTab, openBeside, withoutPane, type Bench } from "./moves"
-import { frontOf, hasTab, type Pane } from "./pane"
+import { frontOf, hasTab, tabKey, type Pane } from "./pane"
 import { PaneView, type Beside } from "./pane-view"
 import { newPaneId, setBench, setPane, soloId, useBench, useGridOffered } from "./use-grid"
 
@@ -78,7 +78,13 @@ export function GridScreen() {
         onFull={() => setFull(full === node ? null : node)}
         onRemove={() => commit(withoutPane(bench, node))}
         beside={{
-          open: (tab) => commit(openBeside(bench, node, tab, newPaneId())),
+          open: (tab) => {
+            const next = openBeside(bench, node, tab, newPaneId())
+            // A pane filling the screen gives way to the pane the tab opened in, so that it is seen.
+            const at = gridPanes(next.layout).find((id) => next.panes[id]?.active === tabKey(tab))
+            if (full !== null && at !== full) setFull(null)
+            commit(next)
+          },
           has: (key) =>
             gridPanes(bench.layout).some((id) => {
               const pane = bench.panes[id]

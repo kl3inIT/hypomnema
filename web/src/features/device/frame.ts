@@ -99,9 +99,10 @@ export type SideButton = {
 }
 
 // sideButtons are where the side buttons stand on the frame, from its top, as Orca draws them: the volume rocker's
-// two halves on the left, Power on the right.
+// two halves on the left, Power on the right. Unlike Orca's, whose bars are only drawn, the two halves are kept 2px
+// apart on a short frame, so that each is pressed alone.
 export function sideButtons(layout: FrameLayout): SideButton[] {
-  const volume = clamp(layout.shellHeight * 0.08, 34, 64)
+  const volume = Math.min(clamp(layout.shellHeight * 0.08, 34, 64), layout.shellHeight * 0.09 - 2)
 
   return [
     { name: "volumeUp", side: "left", top: layout.shellHeight * 0.24, height: volume },

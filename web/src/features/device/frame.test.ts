@@ -71,6 +71,17 @@ describe("the phone's side buttons", () => {
     expect(up!.height).toBeCloseTo(Math.min(64, Math.max(34, layout.shellHeight * 0.08)), 6)
     expect(power!.height).toBeCloseTo(Math.min(76, Math.max(42, layout.shellHeight * 0.095)), 6)
   })
+
+  it("keep the rocker's two halves apart on a short frame", () => {
+    for (const room of [
+      { width: 600, height: 250 },
+      { width: 600, height: 380 },
+    ]) {
+      const [up, down] = sideButtons(fitPhoneFrame(room, aspect)!)
+
+      expect(up!.top + up!.height + 2, `${room.height}`).toBeLessThanOrEqual(down!.top + 1e-9)
+    }
+  })
 })
 
 describe("a wheel over the phone's screen", () => {
