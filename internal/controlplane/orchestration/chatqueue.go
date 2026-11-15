@@ -23,7 +23,9 @@ type QueuedMessage struct {
 	ChatID      string
 	Text        string
 	Attachments []ChatAttachment
-	CreatedAt   time.Time
+	// Sender is who wrote it when it is not the owner (issue #468), kept for when it is moved into the chat.
+	Sender    *ChatSender
+	CreatedAt time.Time
 }
 
 // SendOwnerMessage keeps an owner message: in the chat's queue while its pi works (busy) or while messages queued
@@ -79,8 +81,10 @@ func (s *Service) QueueChatMessage(ctx context.Context, chatID string, m NewChat
 			return err
 		}
 
+		senderID, senderName := senderColumns(m.Sender)
+
 		row, err := q.InsertChatQueued(ctx, store.InsertChatQueuedParams{
-			ChatID: chatID, Text: m.Text, Attachments: files, Now: now,
+			ChatID: chatID, Text: m.Text, Attachments: files, SenderID: senderID, SenderName: senderName, Now: now,
 		})
 		if err != nil {
 			return fmt.Errorf("queueing a message: %w", err)
@@ -205,10 +209,11 @@ func (s *Service) TakeChatQueue(ctx context.Context, chatID string) (int, error)
 	return n, nil
 }
 
-// unqueueTx moves one queued row into the chat as an owner message pi has not had yet.
+// unqueueTx moves one queued row into the chat as a person's message pi has not had yet, with its sender.
 func unqueueTx(ctx context.Context, q *store.Queries, r store.ChatQueue, now int64) (int64, error) {
 	seq, err := q.InsertChatMessage(ctx, store.InsertChatMessageParams{
-		ChatID: r.ChatID, Role: string(ChatOwner), Text: r.Text, Attachments: r.Attachments, Now: now,
+		ChatID: r.ChatID, Role: string(ChatOwner), Text: r.Text, Attachments: r.Attachments,
+		SenderID: r.SenderID, SenderName: r.SenderName, Now: now,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("inserting a queued message: %w", err)
@@ -244,7 +249,7 @@ func keptAttachments(files []ChatAttachment) (sql.NullString, error) {
 func queuedMessage(r store.ChatQueue) QueuedMessage {
 	return QueuedMessage{
 		ID: r.ID, ChatID: r.ChatID, Text: r.Text, Attachments: attachmentsOf(r.Attachments),
-		CreatedAt: millis(r.CreatedAt),
+		Sender: senderOf(r.SenderID, r.SenderName), CreatedAt: millis(r.CreatedAt),
 	}
 }
 

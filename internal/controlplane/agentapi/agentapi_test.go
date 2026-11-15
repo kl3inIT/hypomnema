@@ -367,3 +367,109 @@ func TestEachLarkAccountIsListedWithItsOwnApp(t *testing.T) {
 		{Label: "report", Account: "Superset Report", ClientID: "cli_report"},
 	}, list().Data)
 }
+
+// Scenario (issue #468, rules 6 and 7): the owner connected his Lark app as
+// "work" and signed in to Lark as himself through it as "me", and switched
+// both on for chats. "me" acts as him, so only his own token and the main
+// Bot's pi on his own turn get it: a worker given it, a coordinator token,
+// another Bot's pi and a Routine's script of the main Bot never do, whatever
+// the switches say. The main Bot's pi gets it while the chat's last message
+// is the owner's, and loses it at the next call once someone else spoke.
+func TestTheOwnersOwnLarkSignInIsOnlyTheMainBotsOnHisTurn(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	//nolint:gosec // G101: the names of vault secrets, not credentials
+	for _, c := range []orchestration.Connection{
+		{Integration: "lark", Label: "work", Account: "Hypomnema", Secret: "conn-lark-work", AppID: "cli_work"},
+		{
+			Integration: "lark", Label: "me", Account: "The Owner", Secret: "conn-lark-me", AppID: "cli_work",
+			AppLabel: "work",
+		},
+	} {
+		_, err := w.svc.SaveServiceConnection(ctx, c)
+		require.NoError(t, err)
+		_, err = w.svc.SetConnectionChats(ctx, "lark", c.Label, true)
+		require.NoError(t, err)
+	}
+
+	list := func(key string) []agenttool.Connection {
+		t.Helper()
+
+		status, body := w.call(http.MethodGet, agenttool.PathConnections+"?integration=lark", key, nil)
+		require.Equal(t, http.StatusOK, status)
+
+		var out agenttool.ConnectionList
+		require.NoError(t, json.Unmarshal(body, &out))
+
+		return out.Data
+	}
+	labels := func(key string) []string {
+		t.Helper()
+
+		out := []string{}
+		for _, c := range list(key) {
+			out = append(out, c.Label)
+		}
+
+		return out
+	}
+
+	_, owner, err := w.svc.AddToken(ctx, "me", bearertoken.Owner)
+	require.NoError(t, err)
+	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []agenttool.Connection{
+		{Label: "work", Account: "Hypomnema", ClientID: "cli_work"},
+		{Label: "me", Account: "The Owner", ClientID: "cli_work", User: true},
+	}, list(owner), "the owner's token gets his own sign-in, told as a user's account with its app")
+
+	worker, err := w.svc.AddAgentSession(ctx, "dsp_1", []string{"lark:work", "lark:me"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"work"}, labels(worker), "a worker never acts as the owner, even given it")
+	assert.Equal(t, []string{"work"}, labels(coordinator))
+
+	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap"})
+	require.NoError(t, err)
+	vmapChat, err := w.svc.CreateChat(ctx, vmapBot.ID, "")
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, vmapChat.ID, orchestration.ChatOwner, "read my mail")
+	require.NoError(t, err)
+	vmap, err := w.svc.AddBotToken(ctx, "pi", vmapChat.ID, vmapBot.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"work"}, labels(vmap), "another Bot never acts as the owner, even on his turn")
+
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
+		ScriptText: "#!/bin/sh\n", EveryMinutes: 60,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+	run, err := w.svc.AddRoutineToken(ctx, "pi", routine.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"work"}, labels(run), "a Routine's run is never the owner's turn")
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"work"}, labels(pi), "nothing was asked in the chat yet")
+
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what is new in the PMO group?")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"work", "me"}, labels(pi), "the owner asked: the main Bot may act as him")
+
+	_, err = w.svc.AddChatMessages(ctx, chat.ID, orchestration.NewChatMessage{
+		Role: orchestration.ChatOwner, Text: "[Linh]: and mine?", Sender: &orchestration.ChatSender{ID: "ou_linh"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"work"}, labels(pi), "Linh spoke last: the next call is refused the owner's sign-in")
+
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "me", false)
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "go on")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"work"}, labels(pi), "switched off for chats, not even the main Bot gets it")
+}

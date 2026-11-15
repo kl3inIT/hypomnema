@@ -32,6 +32,17 @@ type Def struct {
 	// from, when it will not run without it; empty for a tool that needs the
 	// token alone. The id is not a secret.
 	ClientEnv string
+	// UserTokenEnv is the variable the tool reads a person's token from, for
+	// an account that is the owner's own sign-in (issue #468); it is given
+	// the placeholder in place of TokenEnv. IdentityEnv then names the
+	// variable that holds the tool to one identity, set to UserIdentity for
+	// such an account and to AppIdentity for an app's, so that a call never
+	// changes whom it acts as on its own. Empty for a tool with one kind of
+	// account.
+	UserTokenEnv string
+	IdentityEnv  string
+	UserIdentity string
+	AppIdentity  string
 	// CAEnv is the variable the tool reads the certificates it trusts from,
 	// when it does not read SSL_CERT_FILE: the AWS CLI reads AWS_CA_BUNDLE.
 	CAEnv string
@@ -167,6 +178,12 @@ func GoogleWorkspaceCLI() Def {
 // variables keep its notices about updates out of what an agent reads. The
 // checksums are the ones of the release's checksums.txt, read the same day
 // and matched against the files.
+//
+// The owner's own sign-in (issue #468) is given to it as a user's token in
+// LARKSUITE_CLI_USER_ACCESS_TOKEN. Its environment provider acts as the user
+// whenever that one is set, and LARKSUITE_CLI_STRICT_MODE holds it to one
+// identity (extension/credential/env/env.go): user for the owner's account,
+// bot for an app's. The variables that would choose otherwise are taken away.
 func LarkCLI() Def {
 	const (
 		version = "1.0.100"
@@ -176,10 +193,16 @@ func LarkCLI() Def {
 	//nolint:gosec // The names of variables and public addresses; no credential is here.
 	return Def{
 		Integration: "lark", Name: "lark-cli", Version: version,
-		TokenEnv:  "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
-		ClientEnv: "LARKSUITE_CLI_APP_ID",
+		TokenEnv:     "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
+		ClientEnv:    "LARKSUITE_CLI_APP_ID",
+		UserTokenEnv: "LARKSUITE_CLI_USER_ACCESS_TOKEN",
+		IdentityEnv:  "LARKSUITE_CLI_STRICT_MODE", UserIdentity: "user", AppIdentity: "bot",
 		Env: []string{
 			"LARKSUITE_CLI_BRAND=lark", "LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1", "LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1",
+		},
+		Unset: []string{
+			"LARKSUITE_CLI_TENANT_ACCESS_TOKEN", "LARKSUITE_CLI_USER_ACCESS_TOKEN", "LARKSUITE_CLI_APP_SECRET",
+			"LARKSUITE_CLI_STRICT_MODE", "LARKSUITE_CLI_DEFAULT_AS", "LARKSUITE_CLI_TENANT_ACCESS_TOKEN_SOURCE",
 		},
 		Releases: map[string]Release{
 			"linux/amd64": {

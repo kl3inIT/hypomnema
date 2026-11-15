@@ -4,8 +4,8 @@ description: >-
   Reads and changes what the owner's Lark app may reach in Lark (documents, sheets, Base, wiki, drive, messages,
   calendars, tasks) with the lark-cli command, which Hypomnema installs and signs in. Use when the owner asks about
   something in Lark: reading or writing a document or a sheet, a Base table, a wiki page, a file, sending a message
-  as the bot, a calendar the app can see. Not for a person's own mail, calendar or drive: the command acts as the
-  app, not as the owner.
+  as the bot, a calendar the app can see; and, when you were given the owner's own sign-in, reading what only he
+  sees (his groups, his tickets, his Bases).
 ---
 
 # Lark through Hypomnema
@@ -14,8 +14,9 @@ Work in Lark with the `lark-cli` command (Lark's own command-line tool). Hypomne
 signs it in on every call: you never see a secret or a token, and you never log in.
 
 Adapted from `lark-cli`'s `lark-shared` skill (MIT, Copyright (c) 2026 Lark Technologies Pte. Ltd.,
-https://github.com/larksuite/cli). Changed for Hypomnema: how the command is signed in, that it acts as the app
-only, and what happens to anything that writes; its sign-in, QR code, configuration and update steps are left out.
+https://github.com/larksuite/cli). Changed for Hypomnema: how the command is signed in, which account acts as the
+app and which as the owner, and what happens to anything that writes; its sign-in, QR code, configuration and
+update steps are left out.
 
 ## How it is signed in
 
@@ -30,22 +31,33 @@ only, and what happens to anything that writes; its sign-in, QR code, configurat
 - You can use only the Lark app you were given. A command for anything else is refused, and that is not something
   to work around.
 
-## Who you act as: the app, never a person
+## Who you act as: the app, or the owner himself
 
-- Every command acts as the owner's Lark app (the bot). `lark-cli whoami` shows it: `"identity": "bot"`.
-- `--as user` is refused ("strict mode is bot"). Do not try to change that.
+- An app's account (such as `work`) acts as the owner's Lark app (the bot). `lark-cli whoami` shows it:
+  `"identity": "bot"`. `--as user` is refused there ("strict mode is bot"). Do not try to change that.
 - The app sees only what it was given: documents, folders, Bases and wikis shared with the app, chats the bot is a
   member of, calendars it was invited to. **A person's own things come back empty, not as an error**: an empty
   list does not mean there is nothing, it may mean the app was not given it. Say that in your report instead of
   concluding the thing does not exist.
+- The owner may also have signed in as himself through one of his apps: an account such as `me`, listed with his
+  own name. **`--account me` acts as the owner**: `lark-cli whoami` shows `"identity": "user"`, and it sees what he
+  sees (his groups and chats, his tickets, the Bases and documents he can open). Use it for **reading what only he
+  sees**, when the app's account comes back empty or the owner asks about his own things. It is held to acting as
+  him; `--as bot` is refused there.
+- You are given the owner's account only when the owner himself asked you, in his own words, in this chat. When
+  someone else wrote last, or you were woken by the control plane (a Run's event, an approval, a Routine's run), it
+  is not listed and a command naming it is refused: use the app's account, or say that the owner must ask himself.
+- **Anything sent or changed as the owner** (a message in his name, a document changed under his name, a reply,
+  a reaction) **needs his yes**: it waits for his approval like every write, and you never send as him what he did
+  not ask for. Prefer the app's account for anything that does not need to be his.
 - What the app may do is also bounded by its scopes in Lark's developer console. A call that answers with a missing
   scope is reported with the scope's name; the owner adds it there. Do not open or follow a console link yourself.
 
 ## Which account
 
-- When you were given one Lark app, every command acts as it. Nothing to add.
+- When you were given one Lark account, every command acts as it. Nothing to add.
 - When you were given several, name one on each command: `lark-cli --account work docs --help`. The label is the
-  owner's name for it (`work`). A command that names none is refused with the list.
+  owner's name for it (`work`, or `me` for his own sign-in). A command that names none is refused with the list.
 
 ## What runs at once, and what waits for the owner
 

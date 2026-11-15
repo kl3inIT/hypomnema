@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { Copy, ExternalLink, Plug, Plus, RefreshCw, Sheet } from "lucide-react"
+import { Copy, ExternalLink, Plug, Plus, RefreshCw, Sheet, UserRound } from "lucide-react"
 import { useId, useState, type ComponentType, type ReactElement, type SVGProps } from "react"
 import { z } from "zod"
 
@@ -148,6 +148,8 @@ export function ServiceCard({ service }: { service: Integration }) {
   // A role of an AWS account is connected from a terminal with the key that assumes it (issue #331).
   const role = service.kind === "role"
   const ready = account || app || role || Boolean(service.client_id)
+  // The owner may sign in to an app service as himself through one of its apps (issue #468): a user Connection.
+  const apps = service.connections.filter((c) => !c.app)
   const add = (
     <Button variant="outline" size="sm">
       <Plus data-icon="inline-start" />
@@ -165,7 +167,7 @@ export function ServiceCard({ service }: { service: Integration }) {
               <span>{service.name}</span>
               <CardDescription>
                 {app
-                  ? "Each account works as one of your apps"
+                  ? "Each account works as one of your apps, or as you through one"
                   : role
                     ? "Roles of your AWS accounts, each with the rights its work needs"
                     : account
@@ -179,6 +181,17 @@ export function ServiceCard({ service }: { service: Integration }) {
           <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
             {account && <ConnectAccountDialog service={service} trigger={add} />}
             {app && <ConnectAppDialog service={service} trigger={add} />}
+            {app && apps.length > 0 && (
+              <UserSignInDialog
+                service={service}
+                trigger={
+                  <Button variant="outline" size="sm">
+                    <UserRound data-icon="inline-start" />
+                    Sign in as me
+                  </Button>
+                }
+              />
+            )}
             {role && <ConnectRoleDialog service={service} trigger={add} />}
             {!app && !account && !role && service.client_id && (
               <SignInDialog service={service} trigger={add} />
@@ -246,7 +259,9 @@ function AccountItem({
   connection: IntegrationConnection
 }) {
   const refresh = useRefreshServices()
-  const app = service.kind === "app"
+  // The owner's own sign-in through one of the service's apps (issue #468), beside the apps themselves.
+  const user = Boolean(connection.app)
+  const app = service.kind === "app" && !user
   const account = service.kind === "account"
   const role = service.kind === "role"
 
@@ -264,6 +279,15 @@ function AccountItem({
               <Grant key={grant} grant={grant} />
             ))}
             {app && connection.app_id && <span className="font-mono">{connection.app_id}</span>}
+            {user && (
+              <>
+                <span className="inline-flex items-center gap-1.5">
+                  <UserRound className="size-4 shrink-0" aria-hidden />
+                  {`You, through ${connection.app}`}
+                </span>
+                <span>Only the main Bot, when you ask it yourself</span>
+              </>
+            )}
             {role && (
               <>
                 <RoleName arn={connection.role_arn ?? ""} />
@@ -327,7 +351,19 @@ function AccountItem({
             }
           />
         )}
-        {!app && !account && !role && (
+        {user && (
+          <UserSignInDialog
+            service={service}
+            connection={connection}
+            trigger={
+              <Button variant="ghost" size="sm">
+                <RefreshCw data-icon="inline-start" />
+                Sign in again
+              </Button>
+            }
+          />
+        )}
+        {!app && !account && !role && !user && (
           <SignInDialog
             service={service}
             connection={connection}
@@ -347,13 +383,15 @@ function AccountItem({
           }
           title={`Disconnect ${connection.label} (${connection.account})?`}
           consequence={
-            role
-              ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
-              : account
-                ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
-                : app
-                  ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
-                  : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
+            user
+              ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; the main Bot no longer acts as you. If ${service.name} cannot be reached, remove the app's access in your own account.`
+              : role
+                ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
+                : account
+                  ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
+                  : app
+                    ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
+                    : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
           }
           action="Disconnect"
           run={() =>
@@ -823,6 +861,229 @@ function ConnectRoleDialog({
             {connect.isPending && <Spinner data-icon="inline-start" />}
             Connect
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const userSchema = z.object({
+  label: labelSchema,
+  app: z.string().min(1, "Choose the app to sign in through."),
+})
+
+// UserSignInDialog signs the owner in to an app service (Lark) as himself, through one of the apps he connected
+// (issue #468), as lark-cli's `auth login` does by device code (cmd/auth/login.go): he names the account and the
+// app and is given a link and a code, which he enters on any device, the phone he is signed in on at Lark first.
+// The dialog waits for it meanwhile, as `integrations connect lark --as-user` does. Its steps are SignInDialog's.
+// For an account that exists the name is fixed and its app starts as it is.
+function UserSignInDialog({
+  service,
+  connection,
+  trigger,
+}: {
+  service: Integration
+  connection?: IntegrationConnection
+  trigger: ReactElement
+}) {
+  const formId = useId()
+  const refresh = useRefreshServices()
+  const [open, setOpen] = useState(false)
+  const [started, setStarted] = useState<SignIn | null>(null)
+  const apps = service.connections.filter((c) => !c.app)
+
+  const begin = useMutation({
+    mutationFn: async (value: z.infer<typeof userSchema>) =>
+      (
+        await beginIntegrationSignIn({
+          path: { integration: service.id },
+          body: { label: value.label, app: value.app },
+        })
+      ).data,
+  })
+
+  const complete = useMutation({
+    mutationFn: (id: string) =>
+      completeIntegrationSignIn({ path: { integration: service.id, sign_in_id: id }, body: {} }),
+  })
+
+  const form = useForm({
+    defaultValues: {
+      label: connection?.label ?? "me",
+      app: connection?.app ?? apps[0]?.label ?? "",
+    },
+    validators: { onSubmit: userSchema },
+    onSubmit: async ({ value }) => {
+      let signIn: SignIn
+      try {
+        signIn = await begin.mutateAsync(value)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
+      setStarted(signIn)
+
+      try {
+        await complete.mutateAsync(signIn.id)
+      } catch {
+        return // The dialog shows why, and the owner starts again.
+      }
+
+      await refresh()
+      change(false)
+      said(`${service.name} account ${value.label} is connected as you`)
+    },
+  })
+
+  function change(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      setStarted(null)
+      form.reset()
+      begin.reset()
+      complete.reset()
+    }
+  }
+
+  function again() {
+    setStarted(null)
+    begin.reset()
+    complete.reset()
+  }
+
+  async function copy(code: string) {
+    try {
+      await navigator.clipboard.writeText(code)
+      said("Code copied")
+    } catch {
+      // No clipboard (an insecure page): the code is on the screen to type.
+    }
+  }
+
+  const appNames = Object.fromEntries(apps.map((a) => [a.label, `${a.label} (${a.account})`]))
+  const waiting = started !== null && complete.isPending
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {connection
+              ? `Sign ${connection.label} in again`
+              : `Sign in to ${service.name} as yourself`}
+          </DialogTitle>
+          <DialogDescription>
+            {started
+              ? `Open the link on any device where you are signed in to ${service.name}, and enter the code there.`
+              : `The main Bot then reads what you can read in ${service.name}, only when you ask it yourself. Anything it would send or change as you waits for your yes. Your password never passes through here.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            {!started && (
+              <FieldGroup>
+                {!connection && (
+                  <form.Field name="label">
+                    {(field) => (
+                      <TextField
+                        field={field}
+                        label="Name"
+                        placeholder="me"
+                        description="What you call your own account here, such as me."
+                      />
+                    )}
+                  </form.Field>
+                )}
+                <form.Field name="app">
+                  {(field) => (
+                    <Field>
+                      <FieldLabel htmlFor={`${formId}-app`}>App</FieldLabel>
+                      <Select
+                        value={field.state.value}
+                        onValueChange={(next) => next && field.handleChange(next)}
+                        items={appNames}
+                      >
+                        <SelectTrigger id={`${formId}-app`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {apps.map((a) => (
+                            <SelectItem key={a.label} value={a.label}>
+                              {appNames[a.label]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>
+                        {`The app needs "Refresh user_access_token" on in its security settings at ${service.name}.`}
+                      </FieldDescription>
+                    </Field>
+                  )}
+                </form.Field>
+              </FieldGroup>
+            )}
+            {started && (
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Code</FieldLabel>
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono text-2xl font-semibold tracking-widest">
+                      {started.user_code}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Copy the code"
+                      onClick={() => void copy(started.user_code ?? "")}
+                    >
+                      <Copy />
+                    </Button>
+                  </span>
+                </Field>
+                {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
+                <a
+                  href={started.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={buttonVariants({ variant: "outline" })}
+                >
+                  <ExternalLink data-icon="inline-start" />
+                  Open {service.name}&apos;s sign-in page
+                </a>
+                {waiting && (
+                  <output className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner />
+                    {`Waiting for the code, for ${Math.max(1, Math.round(started.expires_in_seconds / 60))} minutes`}
+                  </output>
+                )}
+              </FieldGroup>
+            )}
+            <ErrorAlert error={begin.error ?? complete.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          {started && complete.isError ? (
+            <Button onClick={again}>Start again</Button>
+          ) : (
+            !started && (
+              <Button type="submit" form={formId} disabled={begin.isPending}>
+                {begin.isPending && <Spinner data-icon="inline-start" />}
+                Continue
+              </Button>
+            )
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
