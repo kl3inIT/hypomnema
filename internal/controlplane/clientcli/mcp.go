@@ -19,7 +19,8 @@ import (
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
 // pi's own token there. It lists the tools the control plane gives a Bot's pi
 // (PathTools, issue #536: memory, show_artifact, web_search, web_fetch,
-// generate_image), so that a Bot is offered none of a worker's (ask, finish,
+// generate_image, and Superset's superset_* when its Bot may use a Superset
+// account), so that a Bot is offered none of a worker's (ask, finish,
 // the browser, the phone). An image is saved under images/ in the folder pi
 // works in, the Bot's, whose files its chat sends, and the answer gives the
 // MEDIA line that sends it; show_artifact's path is read in that folder.

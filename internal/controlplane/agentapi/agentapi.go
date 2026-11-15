@@ -23,8 +23,9 @@
 // An agent's tools server lists and calls here the control plane's tools
 // (tools.go, issue #536), each given to the agent kinds its definition names:
 // the memory's (memory.go), show_artifact (artifacts.go), the gateway's, the
-// web's (issue #354, web.go) and generate_image (issue #492, images.go), and
-// a worker's the browser every agent shares (issue #212); and a worker the
+// web's (issue #354, web.go) and generate_image (issue #492, images.go),
+// Superset's for an agent given a Superset Connection (superset.go), and a
+// worker's the browser every agent shares (issue #212); and a worker the
 // tools of the phone a node holds (issue #417, device.go).
 //
 // A refresh token and a client secret never pass through here: the token it
@@ -103,6 +104,9 @@ type Server struct {
 	runtimeOf RuntimeOf
 	// device is the phone a node holds (issue #417); nil when the control plane gave none.
 	device Device
+	// relay sends Superset's tools' requests through the service proxy (issue #536); nil when the control
+	// plane gave none.
+	relay  Relay
 	logger *slog.Logger
 }
 
