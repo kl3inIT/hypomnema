@@ -2983,8 +2983,10 @@ The owner's commands:
     result. `tasks transcript <task>` prints the latest attempt's transcript, a line an item (`--after`,
     `--json` for one item a line); `--follow` keeps printing until the worker has ended and nothing more comes.
 - `chat [message]` writes to pi and prints its replies and the tools it ran until it is idle (`--chat`, `--new`,
-  `--text-file`); without a message it shows the chat. `chats` lists them. `runs create` sends `HYPOMNEMA_CHAT_ID`
-  when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends (issue #260).
+  `--text-file`); `--bot <id>` starts a new chat with that Bot instead of the main one, and is refused with
+  `--chat` (issue #616); without a message it shows the chat. `chats` lists them. `runs create` sends
+  `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
+  (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
