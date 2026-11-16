@@ -2,7 +2,7 @@ import { Dialog } from "@base-ui/react/dialog"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ArrowDown, ExternalLink, X } from "lucide-react"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import "@/api/client"
@@ -13,10 +13,12 @@ import {
   listQuestionsQueryKey,
   listTasksQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
-import { cancelTask, forwardQuestion, reopenTask } from "@/api/generated/sdk.gen"
+import { cancelTask, followUpTask, forwardQuestion, reopenTask } from "@/api/generated/sdk.gen"
 import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { Textarea } from "@/components/ui/textarea"
+import { errorText } from "@/lib/server-error"
 import { since, span } from "@/lib/time"
 
 import { RuntimeMark } from "@/components/icons/runtime-mark"
@@ -180,6 +182,14 @@ function PanelBody({ taskId }: { taskId: string }) {
             </p>
           </Section>
 
+          {task.follow_ups?.map((f) => (
+            <Section key={f.id} title={`Asked for more · ${since(f.created_at)}`}>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/88">
+                {f.note}
+              </p>
+            </Section>
+          ))}
+
           <Section title="Transcript">
             {dispatch ? (
               <Transcript
@@ -264,6 +274,67 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
+// FollowUp asks more of a succeeded Task's worker, which goes on in its own conversation, branch and pull request
+// (POST /tasks/{id}/follow-ups), as Orca sends to a finished worker as a follow-up
+// (skill-guides/orchestration.md). The server refuses it when the worker's conversation was closed, and its
+// message says to start a new Task instead.
+function FollowUp({ taskId }: { taskId: string }) {
+  const refresh = useRefresh()
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState("")
+  const send = useMutation({
+    mutationFn: () => followUpTask({ path: { task_id: taskId }, body: { note: note.trim() } }),
+    onSuccess: () => {
+      setOpen(false)
+      setNote("")
+      refresh()
+    },
+  })
+
+  if (!open) {
+    return (
+      <Button variant="outline" onClick={() => setOpen(true)}>
+        Ask for more
+      </Button>
+    )
+  }
+
+  return (
+    <form
+      aria-label="Ask for more"
+      className="flex w-full flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (note.trim() && !send.isPending) send.mutate()
+      }}
+    >
+      <Textarea
+        aria-label="What more to do"
+        rows={3}
+        value={note}
+        placeholder="What to change or add; the worker goes on with its branch and pull request"
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="submit"
+          focusableWhenDisabled={send.isPending}
+          disabled={!note.trim() || send.isPending}
+        >
+          {send.isPending && <Spinner data-icon="inline-start" />}
+          Send to the worker
+        </Button>
+        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        {send.error && (
+          <span className="text-xs text-destructive">Not sent: {errorText(send.error)}</span>
+        )}
+      </div>
+    </form>
+  )
+}
+
 // taskReads matches what the owner's act on a Task changes: the Tasks, the questions, each Run and each Task.
 const taskReads = callsOf(
   listTasksQueryKey(),
@@ -306,8 +377,8 @@ function PiQuestion({ card }: { card: Card }) {
   )
 }
 
-// Actions are what the owner can do to a Task in its state: start a failed or blocked one again, or cancel one
-// that has not ended.
+// Actions are what the owner can do to a Task in its state: start a failed or blocked one again, ask more of a
+// succeeded one (issue #666), or cancel one that has not ended.
 function Actions({ card }: { card: Card }) {
   const refresh = useRefresh()
   const { task } = card
@@ -328,10 +399,13 @@ function Actions({ card }: { card: Card }) {
     !["succeeded", "failed", "canceled"].includes(task.status) && !task.cancel_requested_at
   const error = reopen.error ?? cancel.error
 
-  if (!canReopen && !canCancel) return null
+  const canFollowUp = card.run.status === "open" && task.status === "succeeded"
+
+  if (!canReopen && !canCancel && !canFollowUp) return null
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {canFollowUp && <FollowUp taskId={task.id} />}
       {canReopen && (
         <Button
           onClick={() => reopen.mutate()}

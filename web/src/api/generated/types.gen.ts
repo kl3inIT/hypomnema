@@ -123,6 +123,21 @@ export type Task = {
 
 export type TaskDetail = Task & {
   latest_dispatch?: Dispatch;
+  /**
+   * More work asked of the Task's worker after it succeeded, oldest first.
+   */
+  follow_ups?: Array<FollowUp>;
+};
+
+export type NewFollowUp = {
+  note: string;
+};
+
+export type FollowUp = {
+  id: string;
+  note: string;
+  asked_by: Addressee;
+  created_at: string;
 };
 
 export type TaskList = {
@@ -3796,6 +3811,33 @@ export type ReopenTaskResponses = {
 };
 
 export type ReopenTaskResponse = ReopenTaskResponses[keyof ReopenTaskResponses];
+
+export type FollowUpTaskData = {
+  body: NewFollowUp;
+  path: {
+    task_id: string;
+  };
+  query?: never;
+  url: '/tasks/{task_id}/follow-ups';
+};
+
+export type FollowUpTaskErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type FollowUpTaskError = FollowUpTaskErrors[keyof FollowUpTaskErrors];
+
+export type FollowUpTaskResponses = {
+  /**
+   * The Task.
+   */
+  200: Task;
+};
+
+export type FollowUpTaskResponse = FollowUpTaskResponses[keyof FollowUpTaskResponses];
 
 export type ListDispatchItemsData = {
   body?: never;
