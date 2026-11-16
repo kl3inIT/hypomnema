@@ -189,6 +189,9 @@ type Offer struct {
 	// RepoToken is the host's token for this Dispatch. Orchestration never
 	// fills it: the node API does, from the vault, as it sends the offer.
 	RepoToken string `json:"repo_token,omitempty"`
+	// RepoSSHURL is where the node clones Repo from over SSH, when the owner
+	// registered it with one (issue #625).
+	RepoSSHURL string `json:"repo_ssh_url,omitempty"`
 	// ModelKey is the model gateway's key for this Dispatch, when the gateway
 	// serves its model. Orchestration never fills it: the node API does, as
 	// it sends the offer.
@@ -332,7 +335,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		return Offer{}, err
 	}
 
-	host, kind := run.RepoHost.String, ""
+	host, kind, sshURL := run.RepoHost.String, "", ""
 
 	if host != "" {
 		h, err := gitHostOf(ctx, q, host)
@@ -341,6 +344,10 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		}
 
 		kind = string(h.Kind)
+
+		if sshURL, err = sshURLOf(ctx, q, host, run.Repo.String); err != nil {
+			return Offer{}, err
+		}
 	}
 
 	api, err := modelAPI(ctx, q, conv.AccountRef, d.Model.String)
@@ -352,7 +359,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		ModelAPI:   api,
 		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Profile: task.Profile, Instruction: instruction,
 		Spec: spec,
-		Repo: run.Repo.String, RepoHost: host, RepoKind: kind,
+		Repo: run.Repo.String, RepoHost: host, RepoKind: kind, RepoSSHURL: sshURL,
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses), Skills: skills,

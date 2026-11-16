@@ -20,6 +20,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // Kind is a kind of git host.
@@ -301,4 +303,107 @@ func ParseRequest(ref string, kindOf func(host string) (Kind, bool)) (Request, b
 	}
 
 	return Request{Repo: Repo{Host: host, Path: path}, Number: n}, true
+}
+
+// ParseHostKeys reads an SSH host's public keys as the owner pastes them:
+// what `ssh-keyscan -p <port> <host>` prints ("<host> <type> <base64>" a
+// line, comments starting with #), or "<type> <base64>" lines. It returns
+// them as "<type> <base64>" lines, each checked to be a key ssh reads, and
+// refuses none at all: a host is trusted under keys the owner confirmed,
+// never on first use (issue #625).
+func ParseHostKeys(s string) (string, error) {
+	var keys []string
+
+	for line := range strings.SplitSeq(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		key, err := hostKeyOf(strings.Fields(line))
+		if err != nil {
+			return "", fmt.Errorf("%w: %q is not an SSH host key", ErrInvalid, line)
+		}
+
+		keys = append(keys, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))))
+	}
+
+	if len(keys) == 0 {
+		return "", fmt.Errorf("%w: an SSH address needs the host's key", ErrInvalid)
+	}
+
+	return strings.Join(keys, "\n"), nil
+}
+
+// hostKeyOf reads "<type> <base64>" from a line's fields, after ssh-keyscan's
+// host when the line has one: the node does not need it, as it trusts the keys
+// for this repository's address only.
+func hostKeyOf(fields []string) (ssh.PublicKey, error) {
+	var err error
+
+	for _, from := range []int{0, 1} {
+		if len(fields) < from+2 {
+			break
+		}
+
+		var key ssh.PublicKey
+		if key, _, _, _, err = ssh.ParseAuthorizedKey([]byte(fields[from] + " " + fields[from+1])); err == nil {
+			return key, nil
+		}
+	}
+
+	return nil, errors.New("not a key")
+}
+
+// HostKeyFingerprints are the SHA256 fingerprints of keys as ParseHostKeys
+// returns them, as ssh prints them, for the owner to check against the
+// host's own.
+func HostKeyFingerprints(keys string) []string {
+	var out []string
+
+	for line := range strings.SplitSeq(keys, "\n") {
+		if key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line)); err == nil {
+			out = append(out, key.Type()+" "+ssh.FingerprintSHA256(key))
+		}
+	}
+
+	return out
+}
+
+// userPattern is the user an SSH address logs in as: git on GitHub and GitLab.
+var userPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
+
+// ValidSSHURL reports whether s is an address git can clone a repository
+// from over SSH (issue #625): ssh://user@host[:port]/path, or git's
+// user@host:path form, as a host shows it under "Clone with SSH". The host
+// and the path follow Parse's rules, so nothing in it can be read by ssh or
+// git as an option.
+func ValidSSHURL(s string) bool {
+	var user, host, path string
+
+	if strings.Contains(s, "://") {
+		u, err := url.Parse(s)
+		if err != nil || u.Scheme != "ssh" || u.User == nil || u.RawQuery != "" || u.Fragment != "" {
+			return false
+		}
+
+		if _, hasPassword := u.User.Password(); hasPassword {
+			return false
+		}
+
+		user, host, path = u.User.Username(), u.Host, u.Path
+	} else {
+		var ok bool
+
+		if user, host, ok = strings.Cut(s, "@"); !ok {
+			return false
+		}
+
+		if host, path, ok = strings.Cut(host, ":"); !ok {
+			return false
+		}
+	}
+
+	return userPattern.MatchString(user) && ValidHost(host) &&
+		validPath(strings.TrimSuffix(strings.Trim(path, "/"), ".git"))
 }

@@ -121,3 +121,42 @@ func TestAnOffersRepositoryIsCheckedBeforeGitSeesIt(t *testing.T) {
 		assert.Error(t, err, name)
 	}
 }
+
+// Scenario: a repository registered with an SSH address (issue #625). The
+// mirror is cloned from that address, with git's ssh being the command the
+// environment names (the node's helper; here a script that writes down what
+// git asked of it), at the address's port. The host's token stays for its
+// CLI. An address that is not one never reaches git.
+func TestARepositoryWithAnSSHAddressIsClonedOverSSH(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	src, err := SourceOf("gitlab.company.example", "gitlab", "mobility/platform", "glpat-x")
+	require.NoError(t, err)
+
+	_, err = src.OverSSH("ssh://git@-oProxyCommand=x/mobility/platform.git", nil)
+	require.Error(t, err)
+
+	dir := t.TempDir()
+	asked := filepath.ToSlash(filepath.Join(dir, "asked"))
+
+	ssh, err := src.OverSSH("ssh://git@gitlab.company.example:222/mobility/platform.git", []string{
+		"GIT_SSH_COMMAND=printf '%s\\n' \"$@\" > '" + asked + "'; false", "GIT_SSH_VARIANT=ssh",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ssh://git@gitlab.company.example:222/mobility/platform.git", ssh.URL)
+	assert.Contains(t, ssh.Env, "GITLAB_TOKEN=glpat-x")
+	assert.Equal(t, "https://gitlab.company.example/mobility/platform.git", src.URL, "the source over HTTPS is unchanged")
+
+	m := Maker{Root: filepath.Join(dir, "node")}
+	require.Error(t, m.Ensure(t.Context(), ssh, "main", "tsk_1", filepath.Join(dir, "wt", "tsk_1")))
+
+	raw, err := os.ReadFile(filepath.FromSlash(asked))
+	require.NoError(t, err, "git ran the command it was given as ssh")
+	// Git may ask ssh to pass on its protocol version first (-o SendEnv=GIT_PROTOCOL).
+	assert.True(t, strings.HasSuffix(strings.ReplaceAll(string(raw), "\r\n", "\n"),
+		"-p\n222\ngit@gitlab.company.example\ngit-upload-pack '/mobility/platform.git'\n"), string(raw))
+}

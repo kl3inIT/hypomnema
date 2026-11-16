@@ -163,6 +163,7 @@ var policies = map[string]policy{
 	"ListRepos":               {},
 	"PutRepo":                 {scope: scopeOwner},
 	"DeleteRepo":              {scope: scopeOwner},
+	"GetGitSSHKey":            {scope: scopeOwner},
 	"ListAccounts":            {},
 	"AddTokenAccount":         {scope: scopeOwner},
 	"EnableAccount":           {scope: scopeOwner},

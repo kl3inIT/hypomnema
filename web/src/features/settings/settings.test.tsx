@@ -23,6 +23,10 @@ beforeEach(() => {
 })
 afterEach(() => vi.restoreAllMocks())
 
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8"
+
+const sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH0nodes hypomnema"
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -81,6 +85,7 @@ function server(
     if (call === "GET /hosts") return json({ data: hosts })
     if (call === "GET /repos") return json({ data: repos })
     if (call === "GET /integrations") return json({ data: services })
+    if (call === "GET /git/ssh-key") return json({ public_key: sshPublicKey })
     if (request.method === "GET" && path.endsWith("/actions")) {
       return json({ data: path.startsWith("/integrations/google/") ? actions : [] })
     }
@@ -242,6 +247,8 @@ function server(
         host: "gitlab.company.example",
         path: "team/app",
         base: body?.base,
+        ssh_url: body?.ssh_url,
+        ssh_host_key: body?.ssh_host_key,
         created_at: new Date().toISOString(),
       }
       repos = [...repos, added]
@@ -326,6 +333,19 @@ test("a product's card lists its hosts and says once how to connect them", async
     "href",
     expect.stringContaining("docs.gitlab.com"),
   )
+})
+
+// Scenario: a repository is cloned over SSH when its host's HTTPS cannot carry it (issue #625). Under the git
+// hosts, the Integrations page shows the public key the nodes clone with, whole and with a button that copies it.
+test("the SSH key the nodes clone with is shown to be added to the git host", async () => {
+  server({})
+  await open(IntegrationsScreen, "Integrations")
+
+  const key = within(await screen.findByTestId("ssh-key-card"))
+  expect(key.getByText("SSH key")).toBeInTheDocument()
+  expect(await key.findByText(sshPublicKey)).toBeInTheDocument()
+  expect(key.getByRole("button", { name: "Copy" })).toBeInTheDocument()
+  expect(key.getByText(/under SSH keys on the git host/)).toBeInTheDocument()
 })
 
 // Scenario: the owner gives gitlab.com a token. It is typed into a password field, sent once without the spaces
@@ -463,6 +483,54 @@ test("the owner registers a repository under a name and removes it", async () =>
       body: { repo: "https://gitlab.company.example/team/App.git", base: "develop" },
     },
     { call: "DELETE /repos/shop", body: undefined },
+  ])
+})
+
+// Scenario: the company's server cuts a large clone over HTTPS, so the owner gives the repository its SSH address
+// too (issue #625), with the host's key: a host is never trusted on first use. They are sent with the repository and
+// its row says it is cloned over SSH; an address that is not one, or one without the host's key, is not sent.
+test("the owner registers a repository with its SSH address", async () => {
+  const user = userEvent.setup()
+  const requests = server({})
+  await open(RepositoriesScreen, "Repositories")
+
+  await user.click(await screen.findByRole("button", { name: "Add repository" }))
+
+  const dialog = within(await screen.findByRole("dialog"))
+  await user.type(
+    dialog.getByLabelText("Repository"),
+    "https://gitlab.company.example/mobility/platform",
+  )
+  await user.type(dialog.getByLabelText("SSH address"), "https://gitlab.company.example/x.git")
+  await user.click(dialog.getByRole("button", { name: "Add" }))
+  expect(await dialog.findByText(/Clone with SSH/)).toBeInTheDocument()
+  expect(requests).toEqual([])
+
+  await user.clear(dialog.getByLabelText("SSH address"))
+  await user.type(
+    dialog.getByLabelText("SSH address"),
+    "ssh://git@167.254.68.172:222/mobility/platform.git",
+  )
+  await user.click(dialog.getByRole("button", { name: "Add" }))
+  expect(await dialog.findByText(/Give the SSH host's key/)).toBeInTheDocument()
+  expect(requests).toEqual([])
+
+  await user.type(dialog.getByLabelText("SSH host key"), hostKey)
+  await user.click(dialog.getByRole("button", { name: "Add" }))
+
+  const row = (await screen.findByText("platform")).closest<HTMLElement>("[data-slot=item]")!
+  expect(row).toHaveTextContent(
+    "cloned over SSH from ssh://git@167.254.68.172:222/mobility/platform.git",
+  )
+  expect(requests).toEqual([
+    {
+      call: "PUT /repos/platform",
+      body: {
+        repo: "https://gitlab.company.example/mobility/platform",
+        ssh_url: "ssh://git@167.254.68.172:222/mobility/platform.git",
+        ssh_host_key: hostKey,
+      },
+    },
   ])
 })
 

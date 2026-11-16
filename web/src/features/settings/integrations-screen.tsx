@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { ExternalLink, Plus } from "lucide-react"
+import { ExternalLink, KeyRound, Plus } from "lucide-react"
 import { useId, useState, type ReactNode } from "react"
 import { z } from "zod"
 
@@ -15,6 +15,12 @@ import type { GitHost, GitHostKind } from "@/api/generated/types.gen"
 import { GitHubIcon, GitLabIcon } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockContent,
+  CodeBlockCopyButton,
+} from "@/components/ui/code-block"
 import {
   Card,
   CardAction,
@@ -49,6 +55,7 @@ import {
   hostOf,
   kindName,
   tokenHelp,
+  useGitSSHKey,
   useHosts,
   useRefreshHosts,
   useServices,
@@ -105,6 +112,7 @@ export function IntegrationsScreen() {
               hosts={hosts.data.filter((host) => host.kind === product.kind)}
             />
           ))}
+        {hosts.data && <SSHKeyCard />}
       </section>
     </SettingsPage>
   )
@@ -240,6 +248,59 @@ function HostRow({ host }: { host: GitHost }) {
         </Badge>
       </ItemActions>
     </Item>
+  )
+}
+
+// SSHKeyCard shows the public half of the control plane's SSH key (issue #625), which nodes clone a repository
+// registered with an SSH address with: one line to copy into the git host's SSH keys, as Coder's SSH keys page shows
+// a user's key with a copy button (site/src/pages/UserSettingsPage/SSHKeysPage/SSHKeysPageView.tsx). The key is made
+// on the first read; its private half never leaves the server.
+function SSHKeyCard() {
+  const key = useGitSSHKey()
+
+  return (
+    <Card size="sm" data-testid="ssh-key-card">
+      <CardHeader>
+        <CardTitle>
+          <span className="flex items-center gap-3">
+            <KeyRound className="size-6 shrink-0" aria-hidden />
+            <span className="flex flex-col gap-0.5">
+              <span>SSH key</span>
+              <CardDescription>
+                For a repository cloned over SSH, set with its SSH address under Repositories.
+              </CardDescription>
+            </span>
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-2">
+          {key.isPending && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner />
+              Loading…
+            </p>
+          )}
+          <ErrorAlert error={key.error} />
+          {key.data && (
+            <>
+              <CodeBlock size="sm">
+                <CodeBlockActions>
+                  <CodeBlockCopyButton value={key.data.public_key} />
+                </CodeBlockActions>
+                <CodeBlockContent wrap>
+                  <span className="break-all">{key.data.public_key}</span>
+                </CodeBlockContent>
+              </CodeBlock>
+              <p className="text-xs text-muted-foreground">
+                Add it once to the account that clones, under SSH keys on the git host. Workers then
+                clone and push with it; the private key stays on the server.
+              </p>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
