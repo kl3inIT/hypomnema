@@ -431,7 +431,13 @@ type servedNames interface {
 type providerModels interface {
 	ListProviders(ctx context.Context) ([]orchestration.Provider, error)
 	AddProviderModels(ctx context.Context, name string, models []string) ([]string, error)
+	SetProviderModels(ctx context.Context, name string, models []string) (added, removed []string, err error)
 }
+
+// rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
+// authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639). The others only gain models: Anthropic's
+// list does not name every model it serves (OpenClaw, Hermes), and Codex's is read per account.
+var rosterRuntimes = map[string]bool{"antigravity": true}
 
 // vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
 // the start and then every hour, until ctx ends.
@@ -474,7 +480,17 @@ func addVendorModels(ctx context.Context, subs servedNames, providers providerMo
 			continue
 		}
 
-		added, err := providers.AddProviderModels(ctx, p.Name, names)
+		var (
+			added, removed []string
+			err            error
+		)
+
+		if rosterRuntimes[runtime] {
+			added, removed, err = providers.SetProviderModels(ctx, p.Name, names)
+		} else {
+			added, err = providers.AddProviderModels(ctx, p.Name, names)
+		}
+
 		if err != nil {
 			logger.WarnContext(ctx, "a provider was not given its vendor's models",
 				slog.String("event", "gateway.vendor_models_failed"), slog.String("provider", p.Name),
@@ -483,10 +499,10 @@ func addVendorModels(ctx context.Context, subs servedNames, providers providerMo
 			continue
 		}
 
-		if len(added) > 0 {
-			logger.InfoContext(ctx, "a provider was given models its vendor serves",
+		if len(added) > 0 || len(removed) > 0 {
+			logger.InfoContext(ctx, "a provider was given the models its vendor serves",
 				slog.String("event", "gateway.vendor_models_added"), slog.String("provider", p.Name),
-				slog.String("models", strings.Join(added, ",")))
+				slog.String("models", strings.Join(added, ",")), slog.String("removed", strings.Join(removed, ",")))
 		}
 	}
 }
