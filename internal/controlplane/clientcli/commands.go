@@ -288,8 +288,14 @@ var commands = []command{
 	},
 	{
 		name: "integrations actions", args: "<integration>:<label>", min: 1, max: 1,
-		summary: "what agents may do with an account, action by action (owner)", flags: jsonFlag,
-		run: integrationsActions,
+		summary: "what agents may do with an account, action by action, and whether the account can (owner)",
+		flags:   jsonFlag,
+		run:     integrationsActions,
+	},
+	{
+		name: "integrations check", args: "<integration>:<label>", min: 1, max: 1,
+		summary: "read again at the service what an account can really do, and list what it cannot (owner)",
+		flags:   jsonFlag, run: integrationsCheck,
 	},
 	{
 		name: "integrations actions set", args: "<integration>:<label> <action> allow|ask|never", min: 3, max: 3,
@@ -393,10 +399,16 @@ var commands = []command{
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
 			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
+			fs.String("tools", "", "only these Hypomnema tools, names or families (agent_browser_*) separated by "+
+				"commas; \"\" for every one")
+			fs.String("tools-off", "", "the Hypomnema tools the bot does not get, names or families separated by commas; "+
+				"\"\" for none")
 			fs.String("connections", "", "only these connections, integration:label separated by commas; \"\" for none")
 			fs.Bool("all-connections", false, "every connection the owner switched on for chats")
 			fs.String("workers", "", "only these worker profiles, separated by commas; \"\" for none")
 			fs.Bool("all-workers", false, "every worker profile")
+			fs.String("superset-dashboards", "", "only these dashboards of a Superset connection, label=number or "+
+				"slug separated by commas, such as prod=8,9; label= for none, label=all for every one")
 			fs.String("tool-display", "", "what its chats show of its tool calls: off (none), on (each tool's name) "+
 				"or full (arguments, output and time as well)")
 			jsonFlag(fs)

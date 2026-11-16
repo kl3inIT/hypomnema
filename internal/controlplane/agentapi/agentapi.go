@@ -24,7 +24,8 @@
 // (tools.go, issue #536), each given to the agent kinds its definition names:
 // the memory's (memory.go), show_artifact (artifacts.go), the gateway's, the
 // web's (issue #354, web.go) and generate_image (issue #492, images.go),
-// Superset's for an agent given a Superset Connection (superset.go), and
+// Superset's for an agent given a Superset Connection (superset.go), a Bot's
+// pi's own Routines (routines.go), and
 // the browser every agent shares (issues #212, #536), a worker's and a Bot's
 // pi's; and the tools of the phone a node holds (issue #417, device.go).
 //
@@ -50,7 +51,9 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/superset"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -69,7 +72,11 @@ type Store interface {
 	ShowArtifact(ctx context.Context, by orchestration.ArtifactMaker, in orchestration.ShowArtifact,
 	) (orchestration.Artifact, bool, error)
 	ArtifactMakerOfDispatch(ctx context.Context, dispatchID string) (orchestration.ArtifactMaker, error)
+	// ToolSwitchesOfDispatch are a worker's tool switches, its profile version's (issue #536, step 7).
+	ToolSwitchesOfDispatch(ctx context.Context, dispatchID string) (agenttool.ToolSwitches, error)
 	Memories() *memorystore.Store
+	// Routines keeps the Routines, for a Bot's pi's routines tool (issue #536).
+	Routines() *routinestore.Store
 }
 
 // Token is a Connection's access token and when it ends.
@@ -108,8 +115,11 @@ type Server struct {
 	exec *nodeExec
 	// relay sends Superset's tools' requests through the service proxy (issue #536); nil when the control
 	// plane gave none.
-	relay  Relay
-	logger *slog.Logger
+	relay Relay
+	// routines starts a Routine's run for a Bot's pi's routines tool (issue #536); nil when the control plane
+	// gave none.
+	routines Routines
+	logger   *slog.Logger
 }
 
 // New returns a Server.
@@ -153,9 +163,14 @@ type agent struct {
 	// chatID is the chat a pi's own token is bound to, and bot that pi's Bot's id.
 	chatID string
 	bot    string
+	// scope is the dashboards a Bot's agent may read of a Superset
+	// Connection (issue #562); nil for every other agent, which reads all.
+	scope func(label string) superset.Scope
 	// key names the agent's own tab in the shared browser: a worker's is its
 	// Dispatch's, so a new Dispatch starts on a new tab.
 	key string
+	// botSwitches are a Bot's pi's tool switches, its Bot's as read for this request (tools.go).
+	botSwitches agenttool.ToolSwitches
 }
 
 // who is whose the agent's gateway calls are.
@@ -189,12 +204,9 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: "dispatch " + session.DispatchID, dispatchID: session.DispatchID, key: "d-" + session.DispatchID,
 			// A Run a coordinator created was given only what the coordinator may use, and keeps it only while
-			// the coordinator may: the owner's switch is read now, not when the Run was made. The owner's own
-			// sign-in is never a worker's.
-			may: func(c orchestration.Connection) bool {
-				return !c.User() && slices.Contains(session.Uses, orchestration.Use(c.Integration, c.Label)) &&
-					(!session.ByCoordinator || c.Chats)
-			},
+			// the coordinator may: the owner's switch and its Bot's scopes are read now, not when the Run was
+			// made (AgentSession.May). The owner's own sign-in is never a worker's.
+			may: session.May,
 		}, nil
 	}
 
@@ -228,8 +240,9 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		if token.Routine != "" {
 			return agent{
 				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
-				key: "r-" + token.Routine,
-				may: func(c orchestration.Connection) bool { return !c.User() && bot.MayUse(c) },
+				key:   "r-" + token.Routine,
+				may:   func(c orchestration.Connection) bool { return !c.User() && bot.MayUse(c) },
+				scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 			}, nil
 		}
 
@@ -239,6 +252,8 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
 			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
+			botSwitches: bot.ToolSwitches(),
+			scope:       func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 		}, nil
 	default:
 		return agent{}, errNoCredential
@@ -296,11 +311,18 @@ func (s *Server) Caller(r *http.Request) (serviceproxy.Caller, error) {
 	}, nil
 }
 
-// May reports whether the request's agent may use a Connection.
+// May reports whether the request's agent may use a Connection through the
+// service proxy's tunnel, a request it writes itself. One its Bot reaches only
+// part of is refused (issue #562): only the Superset reads, which apply the
+// scope, use it.
 func (s *Server) May(ctx context.Context, r *http.Request, integration, label string) (bool, error) {
 	a, err := s.authenticate(r)
 	if err != nil {
 		return false, nil //nolint:nilerr // No credential, no Connection: the caller is refused, not failed.
+	}
+
+	if integration == serviceproxy.SupersetID && a.scopeOf(label).Limited {
+		return false, nil
 	}
 
 	allowed, err := s.allowed(ctx, a, integration)
@@ -347,6 +369,13 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 		conn := agenttool.Connection{Label: c.Label, Account: c.Account, User: c.User()}
 		if def.ClientEnv != "" {
 			conn.ClientID = c.AppID
+		}
+
+		// What the account cannot do at the service, so that the agent is told before it tries (issue #567).
+		for _, no := range serviceproxy.CannotOf(integration, c.Access) {
+			conn.Cannot = append(conn.Cannot, agenttool.Cannot{
+				Action: no.Action.ID, Service: no.Action.Service, Name: no.Action.Name, Reason: no.Reason,
+			})
 		}
 
 		out.Data = append(out.Data, conn)
@@ -456,7 +485,14 @@ func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	answer(w, agenttool.BrowserToolList{Data: append(out.Data, web...)})
+	listed, err := s.narrowed(r.Context(), a, append(out.Data, web...))
+	if err != nil {
+		s.fail(w, r, err)
+
+		return
+	}
+
+	answer(w, agenttool.BrowserToolList{Data: listed})
 }
 
 func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
@@ -472,6 +508,10 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 		asked.Tool == "" {
 		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
 
+		return
+	}
+
+	if s.switchedOff(w, r, a, asked.Tool) {
 		return
 	}
 

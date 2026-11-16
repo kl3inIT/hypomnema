@@ -61,6 +61,20 @@ func (g *gatewayAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if call.Tool == agenttool.ToolRoutines {
+			// The arguments as the server sent them, for the test to read.
+			text, err := json.Marshal(string(call.Arguments))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+
+				return
+			}
+
+			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":`+string(text)+`}],"isError":false}`)
+
+			return
+		}
+
 		if call.Tool == agenttool.ToolMemory {
 			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"Saved. memory: 20 of 2,200 characters (0%)"}],`+
 				`"isError":false}`)
@@ -117,22 +131,14 @@ func (m *mcpSession) text(id int, tool string, arguments map[string]any) string 
 	return content[0].Text
 }
 
-// Scenario: pi starts `hypomnema mcp` in a Bot's box (issue #492). It lists
-// the tools the control plane gives the pi's own token (the memory's, issue
-// #536, and the gateway's) and the phone's (issue #536, step 4), and passes a
-// memory's change and a search on as they are, and a phone's tap to the
-// phone's route, as a worker's server does. An image is saved under images/
-// in the Bot's folder, where pi works, and the answer gives the MEDIA line
-// that sends it into the chat; one saved outside the folder says it cannot
-// be sent.
-func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
-	api := &gatewayAPI{}
-	srv := httptest.NewServer(api)
-	t.Cleanup(srv.Close)
+// startMCP starts `hypomnema mcp` as pi does, logged in to the control plane
+// at url, in a folder of its own, which it returns: the Bot's.
+func startMCP(t *testing.T, url string) (*mcpSession, string) {
+	t.Helper()
 
 	home := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(home, "client.json"),
-		[]byte(`{"url":"`+srv.URL+`","token":"`+boxLogin+`"}`), 0o600))
+		[]byte(`{"url":"`+url+`","token":"`+boxLogin+`"}`), 0o600))
 
 	work := t.TempDir()
 	t.Chdir(work)
@@ -155,6 +161,75 @@ func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
 
 	m := &mcpSession{t: t, in: inW, out: bufio.NewScanner(outR)}
 	m.out.Buffer(make([]byte, 64<<10), 1<<20)
+
+	return m, work
+}
+
+// Scenario: pi sets a script Routine with the routines tool (issue #536,
+// step 5), naming a file it wrote in the Bot's folder. The tools server reads
+// that file there and sends its text with the call, as show_artifact's are
+// sent; a text the agent put in the arguments itself is never passed on. A
+// path out of the folder, or a file that is not there, is the agent's error
+// and nothing is sent.
+func TestABotsPiSetsARoutineWithAScriptOfItsFolder(t *testing.T) {
+	api := &gatewayAPI{}
+	srv := httptest.NewServer(api)
+	t.Cleanup(srv.Close)
+
+	m, work := startMCP(t, srv.URL)
+
+	script := "#!/bin/sh\necho copied\n"
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "routines"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(work, "routines", "copy.sh"), []byte(script), 0o600))
+
+	sent := m.text(1, agenttool.ToolRoutines, map[string]any{
+		"action": "set", "name": "sales-copy", "every_minutes": 60, "script": "routines/copy.sh",
+		"script_text": "rm -rf /",
+	})
+
+	var call agenttool.RoutineCall
+	require.NoError(t, json.Unmarshal([]byte(sent), &call))
+	require.NotNil(t, call.ScriptText)
+	assert.Equal(t, script, *call.ScriptText, "the file's text, not the agent's")
+	assert.Equal(t, "routines/copy.sh", *call.Script)
+
+	outside := filepath.Join(t.TempDir(), "x.sh")
+	require.NoError(t, os.WriteFile(outside, []byte("#!/bin/sh\n"), 0o600))
+
+	for _, name := range []string{"../x.sh", outside, "routines/missing.sh"} {
+		assert.Contains(t, m.text(2, agenttool.ToolRoutines, map[string]any{
+			"action": "set", "name": "sales-copy", "script": name,
+		}), "cannot be read", name)
+	}
+
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
+	calls := 0
+
+	for _, asked := range api.asked {
+		if strings.HasPrefix(asked, "POST "+agenttool.PathToolsCall) {
+			calls++
+		}
+	}
+
+	assert.Equal(t, 1, calls, "a script that cannot be read is not sent")
+}
+
+// Scenario: pi starts `hypomnema mcp` in a Bot's box (issue #492). It lists
+// the tools the control plane gives the pi's own token (the memory's, issue
+// #536, and the gateway's) and the phone's (issue #536, step 4), and passes a
+// memory's change and a search on as they are, and a phone's tap to the
+// phone's route, as a worker's server does. An image is saved under images/
+// in the Bot's folder, where pi works, and the answer gives the MEDIA line
+// that sends it into the chat; one saved outside the folder says it cannot
+// be sent.
+func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
+	api := &gatewayAPI{}
+	srv := httptest.NewServer(api)
+	t.Cleanup(srv.Close)
+
+	m, work := startMCP(t, srv.URL)
 
 	assert.Equal(t, "hypomnema", m.ask(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"})["serverInfo"].(map[string]any)["name"]) //nolint:forcetypeassert,lll // test
 

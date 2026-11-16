@@ -986,6 +986,25 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LarkChannelGroup" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/check:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    post:
+      operationId: CheckIntegrationConnection
+      summary: Read again what a Connection's account can really do; only the owner
+      description: >-
+        Reads at the service what the account holds (a Google account's grants, a Lark app's enabled scopes or a
+        person's sign-in's, a Superset account's roles) and keeps, for each action, whether the account can do it:
+        granted, missing or unknown. It is read too when the Connection is made or signed in again; nothing reads
+        it on a timer. A request for an action that is missing is refused before it is sent.
+      responses:
+        "200":
+          description: The Connection, with what it can do as just read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntegrationConnection" }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}/actions:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -2760,6 +2779,18 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ModelList" }
         default: { $ref: "#/components/responses/Error" }
+  /tools:
+    get:
+      operationId: ListTools
+      summary: >-
+        Hypomnema's tools by family, the names a profile's or a Bot's tools and tools_off take (issue #536)
+      responses:
+        "200":
+          description: The tools.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ToolFamilyList" }
+        default: { $ref: "#/components/responses/Error" }
   /browser:
     get:
       operationId: GetBrowser
@@ -4321,6 +4352,14 @@ components:
         dispatch_id: { type: string, description: The worker's Dispatch. }
         task_id: { type: string }
         run_id: { type: string }
+        chat_id:
+          type: string
+          description: >-
+            The chat the tab belongs to, whichever agent opened it: a worker's through its Run's chat, a Bot's pi's
+            from its own. Absent for a tab of no chat.
+        bot_id:
+          type: string
+          description: The Bot whose pi opened the tab, for a Bot's tab in a chat.
         url: { type: string }
         title: { type: string }
         views: { type: integer, description: How many views of it are open. }
@@ -4747,7 +4786,7 @@ components:
     IntegrationConnection:
       type: object
       description: One account of an Integration the owner signed in, under a label.
-      required: [integration, label, account, services, sign_in_required, chats, created_at, updated_at]
+      required: [integration, label, account, services, sign_in_required, chats, cannot, created_at, updated_at]
       properties:
         integration: { type: string }
         label: { type: string }
@@ -4795,8 +4834,27 @@ components:
           description: >-
             Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
             turns it on.
+        cannot:
+          type: array
+          items: { $ref: "#/components/schemas/ConnectionCannot" }
+          description: >-
+            The actions the account cannot do at the service, as last read, in the order they are listed. A
+            request for one is refused before it is sent. Empty when it can do all, or nothing was read.
+        access_checked_at:
+          type: string
+          format: date-time
+          description: When what the account can do was last read at the service; absent when never.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ConnectionCannot:
+      type: object
+      description: One action a Connection's account cannot do at the service, and why.
+      required: [action, service, name, reason]
+      properties:
+        action: { type: string, description: "The action's name in commands, such as superset.logs.read." }
+        service: { type: string }
+        name: { type: string }
+        reason: { type: string, description: "Why, such as role ServiceReader has no can_read on Log." }
     NewAccountConnection:
       type: object
       description: >-
@@ -4963,7 +5021,7 @@ components:
     ConnectionAction:
       type: object
       description: One thing an agent can do with a Connection, and the owner's answer to it.
-      required: [id, service, name, text, kind, policy, default]
+      required: [id, service, name, text, kind, policy, default, access]
       properties:
         id: { type: string, description: "The action's name in commands, such as gmail.send." }
         service: { type: string, description: "The part of the Integration it belongs to, such as Gmail." }
@@ -4974,6 +5032,17 @@ components:
           enum: [reads, changes, needs_care]
         policy: { $ref: "#/components/schemas/ActionPolicy" }
         default: { $ref: "#/components/schemas/ActionPolicy" }
+        access: { $ref: "#/components/schemas/ActionAccess" }
+        reason:
+          type: string
+          description: >-
+            Why, in a few words, such as "role ServiceReader has no can_read on Log". Empty when nothing was read.
+    ActionAccess:
+      type: string
+      description: >-
+        Whether the account can really do the action at the service, as last read: granted, missing (a request for
+        it is refused before it is sent, whatever the policy), or unknown (it could not be read; requests go on).
+      enum: [granted, missing, unknown]
     ConnectionActionList:
       type: object
       required: [data]
@@ -5855,8 +5924,8 @@ components:
     Bot:
       type: object
       required:
-        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, connections, workers,
-         tool_display, created_at, updated_at]
+        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
+         connections, workers, scopes, tool_display, created_at, updated_at]
       properties:
         id:
           type: string
@@ -5897,6 +5966,16 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that the Bot does not get.
+        tools:
+          type: array
+          items: { type: string }
+          description: >-
+            The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty,
+            every tool a Bot gets. A CLI's own tools are not switched here.
+        tools_off:
+          type: array
+          items: { type: string }
+          description: The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
         connections:
           $ref: "#/components/schemas/AllowList"
           description: >-
@@ -5905,6 +5984,13 @@ components:
         workers:
           $ref: "#/components/schemas/AllowList"
           description: The worker profiles the Bot may give work to.
+        scopes:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/ConnectionScope" }
+          description: >-
+            What the Bot may reach of a Connection it may use, keyed
+            integration:label: of a Superset Connection, the dashboards it may
+            read. A Connection not named here is reached whole.
         tool_display: { $ref: "#/components/schemas/ToolDisplay" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -5918,6 +6004,19 @@ components:
         per call with its tool's name; full, each call's arguments, output,
         error and time as well. The chat messages and the stream leave out
         what the level hides.
+    ConnectionScope:
+      type: object
+      description: >-
+        The part of a Connection a Bot may reach. For Superset, the dashboards
+        it may read, by number, and none when the list is empty; such a Bot
+        reads only through the dashboards, dashboard and chart reads, and is
+        refused the API relay for that Connection.
+      additionalProperties: false
+      required: [dashboards]
+      properties:
+        dashboards:
+          type: array
+          items: { type: integer, format: int64 }
     AllowList:
       type: object
       description: >-
@@ -6178,12 +6277,29 @@ components:
           type: array
           items: { type: string }
           description: The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
+        tools:
+          type: array
+          items: { type: string }
+          description: >-
+            The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out,
+            the Bot keeps those it has.
+        tools_off:
+          type: array
+          items: { type: string }
+          description: The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
         connections:
           $ref: "#/components/schemas/AllowList"
           description: The Connections the Bot may use; left out, the Bot keeps its list.
         workers:
           $ref: "#/components/schemas/AllowList"
           description: The worker profiles the Bot may give work to; left out, the Bot keeps its list.
+        scopes:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/ConnectionScope" }
+          description: >-
+            What the Bot may reach of each Connection, as a whole: a Connection
+            left out of the map is reached whole. Left out, the Bot keeps its
+            scopes.
         tool_display:
           $ref: "#/components/schemas/ToolDisplay"
           description: What the Bot's chats show of its tool calls; left out, the Bot keeps it, on for a new one.
@@ -6227,7 +6343,9 @@ components:
           description: Part of the one entry to replace or remove.
     Profile:
       type: object
-      required: [name, description, version_id, version, runtime, fallbacks, skills, skills_off, source, created_at]
+      required:
+        [name, description, version_id, version, runtime, fallbacks, skills, skills_off, tools, tools_off, source,
+         created_at]
       properties:
         name: { type: string }
         description:
@@ -6248,6 +6366,16 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that its workers do not get.
+        tools:
+          type: array
+          items: { type: string }
+          description: >-
+            The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty,
+            every tool a worker gets. A CLI's own tools are not switched here.
+        tools_off:
+          type: array
+          items: { type: string }
+          description: The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
         fallbacks:
           type: array
           items: { type: string }
@@ -6321,6 +6449,25 @@ components:
         provider: { type: string }
         name: { type: string }
         kind: { type: string }
+    ToolFamily:
+      type: object
+      required: [name, description, pattern, tools]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        pattern:
+          type: string
+          description: The entry of tools or tools_off that names every tool of the family.
+        tools:
+          type: array
+          items: { type: string }
+    ToolFamilyList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ToolFamily" }
     ModelList:
       type: object
       required: [data]

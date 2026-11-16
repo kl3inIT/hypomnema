@@ -108,13 +108,19 @@ func account(arg string) (integration, label string, err error) {
 	return integration, label, nil
 }
 
+// printAction prints one action: its id, the owner's answer, whether the account can do it at the service
+// (issue #567), and what it is; a missing one with why.
 func printAction(e *env, a openapi.ConnectionAction) {
 	note := ""
 	if a.Policy != a.Default {
 		note = "  (default " + string(a.Default) + ")"
 	}
 
-	e.printf("%-18s %-6s %s: %s%s\n", a.Id, a.Policy, a.Service, a.Name, note)
+	if a.Access == openapi.ActionAccessMissing && a.Reason != nil {
+		note += "  cannot: " + *a.Reason
+	}
+
+	e.printf("%-18s %-6s %-8s %s: %s%s\n", a.Id, a.Policy, a.Access, a.Service, a.Name, note)
 }
 
 // integrationsActions lists what agents may do with an account.
@@ -146,6 +152,40 @@ func integrationsActions(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 		for _, a := range resp.JSON200.Data {
 			printAction(e, a)
+		}
+	})
+}
+
+// integrationsCheck reads again what an account can really do at the service, then lists what it cannot (issue
+// #567).
+func integrationsCheck(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	integration, label, err := account(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	checked, err := e.api.CheckIntegrationConnectionWithResponse(ctx, integration, label)
+	if err != nil {
+		return fmt.Errorf("checking %s: %w", fs.Arg(0), err)
+	}
+
+	if checked.JSON200 == nil {
+		return apiError("checking "+fs.Arg(0), checked.StatusCode(), checked.JSONDefault)
+	}
+
+	return e.print(fs, checked.JSON200, func() {
+		conn := checked.JSON200
+		if len(conn.Cannot) == 0 {
+			e.printf("%s: the account can do every action that could be read\n", fs.Arg(0))
+
+			return
+		}
+
+		e.printf("%s: the account cannot do %d actions; a request for one is refused before it is sent\n",
+			fs.Arg(0), len(conn.Cannot))
+
+		for _, c := range conn.Cannot {
+			e.printf("%-18s %s: %s  cannot: %s\n", c.Action, c.Service, c.Name, c.Reason)
 		}
 	})
 }

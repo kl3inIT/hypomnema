@@ -6,6 +6,10 @@ description: >-
   metrics, and does whatever else the role allows. Use when the owner asks about something running on AWS: why a
   service failed, what its logs say, what is deployed, how a server is doing. Not for creating Hypomnema's own
   machines, which the control plane does itself.
+metadata:
+  hypomnema:
+    requires:
+      integration: aws
 ---
 
 # AWS through Hypomnema

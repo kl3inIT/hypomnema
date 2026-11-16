@@ -350,3 +350,129 @@ func TestABuiltinSkillNeverOverwritesTheOwners(t *testing.T) {
 	_, err = w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{namedSkill(t, "pdf", "3")}, SkillUpload)
 	require.ErrorIs(t, err, ErrInvalid, "a built-in revision says so in its source")
 }
+
+// requiringSkill is a skill whose frontmatter requires what an agent must
+// have, as the Integrations' guides do (issue #536).
+func requiringSkill(t *testing.T, name, kind, value string) skillpack.Skill {
+	t.Helper()
+
+	manifest := "---\nname: " + name + "\ndescription: d.\nmetadata:\n  hypomnema:\n    requires:\n      " + kind + ": " +
+		value + "\n---\nbody"
+	archive, err := skillpack.Skill{Files: []skillpack.File{{Path: "SKILL.md", Data: []byte(manifest)}}}.Archive()
+	require.NoError(t, err)
+
+	sk, err := skillpack.FromArchive(archive)
+	require.NoError(t, err)
+	require.Equal(t, []string{kind + ":" + value}, sk.Requires)
+
+	return sk
+}
+
+// Scenario: the guides of Superset and of the phone are built in, for
+// everyone, beside a skill that requires nothing (issue #536). A worker
+// whose Run was given no Connection gets only the latter; one whose Run was
+// given superset:vmaps gets the Superset guide too, and the phone's once a
+// node holds one. A Bot gets the Superset guide only while it may use the
+// Connection (switched on for chats, and on its list when it has one), read
+// each time pi starts.
+func TestAGuideGoesOnlyToAnAgentThatMayUseItsIntegration(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{
+		namedSkill(t, "pdf", "1"),
+		requiringSkill(t, "superset", skillpack.RequiresIntegration, "superset"),
+		requiringSkill(t, "android-device", skillpack.RequiresDevice, "android"),
+	}, "builtin:v1")
+	require.NoError(t, err)
+
+	got, err := w.s.GetSkill(ctx, "superset")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"integration:superset"}, got.Latest.Requires)
+
+	_, err = w.s.SaveServiceConnection(ctx, Connection{Integration: "superset", Label: "vmaps", Secret: "s"})
+	require.NoError(t, err)
+
+	names := func(skills []nodeproto.Skill) []string {
+		out := make([]string, len(skills))
+		for i, sk := range skills {
+			out[i] = sk.Name
+		}
+
+		return out
+	}
+
+	taskOf := func(run Run) string {
+		t.Helper()
+
+		tasks, err := w.s.CreateTasks(ctx, run.ID, []NewTask{{Ref: "a", Spec: "do a"}})
+		require.NoError(t, err)
+
+		return tasks[0].ID
+	}
+
+	offered := func(d Dispatch) []nodeproto.Skill {
+		t.Helper()
+
+		pending, err := w.s.NodePending(ctx, w.node.ID)
+		require.NoError(t, err)
+
+		for _, o := range pending.Offers {
+			if o.DispatchID == d.ID {
+				return o.Skills
+			}
+		}
+
+		require.Fail(t, "no offer of the dispatch")
+
+		return nil
+	}
+
+	assert.Equal(t, []string{"pdf"}, names(offered(w.dispatch(taskOf(w.run)))), "a Run given no Connection")
+
+	withSuperset := func() Run {
+		run, err := w.s.CreateRun(ctx, NewRun{
+			Objective: "read a chart", CreatedBy: "owner", Uses: []string{"superset:vmaps"},
+		})
+		require.NoError(t, err)
+
+		return run
+	}
+
+	skills := offered(w.dispatch(taskOf(withSuperset())))
+	assert.Equal(t, []string{"pdf", "superset"}, names(skills))
+	assert.Equal(t, []string{"integration:superset"}, skills[1].Requires, "a node of an older release is sent none")
+
+	phone, _, err := w.s.AddNode(ctx, "phone", 1)
+	require.NoError(t, err)
+	require.NoError(t, w.s.NodeHello(ctx, phone.ID, Hello{WorktreeRoot: "/srv/wt", Device: DeviceAndroid}))
+	assert.Equal(t, []string{"android-device", "pdf", "superset"}, names(offered(w.dispatch(taskOf(withSuperset())))))
+
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	require.NoError(t, err)
+
+	given, err := w.s.BotSkills(ctx, vmapBot.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"android-device", "pdf"}, names(given), "superset:vmaps is not on for chats")
+
+	_, err = w.s.SetConnectionChats(ctx, "superset", "vmaps", true)
+	require.NoError(t, err)
+
+	given, err = w.s.BotSkills(ctx, vmapBot.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"android-device", "pdf", "superset"}, names(given))
+
+	_, err = w.s.SaveServiceConnection(ctx, Connection{Integration: "google", Label: "work", Secret: "g"})
+	require.NoError(t, err)
+
+	narrow, err := w.s.PutBot(ctx, Bot{
+		Name: "narrow", Connections: AllowList{Limited: true, Names: []string{"google:work"}},
+	})
+	require.NoError(t, err)
+
+	given, err = w.s.BotSkills(ctx, narrow.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"android-device", "pdf"}, names(given), "superset:vmaps is not on its list")
+}

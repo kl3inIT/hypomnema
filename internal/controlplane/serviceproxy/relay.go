@@ -128,5 +128,7 @@ func (p *Proxy) Relay(ctx context.Context, c Call) (Answer, Action, error) {
 		return Answer{}, action, err
 	}
 
+	p.noticed(ctx, s, action, answer.Status, answer.Body)
+
 	return answer, action, nil
 }

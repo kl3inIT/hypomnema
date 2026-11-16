@@ -1,15 +1,15 @@
 -- name: InsertBot :exec
 -- A new Bot goes last in the order (issue #470).
-INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
-                  position, created_at, updated_at)
-VALUES (@id, @name, @provider, @model, @effort, @persona, @skills, @skills_off, @connections, @workers, @tool_display,
-        (SELECT coalesce(max(position) + 1, 0) FROM bots), @now, @now);
+INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, tools, tools_off, connections,
+                  workers, tool_display, position, connection_scopes, created_at, updated_at)
+VALUES (@id, @name, @provider, @model, @effort, @persona, @skills, @skills_off, @tools, @tools_off, @connections,
+        @workers, @tool_display, (SELECT coalesce(max(position) + 1, 0) FROM bots), @connection_scopes, @now, @now);
 
 -- name: UpdateBot :exec
 -- A Bot's settings; its name and memory stay.
 UPDATE bots SET provider = @provider, model = @model, effort = @effort, persona = @persona, skills = @skills,
-    skills_off = @skills_off, connections = @connections, workers = @workers, tool_display = @tool_display,
-    updated_at = @now
+    skills_off = @skills_off, tools = @tools, tools_off = @tools_off, connections = @connections, workers = @workers, tool_display = @tool_display,
+    connection_scopes = @connection_scopes, updated_at = @now
 WHERE id = @id;
 
 -- name: RenameBot :execrows
@@ -69,3 +69,8 @@ SELECT * FROM setup_changes WHERE kind = @kind AND name = @name ORDER BY created
 
 -- name: MarkSetupChangeUndone :exec
 UPDATE setup_changes SET undone_at = @now WHERE id = @id AND undone_at IS NULL;
+
+-- name: ListBotModels :many
+-- The model each Bot runs, for a check of the provider it names; no other column, so the check reads any schema
+-- since bots had a model.
+SELECT name, provider, model FROM bots ORDER BY created_at, name;

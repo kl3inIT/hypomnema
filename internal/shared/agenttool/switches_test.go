@@ -1,0 +1,73 @@
+package agenttool
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
+)
+
+func TestToolSwitchesNarrowAndOffWins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		switches ToolSwitches
+		tool     string
+		allows   bool
+	}{
+		{"no switch gives every tool", ToolSwitches{}, ToolMemory, true},
+		{"a family keeps its tools", ToolSwitches{On: []string{"agent_browser_*"}}, "agent_browser_open", true},
+		{"a family keeps no other", ToolSwitches{On: []string{"agent_browser_*"}}, ToolMemory, false},
+		{"a name keeps itself", ToolSwitches{On: []string{ToolMemory}}, ToolMemory, true},
+		{"off wins over on", ToolSwitches{On: []string{"web_*"}, Off: []string{ToolWebFetch}}, ToolWebFetch, false},
+		{"off by family", ToolSwitches{Off: []string{"superset_*"}}, ToolSupersetAPI, false},
+		{"off leaves the rest", ToolSwitches{Off: []string{"superset_*"}}, ToolWebSearch, true},
+		{"a star alone is every tool", ToolSwitches{Off: []string{"*"}}, ToolRoutines, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.allows, tt.switches.Allows(tt.tool))
+		})
+	}
+}
+
+func TestAToolSwitchNamesAToolOnce(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, CheckToolSwitches([]string{"agent_browser_*", ToolMemory}, []string{"agent_browser_eval"}))
+	require.NoError(t, CheckToolSwitches(nil, nil))
+
+	for _, bad := range [][2][]string{
+		{{"browser"}, nil},
+		{nil, {"mail_*"}},
+		{{"agent_*_open"}, nil},
+		{{ToolMemory}, {ToolMemory}},
+		{{""}, nil},
+	} {
+		err := CheckToolSwitches(bad[0], bad[1])
+		require.ErrorIs(t, err, ErrBadToolSwitch, bad)
+	}
+
+	err := CheckToolSwitches([]string{"browser"}, nil)
+	assert.ErrorContains(t, err, "agent_browser_*", "a refusal names the families")
+}
+
+// The phone's family is every tool the phone offers, so a switch of its
+// family or of one of its names is never refused as unknown.
+func TestThePhoneFamilyIsThePhonesTools(t *testing.T) {
+	t.Parallel()
+
+	var offered []string
+	for _, tool := range devicetool.Tools() {
+		offered = append(offered, tool.Name)
+	}
+
+	phone := ToolFamilies[len(ToolFamilies)-1]
+	require.Equal(t, "phone", phone.Name)
+	assert.ElementsMatch(t, offered, phone.Tools)
+}

@@ -124,7 +124,7 @@ func (s *Service) Connect(ctx context.Context, integration, label string, app Ap
 		}
 	}
 
-	return s.view(ctx, d, saved), nil
+	return s.checked(ctx, d, saved), nil
 }
 
 // checkApp checks a Connection's own app again and takes the app's name.
@@ -167,7 +167,7 @@ func (s *Service) checkApp(ctx context.Context, d Definition, label string) (Con
 
 	s.keepAppToken(d.ID, label, token)
 
-	return s.view(ctx, d, saved), nil
+	return s.checked(ctx, d, saved), nil
 }
 
 // appOf is a Connection's app with its secret opened.

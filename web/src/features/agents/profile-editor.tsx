@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select"
 import { AvatarName } from "@/components/agent-avatar"
 import { SkillsField } from "@/features/skills/skills-field"
+import { ToolsField } from "@/features/tools/tools-field"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
@@ -324,6 +325,14 @@ function Builder({
         off={draft.skillsOff}
         onChange={set}
         description="What this agent's workers get besides the built-in skills. A skill for everyone is on unless it is turned off here; a change makes a new revision."
+      />
+
+      <ToolsField
+        id="profile-tools"
+        tools={draft.tools}
+        off={draft.toolsOff}
+        onChange={set}
+        description="Hypomnema's tools this agent's workers may call, from their next task on. The CLI's own tools are not switched here."
       />
 
       <Fallbacks

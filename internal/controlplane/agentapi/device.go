@@ -39,7 +39,8 @@ func (s *Server) WithDevice(d Device) *Server {
 const maxDeviceCallBytes = 64 << 10
 
 func (s *Server) deviceTools(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.authenticate(r); err != nil {
+	a, err := s.authenticate(r)
+	if err != nil {
 		refuse(w, http.StatusUnauthorized, err.Error())
 
 		return
@@ -65,7 +66,14 @@ func (s *Server) deviceTools(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	answer(w, out)
+	listed, err := s.narrowed(r.Context(), a, out.Data)
+	if err != nil {
+		s.fail(w, r, err)
+
+		return
+	}
+
+	answer(w, agenttool.BrowserToolList{Data: listed})
 }
 
 func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +95,10 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 	if s.device == nil {
 		refuse(w, http.StatusServiceUnavailable, "this control plane has no phone")
 
+		return
+	}
+
+	if s.switchedOff(w, r, a, asked.Tool) {
 		return
 	}
 

@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -48,6 +49,56 @@ func (l AllowList) stored() sql.NullString {
 	}
 
 	return sql.NullString{String: strings.Join(l.Names, ","), Valid: true}
+}
+
+// ConnectionScope is what a Bot may reach of one Connection it may use (issue
+// #562): of a Superset Connection, the dashboards it may read, by number.
+// A Bot with no scope for a Connection reaches all the account does, as
+// OpenMausBot's per-bot connector scopes (packages/phone-protocol/src/
+// connector-scopes.ts L1-4: "Absent means every connected app"), and one
+// with a scope that names no dashboard reads none.
+type ConnectionScope struct {
+	Dashboards []int64 `json:"dashboards"`
+}
+
+// scopedIntegration is the Integration whose Connections a Bot's scope may
+// narrow: the dashboards of a Superset account.
+const scopedIntegration = "superset"
+
+// ScopeOf is the Bot's scope of a Connection, named integration:label;
+// limited is false when it has none.
+func (b Bot) ScopeOf(use string) (scope ConnectionScope, limited bool) {
+	scope, limited = b.Scopes[use]
+
+	return scope, limited
+}
+
+func scopesOf(stored sql.NullString) map[string]ConnectionScope {
+	if !stored.Valid || stored.String == "" {
+		return nil
+	}
+
+	var out map[string]ConnectionScope
+
+	// The column is this package's own and written only by storedScopes.
+	if err := json.Unmarshal([]byte(stored.String), &out); err != nil {
+		panic(fmt.Sprintf("reading a bot's scopes: %v", err))
+	}
+
+	return out
+}
+
+func storedScopes(scopes map[string]ConnectionScope) sql.NullString {
+	if len(scopes) == 0 {
+		return sql.NullString{}
+	}
+
+	raw, err := json.Marshal(scopes)
+	if err != nil {
+		panic(fmt.Sprintf("encoding a bot's scopes: %v", err))
+	}
+
+	return sql.NullString{String: string(raw), Valid: true}
 }
 
 // MayUse says whether the Bot may use a Connection the owner switched on for
@@ -110,6 +161,48 @@ func checkAllowLists(ctx context.Context, q *store.Queries, b Bot, had *Bot) err
 		return nil
 	}); err != nil {
 		return fmt.Errorf("workers: %w", err)
+	}
+
+	if err := checkScopes(ctx, q, b.Scopes, before.Scopes); err != nil {
+		return fmt.Errorf("scopes: %w", err)
+	}
+
+	return nil
+}
+
+// checkScopes checks a Bot's scopes: each of a Superset Connection that
+// exists, unless the Bot had it before, as checkNames keeps a name; each
+// dashboard a number, once.
+func checkScopes(ctx context.Context, q *store.Queries, scopes, before map[string]ConnectionScope) error {
+	for use, scope := range scopes {
+		integration, label, ok := SplitUse(use)
+		if !ok || integration != scopedIntegration {
+			return fmt.Errorf("%w: %q: a scope is of a superset connection, such as superset:prod", ErrInvalid, use)
+		}
+
+		seen := map[int64]bool{}
+
+		for _, d := range scope.Dashboards {
+			if d <= 0 || seen[d] {
+				return fmt.Errorf("%w: %s: dashboard %d is not a dashboard's number, or is named twice", ErrInvalid,
+					use, d)
+			}
+
+			seen[d] = true
+		}
+
+		if _, had := before[use]; had {
+			continue
+		}
+
+		_, err := q.GetConnection(ctx, store.GetConnectionParams{Integration: integration, Label: label})
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %s has no connection %s", ErrNotFound, integration, label)
+		}
+
+		if err != nil {
+			return fmt.Errorf("reading connection %s: %w", use, err)
+		}
 	}
 
 	return nil

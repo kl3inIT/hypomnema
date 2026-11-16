@@ -20,13 +20,21 @@ export function useBrowser() {
   })
 }
 
-// whose says whose a tab is, in a word and in a line.
-export function whose(tab: BrowserTab): { mark: string; line: string } {
+// whose says whose a tab is, in a word and in a line. A Bot's tab in a chat is called its Bot's (issue #557), by the
+// name botName gives its id.
+export function whose(
+  tab: BrowserTab,
+  botName: (id: string) => string = (id) => id,
+): { mark: string; line: string } {
   switch (tab.kind) {
     case "owner":
       return { mark: "you", line: "Your own tab. Sign in here: every agent shares the sign-in." }
-    case "coordinator":
-      return { mark: "pi", line: "The coordinator's tab." }
+    case "coordinator": {
+      if (!tab.bot_id) return { mark: "pi", line: "The coordinator's tab." }
+      const bot = botName(tab.bot_id)
+
+      return { mark: bot, line: `${bot}'s tab, in this chat.` }
+    }
     case "worker":
       return {
         mark: "worker",
@@ -35,6 +43,12 @@ export function whose(tab: BrowserTab): { mark: string; line: string } {
     default:
       return { mark: "token", line: "A tab opened with the owner's token." }
   }
+}
+
+// chatTabs are the tabs of the chats in a pane, whichever agent opened them (issue #557): those whose chat is one
+// of them. The owner's own tab is no chat's.
+export function chatTabs(tabs: BrowserTab[] | undefined, chats: ReadonlySet<string>) {
+  return (tabs ?? []).filter((t) => t.chat_id !== undefined && chats.has(t.chat_id))
 }
 
 // tabName is what a tab is called: its page's title, as in any browser (Orca's BrowserTab), or what it is while

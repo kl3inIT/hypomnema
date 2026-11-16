@@ -68,6 +68,10 @@ func connectionNote(c openapi.IntegrationConnection) string {
 		note += " needs sign-in"
 	}
 
+	if len(c.Cannot) > 0 {
+		note += fmt.Sprintf(" cannot %d", len(c.Cannot))
+	}
+
 	if c.Chats {
 		note += " chats"
 	}

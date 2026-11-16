@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { AddMachine } from "./add-machine"
 import { RemoveMachine } from "./machine-actions"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
+import { OnCard } from "./on-card"
 import { isVisible, useColumnVisibility, useStatusFilter } from "./column-visibility"
 import { ViewMenu } from "./columns-menu"
 import { columns, hiddenColumns, shownColumns, type Column } from "./machines-columns"
@@ -269,7 +270,7 @@ function Hinted({ column, children }: { column: Column; children: ReactNode }) {
 // Measurements is the card's rows: one a column, with its icon, its name and its value.
 function Measurements({ node }: { node: Node }) {
   return (
-    <>
+    <OnCard value>
       <dl
         className="grid gap-2.5 px-5 pt-3.5 pb-4 text-sm"
         style={{ gridTemplateColumns: "24px minmax(80px, max-content) minmax(0, 1fr)" }}
@@ -293,7 +294,7 @@ function Measurements({ node }: { node: Node }) {
           )
         })}
       </dl>
-    </>
+    </OnCard>
   )
 }
 

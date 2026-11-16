@@ -5,6 +5,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Profiles, providers and models (issue #42). Every token reads them, so a
@@ -136,7 +137,8 @@ func toProfile(p orchestration.Profile) openapi.Profile {
 		Provider: ptr(p.Provider),
 		Model:    ptr(p.Model), Effort: ptr(p.Effort), Instruction: ptr(p.Instruction), Source: p.Source,
 		Fallbacks: append([]string{}, p.Fallbacks...), Skills: append([]string{}, p.Skills...),
-		SkillsOff: append([]string{}, p.SkillsOff...), CreatedAt: p.CreatedAt,
+		SkillsOff: append([]string{}, p.SkillsOff...), Tools: append([]string{}, p.Tools...),
+		ToolsOff: append([]string{}, p.ToolsOff...), CreatedAt: p.CreatedAt,
 	}
 
 	if a := p.Availability; a != nil {
@@ -166,4 +168,17 @@ func toProvider(p orchestration.Provider) openapi.Provider {
 		Name: p.Name, Kind: openapi.ProviderKind(p.Kind), BaseUrl: ptr(p.BaseURL), ApiKeyRef: ptr(p.APIKeyRef),
 		Models: p.Models, Source: p.Source, UpdatedAt: p.UpdatedAt,
 	}
+}
+
+// ListTools returns Hypomnema's tools by family (issue #536): the names and
+// families a profile's or a Bot's tools and tools_off take.
+func (s *Server) ListTools(context.Context, openapi.ListToolsRequestObject) (openapi.ListToolsResponseObject, error) {
+	out := openapi.ListTools200JSONResponse{Data: make([]openapi.ToolFamily, 0, len(agenttool.ToolFamilies))}
+	for _, f := range agenttool.ToolFamilies {
+		out.Data = append(out.Data, openapi.ToolFamily{
+			Name: f.Name, Description: f.Description, Pattern: f.Pattern, Tools: append([]string{}, f.Tools...),
+		})
+	}
+
+	return out, nil
 }

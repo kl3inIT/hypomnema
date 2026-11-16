@@ -48,13 +48,19 @@ import (
 //
 // The owner's token, the coordinator token and a Routine's script have no
 // MCP and keep the commands.
+//
+// A Bot the owner limited to some dashboards of a Connection reads them
+// through the three reads and is refused superset_api for it (issue #562,
+// superset.Scope), as the commands are; superset_api is not listed when
+// every account it has is limited, as OpenClaw does not register a tool no
+// account may use (extensions/feishu/src/tool-registration.ts).
 
 // The tools' names.
 const (
-	toolSupersetDashboards = "superset_dashboards"
-	toolSupersetDashboard  = "superset_dashboard"
-	toolSupersetChartData  = "superset_chart_data"
-	toolSupersetAPI        = "superset_api"
+	toolSupersetDashboards = agenttool.ToolSupersetDashboards
+	toolSupersetDashboard  = agenttool.ToolSupersetDashboard
+	toolSupersetChartData  = agenttool.ToolSupersetChartData
+	toolSupersetAPI        = agenttool.ToolSupersetAPI
 )
 
 var supersetTools = []string{toolSupersetDashboards, toolSupersetDashboard, toolSupersetChartData, toolSupersetAPI}
@@ -129,7 +135,7 @@ func (s *Server) supersetToolList(ctx context.Context, a agent) []agenttool.Brow
 
 	dashboard := map[string]any{"type": "string", "description": "The dashboard's number or slug."}
 
-	return []agenttool.BrowserTool{
+	tools := []agenttool.BrowserTool{
 		{
 			Name: toolSupersetDashboards,
 			Description: "List the owner's Superset dashboards by title: each one's number, title, slug and when " +
@@ -173,6 +179,21 @@ func (s *Server) supersetToolList(ctx context.Context, a agent) []agenttool.Brow
 			}, "method", "path"),
 		},
 	}
+
+	if slices.ContainsFunc(labels, func(label string) bool { return !a.scopeOf(label).Limited }) {
+		return tools
+	}
+
+	return slices.DeleteFunc(tools, func(t agenttool.BrowserTool) bool { return t.Name == toolSupersetAPI })
+}
+
+// scopeOf is the dashboards the agent may read of a Connection.
+func (a agent) scopeOf(label string) superset.Scope {
+	if a.scope == nil {
+		return superset.Scope{}
+	}
+
+	return a.scope(label)
 }
 
 // supersetArgs are the arguments of every Superset tool.
@@ -231,7 +252,7 @@ func (s *Server) supersetCall(w http.ResponseWriter, r *http.Request, a agent, l
 		},
 	}
 
-	out, rows, err := s.runSuperset(r.Context(), rc, call.Tool, in)
+	out, rows, err := s.runSuperset(r.Context(), rc, a.scopeOf(label), call.Tool, in)
 
 	var refused *serviceproxy.RefusedError
 
@@ -242,7 +263,16 @@ func (s *Server) supersetCall(w http.ResponseWriter, r *http.Request, a agent, l
 
 		return
 	case errors.Is(err, orchestration.ErrInvalid) || errors.Is(err, orchestration.ErrNotFound) ||
-		errors.Is(err, orchestration.ErrConflict) || errors.Is(err, orchestration.ErrUnavailable):
+		errors.Is(err, orchestration.ErrConflict) || errors.Is(err, orchestration.ErrUnavailable) ||
+		errors.Is(err, orchestration.ErrForbidden):
+		if superset.OutOfScope(err) {
+			// A limited Bot asked for what its dashboards leave out (issue #562), on the commands' event.
+			s.logger.InfoContext(r.Context(), "a read of a Superset connection refused: out of scope",
+				slog.String("event", "superset.read"), slog.String("agent", a.name), slog.String("tool", call.Tool),
+				slog.String("connection", orchestration.Use(serviceproxy.SupersetID, label)),
+				slog.String("refused", "out of scope"))
+		}
+
 		answerTool(w, err.Error(), true)
 
 		return
@@ -284,13 +314,14 @@ type toolResult struct {
 
 // runSuperset runs one tool for a Connection and returns its text, and how
 // many rows or items it read, for the log.
-func (s *Server) runSuperset(ctx context.Context, rc serviceproxy.Call, tool string, in supersetArgs,
+func (s *Server) runSuperset(ctx context.Context, rc serviceproxy.Call, scope superset.Scope, tool string,
+	in supersetArgs,
 ) (toolResult, int, error) {
 	relay := s.supersetRelay(rc)
 
 	switch tool {
 	case toolSupersetDashboards:
-		found, err := superset.Dashboards(ctx, relay, in.Search)
+		found, err := scope.ListDashboards(ctx, relay, in.Search)
 		if err != nil {
 			return toolResult{}, 0, err
 		}
@@ -302,15 +333,19 @@ func (s *Server) runSuperset(ctx context.Context, rc serviceproxy.Call, tool str
 			return toolResult{text: "name the dashboard by its number or slug", isError: true}, 0, nil
 		}
 
-		d, err := superset.GetDashboard(ctx, relay, id)
+		d, err := scope.Dashboard(ctx, relay, id)
 		if err != nil {
 			return toolResult{}, 0, err
 		}
 
 		return jsonResult(dashboardAnswer(d)), len(d.Charts), nil
 	case toolSupersetChartData:
-		return s.chartData(ctx, relay, in)
+		return s.chartData(ctx, relay, scope, in)
 	default:
+		if err := scope.RelayRefused(orchestration.Use(rc.Integration, rc.Label)); err != nil {
+			return toolResult{}, 0, err
+		}
+
 		return s.relayRequest(ctx, rc, in)
 	}
 }
@@ -330,7 +365,8 @@ func (s *Server) supersetRelay(rc serviceproxy.Call) superset.Relay {
 	}
 }
 
-func (s *Server) chartData(ctx context.Context, relay superset.Relay, in supersetArgs) (toolResult, int, error) {
+func (s *Server) chartData(ctx context.Context, relay superset.Relay, scope superset.Scope, in supersetArgs,
+) (toolResult, int, error) {
 	dashboard, chart := idOf(in.Dashboard), idOf(in.Chart)
 	if n, _ := strconv.ParseInt(chart, 10, 64); dashboard == "" || n <= 0 {
 		return toolResult{text: "name the dashboard by its number or slug and the chart by its number", isError: true},
@@ -341,7 +377,7 @@ func (s *Server) chartData(ctx context.Context, relay superset.Relay, in superse
 		return toolResult{text: "format is json or csv", isError: true}, 0, nil
 	}
 
-	data, err := superset.GetChartData(ctx, relay, dashboard, chart, time.Now().UTC())
+	data, err := scope.ChartData(ctx, relay, dashboard, chart, time.Now().UTC())
 	if err != nil {
 		return toolResult{}, 0, err
 	}

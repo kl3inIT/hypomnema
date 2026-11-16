@@ -120,6 +120,9 @@ export type Draft = {
   // skills and skillsOff are the skills the agent adds and the ones for everyone it turns off (issue #21).
   skills: string[]
   skillsOff: string[]
+  // tools and toolsOff are the Hypomnema tools the agent keeps and turns off (issue #536).
+  tools: string[]
+  toolsOff: string[]
 }
 
 // As many backups as OpenMausBot keeps for one bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
@@ -135,6 +138,8 @@ export const emptyDraft: Draft = {
   fallbacks: [],
   skills: [],
   skillsOff: [],
+  tools: [],
+  toolsOff: [],
 }
 
 export function draftOf(profile: Profile): Draft {
@@ -148,6 +153,8 @@ export function draftOf(profile: Profile): Draft {
     fallbacks: profile.fallbacks,
     skills: profile.skills,
     skillsOff: profile.skills_off,
+    tools: profile.tools,
+    toolsOff: profile.tools_off,
   }
 }
 
@@ -189,7 +196,9 @@ export function sameDraft(a: Draft, b: Draft) {
     a.instruction === b.instruction &&
     a.fallbacks.join() === b.fallbacks.join() &&
     a.skills.join() === b.skills.join() &&
-    a.skillsOff.join() === b.skillsOff.join()
+    a.skillsOff.join() === b.skillsOff.join() &&
+    a.tools.join() === b.tools.join() &&
+    a.toolsOff.join() === b.toolsOff.join()
   )
 }
 
@@ -251,6 +260,8 @@ export function toYaml(draft: Draft, models: Model[]) {
   if (draft.fallbacks.length > 0) out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
   if (draft.skills.length > 0) out += `skills: [${draft.skills.map(scalar).join(", ")}]\n`
   if (draft.skillsOff.length > 0) out += `skills_off: [${draft.skillsOff.map(scalar).join(", ")}]\n`
+  if (draft.tools.length > 0) out += `tools: [${draft.tools.map(scalar).join(", ")}]\n`
+  if (draft.toolsOff.length > 0) out += `tools_off: [${draft.toolsOff.map(scalar).join(", ")}]\n`
 
   return out
 }

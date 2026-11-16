@@ -166,7 +166,7 @@ func (s *Service) ConnectAccount(ctx context.Context, integration, label string,
 	s.accounts[accountKey(d.ID, label)] = session
 	s.mu.Unlock()
 
-	return s.view(ctx, d, saved), nil
+	return s.checked(ctx, d, saved), nil
 }
 
 // signInAccount signs a local account in at the service. Its errors hold the

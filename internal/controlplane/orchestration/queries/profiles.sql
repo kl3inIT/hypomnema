@@ -44,9 +44,9 @@ UPDATE profiles SET updated_at = @now, deleted_at = @now WHERE name = @name;
 
 -- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
-                              instruction, fallbacks, skills, skills_off, created_at)
+                              instruction, fallbacks, skills, skills_off, tools, tools_off, created_at)
 VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @provider, @model, @effort, @instruction,
-        @fallbacks, @skills, @skills_off, @now);
+        @fallbacks, @skills, @skills_off, @tools, @tools_off, @now);
 
 -- name: GetProfileVersion :one
 SELECT * FROM profile_versions WHERE id = @id;
@@ -96,3 +96,8 @@ WHERE t.profile = @profile
 -- name: BotsNamingWorker :many
 -- The Bots whose workers list names a profile.
 SELECT name FROM bots WHERE workers IS NOT NULL AND ',' || workers || ',' LIKE '%,' || @profile || ',%' ORDER BY name;
+
+-- name: ToolSwitchesOfDispatch :one
+-- The tool switches of the profile version a Dispatch runs with (issue #536); none for one made before profiles.
+SELECT v.tools, v.tools_off FROM dispatches d JOIN profile_versions v ON v.id = d.profile_version_id
+WHERE d.id = @dispatch_id;

@@ -1,5 +1,5 @@
 import { modelName } from "@/lib/model-name"
-import type { AllowList, Bot, BotSettings, Model } from "@/api/generated/types.gen"
+import type { AllowList, Bot, BotSettings, ConnectionScope, Model } from "@/api/generated/types.gen"
 import { modelKey, splitModel } from "@/features/agents/profiles-state"
 
 // What the Bots pages say about a Bot, apart from how they draw it.
@@ -51,7 +51,8 @@ export function memoryLine(bot: Pick<Bot, "memory" | "memory_limit">) {
 }
 
 // A Draft is a Bot as its form holds it. model is "provider/name", a bare name, or "" for the default (Claude Opus 5.5).
-// skills and skillsOff are the skills the Bot adds and the ones for everyone it turns off (issue #21).
+// skills and skillsOff are the skills the Bot adds and the ones for everyone it turns off (issue #21); tools and
+// toolsOff the Hypomnema tools it keeps and turns off (issue #536).
 export type Draft = {
   name: string
   model: string
@@ -59,6 +60,8 @@ export type Draft = {
   persona: string
   skills: string[]
   skillsOff: string[]
+  tools: string[]
+  toolsOff: string[]
 }
 
 export const emptyDraft: Draft = {
@@ -68,6 +71,8 @@ export const emptyDraft: Draft = {
   persona: "",
   skills: [],
   skillsOff: [],
+  tools: [],
+  toolsOff: [],
 }
 
 export function draftOf(bot: Bot): Draft {
@@ -78,6 +83,8 @@ export function draftOf(bot: Bot): Draft {
     persona: bot.persona,
     skills: bot.skills,
     skillsOff: bot.skills_off,
+    tools: bot.tools,
+    toolsOff: bot.tools_off,
   }
 }
 
@@ -88,12 +95,15 @@ export function sameDraft(a: Draft, b: Draft) {
     a.effort === b.effort &&
     a.persona === b.persona &&
     a.skills.join() === b.skills.join() &&
-    a.skillsOff.join() === b.skillsOff.join()
+    a.skillsOff.join() === b.skillsOff.join() &&
+    a.tools.join() === b.tools.join() &&
+    a.toolsOff.join() === b.toolsOff.join()
   )
 }
 
 // settingsOf is the draft as PUT /bots/{bot_id} and POST /bots take it. The server replaces what it is given, so what the draft
-// leaves empty is left out and falls back to the default model; the skills are always given, the form holds them.
+// leaves empty is left out and falls back to the default model; the skills and tools are always given, the form holds
+// them.
 export function settingsOf(draft: Draft, models: Model[]): BotSettings {
   const model = draft.model ? splitModel(draft.model, models) : { provider: "", name: "" }
 
@@ -104,6 +114,8 @@ export function settingsOf(draft: Draft, models: Model[]): BotSettings {
     persona: draft.persona.trim(),
     skills: draft.skills,
     skills_off: draft.skillsOff,
+    tools: draft.tools,
+    tools_off: draft.toolsOff,
   }
 }
 
@@ -132,6 +144,28 @@ export function keptSettings(bot: Bot): BotSettings {
     ...(bot.effort && { effort: bot.effort }),
     persona: bot.persona,
   }
+}
+
+// scopeList is a Bot's scope of a Connection as the access card's list (issue #562): not limited without a scope,
+// else its dashboards by number.
+export function scopeList(scopes: Record<string, ConnectionScope>, use: string): AllowList {
+  const scope = scopes[use]
+  if (!scope) return { limited: false, names: [] }
+
+  return { limited: true, names: scope.dashboards.map(String) }
+}
+
+// withScope is a Bot's scopes with one Connection's as the card sets it: none when not limited, else the
+// dashboards switched on. The others stay as they are, since the PUT replaces the scopes whole.
+export function withScope(
+  scopes: Record<string, ConnectionScope>,
+  use: string,
+  list: AllowList,
+): Record<string, ConnectionScope> {
+  const { [use]: _was, ...others } = scopes
+  if (!list.limited) return others
+
+  return { ...others, [use]: { dashboards: list.names.map(Number) } }
 }
 
 // allowed is what a Bot's list names that is not among the items shown: kept on the list, though gone since, as

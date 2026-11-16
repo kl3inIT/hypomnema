@@ -46,6 +46,8 @@ type larkAccounts struct {
 	access    map[string]bool
 	revoked   []string
 	scope     string
+	// granted is the scope string a token is issued with; empty is offline_access alone.
+	granted string
 }
 
 func newLarkAccounts(t *testing.T) *larkAccounts {
@@ -140,8 +142,13 @@ func (l *larkAccounts) issue() map[string]any {
 	access := fmt.Sprintf("u-%d", l.issued)
 	l.access[access] = true
 
+	scope := "offline_access"
+	if l.granted != "" {
+		scope = l.granted
+	}
+
 	answer := map[string]any{
-		"code": 0, "access_token": access, "token_type": "Bearer", "expires_in": 7200, "scope": "offline_access",
+		"code": 0, "access_token": access, "token_type": "Bearer", "expires_in": 7200, "scope": scope,
 	}
 
 	if !l.noRefresh {

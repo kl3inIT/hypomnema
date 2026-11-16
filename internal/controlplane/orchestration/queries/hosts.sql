@@ -46,6 +46,10 @@ SET account = excluded.account, secret = excluded.secret, services = excluded.se
 UPDATE connections SET sign_in_failed = @failed, updated_at = @now
 WHERE integration = @integration AND label = @label AND sign_in_failed <> @failed;
 
+-- name: SetConnectionAccess :execrows
+-- What the account can do, action by action (issue #567). It is not a change of the Connection: updated_at stays.
+UPDATE connections SET access = @access WHERE integration = @integration AND label = @label;
+
 -- name: SetConnectionChats :execrows
 UPDATE connections SET chats = @chats, updated_at = @now WHERE integration = @integration AND label = @label;
 

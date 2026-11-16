@@ -697,6 +697,14 @@ export type BrowserTab = {
   dispatch_id?: string;
   task_id?: string;
   run_id?: string;
+  /**
+   * The chat the tab belongs to, whichever agent opened it: a worker's through its Run's chat, a Bot's pi's from its own. Absent for a tab of no chat.
+   */
+  chat_id?: string;
+  /**
+   * The Bot whose pi opened the tab, for a Bot's tab in a chat.
+   */
+  bot_id?: string;
   url: string;
   title: string;
   /**
@@ -1141,8 +1149,32 @@ export type IntegrationConnection = {
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
+  /**
+   * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
+   */
+  cannot: Array<ConnectionCannot>;
+  /**
+   * When what the account can do was last read at the service; absent when never.
+   */
+  access_checked_at?: string;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * One action a Connection's account cannot do at the service, and why.
+ */
+export type ConnectionCannot = {
+  /**
+   * The action's name in commands, such as superset.logs.read.
+   */
+  action: string;
+  service: string;
+  name: string;
+  /**
+   * Why, such as role ServiceReader has no can_read on Log.
+   */
+  reason: string;
 };
 
 /**
@@ -1307,7 +1339,17 @@ export type ConnectionAction = {
   kind: 'reads' | 'changes' | 'needs_care';
   policy: ActionPolicy;
   default: ActionPolicy;
+  access: ActionAccess;
+  /**
+   * Why, in a few words, such as "role ServiceReader has no can_read on Log". Empty when nothing was read.
+   */
+  reason?: string;
 };
+
+/**
+ * Whether the account can really do the action at the service, as last read: granted, missing (a request for it is refused before it is sent, whatever the policy), or unknown (it could not be read; requests go on).
+ */
+export type ActionAccess = 'granted' | 'missing' | 'unknown';
 
 export type ConnectionActionList = {
   data: Array<ConnectionAction>;
@@ -2077,8 +2119,22 @@ export type Bot = {
    * The skills given to everyone that the Bot does not get.
    */
   skills_off: Array<string>;
+  /**
+   * The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+   */
+  tools: Array<string>;
+  /**
+   * The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
+   */
+  tools_off: Array<string>;
   connections: AllowList;
   workers: AllowList;
+  /**
+   * What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
+   */
+  scopes: {
+    [key: string]: ConnectionScope;
+  };
   tool_display: ToolDisplay;
   created_at: string;
   updated_at: string;
@@ -2088,6 +2144,13 @@ export type Bot = {
  * What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
  */
 export type ToolDisplay = 'off' | 'on' | 'full';
+
+/**
+ * The part of a Connection a Bot may reach. For Superset, the dashboards it may read, by number, and none when the list is empty; such a Bot reads only through the dashboards, dashboard and chart reads, and is refused the API relay for that Connection.
+ */
+export type ConnectionScope = {
+  dashboards: Array<number>;
+};
 
 /**
  * What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
@@ -2372,8 +2435,22 @@ export type BotSettings = {
    * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
    */
   skills_off?: Array<string>;
+  /**
+   * The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+   */
+  tools?: Array<string>;
+  /**
+   * The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
+   */
+  tools_off?: Array<string>;
   connections?: AllowList;
   workers?: AllowList;
+  /**
+   * What the Bot may reach of each Connection, as a whole: a Connection left out of the map is reached whole. Left out, the Bot keeps its scopes.
+   */
+  scopes?: {
+    [key: string]: ConnectionScope;
+  };
   tool_display?: ToolDisplay;
 };
 
@@ -2437,6 +2514,14 @@ export type Profile = {
    */
   skills_off: Array<string>;
   /**
+   * The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+   */
+  tools: Array<string>;
+  /**
+   * The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
+   */
+  tools_off: Array<string>;
+  /**
    * The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
    */
   fallbacks: Array<string>;
@@ -2481,6 +2566,20 @@ export type Model = {
   provider: string;
   name: string;
   kind: string;
+};
+
+export type ToolFamily = {
+  name: string;
+  description: string;
+  /**
+   * The entry of tools or tools_off that names every tool of the family.
+   */
+  pattern: string;
+  tools: Array<string>;
+};
+
+export type ToolFamilyList = {
+  data: Array<ToolFamily>;
 };
 
 export type ModelList = {
@@ -4745,6 +4844,34 @@ export type SetLarkChannelGroupResponses = {
 };
 
 export type SetLarkChannelGroupResponse = SetLarkChannelGroupResponses[keyof SetLarkChannelGroupResponses];
+
+export type CheckIntegrationConnectionData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/check';
+};
+
+export type CheckIntegrationConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CheckIntegrationConnectionError = CheckIntegrationConnectionErrors[keyof CheckIntegrationConnectionErrors];
+
+export type CheckIntegrationConnectionResponses = {
+  /**
+   * The Connection, with what it can do as just read.
+   */
+  200: IntegrationConnection;
+};
+
+export type CheckIntegrationConnectionResponse = CheckIntegrationConnectionResponses[keyof CheckIntegrationConnectionResponses];
 
 export type ListConnectionActionsData = {
   body?: never;
@@ -7481,6 +7608,31 @@ export type ListModelsResponses = {
 };
 
 export type ListModelsResponse = ListModelsResponses[keyof ListModelsResponses];
+
+export type ListToolsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/tools';
+};
+
+export type ListToolsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListToolsError = ListToolsErrors[keyof ListToolsErrors];
+
+export type ListToolsResponses = {
+  /**
+   * The tools.
+   */
+  200: ToolFamilyList;
+};
+
+export type ListToolsResponse = ListToolsResponses[keyof ListToolsResponses];
 
 export type GetBrowserData = {
   body?: never;

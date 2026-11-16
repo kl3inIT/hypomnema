@@ -28,16 +28,37 @@ const tabs = [
     dispatch_id: "dsp_1",
     task_id: "tsk_1",
     run_id: "run_1",
+    chat_id: "cht_1",
     url: "https://example.com/",
     title: "Example Domain",
     views: 0,
   },
-  // A worker of another chat's Run: not offered in this chat.
+  // The chat's Bot's own tab (issue #557).
+  {
+    id: "b-cht_1",
+    kind: "coordinator",
+    chat_id: "cht_1",
+    bot_id: "coordinator",
+    url: "https://maps.example/search",
+    title: "Maps search",
+    views: 0,
+  },
+  // A worker of another chat's Run, and another chat's Bot's tab: not offered in this chat.
+  {
+    id: "b-cht_9",
+    kind: "coordinator",
+    chat_id: "cht_9",
+    bot_id: "coordinator",
+    url: "https://elsewhere.example/",
+    title: "Another chat's Bot's page",
+    views: 0,
+  },
   {
     id: "d-dsp_9",
     kind: "worker",
     dispatch_id: "dsp_9",
     run_id: "run_9",
+    chat_id: "cht_9",
     url: "https://other.example/",
     title: "Another chat's page",
     views: 0,
@@ -100,13 +121,8 @@ async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boo
         }
 
         return json({ installed: true, running: true, held: options.held ?? false, tabs })
-      case "GET /runs":
-        return json({
-          data: [
-            { id: "run_1", chat_id: "cht_1" },
-            { id: "run_9", chat_id: "cht_9" },
-          ],
-        })
+      case "GET /bots":
+        return json({ data: [{ id: "coordinator", name: "Atlas", main: true }] })
       case "GET /chats":
         return json({ data: [chat] })
       case "GET /chats/cht_1":
@@ -148,7 +164,7 @@ async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boo
     })
     ws.send(JSON.stringify({ type: "control", controller: "agent" }))
     ws.send(JSON.stringify({ type: "viewport", width: 1280, height: 720 }))
-    ws.send(JSON.stringify({ type: "url", url: tabs[asked.at(-1) === "owner" ? 0 : 1].url }))
+    ws.send(JSON.stringify({ type: "url", url: tabs.find((t) => t.id === asked.at(-1))!.url }))
     ws.send(picture)
   })
 
@@ -183,13 +199,18 @@ test("the owner opens the browser beside a chat, takes control, and uses the pag
   // The chat's own tab is the top of the page, with its Bot's avatar: there is no header above it.
   await expect(page.getByRole("tab", { name: "health page" })).toHaveAttribute(
     "title",
-    "Chat with coordinator",
+    "Chat with Atlas",
   )
   await expect(page.getByRole("banner")).toHaveCount(0)
 
-  // Only this chat's workers are offered.
+  // Only this chat's tabs are offered, its Bot's and its worker's.
   await page.getByRole("button", { name: "Open new" }).click()
-  await expect(page.getByRole("menuitem")).toHaveText(["New chat", "My browser", "Example Domain"])
+  await expect(page.getByRole("menuitem")).toHaveText([
+    "New chat",
+    "My browser",
+    "Example Domainworker",
+    "Maps searchAtlas",
+  ])
   await shot(page, "pane-open-new")
   await page.getByRole("menuitem", { name: "My browser" }).click()
 
@@ -294,6 +315,36 @@ test("a worker's browser tab is watched beside its chat, and a tab that closed s
     "aria-selected",
     "true",
   )
+})
+
+// Scenario: the chat's Bot browses (issue #557). Its tab is offered in its chat's pane as the Bot's, and opens in
+// the viewer like any other, where the owner can take control.
+test("a Bot's browser tab is watched beside its chat, as the Bot's", async ({ page }) => {
+  const server = await fakeServer(page)
+  await page.goto("/chats/cht_1")
+
+  await open(page, "Maps search")
+  await expect.poll(() => server.asked).toEqual(["b-cht_1"])
+  await painted(page)
+  await expect(address(page)).toHaveValue("https://maps.example/search")
+  const shown = page.getByRole("tab", { name: /Maps search/ })
+  await expect(shown).toHaveAttribute("aria-selected", "true")
+  await expect(shown).toHaveAttribute("title", "Atlas's tab, in this chat.")
+  await expect(shown).toContainText("Atlas")
+  await shot(page, "pane-browser-bot")
+
+  await page.getByRole("button", { name: /Take control/ }).click()
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  expect(server.of("takeControl")).toHaveLength(1)
+
+  // Its worker's tab opens beside it in the same pane.
+  await open(page, "Example Domain")
+  await expect(page.getByRole("tab", { name: /Example Domain/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  await expect(page.getByRole("menu")).toHaveCount(0)
+  await shot(page, "pane-browser-bot-and-worker")
 })
 
 // A connection that drops is tried again by itself, with a new ticket.

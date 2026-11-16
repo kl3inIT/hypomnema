@@ -88,7 +88,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -105,7 +105,7 @@ flowchart TB
     PI -- "MCP stdio" --> MCP
     MCP -- "agent API, pi's token" --> CP["control plane: agent API"]
     PI --> GW
-    MCP -. "show_artifact: the files of the Bot's folder" .-> CP
+    MCP -. "show_artifact, routines: the files of the Bot's folder" .-> CP
     CP -. "artifact card" .-> CHAT
 ```
 
@@ -374,8 +374,7 @@ sequenceDiagram
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
   engine on the control plane, an agent's calls to it, the tools in a worker's and a Bot's pi's hands, and the
   control plane's side of the owner watching a tab and taking control, and its tabs in a chat's pane in the web
-  client. Not built: a node holding the browser instead; a Bot's own tab in its chat's pane (the pane lists its
-  Runs' workers' tabs; the Bot's is in `hypomnema browser status`).
+  client. Not built: a node holding the browser instead.
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -460,11 +459,14 @@ sequenceDiagram
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
     say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
-    Run), and its address and title as Chrome's own DevTools port lists them.
+    Run), the chat it belongs to (`chat_id`, issue #557), and its address and title as Chrome's own DevTools port lists them. A tab's
+    chat is named whichever agent opened it: a worker's is its Run's chat, when the Run has one; a Bot's pi's
+    (`b-<chat>`) is that chat, with the chat's Bot (`bot_id`); the owner's own tab, a coordinator token's and a
+    worker's of a Run with no chat belong to none.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
-    `GET /api/v1/browser`, read again every five seconds, that belong to Runs of that chat, each named by its
-    page's title with a mark of whose it is. The tab is shown as `BrowserView`, one piece that holds the address
+    `GET /api/v1/browser`, read again every five seconds, whose `chat_id` is a chat of the pane, its Bot's and its
+    workers' alike, each named by its page's title with a mark of whose it is (a Bot's tab carries its Bot's name). The tab is shown as `BrowserView`, one piece that holds the address
     row, the control button and the picture. While the owner holds the browser the sidebar says so on every
     page, since every agent's browser tools wait meanwhile. It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
@@ -602,12 +604,11 @@ sequenceDiagram
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
     `phone.machine_stopped`. The next call or view starts the machine again (above).
   - A worker is told of the phone when one is there: the node API marks an offer with `device: android`, and the
-    node writes the `android-device` guide (`internal/shared/agenttool/skills/android-device`) where the Integrations'
-    guides go and names it in the worker's first message, with the rules that matter most: look before acting,
-    act by box number, never sign in or pay. The guide is written for Claude Code and Codex workers, which are the
-    ones the Integrations' guides are written for; an omp or opencode worker is told the rules only. Its stub is
-    installed for Bots by `skills install` (with every Bot's skills, whether or not a node holds a phone; the tools
-    are listed only when one does); the guide says a Bot asks the owner in its chat, a worker with `ask`.
+    worker's first message gives the rules that matter most: look before acting, act by box number, never sign in
+    or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
+    skill of the skills store that requires the phone (`device: android`, issue #536): every worker and Bot is
+    given it while a node holds a phone, by the path every skill takes (see "Skills"); the guide says a Bot asks
+    the owner in its chat, a worker with `ask`.
   - The owner's view and take-over (step 3), in the browser's shape. On the node (`view.go`, `stream.go`,
     `scrcpy.go`, `sps.go`) one scrcpy-server serves every view open, started with the first and ended with the last,
     as Orca runs its pane's (notice in `third_party/orca`): pushed to `/data/local/tmp`, an adb forward from a
@@ -807,7 +808,7 @@ sequenceDiagram
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
-  - A Bot's pi has the tools `memory` and `show_artifact` (issue #536), `web_search`, `web_fetch` and
+  - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch` and
     `generate_image`, and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
     server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
     step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
@@ -866,6 +867,20 @@ sequenceDiagram
     the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
     records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
     when the Bot's list, read then, has that backup; otherwise it waits for the reset.
+  - **A Bot's scope of a Connection** (issue #562; `orchestration/botaccess.go`, migration 00093,
+    `bots.connection_scopes`): beside `connections`, a map keyed `integration:label` of what the Bot may reach of
+    that Connection; today only a Superset Connection's `dashboards`, by number (`{"superset:prod":
+    {"dashboards": [9]}}`). A Connection not in the map is reached whole, as before (OpenMausBot's connector
+    scopes, absent = all). It is checked where the Superset reads and the relay are, for the client API's
+    commands and the agent's tools alike (`superset.Scope`, see Superset below). The owner and the coordinator
+    token are never limited. A Bot cannot give a Connection it reaches only part of to a Run (`runUses`), and a
+    worker of a Run made before the scope loses it at once: a Dispatch's key reads its Run's Bot's scopes on every
+    request (`AgentSession.May`, the same check the service proxy's tunnel and the token route use); a Run whose
+    Bot was removed gives its workers none of its Connections. The service proxy's tunnel (`Server.May`) refuses a
+    Superset Connection the caller's Bot is scoped on: only the reads below use it. `bots set
+    --superset-dashboards prod=8,9` (a slug is resolved to its number when it is set; `prod=` none,
+    `prod=all` removes the scope); `bots show` prints each scope; on the web, a "Superset · label dashboards" card
+    under Connections, for each Superset Connection the Bot may use, switches dashboards on and off.
   - **Managing Bots and profiles** (issue #169, part 3, after OpenMausBot's Chief: the tools that make bots are
     its alone, `server/drivers/agents-catalog.ts` L907-909, checked again on the server, `server/index.ts`
     L14147, L14183). Besides the owner, only the main Bot makes, changes, renames and removes Bots
@@ -1015,13 +1030,15 @@ flowchart LR
     ST["skills, skill_revisions in the database<br/>revisions never change; switch 'for everyone'"]
     PR["a profile's YAML<br/>skills, skills_off"]
     BL["a Bot's lists<br/>skills, skills_off"]
+    RW{"requires (metadata.hypomnema):<br/>the Run's Connections, the phone"}
+    RB{"requires (metadata.hypomnema):<br/>what the Bot may use now, the phone"}
     DS["dispatch_skills: each at its newest<br/>revision when the Dispatch is made"]
     NF["node: GET /node/v1/skills/{digest}<br/>~/.hypomnema-node/skills/{digest}"]
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
     SY["hypomnema-pi: skills sync --bot<br/>GET /bots/{bot}/skills, revision archives"]
     PI["pi --skill (the chat's skills folder,<br/>read-only in the box)"]
-    BS["built-in pdf: published at each serve start<br/>source builtin:release (PublishBuiltinSkills)"]
-    BI["other built-in skills for Bots: skills install<br/>~/.agents/skills, bound into every box"]
+    BS["built-in pdf, slides, pages and the guides<br/>(google-workspace, lark, aws, superset,<br/>android-device): published at each serve start,<br/>source builtin:release (PublishBuiltinSkills)"]
+    BI["the coordinator's skill: skills install<br/>~/.agents/skills, bound into every box"]
 
     UP --> PK
     SSH --> GH --> PK
@@ -1029,9 +1046,9 @@ flowchart LR
     PK --> ST
     ST --> PR
     ST --> BL
-    PR --> DS
-    DS -- "offer: name, revision, digest" --> NF --> PL
-    BL --> SY --> PI
+    PR --> RW --> DS
+    DS -- "offer: name, revision, digest<br/>(a guide not to a node that writes its own)" --> NF --> PL
+    BL --> RB --> SY --> PI
     BI --> PI
 ```
 
@@ -1083,6 +1100,21 @@ flowchart LR
     one ([decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md); owner, 2026-11-15). `skills install`
     takes out an unedited copy of `slides` and `pages` an earlier release put in `~/.agents/skills`, as it does
     `pdf`'s, and installs no whole-folder skill itself.
+  - The Integrations' guides and the phone's are built-in skills of the store too (issue #536, row 9 of the
+    [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): `google-workspace`, `lark`, `aws`,
+    `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
+    (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
+    tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
+    `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
+    `metadata.openclaw.requires` (`bins`, `env`, `config`; `src/skills/loading/config.ts`, `shouldIncludeSkill`)
+    and OpenMausBot's manifests `requiredCapabilities` (`server/skill-library.ts`, `selectBundledSkills`); the
+    frontmatter is the skill's own, so a skill the owner adds can say it too. Each revision keeps it as it keeps
+    its description (`skill_revisions.requires`, migration 00092). A skill is given, whether for everyone or named
+    by a profile or Bot, only to an agent that has every requirement, as OpenClaw leaves out a skill whose
+    requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
+    the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
+    the owner's own sign-in only for the main Bot, read as `hypomnema-pi` syncs its skills when pi starts for a
+    chat); both have the phone while a node holds one.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -1098,8 +1130,16 @@ flowchart LR
     Dispatch on the account; Codex gets them in the Conversation's `CODEX_HOME/skills`, made again at each start so
     that a skill taken away is gone, beside Codex's own `.system`. omp gets them in its agent directory's `skills`
     (`PI_CODING_AGENT_DIR`, which omp reads skills from); opencode in the Conversation's `skills` folder, which its
-    configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The other built-in
-    skills reach workers as before: the Integration guides through `$HYPOMNEMA_SKILLS` (below).
+    configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The CLI finds them
+    by itself, so the worker's first message names no skill or folder.
+  - A node says at its hello that it writes no guide of its own (`store_guides`, issue #536). Until issue #536 a
+    node wrote the guides of its Run's Integrations and of the phone into `$HYPOMNEMA_SKILLS` and named them in the
+    worker's first message; a node of such a release does not say so, and the node API leaves out of its offers
+    every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
+    guide once, from the node, until the node takes the release that leaves them to the store. The control plane
+    keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
+  - Tools are switched the same way, `tools` and `tools_off` beside the skills (see "Tool switches" under "An
+    agent's tools").
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
     removed. When pi starts for a chat, `hypomnema-pi` runs `hypomnema skills sync --bot <bot> --dir
@@ -1116,8 +1156,8 @@ flowchart LR
     every revision), `GET /skills/{skill}/revisions/{revision}/files` (a revision's paths, sizes and executable
     flags), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`, and `GET /built-in-skills` (the name and
     description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
-    `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are still the built-in skills',
-    which are not listed, but for pdf, which is in the store.
+    `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are the coordinator skill's
+    (below), which is not in the store.
   - skills.sh (`internal/controlplane/skillssh`, step 5, after the skills CLI `vercel-labs/skills`): `GET
     /skill-search?q=&owner=` asks skills.sh's search and, when a query of two to six words finds fewer than ten,
     asks again without each word and puts those after, at most 25 (`exact` says how many lead); `GET
@@ -1194,12 +1234,14 @@ flowchart LR
     chat tells its result nowhere. The message names its run in a part (`routine_run`, with the Routine's id),
     which the web draws as the run's card; its text is for every other reader.
   - **Who makes one.** The owner and a Bot use the same operation, `PUT /bots/{name}/routines/{routine}`
-    (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`).
+    (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`). A
+    Bot's pi does it with its `routines` tool (issue #536, see "An agent's tools"), which calls the same store
+    with the same checks; a worker has no such tool.
     A coordinator's token is taken for a Bot: it must name a chat that talks with that Bot, and its change
     records what undoes it. `POST /routines/{id}/undo` (`routines undo`, the owner's) removes a Routine the Bot
     made, or puts back what it was before the Bot's change; it is refused once the Routine was changed again
     (OpenMausBot's undo, `routine-requests.ts` L1099-1147). That the Bot first restates the schedule and the work
-    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions
+    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions, which teach the tool
     (`deploy/coordinator/AGENTS.md`, after OpenClaw's `how-it-works.md`), not a state the server keeps. A
     Routine's run makes and changes no Routines: the chat of a run, and a request that says it comes from a run
     (`HYPOMNEMA_ROUTINE`), are refused (Hermes's loop prevention, not a wall).
@@ -1249,7 +1291,8 @@ flowchart LR
     "…" menu when a Routine's run asked.
   - **Commands**: `hypomnema routines list|show|set|pause|resume|run|rm|undo|revoke`, and `routines script` for
     the launcher. Every token reads Routines; a coordinator's token makes, changes and runs one; pausing,
-    removing, undoing and revoking are the owner's.
+    removing, undoing and revoking are the owner's. Since issue #536 a Bot uses the `routines` tool instead; the
+    commands stay for the owner.
   - Not built: a Routine on a node, a one-time Routine, a run started by an outside event, a Routine that feeds
     another, stopping a run by hand. A prompt run's chat is listed among the chats like any other.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
@@ -1424,6 +1467,8 @@ flowchart LR
       and other high-risk changes (ask). A request to a service's part of the API that lark-cli's list does not
       name, as sending a message is not, is that service's write; a GET it does not name is a read; anything
       else asks as unnamed. The app's id, which lark-cli will not run without, is told with the list of accounts.
+      Each method also carries the scopes lark-cli checks before calling it, as a person and as the app (issue
+      #567): any one of a catalog method's scopes, all of a shortcut's.
     - **An Approval** (migration 00042) is the owner's answer to a request that asked. The request is held up to
       100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
       decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.
@@ -1444,6 +1489,29 @@ flowchart LR
       Task of the worker that asked; once answered, the chat shows its row (`approval-row.tsx`): Approved or
       Denied, what was asked, the action and how far it reaches, and when, whatever the Bot shows of its tools; an account on the Integrations page says what agents may do with it and
       opens the list of actions.
+    - **What the account can really do** (issue #567, migration 00094: `connections.access`, JSON). Beside the
+      owner's answer, each action of a Connection is **granted**, **missing** or **unknown** at the service, with a
+      short reason, read when the Connection is made or signed in again and when the owner checks it
+      (`POST /integrations/{integration}/connections/{label}/check`; `hypomnema integrations check`; "Check again"
+      in the web's list of actions); nothing reads it on a timer. `integration.Service.Holdings` reads what the
+      account holds: a Google account's grants as its sign-in stored them; a Lark app's enabled scopes from
+      `application/v6/applications/:app_id`, the tenant ones (lark-cli's `auth scopes`); a person's Lark sign-in's
+      scope string, kept with its tokens in the vault (`scope`, as lark-cli's token store keeps it); a Superset
+      account's roles from `GET /api/v1/me/roles/`. `serviceproxy.Assess` says each listed action from them:
+      Google by service and read-only grant; Lark granted when any of the action's methods has its scopes, unknown
+      when lark-cli names none; Superset by `can_read`/`can_write`/`can_export`/`can_import_`/
+      `can_execute_sql_query` on the view menus each part's API classes name (`class_permission_name`; the mapping
+      is inference), unknown for the parts no view names. What the service would not say (a refused
+      `/me/roles`, Lark's refusal to name the app's scopes, an AWS role) is unknown everywhere. A request for a
+      **missing** action is refused before the owner's answer is read, with "Refused: <account> cannot <action> at
+      <connection>: <reason>"; granted and unknown go on as before. A 403 from the service reads the Connection's
+      access again, at most once a minute and after the answer was given, and so do Lark's codes 99991672 and
+      99991679 for a missing scope: an action is several methods, so one refused call does not mark it. The service's answer is passed back unchanged. The agents are
+      told before they try: the agent API's list of accounts carries each one's `cannot`, which the tool launcher
+      prints in one line before the tool runs; the client API's Connection carries it too, which
+      `hypomnema integrations list` counts and `hypomnema superset dashboards` lists; `integrations actions` has a
+      column for it. On the web a row the account cannot do stays, muted, with "This account cannot: <reason>",
+      and the line under the account adds "N the account cannot".
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
       Dispatch settles, as its model gateway key is. A coordinator presents its coordinator token, and pi its own
@@ -1454,10 +1522,10 @@ flowchart LR
       Runs lose too. A Run the owner created keeps what he gave it.
     - **A Task goes to a node that has the tool.** A Run that uses a Google account is placed only on a node
       that reported `gws` installed; while none has, the Task waits with `no_node_has_tool:gws`.
-    - **On a node**, for a Dispatch with Connections, the runner writes the script and the skill's guide under the
-      node's home (`tools/bin`, `skills/google-workspace`) and adds to the worker's environment the scripts'
-      directory on `PATH`, the control plane's address, the Dispatch's key, and where the guide is; the worker's
-      first message names the accounts, the command and the guide. **On the control plane's machine**,
+    - **On a node**, for a Dispatch with Connections, the runner writes the script under the node's home
+      (`tools/bin`) and adds to the worker's environment the scripts' directory on `PATH`, the control plane's
+      address and the Dispatch's key; the worker's first message names the accounts and the command. The guide
+      comes with the offer's skills (see "Skills", issue #536). **On the control plane's machine**,
       `deploy/coordinator/setup-coordinator.sh` installs the tools for the coordinator's user
       (`hypomnema tool install`), `hypomnema-pi` puts the scripts on pi's `PATH`, and the launcher uses the token
       of pi's client configuration: in pi's box, pi's own (issue #260).
@@ -1477,11 +1545,12 @@ flowchart LR
       keeps its generation through a rebuild; without one, pi starts with the system's Python. No sudo and no
       system `python3-venv` are needed. `hypomnema-routine` gives a Routine's script the same, read the same way as
       its run starts (issue #507).
-    - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
+    - **The skill** (`internal/controlplane/clientcli/skills/google-workspace`) is taken from the Google Workspace
       CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
       Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
       tool's own sign-in with Hypomnema's, and tells the agent to get the owner's yes before anything that
-      writes. `hypomnema skills install` installs its stub beside the coordinator's.
+      writes; a reference is read as `references/<name>.md` beside it. It is a built-in skill of the store that
+      requires the Google Integration (issue #536), given to every agent that may use a Google Connection.
     - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
       secret; the answer says when Google could not be asked.
     - `GET /integrations` lists these Integrations with their Connections and their kind (`oauth`, `app`,
@@ -1513,7 +1582,7 @@ flowchart LR
       Connection (the agent API marks it `user`), so a call never changes whom it acts as (lark-cli's
       environment provider acts as the user whenever a user token is set). The agent's own `LARKSUITE_CLI_*`
       tokens, app secret, strict mode and default identity are taken away first.
-    - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s
+    - **Its skill** (`internal/controlplane/clientcli/skills/lark`, a store skill requiring Lark) is one guide, adapted from `lark-cli`'s
       `lark-shared` skill (MIT): the command is already signed in, an app's account acts as the app, `--account
       me` acts as the owner and is for reading what only he sees, is given only when he asked himself, and
       anything sent as him needs his yes; an empty answer may mean the app was not given the thing, nothing is
@@ -1617,16 +1686,24 @@ flowchart LR
       JSON (`superset_chart_data` with `format: csv` the rows as CSV); a refusal, a held request and an answer of
       `superset_api` that is not a success are the tool's error. The log line is `agentapi.superset` with the
       agent, the tool, the Connection and the number of rows, never a row.
+    - **A Bot limited to some dashboards** (issue #562, `internal/controlplane/superset/scope.go`): the list
+      leaves out every other dashboard; a read of one by number or slug is answered as a dashboard that does not
+      exist (a slug compared by the `id` Superset answers for it, before any chart's query runs), as Superset's
+      `DashboardAccessFilter` and guest token do; a chart is read only from its dashboard (`/dashboard/{id}/charts`,
+      read on every call) with the query Hypomnema builds from the saved chart; `superset api` and `superset_api`
+      are refused (403, naming its dashboards), as OpenMausBot refuses its generic proxy to a scoped bot, and
+      `superset_api` is not listed when every Superset account of the agent is limited. Each refusal is logged on
+      `superset.read` with `refused="out of scope"`.
     - **Commands**: `hypomnema superset dashboards [--search S]`, `superset dashboard <dashboard>`,
       `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
       `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset
       Connection). They wait up to 240 s, longer than the 100 s an Approval is held.
-    - **Its skill** (`internal/shared/agenttool/skills/superset`) is one guide naming the tools: what they
+    - **Its skill** (`internal/controlplane/clientcli/skills/superset`) is one guide naming the tools: what they
       return, that figures are as of the call, that a chart's row limit holds, that lists of people are personal
-      data, and that writes and SQL may wait for the owner's approval. A Bot's stub prints it (`hypomnema skills
-      get superset`); a node writes it to `$HYPOMNEMA_SKILLS/superset/guide.md` for a Dispatch given a Superset
-      Connection (`agenttool.SkillOf`), and the worker's first message names it and the tools, with no command on
-      its `PATH`. The commands stay for the owner and Routine scripts.
+      data, and that writes and SQL may wait for the owner's approval. It is a store skill requiring Superset
+      (issue #536): a Bot that may use a Superset Connection and a worker whose Run was given one get it, and the
+      worker's first message names the tools, with no command on its `PATH`. The commands stay for the owner and
+      Routine scripts.
     - **The log**: each read is one line with who asked, the Connection, the action, the dashboard and chart and
       the number of rows (`superset.read`); each relayed request one with its action, method and status
       (`superset.relayed`), beside the proxy's own line with the verdict. Never a row, the password or a token.
@@ -2542,8 +2619,8 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
-An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `web.go`, `images.go`,
-`superset.go`;
+An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
+`images.go`, `superset.go`;
 issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-every-agent.md),
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
@@ -2560,6 +2637,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 |---|---|---|---|
 | `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
+| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
 | `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
@@ -2569,6 +2647,30 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web` and `hypomnema image` are.
+
+Tool switches (issue #536, step 7; #492, row 10; `internal/shared/agenttool/switches.go`, migration 00091): a
+profile's YAML and a Bot narrow the table above with two lists beside their skills, `tools: [...]` (only these;
+empty or left out, every tool the agent kind gets) and `tools_off: [...]` (never these; it wins), as OpenClaw's
+agent has `tools.allow` and `tools.deny` (`docs/gateway/config-tools/tool-policy.md`) and OpenMausBot's bot an Allow
+and an Exclude list (`docs/tool-selection.md`).
+
+- An entry is a tool's name or a family, the start of a name and one `*` at the end (`agent_browser_*`,
+  `superset_*`, `device_*`, `web_*`, `node_*`; `*` alone is every tool), after OpenClaw's `*` wildcards and
+  OpenMausBot's whole-server `mcp:mail:*`; a `*` elsewhere is refused. Each must name at least one of the control
+  plane's tools and be named once, in one list, or the profile or Bot is refused (`400`), as an unknown skill is.
+  `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).
+- Enforced where the tools are listed and again on every call: `/agent/v1/tools` and `/agent/v1/tools/call`, and
+  the older routes (browser, phone, gateway, `/agent/v1/memory`). A tool switched off is left out of the list and its
+  call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
+  gateway. A worker's switches are its Dispatch's profile version's, read at each call (a new version reaches the
+  next Dispatch, as skills do); a Bot's pi's are its Bot's, read at each call, so a change reaches a running pi at
+  its next call. The owner's token, the coordinator token and a Routine's script have no switches (no MCP).
+- Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
+  `finish`) are not switched here.
+- Set with `profiles apply` (YAML), `bots set --tools a,b --tools-off c` (a change that names neither keeps them),
+  the main Bot from its chat (recorded and undone as its other changes), and the web's agent and Bot forms: a row per
+  family with a switch, which writes the family in `tools_off`; a list of only some tools or a single tool off is
+  set in the YAML or the CLI, shown under the rows and kept on save.
 
 Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
 [research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's
@@ -2603,6 +2705,7 @@ flowchart LR
         L["agent API: /agent/v1/tools<br/>one list, each tool's kinds"] --> G["gateway services<br/>search chain, fetch, Images"]
         L --> M["memories<br/>Bot's, agent's, owner's"]
         L --> A["artifacts<br/>the Bot's chat, a worker's Run's chat"]
+        L --> RT["Routines and their runner<br/>a Bot's pi's own"]
         L --> BR["shared browser<br/>a tab an agent"]
         L --> SP["service proxy: Relay<br/>a Superset Connection the agent may use"]
         D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
@@ -2612,10 +2715,11 @@ flowchart LR
     B -- "chat pi's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
     N -- "Dispatch key" --> D
-    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset" --> C["client API"] --> G
+    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
     C --> M
     C --> A
     C --> SP
+    C --> RT
 ```
 - Which worker gets which gateway tool (owner, 2026-11-15): a CLI's own tool is off when Hypomnema serves the same, kept only
   when the gateway itself answers it (OpenClaw's `resolveCliNativeWebSearchEnabled`). A Claude Code worker gets all
@@ -2659,6 +2763,23 @@ flowchart LR
   as they are: `html` works, `path` is refused with "this node's tools cannot send a folder yet; send html, or
   wait for its update". No tool lists, reads or downloads artifacts (neither reference has one); the CLI's
   commands stay for the owner and Routine scripts.
+- `routines` `{action: list | set | run, name?, every_minutes?, cron?, timezone?, prompt?, script?,
+  timeout_seconds?, summary?, quiet?}` (issue #536, step 5) is a Bot's pi's own Routines as one tool with an
+  action, as Hermes's `cronjob_manage` (`tools/cronjob_tools.py`) and OpenClaw's `cron` tool
+  (`src/agents/tools/cron-tool.ts`) are. Only a Bot's pi gets it; a worker is not offered it and its call is a
+  404, as Hermes keeps `cronjob_manage` from its sub-agents (`tools/delegate_tool_toolsets.py`). It does what the
+  client API lets a pi's token do, through the same store and runner: `set` is `PUT /bots/{id}/routines/{name}`
+  for its own Bot from its own chat (a Bot's change, which the owner can undo), what it leaves out staying, as
+  `routines set` reads its flags; `run` is `POST /routines/{id}/runs` for a Routine of its Bot, refused while a
+  run of it is live; `list` shows its Bot's Routines (id, sentence, state, next time, last run), and one by name
+  with its last 5 runs, its prompt and the end of its last output, as OpenMausBot's `trigger_info` does with a
+  `trigger_id`. Pausing, removing, undoing and taking back a grant stay the owner's (OpenMausBot leaves deleting a
+  trigger to the person). `script` is a file of the Bot's folder, where pi starts `hypomnema mcp`: the tools
+  server reads it there (`os.Root`, at most 100 KB) and sends its text with the call (`agenttool.RoutineCall`),
+  never a text the agent sent itself; the Routine keeps the file's name and that text. A tools server of an
+  earlier release sends the path alone, which is refused ("this tools server cannot send a script yet"). What the
+  store refuses (a schedule out of bounds, a name of another Bot's, a change from a Routine's run's own chat, a
+  run still going) is the tool's error. A Routine's script itself has no MCP and keeps the commands.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2828,10 +2949,11 @@ The owner's commands:
   most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
-  (otherwise only with `--force`, keeping a backup). The stub of a skill this binary no longer ships (`web-search`
-  and `images` since issue #492, `retiredStubs`) is taken out of both folders when it matches a released one, and
-  its folder when nothing else is in it, as Codex replaces its whole system skills folder at an update; an edited
-  one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
+  (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
+  (`web-search` and `images` since issue #492; the guides' stubs `google-workspace`, `lark`, `aws`, `superset`
+  and `android-device`, which ran `hypomnema skills get`, since issue #536 put the guides in the store;
+  `retiredStubs`) is taken out of both folders when it matches a released one, and its folder when nothing else
+  is in it, as Codex replaces its whole system skills folder at an update; an edited one is left and named. The same goes for the pdf, slides and pages folders in `~/.agents/skills` (issues #492,
   #536): an unedited copy (its digest in `releasedFolders`) is removed, since the skills store now places it, and
   it is not installed there. `setup-coordinator.sh`, which each update runs, runs it. Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.

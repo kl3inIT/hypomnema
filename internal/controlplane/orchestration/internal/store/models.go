@@ -112,22 +112,25 @@ type ArtifactRevision struct {
 }
 
 type Bot struct {
-	ID          string
-	Provider    sql.NullString
-	Model       sql.NullString
-	Effort      sql.NullString
-	Persona     string
-	Memory      string
-	CreatedAt   int64
-	UpdatedAt   int64
-	Skills      string
-	SkillsOff   string
-	Connections sql.NullString
-	Workers     sql.NullString
-	ToolDisplay string
-	Name        string
-	Position    int64
-	Pinned      int64
+	ID               string
+	Provider         sql.NullString
+	Model            sql.NullString
+	Effort           sql.NullString
+	Persona          string
+	Memory           string
+	CreatedAt        int64
+	UpdatedAt        int64
+	Skills           string
+	SkillsOff        string
+	Connections      sql.NullString
+	Workers          sql.NullString
+	ToolDisplay      string
+	Name             string
+	Position         int64
+	Pinned           int64
+	Tools            string
+	ToolsOff         string
+	ConnectionScopes sql.NullString
 }
 
 type Channel struct {
@@ -251,6 +254,7 @@ type Connection struct {
 	SignInFailed int64
 	AppID        sql.NullString
 	AppLabel     sql.NullString
+	Access       sql.NullString
 }
 
 type Conversation struct {
@@ -539,6 +543,8 @@ type ProfileVersion struct {
 	Fallbacks   string
 	Skills      string
 	SkillsOff   string
+	Tools       string
+	ToolsOff    string
 }
 
 type Provider struct {
@@ -731,6 +737,7 @@ type SkillRevision struct {
 	SourceCommit sql.NullString
 	Archive      []byte
 	CreatedAt    int64
+	Requires     sql.NullString
 }
 
 type Task struct {

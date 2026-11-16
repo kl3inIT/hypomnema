@@ -122,12 +122,24 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 		bot.SkillsOff = *in.SkillsOff
 	}
 
+	if in.Tools != nil {
+		bot.Tools = *in.Tools
+	}
+
+	if in.ToolsOff != nil {
+		bot.ToolsOff = *in.ToolsOff
+	}
+
 	if l := in.Connections; l != nil {
 		bot.Connections = fromAllowList(*l)
 	}
 
 	if l := in.Workers; l != nil {
 		bot.Workers = fromAllowList(*l)
+	}
+
+	if sc := in.Scopes; sc != nil {
+		bot.Scopes = fromScopes(*sc)
 	}
 
 	if d := in.ToolDisplay; d != nil {
@@ -290,10 +302,35 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		Id: b.ID, Name: b.Name, Main: b.Main(), Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
 		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
-		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers),
+		Tools: append([]string{}, b.Tools...), ToolsOff: append([]string{}, b.ToolsOff...),
+		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), Position: b.Position, Pinned: b.Pinned,
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
+}
+
+func toScopes(scopes map[string]orchestration.ConnectionScope) map[string]openapi.ConnectionScope {
+	out := make(map[string]openapi.ConnectionScope, len(scopes))
+	for use, sc := range scopes {
+		out[use] = openapi.ConnectionScope{Dashboards: append([]int64{}, sc.Dashboards...)}
+	}
+
+	return out
+}
+
+// fromScopes reads the scopes as given; none is nil, so that a Bot without
+// any stores none.
+func fromScopes(in map[string]openapi.ConnectionScope) map[string]orchestration.ConnectionScope {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make(map[string]orchestration.ConnectionScope, len(in))
+	for use, sc := range in {
+		out[use] = orchestration.ConnectionScope{Dashboards: append([]int64{}, sc.Dashboards...)}
+	}
+
+	return out
 }
 
 func toAllowList(l orchestration.AllowList) openapi.AllowList {

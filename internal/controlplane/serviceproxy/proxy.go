@@ -87,7 +87,13 @@ type Store interface {
 	ExpireApproval(ctx context.Context, id string) (orchestration.Approval, error)
 	TellAgentOfApproval(ctx context.Context, a orchestration.Approval) (bool, error)
 	ActionPolicies(ctx context.Context, integration, label string) (map[string]string, error)
+	// ConnectionOf gives a Connection with what its account can do (issue #567).
+	ConnectionOf(ctx context.Context, integration, label string) (orchestration.Connection, error)
 }
+
+// Recheck reads again what a Connection's account can do and keeps it (issue #567): the control plane's own
+// wiring of the service that signs accounts in and Assess.
+type Recheck func(ctx context.Context, integration, label string) error
 
 // Token gives a Connection's access token, fresh: the control plane's own
 // wiring over the vault.
@@ -112,6 +118,10 @@ type Config struct {
 	// AWS gives the session of a role a request is signed again with (issue
 	// #331); nil when the AWS Integration is not wired.
 	AWS AWSCredentials
+	// Recheck reads a Connection's access again when the service refused a
+	// request with 403, or Lark with its code for a missing scope (issue
+	// #567); nil leaves the access as it was read.
+	Recheck Recheck
 }
 
 // Proxy serves the tunnel a tool's requests come through.
@@ -121,6 +131,8 @@ type Proxy struct {
 
 	mu      sync.Mutex
 	waiting map[string][]chan orchestration.Approval
+	// rechecked is when each Connection's access was last read again after a 403, by "integration:label".
+	rechecked map[string]time.Time
 }
 
 // New returns a Proxy with a certificate authority of its own, made now and
@@ -147,7 +159,9 @@ func New(cfg Config) (*Proxy, error) {
 		cfg.RunHold = DefaultRunHold
 	}
 
-	return &Proxy{cfg: cfg, ca: ca, waiting: map[string][]chan orchestration.Approval{}}, nil
+	return &Proxy{
+		cfg: cfg, ca: ca, waiting: map[string][]chan orchestration.Approval{}, rechecked: map[string]time.Time{},
+	}, nil
 }
 
 // Register adds the proxy's routes to mux.
@@ -377,6 +391,18 @@ func (p *Proxy) decide(ctx context.Context, req *http.Request, body []byte, acti
 	policy := orchestration.PolicyAsk
 
 	if _, listed := s.catalog.Action(action.ID); listed {
+		// What the account cannot do at the service is refused before the owner's answer is read, as lark-cli
+		// refuses a call whose scope is missing before it makes it (shortcuts/common/runner.go,
+		// checkShortcutScopes). What is granted or unknown goes on.
+		conn, err := p.cfg.Store.ConnectionOf(ctx, s.integration, s.label)
+		if err != nil {
+			return "", "", err
+		}
+
+		if got := conn.Access.Of(action.ID); got.Access == orchestration.AccessMissing {
+			return "missing", cannot(conn, action, s, got.Reason), nil
+		}
+
 		policy = action.Default()
 
 		set, err := p.cfg.Store.ActionPolicies(ctx, s.integration, s.label)
@@ -663,6 +689,18 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 	}
 
 	defer resp.Body.Close() //nolint:errcheck // The answer was written or the write failed; closing adds nothing.
+
+	// A refusal is looked at before it is passed on (issue #567): its first bytes are read and put back.
+	var head []byte
+	if resp.StatusCode >= http.StatusBadRequest {
+		head, _ = io.ReadAll(io.LimitReader(resp.Body, maxErrorPeek))
+		resp.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(head), resp.Body), resp.Body}
+	}
+
+	p.noticed(ctx, s, action, resp.StatusCode, head)
 
 	// The tool speaks HTTP/1.1 whatever the service answered in.
 	resp.Proto, resp.ProtoMajor, resp.ProtoMinor = "HTTP/1.1", 1, 1

@@ -6,6 +6,10 @@ description: >-
   something in Lark: reading or writing a document or a sheet, a Base table, a wiki page, a file, sending a message
   as the bot, a calendar the app can see; and, when you were given the owner's own sign-in, reading what only he
   sees (his groups, his tickets, his Bases).
+metadata:
+  hypomnema:
+    requires:
+      integration: lark
 ---
 
 # Lark through Hypomnema
@@ -81,6 +85,7 @@ command answers tells you what happened:
 | You are told it was **approved** | Run the same command again, with the same arguments and the same content. It passes once. A changed command is a new request and asks again. |
 | `Rejected by the owner`, or you are told it was **rejected** | Do not run it, and do not look for another way to do the same thing. Say so in your answer. |
 | `Refused: the owner set … to never` | The same: say so, do not work around it. |
+| `Refused: <account> cannot "…" at <integration>:<label>: <reason>` | The account itself cannot do it at the service; nothing was sent. Do not try it another way. Say what is missing in your answer: the owner grants it there. |
 
 - Each command's `--help` names its risk: `read`, `write` or `high-risk-write`. Prefer `--dry-run`, which shows the
   request and sends nothing.
@@ -89,6 +94,17 @@ command answers tells you what happened:
   approval, which is the confirmation `lark-cli` asks for. Never treat the flag as the owner's yes.
 - A request to read or summarize is not a request to send or change anything: do not start a write the owner did
   not ask for.
+
+## What the account cannot do
+
+The control plane reads what each account can really do at Lark: the scopes the app has enabled in the developer
+console, or the scopes the owner's own sign-in was granted. Before `lark-cli` runs, a line starting
+`hypomnema: lark:<label> cannot do these at the service:` names, service by service, what the account cannot do.
+
+- **Read that line before the first command**, and do not run a command it rules out: it is refused before it is
+  sent, with `Refused: … cannot …`, whatever the owner allowed.
+- What it does not name may still fail at Lark (a document not shared with the app): report Lark's own answer.
+- A scope is added only by the owner, in Lark's developer console; say which one is missing.
 
 ## Never
 

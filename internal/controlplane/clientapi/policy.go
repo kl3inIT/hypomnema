@@ -129,6 +129,7 @@ var policies = map[string]policy{
 	"SetLarkChannelGroup":         {scope: scopeOwner},
 	"PatchIntegrationConnection":  {scope: scopeOwner},
 	"ListConnectionActions":       {scope: scopeOwner},
+	"CheckIntegrationConnection":  {scope: scopeOwner},
 	"SetConnectionAction":         {scope: scopeOwner},
 
 	// Routines (issue #211). Every token reads them. A Bot, with its pi's token, makes or changes one of its own
@@ -206,6 +207,7 @@ var policies = map[string]policy{
 	"ListProviders":     {},
 	"ApplyProvider":     {scope: scopeOwner},
 	"ListModels":        {},
+	"ListTools":         {},
 	// Artifacts (issue #402): every token reads them, a Bot's only its own chat's; only a Bot's shows one, and
 	// only the owner's web opens a folder page's frame (artifacts.go).
 	"ListArtifacts":      {},

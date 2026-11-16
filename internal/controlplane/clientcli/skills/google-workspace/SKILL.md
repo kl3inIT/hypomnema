@@ -5,6 +5,10 @@ description: >-
   Hypomnema installs and signs in. Use when the owner asks about their mail, calendar or files: what arrived today,
   what needs an answer, today's or tomorrow's schedule, a morning brief, finding a message or a file, drafting or
   sending a reply, creating an event, uploading a file. Not for a Google account Hypomnema was not given.
+metadata:
+  hypomnema:
+    requires:
+      integration: google
 ---
 
 # Google Workspace through Hypomnema
@@ -59,10 +63,19 @@ shows more than you can say. What the command answers tells you what happened:
 | You are told it was **approved** | Run the same command again, with the same arguments and the same content. It passes once, without another question. If you change anything, it is a new request and asks again. |
 | `Rejected by the owner` or you are told it was **rejected** | Do not run it, and do not look for another way to do the same thing. Say so in your answer. |
 | `Refused: the owner set … to never` | The same: say so, do not work around it. |
+| `Refused: <account> cannot "…" at <integration>:<label>: <reason>` | The account itself cannot do it at the service; nothing was sent. Do not try it another way. Say what is missing in your answer: the owner grants it there. |
 
 - Prefer `--dry-run` to see what a command would send before you send it.
 - A request for a summary, a search or a brief is not a request to send or change anything: do not start a write
   the owner did not ask for.
+
+## What the account cannot do
+
+The control plane knows what each account was granted when the owner signed it in: Gmail, Calendar, Drive, Docs
+and Sheets, each to read or to read and write. Before `gws` runs, a line starting
+`hypomnema: google:<label> cannot do these at the service:` names what the account cannot do. **Read it before the
+first command** and do not run what it rules out: it is refused before it is sent. Only the owner can sign the
+account in again with more.
 
 ## Never
 
@@ -95,9 +108,8 @@ parameters before you call it.
 
 ## References
 
-Load only the one the work needs. Each is a file in `references/` beside this guide; when this guide came from
-`hypomnema skills get google-workspace`, load one with
-`hypomnema skills get google-workspace --reference <name>`.
+Load only the one the work needs. Each is a file in the `references` folder beside this SKILL.md: read
+`references/<name>.md`, the path relative to this skill's folder.
 
 | Work | Reference |
 |------|-----------|

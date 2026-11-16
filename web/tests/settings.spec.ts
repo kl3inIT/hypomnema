@@ -52,6 +52,9 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
     kind: policy === "allow" ? "reads" : "needs_care",
     policy,
     default: policy,
+    // Not read at the service until the owner checks it (issue #567).
+    access: "unknown",
+    reason: undefined as string | undefined,
   })
   let actions = [
     action("gmail.read", "Gmail", "Read mail", "List, search and read messages", "allow"),
@@ -127,6 +130,33 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
     if (kind === "integrations" && path.endsWith("/actions")) {
       return json({
         data: name === "google" ? actions : name === "superset" ? supersetActions : [],
+      })
+    }
+
+    // Checking the account again reads what it was granted (issue #567): personal has Gmail read only and Calendar.
+    if (kind === "integrations" && request.method() === "POST" && path.endsWith("/check")) {
+      const why: Record<string, string> = {
+        Gmail: "gmail granted read only",
+        Drive: "drive not granted at sign-in",
+      }
+      actions = actions.map((a) => {
+        const cannot = a.id !== "gmail.read" && why[a.service] !== undefined
+        return {
+          ...a,
+          access: cannot ? "missing" : "granted",
+          reason: cannot ? why[a.service] : "granted",
+        }
+      })
+      const label = path.split("/")[4]
+      const checked = accounts.find((c) => c.label === label)
+      Object.assign(checked ?? {}, { access_checked_at: new Date().toISOString() })
+
+      return json({
+        ...checked,
+        access_checked_at: new Date().toISOString(),
+        cannot: actions
+          .filter((a) => a.access === "missing")
+          .map((a) => ({ action: a.id, service: a.service, name: a.name, reason: a.reason })),
       })
     }
 
@@ -639,7 +669,20 @@ test("the owner sets what agents may do with an account", async ({ page }) => {
   await expect(
     sheet.getByRole("group", { name: "Read mail" }).getByRole("button", { name: "On its own" }),
   ).toHaveAttribute("aria-pressed", "true")
+  await expect(sheet).toContainText("What the account can do at Google was not read yet.")
   await shot(page, "integrations-actions")
+
+  // Checked again at Google: what the account was not granted stays in the list, muted, with why.
+  await sheet.getByRole("button", { name: "Check again" }).click()
+  await expect(sheet.getByText("This account cannot:")).toHaveCount(5)
+  await expect(sheet.getByRole("region", { name: "Gmail" })).toContainText(
+    "gmail granted read only",
+  )
+  await expect(sheet).toContainText("was read just now")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-actions-checked")
+  await sheet.getByRole("region", { name: "Drive" }).scrollIntoViewIfNeeded()
+  await shot(page, "integrations-actions-checked-drive")
 
   await sheet
     .getByRole("group", { name: "Send mail" })
@@ -656,7 +699,13 @@ test("the owner sets what agents may do with an account", async ({ page }) => {
   await expect(may).toContainText("4 on their own · ask before 3 · never 1")
   await expect(page.getByRole("button", { name: /What agents may do/ })).toHaveCount(1)
 
-  expect(calls).toEqual(["PUT /integrations/google/connections/personal/actions/gmail.send"])
+  await expect(may).toContainText("5 the account cannot")
+  await shot(page, "integrations-agents-may-cannot")
+
+  expect(calls).toEqual([
+    "POST /integrations/google/connections/personal/check",
+    "PUT /integrations/google/connections/personal/actions/gmail.send",
+  ])
 })
 
 // Scenario: one Lark organization, two apps (issue #311). The owner adds his own app as "work" and a reports app

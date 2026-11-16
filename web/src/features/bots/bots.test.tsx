@@ -48,8 +48,11 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  scopes: {},
   tool_display: "on",
   created_at: new Date(Date.now() - 48 * 3_600_000).toISOString(),
   updated_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
@@ -207,6 +210,8 @@ test("a draft is sent as the settings the server replaces", () => {
     persona: "Be brief.",
     skills: [],
     skills_off: [],
+    tools: [],
+    tools_off: [],
   })
   expect(
     settingsOf(
@@ -217,6 +222,8 @@ test("a draft is sent as the settings the server replaces", () => {
         persona: "Be brief.",
         skills: ["review-go"],
         skillsOff: ["pdf"],
+        tools: [],
+        toolsOff: ["agent_browser_*"],
       },
       models,
     ),
@@ -227,6 +234,8 @@ test("a draft is sent as the settings the server replaces", () => {
     persona: "Be brief.",
     skills: ["review-go"],
     skills_off: ["pdf"],
+    tools: [],
+    tools_off: ["agent_browser_*"],
   })
 })
 
@@ -396,6 +405,8 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
           persona: "Answer briefly, with sources.",
           skills: [],
           skills_off: [],
+          tools: [],
+          tools_off: [],
         },
       },
     ]),
@@ -491,6 +502,7 @@ const google: Integration = {
     services: ["gmail"],
     sign_in_required: false,
     chats: label === "work",
+    cannot: [],
     created_at: new Date(0).toISOString(),
     updated_at: new Date(0).toISOString(),
   })),
@@ -505,6 +517,8 @@ const reviewer = {
   fallbacks: [],
   skills: [],
   skills_off: [],
+  tools: [],
+  tools_off: [],
   source: "",
   created_at: new Date(0).toISOString(),
 } as Profile

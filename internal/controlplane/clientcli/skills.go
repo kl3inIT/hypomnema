@@ -17,11 +17,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
-// Skills, after Orca's (skills/orchestration, `orca skills get|install`): the
+// The coordinator's skill, after Orca's (skills/orchestration, `orca skills get|install`): the
 // installed SKILL.md is a stub that runs `hypomnema skills get <skill>`, which
 // prints the guide compiled into this binary, so the guide always names the
 // commands this binary accepts. Rare branches are references loaded alone.
@@ -34,14 +33,22 @@ import (
 // (issue #479), adapted from zarazhangrui/frontend-slides, whose references
 // and script are read from the skill's folder.
 //
+// So are the guides of the Integrations' tools and of the phone
+// (google-workspace, lark, aws, superset, android-device; issue #103, section
+// 9, and issue #417), each adapted from its tool's own skills and naming its
+// source, whose references are files beside it.
+//
 // Each reaches every agent kind, Bots and workers alike, through the skills
 // store (issues #492, #536): the control plane publishes them as built-in
 // revisions at each start (StoreSkills), and `skills install` takes out the
-// copies earlier releases put in ~/.agents/skills, so that a Bot gets each
-// once. Each names only tools both kinds have (show_artifact, Superset's
-// tools) and its files relative to its own folder; only pages's Routine row
-// names commands (`hypomnema superset chart`, `hypomnema artifact show`),
-// which a Routine's script runs
+// copies and stubs earlier releases put in ~/.agents/skills, so that a Bot
+// gets each once. A guide requires its Integration, or the phone, in its
+// frontmatter (metadata.hypomnema.requires) and goes only to an agent that
+// may use a Connection of it (orchestration's givenSkills). Each names only
+// tools every kind has (show_artifact, Superset's tools, the device_* tools,
+// an Integration's command) and its files relative to its own folder; only
+// pages's Routine row names commands (`hypomnema superset chart`, `hypomnema
+// artifact show`), which a Routine's script runs
 // (docs/decisions/2026-11-15-one-tool-for-every-agent.md).
 
 // The all: prefix keeps files whose names start with _ (pdf's _raster.py).
@@ -49,59 +56,8 @@ import (
 //go:embed all:skills
 var ownSkills embed.FS
 
-// skillFiles are the skills this binary ships: its own, and those of the
-// Integrations' tools, which a node's binary ships too
-// (internal/shared/agenttool).
-var skillFiles = skillSet{ownSkills, agenttool.Skills}
-
-// skillSet reads from the first of several trees that has a file.
-type skillSet []fs.ReadDirFS
-
-func (set skillSet) ReadFile(name string) ([]byte, error) {
-	for _, tree := range set {
-		if b, err := fs.ReadFile(tree, name); err == nil {
-			return b, nil
-		}
-	}
-
-	return nil, fmt.Errorf("%s: %w", name, fs.ErrNotExist)
-}
-
-func (set skillSet) Open(name string) (fs.File, error) {
-	for _, tree := range set {
-		if f, err := tree.Open(name); err == nil {
-			return f, nil
-		}
-	}
-
-	return nil, fmt.Errorf("%s: %w", name, fs.ErrNotExist)
-}
-
-// ReadDir lists a directory in every tree that has it.
-func (set skillSet) ReadDir(name string) ([]fs.DirEntry, error) {
-	var (
-		out   []fs.DirEntry
-		found bool
-	)
-
-	for _, tree := range set {
-		entries, err := tree.ReadDir(name)
-		if err != nil {
-			continue
-		}
-
-		found = true
-		out = append(out, entries...)
-	}
-
-	if !found {
-		return nil, fmt.Errorf("%s: %w", name, fs.ErrNotExist)
-	}
-
-	slices.SortFunc(out, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
-
-	return out, nil
-}
+// skillFiles are the skills this binary ships.
+var skillFiles = ownSkills
 
 // defaultSkill is the one skill shipped today.
 const defaultSkill = "hypomnema-coordinator"
@@ -113,7 +69,22 @@ const defaultSkill = "hypomnema-coordinator"
 // (TestShippedStubsAreReleased).
 var releasedStubs = map[string][]string{
 	"hypomnema-coordinator": {"a47e4460588d8d58dfc994b34b6aaf8cad11dd7ec13c9151d9188f2c2d587e2a"},
-	"google-workspace":      {"129a8091fdeb9d028e8b0550625f2efd54c3eb27b38eba618407d68b82fdd894"},
+}
+
+// retiredStubs holds, as releasedStubs does, the digests of the stubs of the
+// skills a release shipped and this binary no longer does. `skills install`
+// removes an installed copy whose digest is one of these, as Codex replaces
+// its whole system skills folder at an update (codex-rs skills/src/lib.rs,
+// install_system_skills) and OpenMausBot takes a switched-off skill's links
+// out of each engine's folder (server/skills.ts); a copy the owner edited is
+// left, as an edited stub always is. web-search and images became the tools
+// web_search, web_fetch and generate_image of a Bot's pi (issue #492); the
+// guides' stubs, which ran `hypomnema skills get`, gave way to the guides
+// themselves in the skills store (issue #536).
+var retiredStubs = map[string][]string{
+	"web-search":       {"cdf4d06decd3d71394b4353a8a34b98853765b5f8c88b7e1712159d6cf9be35b"},
+	"images":           {"d5914e30a9da434727d0ce057216b1c48a1b3104f23b9c7072f3feeda31e4971"},
+	"google-workspace": {"129a8091fdeb9d028e8b0550625f2efd54c3eb27b38eba618407d68b82fdd894"},
 	"lark": {
 		"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774",
 		"f3acc3af4bb9045de0285f5b2fc2ce7a648117f89f3aeaedb0577578951a6c88",
@@ -127,19 +98,6 @@ var releasedStubs = map[string][]string{
 		"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127",
 		"354020b3fc5f96ee9be92432902284298b21164c8cc37c3510906f1f6efe7df4", // #536: Bots have the phone too
 	},
-}
-
-// retiredStubs holds, as releasedStubs does, the digests of the stubs of the
-// skills a release shipped and this binary no longer does. `skills install`
-// removes an installed copy whose digest is one of these, as Codex replaces
-// its whole system skills folder at an update (codex-rs skills/src/lib.rs,
-// install_system_skills) and OpenMausBot takes a switched-off skill's links
-// out of each engine's folder (server/skills.ts); a copy the owner edited is
-// left, as an edited stub always is. web-search and images became the tools
-// web_search, web_fetch and generate_image of a Bot's pi (issue #492).
-var retiredStubs = map[string][]string{
-	"web-search": {"cdf4d06decd3d71394b4353a8a34b98853765b5f8c88b7e1712159d6cf9be35b"},
-	"images":     {"d5914e30a9da434727d0ce057216b1c48a1b3104f23b9c7072f3feeda31e4971"},
 }
 
 // releasedFolders holds the folderDigest of every release of a skill an
@@ -167,8 +125,12 @@ var releasedFolders = map[string][]string{
 // library's skills to every engine (server/skill-library.ts, everyBot).
 // `skills install` no longer installs them; it removes a copy it installed.
 // Only a skill that names no command an agent may lack goes here, and every
-// whole-folder skill is one (TestEveryFolderSkillIsInTheStore).
-var storeSkills = []string{"pdf", "slides", "pages"}
+// whole-folder skill is one (TestEveryFolderSkillIsInTheStore); a guide
+// names its Integration's command, which every agent given a Connection of
+// it has.
+var storeSkills = []string{
+	"pdf", "slides", "pages", "google-workspace", "lark", "aws", "superset", "android-device",
+}
 
 // StoreSkills are the skills the control plane publishes into its skills
 // store at each start, read from this binary: what is under scripts/ is
@@ -358,7 +320,8 @@ func skillsInstall(_ context.Context, e *env, fset *flag.FlagSet) error {
 
 			switch {
 			case slices.Contains(storeSkills, name):
-				if agent == "agents" {
+				// A guide was a stub, taken out with retiredStubs above.
+				if agent == "agents" && len(releasedFolders[name]) > 0 {
 					err = removeRetiredFolder(e, fset, agent, filepath.Join(roots[agent], name), name)
 				}
 			case !folderSkill(name):
@@ -588,8 +551,8 @@ type BuiltinSkill struct {
 }
 
 // BuiltinSkills are the skills this binary ships that reach agents by their
-// own rule, by name: the coordinator's and those of the Integrations' tools.
-// pdf, slides and pages are in the skills store, listed there.
+// own rule, by name: the coordinator's. The others are in the skills store,
+// listed there.
 func BuiltinSkills() ([]BuiltinSkill, error) {
 	var out []BuiltinSkill
 

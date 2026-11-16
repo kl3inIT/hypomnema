@@ -150,7 +150,7 @@ func (rt *CodexRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.L
 	}
 
 	write := func(dir string, hostEnv []string) (shim.Spec, error) {
-		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey, o.Device)
+		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey)
 		if err != nil {
 			return shim.Spec{}, err
 		}
