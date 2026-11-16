@@ -180,10 +180,10 @@ func (s *Server) BeginIntegrationSignIn(ctx context.Context, req openapi.BeginIn
 
 func toSignIn(in integration.SignIn) openapi.SignIn {
 	out := openapi.SignIn{
-		Id: in.ID, Url: in.URL, UserCode: opt(in.UserCode), QrCode: opt(in.Code),
+		Id: in.ID, Url: in.URL, UserCode: opt(in.UserCode), QrCode: opt(in.Code), QrImage: opt(in.CodeImage),
 		ExpiresInSeconds: int(in.ExpiresIn.Seconds()),
 	}
-	if in.Code != "" && !in.CodeExpires.IsZero() {
+	if (in.Code != "" || in.CodeImage != "") && !in.CodeExpires.IsZero() {
 		out.QrExpiresAt = &in.CodeExpires
 	}
 

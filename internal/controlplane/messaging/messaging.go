@@ -28,8 +28,10 @@ type Service interface {
 
 // LinkStep is one step of a linking: a code to show, or its end.
 type LinkStep struct {
-	// Code is what the QR code shows, valid until Expires.
+	// Code is what the QR code shows, valid until Expires. A service that gives its QR code as a picture (Zalo,
+	// issue #657) gives Image instead, a data URL.
 	Code    string
+	Image   string
 	Expires time.Time
 	// Account is the account linked, on the last step of a linking that succeeded.
 	Account Account

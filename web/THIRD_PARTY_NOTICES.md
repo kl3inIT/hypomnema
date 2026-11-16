@@ -66,6 +66,8 @@ Each adapted file names its source.
 - Apache Superset's mark there is the path of Simple Icons (https://github.com/simple-icons/simple-icons,
   icons/apachesuperset.svg), CC0 1.0. Apache Superset and its logo are trademarks of The Apache Software
   Foundation.
+- Zalo's mark there is the path of Simple Icons (https://github.com/simple-icons/simple-icons, icons/zalo.svg,
+  13.21.0), CC0 1.0. Zalo and its logo belong to VNG Corporation.
 - The grid of chats (`src/features/workbench`) is adapted from Omnigent's grid of sessions
   (https://github.com/omnigent-ai/omnigent, web/src/grid/gridLayout.ts, GridDropTargets.tsx, GridSessionPane.tsx,
   GridSessionsContext.tsx), Apache License 2.0. Where a dropped tab lands in a pane (`dropZone` in

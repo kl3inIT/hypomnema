@@ -147,6 +147,8 @@ jobs:
         run: make web-install
       - name: make web-check
         run: make web-check
+      - name: The Zalo bridge's tests and build
+        run: make zalo-bridge-install zalo-bridge-check zalo-bridge-build
       # Chromium is kept between runs, as t3code's CI keeps it: downloading it and running apt on every run was
       # most of this job, and a stalled download held a pull request for minutes.
       - name: Resolve the Playwright version

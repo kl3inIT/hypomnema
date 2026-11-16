@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test"
+import QRCode from "qrcode"
 
 import type { GitHost as Host, Repo } from "../src/api/generated/types.gen.js"
 import { choose } from "./choose.js"
@@ -89,6 +90,8 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   // WhatsApp: the owner's own account, linked as a device by a QR code (issue #615).
   let phones: Record<string, unknown>[] = []
   let codes = 0
+  // Zalo: the owner's own account, linked by a QR code Zalo gives as a picture (issue #657).
+  let zalos: Record<string, unknown>[] = []
   // AWS: a role a Connection, assumed with a key kept under a name (issue #331).
   let roles: Record<string, unknown>[] = []
   const keys = new Set<string>()
@@ -241,6 +244,49 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       phones = [...phones.filter((a) => a.label !== added.label), added]
 
       return json(added)
+    }
+
+    // Linking Zalo (issue #657): its QR code is a picture, a new one when the page reads it again.
+    if (kind === "integrations" && sub === "sign-ins" && name === "zalo") {
+      const signIn = async (code: string) => ({
+        id: "link-zalo",
+        url: "",
+        qr_image: await QRCode.toDataURL(code),
+        qr_expires_at: new Date(Date.now() + 100_000).toISOString(),
+        expires_in_seconds: 1800,
+      })
+
+      if (path.endsWith("/sign-ins")) {
+        asked = request.postDataJSON() as { label: string; services: string[] }
+
+        return json(await signIn("zalo-0"))
+      }
+
+      if (request.method() === "GET") return json(await signIn(`zalo-${++codes}`))
+
+      await phoneScanned
+
+      const added = {
+        integration: "zalo",
+        label: asked?.label ?? "",
+        account: "Nguyễn Văn An",
+        services: [],
+        sign_in_required: false,
+        chats: false,
+        session: { state: "connected" },
+        created_at: now,
+        updated_at: now,
+      }
+      zalos = [...zalos.filter((a) => a.label !== added.label), added]
+
+      return json(added)
+    }
+
+    if (kind === "integrations" && sub === "connections" && name === "zalo") {
+      const label = path.split("/")[4] ?? ""
+      zalos = zalos.filter((a) => a.label !== label)
+
+      return json({ revoked: true })
     }
 
     if (kind === "integrations" && sub === "connections" && name === "whatsapp") {
@@ -514,6 +560,13 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
               kind: "device",
               services: [],
               connections: phones,
+            },
+            {
+              id: "zalo",
+              name: "Zalo",
+              kind: "device",
+              services: [],
+              connections: zalos,
             },
           ],
         })
@@ -1218,5 +1271,51 @@ test("the owner adds AWS roles with one key", async ({ page }) => {
     "PUT /integrations/aws/connections/main-read",
     "PUT /integrations/aws/connections/main-machines",
     "DELETE /integrations/aws/connections/main-read",
+  ])
+})
+
+// Scenario: the owner links his own Zalo (issue #657). Zalo gives its QR code as a picture, which the dialog shows
+// and replaces as the page reads the current one, with where Zalo's app scans it; once his phone confirmed, the
+// account shows his name. Disconnecting tells him to remove the login on his phone, since Zalo cannot be told to.
+test("the owner links his Zalo by its QR picture", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/integrations")
+
+  const zalo = card(page, "Zalo")
+  await expect(zalo).toContainText("Not linked")
+  await zalo.getByRole("button", { name: "Link phone" }).click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await dialog.getByRole("button", { name: "Show the code" }).click()
+
+  const qr = dialog.getByRole("img", { name: "QR code to link Zalo" })
+  await expect(qr).toBeVisible()
+  await expect(qr).toHaveAttribute("src", /^data:image\/png;base64,/)
+  await expect(dialog).toContainText("tap the QR scanner")
+  const first = await qr.getAttribute("src")
+  await expect(qr).not.toHaveAttribute("src", first ?? "", { timeout: 10_000 })
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-zalo-qr")
+
+  scanPhone()
+  await expect(dialog).toBeHidden()
+
+  const main = zalo.getByLabel("Zalo account main")
+  await expect(main).toContainText("Nguyễn Văn An")
+  await expect(main).toContainText("Connected")
+  await zalo.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-zalo-linked")
+
+  await zalo.getByRole("button", { name: "Disconnect main" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm).toContainText("Account and security › Login devices")
+  await shot(page, "integrations-zalo-disconnect")
+  await confirm.getByRole("button", { name: "Disconnect" }).click()
+  await expect(main).toHaveCount(0)
+
+  expect(calls.filter((c) => c.includes("/zalo/"))).toEqual([
+    "POST /integrations/zalo/sign-ins",
+    "POST /integrations/zalo/sign-ins/link-zalo",
+    "DELETE /integrations/zalo/connections/main",
   ])
 })

@@ -41,6 +41,7 @@ import {
   AwsIcon,
   SupersetIcon,
   WhatsAppIcon,
+  ZaloIcon,
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -108,6 +109,7 @@ const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   superset: SupersetIcon,
   aws: AwsIcon,
   whatsapp: WhatsAppIcon,
+  zalo: ZaloIcon,
 }
 
 // IntegrationMark is an Integration's logo, or a plain plug for one that has none here. The Bot page shows it beside
@@ -437,7 +439,8 @@ function AccountItem({
             user
               ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; no Bot acts as you any more. If ${service.name} cannot be reached, remove the app's access in your own account.`
               : device
-                ? `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`
+                ? (forgetHow[service.id] ??
+                  `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`)
                 : role
                   ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
                   : account
@@ -1051,6 +1054,8 @@ function LinkDeviceDialog({
   }
 
   const code = current.data?.qr_code ?? started?.qr_code
+  // Zalo gives its QR code as a picture, with nothing to draw it from (issue #657).
+  const image = current.data?.qr_image ?? started?.qr_image
   const waiting = started !== null && complete.isPending
 
   return (
@@ -1063,7 +1068,8 @@ function LinkDeviceDialog({
           </DialogTitle>
           <DialogDescription>
             {started
-              ? `On your phone, open ${service.name} › Linked devices › Link a device, and scan this code.`
+              ? (scanHow[service.id] ??
+                `On your phone, open ${service.name} › Linked devices › Link a device, and scan this code.`)
               : `Your phone links Hypomnema as one of its devices, as ${service.name} Web is. The main Bot can then read and write in your chats as you. ${service.name} forbids clients it did not make, so a number can be banned; Hypomnema never sends in bulk.`}
           </DialogDescription>
         </DialogHeader>
@@ -1092,9 +1098,17 @@ function LinkDeviceDialog({
                 </form.Field>
               </FieldGroup>
             )}
-            {started && waiting && code && (
+            {started && waiting && (code || image) && (
               <div className="flex flex-col items-center gap-3">
-                <QrCode text={code} label={`QR code to link ${service.name}`} />
+                {code ? (
+                  <QrCode text={code} label={`QR code to link ${service.name}`} />
+                ) : (
+                  <img
+                    src={image}
+                    alt={`QR code to link ${service.name}`}
+                    className="size-56 rounded-md bg-white p-2"
+                  />
+                )}
                 <output className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Spinner />
                   Waiting for your phone to scan it
@@ -1129,6 +1143,17 @@ function LinkDeviceDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+// forgetHow says what disconnecting does, for a service whose phone cannot be told to drop the login: Zalo has no
+// call for it (issue #657).
+const forgetHow: Record<string, string> = {
+  zalo: "Hypomnema forgets the session and the chats it kept. Zalo cannot be told to end the login: remove it on your phone in Zalo › Settings › Account and security › Login devices.",
+}
+
+// scanHow says where each service's app scans a link code, when it is not WhatsApp's Linked devices.
+const scanHow: Record<string, string> = {
+  zalo: "On your phone, open Zalo, tap the QR scanner at the top, scan this code, then confirm the login.",
 }
 
 // QrCode draws a QR code with qrcode's own encoder (MIT; OpenClaw's web login draws its WhatsApp code with the same

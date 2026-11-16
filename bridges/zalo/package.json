@@ -1,0 +1,20 @@
+{
+  "name": "hypomnema-zalo-bridge",
+  "private": true,
+  "description": "The Zalo bridge the control plane runs for the owner's personal Zalo (issue #613): zca-js, bundled into dist/bridge.cjs and embedded.",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "esbuild src/bridge.mjs --bundle --platform=node --target=node18 --format=cjs --legal-comments=eof --outfile=dist/bridge.cjs && node licenses.mjs",
+    "test": "node --test test/protocol.test.mjs"
+  },
+  "dependencies": {
+    "zca-js": "2.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
