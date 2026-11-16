@@ -288,6 +288,10 @@ func (a *Antigravity) token(ctx context.Context, doing string, form url.Values) 
 	return tokens, nil
 }
 
+// antigravityDenied are roster ids omp leaves out of what an Antigravity account is offered
+// (packages/catalog/src/discovery/antigravity.ts, ANTIGRAVITY_DISCOVERY_DENYLIST; issue #639).
+var antigravityDenied = []string{"chat_20706", "chat_23310", "gemini-2.5-pro"}
+
 // Models implements ModelLister: the models the backend serves this account,
 // with each one's remaining quota (fetchAvailableModels, as 9router-go's
 // handlers/chat/antigravity_quota.go and CLIProxyAPI's sdk/auth/antigravity_models.go
@@ -326,7 +330,7 @@ func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, e
 		models := make([]ServedModel, 0, len(answer.Models))
 
 		for name, info := range answer.Models {
-			if info.IsInternal || info.Disabled {
+			if info.IsInternal || info.Disabled || slices.Contains(antigravityDenied, name) {
 				continue
 			}
 
