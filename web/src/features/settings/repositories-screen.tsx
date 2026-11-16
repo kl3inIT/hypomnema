@@ -95,6 +95,7 @@ function RepoRow({ repo }: { repo: Repo }) {
         <ItemDescription>
           {repo.host}/{repo.path}
           {repo.base ? ` · starts from ${repo.base}` : ""}
+          {repo.ssh_url ? ` · cloned over SSH from ${repo.ssh_url}` : ""}
         </ItemDescription>
       </ItemContent>
       <ItemActions>
@@ -116,13 +117,28 @@ function RepoRow({ repo }: { repo: Repo }) {
   )
 }
 
-const repoSchema = z.object({
-  repo: z.string().trim().min(1, "Give the repository's URL, or owner/name for one on GitHub."),
-  name: z.string().trim().min(1, "Give the name to call it by."),
-  base: z.string(),
-})
+const repoSchema = z
+  .object({
+    repo: z.string().trim().min(1, "Give the repository's URL, or owner/name for one on GitHub."),
+    name: z.string().trim().min(1, "Give the name to call it by."),
+    base: z.string(),
+    sshUrl: z
+      .string()
+      .trim()
+      .refine(
+        (url) => url === "" || /^(ssh:\/\/)?[\w.-]+@[^\s]+$/.test(url),
+        "Give the address the host shows under Clone with SSH, such as ssh://git@host:222/group/name.git.",
+      ),
+    sshHostKey: z.string().trim(),
+  })
+  // A host is never trusted on first use: its key comes with its address (issue #625).
+  .refine((value) => value.sshUrl === "" || value.sshHostKey !== "", {
+    path: ["sshHostKey"],
+    message: "Give the SSH host's key, as ssh-keyscan prints it, checked against the host's own.",
+  })
 
-// AddRepo registers a repository: where it is, the name to call it by, and the branch work starts from.
+// AddRepo registers a repository: where it is, the name to call it by, the branch work starts from, and the SSH
+// address it is cloned from when its host's HTTPS cannot carry a large clone (issue #625).
 function AddRepo() {
   const formId = useId()
   const refresh = useRefreshRepos()
@@ -135,12 +151,15 @@ function AddRepo() {
         body: {
           repo: value.repo.trim(),
           ...(value.base.trim() ? { base: value.base.trim() } : {}),
+          ...(value.sshUrl.trim()
+            ? { ssh_url: value.sshUrl.trim(), ssh_host_key: value.sshHostKey.trim() }
+            : {}),
         },
       }),
   })
 
   const form = useForm({
-    defaultValues: { repo: "", name: "", base: "" },
+    defaultValues: { repo: "", name: "", base: "", sshUrl: "", sshHostKey: "" },
     validators: { onSubmit: repoSchema },
     onSubmit: async ({ value }) => {
       try {
@@ -221,6 +240,26 @@ function AddRepo() {
                     field={field}
                     label="Base branch"
                     placeholder="The repository's default"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="sshUrl">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="SSH address"
+                    placeholder="Optional; cloned over HTTPS without it"
+                    description="Workers clone it over SSH with the key shown under Integrations."
+                  />
+                )}
+              </form.Field>
+              <form.Field name="sshHostKey">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="SSH host key"
+                    placeholder="ssh-ed25519 AAAA…"
+                    description="With an SSH address: the host's key, as ssh-keyscan -p <port> <host> prints it. Workers trust the host under it alone."
                   />
                 )}
               </form.Field>

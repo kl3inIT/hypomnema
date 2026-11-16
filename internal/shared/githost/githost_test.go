@@ -170,3 +170,64 @@ func TestAHostsTokenReachesGitAndItsTool(t *testing.T) {
 	assert.Empty(t, gh.Env(GitHubHost, ""))
 	assert.Empty(t, gl.Env(GitLabHost, ""))
 }
+
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8"
+
+// The owner gives the SSH host's key with its address (issue #625), as
+// ssh-keyscan prints it or as one key line; it is kept as "<type> <base64>",
+// and its fingerprint is shown for him to check. Nothing, or what is not a
+// key, is refused: a host is never trusted on first use.
+func TestAnSSHHostKeyIsReadAsSSHKeyscanPrintsIt(t *testing.T) {
+	t.Parallel()
+
+	for _, given := range []string{
+		"# 167.254.68.172:222 SSH-2.0-OpenSSH_9.6\n[167.254.68.172]:222 " + hostKey + "\n",
+		hostKey + " admin@host",
+		"git-vmaps-devops.vtii.vn " + hostKey,
+	} {
+		got, err := ParseHostKeys(given)
+		require.NoError(t, err, given)
+		assert.Equal(t, hostKey, got)
+	}
+
+	fingerprints := HostKeyFingerprints(hostKey)
+	require.Len(t, fingerprints, 1)
+	assert.Regexp(t, `^ssh-ed25519 SHA256:[A-Za-z0-9+/]{43}$`, fingerprints[0])
+
+	for _, bad := range []string{"", "# only a comment", "ssh-ed25519 notbase64!", "hello"} {
+		_, err := ParseHostKeys(bad)
+		require.ErrorIs(t, err, ErrInvalid, bad)
+	}
+}
+
+// The owner gives a repository's SSH address (issue #625) as the host shows
+// it: with a port in the URL form, or in git's short form. One with a
+// password, of another scheme, or whose user, host or path could be read as
+// an option is refused.
+func TestAnSSHAddressIsCheckedBeforeGitSeesIt(t *testing.T) {
+	t.Parallel()
+
+	for _, good := range []string{
+		"ssh://git@167.254.68.172:222/mobility/platform.git",
+		"ssh://git@gitlab.company.example/team/app",
+		"git@github.com:kl3inIT/hypomnema.git",
+	} {
+		assert.True(t, ValidSSHURL(good), good)
+	}
+
+	for _, bad := range []string{
+		"",
+		"https://gitlab.company.example/team/app.git",
+		"ssh://gitlab.company.example/team/app.git",
+		"ssh://git:secret@gitlab.company.example/team/app.git",
+		"ssh://git@-oProxyCommand=x/team/app.git",
+		"ssh://-oProxyCommand=x@gitlab.company.example/team/app.git",
+		"ssh://git@gitlab.company.example/-team/app.git",
+		"ssh://git@gitlab.company.example/app.git",
+		"ssh://git@Gitlab.Company.example/team/app.git",
+		"git@gitlab.company.example",
+		"gitlab.company.example:team/app.git",
+	} {
+		assert.False(t, ValidSSHURL(bad), bad)
+	}
+}

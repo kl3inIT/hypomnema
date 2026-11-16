@@ -1439,6 +1439,22 @@ paths:
         "204":
           description: The repository is forgotten.
         default: { $ref: "#/components/responses/Error" }
+  /git/ssh-key:
+    get:
+      operationId: GetGitSSHKey
+      summary: The public half of the control plane's SSH key for git; only the owner
+      description: >-
+        Nodes clone a repository registered with an SSH address with this key
+        (issue #625). It is made on the first read, an ed25519 key, and its
+        private half is kept in the vault and never returned here. The owner
+        adds the public key to the account on the git host that clones.
+      responses:
+        "200":
+          description: The public key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitSSHKey" }
+        default: { $ref: "#/components/responses/Error" }
   /accounts:
     get:
       operationId: ListAccounts
@@ -5421,7 +5437,24 @@ components:
         connection:
           type: string
           description: The label of the host's Connection work on it uses; absent for the host's only one.
+        ssh_url:
+          type: string
+          description: >-
+            Where nodes clone and fetch it from over SSH, with the control
+            plane's SSH key; absent when they use HTTPS with the host's token.
+        ssh_host_key:
+          type: string
+          description: >-
+            The SSH host's public keys the owner confirmed, one "<type>
+            <base64>" a line; nodes trust the host under them alone.
         created_at: { type: string, format: date-time }
+    GitSSHKey:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+          description: The public key in the authorized_keys form, to add to the git host.
     RepoList:
       type: object
       required: [data]
@@ -5444,6 +5477,22 @@ components:
           type: string
           pattern: "^[a-z0-9][a-z0-9-]{0,30}$"
           description: The label of a Connection of the repository's host.
+        ssh_url:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >-
+            Where nodes clone it from over SSH, as the host shows it:
+            ssh://git@host[:port]/group/name.git or git@host:group/name.git.
+            Absent: over HTTPS with the host's token.
+        ssh_host_key:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          description: >-
+            The SSH host's public keys, as `ssh-keyscan -p <port> <host>`
+            prints them; required with ssh_url. Nodes trust the host under
+            them alone, never on first use.
     NodeList:
       type: object
       required: [data]

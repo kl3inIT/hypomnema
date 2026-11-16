@@ -541,6 +541,11 @@ type Offer struct {
 	// node keeps it with the offer until the Dispatch ends; there is no proxy
 	// on the node (docs/decisions/2026-11-13-worker-credentials-in-the-environment.md).
 	RepoToken string `json:"repo_token,omitempty"`
+	// RepoSSHURL is where the node clones and fetches Repo from over SSH,
+	// when the owner registered it with one (issue #625). Git then runs
+	// `hypomnema-node gitssh` as its ssh, which asks the agent API for the
+	// control plane's key with AgentKey on each call; the node keeps no key.
+	RepoSSHURL string `json:"repo_ssh_url,omitempty"`
 	// ModelKey is the model gateway's key for this Dispatch, when AccountRef
 	// is "gateway": the worker's CLI calls <control plane URL>/v1 with it (a
 	// Claude Code worker its /v1/messages), for the offer's Model only. It is made as the offer is sent and revoked when
