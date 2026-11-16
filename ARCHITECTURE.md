@@ -1699,13 +1699,33 @@ flowchart LR
       `echarts_timeseries_bar`. Both get the dashboard's filters at the values they start with. Another kind
       without a saved query is refused as "not read yet" with its name. The chart's own row limit holds.
       `POST .../api` relays any other request.
+    - **Filters set on a read** (issue #648, `internal/controlplane/superset/filters.go`), learned from Superset's
+      guest token, which runs a dashboard's saved charts with the values its embedded filter bar sets and nothing
+      else (`superset/security/manager.py` at 9455393: `query_context_modified`,
+      `_native_filter_request_modified`). The chart read takes `filter=Name=value`, repeated (a value each; `Name=`
+      clears the filter), the filter named as the dashboard names it or by its id. A given value replaces that
+      filter's `extraFormData` as Superset's filter plugins set it (`superset-frontend/src/filters`): a
+      `filter_select` an `IN` on its target column, nothing when cleared; a `filter_time` its `time_range` (one;
+      cleared or "No filter" sets none, so the chart's own range holds); a `filter_timegrain` its
+      `time_grain_sqla`; a `filter_timecolumn` its `granularity_sqla`; another kind is refused as not supported
+      yet. It is then applied as a default is, only to the charts in the filter's scope. A value is sent as the
+      filter's `val`, never into SQL; the chart's columns, metrics and groups stay its own. A filter the dashboard
+      does not have, or that does not apply to the chart, is refused naming the filters that do, before any
+      query runs.
+    - **A filter's values**: `GET .../dashboards/{dashboard}/filters/{filter}/values?q=` lists the distinct values
+      of a select filter's column on its dataset, each with its count, the most frequent first, at most 1000, as
+      the filter bar's list (`filters/components/Select/buildQuery.ts`: the column, an `ILIKE` on it when
+      searching), with one `POST /api/v1/chart/data` on the filter's dataset (a `COUNT` metric labelled `count`,
+      ordered by it). Another kind of filter has no list and is refused.
     - **Who may ask**: the owner, and a coordinator token or pi's own token when the Connection is switched on for
       chats; the chat a coordinator asks from is passed with the request, so an Approval is answered there. pi's
       token asks from its own chat, and one that names another chat is refused (issue #260). A worker reaches it
       only through the tools (below), and only for a Connection its Run was given.
     - **Tools** (issue #536, `internal/controlplane/agentapi/superset.go`, see "An agent's tools"):
       `superset_dashboards {search?}`, `superset_dashboard {dashboard}`,
-      `superset_chart_data {dashboard, chart, format?}` and `superset_api {method, path, body?}`, one a command,
+      `superset_chart_data {dashboard, chart, format?, filters?}` (`filters` an object of each filter's values,
+      `{"Unit": ["Sales"]}`), `superset_filter_values {dashboard, filter, search?}` and
+      `superset_api {method, path, body?}`, one a command,
       each with `account` (an enum of the labels) only when the agent may use several Superset Connections, as
       OpenClaw's Feishu tools take an optional `accountId` (`extensions/feishu/src/tool-account.ts`; naming it
       only when there is a choice is inference). They are listed only to an agent that may use at least one: a
@@ -1718,17 +1738,20 @@ flowchart LR
       it is told to ask with its `ask` tool; a Bot's is asked by `pi` in its chat. The answers are the client API's
       JSON (`superset_chart_data` with `format: csv` the rows as CSV); a refusal, a held request and an answer of
       `superset_api` that is not a success are the tool's error. The log line is `agentapi.superset` with the
-      agent, the tool, the Connection and the number of rows, never a row.
+      agent, the tool, the Connection, the filter values used (`filters`, or the `filter` whose values were
+      listed) and the number of rows, never a row.
     - **A Bot limited to some dashboards** (issue #562, `internal/controlplane/superset/scope.go`): the list
       leaves out every other dashboard; a read of one by number or slug is answered as a dashboard that does not
       exist (a slug compared by the `id` Superset answers for it, before any chart's query runs), as Superset's
       `DashboardAccessFilter` and guest token do; a chart is read only from its dashboard (`/dashboard/{id}/charts`,
-      read on every call) with the query Hypomnema builds from the saved chart; `superset api` and `superset_api`
+      read on every call) with the query Hypomnema builds from the saved chart, its filters set as above, and a
+      filter's values only of a dashboard of its scope; `superset api` and `superset_api`
       are refused (403, naming its dashboards), as OpenMausBot refuses its generic proxy to a scoped bot, and
       `superset_api` is not listed when every Superset account of the agent is limited. Each refusal is logged on
       `superset.read` with `refused="out of scope"`.
     - **Commands**: `hypomnema superset dashboards [--search S]`, `superset dashboard <dashboard>`,
-      `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
+      `superset chart <dashboard> <chart> [--format json|csv] [--sql] [--filter Name=value]...`,
+      `superset filter-values <dashboard> <filter> [--search S]` and
       `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset
       Connection). They wait up to 240 s, longer than the 100 s an Approval is held.
     - **Its skill** (`internal/controlplane/clientcli/skills/superset`) is one guide naming the tools: what they
@@ -1737,8 +1760,9 @@ flowchart LR
       (issue #536): a Bot that may use a Superset Connection and a worker whose Run was given one get it, and the
       worker's first message names the tools, with no command on its `PATH`. The commands stay for the owner and
       Routine scripts.
-    - **The log**: each read is one line with who asked, the Connection, the action, the dashboard and chart and
-      the number of rows (`superset.read`); each relayed request one with its action, method and status
+    - **The log**: each read is one line with who asked, the Connection, the action, the dashboard and chart, the
+      filter values it was read with (`filters`) or the filter whose values were listed (`filter`, action
+      `superset.filters.read`) and the number of rows (`superset.read`); each relayed request one with its action, method and status
       (`superset.relayed`), beside the proxy's own line with the verdict. Never a row, the password or a token.
     - **On the web** the Integrations page has a Superset card: add an account (name, address, user name,
       password), see its user name, address, version and whether the last sign-in worked, what agents may do
@@ -2031,7 +2055,7 @@ flowchart LR
     - The control plane has one SSH key pair for git, an ed25519 key made on first use and kept in the vault as
       the secret `git-ssh-key` (`internal/controlplane/gitsshkey.go`), as Coder makes a user's key
       (`coderd/gitsshkey`). The owner reads its public half with `hypomnema git ssh-key`, `GET /git/ssh-key` or the
-      Integrations page, and adds it to the git host's account once. Deleting the secret makes a new pair on the
+      Repositories page, and adds it to the git host's account once. Deleting the secret makes a new pair on the
       next use; there is no regenerate command.
     - The offer carries the address (`repo_ssh_url`), never the key. The node sets `GIT_SSH_COMMAND` to its own
       `hypomnema-node gitssh` (`internal/node/gitssh`), with `GIT_SSH_VARIANT=ssh` and the agent API's address
@@ -2780,7 +2804,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
 | `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
-| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
+| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
 | `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
@@ -3625,8 +3649,17 @@ Node (`internal/node`):
     password field and sends it once; it is never read back. A company's server is added from its product's card
     ("Add server") with its address (a name or a pasted URL) and, if wanted, its token; it runs what the card is.
     Removing a token or a declared server asks first.
-  - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
-    proposed name with an optional base branch, and removes one after a confirmation.
+  - `/settings/repositories` (under Agents, after Skills and About you; issue #647, as t3code lists its Projects
+    and Orca its repositories in Settings) opens with the control plane's SSH key: the public key with a copy
+    button, as Coder's SSH keys page, and the git hosts whose repositories are cloned over SSH, each with a link to
+    that host's page for SSH keys. Below, the registered repositories as rows: name, an HTTPS or SSH badge, the
+    host (a link to Integrations) and path, the base branch and the SSH host and port, with Edit and Remove. Pills
+    narrow the list to one host, kept in the URL (`?host=`). One dialog adds and edits a repository (`PUT
+    /repos/{name}`, sent whole with its Connection kept, as `hypomnema repos set`): the URL and name when added,
+    the base branch, and Clone over HTTPS or SSH; SSH asks for the address and the host's keys and shows each
+    key's SHA256 fingerprint, computed in the browser. Remove asks first.
+  - Each git host row of `/settings/integrations` says how many registered repositories are on it, a link to
+    `/settings/repositories?host=<host>`.
   - `/settings/models` (under Gateway, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
     [research](docs/research/2026-11-12-model-gateway-pages.md)) shows where models come from
     (`web/src/features/models/`).

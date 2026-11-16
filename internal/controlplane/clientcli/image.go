@@ -25,12 +25,12 @@ import (
 // Gateway → Images shows and changes; each makes images with its one model
 // (issue #453).
 
-// imageList is a flag given once a value: --image a.png --image b.png.
-type imageList []string
+// listFlag is a flag given once a value: --image a.png --image b.png.
+type listFlag []string
 
-func (l *imageList) String() string { return strings.Join(*l, ",") }
+func (l *listFlag) String() string { return strings.Join(*l, ",") }
 
-func (l *imageList) Set(v string) error {
+func (l *listFlag) Set(v string) error {
 	*l = append(*l, v)
 
 	return nil
@@ -40,7 +40,7 @@ func (l *imageList) Set(v string) error {
 func imageFlags(edit bool) func(fs *flag.FlagSet) {
 	return func(fs *flag.FlagSet) {
 		if edit {
-			fs.Var(&imageList{}, "image", "an image to edit or to use as a reference; give it once an image (up to 14)")
+			fs.Var(&listFlag{}, "image", "an image to edit or to use as a reference; give it once an image (up to 14)")
 		}
 
 		fs.String("size", "", "1024x1024, 1536x1024, 1024x1536, auto, or an aspect ratio such as 16:9")
@@ -60,7 +60,7 @@ func imageGenerate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 }
 
 func imageEdit(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	paths, _ := fs.Lookup("image").Value.(*imageList)
+	paths, _ := fs.Lookup("image").Value.(*listFlag)
 	if paths == nil || len(*paths) == 0 {
 		return fmt.Errorf("%w: image edit needs --image <file>, once an image", ErrUsage)
 	}

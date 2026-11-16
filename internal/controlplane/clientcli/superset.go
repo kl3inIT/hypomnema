@@ -254,10 +254,14 @@ func supersetChart(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	doing := fmt.Sprintf("reading chart %d of dashboard %s of superset:%s", chart, fs.Arg(0), label)
+	params := &openapi.GetSupersetChartDataParams{Format: &format, ChatId: askingChat(), HypomnemaRoutineRun: askingRun()}
 
-	resp, err := e.api.GetSupersetChartDataWithResponse(ctx, label, fs.Arg(0), chart, &openapi.GetSupersetChartDataParams{
-		Format: &format, ChatId: askingChat(), HypomnemaRoutineRun: askingRun(),
-	})
+	if filters, _ := fs.Lookup("filter").Value.(*listFlag); filters != nil && len(*filters) > 0 {
+		given := []string(*filters)
+		params.Filter = &given
+	}
+
+	resp, err := e.api.GetSupersetChartDataWithResponse(ctx, label, fs.Arg(0), chart, params)
 	if err != nil {
 		return fmt.Errorf("%s: %w", doing, err)
 	}
@@ -276,6 +280,45 @@ func supersetChart(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	_, err = e.out.Write(resp.Body)
 
 	return err
+}
+
+// supersetFilterValues prints the values a select filter of a dashboard
+// offers, a line each: the count, then the value.
+func supersetFilterValues(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	label, err := supersetLabel(ctx, e, fs)
+	if err != nil {
+		return err
+	}
+
+	doing := fmt.Sprintf("listing the values of filter %s of dashboard %s of superset:%s", fs.Arg(1), fs.Arg(0),
+		label)
+
+	resp, err := e.api.ListSupersetFilterValuesWithResponse(ctx, label, fs.Arg(0), fs.Arg(1),
+		&openapi.ListSupersetFilterValuesParams{
+			Q: optional(fs, "search"), ChatId: askingChat(), HypomnemaRoutineRun: askingRun(),
+		})
+	if err != nil {
+		return fmt.Errorf("%s: %w", doing, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError(doing, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		if len(resp.JSON200.Data) == 0 {
+			e.printf("no value\n")
+		}
+
+		for _, v := range resp.JSON200.Data {
+			value := "null"
+			if v.Value != nil {
+				value = fmt.Sprint(v.Value)
+			}
+
+			e.printf("%d\t%s\n", v.Count, value)
+		}
+	})
 }
 
 // supersetAPI relays one request to Superset's API and prints the answer's

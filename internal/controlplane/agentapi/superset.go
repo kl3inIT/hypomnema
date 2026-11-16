@@ -34,8 +34,9 @@ import (
 // Superset's own MCP servers name theirs superset_<thing>_<verb>
 // (aptro/superset-mcp main.py: superset_dashboard_list). So:
 //
-//   - superset_dashboards, superset_dashboard, superset_chart_data and
-//     superset_api, the four commands, read and relayed as the client API's
+//   - superset_dashboards, superset_dashboard, superset_chart_data (with
+//     the dashboard's filters set, issue #648), superset_filter_values and
+//     superset_api, the five commands, read and relayed as the client API's
 //     routes are (clientapi/superset.go), through the service proxy's
 //     decision (Relay), so a write waits for the owner's Approval exactly as
 //     the command's does;
@@ -50,20 +51,23 @@ import (
 // MCP and keep the commands.
 //
 // A Bot the owner limited to some dashboards of a Connection reads them
-// through the three reads and is refused superset_api for it (issue #562,
+// through the reads and is refused superset_api for it (issue #562,
 // superset.Scope), as the commands are; superset_api is not listed when
 // every account it has is limited, as OpenClaw does not register a tool no
 // account may use (extensions/feishu/src/tool-registration.ts).
 
 // The tools' names.
 const (
-	toolSupersetDashboards = agenttool.ToolSupersetDashboards
-	toolSupersetDashboard  = agenttool.ToolSupersetDashboard
-	toolSupersetChartData  = agenttool.ToolSupersetChartData
-	toolSupersetAPI        = agenttool.ToolSupersetAPI
+	toolSupersetDashboards   = agenttool.ToolSupersetDashboards
+	toolSupersetDashboard    = agenttool.ToolSupersetDashboard
+	toolSupersetChartData    = agenttool.ToolSupersetChartData
+	toolSupersetFilterValues = agenttool.ToolSupersetFilterValues
+	toolSupersetAPI          = agenttool.ToolSupersetAPI
 )
 
-var supersetTools = []string{toolSupersetDashboards, toolSupersetDashboard, toolSupersetChartData, toolSupersetAPI}
+var supersetTools = []string{
+	toolSupersetDashboards, toolSupersetDashboard, toolSupersetChartData, toolSupersetFilterValues, toolSupersetAPI,
+}
 
 // Relay sends a request to a Connection that has its own address, through
 // the decision of the control plane's service proxy (serviceproxy.Proxy).
@@ -154,12 +158,32 @@ func (s *Server) supersetToolList(ctx context.Context, a agent) []agenttool.Brow
 			Name: toolSupersetChartData,
 			Description: "Read a chart's rows as its dashboard shows them when it opens: columns, rows, row_count, " +
 				"the sql Superset ran, computed_at (when the figures were computed; say it when you report one) " +
-				"and cached. The chart's own row limit holds. format csv gives the rows alone with a header line.",
+				"and cached. The chart's own row limit holds. format csv gives the rows alone with a header line. " +
+				"filters sets the dashboard's filters as its filter bar does, so Superset computes the figures " +
+				"with them: answer a filtered question this way, never by summing or averaging rows.",
 			InputSchema: with(map[string]any{
 				"dashboard": dashboard,
 				"chart":     map[string]any{"type": "integer", "description": "The chart's number."},
 				"format":    map[string]any{"type": "string", "enum": []string{"json", "csv"}},
+				"filters": map[string]any{
+					"type": "object",
+					"description": "Values of the dashboard's filters, by the filter's name as superset_dashboard " +
+						`lists it: {"Unit": ["Sales", "Support"], "Time": ["Last week"]}. A filter not named keeps ` +
+						"its default; an empty list clears it. A time filter takes one range, a select filter " +
+						"the values superset_filter_values lists.",
+					"additionalProperties": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				},
 			}, "dashboard", "chart"),
+		},
+		{
+			Name: toolSupersetFilterValues,
+			Description: "List the values a select filter of a dashboard offers, as its filter bar lists them: " +
+				"each value with how many rows have it, the most frequent first, at most 1000.",
+			InputSchema: with(map[string]any{
+				"dashboard": dashboard,
+				"filter":    map[string]any{"type": "string", "description": "The filter's name, or its id."},
+				"search":    map[string]any{"type": "string", "description": "Only the values that contain this."},
+			}, "dashboard", "filter"),
 		},
 		{
 			Name: toolSupersetAPI,
@@ -203,9 +227,48 @@ type supersetArgs struct {
 	Dashboard json.RawMessage `json:"dashboard"`
 	Chart     json.RawMessage `json:"chart"`
 	Format    string          `json:"format"`
+	Filters   json.RawMessage `json:"filters"`
+	Filter    string          `json:"filter"`
 	Method    string          `json:"method"`
 	Path      string          `json:"path"`
 	Body      json.RawMessage `json:"body"`
+
+	// filters are Filters read.
+	filters superset.Filters
+}
+
+// toolFilters reads superset_chart_data's filters: each filter's values as a
+// list, or one value alone as a text.
+func toolFilters(raw json.RawMessage) (superset.Filters, error) {
+	out := superset.Filters{}
+	if len(raw) == 0 || string(raw) == "null" {
+		return out, nil
+	}
+
+	var given map[string]json.RawMessage
+	if json.Unmarshal(raw, &given) != nil {
+		return nil, errors.New(`filters is an object of each filter's values: {"Unit": ["Sales"]}`)
+	}
+
+	for name, v := range given {
+		var (
+			one  string
+			many []string
+		)
+
+		switch {
+		case json.Unmarshal(v, &many) == nil:
+			out[name] = append([]string{}, many...)
+		case json.Unmarshal(v, &one) == nil && one == "":
+			out[name] = []string{}
+		case json.Unmarshal(v, &one) == nil:
+			out[name] = []string{one}
+		default:
+			return nil, fmt.Errorf("filter %q's values are a list of texts", name)
+		}
+	}
+
+	return out, nil
 }
 
 // idOf reads a dashboard or chart named by its number or, for a dashboard,
@@ -237,6 +300,15 @@ func (s *Server) supersetCall(w http.ResponseWriter, r *http.Request, a agent, l
 
 		return
 	}
+
+	filters, err := toolFilters(in.Filters)
+	if err != nil {
+		answerTool(w, err.Error(), true)
+
+		return
+	}
+
+	in.filters = filters
 
 	label, fix := pickAccount(labels, strings.TrimSpace(in.Account))
 	if fix != "" {
@@ -282,10 +354,21 @@ func (s *Server) supersetCall(w http.ResponseWriter, r *http.Request, a agent, l
 		return
 	}
 
-	// Who read what and how much; never a row.
-	s.logger.InfoContext(r.Context(), "an agent used a Superset connection",
+	// Who read what, with which filter values, and how much; never a row.
+	attrs := []any{
 		slog.String("event", "agentapi.superset"), slog.String("agent", a.name), slog.String("tool", call.Tool),
-		slog.String("connection", orchestration.Use(serviceproxy.SupersetID, label)), slog.Int("rows", rows))
+		slog.String("connection", orchestration.Use(serviceproxy.SupersetID, label)), slog.Int("rows", rows),
+	}
+
+	if len(in.filters) > 0 {
+		attrs = append(attrs, slog.Any("filters", in.filters.Strings()))
+	}
+
+	if in.Filter != "" {
+		attrs = append(attrs, slog.String("filter", in.Filter))
+	}
+
+	s.logger.InfoContext(r.Context(), "an agent used a Superset connection", attrs...)
 
 	answerTool(w, out.text, out.isError)
 }
@@ -341,6 +424,24 @@ func (s *Server) runSuperset(ctx context.Context, rc serviceproxy.Call, scope su
 		return jsonResult(dashboardAnswer(d)), len(d.Charts), nil
 	case toolSupersetChartData:
 		return s.chartData(ctx, relay, scope, in)
+	case toolSupersetFilterValues:
+		dashboard, filter := idOf(in.Dashboard), strings.TrimSpace(in.Filter)
+		if dashboard == "" || filter == "" {
+			return toolResult{text: "name the dashboard by its number or slug and the filter by its name",
+				isError: true}, 0, nil
+		}
+
+		values, err := scope.FilterValues(ctx, relay, dashboard, filter, in.Search)
+		if err != nil {
+			return toolResult{}, 0, err
+		}
+
+		out := filterValuesList{Data: make([]filterValue, 0, len(values))}
+		for _, v := range values {
+			out.Data = append(out.Data, filterValue(v))
+		}
+
+		return jsonResult(out), len(values), nil
 	default:
 		if err := scope.RelayRefused(orchestration.Use(rc.Integration, rc.Label)); err != nil {
 			return toolResult{}, 0, err
@@ -377,7 +478,7 @@ func (s *Server) chartData(ctx context.Context, relay superset.Relay, scope supe
 		return toolResult{text: "format is json or csv", isError: true}, 0, nil
 	}
 
-	data, err := scope.ChartData(ctx, relay, dashboard, chart, time.Now().UTC())
+	data, err := scope.ChartData(ctx, relay, dashboard, chart, in.filters, time.Now().UTC())
 	if err != nil {
 		return toolResult{}, 0, err
 	}
@@ -484,6 +585,13 @@ type (
 		SQL         string    `json:"sql"`
 		ComputedAt  time.Time `json:"computed_at"`
 		Cached      bool      `json:"cached"`
+	}
+	filterValue struct {
+		Value any   `json:"value"`
+		Count int64 `json:"count"`
+	}
+	filterValuesList struct {
+		Data []filterValue `json:"data"`
 	}
 	relayAnswer struct {
 		Status      int    `json:"status"`

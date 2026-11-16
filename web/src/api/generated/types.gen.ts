@@ -1352,6 +1352,21 @@ export type SupersetChartData = {
   cached: boolean;
 };
 
+export type SupersetFilterValueList = {
+  data: Array<SupersetFilterValue>;
+};
+
+export type SupersetFilterValue = {
+  /**
+   * The value as Superset answers it: a text, a number, or null.
+   */
+  value: unknown;
+  /**
+   * How many rows have it.
+   */
+  count: number;
+};
+
 export type SupersetRequest = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /**
@@ -5290,6 +5305,10 @@ export type GetSupersetChartDataData = {
      */
     format?: 'json' | 'csv';
     /**
+     * A value of one of the dashboard's filters, as name=value, the filter named as the dashboard names it or by its id. Repeat it for several values of a select filter; name= alone clears the filter. A time filter takes one range, such as "Last week" or "2026-11-01 : 2026-11-08"; a time grain or time column filter one value.
+     */
+    filter?: Array<string>;
+    /**
      * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
      */
     chat_id?: string;
@@ -5314,6 +5333,56 @@ export type GetSupersetChartDataResponses = {
 };
 
 export type GetSupersetChartDataResponse = GetSupersetChartDataResponses[keyof GetSupersetChartDataResponses];
+
+export type ListSupersetFilterValuesData = {
+  body?: never;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
+  path: {
+    label: string;
+    /**
+     * The dashboard's number or its slug.
+     */
+    dashboard: string;
+    /**
+     * The filter, named as the dashboard names it or by its id.
+     */
+    filter: string;
+  };
+  query?: {
+    /**
+     * Only the values that contain this text, in any case.
+     */
+    q?: string;
+    /**
+     * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+     */
+    chat_id?: string;
+  };
+  url: '/integrations/superset/connections/{label}/dashboards/{dashboard}/filters/{filter}/values';
+};
+
+export type ListSupersetFilterValuesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSupersetFilterValuesError = ListSupersetFilterValuesErrors[keyof ListSupersetFilterValuesErrors];
+
+export type ListSupersetFilterValuesResponses = {
+  /**
+   * The filter's values.
+   */
+  200: SupersetFilterValueList;
+};
+
+export type ListSupersetFilterValuesResponse = ListSupersetFilterValuesResponses[keyof ListSupersetFilterValuesResponses];
 
 export type RelaySupersetRequestData = {
   body: SupersetRequest;

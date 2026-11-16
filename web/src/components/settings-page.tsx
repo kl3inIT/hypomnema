@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Box,
   ChartColumn,
+  FolderGit2,
   Globe,
   ImageIcon,
   KeyRound,
@@ -26,8 +27,6 @@ import { cn } from "@/lib/utils"
 // route a section (docs/research/2026-11-10-menus-and-settings.md): the headings are t3code's
 // (components/settings/settingsSearch.ts SETTINGS_NAV_GROUPS), and the sidebar's body gives way to the sections
 // with a way back as Omnigent's does (web/src/shell/settingsNav.tsx). A section appears here once it has a page.
-// Repositories has a page (/settings/repositories) but no entry: what a registered repository is, and whether it
-// belongs here or in the app's sidebar as a project, is being decided (issue #44, owner, 2026-11-10).
 type Section = {
   to:
     | "/settings/models"
@@ -51,7 +50,10 @@ type Section = {
 // providers beside their models; not "Agents", which the app's sidebar already has (2026-11-12). "Connections" holds
 // what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets. The group "Agents" holds what is given to the agents' CLIs:
 // their skills (issue #21; prototype the owner accepted, 2026-11-12), and the memory about the owner every agent
-// gets, as OpenClaw keeps Memory beside Skills in its group of agents.
+// gets, as OpenClaw keeps Memory beside Skills in its group of agents; and the repositories agents work in, as
+// t3code's Settings lists its Projects (apps/web/src/components/settings/settingsSearch.ts) and Orca's its
+// repositories (src/renderer/src/components/settings/navigation/SettingsSidebar.tsx), in this group by the owner's
+// choice (issue #647, 2026-11-16).
 const groups: { heading: string; sections: Section[] }[] = [
   {
     heading: "Gateway",
@@ -68,6 +70,7 @@ const groups: { heading: string; sections: Section[] }[] = [
     sections: [
       { to: "/settings/skills", label: "Skills", icon: BookOpen },
       { to: "/settings/about-you", label: "About you", icon: UserRound },
+      { to: "/settings/repositories", label: "Repositories", icon: FolderGit2 },
     ],
   },
   {

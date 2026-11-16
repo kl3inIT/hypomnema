@@ -437,10 +437,11 @@ func GetDashboard(ctx context.Context, relay Relay, id string) (Dashboard, error
 
 // GetChartData returns the rows of a chart of a dashboard as the dashboard
 // shows them when it opens: with the dashboard's filters at the values they
-// start with. The query is the one Superset saved with the chart when it
+// start with, but those given values in filters (issue #648). The query is the one Superset saved with the chart when it
 // has one, and otherwise one built from the chart's own settings; a chart
 // of a kind whose query is not built yet is refused by its kind's name.
-func GetChartData(ctx context.Context, relay Relay, dashboardID, chartID string, now time.Time) (ChartData, error) {
+func GetChartData(ctx context.Context, relay Relay, dashboardID, chartID string, filters Filters, now time.Time,
+) (ChartData, error) {
 	if err := checkID("dashboard", dashboardID); err != nil {
 		return ChartData{}, err
 	}
@@ -511,7 +512,12 @@ func GetChartData(ctx context.Context, relay Relay, dashboardID, chartID string,
 		kind = detail.Result.Kind
 	}
 
-	extra := dashboardDefaults(nativeFilters(dashboard.Result.Metadata), chart)
+	set, err := withValues(nativeFilters(dashboard.Result.Metadata), filters, dashboardID, chart)
+	if err != nil {
+		return ChartData{}, err
+	}
+
+	extra := dashboardDefaults(set, chart)
 
 	payload, source, err := queryOf(detail.Result.QueryContext, formData, kind, chart, extra)
 	if err != nil {

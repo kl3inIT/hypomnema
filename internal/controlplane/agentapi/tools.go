@@ -24,6 +24,7 @@ import (
 //   - web_search, web_fetch, generate_image (web.go): a worker by its
 //     runtime, a Bot's pi all three;
 //   - superset_dashboards, superset_dashboard, superset_chart_data,
+//     superset_filter_values,
 //     superset_api (superset.go): a worker given a Superset Connection by its
 //     Run, a Bot's pi one switched on for chats and on its Bot's list;
 //   - whatsapp_chats, whatsapp_messages, whatsapp_media, whatsapp_history

@@ -57,10 +57,13 @@ func (w *supersetWorld) botWorkerOf(node, bot string, uses ...string) string {
 // it. The owner then limits the Bot to dashboard 9 of it: the worker, whose
 // Run was made before, loses the account at once (read when asked, as the
 // owner's switch is), and the Bot cannot give it to a new Run. The Bot's pi
-// is offered the three reads and not superset_api: the list leaves out the
+// is offered the reads and not superset_api: the list leaves out the
 // dashboard it was not given, which reads as one that does not exist, and
 // a request it writes is refused, naming its dashboards; each refusal is
-// logged as out of scope.
+// logged as out of scope. It reads a chart of its dashboard with the
+// dashboard's filters set, and a filter's values, which are logged with
+// the read (issue #648); the same on another dashboard is refused before
+// anything is asked of it.
 func TestABotLimitedToDashboardsKeepsItsWorkersAndPiToThem(t *testing.T) {
 	t.Parallel()
 
@@ -74,7 +77,7 @@ func TestABotLimitedToDashboardsKeepsItsWorkersAndPiToThem(t *testing.T) {
 	require.NoError(t, err)
 
 	worker := w.botWorkerOf("n1", bot.ID, "superset:vmaps")
-	require.Len(t, w.supersetToolsOf(worker), 4)
+	require.Len(t, w.supersetToolsOf(worker), 5)
 
 	_, text, isError := w.use(worker, "superset_dashboards", `{}`)
 	require.False(t, isError, text)
@@ -106,8 +109,9 @@ func TestABotLimitedToDashboardsKeepsItsWorkersAndPiToThem(t *testing.T) {
 	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"superset_dashboards", "superset_dashboard", "superset_chart_data"},
-		toolNames(w.supersetToolsOf(pi)))
+	assert.Equal(t, []string{
+		"superset_dashboards", "superset_dashboard", "superset_chart_data", "superset_filter_values",
+	}, toolNames(w.supersetToolsOf(pi)))
 
 	_, text, isError = w.use(pi, "superset_dashboards", `{}`)
 	require.False(t, isError, text)
@@ -144,6 +148,30 @@ func TestABotLimitedToDashboardsKeepsItsWorkersAndPiToThem(t *testing.T) {
 	require.False(t, isError, rows)
 	assert.Contains(t, rows, `"row_count":30`)
 
+	_, rows, isError = w.use(pi, "superset_chart_data",
+		`{"dashboard":"9","chart":`+strconv.Itoa(supersettest.UnitShare)+`,"filters":{"Unit":["Support"]}}`)
+	require.False(t, isError, rows)
+	assert.Equal(t, []any{map[string]any{"col": "unit", "op": "IN", "val": []any{"Support"}}},
+		w.superset.LastQuery()["filters"], "the value replaces the dashboard's default")
+	assert.Contains(t, w.log.String(), `filters="[Unit=Support]"`)
+
+	_, text, isError = w.use(pi, "superset_filter_values", `{"dashboard":"9","filter":"Unit","search":"sup"}`)
+	require.False(t, isError, text)
+	assert.JSONEq(t, `{"data":[{"value":"Support","count":25}]}`, text)
+
+	before = len(w.superset.Requests())
+
+	for _, call := range []struct{ tool, args string }{
+		{"superset_chart_data", `{"dashboard":"12","chart":166,"filters":{"Unit":["Support"]}}`},
+		{"superset_filter_values", `{"dashboard":"12","filter":"Unit"}`},
+	} {
+		_, text, isError = w.use(pi, call.tool, call.args)
+		assert.True(t, isError, call.tool)
+		assert.Contains(t, text, "dashboard 12 not found", call.tool)
+	}
+
+	assert.Len(t, w.superset.Requests(), before, "nothing was asked of a dashboard out of its scope")
+
 	mainChat, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
@@ -168,7 +196,7 @@ func TestTheWorkerOfARemovedBotLosesItsSupersetAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	worker := w.botWorkerOf("n1", bot.ID, "superset:vmaps")
-	require.Len(t, w.supersetToolsOf(worker), 4)
+	require.Len(t, w.supersetToolsOf(worker), 5)
 
 	require.NoError(t, w.svc.DeleteBot(ctx, bot.ID))
 

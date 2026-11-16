@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useState } from "react"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import type { ConnectionAction, GitHost, Integration, Repo } from "@/api/generated/types.gen"
@@ -26,6 +27,23 @@ afterEach(() => vi.restoreAllMocks())
 const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8"
 
 const sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH0nodes hypomnema"
+
+const sshUrl = "ssh://git@167.254.68.172:222/mobility/platform.git"
+
+const repo = (name: string, host = "gitlab.company.example", over: Partial<Repo> = {}): Repo => ({
+  name,
+  host,
+  path: host === "github.com" ? `owner/${name}` : "team/app",
+  created_at: new Date().toISOString(),
+  ...over,
+})
+
+// Repositories is the page as its route gives it: the host it is narrowed to, kept while the test runs.
+function Repositories() {
+  const [host, setHost] = useState<string>()
+
+  return <RepositoriesScreen host={host} onHost={setHost} />
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -276,7 +294,7 @@ async function open(Screen: () => React.JSX.Element, heading: string) {
       </SidebarProvider>
     </QueryClientProvider>,
   )
-  await screen.findByRole("heading", { name: heading })
+  await screen.findByRole("heading", { name: heading, level: 1 })
 }
 
 const cardOf = (title: HTMLElement) => title.closest<HTMLElement>("[data-testid=integration-card]")!
@@ -335,17 +353,120 @@ test("a product's card lists its hosts and says once how to connect them", async
   )
 })
 
-// Scenario: a repository is cloned over SSH when its host's HTTPS cannot carry it (issue #625). Under the git
-// hosts, the Integrations page shows the public key the nodes clone with, whole and with a button that copies it.
-test("the SSH key the nodes clone with is shown to be added to the git host", async () => {
-  server({})
+// Scenario: the SSH key moved to Repositories (issue #647): Integrations lists the git hosts without it. A host's
+// row says how many registered repositories are on it and leads to them.
+test("a git host's row leads to its repositories, and the SSH key is not under Integrations", async () => {
+  server({
+    hosts: [
+      known("github.com", "github"),
+      { ...known("gitlab.company.example", "gitlab"), known: false },
+    ],
+    repos: [repo("app"), repo("web")],
+  })
   await open(IntegrationsScreen, "Integrations")
 
-  const key = within(await screen.findByTestId("ssh-key-card"))
-  expect(key.getByText("SSH key")).toBeInTheDocument()
+  const company = within(await row("GitLab", "gitlab.company.example"))
+  expect(await company.findByRole("link", { name: /2 repositories/ })).toHaveAttribute(
+    "href",
+    "/settings/repositories?host=gitlab.company.example",
+  )
+  expect(within(await row("GitHub", "github.com")).queryByRole("link")).not.toBeInTheDocument()
+  expect(screen.queryByText("SSH key")).not.toBeInTheDocument()
+})
+
+// Scenario: a repository is cloned over SSH when its host's HTTPS cannot carry it (issue #625). The Repositories
+// page opens with the public key the nodes clone with, whole and with a button that copies it, and the hosts whose
+// repositories are cloned with it, each leading to the page of that host where a key is added (issue #647).
+test("the SSH key the nodes clone with heads Repositories, with the hosts that use it", async () => {
+  server({
+    hosts: [known("github.com", "github"), known("gitlab.company.example", "gitlab")],
+    repos: [
+      repo("platform", "gitlab.company.example", { ssh_url: sshUrl, ssh_host_key: hostKey }),
+      repo("app"),
+      repo("site", "github.com"),
+    ],
+  })
+  await open(Repositories, "Repositories")
+
+  const key = within(await screen.findByTestId("ssh-key"))
   expect(await key.findByText(sshPublicKey)).toBeInTheDocument()
   expect(key.getByRole("button", { name: "Copy" })).toBeInTheDocument()
-  expect(key.getByText(/under SSH keys on the git host/)).toBeInTheDocument()
+  const host = within(await screen.findByLabelText("SSH host gitlab.company.example"))
+  expect(host.getByText("Used by 1 repository.")).toBeInTheDocument()
+  expect(host.getByRole("link", { name: /SSH keys on the host/ })).toHaveAttribute(
+    "href",
+    "https://gitlab.company.example/-/user_settings/ssh_keys",
+  )
+  expect(screen.queryByLabelText("SSH host github.com")).not.toBeInTheDocument()
+
+  const platform = (await screen.findByText("platform")).closest<HTMLElement>("[data-slot=item]")!
+  expect(within(platform).getByText("SSH")).toBeInTheDocument()
+  expect(platform).toHaveTextContent("cloned over SSH from 167.254.68.172:222")
+  expect(within(platform).getByRole("link", { name: "gitlab.company.example" })).toHaveAttribute(
+    "href",
+    "/settings/integrations",
+  )
+  const site = screen.getByText("site").closest<HTMLElement>("[data-slot=item]")!
+  expect(within(site).getByText("HTTPS")).toBeInTheDocument()
+})
+
+// Scenario: repositories are on two hosts. The pills narrow the list to one host and back to all.
+test("the owner narrows the repositories to one host", async () => {
+  const user = userEvent.setup()
+  server({ repos: [repo("app"), repo("web"), repo("site", "github.com")] })
+  await open(Repositories, "Repositories")
+
+  const filter = within(await screen.findByRole("group", { name: "Git host" }))
+  expect(filter.getByRole("button", { name: "All 3" })).toHaveAttribute("aria-pressed", "true")
+  await user.click(filter.getByRole("button", { name: "github.com 1" }))
+  expect(screen.queryByText("app")).not.toBeInTheDocument()
+  expect(screen.getByText("site")).toBeInTheDocument()
+
+  await user.click(filter.getByRole("button", { name: "All 3" }))
+  expect(await screen.findByText("app")).toBeInTheDocument()
+})
+
+// Scenario: a repository registered over HTTPS is moved to SSH from its row's Edit (issue #647): the dialog starts
+// from what it is now, asks for the address and the host's key only once SSH is chosen, and shows the key's
+// fingerprint. What is sent names the repository whole, its Connection kept, as `repos set` does.
+test("the owner moves a repository to SSH from its Edit dialog", async () => {
+  const user = userEvent.setup()
+  const requests = server({ repos: [repo("app", undefined, { base: "main", connection: "work" })] })
+  await open(Repositories, "Repositories")
+
+  await user.click(await screen.findByRole("button", { name: "Edit app" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  expect(dialog.getByRole("heading", { name: "Edit app" })).toBeInTheDocument()
+  expect(dialog.queryByLabelText("Repository")).not.toBeInTheDocument()
+  expect(dialog.getByLabelText("Base branch")).toHaveValue("main")
+  expect(dialog.queryByLabelText("SSH address")).not.toBeInTheDocument()
+
+  await user.click(dialog.getByRole("button", { name: "SSH" }))
+  await user.type(dialog.getByLabelText("SSH address"), sshUrl)
+  await user.click(dialog.getByRole("button", { name: "Save" }))
+  expect(await dialog.findByText(/Give the SSH host's key/)).toBeInTheDocument()
+  expect(requests).toEqual([])
+
+  await user.type(dialog.getByLabelText("SSH host key"), hostKey)
+  expect(await dialog.findByTestId("host-key-fingerprint")).toHaveTextContent(
+    "SHA256:Ls1IQVqyE39d8qi/ZFNrZbP7SsHmSqWVrJiVjUjpJ/M (ED25519)",
+  )
+  await user.click(dialog.getByRole("button", { name: "Save" }))
+
+  const row = (await screen.findByText("app")).closest<HTMLElement>("[data-slot=item]")!
+  expect(await within(row).findByText("SSH")).toBeInTheDocument()
+  expect(requests).toEqual([
+    {
+      call: "PUT /repos/app",
+      body: {
+        repo: "https://gitlab.company.example/team/app",
+        base: "main",
+        connection: "work",
+        ssh_url: sshUrl,
+        ssh_host_key: hostKey,
+      },
+    },
+  ])
 })
 
 // Scenario: the owner gives gitlab.com a token. It is typed into a password field, sent once without the spaces
@@ -451,7 +572,7 @@ test("the owner adds a company's server to its product, removes its token and re
 test("the owner registers a repository under a name and removes it", async () => {
   const user = userEvent.setup()
   const requests = server({})
-  await open(RepositoriesScreen, "Repositories")
+  await open(Repositories, "Repositories")
 
   expect(await screen.findByText("No repositories yet")).toBeInTheDocument()
 
@@ -492,7 +613,7 @@ test("the owner registers a repository under a name and removes it", async () =>
 test("the owner registers a repository with its SSH address", async () => {
   const user = userEvent.setup()
   const requests = server({})
-  await open(RepositoriesScreen, "Repositories")
+  await open(Repositories, "Repositories")
 
   await user.click(await screen.findByRole("button", { name: "Add repository" }))
 
@@ -501,9 +622,11 @@ test("the owner registers a repository with its SSH address", async () => {
     dialog.getByLabelText("Repository"),
     "https://gitlab.company.example/mobility/platform",
   )
+  expect(dialog.queryByLabelText("SSH address")).not.toBeInTheDocument()
+  await user.click(dialog.getByRole("button", { name: "SSH" }))
   await user.type(dialog.getByLabelText("SSH address"), "https://gitlab.company.example/x.git")
   await user.click(dialog.getByRole("button", { name: "Add" }))
-  expect(await dialog.findByText(/Clone with SSH/)).toBeInTheDocument()
+  expect(await dialog.findByText(/such as ssh:\/\/git@host:222/)).toBeInTheDocument()
   expect(requests).toEqual([])
 
   await user.clear(dialog.getByLabelText("SSH address"))
@@ -519,9 +642,7 @@ test("the owner registers a repository with its SSH address", async () => {
   await user.click(dialog.getByRole("button", { name: "Add" }))
 
   const row = (await screen.findByText("platform")).closest<HTMLElement>("[data-slot=item]")!
-  expect(row).toHaveTextContent(
-    "cloned over SSH from ssh://git@167.254.68.172:222/mobility/platform.git",
-  )
+  expect(row).toHaveTextContent("cloned over SSH from 167.254.68.172:222")
   expect(requests).toEqual([
     {
       call: "PUT /repos/platform",

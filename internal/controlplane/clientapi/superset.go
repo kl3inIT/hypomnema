@@ -25,7 +25,8 @@ import (
 // for its action holds here as it does for an agent's tool. No token and no
 // password is in an answer or a log line, and no row is logged. A Bot the
 // owner limited to some dashboards of a Connection reads only those, through
-// the three reads, and is refused the relay (issue #562, superset.Scope).
+// the reads (a chart with its filters set and a filter's values, issue #648),
+// and is refused the relay (issue #562, superset.Scope).
 
 // Relay sends a request to a Connection that has its own address, through
 // the decision of the control plane's service proxy.
@@ -141,10 +142,11 @@ func relayError(err error) error {
 	return err
 }
 
-// logSupersetRead writes who read what of a Connection and how many rows it
+// logSupersetRead writes who read what of a Connection, with what it was
+// read with (the filter values of a chart, issue #648), and how many rows it
 // was. The rows are never logged.
 func (s *Server) logSupersetRead(
-	ctx context.Context, call serviceproxy.Call, action, dashboard, chart string, rows int,
+	ctx context.Context, call serviceproxy.Call, action, dashboard, chart string, rows int, with ...slog.Attr,
 ) {
 	attrs := []any{
 		slog.String("event", "superset.read"), slog.String("agent", call.Caller.Name),
@@ -158,6 +160,10 @@ func (s *Server) logSupersetRead(
 
 	if chart != "" {
 		attrs = append(attrs, slog.String("chart", chart))
+	}
+
+	for _, a := range with {
+		attrs = append(attrs, a)
 	}
 
 	s.logger.InfoContext(ctx, "a read of a Superset connection", attrs...)
@@ -260,14 +266,29 @@ func (s *Server) GetSupersetChartData(ctx context.Context, req openapi.GetSupers
 
 	chart := strconv.FormatInt(req.Chart, 10)
 
-	data, err := scope.ChartData(ctx, s.relayOf(call), req.Dashboard, chart, s.now())
+	var given []string
+	if req.Params.Filter != nil {
+		given = *req.Params.Filter
+	}
+
+	filters, err := superset.ParseFilters(given)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := scope.ChartData(ctx, s.relayOf(call), req.Dashboard, chart, filters, s.now())
 	if err != nil {
 		s.logSupersetRefused(ctx, call, "superset.charts.read", req.Dashboard, err)
 
 		return nil, err
 	}
 
-	s.logSupersetRead(ctx, call, "superset.charts.read", req.Dashboard, chart, len(data.Rows))
+	var with []slog.Attr
+	if len(filters) > 0 {
+		with = append(with, slog.Any("filters", filters.Strings()))
+	}
+
+	s.logSupersetRead(ctx, call, "superset.charts.read", req.Dashboard, chart, len(data.Rows), with...)
 
 	if req.Params.Format != nil && *req.Params.Format == openapi.Csv {
 		raw, err := superset.CSV(data)
@@ -283,6 +304,33 @@ func (s *Server) GetSupersetChartData(ctx context.Context, req openapi.GetSupers
 		Source: openapi.SupersetChartDataSource(data.Source), Columns: data.Columns, Rows: data.Rows,
 		RowCount: len(data.Rows), Sql: data.SQL, ComputedAt: data.ComputedAt, Cached: data.Cached,
 	}, nil
+}
+
+// ListSupersetFilterValues lists the values a select filter of a dashboard
+// offers, with their counts (issue #648).
+func (s *Server) ListSupersetFilterValues(ctx context.Context, req openapi.ListSupersetFilterValuesRequestObject,
+) (openapi.ListSupersetFilterValuesResponseObject, error) {
+	call, scope, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
+	if err != nil {
+		return nil, err
+	}
+
+	values, err := scope.FilterValues(ctx, s.relayOf(call), req.Dashboard, req.Filter, val(req.Params.Q))
+	if err != nil {
+		s.logSupersetRefused(ctx, call, "superset.filters.read", req.Dashboard, err)
+
+		return nil, err
+	}
+
+	s.logSupersetRead(ctx, call, "superset.filters.read", req.Dashboard, "", len(values),
+		slog.String("filter", req.Filter))
+
+	out := openapi.ListSupersetFilterValues200JSONResponse{Data: make([]openapi.SupersetFilterValue, 0, len(values))}
+	for _, v := range values {
+		out.Data = append(out.Data, openapi.SupersetFilterValue{Value: v.Value, Count: v.Count})
+	}
+
+	return out, nil
 }
 
 // RelaySupersetRequest sends one request to a Connection's API and returns

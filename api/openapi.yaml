@@ -1239,7 +1239,11 @@ paths:
         The column names, the rows, the SQL Superset ran and when the figures
         were computed. The query is the one Superset saved with the chart when
         it has one, and otherwise one built from the chart's own settings; the
-        dashboard's filters are applied at the values they start with. A chart
+        dashboard's filters are applied at the values they start with, but
+        those given in filter, as the dashboard's filter bar sets them. A
+        value is sent as data, never as SQL; the chart's columns, metrics and
+        groups stay its own. A filter the dashboard does not have, or that
+        does not apply to the chart, is refused naming those that do. A chart
         of a kind whose query is not built yet, and that has no saved query,
         is refused with the name of its kind. The chart's own row limit holds.
         Who may ask is as for the list of dashboards.
@@ -1248,6 +1252,21 @@ paths:
           in: query
           description: json, the default, or csv for the rows alone with a header line.
           schema: { type: string, enum: [json, csv] }
+        - name: filter
+          in: query
+          description: >-
+            A value of one of the dashboard's filters, as name=value, the filter
+            named as the dashboard names it or by its id. Repeat it for several
+            values of a select filter; name= alone clears the filter. A time
+            filter takes one range, such as "Last week" or
+            "2026-11-01 : 2026-11-08"; a time grain or time column filter one
+            value.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 100
+            items: { type: string, maxLength: 1000 }
         - $ref: "#/components/parameters/AskingChat"
         - $ref: "#/components/parameters/AskingRoutineRun"
       responses:
@@ -1258,6 +1277,37 @@ paths:
               schema: { $ref: "#/components/schemas/SupersetChartData" }
             text/csv:
               schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/superset/connections/{label}/dashboards/{dashboard}/filters/{filter}/values:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - $ref: "#/components/parameters/SupersetDashboardID"
+      - name: filter
+        in: path
+        required: true
+        description: The filter, named as the dashboard names it or by its id.
+        schema: { type: string, minLength: 1, maxLength: 200 }
+    get:
+      operationId: ListSupersetFilterValues
+      summary: The values a select filter of a dashboard offers
+      description: >-
+        The distinct values of the filter's column on its dataset, each with
+        how many rows have it, the most frequent first, at most a thousand:
+        the list Superset's filter bar offers. Only a select filter has one.
+        Who may ask is as for the list of dashboards.
+      parameters:
+        - name: q
+          in: query
+          description: Only the values that contain this text, in any case.
+          schema: { type: string, maxLength: 200 }
+        - $ref: "#/components/parameters/AskingChat"
+        - $ref: "#/components/parameters/AskingRoutineRun"
+      responses:
+        "200":
+          description: The filter's values.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupersetFilterValueList" }
         default: { $ref: "#/components/responses/Error" }
   /integrations/superset/connections/{label}/api:
     parameters:
@@ -5196,6 +5246,19 @@ components:
             When the figures were computed: when Superset cached them, or the
             time of this call when they did not come from its cache.
         cached: { type: boolean, description: Whether the figures came from Superset's cache. }
+    SupersetFilterValueList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SupersetFilterValue" }
+    SupersetFilterValue:
+      type: object
+      required: [value, count]
+      properties:
+        value: { description: "The value as Superset answers it: a text, a number, or null." }
+        count: { type: integer, format: int64, description: How many rows have it. }
     SupersetRequest:
       type: object
       required: [method, path]

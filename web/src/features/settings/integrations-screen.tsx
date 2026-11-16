@@ -1,6 +1,7 @@
 import { useForm } from "@tanstack/react-form"
+import { Link } from "@tanstack/react-router"
 import { useMutation } from "@tanstack/react-query"
-import { ExternalLink, KeyRound, Plus } from "lucide-react"
+import { ArrowRight, ExternalLink, Plus } from "lucide-react"
 import { useId, useState, type ReactNode } from "react"
 import { z } from "zod"
 
@@ -11,16 +12,10 @@ import {
   putGitHost,
   putGitHostToken,
 } from "@/api/generated/sdk.gen"
-import type { GitHost, GitHostKind } from "@/api/generated/types.gen"
+import type { GitHost, GitHostKind, Repo } from "@/api/generated/types.gen"
 import { GitHubIcon, GitLabIcon } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  CodeBlock,
-  CodeBlockActions,
-  CodeBlockContent,
-  CodeBlockCopyButton,
-} from "@/components/ui/code-block"
 import {
   Card,
   CardAction,
@@ -55,9 +50,9 @@ import {
   hostOf,
   kindName,
   tokenHelp,
-  useGitSSHKey,
   useHosts,
   useRefreshHosts,
+  useRepos,
   useServices,
 } from "./use-integrations"
 
@@ -68,6 +63,7 @@ import {
 export function IntegrationsScreen() {
   const hosts = useHosts()
   const services = useServices()
+  const repos = useRepos()
 
   return (
     <SettingsPage
@@ -110,9 +106,9 @@ export function IntegrationsScreen() {
               key={product.kind}
               product={product}
               hosts={hosts.data.filter((host) => host.kind === product.kind)}
+              repos={repos.data}
             />
           ))}
-        {hosts.data && <SSHKeyCard />}
       </section>
     </SettingsPage>
   )
@@ -152,7 +148,15 @@ const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1
 // on the standard Card; a row looks as an account of a Services card does (service-cards.tsx, AccountItem). What a
 // token is for and how to make one is said once, at the foot, while a row has none (issue #379): every host of a
 // product needs the same token (tokenHelp).
-function HostCard({ product, hosts }: { product: Product; hosts: GitHost[] }) {
+function HostCard({
+  product,
+  hosts,
+  repos,
+}: {
+  product: Product
+  hosts: GitHost[]
+  repos?: Repo[]
+}) {
   const Icon = product.kind === "github" ? GitHubIcon : GitLabIcon
   const missing = hosts.find((host) => !host.has_token)
   const help = missing && tokenHelp(missing)
@@ -179,7 +183,11 @@ function HostCard({ product, hosts }: { product: Product; hosts: GitHost[] }) {
         <CardContent>
           <ItemGroup>
             {hosts.map((host) => (
-              <HostRow key={host.host} host={host} />
+              <HostRow
+                key={host.host}
+                host={host}
+                repos={repos?.filter((repo) => repo.host === host.host).length ?? 0}
+              />
             ))}
           </ItemGroup>
         </CardContent>
@@ -199,8 +207,9 @@ function HostCard({ product, hosts }: { product: Product; hosts: GitHost[] }) {
   )
 }
 
-// HostRow is one host of a product: its address, whether Hypomnema has its token, and what the owner can do.
-function HostRow({ host }: { host: GitHost }) {
+// HostRow is one host of a product: its address, how many registered repositories are on it, leading to them on the
+// Repositories page (issue #647), whether Hypomnema has its token, and what the owner can do.
+function HostRow({ host, repos }: { host: GitHost; repos: number }) {
   const refresh = useRefreshHosts()
 
   return (
@@ -209,6 +218,16 @@ function HostRow({ host }: { host: GitHost }) {
         <ItemTitle>
           {host.host}
           {!host.known && <span className="font-normal text-muted-foreground">server</span>}
+          {repos > 0 && (
+            <Link
+              to="/settings/repositories"
+              search={{ host: host.host }}
+              className="inline-flex items-center gap-1 text-xs font-normal text-link hover:underline"
+            >
+              {repos} {repos === 1 ? "repository" : "repositories"}
+              <ArrowRight className="size-3" aria-hidden />
+            </Link>
+          )}
         </ItemTitle>
       </ItemContent>
       <ItemActions>
@@ -248,59 +267,6 @@ function HostRow({ host }: { host: GitHost }) {
         </Badge>
       </ItemActions>
     </Item>
-  )
-}
-
-// SSHKeyCard shows the public half of the control plane's SSH key (issue #625), which nodes clone a repository
-// registered with an SSH address with: one line to copy into the git host's SSH keys, as Coder's SSH keys page shows
-// a user's key with a copy button (site/src/pages/UserSettingsPage/SSHKeysPage/SSHKeysPageView.tsx). The key is made
-// on the first read; its private half never leaves the server.
-function SSHKeyCard() {
-  const key = useGitSSHKey()
-
-  return (
-    <Card size="sm" data-testid="ssh-key-card">
-      <CardHeader>
-        <CardTitle>
-          <span className="flex items-center gap-3">
-            <KeyRound className="size-6 shrink-0" aria-hidden />
-            <span className="flex flex-col gap-0.5">
-              <span>SSH key</span>
-              <CardDescription>
-                For a repository cloned over SSH, set with its SSH address under Repositories.
-              </CardDescription>
-            </span>
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-2">
-          {key.isPending && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner />
-              Loading…
-            </p>
-          )}
-          <ErrorAlert error={key.error} />
-          {key.data && (
-            <>
-              <CodeBlock size="sm">
-                <CodeBlockActions>
-                  <CodeBlockCopyButton value={key.data.public_key} />
-                </CodeBlockActions>
-                <CodeBlockContent wrap>
-                  <span className="break-all">{key.data.public_key}</span>
-                </CodeBlockContent>
-              </CodeBlock>
-              <p className="text-xs text-muted-foreground">
-                Add it once to the account that clones, under SSH keys on the git host. Workers then
-                clone and push with it; the private key stays on the server.
-              </p>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 
