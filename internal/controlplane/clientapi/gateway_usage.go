@@ -1,6 +1,7 @@
 package clientapi
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"time"
@@ -51,7 +52,7 @@ func (s *Server) GetGatewayUsage(ctx context.Context, req openapi.GetGatewayUsag
 		Since: report.Since, Until: report.Until, BucketSeconds: int(report.Bucket.Seconds()),
 		Totals:  toUsageCounts(report.Totals),
 		Buckets: make([]openapi.GatewayUsageBucket, 0, len(report.Buckets)),
-		ByModel: toUsageGroups(report.ByModel, nil), ByKey: toUsageGroups(report.ByKey, nil),
+		ByModel: toUsageGroups(report.ByModel, nil), ByKey: s.nameKeyGroups(ctx, toUsageGroups(report.ByKey, nil)),
 		ByAccount: toUsageGroups(report.ByAccount, accounts),
 	}
 
@@ -127,6 +128,38 @@ func (s *Server) accountNames(ctx context.Context) map[string]accountName {
 	}
 
 	return out
+}
+
+// The groups of the usage by key that are not one of the owner's keys (issue #626): every chat's keys of a Bot,
+// every worker's, and the chats' keys whose Bot is not known.
+const (
+	usageWorkers = "workers"
+	usageChats   = "chats"
+)
+
+// nameKeyGroups names the usage by key's groups that are not the owner's keys: a Bot's by the Bot's name, the
+// workers' and the unknown chats' in words. A Bot deleted since keeps its id.
+func (s *Server) nameKeyGroups(ctx context.Context, groups []openapi.GatewayUsageGroup) []openapi.GatewayUsageGroup {
+	bots := map[string]string{}
+
+	if list, err := s.svc.ListBots(ctx); err == nil {
+		for _, b := range list {
+			bots[b.ID] = b.Name
+		}
+	}
+
+	for i, g := range groups {
+		switch {
+		case g.Id == usageWorkers:
+			groups[i].Name = "Workers"
+		case g.Id == usageChats:
+			groups[i].Name = "Chats of a Bot not known"
+		case g.Name == "":
+			groups[i].Name = "Bot " + cmp.Or(bots[g.Id], g.Id)
+		}
+	}
+
+	return groups
 }
 
 func toUsageCounts(c modelgateway.UsageCounts) openapi.GatewayUsageCounts {

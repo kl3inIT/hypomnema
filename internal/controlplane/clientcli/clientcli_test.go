@@ -1326,6 +1326,10 @@ func (s *signIns) BeginAsUser(_ context.Context, id, label, app string) (integra
 	}, nil
 }
 
+func (s *signIns) Code(context.Context, string, string) (integration.SignIn, error) {
+	return integration.SignIn{}, integration.ErrNotFound
+}
+
 func (s *signIns) Complete(_ context.Context, _, id, pasted string) (integration.Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

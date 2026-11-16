@@ -124,6 +124,9 @@ func (s *Service) Holdings(ctx context.Context, integration, label string) (Hold
 	h := Holdings{Integration: d.ID, Label: label, Account: conn.Account}
 
 	switch {
+	case d.IsDevice():
+		// A linked account does all its owner does; there is nothing to read (issue #615).
+		h.Unknown = "a linked account acts as its owner"
 	case d.IsRole():
 		// No reference reads what an AWS role may do without simulating its policies (issue #567, not in it).
 		h.Unknown = "what an AWS role may do is not read"

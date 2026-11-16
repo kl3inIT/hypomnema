@@ -108,6 +108,32 @@ func (q *Queries) DeleteGatewayModelTargets(ctx context.Context, model string) e
 	return err
 }
 
+const deleteGatewayUsageBefore = `-- name: DeleteGatewayUsageBefore :execrows
+DELETE FROM gateway_usage WHERE created_at < ?1
+`
+
+func (q *Queries) DeleteGatewayUsageBefore(ctx context.Context, before int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteGatewayUsageBefore, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteUnusedRevokedGatewayKeys = `-- name: DeleteUnusedRevokedGatewayKeys :execrows
+DELETE FROM gateway_keys
+WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id)
+`
+
+// A revoked key no request names (issue #628); a live key is never deleted.
+func (q *Queries) DeleteUnusedRevokedGatewayKeys(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnusedRevokedGatewayKeys)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const gatewayKeysLastUsed = `-- name: GatewayKeysLastUsed :many
 SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id
 `
@@ -141,7 +167,7 @@ func (q *Queries) GatewayKeysLastUsed(ctx context.Context) ([]GatewayKeysLastUse
 }
 
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -157,12 +183,13 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.DispatchID,
 		&i.ChatID,
 		&i.KeyPrefix,
+		&i.BotID,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -178,6 +205,7 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.DispatchID,
 		&i.ChatID,
 		&i.KeyPrefix,
+		&i.BotID,
 	)
 	return i, err
 }
@@ -200,7 +228,7 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const getLiveGatewayKeyOfDispatch = `-- name: GetLiveGatewayKeyOfDispatch :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT 1
 `
 
@@ -218,6 +246,7 @@ func (q *Queries) GetLiveGatewayKeyOfDispatch(ctx context.Context, dispatchID sq
 		&i.DispatchID,
 		&i.ChatID,
 		&i.KeyPrefix,
+		&i.BotID,
 	)
 	return i, err
 }
@@ -245,8 +274,8 @@ func (q *Queries) InsertAntigravityRewrite(ctx context.Context, arg InsertAntigr
 }
 
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, bot_id, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
 `
 
 type InsertGatewayKeyParams struct {
@@ -257,6 +286,7 @@ type InsertGatewayKeyParams struct {
 	Models     string
 	DispatchID sql.NullString
 	ChatID     sql.NullString
+	BotID      sql.NullString
 	Now        int64
 }
 
@@ -269,6 +299,7 @@ func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyPara
 		arg.Models,
 		arg.DispatchID,
 		arg.ChatID,
+		arg.BotID,
 		arg.Now,
 	)
 	return err
@@ -453,7 +484,7 @@ func (q *Queries) ListGatewayImageProviders(ctx context.Context) ([]GatewayImage
 }
 
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -475,6 +506,7 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.DispatchID,
 			&i.ChatID,
 			&i.KeyPrefix,
+			&i.BotID,
 		); err != nil {
 			return nil, err
 		}
@@ -1124,7 +1156,15 @@ func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAcc
 }
 
 const usageByKey = `-- name: UsageByKey :many
-SELECT u.key_id AS id, k.name AS name,
+SELECT CAST(CASE
+         WHEN k.bot_id IS NOT NULL THEN k.bot_id
+         WHEN k.dispatch_id IS NOT NULL OR (k.name LIKE 'dispatch-%' AND length(k.name) = 35) THEN 'workers'
+         WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
+         ELSE k.id END AS TEXT) AS id,
+       CAST(CASE
+         WHEN k.bot_id IS NOT NULL OR k.dispatch_id IS NOT NULL OR k.chat_id IS NOT NULL
+           OR (k.name LIKE 'dispatch-%' AND length(k.name) = 35) OR (k.name LIKE 'chat-%' AND length(k.name) = 31)
+           THEN '' ELSE k.name END AS TEXT) AS name,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(u.outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
@@ -1134,7 +1174,7 @@ SELECT u.key_id AS id, k.name AS name,
        CAST(COALESCE(SUM(u.cost_micros), 0) AS INTEGER) AS cost_micros,
        CAST(COALESCE(SUM(u.cost_micros IS NULL AND u.prompt_tokens + u.completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id WHERE u.created_at >= ?1
-GROUP BY u.key_id, k.name ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, k.name
+GROUP BY 1, 2 ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, 2, 1
 `
 
 type UsageByKeyRow struct {
@@ -1150,6 +1190,10 @@ type UsageByKeyRow struct {
 	Unpriced         int64
 }
 
+// A key the control plane made for a chat's pi counts under the chat's Bot, and one made for a worker's Dispatch
+// under the workers (issue #626): each pi and each Dispatch gets a new key, named at random. A chat key made before
+// keys named their Bot, whose chat was deleted since, is told by its name alone (chat- or dispatch- and an id).
+// The owner's own keys count each under its name.
 func (q *Queries) UsageByKey(ctx context.Context, since int64) ([]UsageByKeyRow, error) {
 	rows, err := q.db.QueryContext(ctx, usageByKey, since)
 	if err != nil {

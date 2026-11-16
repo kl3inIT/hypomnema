@@ -13,11 +13,18 @@ import (
 // ends, as dispatchKeys does for a worker.
 type chatKeys struct {
 	gateway *modelgateway.Service
+	chats   *orchestration.Service
 }
 
-// AddChatKey returns a new key's id and secret for the chat's pi.
+// AddChatKey returns a new key's id and secret for the chat's pi. The key names the chat's Bot, so the owner's
+// usage is told by Bot (issue #626); a chat that cannot be read gives a key with no Bot.
 func (c chatKeys) AddChatKey(ctx context.Context, chatID, model string) (string, string, error) {
-	k, secret, err := c.gateway.AddChatKey(ctx, chatID, model)
+	bot := ""
+	if chat, err := c.chats.GetChat(ctx, chatID); err == nil {
+		bot = chat.Bot
+	}
+
+	k, secret, err := c.gateway.AddChatKey(ctx, chatID, bot, model)
 
 	return k.ID, secret, err
 }

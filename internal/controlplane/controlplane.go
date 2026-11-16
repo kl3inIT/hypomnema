@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -281,7 +282,22 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	tokens := connections{svc: svc, vault: secrets}
 	sshKey := &gitSSHKey{vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
-		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS())
+		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp())
+
+	// The owner's WhatsApp, linked as a device of his (issue #615): its sessions are whatsmeow's, in a database
+	// of their own beside this one, and are opened again as the control plane starts.
+	wa, err := whatsapp.Open(ctx, filepath.Join(filepath.Dir(cfg.Database.Path), "whatsapp.db"), logger)
+	if err != nil {
+		return err
+	}
+	defer wa.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
+
+	integrations.WithDevices(integration.WhatsAppID, wa)
+
+	if err := integrations.OpenDevices(ctx); err != nil {
+		logger.WarnContext(ctx, "a linked account's session could not be opened", slog.String("error", err.Error()))
+	}
+	defer integrations.CloseDevices()
 	// What each account can really do is read at its service and said action by action from the proxy's
 	// catalog (issue #567): on connect, on sign-in again, on the owner's check, and after a 403.
 	checkAccess := func(ctx context.Context, id, label string) error {
@@ -415,7 +431,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	sup := coordinator.New(svc, coordinator.Config{
-		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway},
+		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 	})
 
@@ -561,6 +577,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		vendorModelsLoop(ctx, subscriptions, svc, logger)
 	}()
 
+	// Old requests and the revoked keys no request names are deleted once a day (issue #628).
+	purgeDone := make(chan struct{})
+
+	go func() {
+		defer close(purgeDone)
+
+		gateway.PurgeLoop(ctx, logger)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -606,6 +631,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-refreshDone
 	<-vendorModelsDone
 	<-keysDone
+	<-purgeDone
 	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {

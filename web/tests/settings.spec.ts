@@ -12,6 +12,9 @@ const now = new Date().toISOString()
 // The owner entering the code of a sign-in by device code at Lark: the fake waits for it before it answers.
 let codeEntered: Promise<void> = Promise.resolve()
 let enterCode = () => {}
+// The owner's phone scanning the QR code that links his WhatsApp: the fake waits for it before it answers.
+let phoneScanned: Promise<void> = Promise.resolve()
+let scanPhone = () => {}
 
 async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } = {}) {
   let hosts: Host[] = start.hosts ?? [
@@ -43,6 +46,7 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   // Lark, an app Integration: each account is an app given with its App ID and App Secret (issue #311).
   let apps: ((typeof accounts)[number] & { app_id?: string; app?: string })[] = []
   codeEntered = new Promise((resolve) => (enterCode = resolve))
+  phoneScanned = new Promise((resolve) => (scanPhone = resolve))
   let asked: { label: string; services: string[] } | undefined
   // What agents may do with a Google account: the actions of the service proxy's catalog, with their answers.
   const action = (id: string, service: string, name: string, text: string, policy: string) => ({
@@ -82,6 +86,9 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   // Superset, an account at an address of its own: connected with what the owner types. Its actions are the parts
   // of Superset's API: reading runs on its own, the rest asks.
   let supersets: (typeof accounts)[number][] = []
+  // WhatsApp: the owner's own account, linked as a device by a QR code (issue #615).
+  let phones: Record<string, unknown>[] = []
+  let codes = 0
   // AWS: a role a Connection, assumed with a key kept under a name (issue #331).
   let roles: Record<string, unknown>[] = []
   const keys = new Set<string>()
@@ -197,6 +204,50 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       return request.method() === "DELETE"
         ? route.fulfill({ status: 204 })
         : json(hosts.find((h) => h.host === name))
+    }
+
+    // Linking WhatsApp (issue #615): a QR code, a new one when the page reads it again, and completing waits until
+    // the test scans it.
+    if (kind === "integrations" && sub === "sign-ins" && name === "whatsapp") {
+      const signIn = (code: string) => ({
+        id: "link-1",
+        url: "",
+        qr_code: code,
+        qr_expires_at: new Date(Date.now() + 20_000).toISOString(),
+        expires_in_seconds: 1800,
+      })
+
+      if (path.endsWith("/sign-ins")) {
+        asked = request.postDataJSON() as { label: string; services: string[] }
+
+        return json(signIn("2@code-0"))
+      }
+
+      if (request.method() === "GET") return json(signIn(`2@code-${++codes}`))
+
+      await phoneScanned
+
+      const added = {
+        integration: "whatsapp",
+        label: asked?.label ?? "",
+        account: "+84912345678",
+        services: [],
+        sign_in_required: false,
+        chats: false,
+        session: { state: "connected" },
+        created_at: now,
+        updated_at: now,
+      }
+      phones = [...phones.filter((a) => a.label !== added.label), added]
+
+      return json(added)
+    }
+
+    if (kind === "integrations" && sub === "connections" && name === "whatsapp") {
+      const label = path.split("/")[4] ?? ""
+      phones = phones.filter((a) => a.label !== label)
+
+      return json({ revoked: true })
     }
 
     // The owner's own sign-in to Lark through one of his apps (issue #468): a code he enters at Lark, which
@@ -450,6 +501,13 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
               kind: "role",
               services: [],
               connections: roles,
+            },
+            {
+              id: "whatsapp",
+              name: "WhatsApp",
+              kind: "device",
+              services: [],
+              connections: phones,
             },
           ],
         })
@@ -937,6 +995,56 @@ test("the owner connects his Superset account and disconnects it", async ({ page
     "PUT /integrations/superset/connections/vmaps",
     "PATCH /integrations/superset/connections/vmaps",
     "DELETE /integrations/superset/connections/vmaps",
+  ])
+})
+
+// Scenario: the owner links his own WhatsApp (issue #615). He names it and is shown a QR code, which changes as the
+// page reads the current one; once his phone scanned it the dialog closes and the account shows his number and a
+// connected session. Disconnecting tells him the phone drops the device. On a phone nothing runs off the side.
+test("the owner links his WhatsApp by QR", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/integrations")
+
+  const whatsapp = card(page, "WhatsApp")
+  await expect(whatsapp).toContainText("Not linked")
+  await expect(whatsapp).toContainText("Your own account, linked as a device of your phone")
+
+  await whatsapp.getByRole("button", { name: "Link phone" }).click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("main")
+  await expect(dialog).toContainText("a number can be banned")
+  await shot(page, "integrations-whatsapp-link")
+  await dialog.getByRole("button", { name: "Show the code" }).click()
+
+  const qr = dialog.getByRole("img", { name: "QR code to link WhatsApp" })
+  await expect(qr).toBeVisible()
+  await expect(dialog).toContainText("Linked devices › Link a device")
+  const first = await qr.getAttribute("src")
+  // The code changes about every 20 seconds: the page reads the current one and draws it.
+  await expect(qr).not.toHaveAttribute("src", first ?? "", { timeout: 10_000 })
+  await shot(page, "integrations-whatsapp-qr")
+
+  scanPhone()
+  await expect(dialog).toBeHidden()
+
+  const main = whatsapp.getByLabel("WhatsApp account main")
+  await expect(main).toContainText("+84912345678")
+  await expect(main).toContainText("Connected")
+  await expect(whatsapp).toContainText("Linked")
+  await whatsapp.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-whatsapp-linked")
+
+  await whatsapp.getByRole("button", { name: "Disconnect main" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm).toContainText("your phone's linked devices drop it")
+  await confirm.getByRole("button", { name: "Disconnect" }).click()
+  await expect(main).toHaveCount(0)
+
+  expect(calls.filter((c) => c.includes("/whatsapp/"))).toEqual([
+    "POST /integrations/whatsapp/sign-ins",
+    "POST /integrations/whatsapp/sign-ins/link-1",
+    "DELETE /integrations/whatsapp/connections/main",
   ])
 })
 

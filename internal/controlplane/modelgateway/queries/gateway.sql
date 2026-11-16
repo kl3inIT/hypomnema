@@ -27,8 +27,8 @@ SELECT * FROM gateway_model_targets WHERE model = @model ORDER BY position;
 DELETE FROM gateway_models WHERE name = @name;
 
 -- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, created_at)
-VALUES (@id, @name, @key_hash, @key_prefix, @models, @dispatch_id, @chat_id, @now);
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, bot_id, created_at)
+VALUES (@id, @name, @key_hash, @key_prefix, @models, @dispatch_id, @chat_id, @bot_id, @now);
 
 -- name: RevokeGatewayKeysOfChat :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE chat_id = @chat_id AND revoked_at IS NULL;
@@ -122,7 +122,19 @@ FROM gateway_usage WHERE created_at >= @since
 GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model;
 
 -- name: UsageByKey :many
-SELECT u.key_id AS id, k.name AS name,
+-- A key the control plane made for a chat's pi counts under the chat's Bot, and one made for a worker's Dispatch
+-- under the workers (issue #626): each pi and each Dispatch gets a new key, named at random. A chat key made before
+-- keys named their Bot, whose chat was deleted since, is told by its name alone (chat- or dispatch- and an id).
+-- The owner's own keys count each under its name.
+SELECT CAST(CASE
+         WHEN k.bot_id IS NOT NULL THEN k.bot_id
+         WHEN k.dispatch_id IS NOT NULL OR (k.name LIKE 'dispatch-%' AND length(k.name) = 35) THEN 'workers'
+         WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
+         ELSE k.id END AS TEXT) AS id,
+       CAST(CASE
+         WHEN k.bot_id IS NOT NULL OR k.dispatch_id IS NOT NULL OR k.chat_id IS NOT NULL
+           OR (k.name LIKE 'dispatch-%' AND length(k.name) = 35) OR (k.name LIKE 'chat-%' AND length(k.name) = 31)
+           THEN '' ELSE k.name END AS TEXT) AS name,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(u.outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
@@ -132,7 +144,7 @@ SELECT u.key_id AS id, k.name AS name,
        CAST(COALESCE(SUM(u.cost_micros), 0) AS INTEGER) AS cost_micros,
        CAST(COALESCE(SUM(u.cost_micros IS NULL AND u.prompt_tokens + u.completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id WHERE u.created_at >= @since
-GROUP BY u.key_id, k.name ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, k.name;
+GROUP BY 1, 2 ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, 2, 1;
 
 -- name: UsageByAccount :many
 SELECT account_id AS id,
@@ -208,3 +220,11 @@ DELETE FROM antigravity_prompt_rewrites;
 -- name: InsertAntigravityRewrite :exec
 INSERT INTO antigravity_prompt_rewrites (position, find, replacement, updated_at)
 VALUES (@position, @find, @replacement, @now);
+
+-- name: DeleteGatewayUsageBefore :execrows
+DELETE FROM gateway_usage WHERE created_at < @before;
+
+-- name: DeleteUnusedRevokedGatewayKeys :execrows
+-- A revoked key no request names (issue #628); a live key is never deleted.
+DELETE FROM gateway_keys
+WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id);
