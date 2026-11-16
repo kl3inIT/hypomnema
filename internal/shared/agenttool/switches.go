@@ -39,6 +39,14 @@ const (
 	ToolSupersetAPI        = "superset_api"
 )
 
+// WhatsApp's tools (issue #638): the owner's own WhatsApp, read by a Bot on his turn.
+const (
+	ToolWhatsAppChats    = "whatsapp_chats"
+	ToolWhatsAppMessages = "whatsapp_messages"
+	ToolWhatsAppMedia    = "whatsapp_media"
+	ToolWhatsAppHistory  = "whatsapp_history"
+)
+
 // BrowserTools are the browser's tools an agent is offered, out of
 // agent-browser's `core` set (cli/src/mcp.rs, CORE_PROFILE_TOOLS). Each agent
 // has one tab, which the engine opens and closes, so the tab tools and
@@ -98,6 +106,9 @@ var ToolFamilies = []ToolFamily{
 	{Name: "superset", Description: "Superset's dashboards, charts and data, with a Superset Connection",
 		Pattern: "superset_*",
 		Tools:   []string{ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData, ToolSupersetAPI}},
+	{Name: "whatsapp", Description: "The owner's own WhatsApp, read on his turn, with a WhatsApp Connection",
+		Pattern: "whatsapp_*",
+		Tools:   []string{ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory}},
 	{Name: "nodes", Description: "Run commands on the nodes' machines", Pattern: "node_*",
 		Tools: []string{ToolNodeExec, ToolNodeProcess, ToolNodeProcessKill}},
 	{Name: "browser", Description: "The browser every agent shares, in a tab of its own", Pattern: "agent_browser_*",

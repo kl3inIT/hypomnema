@@ -280,7 +280,7 @@ func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connec
 	secret, err := s.vault.Get(ctx, c.Secret)
 	// An account's password does not expire: it needs a sign-in when the service refused it the last time.
 	out.SignInRequired = err != nil || secret.LoginRequired || secret.KeyMissing || c.SignInFailed ||
-		(c.User() && !s.appStillSignsIn(ctx, d, c)) || (out.Session != nil && out.Session.NeedsLink())
+		(d.IsApp() && c.User() && !s.appStillSignsIn(ctx, d, c)) || (out.Session != nil && out.Session.NeedsLink())
 
 	return out
 }
