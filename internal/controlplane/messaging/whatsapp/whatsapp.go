@@ -41,6 +41,7 @@ var ErrNoSession = errors.New("whatsapp: no session of that device is kept")
 type Service struct {
 	closeDB   func() error
 	container *sqlstore.Container
+	mirror    *mirror
 	log       *slog.Logger
 	// connect connects a client; whatsmeow's own outside tests.
 	connect func(context.Context, *whatsmeow.Client) error
@@ -63,10 +64,15 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 		return nil, errors.Join(fmt.Errorf("whatsapp: preparing the sessions' tables: %w", err), db.Close())
 	}
 
+	kept, err := openMirror(ctx, db)
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+
 	store.SetOSInfo(deviceName, [3]uint32{1, 0, 0})
 
 	return &Service{
-		closeDB: db.Close, container: container, log: logger,
+		closeDB: db.Close, container: container, mirror: kept, log: logger,
 		connect: func(ctx context.Context, c *whatsmeow.Client) error { return c.ConnectContext(ctx) },
 	}, nil
 }
@@ -181,7 +187,7 @@ func (s *Service) Open(ctx context.Context, id string) (messaging.Account, error
 	}
 
 	if device == nil {
-		return &gone{id: id, name: phoneOf(jid)}, nil
+		return &gone{id: id, name: phoneOf(jid), account: jid.User, mirror: s.mirror}, nil
 	}
 
 	acc := s.newAccount(device)
@@ -202,7 +208,9 @@ func (s *Service) newAccount(device *store.Device) *account {
 	client := whatsmeow.NewClient(device, waLogger{s.log.With(slog.String("module", "whatsmeow"))})
 	client.EnableAutoReconnect = true
 
-	acc := &account{client: client, state: messaging.State{Status: messaging.StatusConnecting}}
+	acc := &account{
+		client: client, mirror: s.mirror, log: s.log, state: messaging.State{Status: messaging.StatusConnecting},
+	}
 	client.AddEventHandler(acc.handle)
 
 	return acc
@@ -211,6 +219,8 @@ func (s *Service) newAccount(device *store.Device) *account {
 // account is one device's live session.
 type account struct {
 	client *whatsmeow.Client
+	mirror *mirror
+	log    *slog.Logger
 
 	mu    sync.Mutex
 	state messaging.State
@@ -249,8 +259,20 @@ func (a *account) setState(st messaging.State) {
 // handle follows the session's state from whatsmeow's events, as MemoryOS's bridge does (bots.go, handle).
 func (a *account) handle(evt any) {
 	switch e := evt.(type) {
+	case *events.Message:
+		a.keepLive(e)
+	case *events.HistorySync:
+		a.keepHistory(e)
+	case *events.JoinedGroup:
+		a.nameGroup(e.JID, e.Name)
+	case *events.GroupInfo:
+		if e.Name != nil {
+			a.nameGroup(e.JID, e.Name.Name)
+		}
 	case *events.Connected:
 		a.setState(messaging.State{Status: messaging.StatusConnected})
+		// Group names come with the groups list, not with their messages (wacli group_info.go, --refresh-groups).
+		go a.nameGroups()
 	case *events.Disconnected:
 		// A session logged out, banned or replaced is not merely disconnected. whatsmeow calls handlers from
 		// several goroutines, so the check and the change are one step.
@@ -281,12 +303,16 @@ func (a *account) handle(evt any) {
 func (a *account) Logout(ctx context.Context) error {
 	err := a.client.Logout(ctx)
 	if err == nil {
+		a.forgetMirror(ctx)
+
 		return nil
 	}
 
 	if !a.State().NeedsLink() {
 		return fmt.Errorf("whatsapp: logging the device out: %w", err)
 	}
+
+	defer a.forgetMirror(ctx)
 
 	a.client.Disconnect()
 
@@ -303,16 +329,28 @@ func (a *account) Logout(ctx context.Context) error {
 
 func (a *account) Close() { a.client.Disconnect() }
 
-// gone is a device whatsmeow no longer holds: it was logged out while the control plane was not running.
-type gone struct{ id, name string }
+// gone is a device whatsmeow no longer holds: it was logged out while the control plane was not running. What was
+// kept of it is still read, until it is disconnected.
+type gone struct {
+	id, name, account string
+	mirror            *mirror
+}
 
 func (g *gone) ID() string   { return g.id }
 func (g *gone) Name() string { return g.name }
 func (g *gone) State() messaging.State {
 	return messaging.State{Status: messaging.StatusLoggedOut, Reason: "the session is no longer kept"}
 }
-func (g *gone) Logout(context.Context) error { return nil }
-func (g *gone) Close()                       {}
+func (g *gone) Logout(ctx context.Context) error { return g.mirror.forget(ctx, g.account) }
+func (g *gone) Close()                           {}
+
+func (g *gone) Chats(ctx context.Context, limit int) ([]messaging.Chat, error) {
+	return g.mirror.chats(ctx, g.account, limit)
+}
+
+func (g *gone) Messages(ctx context.Context, q messaging.Query) ([]messaging.Message, error) {
+	return g.mirror.messages(ctx, g.account, q)
+}
 
 // phoneOf is a number as people write it: +84912345678.
 func phoneOf(jid types.JID) string { return "+" + jid.User }

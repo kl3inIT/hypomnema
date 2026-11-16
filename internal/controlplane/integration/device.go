@@ -418,3 +418,51 @@ func (s *Service) forgetDevice(ctx context.Context, d Definition, conn orchestra
 
 	return true, nil
 }
+
+// heldAccount is the session held for a Connection of kind device.
+func (s *Service) heldAccount(ctx context.Context, integration, label string) (messaging.Account, error) {
+	d, err := s.definition(integration)
+	if err != nil {
+		return nil, err
+	}
+
+	if !d.IsDevice() {
+		return nil, fmt.Errorf("%w: %s keeps no chats", ErrInvalid, d.Name)
+	}
+
+	if _, err := s.store.ConnectionOf(ctx, d.ID, label); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	acc := s.held[deviceKey(d.ID, label)]
+	s.mu.Unlock()
+
+	if acc == nil {
+		return nil, fmt.Errorf("%w: the session of %s:%s is not open; link it again", orchestration.ErrUnavailable,
+			d.ID, label)
+	}
+
+	return acc, nil
+}
+
+// Chats lists the chats kept of a Connection of kind device, the latest first (issue #631).
+func (s *Service) Chats(ctx context.Context, integration, label string, limit int) ([]messaging.Chat, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return nil, err
+	}
+
+	return acc.Chats(ctx, limit)
+}
+
+// Messages lists the messages kept of a Connection of kind device, the latest first (issue #631).
+func (s *Service) Messages(ctx context.Context, integration, label string, q messaging.Query,
+) ([]messaging.Message, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return nil, err
+	}
+
+	return acc.Messages(ctx, q)
+}

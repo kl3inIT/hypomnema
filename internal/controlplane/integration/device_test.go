@@ -50,6 +50,14 @@ func (d *device) Logout(context.Context) error {
 }
 func (d *device) Close() {}
 
+func (d *device) Chats(context.Context, int) ([]messaging.Chat, error) {
+	return []messaging.Chat{{ID: "120363@g.us", Kind: "group", Name: "Team"}}, nil
+}
+
+func (d *device) Messages(_ context.Context, q messaging.Query) ([]messaging.Message, error) {
+	return []messaging.Message{{ID: "m1", Chat: q.Chat, Text: "hello"}}, nil
+}
+
 func (d *device) loggedOut() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()

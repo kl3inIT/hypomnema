@@ -90,7 +90,9 @@ type Server struct {
 	secrets Secrets
 	// integrations signs accounts in; nil when the control plane wired none.
 	integrations Integrations
-	approvals    Approvals
+	// messaging reads the kept chats of the messaging accounts linked as devices (issue #631).
+	messaging Messaging
+	approvals Approvals
 	// relay sends requests to a Connection that has its own address; nil when the control plane wired none.
 	relay        Relay
 	larkChannels LarkChannels
