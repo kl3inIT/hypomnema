@@ -43,7 +43,8 @@ func TestMain(m *testing.M) {
 // set_thinking_level it was sent since. Once a prompt said "context", it
 // reports its context usage (get_session_stats) at 1000 tokens an answer, and
 // none right after a compaction; a compact after a prompt that said "too
-// small" fails as pi's does on a short session.
+// small" fails as pi's does on a short session. A prompt that says "overflow" stays too large after pi compacted
+// and tried again, and ends as pi 1.5.2 ends it.
 func fakePi() int {
 	in := bufio.NewReader(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
@@ -146,6 +147,14 @@ func fakePi() int {
 			continue
 		}
 
+		if strings.Contains(text, "overflow") {
+			for _, rec := range overflowed() {
+				emit(out, rec)
+			}
+
+			continue
+		}
+
 		if strings.Contains(text, "fail") {
 			for _, rec := range []map[string]any{
 				{"type": "agent_start"},
@@ -218,6 +227,38 @@ func turn(reply string) []map[string]any {
 			"content": []map[string]any{{"type": "text", "text": reply}},
 		}},
 		{"type": "turn_end"},
+		{"type": "agent_settled", "aborted": false},
+	}
+}
+
+// tooLarge is the gateway's refusal of a request over its limit, as pi reports it.
+const tooLarge = `413 {"error":{"message":"the request is over 33554432 bytes","type":"invalid_request_error"},` +
+	`"type":"error"}`
+
+// recoveryFailed is what pi says when a request still overflows after it compacted and tried again.
+const recoveryFailed = "Context overflow recovery failed after one compact-and-retry attempt. " +
+	"Try reducing context or switching to a larger-context model."
+
+// overflowed is a turn whose request is too large, before and after pi compacts: pi compacts and tries again once,
+// then ends the compaction with its errorMessage and settles (pi agent-session.ts, _checkCompaction).
+func overflowed() []map[string]any {
+	failed := map[string]any{"type": "message_end", "message": map[string]any{
+		"role": "assistant", "stopReason": "error", "errorMessage": tooLarge,
+	}}
+
+	return []map[string]any{
+		{"type": "agent_start"},
+		failed,
+		{"type": "compaction_start", "reason": "overflow"},
+		{
+			"type": "compaction_end", "reason": "overflow", "aborted": false, "willRetry": true,
+			"result": map[string]any{"summary": "the gist", "tokensBefore": 900000},
+		},
+		failed,
+		{
+			"type": "compaction_end", "reason": "overflow", "aborted": false, "willRetry": false,
+			"errorMessage": recoveryFailed,
+		},
 		{"type": "agent_settled", "aborted": false},
 	}
 }

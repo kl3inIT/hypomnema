@@ -95,6 +95,9 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 	write(t, filepath.Join(w.userHome, ".agents", "skills", "hypomnema-coordinator", "SKILL.md"), "skill", 0o600)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "node", "bin"), 0o700))
 
+	// pi's image extension, which the launcher gives pi (issue #675).
+	write(t, filepath.Join(root, "lib", "pi-image-eviction.mts"), "export default function () {}\n", 0o600)
+
 	// The control plane's CLI, as the launcher calls it before pi starts. `bots show` names the main Bot as
 	// coordinator and the Bot of the id `+otherBot+` as other, the names their directories had before ids.
 	write(t, filepath.Join(root, "bin", "hypomnema"), `#!/bin/sh
@@ -162,6 +165,8 @@ if touch "$H/tools/envs/documents/x" 2> /dev/null; then echo documents=writable;
 		"hypomnema=/usr/local/bin/hypomnema": "hypomnema=" + filepath.Join(root, "bin", "hypomnema"),
 		"node=/opt/hypomnema-node":           "node=" + filepath.Join(root, "node"),
 		"bwrap=/usr/bin/bwrap":               "bwrap=" + bwrap,
+		"images=/usr/local/lib/hypomnema/pi-image-eviction.mts": "images=" + filepath.Join(root, "lib",
+			"pi-image-eviction.mts"),
 	} {
 		require.Equal(t, 1, strings.Count(text, "\n"+from+"\n"), "the launcher says %s once", from)
 		text = strings.Replace(text, "\n"+from+"\n", "\n"+to+"\n", 1)
@@ -244,7 +249,8 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.JSONEq(t, `{"type":"get_state"}`, seen["stdin"], "pi reads its commands; the token line is the launcher's")
 	assert.Equal(t, "--mode rpc --session-dir "+sessions+" --session-id cht_mine --model gpt-sol "+
 		"--append-system-prompt "+filepath.Join(w.home, "run", "cht_mine", "prompt.md")+
-		" --skill "+filepath.Join(w.home, "run", "cht_mine", "skills"), seen["args"])
+		" --skill "+filepath.Join(w.home, "run", "cht_mine", "skills")+
+		" --extension "+filepath.Join(w.root, "lib", "pi-image-eviction.mts"), seen["args"])
 	assert.Equal(t, "persona of "+orchestration.DefaultBotID, seen["prompt"])
 	assert.Equal(t, work, seen["cwd"], "the main Bot works where pi always worked, the path its sessions record")
 

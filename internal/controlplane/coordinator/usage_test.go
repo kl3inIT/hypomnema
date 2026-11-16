@@ -134,3 +134,38 @@ func TestACompactionWaitsForItsTurnAndMayFail(t *testing.T) {
 	require.NoError(t, err)
 	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: still here")
 }
+
+// Scenario: a chat full of images (issue #675). A request stays too large after pi compacted and tried again: the
+// chat keeps the refusal and pi's reason for giving up as failed rows, stops working, and takes the next message.
+func TestAFailedOverflowRecoveryEndsTheTurnWithItsReason(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "overflow with another screenshot")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatSystem, recoveryFailed)
+	idle(t, sup, chat.ID)
+
+	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+
+	var failed []string
+
+	for _, m := range msgs {
+		if m.Kind == orchestration.ChatFailed {
+			failed = append(failed, m.Text)
+		}
+	}
+
+	assert.Equal(t, []string{failedPrefix + tooLarge, failedPrefix + tooLarge, recoveryFailed}, failed,
+		"each refused call, then why pi gave up; the compaction that succeeded in between keeps no row")
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "still here")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: still here")
+}

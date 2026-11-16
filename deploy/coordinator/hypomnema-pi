@@ -21,6 +21,7 @@ user_home=/home/coordinator
 hypomnema=/usr/local/bin/hypomnema
 node=/opt/hypomnema-node
 bwrap=/usr/bin/bwrap
+images=/usr/local/lib/hypomnema/pi-image-eviction.mts
 
 home="$user_home/.hypomnema-coordinator"
 
@@ -160,6 +161,13 @@ if ! HOME="$user_home" "$hypomnema" skills sync --bot "$bot" --dir "$skills" > /
   fail "putting bot $bot's skills in place failed"
 fi
 set -- "$@" --skill "$skills"
+
+# pi's extension that keeps a chat full of images under the model gateway's request limit (issue #675): before each
+# call it sends the oldest tool images as a line of text once the images are over 24 MB, as Hermes does, and leaves
+# the session as it was. Installed root-owned under /usr, which the box binds read-only. Without it a Bot that reads
+# many screenshots would fail every call once its history is too large, so pi does not start.
+[ -r "$images" ] || fail "pi's image extension $images is not installed (setup-coordinator.sh installs it)"
+set -- "$@" --extension "$images"
 
 # pi's models.json is written as pi starts (issue #204): the providers that are the model gateway and their models,
 # as the control plane lists them now, so a Bot given another model needs nothing changed on this machine. Omnigent

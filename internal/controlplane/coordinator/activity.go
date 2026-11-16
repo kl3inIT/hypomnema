@@ -68,6 +68,10 @@ type record struct {
 	} `json:"result"`
 	IsError    bool  `json:"isError"`
 	DurationMs int64 `json:"durationMs"`
+	// Reason, Aborted and ErrorMessage say how a compaction ended (compaction_end).
+	Reason       string `json:"reason"`
+	Aborted      bool   `json:"aborted"`
+	ErrorMessage string `json:"errorMessage"`
 }
 
 func (p *proc) handle(ctx context.Context, line []byte) {
@@ -98,7 +102,10 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 		p.stopSettled()
 		p.setWorking(false)
 		p.s.settled()
-	case "turn_end", "compaction_end":
+	case "turn_end":
+		p.refreshUsage(ctx)
+	case "compaction_end":
+		p.keepCompactionFailure(ctx, rec)
 		p.refreshUsage(ctx)
 	case "message_start":
 		if rec.Message != nil && rec.Message.Role == "assistant" {
@@ -119,6 +126,22 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 	case "tool_execution_end":
 		p.keepTool(ctx, rec)
 	}
+}
+
+// keepCompactionFailure keeps, as a failed row, why a compaction pi ran by itself failed (issue #675): above all its
+// "Context overflow recovery failed" when a request stays too large after pi compacted and tried again, after which
+// pi ends the turn. pi's own interactive mode shows that errorMessage in the chat (modes/interactive/
+// interactive-mode.ts, compaction_end) and its status reporter ends the run with it (program-status-reporter.ts).
+// A compaction the owner asked for is told by compact, from pi's answer to the command, and one that was aborted
+// by its stopped row.
+func (p *proc) keepCompactionFailure(ctx context.Context, rec record) {
+	if rec.Reason == "manual" || rec.Aborted || strings.TrimSpace(rec.ErrorMessage) == "" {
+		return
+	}
+
+	p.keepMessages(ctx, orchestration.NewChatMessage{
+		Role: orchestration.ChatSystem, Kind: orchestration.ChatFailed, Text: rec.ErrorMessage,
+	})
 }
 
 // relayDelta sends text and thinking as pi writes them.

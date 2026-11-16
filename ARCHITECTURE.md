@@ -161,7 +161,15 @@ after a compaction until pi's next answer) and, when it changed, sends the chat'
 pi when none runs, as OpenMausBot runs its compaction as a turn: the chat reads working until it ends, a message sent
 meanwhile waits, `abort` stops it with a `stopped` row, a failure ends in a `failed` row ("pi's compaction failed:
 …"), and a chat whose pi works is refused (409), as pi aborts a running turn to compact. pi's compaction settings are
-its own (reserve 16384, keep 20000). On
+its own (reserve 16384, keep 20000). A compaction pi runs by itself that fails (above all "Context overflow recovery
+failed…", when a request stays too large after pi compacted and tried again once) is kept as a `failed` row with
+pi's own text, as pi's interactive mode shows it; pi then ends the turn and the chat stops working (issue #675).
+pi counts an image as about 1,200 tokens whatever its bytes, so every chat's pi is given an extension,
+`deploy/coordinator/pi-image-eviction.mts` (`--extension`, installed root-owned in `/usr/local/lib/hypomnema/`), that
+on pi's `context` event, before each model call, sends the oldest tool-result images as `[image removed to save
+context]` once the request's images pass 24,000,000 bytes of base64: in batches of 8, kept evicted for the session so
+the cached prefix holds, never the newest 3 tool images nor an image a person sent, and only in the request, not the
+session (Hermes's send-path eviction, `agent/image_eviction_policy.py`; issue #675). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's id and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
@@ -1055,7 +1063,7 @@ sequenceDiagram
     `client.json` holds pi's own token; when it cannot write the file pi does not start. A server that fails to
     start leaves the Bot without the tools: pi says so only as a line of its UI (`MCP servers need attention`, an
     RPC `notify` the supervisor does not read), so the turn is not failed (OpenClaw fails it; not built).
-  - Not built: other MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
+  - Not built: other MCP servers, pi extensions other than the image eviction (above) and a Bot's own skills (issue #169 says these need reading first), a
     per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, the Bot coordinator deleting a
     profile (only the owner does, below), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
     user or a container per Bot (issue #260).
@@ -2506,7 +2514,9 @@ capabilities do not exist yet.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
   read as a map of its top-level keys, the model's name is replaced by the provider's and everything else goes
   through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
-  from the vault, so a provider served by the gateway names it as `vault:<name>`. Bodies are limited to 10 MiB.
+  from the vault, so a provider served by the gateway names it as `vault:<name>`. Bodies are limited to 32 MiB
+  (`/v1/messages` and `/v1/responses` too; 413 `request_too_large` above it), the request limit pi's catalog and
+  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's).
 - A stream is asked for its usage (`stream_options.include_usage`) whether or not the client asked, and the
   usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
   comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
