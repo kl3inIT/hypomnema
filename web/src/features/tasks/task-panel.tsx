@@ -249,7 +249,9 @@ function statusText(card: Card) {
 
 function Chip({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex min-h-6 items-center rounded-md bg-foreground/5 px-2 py-0.5">{children}</span>
+    <span className="inline-flex min-h-6 items-center rounded-md bg-foreground/5 px-2 py-0.5">
+      {children}
+    </span>
   )
 }
 
