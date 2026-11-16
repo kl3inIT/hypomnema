@@ -17,7 +17,7 @@ import (
 
 // The Dispatch lifecycle (issue #19, PR 2): the coordinator creates a
 // Dispatch for a ready Task, a node accepts it, reports on it under a lease,
-// and its final report, a cancel, the reaper, a settlement or an abandon ends
+// and its final report, a cancel, the reaper or the node's next hello ends
 // it. Every change is one transaction that also moves the Task.
 
 // CreateDispatch starts an attempt at a ready Task: it continues the Task's
@@ -618,7 +618,7 @@ func validOutcome(o Outcome) error {
 	case o.Class == FailureNone && strings.TrimSpace(o.Result.Summary) == "":
 		return fmt.Errorf("%w: a success needs a summary", ErrInvalid)
 	case o.Class == FailureLost:
-		return fmt.Errorf("%w: only the coordinator settles a dispatch as lost", ErrInvalid)
+		return fmt.Errorf("%w: only the control plane settles a dispatch as lost", ErrInvalid)
 	default:
 		return nil
 	}

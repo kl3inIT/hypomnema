@@ -221,8 +221,13 @@ sequenceDiagram
 - Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
-  outcome unknown and blocks the Task; a report from the same epoch, a reattach by the same node and process, a
-  settlement by the coordinator or an abandon ends it. A cancel stops the Dispatch and cancels the Task only once
+  outcome unknown and blocks the Task; a report from the same epoch or a reattach by the same node and process ends
+  it, and so does the node's next hello (issue #590, after Omnara's daemon reconciliation): one of the node's
+  Dispatches that may still run (`starting`, `running`, `unknown`, `stop_unknown`) that the node neither claims nor
+  holds with a queued accept or final report ends `failed` (`lost`), and one it claims whose worker never started (no
+  process) ends `failed` (`start_failed`) and is released instead of reattached. A node of an earlier release does
+  not list what it holds, and nothing it does not claim is ended. Nothing else ends an unknown Dispatch: no timer
+  does, and `SettleUnknown` and `AbandonDispatch` in orchestration have no route or command. A cancel stops the Dispatch and cancels the Task only once
   the stop is confirmed. Worker errors, failed launches and lost Dispatches count toward a breaker of three with a
   back-off before each retry; rate limits cool the account (runtime, account) down on every node and are not counted; a login
   that is needed blocks the Task. Every node call carries a request id and is answered once (receipts).
@@ -2815,8 +2820,10 @@ flowchart LR
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
   version and machine (measured with gopsutil, as Nezha's and Beszel's agents), whether it opens a terminal, the device it holds with whether `/dev/kvm` is usable
-  (issue #417), and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
-  unknown while it was away) or `release`.
+  (issue #417), and the Dispatches it still holds. Each one it claims is answered `retain` (still its own at that epoch), `reattach` (marked
+  unknown while it was away) or `release`. It also lists every Dispatch it holds, those whose accept or final
+  report is still queued included (`held`, `lists_held`); the control plane ends as lost one of its Dispatches that
+  may still run and is on neither list (issue #590). A hello that checks an install lists nothing and ends nothing.
 - It then holds one WebSocket at `/node/v1/socket` with JSON `{type, payload}` frames of at most 1 MiB.
 - Installing a node (after Omnara's `GET /install/omnarad.sh` and `omnarad install`): the control plane serves a
   shell script at `GET /install/node.sh`, which holds no secret. It names the control plane (`HYPOMNEMA_PUBLIC_URL`,
@@ -3089,7 +3096,8 @@ Node (`internal/node`):
   each to its end there (node v0.6.0, profiles `omp-worker` and `opencode-worker`). A follow-up that resumes a
   session has not been tried with the real CLIs. The two CLIs were installed there by hand then; the control plane installs them on
   every node since issue #107 (above).
-- The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds and applies each disposition, then
+- The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds, listing every one it holds, and
+  applies each disposition, then
   holds the socket:
   - heartbeats every 10 s (or as the control plane says), a WebSocket ping every 20 s;
   - reconnects with backoff from 1 s to 30 s with jitter, and stops if the token is refused.

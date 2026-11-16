@@ -27,7 +27,9 @@ account and does not count. The Task's `result` names the attempts and the last 
 - `dependency_failed`: a Task it depends on failed or was canceled. Resolve that Task first; when you replace it, the
   Tasks that depended on it need replacing too, depending on the new one.
 - `dispatch_unknown`: the control plane cannot prove what the worker did, because its node went silent. Tell the
-  owner; the record settles when the node reports.
+  owner. It settles when the node reports or reattaches, or when the node next connects: a Dispatch the node no
+  longer holds, or whose worker never started, ends failed and the Task is tried again (or canceled, if a cancel
+  was asked). No command settles it sooner, and nothing settles it while the node stays away.
 
 ## Replacing a Task
 

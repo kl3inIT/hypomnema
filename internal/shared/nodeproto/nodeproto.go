@@ -274,6 +274,15 @@ type HelloRequest struct {
 	// an earlier release, which writes them, does not say it and is sent
 	// none of the skills that require something (Skill.Requires).
 	StoreGuides bool `json:"store_guides,omitempty"`
+	// Held lists every Dispatch the node holds, when ListsHeld is set: the
+	// ones in Claims, and the ones whose accept or final report is still
+	// queued (Omnara's daemon claims its preparing and terminal processes too,
+	// daemonprotocol/protocol.go:559-562). The control plane then ends as lost
+	// a Dispatch of the node's that may still run and is in neither list
+	// (issue #590). A node of an earlier release does not set ListsHeld, and
+	// nothing is ended; a hello that only checks an install does not either.
+	Held      []string `json:"held,omitempty"`
+	ListsHeld bool     `json:"lists_held,omitempty"`
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).

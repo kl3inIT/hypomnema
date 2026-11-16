@@ -56,6 +56,14 @@ type Hello struct {
 	Device string
 	// KVM says the node's user can use /dev/kvm, which an Android emulator needs.
 	KVM bool
+	// Held lists every Dispatch the node holds when ListsHeld is set: the ones
+	// it claims, and the ones whose accept or final report is still queued
+	// (Omnara's daemon claims its preparing and terminal processes too,
+	// daemonprotocol/protocol.go:559-562). NodeConnect ends as lost a Dispatch
+	// of the node's that may still run and is in neither list (issue #590). A
+	// node of an earlier release does not set ListsHeld, and nothing is ended.
+	Held      []string
+	ListsHeld bool
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).

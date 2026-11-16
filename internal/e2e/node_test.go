@@ -6,6 +6,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -398,6 +399,43 @@ func TestRestartAdoptsTheWorkerAndReplaysTheOutbox(t *testing.T) {
 	assert.Len(t, second.snapshot().adopted, 1)
 
 	require.NoError(t, adopted.Finished(t.Context(), success()))
+	w.eventually(task.ID, orchestration.TaskSucceeded)
+}
+
+// Scenario (issue #590): the worker finishes while no daemon is connected,
+// so its final report waits in the outbox and the node no longer claims the
+// Dispatch. The new daemon lists it as held, so the control plane does not
+// end it lost, and the queued report settles it.
+func TestRestartDeliversAFinalReportQueuedWhileAway(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	first := newFakeRunner()
+	stop := w.startNode(first, w.token)
+	task := w.task()
+
+	worker := first.worker(t)
+	require.NoError(t, worker.Started(t.Context(), "pid:42@1", "sess_1"))
+	w.eventually(task.ID, orchestration.TaskRunning)
+
+	require.NoError(t, stop())
+
+	// What the worker's shim does while no daemon runs: it ends the Dispatch and queues its report.
+	db, err := statedb.Open(t.Context(), w.state, time.Now)
+	require.NoError(t, err)
+
+	h, err := db.Get(t.Context(), worker.ID())
+	require.NoError(t, err)
+
+	finished := success()
+	payload, err := json.Marshal(finished)
+	require.NoError(t, err)
+	require.NoError(t, db.End(t.Context(), h.ID, nodeproto.Report{
+		ReportID: "rep_while_away", Kind: nodeproto.ReportFinished, DispatchID: h.ID, Epoch: h.Epoch, Payload: payload,
+	}))
+	require.NoError(t, db.Close())
+
+	w.startNode(newFakeRunner(), w.token)
 	w.eventually(task.ID, orchestration.TaskSucceeded)
 }
 

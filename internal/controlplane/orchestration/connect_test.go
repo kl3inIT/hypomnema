@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
 // Scenario: a node restarts holding four Dispatches. The running one at its
@@ -84,4 +86,136 @@ func TestNodePendingListsOffersStopsAndAnswers(t *testing.T) {
 	p, err = w.s.NodePending(t.Context(), w.node.ID)
 	require.NoError(t, err)
 	assert.Empty(t, p.Answers, "an acknowledged answer is not sent again")
+}
+
+// connect is the world's node saying hello again, listing every Dispatch it
+// holds (a node of this release).
+func (w *world) connect(held []string, claims ...Claim) []Disposition {
+	w.t.Helper()
+
+	got, err := w.s.NodeConnect(w.t.Context(), w.node.ID, Hello{
+		WorktreeRoot: "/srv/wt", Runtimes: []RuntimeInfo{{Runtime: "claude"}}, Held: held, ListsHeld: true,
+	}, claims)
+	require.NoError(w.t, err)
+
+	return got
+}
+
+// slots is how many slots each node has taken.
+func (w *world) slots() map[string]int64 {
+	w.t.Helper()
+
+	rows, err := store.New(w.db).CountActiveDispatchesPerNode(w.t.Context(), activeDispatchStatuses())
+	require.NoError(w.t, err)
+
+	out := map[string]int64{}
+	for _, r := range rows {
+		out[r.NodeID] = r.N
+	}
+
+	return out
+}
+
+// Scenario (issue #590): a node comes back no longer holding two of its
+// Dispatches, one whose outcome became unknown while it was away and one
+// still running. Both end lost, a counted failure, and free their slots; the
+// Tasks wait to be tried again. The Dispatch whose accept the node has queued,
+// and the one it claims, are left as they are.
+func TestNodeConnectSettlesWhatTheNodeNoLongerHolds(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(specs(4)...)
+
+	unknown, _ := w.start(tasks[0].ID)
+	w.loseLease()
+
+	running, _ := w.start(tasks[1].ID)
+	accepting := w.dispatch(tasks[2].ID)
+	w.accept(accepting)
+	kept, _ := w.start(tasks[3].ID)
+	require.Equal(t, map[string]int64{w.node.ID: 4}, w.slots())
+
+	got := w.connect([]string{accepting.ID, kept.ID}, Claim{DispatchID: kept.ID, Epoch: 1})
+
+	assert.Equal(t, []Disposition{{DispatchID: kept.ID, Kind: DispositionRetain}}, got)
+
+	for _, id := range []string{unknown.ID, running.ID} {
+		d := w.dispatchOf(id)
+		assert.Equal(t, DispatchFailed, d.Status, id)
+		assert.Equal(t, FailureLost, d.FailureClass, id)
+		assert.Equal(t, ConversationClosed, w.conversation(d.ConversationID).Status, "not first-hand: %s", id)
+	}
+
+	assert.Equal(t, DispatchStarting, w.dispatchOf(accepting.ID).Status, "its queued accept settles it")
+	assert.Equal(t, DispatchRunning, w.dispatchOf(kept.ID).Status)
+	assert.Equal(t, map[string]int64{w.node.ID: 2}, w.slots())
+	assert.Equal(t, TaskReady, w.task(tasks[0].ID).Status)
+	assert.Equal(t, TaskReady, w.task(tasks[1].ID).Status)
+}
+
+// Scenario (issue #590, as on zm): a worker never starts, the node loses its
+// lease and later forgets the Dispatch; the owner cancels the Task meanwhile.
+// At the node's next hello the Dispatch ends lost and the cancel applies.
+func TestNodeConnectAppliesAPendingCancelToALostDispatch(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(specs(1)...)
+
+	d := w.dispatch(tasks[0].ID)
+	w.accept(d)
+	w.loseLease()
+	require.NoError(t, w.s.CancelTask(t.Context(), tasks[0].ID))
+	require.Equal(t, TaskBlocked, w.task(tasks[0].ID).Status, "the cancel waits for the unknown Dispatch")
+
+	assert.Empty(t, w.connect([]string{}))
+
+	assert.Equal(t, DispatchFailed, w.dispatchOf(d.ID).Status)
+	assert.Equal(t, TaskCanceled, w.task(tasks[0].ID).Status)
+	assert.Empty(t, w.slots())
+}
+
+// Scenario: a node of an earlier release, which does not list what it holds,
+// says hello claiming nothing. Its Dispatches are left as they are: one of
+// them may have a final report queued.
+func TestNodeConnectWithoutTheHeldListSettlesNothing(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(specs(1)...)
+
+	d, _ := w.start(tasks[0].ID)
+	w.loseLease()
+
+	got, err := w.s.NodeConnect(t.Context(), w.node.ID, Hello{
+		WorktreeRoot: "/srv/wt", Runtimes: []RuntimeInfo{{Runtime: "claude"}},
+	}, nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, got)
+	assert.Equal(t, DispatchUnknown, w.dispatchOf(d.ID).Status)
+}
+
+// Scenario (issue #590): the node claims a Dispatch whose outcome became
+// unknown before its worker started. There is no process to reattach to, so
+// it ends start_failed and the node is told to release it; the Task is
+// tried again.
+func TestNodeConnectEndsAClaimedDispatchThatNeverStarted(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(specs(1)...)
+
+	d := w.dispatch(tasks[0].ID)
+	w.accept(d)
+	w.loseLease()
+
+	got := w.connect([]string{d.ID}, Claim{DispatchID: d.ID, Epoch: 1})
+
+	assert.Equal(t, []Disposition{{DispatchID: d.ID, Kind: DispositionRelease}}, got)
+	assert.Equal(t, DispatchFailed, w.dispatchOf(d.ID).Status)
+	assert.Equal(t, FailureStartFailed, w.dispatchOf(d.ID).FailureClass)
+	assert.Equal(t, TaskReady, w.task(tasks[0].ID).Status)
+	assert.Empty(t, w.slots())
 }
