@@ -158,9 +158,11 @@ var commands = []command{
 	},
 	{
 		name: "chat", args: "[message]", max: -1,
-		summary: "write to the coordinator on the server and print its replies; without a message, show the chat",
+		summary: "write to a Bot on the server (the main Bot unless --bot) and print its replies; " +
+			"without a message, show the chat",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("chat", "", "the chat to use (default the most recent)")
+			fs.String("bot", "", "start a new chat with this Bot, by its id from bots list")
 			fs.Bool("new", false, "start a new chat")
 			fs.String("text-file", "", "read the message from this file, or - for standard input")
 			fs.String("timeout", "10m", "stop printing replies after this long")

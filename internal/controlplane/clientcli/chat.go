@@ -2,6 +2,7 @@ package clientcli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -17,8 +18,9 @@ import (
 // (issue #260).
 const chatEnv = "HYPOMNEMA_CHAT_ID"
 
-// chat writes to the coordinator on the server and prints its replies until
-// it is idle again; without a message it prints the chat's latest messages.
+// chat writes to a Bot on the server, the main Bot unless --bot names
+// another, and prints its replies until it is idle again; without a message
+// it prints the chat's latest messages.
 func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	text, err := e.text(fs, "text")
 	if err != nil {
@@ -29,7 +31,12 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		text = t
 	}
 
-	c, err := pickChat(ctx, e, str(fs, "chat"), boolean(fs, "new"), chatTitle(text))
+	bot := str(fs, "bot")
+	if bot != "" && str(fs, "chat") != "" {
+		return errors.New("--bot starts a new chat and --chat names one: a chat's Bot is fixed when it is made")
+	}
+
+	c, err := pickChat(ctx, e, str(fs, "chat"), boolean(fs, "new") || bot != "", bot, chatTitle(text))
 	if err != nil {
 		return err
 	}
@@ -67,8 +74,9 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return followChat(ctx, e, c.Id, sent.JSON201.Seq, durationFlag(fs, "timeout"))
 }
 
-// pickChat returns the chat named, a new one titled title, or the most recent one.
-func pickChat(ctx context.Context, e *env, id string, fresh bool, title string) (openapi.Chat, error) {
+// pickChat returns the chat named, a new one with bot (the main Bot when
+// empty) titled title, or the most recent one.
+func pickChat(ctx context.Context, e *env, id string, fresh bool, bot, title string) (openapi.Chat, error) {
 	if id != "" {
 		r, err := e.api.GetChatWithResponse(ctx, id)
 		if err != nil {
@@ -102,6 +110,10 @@ func pickChat(ctx context.Context, e *env, id string, fresh bool, title string) 
 	newChat := openapi.NewChat{}
 	if title != "" {
 		newChat.Title = &title
+	}
+
+	if bot != "" {
+		newChat.Bot = &bot
 	}
 
 	r, err := e.api.CreateChatWithResponse(ctx, newChat)
