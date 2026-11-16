@@ -80,7 +80,7 @@ func TestEveryTaskTransitionPair(t *testing.T) {
 		{TaskRunning, TaskBlocked}, {TaskRunning, TaskCanceled},
 		{TaskBlocked, TaskPending}, {TaskBlocked, TaskReady}, {TaskBlocked, TaskRunning},
 		{TaskBlocked, TaskSucceeded}, {TaskBlocked, TaskFailed}, {TaskBlocked, TaskCanceled},
-		{TaskFailed, TaskReady},
+		{TaskFailed, TaskReady}, {TaskSucceeded, TaskReady},
 	} {
 		allowed[p] = true
 	}

@@ -314,6 +314,7 @@ type Dispatch struct {
 	FallbackUntil    sql.NullInt64
 	Handoff          int64
 	StalledReason    sql.NullString
+	FollowUpID       sql.NullString
 }
 
 type DispatchEffect struct {
@@ -776,6 +777,14 @@ type Task struct {
 type TaskDep struct {
 	TaskID    string
 	DependsOn string
+}
+
+type TaskFollowUp struct {
+	ID        string
+	TaskID    string
+	Note      string
+	AskedBy   string
+	CreatedAt int64
 }
 
 type User struct {

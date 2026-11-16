@@ -763,6 +763,9 @@ type Accepted struct {
 	CLISessionRef  string    `json:"cli_session_ref,omitempty"`
 	// Gate is the answered decision the Dispatch resumes from.
 	Gate *Question `json:"gate,omitempty"`
+	// FollowUp is more work the coordinator or the owner asked of a Task that
+	// had succeeded (issue #666); the worker continues with it.
+	FollowUp string `json:"follow_up,omitempty"`
 }
 
 // Beat is the response to a heartbeat report.

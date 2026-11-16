@@ -254,6 +254,16 @@ func TestACoordinatorChangesOnlyItsOwnRuns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Forbidden, errorCode(t, more.Body, more.StatusCode(), http.StatusForbidden))
 
+	// A follow-up is the Run's coordinator's as a reopen is (issue #666); a Task not yet done takes none.
+	note := openapi.NewFollowUp{Note: "add a test"}
+	followUp, err := other.FollowUpTaskWithResponse(ctx, tasks.JSON201.Data[0].Id, note)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, followUp.Body, followUp.StatusCode(), http.StatusForbidden))
+
+	followUp, err = laptop.FollowUpTaskWithResponse(ctx, tasks.JSON201.Data[0].Id, note)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Conflict, errorCode(t, followUp.Body, followUp.StatusCode(), http.StatusConflict))
+
 	cancel, err = laptop.CancelTaskWithResponse(ctx, tasks.JSON201.Data[1].Id)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, cancel.StatusCode(), string(cancel.Body))

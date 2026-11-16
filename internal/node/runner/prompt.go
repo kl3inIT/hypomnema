@@ -20,8 +20,14 @@ const recoveryNote = "Your previous attempt at this task was interrupted and its
 const rules = "\nRules:\n" +
 	"- When a decision is not yours to make, call the `ask` tool and wait for the answer. " +
 	"Never use AskUserQuestion; no one reads it.\n" +
-	"- When the work is done, call the `finish` tool exactly once with a short summary and the evidence " +
-	"(the pull request as its URL), then end your turn. A task ended without `finish` counts as failed.\n" +
+	"- When the work is done, call the `finish` tool exactly once, then end your turn. A task ended without " +
+	"`finish` counts as failed.\n" +
+	// Issue #666: the shape of the report, after Orca's worker_done body, "what you did, what you found, what's
+	// left" (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts:96-103), and OpenAI's GPT-6
+	// guide's short handoff, "what changed, what was checked, and what still needs attention".
+	"- Keep the summary short: the answer first; then what you did, what you found and what is left; which checks " +
+	"you ran and which you skipped; then the evidence (paths with lines, commands with their output, the pull " +
+	"request as its URL).\n" +
 	"- If the owner must decide before the work goes on (such as whether to merge), " +
 	"pass that question as `gate` to `finish` instead of waiting.\n" +
 	"- Do not start subagents, and do not work outside this directory.\n" +
@@ -36,7 +42,7 @@ const rules = "\nRules:\n" +
 // Prompt is the worker's first turn, after Orca's dispatch preamble
 // (src/main/runtime/orchestration/preamble.ts L52-113): who it is, the task,
 // where to work, ask instead of AskUserQuestion, finish exactly once, no
-// subagents; then the recovery note and a resolved Gate.
+// subagents; then the recovery note, a follow-up and a resolved Gate.
 func Prompt(d statedb.Dispatch) string {
 	o := d.Offer
 
@@ -71,6 +77,10 @@ func Prompt(d statedb.Dispatch) string {
 		b.WriteString("\n" + recoveryNote + "\n")
 	}
 
+	if f := followUp(d); f != "" {
+		b.WriteString("\n" + f)
+	}
+
 	if g := gate(d); g != "" {
 		b.WriteString("\n" + g)
 	}
@@ -88,6 +98,26 @@ func openCommand(kind, base, branch string) string {
 	}
 
 	return adapter.OpenCommand(base, branch)
+}
+
+// followUp tells the worker of a Task that had succeeded what more is asked
+// of it (issue #666), as a resolved Gate is told. The Conversation goes on in
+// the same worktree, so the worker updates its own pull request (Polly sends
+// fixes "to the SAME implementer conversation ... so the worker keeps its
+// worktree/branch context and updates its existing PR", omnigent
+// examples/polly/skills/cross-review/SKILL.md:50-56).
+func followUp(d statedb.Dispatch) string {
+	if d.Accepted == nil || strings.TrimSpace(d.Accepted.FollowUp) == "" {
+		return ""
+	}
+
+	next := "Continue in this directory, then call `finish` again.\n"
+	if d.Offer.Repo != "" {
+		next = "Continue in this worktree and on this branch; update the same pull request, then call `finish` again.\n"
+	}
+
+	return "You finished this task before, and more is asked of it now:\n" +
+		strings.TrimSpace(d.Accepted.FollowUp) + "\n" + next
 }
 
 func gate(d statedb.Dispatch) string {

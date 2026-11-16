@@ -18,9 +18,15 @@ How a pull request is reviewed by another worker. Whether to review is the owner
    findings with a priority each.
 5. A verdict of correct, with green checks: report the pull request as reviewed and ready for the owner. The owner
    merges; you never do.
-6. Findings that make the change incorrect: report them to the owner as the reviewer gave them, and offer a fix
-   Task whose spec starts from the branch `hyp/<task_id>` of the change and lists them. Create it once the owner
-   agrees, and have its pull request reviewed the same way. After two rounds that still leave such findings, stop
-   and tell the owner what does not converge.
+6. Findings that make the change incorrect: report them to the owner as the reviewer gave them, and offer to send
+   them to the worker that made the change. Once the owner agrees, send them as a follow-up on that Task, the
+   findings pasted word for word:
+   ```text
+   hypomnema tasks follow-up <task_id> --note-file <file> --json
+   ```
+   The worker fixes them on its own branch and pull request, which keeps what it knew of the change. When the
+   follow-up is refused, create a fix Task whose spec starts from the branch `hyp/<task_id>` and lists them. Have the
+   updated pull request reviewed the same way, by a new review Task. After two rounds that still leave such
+   findings, stop and tell the owner what does not converge.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.

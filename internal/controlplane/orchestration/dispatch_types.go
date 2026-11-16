@@ -117,6 +117,8 @@ type Dispatch struct {
 	Waited       time.Duration
 	// GateQuestionID is the answered Gate this Dispatch resumes from.
 	GateQuestionID string
+	// FollowUpID is the follow-up its worker is asked (issue #666).
+	FollowUpID string
 	// Model and Effort are what the Dispatch was asked to run with: the Task's
 	// own, or its profile's; empty leaves the runtime's default.
 	Model  string
@@ -223,6 +225,8 @@ type Accepted struct {
 	CLISessionRef  string    `json:"cli_session_ref,omitempty"`
 	// Gate is the answered decision this Dispatch resumes from, for the worker's instructions.
 	Gate *Question `json:"gate,omitempty"`
+	// FollowUp is the note of the follow-up the worker is asked (issue #666).
+	FollowUp string `json:"follow_up,omitempty"`
 }
 
 // Beat is the reply to a heartbeat. StopRequested tells the node to stop the worker.

@@ -111,3 +111,22 @@ UPDATE tasks SET cancel_requested_at = coalesce(cancel_requested_at, @now), upda
 
 -- name: ResetTaskFailures :exec
 UPDATE tasks SET failure_count = 0, not_before = NULL, updated_at = @now WHERE id = @id;
+
+-- name: InsertFollowUp :exec
+INSERT INTO task_follow_ups (id, task_id, note, asked_by, created_at)
+VALUES (@id, @task_id, @note, @asked_by, @now);
+
+-- name: ListFollowUpsOfTask :many
+-- Oldest first.
+SELECT * FROM task_follow_ups WHERE task_id = @task_id ORDER BY created_at, rowid;
+
+-- name: PendingFollowUpOfTask :one
+-- The newest note that no Dispatch which gave it to the worker has yet ended succeeded.
+SELECT f.* FROM task_follow_ups f
+WHERE f.task_id = @task_id
+  AND NOT EXISTS (SELECT 1 FROM dispatches d WHERE d.follow_up_id = f.id AND d.status = 'succeeded')
+ORDER BY f.created_at DESC, f.rowid DESC
+LIMIT 1;
+
+-- name: GetFollowUp :one
+SELECT * FROM task_follow_ups WHERE id = @id;

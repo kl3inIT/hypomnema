@@ -118,16 +118,21 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 }
 
 func (s *Server) taskDetail(ctx context.Context, t orchestration.Task) (openapi.TaskDetail, error) {
+	fs, err := s.svc.ListFollowUps(ctx, t.ID)
+	if err != nil {
+		return openapi.TaskDetail{}, err
+	}
+
 	d, err := s.svc.LatestDispatch(ctx, t.ID)
 	if errors.Is(err, orchestration.ErrNotFound) {
-		return toTaskDetail(t, nil), nil
+		return toTaskDetail(t, nil, fs), nil
 	}
 
 	if err != nil {
 		return openapi.TaskDetail{}, err
 	}
 
-	return toTaskDetail(t, &d), nil
+	return toTaskDetail(t, &d, fs), nil
 }
 
 // FinishRun closes a Run whose Tasks have all ended.
@@ -292,6 +297,27 @@ func (s *Server) ReopenTask(ctx context.Context, req openapi.ReopenTaskRequestOb
 	}
 
 	return openapi.ReopenTask200JSONResponse(toTask(t)), nil
+}
+
+// FollowUpTask asks more of a succeeded Task's worker, as the owner or as the
+// Run's coordinator by the caller's token (issue #666).
+func (s *Server) FollowUpTask(ctx context.Context, req openapi.FollowUpTaskRequestObject,
+) (openapi.FollowUpTaskResponseObject, error) {
+	by := orchestration.AddressOwner
+	if k := principal(ctx).Kind; k == bearertoken.Coordinator || k == bearertoken.Bot {
+		by = orchestration.AddressCoordinator
+	}
+
+	if _, err := s.svc.FollowUpTask(ctx, req.TaskId, by, req.Body.Note); err != nil {
+		return nil, err
+	}
+
+	t, err := s.svc.GetTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.FollowUpTask200JSONResponse(toTask(t)), nil
 }
 
 // ListQuestions returns questions in the order they were asked.

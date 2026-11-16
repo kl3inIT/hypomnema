@@ -302,6 +302,23 @@ func TestACoordinatorFollowsTheRecipe(t *testing.T) {
 	var cancel openapi.Task
 	w.jsonCmd(t, &cancel, "", "tasks", "cancel", tasks.Data[1].Id)
 
+	// A review asks for one more change: it goes to the same worker as a follow-up (issue #666).
+	var followed openapi.Task
+	w.jsonCmd(t, &followed, "Also answer HEAD /health.\n", "tasks", "follow-up", tasks.Data[0].Id, "--note-file", "-")
+	assert.Equal(t, openapi.TaskStatusReady, followed.Status)
+
+	w.jsonCmd(t, &shown, "", "tasks", "show", tasks.Data[0].Id)
+	require.NotNil(t, shown.FollowUps)
+	require.Len(t, *shown.FollowUps, 1)
+	assert.Equal(t, "Also answer HEAD /health.", (*shown.FollowUps)[0].Note)
+	assert.Equal(t, openapi.AddresseeCoordinator, (*shown.FollowUps)[0].AskedBy)
+
+	scheduled, err := w.svc.Schedule(t.Context())
+	require.NoError(t, err)
+	require.Len(t, scheduled.Created, 1)
+	wk.begin(t, w, scheduled.Created[0])
+	wk.succeed(t, w)
+
 	for {
 		w.jsonCmd(t, &waited, "", "runs", "wait", run.Id, "--after", strconv.FormatInt(waited.After, 10),
 			"--timeout", "2s")

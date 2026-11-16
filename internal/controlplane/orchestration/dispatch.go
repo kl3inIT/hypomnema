@@ -94,9 +94,15 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return err
 	}
 
+	followUp, err := pendingFollowUp(ctx, q, task.ID)
+	if err != nil {
+		return err
+	}
+
 	if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
 		ID: id, TaskID: task.ID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
-		GateQuestionID: nullString(gate), Model: nullString(r.model), Effort: nullString(r.effort),
+		GateQuestionID: nullString(gate), FollowUpID: nullString(followUp),
+		Model: nullString(r.model), Effort: nullString(r.effort),
 		ProfileVersionID: nullString(r.versionID), FallbackFor: nullString(r.fallbackFor),
 		FallbackUntil: sql.NullInt64{Int64: r.fallbackUntil, Valid: r.fallbackFor != ""},
 		Handoff:       boolInt(r.handoff), Now: now,
@@ -120,7 +126,7 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		kind: EventDispatchCreated, run: task.RunID, task: task.ID, dispatch: id, node: node,
 		payload: map[string]any{
 			"conversation_id": conv, "recovery": recovery, "gate_question_id": gate, "fallback_for": r.fallbackFor,
-			"handoff": r.handoff,
+			"handoff": r.handoff, "follow_up_id": followUp,
 		},
 	}); err != nil {
 		return err
@@ -282,7 +288,8 @@ func (s *Service) AcceptDispatch(ctx context.Context, call NodeCall) (Accepted, 
 
 // accepted is what a node learns when it takes a Dispatch: the new epoch and
 // lease, the Conversation's CLI session, whether the worker gets the recovery
-// note, and the answered Gate it resumes from.
+// note, the follow-up it is asked (issue #666), and the answered Gate it
+// resumes from.
 func accepted(ctx context.Context, q *store.Queries, d store.Dispatch, lease int64) (Accepted, error) {
 	conv, err := q.GetConversation(ctx, d.ConversationID)
 	if err != nil {
@@ -292,6 +299,15 @@ func accepted(ctx context.Context, q *store.Queries, d store.Dispatch, lease int
 	out := Accepted{
 		Epoch: int(d.Epoch) + 1, LeaseExpiresAt: millis(lease), Recovery: d.Recovery == 1,
 		CLISessionRef: conv.CliSessionRef.String,
+	}
+
+	if d.FollowUpID.Valid {
+		f, err := q.GetFollowUp(ctx, d.FollowUpID.String)
+		if err != nil {
+			return Accepted{}, notFound(err, "follow-up", d.FollowUpID.String)
+		}
+
+		out.FollowUp = f.Note
 	}
 
 	if !d.GateQuestionID.Valid {
@@ -1433,7 +1449,8 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		StalledAt: optionalTime(d.StalledAt), OverrunAt: optionalTime(d.OverrunAt),
 		SettledAt: optionalTime(d.SettledAt), WaitingSince: optionalTime(d.WaitingSince),
 		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
-		Model: d.Model.String, Effort: d.Effort.String, ProfileVersionID: d.ProfileVersionID.String,
+		FollowUpID: d.FollowUpID.String,
+		Model:      d.Model.String, Effort: d.Effort.String, ProfileVersionID: d.ProfileVersionID.String,
 		FallbackFor: d.FallbackFor.String, FallbackUntil: optionalTime(d.FallbackUntil), Handoff: d.Handoff == 1,
 		Activity: d.Activity.String, StalledReason: d.StalledReason.String,
 	}

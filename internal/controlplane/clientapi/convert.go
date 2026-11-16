@@ -63,7 +63,7 @@ func toTask(t orchestration.Task) openapi.Task {
 	}
 }
 
-func toTaskDetail(t orchestration.Task, d *orchestration.Dispatch) openapi.TaskDetail {
+func toTaskDetail(t orchestration.Task, d *orchestration.Dispatch, fs []orchestration.FollowUp) openapi.TaskDetail {
 	b := toTask(t)
 	out := openapi.TaskDetail{
 		Id: b.Id, RunId: b.RunId, Position: b.Position, Profile: b.Profile, Spec: b.Spec, Runtime: b.Runtime,
@@ -76,6 +76,17 @@ func toTaskDetail(t orchestration.Task, d *orchestration.Dispatch) openapi.TaskD
 	if d != nil {
 		dispatch := toDispatch(*d)
 		out.LatestDispatch = &dispatch
+	}
+
+	if len(fs) > 0 {
+		list := make([]openapi.FollowUp, 0, len(fs))
+		for _, f := range fs {
+			list = append(list, openapi.FollowUp{
+				Id: f.ID, Note: f.Note, AskedBy: openapi.Addressee(f.AskedBy), CreatedAt: f.CreatedAt,
+			})
+		}
+
+		out.FollowUps = &list
 	}
 
 	return out
