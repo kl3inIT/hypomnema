@@ -569,9 +569,9 @@ func (e *Engine) human(ctx context.Context, s *session, tool string, arguments j
 	return err
 }
 
-// Close ends the view. clean says the owner closed it, which gives the
-// browser back at once; a view that dropped keeps the hold for a while.
-func (v *View) Close(ctx context.Context, clean bool) {
+// Close ends the view. The owner's hold outlives the last view for the grace,
+// however it went (ownerhold.Closed); only releaseControl ends it at once.
+func (v *View) Close(ctx context.Context) {
 	v.closing.Do(func() {
 		v.stop()
 		_ = v.conn.Close(websocket.StatusNormalClosure, "")
@@ -579,9 +579,7 @@ func (v *View) Close(ctx context.Context, clean bool) {
 		v.e.unviewed(v.s)
 		v.e.unwatched(ctx, v.s)
 
-		if reason := v.e.control.Closed(clean, v.e.cfg.Clock.Now()); reason != "" {
-			v.e.released(ctx, reason)
-		}
+		v.e.control.Closed(v.e.cfg.Clock.Now())
 	})
 }
 

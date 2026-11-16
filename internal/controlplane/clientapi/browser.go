@@ -47,8 +47,8 @@ type BrowserView interface {
 	Next(ctx context.Context) (shared.Update, error)
 	// Do carries out one message of the page.
 	Do(ctx context.Context, a shared.Action) error
-	// Close ends the view; clean says the owner closed it.
-	Close(ctx context.Context, clean bool)
+	// Close ends the view.
+	Close(ctx context.Context)
 }
 
 // Browser is the browser every agent shares.
@@ -256,11 +256,11 @@ func (s *Server) browserViewSocket(w http.ResponseWriter, r *http.Request) {
 	s.logger.InfoContext(ctx, "browser view opened",
 		append([]any{slog.String("event", "clientapi.browser_view_opened")}, who...)...)
 
-	clean, reason := copyBrowserView(ctx, conn, view)
+	reason := copyBrowserView(ctx, conn, view)
 
 	closing := context.WithoutCancel(ctx)
 
-	view.Close(closing, clean)
+	view.Close(closing)
 
 	s.logger.InfoContext(closing, "browser view closed", append([]any{
 		slog.String("event", "clientapi.browser_view_closed"),
@@ -269,9 +269,9 @@ func (s *Server) browserViewSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // copyBrowserView copies between the page and the view until either leaves.
-// It reports whether the page closed the view itself, and why the view ended:
-// the view's reason, or how the page left (pageLeft).
-func copyBrowserView(ctx context.Context, conn *websocket.Conn, view BrowserView) (clean bool, reason string) {
+// It reports why the view ended: the view's reason, or how the page left
+// (pageLeft).
+func copyBrowserView(ctx context.Context, conn *websocket.Conn, view BrowserView) (reason string) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -311,9 +311,6 @@ func copyBrowserView(ctx context.Context, conn *websocket.Conn, view BrowserView
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
-			// The page closing its socket, or leaving for another page, is the owner closing the view.
-			status := websocket.CloseStatus(err)
-			clean = status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway
 			left = pageLeft(ctx, err)
 
 			break
@@ -334,10 +331,10 @@ func copyBrowserView(ctx context.Context, conn *websocket.Conn, view BrowserView
 	cancel()
 
 	if reason = <-viewLeft; reason != "" {
-		return false, reason
+		return reason
 	}
 
-	return clean, left
+	return left
 }
 
 // pageLeft says, for the log, why reading a view's page ended: the control

@@ -104,7 +104,7 @@ func TestUseStartsTheIdleTimeAgain(t *testing.T) {
 		p.Sweep(t.Context())
 		assert.Empty(t, machines.stopped, "an open view keeps the machine on")
 
-		v.Close(t.Context(), true)
+		v.Close(t.Context())
 		c.pass(time.Minute)
 		p.Sweep(t.Context())
 		assert.Empty(t, machines.stopped, "the idle time starts at the view's close")
