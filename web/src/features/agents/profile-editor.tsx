@@ -250,7 +250,7 @@ function Builder({
           readOnly={!renamable}
           autoComplete="off"
           spellCheck={false}
-          placeholder="codex-implementer"
+          placeholder="codex-worker"
           value={draft.name}
           onChange={(event) => set({ name: event.target.value })}
         />

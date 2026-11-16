@@ -5,13 +5,13 @@
 #   <gateway provider>  the provider of kind model_gateway: `hypomnema providers list`
 #   <gateway model>     a model that provider offers:        `hypomnema models list`
 #                       Codex describes gpt-6.1-sol as its "Latest workhorse model for coding and everyday work".
-# Then: hypomnema profiles apply codex-implementer.yaml, or make it on the web under Agents.
+# Then: hypomnema profiles apply codex-worker.yaml, or make it on the web under Agents.
 #
 # The description is what the coordinator chooses by; say in it what this worker is for.
-name: codex-implementer
+name: codex-worker
 description: >-
-  Makes a change in the repository, runs its checks and opens a pull request, on Codex. Use when the owner asks
-  for Codex, or to have a second vendor do the work.
+  Makes a change in the repository, runs its checks and opens a pull request, on the Codex CLI. Use when the owner
+  asks for Codex, or to have a second vendor do the work; implementer is the default for any change.
 runtime: codex
 model:
   provider: <gateway provider>
@@ -23,3 +23,7 @@ model:
 # (`hypomnema profiles list`).
 # fallbacks:
 #   - implementer
+#
+# On the owner's control plane (2026-11-16) this profile runs gpt-6.1-sol and is the backup of `implementer`
+# (implementer's `fallbacks: [codex-worker]`), so Claude Code work goes on under Codex while Claude's accounts wait
+# for a limit to reset.

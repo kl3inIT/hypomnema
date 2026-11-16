@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -235,4 +236,76 @@ func TestAPageWithNothingReadableIsReadByJina(t *testing.T) {
 	_, err = svc.Fetch(t.Context(), srv.URL+"/broken")
 	require.ErrorIs(t, err, websearch.ErrUnreadable)
 	assert.Contains(t, err.Error(), "Jina Reader could not read it either")
+}
+
+// Scenario (issue #667): a site behind a bot wall answers 403 to the
+// direct request, and Jina Reader, fetching from its own servers, reads it. A
+// wall Jina meets too, or a bot check it copies, fails and says both; a page
+// that does not exist (404, 410) and an address the check refuses are never
+// sent to Jina.
+func TestAPageThatAnswersOutside2xxIsReadByJina(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+
+	asked := []string{}
+	jinaText := strings.Repeat("A model guide for the GPT-6 family. ", 10)
+	jina := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		asked = append(asked, r.URL.Path)
+		mu.Unlock()
+
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/walled"):
+			_, _ = io.WriteString(w, "Title: x\n\nWarning: Target URL returned error 403: Forbidden\n\nMarkdown Content:\nx")
+		case strings.HasSuffix(r.URL.Path, "/check"):
+			_, _ = io.WriteString(w, "Title: Just a moment\n\nMarkdown Content:\nVerify you are human by completing "+
+				"the action below. example.com needs to review the security of your connection before proceeding.")
+		default:
+			_, _ = fmt.Fprintf(w, "Title: Guide\n\nURL Source: x\n\nMarkdown Content:\n%s", jinaText)
+		}
+	}))
+	t.Cleanup(jina.Close)
+
+	srv, allow := site(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Cf-Mitigated", "challenge")
+
+		switch r.URL.Path {
+		case "/missing":
+			w.WriteHeader(http.StatusNotFound)
+		case "/removed":
+			w.WriteHeader(http.StatusGone)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+
+		_, _ = io.WriteString(w, "<html><body>Just a moment...</body></html>")
+	})
+	svc := fetcher(allow, jina.URL)
+
+	page, err := svc.Fetch(t.Context(), srv.URL+"/guide")
+	require.NoError(t, err)
+	assert.Equal(t, strings.TrimSpace(jinaText), page.Content)
+	assert.Equal(t, srv.URL+"/guide", page.URL)
+
+	for _, path := range []string{"/walled", "/check"} {
+		_, err = svc.Fetch(t.Context(), srv.URL+path)
+		require.ErrorIs(t, err, websearch.ErrUnreadable, path)
+		assert.Contains(t, err.Error(), "it answered 403, and Jina Reader could not read it either", path)
+	}
+
+	for _, path := range []string{"/missing", "/removed"} {
+		_, err = svc.Fetch(t.Context(), srv.URL+path)
+		require.ErrorIs(t, err, websearch.ErrUnreadable, path)
+	}
+
+	_, err = fetcher(egress.Allow{}, jina.URL).Fetch(t.Context(), srv.URL+"/guide")
+	require.ErrorIs(t, err, websearch.ErrRefused)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	assert.Equal(t, []string{"/" + srv.URL + "/guide", "/" + srv.URL + "/walled", "/" + srv.URL + "/check"}, asked,
+		"Jina is asked only for the walled pages, never for a missing page or a refused address")
 }

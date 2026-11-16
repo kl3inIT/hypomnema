@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { closed, failure, message, parseRequest, rejected } from "../src/protocol.mjs";
+import { closed, failure, media, message, older, parseRequest, rejected } from "../src/protocol.mjs";
 
 test("a line that is no request is said so, and a request keeps its id", () => {
   assert.equal(parseRequest("{").error, "not JSON");
@@ -21,31 +21,44 @@ test("a socket another Zalo Web took over is told as replaced; another close as 
   assert.equal(closed(1006, "").replaced, false);
 });
 
-// zca-js's GroupMessage and UserMessage (src/models/Message.ts): a group message from someone else, the owner's own
-// message in a direct chat, and a file shared as an attachment.
+// zca-js's GroupMessage and UserMessage (src/models/Message.ts): a group message from someone else and the owner's
+// own message in a direct chat.
 test("a message is kept as the control plane reads it", () => {
   const group = message({
     type: 1,
     threadId: "g1",
     isSelf: false,
-    data: { msgId: "m1", cliMsgId: "c1", uidFrom: "u2", dName: "Lan", ts: "1700000000000", msgType: "webchat",
-      content: "Báo giá đâu anh?", quote: { globalMsgId: 99 } },
+    data: { msgId: "m1", cliMsgId: "c1", actionId: "77", uidFrom: "u2", dName: "Lan", ts: "1700000000000",
+      msgType: "webchat", content: "Báo giá đâu anh?", quote: { globalMsgId: 99 } },
   });
   assert.deepEqual(group, {
-    id: "m1", cliId: "c1", chat: "g1", group: true, from: "u2", fromName: "Lan", fromMe: false, at: 1700000000000,
-    kind: "webchat", text: "Báo giá đâu anh?", attachment: null, quoteId: "99",
+    id: "m1", cliId: "c1", actionId: "77", chat: "g1", group: true, from: "u2", fromName: "Lan", fromMe: false,
+    at: 1700000000000, kind: "webchat", text: "Báo giá đâu anh?", media: null, quoteId: "99",
   });
 
   const mine = message({ type: 0, threadId: "u3", isSelf: true, data: { msgId: "m2", uidFrom: "me", content: "Ok" } });
   assert.equal(mine.group, false);
   assert.equal(mine.fromMe, true);
+});
 
-  const file = message({
-    type: 1,
-    threadId: "g1",
-    data: { msgId: "m3", msgType: "share.file",
-      content: { title: "bao-gia.pdf", description: "", href: "https://f.zalo/x", thumb: "" } },
-  });
-  assert.equal(file.text, "bao-gia.pdf");
-  assert.deepEqual(file.attachment, { url: "https://f.zalo/x", title: "bao-gia.pdf", thumb: "" });
+// The content shapes the Hermes Zalo plugin's parseContent and zaloclaw read: a photo with its caption, a file, a
+// voice note, a link, a sticker and a call.
+test("a message's content is read as its text and its file", () => {
+  assert.deepEqual(media("chat.photo", { title: "Ảnh hiện trường", href: "https://f/p.jpg", params: '{"hd":"https://f/hd.jpg"}' }),
+    { text: "Ảnh hiện trường", media: { type: "image", url: "https://f/hd.jpg", fileName: "", size: 0 } });
+  assert.deepEqual(media("share.file", { title: "bao-gia.pdf", href: "https://f/x", params: '{"fileSize":"2048"}' }),
+    { text: "", media: { type: "document", url: "https://f/x", fileName: "bao-gia.pdf", size: 2048 } });
+  assert.equal(media("chat.voice", { href: "https://f/v.m4a" }).media.type, "audio");
+  assert.deepEqual(media("share.file", { fileName: "note.mp3", fileUrl: "https://f/n.mp3", totalSize: 9 }).media,
+    { type: "audio", url: "https://f/n.mp3", fileName: "note.mp3", size: 9 });
+  assert.deepEqual(media("chat.recommended", { title: "Xem bài này", href: "https://vnexpress.net/a" }),
+    { text: "Xem bài này\nhttps://vnexpress.net/a", media: null });
+  assert.deepEqual(media("chat.sticker", { id: 1 }).media, { type: "sticker", url: "", fileName: "", size: 0 });
+  assert.deepEqual(media("chat.recommended", { action: "recommened.calltime", title: "Cuộc gọi thoại" }),
+    { text: "Cuộc gọi thoại", media: null });
+});
+
+test("the next page of the direct chats' queue starts at the oldest actionId", () => {
+  assert.equal(older(["7300000000000000123", "730000000000000099", "x", ""]), "730000000000000099");
+  assert.equal(older([]), "");
 });

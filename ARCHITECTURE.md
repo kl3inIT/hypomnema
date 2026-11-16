@@ -1411,8 +1411,9 @@ flowchart LR
   instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
   `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
   the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
-  nothing enforces it. `deploy/profiles/` holds samples for profiles on Codex, whose model is a gateway model
-  named by the deployment.
+  nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
+  pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
+  deployment: `codex-worker`, and `reviewer-codex.yaml`, which makes `reviewer` itself run on Codex.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
   desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
@@ -1941,8 +1942,21 @@ flowchart LR
       login from his phone (Zalo has no call for it).
     - **Every chat is kept** as it arrives, as WhatsApp's: `zl_chats` and `zl_messages` with a full-text search in
       `zalo.db`, groups named from Zalo's list of groups, a direct chat after the person in it, read through the
-      same `…/chats` and `…/messages` endpoints. Older messages, files, the Bot's tools and sending answer that
-      they come in a later step of #613.
+      same `…/chats` and `…/messages` endpoints.
+    - **The past** ([issue #669](https://github.com/kl3inIT/hypomnema/issues/669), step 2): after each
+      connection the account walks back once, one page every 2 s, from where it stopped (kept in `zl_chats` and
+      `zl_queue`, `zl_version` 1): each group with zca-js's `getCloudMessage`, 50 a page, back to when the owner
+      joined; the direct chats with the listener's old-messages request (cmd 510), one queue for all of them, paged
+      by the oldest `actionId` until a page brings nothing new. `POST …/chats/{chat}/history` reads more of a group
+      now, and walks the queue to its end for a direct chat; each page is read alone, so such a request waits for one
+      page, not the whole walk. Direct chats are named after the person
+      (`getUserInfo`), after the walk and when the owner writes first in a new one.
+    - **Files**: a message's kind is read as the Hermes Zalo plugin and zaloclaw read it (image, video, audio,
+      document, sticker, link, call); every image, video, voice note and file is downloaded at once, live or from
+      the past (Zalo's CDN links expire), by four workers, a plain GET of at most 100 MiB that dials only public
+      addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its sender's), into
+      `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404, 410) is said
+      once. `…/media` answers one; disconnecting removes them. The Bot's tools and sending are step 3.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
@@ -2745,9 +2759,11 @@ calls, and each call is recorded on a gateway key.
   Readability, which OpenClaw's `web-readability` uses) and made markdown, its links whole, by html-to-markdown
   (`github.com/JohannesKaufmann/html-to-markdown/v2`); JSON is indented; anything else is kept as text. HTML with
   nothing readable is read by Jina Reader without a key (`r.jina.ai/<address>`, markdown, no cache, the text after
-  `Markdown Content:` unless Jina's own fetch failed or found under 100 characters; omp's fallback). A page is read
-  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`; one that does not answer
-  2xx fails.
+  `Markdown Content:` unless Jina's own fetch failed, found under 100 characters, or copied a bot check: omp's
+  fallback and its `BLOCK_PAGE_PHRASES`). A page whose server answers outside 2xx, such as a bot wall's 403, is read
+  by Jina too, which fetches it from its own servers (issue #667; OpenClaw asks its fetch provider on `!res.ok`); a
+  404 or 410 fails without asking it (inferred), and an address the check refuses never reaches it. A page is read
+  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`.
 - A page is read only where the shared browser may go (the gate's rules, `browser/egress`): each connection's
   address is checked as it is made, after the name was resolved, so a name or a redirect that leads to loopback,
   the machine's own addresses, a private network, link-local, the cloud's metadata service or a reserved address
@@ -2886,7 +2902,12 @@ OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Code
 servers, a Bot's (`hypomnema mcp`) and a worker's (`hypomnema-node mcp`), list them on `GET /agent/v1/tools` and
 run one on `POST /agent/v1/tools/call` (`{tool, arguments}`; the answer is the tool's result as MCP has it); a tool
 an agent was not given is a 404 there. The phone's tools stay on their own routes, which both servers list
-beside the one list (see "A phone, on a node that holds one"). The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
+beside the one list (see "A phone, on a node that holds one"). The list follows the agent's settings at each
+`GET` (a Bot's Connections, `-tools`, Superset dashboards), so a running agent can see it change (issue #653): the
+server declares `tools.listChanged`, and after each `tools/call`, before its answer, lists again and sends
+`notifications/tools/list_changed` when the list differs from the one it last answered (a list that failed to load
+is no change), as the MCP Go SDK notifies only on a real change and Omnigent's bridge on a changed agent; pi lists
+again on it. A turn that calls no tool keeps the list it had. The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
 `POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
 gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
@@ -3933,7 +3954,7 @@ the internet, so that a machine created at a provider can install the node from 
   in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
   serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,
   `gpt-oss-120b-medium`. Since 2026-11-11 the gateway model `claude-sonnet` is served from it
-  (`claude-sonnet-4-6`); the profile `omp-claude` runs omp on it.
+  (`claude-sonnet-4-6`); the profile `omp-claude` ran omp on it until the owner removed it on 2026-11-16.
 - Lark, since 2026-11-10: the owner's Lark app (Lark international) is the client of the Integration `lark`, its
   secret in the vault as `integration-lark-client`, and connected as `lark:work`. Nodes installed `lark-cli`
   1.0.100 themselves. A worker calls it from node v0.6.1 on: a Run given `lark:work` on aioffice-app ran
@@ -3972,9 +3993,12 @@ the internet, so that a machine created at a provider can install the node from 
   token file and the account called `claude kept` are gone. Both accounts are the same Anthropic organization (a cache
   written under one was read under the other, [#381](https://github.com/kl3inIT/hypomnema/issues/381)).
 - Since [#381](https://github.com/kl3inIT/hypomnema/issues/381) (v0.9.23) a Claude Code worker may instead run through
-  the gateway with a key of its Dispatch; the profile `implementer-gateway` is on trial.
-- Workers under Codex, omp and opencode run from the profiles `codex-worker`, `omp-worker`, `opencode-worker` and
-  `omp-claude`, against the provider `model-gateway`.
+  the gateway with a key of its Dispatch; the profile `implementer-gateway` tried it and is no longer listed (2026-11-16).
+- Profiles since 2026-11-16 (issue #661): `implementer` (Claude Code, Opus 5.5, the default; backup `codex-worker`),
+  `explorer` (Claude Code, Sonnet 5.5), `reviewer` (Codex, gpt-6.1-sol, effort high, so another vendor reviews a
+  Claude Code worker's change), `codex-worker` (Codex, gpt-6.1-sol) and `superset-report-worker` (Codex), against
+  the provider `model-gateway` for Codex. The trial profiles `omp-worker`, `opencode-worker`, `omp-claude`,
+  `omp-claude-sub` and the separate `codex-reviewer` were removed (hidden, their versions kept).
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
   installed.
 - Each machine joins the tailnet once, approved in the owner's Tailscale account. The control plane and Tailscale start with

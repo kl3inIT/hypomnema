@@ -56,8 +56,11 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 
 	return toolsmcp.Serve(ctx, e.in, e.out, toolsmcp.Config{
 		Name: mcpName,
-		List: func(ctx context.Context) []map[string]any {
-			return append(agent.Tools(ctx, agenttool.PathTools), agent.Tools(ctx, agenttool.PathDeviceTools)...)
+		List: func(ctx context.Context) ([]map[string]any, error) {
+			tools, err := agent.Tools(ctx, agenttool.PathTools)
+			device, deviceErr := agent.Tools(ctx, agenttool.PathDeviceTools)
+
+			return append(tools, device...), errors.Join(err, deviceErr)
 		},
 		Call: func(ctx context.Context, c toolsmcp.Call) (any, error) {
 			switch {

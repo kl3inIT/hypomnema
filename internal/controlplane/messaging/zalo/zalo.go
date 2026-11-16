@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	zalobridge "github.com/kl3inIT/hypomnema/bridges/zalo"
@@ -47,6 +49,11 @@ type Service struct {
 	log     *slog.Logger
 	// start runs a bridge; the machine's Node on the bundle outside tests.
 	start func(context.Context) (*bridge, error)
+	// mediaDir holds the kept files, beside zalo.db (issue #669); http reads them from Zalo's CDN.
+	mediaDir string
+	http     *http.Client
+	// gap is the wait between two pages of the past (past.go, pageGap).
+	gap time.Duration
 }
 
 // Open opens zalo.db at path and writes the bridge beside it, to run with node (DefaultNode when empty).
@@ -90,7 +97,10 @@ func open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 		return nil, errors.Join(err, db.Close())
 	}
 
-	return &Service{closeDB: db.Close, mirror: kept, log: logger}, nil
+	return &Service{
+		closeDB: db.Close, mirror: kept, log: logger, mediaDir: filepath.Join(filepath.Dir(path), "zalo-media"),
+		http: newHTTP(), gap: pageGap,
+	}, nil
 }
 
 // Close closes zalo.db; close the accounts first.
@@ -237,7 +247,8 @@ func (s *Service) Open(ctx context.Context, id string) (messaging.Account, error
 func (s *Service) newAccount(cancel context.CancelFunc, who whoAmI, credentials json.RawMessage) *account {
 	return &account{
 		svc: s, uid: who.UID, name: who.Name, credentials: credentials, cancel: cancel,
-		state: messaging.State{Status: messaging.StatusConnecting},
+		state: messaging.State{Status: messaging.StatusConnecting}, jobs: make(chan mediaJob, mediaQueueSize),
+		past: make(chan struct{}, 1),
 	}
 }
 
@@ -250,9 +261,28 @@ type account struct {
 	// cancel ends the session's context, which its bridge and its work run in.
 	cancel context.CancelFunc
 
+	// jobs are the files to download (media.go), by workers started once.
+	jobs      chan mediaJob
+	mediaOnce sync.Once
+	// past admits one page of the past at a time (past.go), waited for with a context.
+	past chan struct{}
+	// filesMu: downloads hold it to read, Logout to write, so that it waits for them; forgotten is set by Logout.
+	filesMu   sync.RWMutex
+	forgotten bool
+	// naming says a naming of direct chats is running.
+	naming atomic.Bool
+
 	mu    sync.Mutex
 	state messaging.State
 	b     *bridge
+}
+
+// current is the bridge logged in now, or nil.
+func (a *account) current() *bridge {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.b
 }
 
 func (a *account) ID() string   { return a.uid }
@@ -361,8 +391,9 @@ func (a *account) login(ctx context.Context, b *bridge) error {
 // follow reads a logged-in bridge's events until it ends. The listener starts once they are read, so that no
 // message comes before (bridge.mjs, listen); a closed listener ends the bridge, which run starts again.
 func (a *account) follow(ctx context.Context, b *bridge) {
-	go a.listen(ctx, b)
-	go a.nameGroups(ctx, b)
+	a.startMedia(ctx)
+
+	go a.begin(ctx, b)
 
 	for e := range b.events {
 		switch e.Name {
@@ -405,14 +436,20 @@ func (a *account) follow(ctx context.Context, b *bridge) {
 	a.mu.Unlock()
 }
 
-func (a *account) listen(ctx context.Context, b *bridge) {
-	ctx, cancel := context.WithTimeout(ctx, loginWait)
+// begin starts the listener, then names the groups, which the walk of their past needs, then catches up.
+func (a *account) begin(ctx context.Context, b *bridge) {
+	listenCtx, cancel := context.WithTimeout(ctx, loginWait)
 	defer cancel()
 
-	if err := b.call(ctx, "listen", map[string]any{}, nil); err != nil {
+	if err := b.call(listenCtx, "listen", map[string]any{}, nil); err != nil {
 		a.svc.log.WarnContext(ctx, "zalo: the listener could not start", slog.String("error", err.Error()))
 		b.stop()
+
+		return
 	}
+
+	a.nameGroups(ctx, b)
+	a.catchUp(ctx, b)
 }
 
 // renew keeps the cookies Zalo renewed, so that the next start logs in with them.
@@ -456,36 +493,58 @@ func (a *account) nameGroups(ctx context.Context, b *bridge) {
 
 // incoming is a message as the bridge gives it (bridges/zalo/src/protocol.mjs, message).
 type incoming struct {
-	ID         string `json:"id"`
-	CliID      string `json:"cliId"`
-	Chat       string `json:"chat"`
-	Group      bool   `json:"group"`
-	From       string `json:"from"`
-	FromName   string `json:"fromName"`
-	FromMe     bool   `json:"fromMe"`
-	At         int64  `json:"at"`
-	Kind       string `json:"kind"`
-	Text       string `json:"text"`
-	QuoteID    string `json:"quoteId"`
-	Attachment *struct {
-		URL   string `json:"url"`
-		Title string `json:"title"`
-	} `json:"attachment"`
+	ID       string `json:"id"`
+	CliID    string `json:"cliId"`
+	ActionID string `json:"actionId"`
+	Chat     string `json:"chat"`
+	Group    bool   `json:"group"`
+	From     string `json:"from"`
+	FromName string `json:"fromName"`
+	FromMe   bool   `json:"fromMe"`
+	At       int64  `json:"at"`
+	Kind     string `json:"kind"`
+	Text     string `json:"text"`
+	QuoteID  string `json:"quoteId"`
+	Media    *struct {
+		Type     string `json:"type"`
+		URL      string `json:"url"`
+		FileName string `json:"fileName"`
+		Size     int64  `json:"size"`
+	} `json:"media"`
 }
 
+// keep keeps a live message; a direct chat it opens with no name is named.
 func (a *account) keep(ctx context.Context, raw json.RawMessage) {
 	var m incoming
-	if err := json.Unmarshal(raw, &m); err != nil || m.ID == "" || m.Chat == "" {
+	if json.Unmarshal(raw, &m) != nil {
 		return
+	}
+
+	if added, _ := a.keepMessage(ctx, m); added && !m.Group && m.FromMe {
+		if b := a.current(); b != nil && a.naming.CompareAndSwap(false, true) {
+			go func() {
+				defer a.naming.Store(false)
+
+				a.nameDirectChats(ctx, b)
+			}()
+		}
+	}
+}
+
+// keepMessage keeps a message, live or from the past, and queues its file; it answers whether it was new, and a
+// failure to store it apart from a message kept before.
+func (a *account) keepMessage(ctx context.Context, m incoming) (bool, error) {
+	if m.ID == "" || m.Chat == "" {
+		return false, nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, keepTimeout)
 	defer cancel()
 
 	k := kept{
-		account: a.uid, chat: m.Chat, chatKind: "dm", id: m.ID, cliID: m.CliID, sender: m.From,
-		senderName: m.FromName, at: time.UnixMilli(m.At), fromMe: m.FromMe, kind: m.Kind, text: m.Text,
-		quotedID: m.QuoteID,
+		account: a.uid, chat: m.Chat, chatKind: "dm", id: m.ID, cliID: m.CliID, actionID: m.ActionID,
+		sender: m.From, senderName: m.FromName, at: time.UnixMilli(m.At), fromMe: m.FromMe, kind: m.Kind,
+		text: m.Text, quotedID: m.QuoteID,
 	}
 
 	if m.Group {
@@ -496,13 +555,22 @@ func (a *account) keep(ctx context.Context, raw json.RawMessage) {
 		k.chatName = m.FromName
 	}
 
-	if m.Attachment != nil {
-		k.attachmentURL, k.attachmentTitle = m.Attachment.URL, m.Attachment.Title
+	if m.Media != nil {
+		k.mediaType, k.mediaURL, k.fileName, k.fileSize = m.Media.Type, m.Media.URL, m.Media.FileName, m.Media.Size
 	}
 
-	if err := a.svc.mirror.keep(ctx, k); err != nil {
+	added, err := a.svc.mirror.keep(ctx, k)
+	if err != nil {
 		a.svc.log.WarnContext(ctx, "zalo: a message could not be kept", slog.String("error", err.Error()))
+
+		return false, err
 	}
+
+	if added && k.mediaURL != "" && k.mediaType != "sticker" {
+		a.queueMedia(mediaJob{account: a.uid, chat: k.chat, id: k.id})
+	}
+
+	return added, nil
 }
 
 // Close stops the bridge and keeps the session, to be opened again.
@@ -524,7 +592,12 @@ func (a *account) Logout(ctx context.Context) error {
 	a.Close()
 	a.setState(messaging.State{Status: messaging.StatusLoggedOut})
 
-	return a.svc.mirror.forget(ctx, a.uid)
+	// Downloads under way end first, and none starts after: no file outlives the link.
+	a.filesMu.Lock()
+	a.forgotten = true
+	a.filesMu.Unlock()
+
+	return errors.Join(a.svc.mirror.forget(ctx, a.uid), a.svc.forgetFiles(a.uid))
 }
 
 func (a *account) Chats(ctx context.Context, limit int) ([]messaging.Chat, error) {
@@ -535,19 +608,8 @@ func (a *account) Messages(ctx context.Context, q messaging.Query) ([]messaging.
 	return a.svc.mirror.messages(ctx, a.uid, q)
 }
 
-// errLater is what steps 2 and 3 of #613 add.
-func errLater(what string) error {
-	return fmt.Errorf("%w: Zalo %s comes in a later step of issue #613", orchestration.ErrUnavailable, what)
-}
-
-func (a *account) Media(context.Context, string, string) (messaging.Media, error) {
-	return messaging.Media{}, errLater("files")
-}
-
-func (a *account) Backfill(context.Context, string, int) (messaging.Backfilled, error) {
-	return messaging.Backfilled{}, errLater("older messages")
-}
-
+// Send is step 3 of #613.
 func (a *account) Send(context.Context, messaging.Outgoing) (messaging.Message, error) {
-	return messaging.Message{}, errLater("sending")
+	return messaging.Message{}, fmt.Errorf("%w: sending in Zalo comes in a later step of issue #613",
+		orchestration.ErrUnavailable)
 }
