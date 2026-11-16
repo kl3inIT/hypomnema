@@ -3350,8 +3350,10 @@ Node (`internal/node`):
     browser, or a new chat. A tab, or a chat from the sidebar, dropped on the outer tenth of a pane's side makes a
     new pane there, and dropped in its middle joins that pane (Orca's `resolveDropZone`), shown as a dashed
     ghost; a drop with no room is not taken, and a chat is on the grid once, so one from the sidebar leaves the
-    pane that had it. A pane left with no tab leaves the grid. The grid is at `/grid`, with a "Grid" row in the
-    sidebar while there is one; a pane can fill the screen for a while, or leave the grid, and a grid down to one
+    pane that had it. A pane left with no tab leaves the grid. The panes are one list keyed by id, each placed by
+    its `grid-area` (Omnigent's `gridPanes`), so a pane added or taken off moves the others without mounting them
+    again, and a phone or browser watched in one stays connected (issue #597). The grid is at `/grid`, with a
+    "Grid" row in the sidebar while there is one; a pane can fill the screen for a while, or leave the grid, and a grid down to one
     pane with a chat is that chat's page again, with the pane's tabs. A chat's own page (`/chats/:id`) is a pane
     whose chat tab cannot be closed; a tab dropped on its side makes a grid. The grid and the panes are kept in
     the browser (`localStorage`, `hypomnema.grid`, `hypomnema.panes`, as Omnigent keeps a session's workspace
