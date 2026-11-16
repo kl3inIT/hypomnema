@@ -414,7 +414,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// Superset's tools of a worker and a Bot's pi (issue #536) are relayed through the same decision as the
 	// client API's Superset routes; the proxy is made after the agent API it asks who an agent is.
 	agents.WithRelay(proxy)
-	agents.WithMessaging(integrations)
+	agents.WithMessaging(integrations).WithJudge(proxy)
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		ClaudeBaseURL:      cfg.ClaudeBaseURL,

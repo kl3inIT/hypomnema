@@ -466,6 +466,17 @@ func (s *Service) Media(ctx context.Context, integration, label, chat, id string
 	return acc.Media(ctx, chat, id)
 }
 
+// Send sends a message or a file as the owner through a Connection of kind device (issue #645).
+func (s *Service) Send(ctx context.Context, integration, label string, out messaging.Outgoing,
+) (messaging.Message, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return messaging.Message{}, err
+	}
+
+	return acc.Send(ctx, out)
+}
+
 // Backfill asks for older messages of a chat of a Connection of kind device (issue #634).
 func (s *Service) Backfill(ctx context.Context, integration, label, chat string, count int) (int, error) {
 	acc, err := s.heldAccount(ctx, integration, label)
