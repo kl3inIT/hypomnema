@@ -15,6 +15,8 @@ const chat = {
   updated_at: "2026-11-15T10:00:00Z",
 }
 
+const other = { ...chat, id: "cht_2", title: "check the order page" }
+
 const phoneNode = {
   node_id: "nod_phone",
   name: "phone",
@@ -145,9 +147,11 @@ async function fakeServer(page: Page, options: Options = {}) {
       case "GET /browser":
         return json({ code: "unavailable", message: "this control plane has no browser" }, 503)
       case "GET /chats":
-        return json({ data: [chat] })
+        return json({ data: [chat, other] })
       case "GET /chats/cht_1":
         return json(chat)
+      case "GET /chats/cht_2":
+        return json(other)
       case "GET /chats/cht_1/stream": {
         const said = {
           seq: 1,
@@ -367,6 +371,36 @@ test("the phone's frame fits a narrow pane", async ({ page }, info) => {
   const button = (await control.boundingBox())!
   expect(button.x + button.width).toBeLessThanOrEqual(view.x + view.width - 4)
   await shot(page, "phone-narrow")
+})
+
+// Scenario: the owner holds the phone beside a chat and drags another chat into the grid. The phone's pane moves
+// over but stays as it was: its view is not closed and opened again, which would give the phone back to the agents
+// (issue #597).
+test("a chat added to the grid leaves the phone held and connected", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "a phone has no grid")
+  const server = await fakeServer(page)
+  await page.goto("/chats/cht_1")
+  await openPhone(page)
+  await expect.poll(() => server.sockets).toHaveLength(1)
+  let closed = 0
+  server.sockets[0].onClose(() => closed++)
+  await page.getByRole("button", { name: /Take control/ }).click()
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+
+  await page.getByRole("button", { name: "Show the chats of coordinator" }).click()
+  const box = (await page.getByRole("region", { name: chat.title }).boundingBox())!
+  await page
+    .getByRole("list", { name: "Chats of coordinator" })
+    .getByRole("link", { name: other.title })
+    .hover()
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.97, { steps: 12 })
+  await page.mouse.up()
+  await expect(page.getByRole("region", { name: other.title })).toBeVisible()
+
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  expect(closed).toBe(0)
+  expect(server.sockets).toHaveLength(1)
 })
 
 // While the phone's machine starts, the view says so on the phone's card.
