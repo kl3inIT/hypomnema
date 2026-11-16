@@ -116,10 +116,11 @@ linters:
             - "!**/internal/controlplane/vault/**"
             - "!**/internal/controlplane/modelgateway/**"
             - "!**/internal/controlplane/messaging/whatsapp/**"
+            - "!**/internal/controlplane/messaging/zalo/**"
             - "!**/internal/node/statedb/**"
           deny:
             - pkg: database/sql
-              desc: SQL belongs to the package that owns the tables (orchestration, vault, modelgateway, messaging/whatsapp, node statedb), as Omnara's statedb rule
+              desc: SQL belongs to the package that owns the tables (orchestration, vault, modelgateway, messaging/whatsapp, messaging/zalo, node statedb), as Omnara's statedb rule
         vault_values_stay_inside:
           list-mode: lax
           files:

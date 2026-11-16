@@ -205,6 +205,12 @@ func integrationsSignIn(ctx context.Context, e *env, fs *flag.FlagSet, id string
 		return apiError("starting the sign-in of "+id+":"+label, begun.StatusCode(), begun.JSONDefault)
 	}
 
+	// A phone's account (WhatsApp, Zalo) is linked by a QR code, which a terminal cannot show: the page does.
+	if begun.JSON200.Url == "" {
+		return fmt.Errorf("%s is linked by scanning a QR code with your phone: open Settings › Integrations in the "+
+			"web app and choose Link phone", id)
+	}
+
 	e.printf("Open this link in a browser on any machine and sign in:\n\n  %s\n\n"+
 		"The browser ends on a page that does not load. Copy its whole address and paste it here, within %d "+
 		"minutes:\n", begun.JSON200.Url, begun.JSON200.ExpiresInSeconds/60)

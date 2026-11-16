@@ -35,17 +35,18 @@ type deviceLink struct {
 
 	mu      sync.Mutex
 	code    string
+	image   string
 	expires time.Time
 	// conn and err are the linking's end, set before done is closed.
 	conn Connection
 	err  error
 }
 
-func (l *deviceLink) current() (string, time.Time) {
+func (l *deviceLink) current() (code, image string, expires time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	return l.code, l.expires
+	return l.code, l.image, l.expires
 }
 
 // WithDevices sets the messaging service of an Integration of kind device: whatsapp's.
@@ -100,7 +101,7 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 		return SignIn{}, fmt.Errorf("%w: %s sent no code in %s", ErrSignInFailed, d.Name, firstCodeWait)
 	}
 
-	if first.Code == "" {
+	if first.Code == "" && first.Image == "" {
 		cancel()
 
 		if first.Err == nil {
@@ -112,7 +113,7 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 
 	link := &deviceLink{
 		label: label, ctx: linkCtx, cancel: cancel, done: make(chan struct{}), code: first.Code,
-		expires: first.Expires,
+		image: first.Image, expires: first.Expires,
 	}
 	go s.followLink(linkCtx, d, label, link, steps)
 
@@ -124,7 +125,9 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 	s.signIns[id] = pending
 	s.mu.Unlock()
 
-	return SignIn{ID: id, ExpiresIn: signInTimeout, Code: first.Code, CodeExpires: first.Expires}, nil
+	return SignIn{
+		ID: id, ExpiresIn: signInTimeout, Code: first.Code, CodeImage: first.Image, CodeExpires: first.Expires,
+	}, nil
 }
 
 // dropExpired forgets the sign-ins older than any can be; s.mu is held.
@@ -154,9 +157,9 @@ func (s *Service) followLink(ctx context.Context, d Definition, label string, li
 steps:
 	for step := range steps {
 		switch {
-		case step.Code != "":
+		case step.Code != "" || step.Image != "":
 			link.mu.Lock()
-			link.code, link.expires = step.Code, step.Expires
+			link.code, link.image, link.expires = step.Code, step.Image, step.Expires
 			link.mu.Unlock()
 
 			continue
@@ -170,7 +173,7 @@ steps:
 	}
 
 	link.mu.Lock()
-	link.code, link.conn = "", conn
+	link.code, link.image, link.conn = "", "", conn
 
 	if err != nil {
 		link.err = fmt.Errorf("%w: %w", ErrSignInFailed, err)
@@ -278,10 +281,10 @@ func (s *Service) Code(_ context.Context, integration, id string) (SignIn, error
 			"or the control plane restarted. Start it again", ErrNotFound, id, int(signInTimeout.Minutes()))
 	}
 
-	code, expires := pending.link.current()
+	code, image, expires := pending.link.current()
 	left := signInTimeout - s.clock.Now().Sub(pending.started)
 
-	return SignIn{ID: id, ExpiresIn: max(left, 0), Code: code, CodeExpires: expires}, nil
+	return SignIn{ID: id, ExpiresIn: max(left, 0), Code: code, CodeImage: image, CodeExpires: expires}, nil
 }
 
 // OpenDevices opens the session of every Connection of an Integration of kind device, as the control plane starts.

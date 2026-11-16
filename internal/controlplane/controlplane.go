@@ -30,6 +30,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/zalo"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -83,6 +84,9 @@ type Config struct {
 	// [sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm]; empty: a
 	// deleted chat's files there stay, and the deletion says so.
 	ChatRmCommand []string
+	// Node runs the Zalo bridge (issue #657), from HYPOMNEMA_NODE; empty is the machine's Node the coordinator's
+	// setup installs (zalo.DefaultNode).
+	Node string
 	// VaultKeys holds the vault's root keys, from HYPOMNEMA_VAULT_KEYS (a
 	// comma-separated list of id:base64 entries) and
 	// HYPOMNEMA_VAULT_ACTIVE_KEY_ID; nil: the vault is not configured.
@@ -208,6 +212,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		}
 	}
 
+	cfg.Node = env.String(envPrefix+"_NODE", "")
+
 	keys, keysErr := vault.ParseKeyring(getenv(envPrefix+"_VAULT_KEYS"), getenv(envPrefix+"_VAULT_ACTIVE_KEY_ID"))
 	cfg.VaultKeys = keys
 
@@ -282,7 +288,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	tokens := connections{svc: svc, vault: secrets}
 	sshKey := &gitSSHKey{vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
-		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp())
+		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),
+		integration.Zalo())
 
 	// The owner's WhatsApp, linked as a device of his (issue #615): its sessions are whatsmeow's, in a database
 	// of their own beside this one, and are opened again as the control plane starts.
@@ -293,6 +300,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	defer wa.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
 
 	integrations.WithDevices(integration.WhatsAppID, wa)
+
+	// The owner's Zalo (issue #657): zca-js in a bridge run with the machine's Node, its session and chats in
+	// zalo.db. A control plane that cannot run the bridge links no Zalo account, and says why.
+	if zl, err := zalo.Open(ctx, filepath.Join(filepath.Dir(cfg.Database.Path), "zalo.db"), cfg.Node, logger); err != nil {
+		logger.WarnContext(ctx, "Zalo accounts cannot be linked", slog.String("error", err.Error()))
+	} else {
+		defer zl.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
+
+		integrations.WithDevices(integration.ZaloID, zl)
+	}
 
 	if err := integrations.OpenDevices(ctx); err != nil {
 		logger.WarnContext(ctx, "a linked account's session could not be opened", slog.String("error", err.Error()))

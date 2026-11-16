@@ -191,11 +191,13 @@ type Integration struct {
 // Code, the QR code's content until CodeExpires, which Code answers anew
 // (device.go); Complete waits until the phone scanned one.
 type SignIn struct {
-	ID          string
-	URL         string
-	UserCode    string
-	ExpiresIn   time.Duration
-	Code        string
+	ID        string
+	URL       string
+	UserCode  string
+	ExpiresIn time.Duration
+	Code      string
+	// CodeImage is the QR code as a picture, a data URL, for a service that gives no code to draw (Zalo).
+	CodeImage   string
 	CodeExpires time.Time
 }
 
