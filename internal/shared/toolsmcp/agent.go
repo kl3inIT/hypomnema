@@ -115,21 +115,21 @@ func (a *Agent) doWithin(ctx context.Context, method, path string, body any, lim
 }
 
 // Tools is the tools the control plane lists on path (agenttool's
-// PathTools, PathDeviceTools), in the shape of
-// tools/list. A control plane that cannot give them gives none: the agent
-// still has the others.
-func (a *Agent) Tools(ctx context.Context, path string) []map[string]any {
+// PathTools, PathDeviceTools), in the shape of tools/list. A control plane
+// that cannot give them gives none, with the error: the agent still has the
+// others, and the server does not take a failed list for a changed one.
+func (a *Agent) Tools(ctx context.Context, path string) ([]map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
 
 	raw, err := a.Do(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	var list agenttool.BrowserToolList
-	if json.Unmarshal(raw, &list) != nil {
-		return nil
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("reading the tools of %s: %w", path, err)
 	}
 
 	out := make([]map[string]any, 0, len(list.Data))
@@ -137,7 +137,7 @@ func (a *Agent) Tools(ctx context.Context, path string) []map[string]any {
 		out = append(out, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema})
 	}
 
-	return out
+	return out, nil
 }
 
 // ToolCall runs one tool on path (PathToolsCall, PathDeviceCall) within the

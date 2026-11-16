@@ -156,8 +156,12 @@ func TestAWorkerUsesTheSharedBrowser(t *testing.T) {
 	require.Len(t, cp.calls, 1)
 	assert.Equal(t, "agent_browser_screenshot", cp.calls[0].Tool)
 	assert.JSONEq(t, `{"fullPage":true}`, string(cp.calls[0].Arguments))
-	// The control plane's list, the phone's list (none here) and the call.
-	assert.Equal(t, []string{"Bearer " + dispatchKey, "Bearer " + dispatchKey, "Bearer " + dispatchKey}, cp.keys)
+	// The control plane's list, the phone's list (none here), the call, and both lists again to see whether they
+	// changed (issue #653).
+	assert.Equal(t, []string{
+		"Bearer " + dispatchKey, "Bearer " + dispatchKey, "Bearer " + dispatchKey,
+		"Bearer " + dispatchKey, "Bearer " + dispatchKey,
+	}, cp.keys)
 }
 
 // A control plane that cannot list its tools leaves the worker its own, and a

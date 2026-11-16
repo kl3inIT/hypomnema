@@ -7,10 +7,20 @@
 // `hypomnema-node mcp` with the tools of its own (internal/node/workertools),
 // and a Bot's pi as `hypomnema mcp` (clientcli/mcp.go). It holds no tool of
 // its own: who starts it says which tools it lists and how each is called.
+//
+// What it lists may change while its client runs: a Bot given a Connection
+// or a tool mid-chat (issue #653). It declares tools.listChanged and, after
+// each tools/call, lists again and sends notifications/tools/list_changed
+// when the list differs from the one it last answered, as the MCP Go SDK
+// notifies only on a real change (mcp/server.go changeAndNotify) and
+// Omnigent's bridge on a changed agent (runner/app.py
+// _ensure_comment_relay_started). pi, OpenClaw, Hermes and Codex list again
+// on it.
 package toolsmcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,8 +32,9 @@ import (
 type Config struct {
 	// Name is the server's name; a CLI names its tools after it (mcp__<name>__<tool>).
 	Name string
-	// List gives the tools, in the shape of tools/list, at each tools/list.
-	List func(ctx context.Context) []map[string]any
+	// List gives the tools, in the shape of tools/list, at each tools/list and after each tools/call. An error
+	// says a part could not be listed: tools/list answers the rest, and the list is not taken for a changed one.
+	List func(ctx context.Context) ([]map[string]any, error)
 	// Call runs one tool. An error is the tool's result, marked as an error, for the agent to read.
 	Call func(ctx context.Context, call Call) (any, error)
 }
@@ -49,6 +60,10 @@ type server struct {
 	mu  sync.Mutex
 	// calls in flight, by JSON-RPC id, so a cancellation can end one.
 	calls map[string]context.CancelFunc
+
+	listMu sync.Mutex
+	// listed is the tools/list last answered, encoded; nil until the client lists.
+	listed []byte
 }
 
 // Serve answers MCP requests on in until it closes.
@@ -82,7 +97,7 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 			_ = json.Unmarshal(r.Params, &p)
 			s.reply(r.ID, map[string]any{
 				"protocolVersion": p.ProtocolVersion,
-				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"capabilities":    map[string]any{"tools": map[string]any{"listChanged": true}},
 				"serverInfo":      map[string]any{"name": cfg.Name, "version": "1"},
 			}, nil)
 		case "notifications/initialized":
@@ -90,10 +105,13 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 			s.reply(r.ID, map[string]any{}, nil)
 		case "tools/list":
 			listed := []map[string]any{}
+
 			if cfg.List != nil {
-				listed = append(listed, cfg.List(ctx)...)
+				tools, _ := cfg.List(ctx)
+				listed = append(listed, tools...)
 			}
 
+			s.remember(listed)
 			s.reply(r.ID, map[string]any{"tools": listed}, nil)
 		case "tools/call":
 			callCtx, callCancel := context.WithCancel(ctx)
@@ -105,6 +123,9 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, cfg Config) error {
 				defer s.untrack(r.ID)
 
 				result, err := s.call(callCtx, r.Params)
+				// Before the answer, so that the client lists again before its model's next request.
+				s.notifyIfChanged(ctx)
+
 				if err != nil {
 					s.reply(r.ID, Text(err.Error(), true), nil)
 
@@ -158,6 +179,62 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	return s.cfg.Call(ctx, Call{Name: p.Name, Arguments: p.Arguments, Progress: progress})
+}
+
+// remember keeps the list answered, to compare a later one with.
+func (s *server) remember(listed []map[string]any) {
+	raw, err := json.Marshal(listed)
+	if err != nil {
+		return
+	}
+
+	s.listMu.Lock()
+	defer s.listMu.Unlock()
+
+	s.listed = raw
+}
+
+// notifyIfChanged lists again and tells the client when the list differs
+// from the one it last had. A client that never listed, or a list that
+// could not be read whole, is not told.
+func (s *server) notifyIfChanged(ctx context.Context) {
+	if s.cfg.List == nil {
+		return
+	}
+
+	s.listMu.Lock()
+	listedOnce := s.listed != nil
+	s.listMu.Unlock()
+
+	if !listedOnce {
+		return
+	}
+
+	tools, err := s.cfg.List(ctx)
+	if err != nil {
+		return
+	}
+
+	if tools == nil {
+		tools = []map[string]any{}
+	}
+
+	raw, err := json.Marshal(tools)
+	if err != nil {
+		return
+	}
+
+	s.listMu.Lock()
+	changed := !bytes.Equal(raw, s.listed)
+	if changed {
+		// Told once: the client's next tools/list answers the same.
+		s.listed = raw
+	}
+	s.listMu.Unlock()
+
+	if changed {
+		s.write(map[string]any{"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+	}
 }
 
 type rpcError struct {
