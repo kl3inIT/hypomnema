@@ -583,7 +583,8 @@ sequenceDiagram
     asks "Always show keyboard here?"), text of `[A-Za-z0-9 _.,@-]` is typed with `adb shell input text` (spaces
     as `%s`, then `input keyevent 66` for submit), as Google's skill, Orca and OpenMausBot type, after what the
     field holds (issue #578); `device_key` is
-    `android input key` (back, home, recents, enter); `device_launch` is `adb shell monkey -p <package> -c
+    `adb shell input keyevent` with back 4, home 3, recents 187 and enter 66, as Orca and OpenMausBot press keys,
+    since Android CLI's `input key` took 1.3 to 3.5 s a press (issue #584); `device_launch` is `adb shell monkey -p <package> -c
     android.intent.category.LAUNCHER 1` (Orca, OpenMausBot); `device_logcat` is `adb logcat -d -v threadtime -t
     N [*:<level>]` (Orca), with only the last lines holding a text when one is given. Android CLI runs with
     `--no-metrics` and `--sdk` and `ANDROID_SDK_ROOT` set to the phone's SDK, against the adb server the phone
