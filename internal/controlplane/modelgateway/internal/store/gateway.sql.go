@@ -108,6 +108,32 @@ func (q *Queries) DeleteGatewayModelTargets(ctx context.Context, model string) e
 	return err
 }
 
+const deleteGatewayUsageBefore = `-- name: DeleteGatewayUsageBefore :execrows
+DELETE FROM gateway_usage WHERE created_at < ?1
+`
+
+func (q *Queries) DeleteGatewayUsageBefore(ctx context.Context, before int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteGatewayUsageBefore, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteUnusedRevokedGatewayKeys = `-- name: DeleteUnusedRevokedGatewayKeys :execrows
+DELETE FROM gateway_keys
+WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id)
+`
+
+// A revoked key no request names (issue #628); a live key is never deleted.
+func (q *Queries) DeleteUnusedRevokedGatewayKeys(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUnusedRevokedGatewayKeys)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const gatewayKeysLastUsed = `-- name: GatewayKeysLastUsed :many
 SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id
 `

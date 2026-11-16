@@ -220,3 +220,11 @@ DELETE FROM antigravity_prompt_rewrites;
 -- name: InsertAntigravityRewrite :exec
 INSERT INTO antigravity_prompt_rewrites (position, find, replacement, updated_at)
 VALUES (@position, @find, @replacement, @now);
+
+-- name: DeleteGatewayUsageBefore :execrows
+DELETE FROM gateway_usage WHERE created_at < @before;
+
+-- name: DeleteUnusedRevokedGatewayKeys :execrows
+-- A revoked key no request names (issue #628); a live key is never deleted.
+DELETE FROM gateway_keys
+WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id);
