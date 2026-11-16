@@ -12,6 +12,7 @@ repo=$2
 ldflags=$3
 
 test -f web/dist/index.html || { echo "build the web client first (make web-build)" >&2; exit 1; }
+test -s bridges/zalo/dist/bridge.cjs || { echo "build the Zalo bridge first (make zalo-bridge-build)" >&2; exit 1; }
 mkdir -p dist
 
 for platform in linux-amd64 linux-arm64; do

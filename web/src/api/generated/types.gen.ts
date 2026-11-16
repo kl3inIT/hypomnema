@@ -1544,6 +1544,10 @@ export type SignIn = {
    */
   qr_code?: string;
   /**
+   * For an Integration of kind device whose service gives its QR code as a picture (Zalo, issue #657): the picture as a data URL, shown instead of qr_code. A new one comes when it expires.
+   */
+  qr_image?: string;
+  /**
    * When the QR code stops being valid.
    */
   qr_expires_at?: string;

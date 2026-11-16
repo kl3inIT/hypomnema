@@ -16,7 +16,8 @@ BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
 	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
-	web-api-check web-build web-e2e release-node release-controlplane web-doctor
+	web-api-check web-build web-e2e release-node release-controlplane web-doctor \
+	zalo-bridge-install zalo-bridge-check zalo-bridge-build
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -43,7 +44,7 @@ deps-check: ## Fail when a binary links a tree or driver it must not
 		found="$$($(GO) list -deps ./cmd/$$1 | grep -E "$$2" || true)"; \
 		test -z "$$found" || { printf 'cmd/%s must not link:\n%s\n' "$$1" "$$found"; exit 1; }; \
 	}; \
-	check hypomnema-node '^$(MODULE)/(internal/controlplane|web)(/|$$)'; \
+	check hypomnema-node '^$(MODULE)/(internal/controlplane|web|bridges)(/|$$)'; \
 	check hypomnema '^$(MODULE)/internal/node(/|$$)'
 
 sqlc-generate: ## Regenerate the typed queries from the migrations and queries
@@ -92,8 +93,9 @@ race: ## Unit tests with the race detector (needs cgo)
 govulncheck: ## Known vulnerabilities in what the code calls
 	$(GOVULNCHECK) ./...
 
-# The web client is built first, so that hypomnema embeds it (web/embed.go).
-build: web-build ## Build the web client and the binaries into bin/
+# The web client and the Zalo bridge are built first, so that hypomnema embeds them (web/embed.go,
+# bridges/zalo/embed.go).
+build: web-build zalo-bridge-build ## Build the web client, the Zalo bridge and the binaries into bin/
 	@mkdir -p bin
 	@for b in $(BINARIES); do \
 		CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \
@@ -126,6 +128,17 @@ web-api-check: ## Fail when the web client's generated API client is not what th
 
 web-build: ## Build the web client into web/dist
 	$(WEB) build
+
+ZALO := pnpm --dir bridges/zalo
+
+zalo-bridge-install: ## Install the Zalo bridge's packages from the lockfile
+	$(ZALO) install --frozen-lockfile
+
+zalo-bridge-check: ## Unit tests of the Zalo bridge's protocol
+	$(ZALO) test
+
+zalo-bridge-build: ## Bundle the Zalo bridge into bridges/zalo/dist, which hypomnema embeds (issue #657)
+	$(ZALO) build
 
 # Not a gate: its findings are read, then fixed or ignored in web/doctor.config.json. It runs local checks only
 # (no score API, no crash reports, no Socket.dev lookups).

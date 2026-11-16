@@ -1904,6 +1904,32 @@ flowchart LR
       for up to 500 (50 by default) before the oldest kept one and waits a minute for its on-demand history
       sync, which is kept as any history; the answer says how many were added (counted before and after: the phone may repeat kept ones) and whether the phone said the chat's start is reached, as wacli's `history backfill`. The phone
       must be online. wacli's retry of a direct chat under its other identity is left out.
+  - Zalo is an Integration of kind `device` too ([issue #657](https://github.com/kl3inIT/hypomnema/issues/657),
+    step 1 of [#613](https://github.com/kl3inIT/hypomnema/issues/613); `messaging/zalo`, `bridges/zalo`): the
+    owner's personal Zalo linked by QR as on Zalo Web, through zca-js, which Go has no counterpart of.
+    - **The bridge** (`bridges/zalo`): zca-js pinned with its lockfile, bundled by esbuild into one file
+      (`make zalo-bridge-build`, run by `make build` and the release workflow) with the licenses of what it carries
+      (`dist/LICENSES.txt`), embedded in the control plane as the web client is. The control plane writes it beside
+      its database as `zalo-bridge.cjs` and runs it with the machine's Node (`/opt/hypomnema-node/bin/node`,
+      `HYPOMNEMA_NODE` to change it), one process per account; a control plane built without it or without Node
+      links no Zalo account and logs why. They speak JSON lines on the bridge's stdin and stdout: requests with an
+      id (`loginQR`, `login`, `groups`, `stop`) and events without (`qr`, `credentials`, `message`, `closed`, ...).
+    - **The link**: `POST /integrations/zalo/sign-ins` answers a `qr_image`, Zalo's QR code as a picture (data URL),
+      instead of a `qr_code`; a new one comes when it expires (100 s), five at most. Once the phone confirms, the
+      session zca-js gives (`imei`, cookies, user agent) is kept in `zalo.db` beside the control plane's database
+      (private), keyed by the owner's Zalo id, which is the Connection's account; cookies Zalo renews are kept
+      again.
+    - **The session**: opened with the kept session as the control plane starts; a bridge that ends is started
+      again after 5 s, doubling up to 5 min; a listener that stopped retrying ends its bridge, to be started again.
+      The listener starts only once the control plane reads the bridge's events, so no message is lost to the
+      hand-over. A session Zalo refuses (zca-js's "Đăng nhập thất bại") is `logged_out` and needs a link. Another
+      Zalo Web taking the session (close code 3000 or 3003) is `replaced` and not taken back. Messages are stamped
+      in milliseconds. Disconnecting forgets the session and what is kept; the owner removes the
+      login from his phone (Zalo has no call for it).
+    - **Every chat is kept** as it arrives, as WhatsApp's: `zl_chats` and `zl_messages` with a full-text search in
+      `zalo.db`, groups named from Zalo's list of groups, a direct chat after the person in it, read through the
+      same `…/chats` and `…/messages` endpoints. Older messages, files, the Bot's tools and sending answer that
+      they come in a later step of #613.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and

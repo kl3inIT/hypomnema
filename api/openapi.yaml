@@ -5468,6 +5468,12 @@ components:
             shows; the url is then empty. A new one comes about every 20
             seconds: read the sign-in again for it. Absent once the linking
             ended; completing it answers how.
+        qr_image:
+          type: string
+          description: >-
+            For an Integration of kind device whose service gives its QR code
+            as a picture (Zalo, issue #657): the picture as a data URL, shown
+            instead of qr_code. A new one comes when it expires.
         qr_expires_at:
           type: string
           format: date-time

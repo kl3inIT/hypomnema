@@ -392,3 +392,13 @@ const WhatsAppID = "whatsapp"
 func WhatsApp() Definition {
 	return Definition{ID: WhatsAppID, Name: "WhatsApp", Kind: KindDevice}
 }
+
+// ZaloID is the id of the Zalo Integration.
+const ZaloID = "zalo"
+
+// Zalo is the owner's own personal Zalo, linked by QR as on Zalo Web (issue #657, step 1 of #613), through zca-js:
+// Zalo's Bot and Official Account APIs act as a bot or a page, not as a person in his groups (OpenClaw
+// docs/channels/zalo.md). Unofficial: the account may be locked, which the owner accepted (owner, 2026-11-16).
+func Zalo() Definition {
+	return Definition{ID: ZaloID, Name: "Zalo", Kind: KindDevice}
+}

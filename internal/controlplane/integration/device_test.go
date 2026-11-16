@@ -22,6 +22,8 @@ type phone struct {
 	linking chan messaging.LinkStep
 	devices map[string]*device
 	opened  []string
+	// pictures makes its codes pictures, as Zalo gives them.
+	pictures bool
 }
 
 type device struct {
@@ -79,7 +81,7 @@ func (d *device) loggedOut() bool {
 
 func (p *phone) Link(context.Context) (<-chan messaging.LinkStep, error) {
 	steps := make(chan messaging.LinkStep, 4)
-	steps <- messaging.LinkStep{Code: "code-1", Expires: time.Now().Add(20 * time.Second)}
+	steps <- p.step("code-1")
 
 	p.mu.Lock()
 	p.linking = steps
@@ -107,7 +109,16 @@ func (p *phone) show(code string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.linking <- messaging.LinkStep{Code: code, Expires: time.Now().Add(20 * time.Second)}
+	p.linking <- p.step(code)
+}
+
+// step is a code to show: what it says, or a picture of it for a service that gives pictures (Zalo).
+func (p *phone) step(code string) messaging.LinkStep {
+	if p.pictures {
+		return messaging.LinkStep{Image: "data:image/png;base64," + code, Expires: time.Now().Add(100 * time.Second)}
+	}
+
+	return messaging.LinkStep{Code: code, Expires: time.Now().Add(20 * time.Second)}
 }
 
 // scan links a device for the number and ends the linking.
@@ -217,6 +228,29 @@ func TestTheOwnerLinksHisWhatsAppByQR(t *testing.T) {
 	secrets, err := w.vault.List(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, secrets, "nothing of the device is kept")
+}
+
+// Zalo gives its QR code as a picture, with nothing to draw it from (issue #657): starting the link answers the
+// picture, and the page reads the next one as it changes.
+func TestALinkWhoseServiceGivesPicturesShowsThem(t *testing.T) {
+	t.Parallel()
+
+	w, p := deviceWorld(t)
+	p.pictures = true
+	ctx := t.Context()
+
+	started, err := w.svc.Begin(ctx, integration.WhatsAppID, "main", nil)
+	require.NoError(t, err)
+	assert.Empty(t, started.Code)
+	assert.Equal(t, "data:image/png;base64,code-1", started.CodeImage)
+	assert.False(t, started.CodeExpires.IsZero())
+
+	p.show("code-2")
+	require.Eventually(t, func() bool {
+		got, err := w.svc.Code(ctx, integration.WhatsAppID, started.ID)
+
+		return err == nil && got.CodeImage == "data:image/png;base64,code-2"
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 // A linking that ended without a scan answers how it ended, and keeps nothing.

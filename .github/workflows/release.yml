@@ -57,8 +57,8 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - name: make release-node
         run: make release-node VERSION="$GITHUB_REF_NAME"
-      - name: Build the web client
-        run: make web-install web-build
+      - name: Build the web client and the Zalo bridge
+        run: make web-install web-build zalo-bridge-install zalo-bridge-build
       - name: make release-controlplane
         run: make release-controlplane VERSION="$GITHUB_REF_NAME"
       - name: Publish the release
