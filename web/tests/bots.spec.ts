@@ -644,7 +644,7 @@ test("a Bot's Connections and workers are limited on its page", async ({ page })
   await page.goto("/bots/researcher")
 
   const connections = page.getByRole("region", { name: "Connections" })
-  const workers = page.getByRole("region", { name: "Workers" })
+  const workers = page.getByRole("region", { name: "Workers", exact: true })
   await connections.scrollIntoViewIfNeeded()
   await expect(connections).toContainText("Every account switched on for chats")
   await expect(workers).toContainText("Every worker profile")
