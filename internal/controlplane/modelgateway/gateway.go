@@ -95,6 +95,8 @@ type Key struct {
 	Name string
 	// Models are the public names the key may use; AllModels is every one.
 	Models []string
+	// Endpoints are the kinds the key may use besides chat (issue #664); nil is every kind.
+	Endpoints []Endpoint
 	// DispatchID is set on a key made for one Dispatch.
 	DispatchID string
 	// ChatID is set on a key made for one chat's pi.
@@ -116,6 +118,27 @@ const keyPrefixLength = len("hyp_gateway_v1_") + 6
 // Allows reports whether the key may use a model.
 func (k Key) Allows(model string) bool {
 	return slices.Contains(k.Models, AllModels) || slices.Contains(k.Models, model)
+}
+
+// Endpoint is a kind of request a key may make besides chat (issue #664), as OmniRoute's
+// endpoint categories (src/shared/constants/endpointCategories.ts) group its routes.
+type Endpoint string
+
+// The kinds: a web search (/v1/search and Codex's /v1/alpha/search), a page read (/v1/web/fetch) and an image made
+// or edited (/v1/images/*).
+const (
+	EndpointSearch Endpoint = "search"
+	EndpointFetch  Endpoint = "fetch"
+	EndpointImages Endpoint = "images"
+)
+
+// Endpoints are every kind, in the order shown.
+var Endpoints = []Endpoint{EndpointSearch, EndpointFetch, EndpointImages}
+
+// Reaches reports whether the key may make a request of a kind: every key may when it lists none, as OmniRoute's
+// empty allowed_endpoints allows all (src/shared/utils/apiKeyPolicy.ts validateEndpointAccess).
+func (k Key) Reaches(e Endpoint) bool {
+	return k.Endpoints == nil || slices.Contains(k.Endpoints, e)
 }
 
 // ProviderInfo is what the gateway needs to know of a provider.
@@ -463,7 +486,9 @@ func modelFromRow(row store.GatewayModel, targets []store.GatewayModelTarget) Mo
 
 // AddKey makes a gateway key and returns it with its secret, shown only
 // here. models lists the public names it may use; empty means every model.
-func (s *Service) AddKey(ctx context.Context, name string, models []string) (Key, string, error) {
+// endpoints lists the kinds it may use besides chat; nil means every kind, and
+// an empty list none.
+func (s *Service) AddKey(ctx context.Context, name string, models []string, endpoints []Endpoint) (Key, string, error) {
 	if !keyNamePattern.MatchString(name) {
 		return Key{}, "", fmt.Errorf("%w: a key's name is lowercase letters, digits and dashes", ErrInvalid)
 	}
@@ -478,7 +503,19 @@ func (s *Service) AddKey(ctx context.Context, name string, models []string) (Key
 		}
 	}
 
-	return s.addKey(ctx, name, models, keyOwner{})
+	for _, e := range endpoints {
+		if !slices.Contains(Endpoints, e) {
+			return Key{}, "", fmt.Errorf("%w: %q is not search, fetch or images", ErrInvalid, e)
+		}
+	}
+
+	if endpoints != nil {
+		// Kept in one order, once each, so the list reads the same however it was asked.
+		asked := endpoints
+		endpoints = slices.DeleteFunc(slices.Clone(Endpoints), func(e Endpoint) bool { return !slices.Contains(asked, e) })
+	}
+
+	return s.addKey(ctx, name, models, keyOwner{endpoints: endpoints})
 }
 
 // AddDispatchKey makes the key a Dispatch's worker calls the gateway with,
@@ -585,6 +622,8 @@ type keyOwner struct {
 	chatID     string
 	// botID is the Bot of the chat, kept on the key so that usage is told by Bot after the chat is gone (#626).
 	botID string
+	// endpoints are the kinds an owner's key may use besides chat; nil is every kind.
+	endpoints []Endpoint
 }
 
 func (s *Service) addKey(ctx context.Context, name string, models []string, owner keyOwner) (Key, string, error) {
@@ -596,6 +635,17 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 	encoded, err := json.Marshal(models)
 	if err != nil {
 		return Key{}, "", fmt.Errorf("encoding the key's models: %w", err)
+	}
+
+	var kinds sql.NullString
+
+	if owner.endpoints != nil {
+		b, err := json.Marshal(owner.endpoints)
+		if err != nil {
+			return Key{}, "", fmt.Errorf("encoding the key's endpoints: %w", err)
+		}
+
+		kinds = sql.NullString{String: string(b), Valid: true}
 	}
 
 	id := s.newID("gwk")
@@ -620,7 +670,7 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 
 		if err := q.InsertGatewayKey(ctx, store.InsertGatewayKeyParams{
 			ID: id, Name: name, KeyHash: bearertoken.Hash(secret), KeyPrefix: secret[:keyPrefixLength],
-			Models:     string(encoded),
+			Models: string(encoded), Endpoints: kinds,
 			DispatchID: sql.NullString{String: owner.dispatchID, Valid: owner.dispatchID != ""},
 			ChatID:     sql.NullString{String: owner.chatID, Valid: owner.chatID != ""},
 			BotID:      sql.NullString{String: owner.botID, Valid: owner.botID != ""}, Now: now,
@@ -755,6 +805,13 @@ func keyFromRow(r store.GatewayKey) (Key, error) {
 	k := Key{
 		ID: r.ID, Name: r.Name, Models: models, DispatchID: r.DispatchID.String, ChatID: r.ChatID.String,
 		Prefix: r.KeyPrefix, CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
+	}
+
+	if r.Endpoints.Valid {
+		k.Endpoints = []Endpoint{}
+		if err := json.Unmarshal([]byte(r.Endpoints.String), &k.Endpoints); err != nil {
+			return Key{}, fmt.Errorf("decoding the endpoints of key %s: %w", r.ID, err)
+		}
 	}
 
 	if r.RevokedAt.Valid {

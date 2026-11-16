@@ -266,7 +266,7 @@ func newCodexGateway(
 	_, err = svc.ApplyModel(t.Context(), model)
 	require.NoError(t, err, "the provider is built in: no one declared it")
 
-	_, key, err := svc.AddKey(t.Context(), "pi", []string{"sol"})
+	_, key, err := svc.AddKey(t.Context(), "pi", []string{"sol"}, nil)
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()

@@ -19,10 +19,14 @@ import {
   ArrowUpDown,
   Check,
   Copy,
+  FileText,
+  Globe,
+  ImageIcon,
   KeyRound,
   Plus,
   Search,
   Trash2,
+  type LucideIcon,
 } from "lucide-react"
 import { useId, useState } from "react"
 import { z } from "zod"
@@ -30,8 +34,9 @@ import { z } from "zod"
 import "@/api/client"
 import { createGatewayKeyMutation } from "@/api/generated/@tanstack/react-query.gen"
 import { revokeGatewayKey } from "@/api/generated/sdk.gen"
-import type { CreatedGatewayKey, GatewayKey } from "@/api/generated/types.gen"
+import type { CreatedGatewayKey, GatewayEndpoint, GatewayKey } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogClose,
@@ -87,6 +92,30 @@ import { useGatewayKeys, useGatewayModels, useProviders, useRefreshGatewayKeys }
 // The name the gateway gives to "every model".
 const every = "*"
 
+// What a key may use besides chat (issue #664), in the order shown, as OmniRoute's key Access page lists its
+// endpoint categories with a checkbox each. Search and images carry the icons of their pages in the Settings menu
+// (settings-page.tsx).
+const endpointKinds: {
+  id: GatewayEndpoint
+  title: string
+  description: string
+  icon: LucideIcon
+}[] = [
+  {
+    id: "search",
+    title: "Web search",
+    description: "/v1/search, and the Codex CLI's own search.",
+    icon: Globe,
+  },
+  { id: "fetch", title: "Reading a web page", description: "/v1/web/fetch.", icon: FileText },
+  {
+    id: "images",
+    title: "Making and editing images",
+    description: "/v1/images/generations and /edits.",
+    icon: ImageIcon,
+  },
+]
+
 const features = tableFeatures({
   columnFilteringFeature,
   rowSortingFeature,
@@ -137,6 +166,12 @@ const columns: ColumnDef<typeof features, GatewayKey>[] = [
     enableSorting: false,
     header: "Models",
     cell: ({ row }) => <KeyModels models={row.original.models} />,
+  },
+  {
+    id: "endpoints",
+    enableSorting: false,
+    header: "Also",
+    cell: ({ row }) => <KeyEndpoints endpoints={row.original.endpoints} />,
   },
   {
     id: "last_used",
@@ -380,6 +415,29 @@ function KeyModels({ models }: { models: string[] }) {
   )
 }
 
+// KeyEndpoints shows what a key may use besides chat: the words of each kind, or that it may use none.
+function KeyEndpoints({ endpoints }: { endpoints: GatewayEndpoint[] }) {
+  if (endpoints.length === 0) {
+    return <span className="text-muted-foreground">Chat only</span>
+  }
+
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {endpointKinds
+        .filter((kind) => endpoints.includes(kind.id))
+        .map((kind) => (
+          <span
+            key={kind.id}
+            className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs"
+          >
+            <kind.icon className="size-3.5 shrink-0 text-muted-foreground" />
+            {kind.title}
+          </span>
+        ))}
+    </span>
+  )
+}
+
 function RevokeKey({ gatewayKey }: { gatewayKey: GatewayKey }) {
   const refresh = useRefreshGatewayKeys()
 
@@ -409,6 +467,7 @@ const keySchema = z
       .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "Lower-case letters, digits and dashes, 63 at most."),
     scope: z.enum(["every", "some"]),
     models: z.array(z.string()),
+    endpoints: z.array(z.enum(["search", "fetch", "images"])),
   })
   .refine((value) => value.scope === "every" || value.models.length > 0, {
     message: "Choose a model, or every model.",
@@ -435,11 +494,21 @@ function CreateKey() {
   })
 
   const form = useForm({
-    defaultValues: { name: "", scope: "every" as "every" | "some", models: [] as string[] },
+    defaultValues: {
+      name: "",
+      scope: "every" as "every" | "some",
+      models: [] as string[],
+      endpoints: endpointKinds.map((kind) => kind.id),
+    },
     validators: { onSubmit: keySchema },
     onSubmit: ({ value }) =>
       create.mutate({
-        body: { name: value.name, models: value.scope === "every" ? [] : value.models },
+        body: {
+          name: value.name,
+          models: value.scope === "every" ? [] : value.models,
+          // Every kind is sent as none named, so that a kind added later is given too.
+          ...(value.endpoints.length < endpointKinds.length && { endpoints: value.endpoints }),
+        },
       }),
   })
 
@@ -566,6 +635,41 @@ function CreateKey() {
                         )
                       }
                     </form.Subscribe>
+                  </FieldSet>
+                  <FieldSet>
+                    <FieldLegend variant="label">Besides chat, it may use</FieldLegend>
+                    <form.Field name="endpoints">
+                      {(field) => (
+                        <FieldGroup data-slot="checkbox-group">
+                          {endpointKinds.map((kind) => (
+                            <FieldLabel key={kind.id} htmlFor={`endpoint-${kind.id}`}>
+                              <Field orientation="horizontal">
+                                <Checkbox
+                                  id={`endpoint-${kind.id}`}
+                                  checked={field.state.value.includes(kind.id)}
+                                  onCheckedChange={(checked) =>
+                                    field.handleChange(
+                                      endpointKinds
+                                        .map((k) => k.id)
+                                        .filter((id) =>
+                                          id === kind.id ? checked : field.state.value.includes(id),
+                                        ),
+                                    )
+                                  }
+                                />
+                                <FieldContent>
+                                  <FieldTitle>
+                                    <kind.icon className="size-4 shrink-0 text-muted-foreground" />
+                                    {kind.title}
+                                  </FieldTitle>
+                                  <FieldDescription>{kind.description}</FieldDescription>
+                                </FieldContent>
+                              </Field>
+                            </FieldLabel>
+                          ))}
+                        </FieldGroup>
+                      )}
+                    </form.Field>
                   </FieldSet>
                 </FieldGroup>
               </form>

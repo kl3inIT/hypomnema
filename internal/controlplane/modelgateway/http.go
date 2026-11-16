@@ -3,6 +3,7 @@ package modelgateway
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -171,6 +172,25 @@ func writeError(w http.ResponseWriter, status int, kind, code, message string) {
 // and 9router read both). It answers the request itself when there is none.
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (Key, bool) {
 	return s.authenticateAs(w, r, writeError)
+}
+
+// authenticateFor returns the key of a request of a kind other than chat, and refuses a key not given that kind
+// (issue #664) before anything is asked of a provider, as OmniRoute's enforceApiKeyPolicy answers 403 from
+// validateEndpointAccess.
+func (s *Server) authenticateFor(w http.ResponseWriter, r *http.Request, e Endpoint) (Key, bool) {
+	k, ok := s.authenticate(w, r)
+	if !ok {
+		return Key{}, false
+	}
+
+	if !k.Reaches(e) {
+		writeError(w, http.StatusForbidden, typePermission, "endpoint_not_allowed",
+			fmt.Sprintf("this gateway key may not use %s; make a key that may", e))
+
+		return Key{}, false
+	}
+
+	return k, true
 }
 
 // errorWriter answers a request with an error in one API's shape.

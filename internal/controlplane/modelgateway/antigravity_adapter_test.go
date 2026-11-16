@@ -105,7 +105,7 @@ func newAntigravityGateway(
 		require.NoError(t, err, "the provider is built in: no one declared it")
 	}
 
-	_, key, err := svc.AddKey(t.Context(), "tool", nil)
+	_, key, err := svc.AddKey(t.Context(), "tool", nil, nil)
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()

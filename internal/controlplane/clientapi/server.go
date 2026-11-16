@@ -153,7 +153,8 @@ type GatewayModels interface {
 // (modelgateway.Service).
 type GatewayKeys interface {
 	ListKeys(ctx context.Context) ([]modelgateway.Key, error)
-	AddKey(ctx context.Context, name string, models []string) (modelgateway.Key, string, error)
+	AddKey(ctx context.Context, name string, models []string, endpoints []modelgateway.Endpoint,
+	) (modelgateway.Key, string, error)
 	RevokeKey(ctx context.Context, id string) error
 }
 
