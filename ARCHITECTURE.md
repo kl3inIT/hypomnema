@@ -2117,7 +2117,9 @@ capabilities do not exist yet.
   of its first target, under that provider's vendor (the snapshot of `modelgateway/prices`: `limit.context`,
   `limit.output`, `modalities.input`, `reasoning` and `reasoning_options` of type `effort`); else it is unknown.
   A subscription's window is its own before models.dev's: a Codex one's from Codex's list (272,000 for a model it
-  does not list), an Antigravity one's window and largest output from CLIProxyAPI's registry (issue #399). Effort
+  does not list), an Antigravity one's window and largest output as Google serves them, `maxTokens` and
+  `maxOutputTokens` of `fetchAvailableModels` under the first active account, read once an hour (issue #587, as
+  omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
   levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
   xhigh (max is sent as xhigh), Claude none, low to max (minimal's budget is low's), Antigravity's Gemini low,
   medium and high and its other models none; an OpenAI-compatible provider gets any. A level set that the provider

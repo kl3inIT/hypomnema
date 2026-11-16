@@ -107,6 +107,19 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	}, nil
 }
 
+// gatewayServedLimits gives the gateway what an Antigravity account is served each model with (issue #587).
+func gatewayServedLimits(
+	subs *subscription.Service,
+) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
+	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
+		if kind != "antigravity_subscription" {
+			return 0, 0, false
+		}
+
+		return subs.ServedLimits(ctx, "antigravity", upstream)
+	}
+}
+
 // gatewayProviderList lists every provider for the gateway, which serves each subscription's models (issue #549).
 func gatewayProviderList(svc *orchestration.Service) func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {
 	return func(ctx context.Context) ([]modelgateway.ProviderInfo, error) {

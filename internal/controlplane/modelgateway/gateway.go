@@ -141,6 +141,8 @@ type Service struct {
 	secrets   Secrets
 	// allProviders lists every provider, for the models of the subscriptions (issue #549).
 	allProviders func(ctx context.Context) ([]ProviderInfo, error)
+	// served gives the window and largest output a subscription's vendor serves a model with (issue #587).
+	served func(ctx context.Context, kind, upstream string) (window, output int64, ok bool)
 }
 
 // New returns a Service over an opened, migrated database. providers looks
@@ -384,6 +386,15 @@ func (s *Service) ListModels(ctx context.Context) ([]Model, error) {
 // WithProviderList gives the gateway the providers it serves, so that it lists every subscription's models.
 func (s *Service) WithProviderList(list func(ctx context.Context) ([]ProviderInfo, error)) *Service {
 	s.allProviders = list
+
+	return s
+}
+
+// WithServedLimits gives the gateway what a subscription's vendor says of each model's window and largest output.
+func (s *Service) WithServedLimits(
+	served func(ctx context.Context, kind, upstream string) (window, output int64, ok bool),
+) *Service {
+	s.served = served
 
 	return s
 }
