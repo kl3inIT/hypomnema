@@ -1398,8 +1398,9 @@ flowchart LR
   instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
   `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
   the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
-  nothing enforces it. `deploy/profiles/` holds samples for profiles on Codex, whose model is a gateway model
-  named by the deployment.
+  nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
+  pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
+  deployment: `codex-worker`, and `reviewer-codex.yaml`, which makes `reviewer` itself run on Codex.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
   desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
@@ -3910,7 +3911,7 @@ the internet, so that a machine created at a provider can install the node from 
   in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
   serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,
   `gpt-oss-120b-medium`. Since 2026-11-11 the gateway model `claude-sonnet` is served from it
-  (`claude-sonnet-4-6`); the profile `omp-claude` runs omp on it.
+  (`claude-sonnet-4-6`); the profile `omp-claude` ran omp on it until the owner removed it on 2026-11-16.
 - Lark, since 2026-11-10: the owner's Lark app (Lark international) is the client of the Integration `lark`, its
   secret in the vault as `integration-lark-client`, and connected as `lark:work`. Nodes installed `lark-cli`
   1.0.100 themselves. A worker calls it from node v0.6.1 on: a Run given `lark:work` on aioffice-app ran
@@ -3949,9 +3950,12 @@ the internet, so that a machine created at a provider can install the node from 
   token file and the account called `claude kept` are gone. Both accounts are the same Anthropic organization (a cache
   written under one was read under the other, [#381](https://github.com/kl3inIT/hypomnema/issues/381)).
 - Since [#381](https://github.com/kl3inIT/hypomnema/issues/381) (v0.9.23) a Claude Code worker may instead run through
-  the gateway with a key of its Dispatch; the profile `implementer-gateway` is on trial.
-- Workers under Codex, omp and opencode run from the profiles `codex-worker`, `omp-worker`, `opencode-worker` and
-  `omp-claude`, against the provider `model-gateway`.
+  the gateway with a key of its Dispatch; the profile `implementer-gateway` tried it and is no longer listed (2026-11-16).
+- Profiles since 2026-11-16 (issue #661): `implementer` (Claude Code, Opus 5.5, the default; backup `codex-worker`),
+  `explorer` (Claude Code, Sonnet 5.5), `reviewer` (Codex, gpt-6.1-sol, effort high, so another vendor reviews a
+  Claude Code worker's change), `codex-worker` (Codex, gpt-6.1-sol) and `superset-report-worker` (Codex), against
+  the provider `model-gateway` for Codex. The trial profiles `omp-worker`, `opencode-worker`, `omp-claude`,
+  `omp-claude-sub` and the separate `codex-reviewer` were removed (hidden, their versions kept).
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
   installed.
 - Each machine joins the tailnet once, approved in the owner's Tailscale account. The control plane and Tailscale start with

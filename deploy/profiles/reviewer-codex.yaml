@@ -1,19 +1,21 @@
-# A reviewer on the Codex CLI, served by the control plane's model gateway. The seeded `reviewer` runs on Claude
-# Code; with this one a change is read by another vendor's model than the one that wrote it, which is why the
-# references keep a second reviewer (Omnigent's scribe and sentinel: "deliberately a DIFFERENT vendor").
+# The `reviewer` on the Codex CLI, served by the control plane's model gateway. The seeded `reviewer` runs on Claude
+# Code, as `implementer` does; applying this one makes it a new version of `reviewer` that runs on Codex, so a
+# change a Claude Code worker made is read by another vendor's model (Omnigent's Polly and sentinel: "deliberately
+# a DIFFERENT vendor"). The owner did this on 2026-11-16 (issue #661), with gpt-6.1-sol at effort high, and removed
+# the separate `codex-reviewer` profile this file used to make.
 #
 # Before applying, replace the two placeholders:
 #   <gateway provider>  the provider of kind model_gateway: `hypomnema providers list`
 #   <gateway model>     a model that provider offers:        `hypomnema models list`
-#                       Codex describes gpt-6-astra as "Frontier intelligence for the most demanding work".
-# Then: hypomnema profiles apply codex-reviewer.yaml, or make it on the web under Agents.
+#                       The owner runs gpt-6.1-sol; OpenAI's GPT-6 guide puts careful review at effort high.
+# Then: hypomnema profiles apply reviewer-codex.yaml, or change `reviewer` on the web under Agents.
 #
 # The description is what the coordinator chooses by: it says which changes this reviewer is for. The instruction
 # is the seeded reviewer's; change either as you see fit.
-name: codex-reviewer
+name: reviewer
 description: >-
-  Reviews a pull request against the spec it was made from and reports findings; changes nothing. Runs on Codex.
-  Use for a change a worker on Claude Code made.
+  Reviews a pull request against the spec it was made from and reports findings; changes nothing. Runs on the
+  Codex CLI with GPT, so a change a Claude Code worker made is reviewed by another vendor.
 runtime: codex
 model:
   provider: <gateway provider>
