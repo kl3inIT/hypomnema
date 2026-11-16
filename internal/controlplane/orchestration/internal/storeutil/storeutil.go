@@ -16,8 +16,10 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-// Write runs fn in one transaction and calls signal after the commit. The
-// connection opens every transaction with BEGIN IMMEDIATE
+// Write runs fn in one transaction and calls signal after a commit that
+// changed a row (issue #586): a commit that wrote nothing tells no reader to
+// read again, so a loop woken by signals cannot wake itself with empty
+// writes, as the scheduler's Loop already guarded against. The connection opens every transaction with BEGIN IMMEDIATE
 // (internal/shared/sqlite), so fn reads the latest state. fn must not call
 // Write again: with one connection, a nested write waits for it forever; a
 // method that writes inside another's transaction ends in Tx and takes q.
@@ -40,7 +42,17 @@ func WriteTx(
 		return fmt.Errorf("beginning a transaction: %w", err)
 	}
 
+	before, err := totalChanges(ctx, tx)
+	if err != nil {
+		return errors.Join(err, tx.Rollback())
+	}
+
 	if err := fn(tx, store.New(tx), clock.Now().UnixMilli()); err != nil {
+		return errors.Join(err, tx.Rollback())
+	}
+
+	after, err := totalChanges(ctx, tx)
+	if err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 
@@ -48,9 +60,24 @@ func WriteTx(
 		return fmt.Errorf("committing: %w", err)
 	}
 
-	signal()
+	if after != before {
+		signal()
+	}
 
 	return nil
+}
+
+// totalChanges is SQLite's count of the rows the transaction's connection has
+// inserted, updated or deleted since it opened, those of triggers included
+// (https://sqlite.org/lang_corefunc.html#total_changes). The transaction holds
+// its connection, so two reads in it differ exactly when it changed a row.
+func totalChanges(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var n int64
+	if err := tx.QueryRowContext(ctx, "SELECT total_changes()").Scan(&n); err != nil {
+		return 0, fmt.Errorf("reading the changes of the transaction: %w", err)
+	}
+
+	return n, nil
 }
 
 // MaxChatText bounds one chat message, and a Routine's prompt and script,

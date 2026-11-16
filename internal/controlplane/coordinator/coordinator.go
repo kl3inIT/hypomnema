@@ -148,7 +148,9 @@ func (s *Supervisor) Key(chatID string) (string, bool) {
 }
 
 // Run delivers what chats have for pi after every commit and every tick,
-// until ctx ends; then it stops every pi.
+// until ctx ends; then it stops every pi. A signal from its own pass is
+// dropped, as the scheduler's Loop drops its own (issue #586); the next tick
+// covers any commit that came during the pass.
 func (s *Supervisor) Run(ctx context.Context) error {
 	if !s.Enabled() {
 		<-ctx.Done()
@@ -164,6 +166,11 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 	for {
 		s.pass(ctx)
+
+		select {
+		case <-wake:
+		default:
+		}
 
 		select {
 		case <-ctx.Done():

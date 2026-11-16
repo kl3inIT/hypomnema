@@ -139,6 +139,11 @@ type Config struct {
 	// BrowserTimeZone is the zone the shared browser tells time in, from
 	// HYPOMNEMA_BROWSER_TIMEZONE, else the control plane's TZ (browser.TimeZone).
 	BrowserTimeZone string
+	// PprofAddr serves Go's profiles (net/http/pprof) on a listener of its
+	// own (issue #586), from HYPOMNEMA_PPROF_ADDR, such as 127.0.0.1:6060, as
+	// Coder's --pprof-address; only a loopback address is taken. Empty: no
+	// profiler.
+	PprofAddr string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -168,6 +173,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
 		BrowserLanguage:  browser.Language(env.String(envPrefix+"_BROWSER_LANG", ""), getenv),
 		BrowserTimeZone:  browser.TimeZone(env.String(envPrefix+"_BROWSER_TIMEZONE", ""), getenv),
+		PprofAddr:        env.String(envPrefix+"_PPROF_ADDR", ""),
 	}
 
 	if cfg.BrowserDir == "" {
@@ -211,7 +217,14 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 
 	cfg.BrowserAllow = allow
 
-	if err := errors.Join(env.Err(), cmdErr, keysErr, allowErr); err != nil {
+	var pprofErr error
+	if cfg.PprofAddr != "" {
+		if err := loopbackAddr(cfg.PprofAddr); err != nil {
+			pprofErr = fmt.Errorf("%s_PPROF_ADDR: %w", envPrefix, err)
+		}
+	}
+
+	if err := errors.Join(env.Err(), cmdErr, keysErr, allowErr, pprofErr); err != nil {
 		return Config{}, fmt.Errorf("configuration: %w", err)
 	}
 
@@ -477,6 +490,28 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return fmt.Errorf("listening on %s: %w", cfg.HTTPAddr, err)
 	}
 
+	// The profiler, when one is asked for, has its own listener and never the server's (issue #586). Like
+	// Coder's, a profiler that cannot listen is logged and the control plane serves without it.
+	pprofDone := make(chan struct{})
+
+	go func() {
+		defer close(pprofDone)
+
+		if cfg.PprofAddr == "" {
+			return
+		}
+
+		pln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.PprofAddr)
+		if err != nil {
+			logger.ErrorContext(ctx, "profiler cannot listen", slog.String("event", "controlplane.pprof.failed"),
+				slog.String("addr", cfg.PprofAddr), slog.String("error", err.Error()))
+
+			return
+		}
+
+		serveProfiler(ctx, pln, logger)
+	}()
+
 	loopDone := make(chan struct{})
 
 	go func() {
@@ -551,6 +586,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
+	<-pprofDone
 	<-browserDone
 	<-routinesDone
 	<-channelsDone

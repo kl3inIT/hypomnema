@@ -105,10 +105,11 @@ func (s *Service) ListEvents(ctx context.Context, after int64, f EventFilter, li
 	return page, nil
 }
 
-// Subscribe returns a channel that is signaled after commits, until ctx ends.
-// A signal carries no data and may stand for several commits, or for a commit
-// that wrote no event; the reader re-reads from its cursor. A slow reader
-// never blocks a writer.
+// Subscribe returns a channel that is signaled after commits that changed a
+// row, until ctx ends; a commit that wrote nothing signals no one (issue
+// #586). A signal carries no data and may stand for several commits, or for
+// a commit that wrote no event; the reader re-reads from its cursor. A slow
+// reader never blocks a writer.
 func (s *Service) Subscribe(ctx context.Context) <-chan struct{} {
 	return s.notify.subscribe(ctx)
 }
