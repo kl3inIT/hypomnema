@@ -104,7 +104,7 @@ const fits = (page: Page) =>
 // row; a token set shows each of its values; hiding takes the value off the page; the table's head reveals all.
 test("the owner reveals and hides secrets' values", async ({ page }) => {
   const calls = await fakeServer(page)
-  await page.goto("/settings/integrations")
+  await page.goto("/settings")
   await page.getByRole("link", { name: "Vault" }).click()
 
   await expect(page.getByRole("heading", { name: "Vault" })).toBeVisible()

@@ -24,6 +24,7 @@ import type {
 import { BotScreen, NewBotScreen } from "./bot-screen"
 import { BotsScreen } from "./bots-screen"
 import { emptyDraft, memoryEntries, memoryUsed, problem, settingsOf } from "./bots-state"
+import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -181,7 +182,9 @@ function open(path: string) {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <SidebarProvider>
+        <RouterProvider router={router} />
+      </SidebarProvider>
     </QueryClientProvider>,
   )
 

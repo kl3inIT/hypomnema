@@ -274,7 +274,7 @@ const fits = (page: Page) =>
 // tables; the search box narrows both.
 test("the owner looks through the skills", async ({ page }) => {
   await fakeServer(page)
-  await page.goto("/settings/vault")
+  await page.goto("/settings")
   await page.getByRole("link", { name: "Skills" }).click()
 
   const review = page.getByRole("link", { name: "review-go" })

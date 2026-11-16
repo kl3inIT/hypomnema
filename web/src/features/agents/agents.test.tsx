@@ -33,6 +33,7 @@ vi.mock("./yaml-editor", () => ({
   ),
 }))
 import { toYaml, type Draft } from "./profiles-state"
+import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -157,7 +158,9 @@ function open(path: string) {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <SidebarProvider>
+        <RouterProvider router={router} />
+      </SidebarProvider>
     </QueryClientProvider>,
   )
 

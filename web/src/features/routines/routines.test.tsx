@@ -22,6 +22,7 @@ import { BotRoutines } from "./bot-routines"
 import { RunCard, SetUpCard } from "./chat-cards"
 import { RoutinesScreen } from "./routines-screen"
 import { draftOf, scheduleOf } from "./schedule-draft"
+import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
   vi.spyOn(window, "scrollTo").mockImplementation(() => {})
@@ -288,7 +289,9 @@ function open(path: string) {
   render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <RouterProvider router={router} />
+        <SidebarProvider>
+          <RouterProvider router={router} />
+        </SidebarProvider>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>,

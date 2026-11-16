@@ -3,6 +3,8 @@ import { HypomnemaIcon } from "@/components/icons/brand-icons"
 import {
   ArrowLeft,
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   Box,
   ChartColumn,
   Globe,
@@ -78,8 +80,6 @@ const groups: { heading: string; sections: Section[] }[] = [
   },
 ]
 
-const sections = groups.flatMap((group) => group.sections)
-
 const rowClass =
   "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-foreground [&.active]:bg-sidebar-row-active [&.active]:text-foreground"
 
@@ -115,9 +115,49 @@ export function SettingsSidebar() {
   )
 }
 
-// SettingsPage is one section's page, headed by the list pages' PageHeading. On a phone, where the sidebar hides, the sections are a row of links under
-// the header that scrolls sideways, its edge fading where more of it is hidden (shadcn's scroll-fade-x, as the
-// CodeBlock primitive uses it).
+// SettingsList is /settings on a phone, where the sidebar hides: the sections under the sidebar's headings, a row a
+// section with a chevron, each opening its page, as OpenMausBot's narrow settings (Apache License 2.0,
+// https://github.com/milind-soni/OpenMausBot; src/components/settings/SettingsNav.tsx, the narrow rows) and
+// OpenHands' SettingsMobileHub (MIT, Copyright (c) 2025 OpenHands contributors, https://github.com/OpenHands/OpenHands;
+// frontend/src/routes/settings-index.tsx). A desktop opens a section instead (issue #604).
+export function SettingsList() {
+  return (
+    <main className="flex min-w-0 flex-1 flex-col">
+      <PageHeader />
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8">
+        <nav aria-label="Settings" className="mx-auto flex w-full max-w-3xl flex-col gap-4 pt-2">
+          <h1 className="px-2 text-2xl leading-tight font-semibold text-foreground">Settings</h1>
+          {groups.map((group) => (
+            <section
+              key={group.heading}
+              aria-label={group.heading}
+              className="flex flex-col gap-0.5"
+            >
+              <h2 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+                {group.heading}
+              </h2>
+              {group.sections.map((section) => (
+                <Link
+                  key={section.to}
+                  to={section.to}
+                  className="flex h-11 items-center gap-3 rounded-lg px-2 text-sm text-foreground hover:bg-sidebar-row-hover"
+                >
+                  <section.icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{section.label}</span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                </Link>
+              ))}
+            </section>
+          ))}
+        </nav>
+      </div>
+    </main>
+  )
+}
+
+// SettingsPage is one section's page, headed by the list pages' PageHeading. On a phone, where the sidebar hides,
+// the header leads back to the list of sections, "‹ Settings", as OpenMausBot's narrow settings page
+// (src/components/settings/SettingsWindow.tsx, data-settings-back).
 export function SettingsPage({
   title,
   description,
@@ -135,27 +175,17 @@ export function SettingsPage({
 }) {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader />
-      {sections.length > 1 && (
-        <nav
-          aria-label="Settings sections"
-          className="no-scrollbar flex shrink-0 scroll-fade-x gap-1 overflow-x-auto px-3 pb-2 md:hidden"
-        >
-          {sections.map((section) => (
-            <Link
-              key={section.to}
-              to={section.to}
-              className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted-foreground",
-                "[&.active]:bg-foreground/9 [&.active]:text-foreground",
-              )}
-            >
-              <section.icon className="size-4" />
-              {section.label}
-            </Link>
-          ))}
-        </nav>
-      )}
+      <PageHeader
+        back={
+          <Link
+            to="/settings"
+            className="flex h-8 items-center gap-0.5 rounded-lg pe-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+            Settings
+          </Link>
+        }
+      />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5">
         <div
           className={cn(

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
 
 // The built app against a fake client API (page.route), on a phone and a desktop.
@@ -164,6 +165,7 @@ test("signing in with a name and a password opens the chats", async ({ page }) =
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible()
   expect(await page.evaluate(`localStorage.getItem("hypomnema.token")`)).toBeNull()
 
+  await openMenu(page)
   await page.getByRole("button", { name: "Sign out" }).click()
   await expect(page.getByLabel("Password")).toBeVisible()
 })

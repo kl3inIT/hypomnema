@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { openMenu } from "./menu.js"
+
 // Opening the app goes back to where the owner last was (owner, 2026-11-13), as OpenMausBot reopens its last
 // conversation: built, against a fake client API.
 
@@ -46,7 +48,7 @@ async function fakeServer(page: Page, chats: { current: (typeof chat)[] }) {
 
 // Scenario: the owner chats, leaves, and opens the app again: the chat is there. New chat still opens the start
 // page. A chat that was deleted meanwhile is not gone back to.
-test("opening the app goes back to the chat the owner was in", async ({ page, isMobile }) => {
+test("opening the app goes back to the chat the owner was in", async ({ page }) => {
   const chats = { current: [chat] }
   await fakeServer(page, chats)
 
@@ -61,11 +63,9 @@ test("opening the app goes back to the chat the owner was in", async ({ page, is
   await expect(page).toHaveURL(/\/chats\/cht_1$/)
   await expect(page.getByRole("tab", { name: "health page" })).toBeVisible()
 
-  // New chat, asked for, is the start page; on a phone the menu is the start page.
-  await page
-    .getByRole("link", { name: isMobile ? "Menu" : "New chat", exact: true })
-    .first()
-    .click()
+  // New chat, asked for, is the start page; on a phone it is in the drawer behind ≡.
+  await openMenu(page)
+  await page.getByRole("link", { name: "New chat", exact: true }).first().click()
   await expect(page.getByRole("heading", { name: "What should be built?" })).toBeVisible()
   await expect(page).toHaveURL(/\/$/)
 

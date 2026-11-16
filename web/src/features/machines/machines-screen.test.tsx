@@ -13,6 +13,7 @@ import type { MachineProvider, Node } from "@/api/generated/types.gen"
 
 import { node, used } from "./fixtures"
 import { MachinesScreen } from "./machines-screen"
+import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -65,7 +66,9 @@ async function open() {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <SidebarProvider>
+        <RouterProvider router={router} />
+      </SidebarProvider>
     </QueryClientProvider>,
   )
   await screen.findByRole("heading", { name: "Machines" })

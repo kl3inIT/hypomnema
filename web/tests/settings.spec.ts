@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import type { GitHost as Host, Repo } from "../src/api/generated/types.gen.js"
 import { choose } from "./choose.js"
+import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
 
 // Settings, built, against a fake client API, on a phone and a desktop.
@@ -501,14 +502,20 @@ test("the owner reads and edits what every agent knows about him", async ({ page
 // top shows a part of the page at the top of the screen, for a picture of it.
 const top = (target: Locator) => target.evaluate((e) => e.scrollIntoView({ block: "start" }))
 
-// Scenario: the owner opens Settings from the app and lands on Integrations. There is a card a product, a row a
+// Scenario: the owner opens Settings from the app and lands on Integrations; a phone opens Settings from the drawer
+// behind ≡ and picks Integrations from the list of sections (issue #604). There is a card a product, a row a
 // host: GitHub's one host has a token; gitlab.com and the company's GitLab server have none, and the GitLab card
 // says once how to connect them. The owner gives gitlab.com a token and sees its row connected while the company's
 // server is still without one; the token is typed into a password field and is nowhere on the page afterwards.
-test("the owner opens Settings and gives a host its token", async ({ page }) => {
+test("the owner opens Settings and gives a host its token", async ({ page, isMobile }) => {
   const calls = await fakeServer(page)
   await page.goto("/")
+  await openMenu(page)
   await page.getByRole("link", { name: "Settings" }).click()
+  if (isMobile) {
+    await expect(page).toHaveURL(/\/settings$/)
+    await page.getByRole("link", { name: "Integrations" }).click()
+  }
 
   await expect(page).toHaveURL(/\/settings\/integrations$/)
   await expect(page.getByRole("heading", { name: "Integrations", level: 1 })).toBeVisible()

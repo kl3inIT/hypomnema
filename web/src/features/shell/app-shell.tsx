@@ -1,4 +1,5 @@
-import { Link } from "@tanstack/react-router"
+import { Link, useParams } from "@tanstack/react-router"
+import type { MouseEvent } from "react"
 import {
   BotMessageSquare,
   LayoutGrid,
@@ -13,6 +14,7 @@ import {
 
 import "@/api/client"
 import { HypomnemaIcon, HypomnemaWordmark } from "@/components/icons/brand-icons"
+import { Sidebar, useSidebar } from "@/components/ui/sidebar"
 import { signOut } from "@/features/auth/session"
 import { useLiveUpdates, useWork } from "@/features/work/use-work"
 import { needsYou } from "@/features/work/work-state"
@@ -29,8 +31,8 @@ import { BotList } from "./bot-list"
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
 // Team with what waits for the owner, the Routines, then what is set up: the Bots, the agents, the machines; in the
 // order they are used, as OpenClaw's navigation, issue #371) and the Bots with
-// their chats (bot-list.tsx), and a quiet 52px header over each page. On a phone the sidebar
-// hides; the header's menu leads to the start page, which lists the same places.
+// their chats (bot-list.tsx), and a quiet 52px header over each page. On a phone the sidebar hides and the header's
+// ≡ opens the same content as a drawer from the left (AppDrawer, issue #604).
 
 // LiveUpdates keeps every page current from the event stream, from the Tasks' cursor.
 export function LiveUpdates() {
@@ -43,7 +45,7 @@ export function LiveUpdates() {
 const placeClass =
   "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-foreground"
 
-export function Places() {
+function Places() {
   const { cards } = useWork()
   const waiting = needsYou(cards)
 
@@ -103,6 +105,40 @@ export function Places() {
 export function AppSidebar({ currentChat }: { currentChat?: string }) {
   return (
     <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
+      <SidebarContents currentChat={currentChat} />
+    </aside>
+  )
+}
+
+// AppDrawer is the app's sidebar on a phone: the same content in shadcn's Sidebar, which on a phone is a Sheet from
+// the left that the header's ≡ opens, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc.,
+// https://github.com/pingdotgg/t3code; components/ui/sidebar.tsx Sidebar's isMobile branch). It is drawn once for
+// every page, by the root, so that Settings, which has a sidebar of its own, opens the app's too. A pick that leads
+// somewhere closes it, as t3code's sidebar closes after a thread or a place is picked (components/Sidebar.tsx,
+// sidebar/SidebarChrome.tsx closeMobileSidebar); the scrim, a swipe and Escape close it as the Sheet does.
+export function AppDrawer() {
+  const { isMobile, setOpenMobile } = useSidebar()
+  const { chatId } = useParams({ strict: false })
+  if (!isMobile) return null
+
+  // Every place and chat in the sidebar is a link; a button in it (a Bot's toggle, a menu) leaves the drawer open.
+  const closeOnLink = (event: MouseEvent) => {
+    if (event.target instanceof Element && event.target.closest("a[href]")) setOpenMobile(false)
+  }
+
+  return (
+    <Sidebar>
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the links inside take the keyboard; Enter on one is a click that bubbles here */}
+      <div className="flex min-h-0 flex-1 flex-col" onClick={closeOnLink}>
+        <SidebarContents currentChat={chatId} />
+      </div>
+    </Sidebar>
+  )
+}
+
+function SidebarContents({ currentChat }: { currentChat?: string }) {
+  return (
+    <>
       <div className="flex h-(--workspace-topbar-height) shrink-0 items-center px-3.5">
         <Link to="/" aria-label="Hypomnema" className="flex items-center gap-2">
           <HypomnemaIcon className="size-6 shrink-0" />
@@ -120,12 +156,12 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
         <SettingsLink />
         <SignOut />
       </div>
-    </aside>
+    </>
   )
 }
 
 // SettingsLink is the one way to everything the owner sets up, at the sidebar's foot.
-export function SettingsLink() {
+function SettingsLink() {
   return (
     <Link to="/settings" className={placeClass}>
       <Settings className="size-4" />
@@ -134,7 +170,7 @@ export function SettingsLink() {
   )
 }
 
-export function SignOut() {
+function SignOut() {
   return (
     <button type="button" onClick={() => void signOut()} className={cn(placeClass, "w-full")}>
       <LogOut className="size-4" />

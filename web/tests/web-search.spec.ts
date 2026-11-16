@@ -195,7 +195,7 @@ const row = (page: Page, label: string) => page.getByLabel(label, { exact: true 
 // then the subscriptions, Antigravity with a way to the Models page.
 test("the owner sees the search chain, its keys and what each used", async ({ page }) => {
   await fakeServer(page)
-  await page.goto("/settings/models")
+  await page.goto("/settings")
   await page.getByRole("link", { name: "Web search" }).first().click()
 
   await expect(page.getByRole("heading", { name: "Web search", level: 1 })).toBeVisible()

@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
 
 // The sidebar's Bots (issue #361), built, against a fake client API: a row a Bot that opens to its chats, as
 // OpenMausBot's sidebar, in the one order the owner sets by dragging, with the pinned Bots under the main one (issue
-// #470). A phone lists them on the start page, under the places, and shows the order without dragging.
+// #470). A phone shows them in the drawer behind ≡ (issue #604), in the order, without dragging.
 
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
 
@@ -145,7 +146,7 @@ const pinnedNames = (page: Page) =>
     .getByRole("region", { name: "Pinned" })
     .getByRole("link", { name: /^(researcher|reporter|writer) / })
 
-// The list is on screen for the picture: a phone shows it under the places, below the composer.
+// The list is on screen for the picture: a phone shows it in the drawer, below the places.
 async function showList(page: Page) {
   await bots(page).scrollIntoViewIfNeeded()
 }
@@ -156,6 +157,7 @@ async function showList(page: Page) {
 test("the sidebar lists the Bots, each opening to its chats", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/")
+  await openMenu(page)
 
   await expect(botRow(page, "coordinator")).toContainText("Add a /health page")
   await expect(botRow(page, "coordinator")).toContainText("Working")
@@ -185,6 +187,7 @@ test("the sidebar lists the Bots, each opening to its chats", async ({ page }) =
   await shot(page, "sidebar-bot-open")
 
   await page.reload()
+  await openMenu(page)
   await expect(coordinator.getByRole("link")).toHaveCount(3)
   await bots(page).getByRole("button", { name: "Hide the chats of coordinator" }).click()
   await expect(coordinator).toHaveCount(0)
@@ -211,6 +214,7 @@ test("an open Bot lists its 6 newest chats, with Show all", async ({ page }) => 
   )
   await fakeServer(page, [...chats, ...many], [held, { ...held, id: "apr_2", chat_id: "cht_w13" }])
   await page.goto("/")
+  await openMenu(page)
 
   await bots(page).getByRole("button", { name: "Show the chats of writer" }).click()
   const writer = bots(page).getByRole("list", { name: "Chats of writer" })
@@ -237,6 +241,7 @@ test("an open Bot lists its 6 newest chats, with Show all", async ({ page }) => 
 
   await page.evaluate(`localStorage.setItem("theme", "light")`)
   await page.reload()
+  await openMenu(page)
   await expect(page.locator("html")).not.toHaveClass(/dark/)
   await expect(writer.getByRole("link")).toHaveCount(8)
   await more.scrollIntoViewIfNeeded()
@@ -272,6 +277,7 @@ test("the + on a Bot's row starts a chat with that Bot", async ({ page, isMobile
 test("a Bot is pinned and unpinned from its row's menu", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/")
+  await openMenu(page)
 
   await botRow(page, "reporter").hover()
   await bots(page).getByRole("button", { name: "Actions for reporter" }).click()
@@ -287,6 +293,7 @@ test("a Bot is pinned and unpinned from its row's menu", async ({ page }) => {
   await shot(page, "sidebar-pinned")
 
   await page.reload()
+  await openMenu(page)
   await expect(pinnedNames(page)).toHaveText([/reporter/])
   await botRow(page, "coordinator").hover()
   await expect(bots(page).getByRole("button", { name: "Actions for coordinator" })).toHaveCount(0)
@@ -307,6 +314,7 @@ test("Bots are reordered by their avatar, with the mouse or the keyboard", async
 }) => {
   const orders = await fakeServer(page)
   await page.goto("/")
+  await openMenu(page)
   await expect(botNames(page)).toHaveCount(4)
   await expect(bots(page).getByRole("button", { name: "Move coordinator" })).toHaveCount(0)
 
@@ -345,6 +353,7 @@ test("Bots are reordered by their avatar, with the mouse or the keyboard", async
   expect(orders.at(-1)).toEqual(["writer", "reporter", "researcher"])
 
   await page.reload()
+  await openMenu(page)
   await expect(botNames(page)).toHaveText([/coordinator/, /writer/, /reporter/, /researcher/])
 })
 
