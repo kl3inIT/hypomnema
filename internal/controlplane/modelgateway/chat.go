@@ -29,8 +29,13 @@ import (
 // frame is kept from a client that did not ask, as LiteLLM does.
 
 const (
-	// maxRequestBytes bounds a request body, as 9router-go's 10 MiB.
-	maxRequestBytes = 10 << 20
+	// maxRequestBytes bounds a request body at 32 MiB (issue #675): the request limit pi's catalog
+	// (ai/catalog/providers/anthropic.ts, maxRequestBytes) and Hermes (agent/image_eviction_policy.py) state for
+	// Anthropic, which pi's image eviction (deploy/coordinator/pi-image-eviction.mts) keeps its 24 MB of images under,
+	// as Hermes does. Anthropic's docs (platform.claude.com/docs/en/api/overview, read 2026-11-17) give 128 MB for
+	// its own API and 32 MB on the cloud platforms it runs; the subscription backends the gateway forwards to state
+	// none. It was 10 MiB, 9router-go's, which a chat full of phone screenshots outgrew.
+	maxRequestBytes = 32 << 20
 	// maxResponseBytes bounds a non-streaming answer.
 	maxResponseBytes = 10 << 20
 	// maxErrorBytes bounds a provider's error body passed to the client.

@@ -54,6 +54,9 @@ install -o root -g root -m 0755 "$src/hypomnema-pi" /usr/local/bin/hypomnema-pi
 install -o root -g root -m 0755 "$src/hypomnema-routine" /usr/local/bin/hypomnema-routine
 install -o root -g root -m 0755 "$src/hypomnema-chat-rm" /usr/local/bin/hypomnema-chat-rm
 install -o root -g root -m 0755 "$src/hypomnema" /usr/local/bin/hypomnema
+# pi's image extension (issue #675), which hypomnema-pi gives every chat's pi with --extension.
+install -d -o root -g root -m 0755 /usr/local/lib/hypomnema
+install -o root -g root -m 0644 "$src/pi-image-eviction.mts" /usr/local/lib/hypomnema/pi-image-eviction.mts
 install -o coordinator -g coordinator -m 0600 "$src/AGENTS.md" "$home/agent/AGENTS.md"
 
 echo "== tools of the integrations and the documents environment"
