@@ -186,6 +186,21 @@ func profilesRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, map[string]bool{"deleted": true}, func() { e.printf("profile %s is deleted\n", name) })
 }
 
+func providersRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	name := fs.Arg(0)
+
+	resp, err := e.api.DeleteProviderWithResponse(ctx, name)
+	if err != nil {
+		return fmt.Errorf("removing provider %s: %w", name, err)
+	}
+
+	if resp.StatusCode() != 204 {
+		return apiError("removing provider "+name, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, map[string]bool{"removed": true}, func() { e.printf("provider %s removed\n", name) })
+}
+
 func providersList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	resp, err := e.api.ListProvidersWithResponse(ctx)
 	if err != nil {

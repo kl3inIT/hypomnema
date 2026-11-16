@@ -115,6 +115,16 @@ func (s *Server) ApplyProvider(ctx context.Context, req openapi.ApplyProviderReq
 	return openapi.ApplyProvider200JSONResponse(toProvider(p)), nil
 }
 
+// DeleteProvider removes a provider and its models; only the owner (policy.go, issue #610).
+func (s *Server) DeleteProvider(ctx context.Context, req openapi.DeleteProviderRequestObject,
+) (openapi.DeleteProviderResponseObject, error) {
+	if err := s.svc.DeleteProvider(ctx, req.Name); err != nil {
+		return nil, err
+	}
+
+	return openapi.DeleteProvider204Response{}, nil
+}
+
 // ListModels returns every model with its provider.
 func (s *Server) ListModels(ctx context.Context, _ openapi.ListModelsRequestObject,
 ) (openapi.ListModelsResponseObject, error) {

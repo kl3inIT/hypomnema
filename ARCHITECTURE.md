@@ -2278,7 +2278,9 @@ capabilities do not exist yet.
   the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
   is not declared, or the body is wrong) and 413.
 - A provider is of one of two sorts. An `openai_compatible` one is data the owner declares (a base URL, a key in the
-  vault, its models), and its adapter passes the request and the answer through. A built-in one is seeded by a
+  vault, its models), and its adapter passes the request and the answer through. The owner removes a declared
+  provider with `providers rm` (`DELETE /providers/{name}`, issue #610); one a bot, a chat, a profile version or a
+  gateway model's target still names is kept, with what uses it in the error, and its models go with it. A built-in one is seeded by a
   migration and has an adapter of its own, which translates both ways and handles everything specific to its vendor;
   the answer it returns is already in OpenAI's chat format, so failover, the stream's end and the usage record work
   the same for both.

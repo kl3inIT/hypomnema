@@ -648,6 +648,10 @@ var commands = []command{
 		summary: "store a provider's YAML and its models (owner)", flags: jsonFlag, run: providersApply,
 	},
 	{
+		name: "providers rm", args: "<name>", min: 1, max: 1,
+		summary: "remove a provider and its models, when nothing names it (owner)", flags: jsonFlag, run: providersRemove,
+	},
+	{
 		name: "models list", summary: "every model, with its provider", flags: jsonFlag, run: modelsList,
 	},
 	{

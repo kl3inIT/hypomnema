@@ -101,3 +101,13 @@ SELECT name FROM bots WHERE workers IS NOT NULL AND ',' || workers || ',' LIKE '
 -- The tool switches of the profile version a Dispatch runs with (issue #536); none for one made before profiles.
 SELECT v.tools, v.tools_off FROM dispatches d JOIN profile_versions v ON v.id = d.profile_version_id
 WHERE d.id = @dispatch_id;
+
+-- name: DeleteProvider :execrows
+DELETE FROM providers WHERE name = @name;
+
+-- name: ProviderUses :one
+SELECT
+  (SELECT count(*) FROM bots WHERE bots.provider = sqlc.arg(pname)) AS bots,
+  (SELECT count(*) FROM chats WHERE chats.provider = sqlc.arg(pname)) AS chats,
+  (SELECT count(*) FROM profile_versions WHERE profile_versions.provider = sqlc.arg(pname)) AS versions,
+  (SELECT count(*) FROM gateway_model_targets WHERE gateway_model_targets.provider = sqlc.arg(pname)) AS targets;
