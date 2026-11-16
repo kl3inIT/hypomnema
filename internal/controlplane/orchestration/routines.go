@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
@@ -17,41 +18,104 @@ import (
 // chat. It calls the store's functions that end in Tx with its own queries.
 
 // promptNotice is what a prompt run's chat begins with. It goes to the Bot
-// as a wake-up of the control plane, since nobody wrote it there.
-func promptNotice(r routinestore.Routine, by string) string {
+// as a wake-up of the control plane, since nobody wrote it there. What the
+// Routine's script printed, when it woke the Bot, goes before the prompt
+// (issue #656; Hermes, cron/scheduler_prompt.py L38-40, L344-350).
+func promptNotice(r routinestore.Routine, by, scriptOutput string) string {
 	how := "by its schedule"
 	if by == routinestore.StartedByHand {
 		how = "by hand, now"
 	}
 
+	prompt := r.Prompt
+	if scriptOutput != "" {
+		prompt = fmt.Sprintf("## Script Output\nThe following data was collected by the routine's script %s, which "+
+			"woke you. Use it as context for the work.\n\n```\n%s\n```\n\n%s", r.Script,
+			strings.TrimRight(scriptOutput, "\n"), prompt)
+	}
+
 	return fmt.Sprintf("Routine %q (%s) runs %s. Nobody is in this chat: do the work below without asking, and end "+
-		"with what you did. You cannot make or change routines from here.\n\n%s", r.Name, r.ID, how, r.Prompt)
+		"with what you did. You cannot make or change routines from here.\n\n%s", r.Name, r.ID, how, prompt)
 }
 
 // startRun begins a run of a Routine that has none live. A prompt run gets
-// its own chat, with the prompt waiting for the Bot.
+// its own chat, with the prompt waiting for the Bot, unless its script
+// checks first: then the chat is opened when the script wakes the Bot
+// (WakeRoutineRun).
 func (s *Service) startRun(ctx context.Context, q *store.Queries, now int64, r routinestore.Routine, by string,
 ) (routinestore.StartedRun, error) {
 	id := s.newID("rrn")
 
 	var chatID string
 
-	if r.Kind == routinestore.RoutinePrompt {
-		chatID = s.newID("cht")
-		if err := q.InsertChat(ctx, store.InsertChatParams{
-			ID: chatID, Title: "Routine " + r.Name, Bot: r.Bot, Now: now,
-		}); err != nil {
-			return routinestore.StartedRun{}, fmt.Errorf("opening the chat of a run of routine %s: %w", r.ID, err)
-		}
+	if r.Kind == routinestore.RoutinePrompt && r.Script == "" {
+		var err error
 
-		if err := q.InsertRoutinePrompt(ctx, store.InsertRoutinePromptParams{
-			ChatID: chatID, Text: promptNotice(r, by), Now: now,
-		}); err != nil {
-			return routinestore.StartedRun{}, fmt.Errorf("giving the prompt of routine %s: %w", r.ID, err)
+		chatID, err = s.openRunChat(ctx, q, now, r, by, "")
+		if err != nil {
+			return routinestore.StartedRun{}, err
 		}
 	}
 
 	return routinestore.StartRunTx(ctx, q, now, r, id, by, chatID)
+}
+
+// openRunChat opens a prompt run's chat with the prompt waiting in it.
+func (s *Service) openRunChat(ctx context.Context, q *store.Queries, now int64, r routinestore.Routine,
+	by, scriptOutput string,
+) (string, error) {
+	chatID := s.newID("cht")
+	if err := q.InsertChat(ctx, store.InsertChatParams{
+		ID: chatID, Title: "Routine " + r.Name, Bot: r.Bot, Now: now,
+	}); err != nil {
+		return "", fmt.Errorf("opening the chat of a run of routine %s: %w", r.ID, err)
+	}
+
+	if err := q.InsertRoutinePrompt(ctx, store.InsertRoutinePromptParams{
+		ChatID: chatID, Text: promptNotice(r, by, scriptOutput), Now: now,
+	}); err != nil {
+		return "", fmt.Errorf("giving the prompt of routine %s: %w", r.ID, err)
+	}
+
+	return chatID, nil
+}
+
+// WakeRoutineRun opens the chat of a live prompt run whose script said to
+// wake the Bot (issue #656): the prompt waits in it with what the script
+// printed before it, and from there the run is a prompt run. The Routine is
+// read as it is now; a run that ended, or has its chat, is a conflict.
+func (s *Service) WakeRoutineRun(ctx context.Context, runID, scriptOutput string) (routinestore.StartedRun, error) {
+	var out routinestore.StartedRun
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		run, err := q.GetRoutineRun(ctx, runID)
+		if err != nil {
+			return notFound(err, "routine run", runID)
+		}
+
+		r, err := routinestore.GetRoutineTx(ctx, q, run.RoutineID)
+		if err != nil {
+			return err
+		}
+
+		if r.Kind != routinestore.RoutinePrompt {
+			return fmt.Errorf("%w: routine %s runs a script alone and wakes no bot", ErrInvalid, r.ID)
+		}
+
+		chatID, err := s.openRunChat(ctx, q, now, r, run.StartedBy, routinestore.KeptOutput(scriptOutput))
+		if err != nil {
+			return err
+		}
+
+		out, err = routinestore.OpenRunChatTx(ctx, q, runID, chatID)
+
+		return err
+	})
+	if err != nil {
+		return routinestore.StartedRun{}, fmt.Errorf("waking the bot of run %s: %w", runID, err)
+	}
+
+	return out, nil
 }
 
 // RunRoutineNow starts a run by hand. While a run of the Routine is live it

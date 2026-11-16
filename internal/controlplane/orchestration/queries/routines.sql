@@ -71,6 +71,11 @@ VALUES (@chat_id, 'system', 'wake', @text, 1, @now);
 INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id)
 VALUES (@id, @routine_id, @started_by, 'running', @now, @chat_id);
 
+-- name: OpenRoutineRunChat :execrows
+-- A prompt run whose script said to wake the Bot gets its chat then (issue #656), once, while it is live.
+UPDATE routine_runs SET chat_id = @chat_id
+WHERE id = @id AND chat_id IS NULL AND state IN ('running', 'waiting');
+
 -- name: GetRoutineRun :one
 SELECT * FROM routine_runs WHERE id = @id;
 

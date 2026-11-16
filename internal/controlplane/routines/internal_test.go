@@ -39,6 +39,29 @@ func TestWhichFailuresPass(t *testing.T) {
 	}
 }
 
+// A prompt Routine's script wakes its Bot unless it printed nothing or its
+// last line that is not empty is {"wakeAgent": false}, after Hermes's
+// _parse_wake_gate: anything else, JSON or not, wakes it (issue #656).
+func TestWhatWakesTheBot(t *testing.T) {
+	t.Parallel()
+
+	for output, want := range map[string]bool{
+		"":                                     false,
+		" \n\n":                                false,
+		`{"wakeAgent": false}`:                 false,
+		"14 charts\n{\"wakeAgent\":false}\n\n": false,
+		`{"wakeAgent": false, "seen": 14}`:     false,
+		`{"wakeAgent": true}`:                  true,
+		"chart 164 changed\n":                  true,
+		"{\"wakeAgent\": false}\nchart 164 changed\n": true,
+		`{"changed": [164]}`:                          true,
+		`{"wakeAgent": "false"}`:                      true,
+		`[false]`:                                     true,
+	} {
+		assert.Equal(t, want, wakes(output), "%q", output)
+	}
+}
+
 // The launcher is stopped by closing its input, not by a signal: a command
 // that reads its input to the end and then exits is ended by stopping it,
 // with its own exit code; one that ends by itself gives its output and code.

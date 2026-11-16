@@ -150,14 +150,18 @@ type Routine struct {
 	// Prompt is what a prompt Routine gives its Bot.
 	Prompt string
 	// Script is the name of the file a script Routine runs, never a path;
-	// ScriptText what the file holds, written for each run.
+	// ScriptText what the file holds, written for each run. A prompt
+	// Routine may have one too: it runs first and says whether the Bot is
+	// woken (issue #656).
 	Script     string
 	ScriptText string
 	// EveryMinutes, or Cron with Timezone, is the schedule.
 	EveryMinutes int
 	Cron         string
 	Timezone     string
-	Timeout      time.Duration
+	// Timeout is a script's limit; PromptTimeout for a prompt Routine
+	// without one, whose turn has PromptTimeout whatever its script's limit.
+	Timeout time.Duration
 	// Revision counts the changes of what runs and when.
 	Revision     int
 	State        RoutineState
@@ -406,8 +410,12 @@ func RoutineSentence(r Routine, bot string) string {
 	schedule = strings.ToUpper(schedule[:1]) + schedule[1:]
 
 	work := "works on a prompt"
-	if r.Kind == RoutineScript {
+
+	switch {
+	case r.Kind == RoutineScript:
 		work = "runs the script " + r.Script
+	case r.Script != "":
+		work = "runs the script " + r.Script + " and works on a prompt when it says so"
 	}
 
 	if r.Summary != "" {
@@ -530,35 +538,53 @@ func checkRoutine(n RoutineSpec) (RoutineSpec, schedule, error) {
 			return n, sched, fmt.Errorf("%w: a prompt routine needs its prompt", storeerr.ErrInvalid)
 		case len(n.Prompt) > storeutil.MaxChatText:
 			return n, sched, fmt.Errorf("%w: a prompt is at most %d bytes", storeerr.ErrInvalid, storeutil.MaxChatText)
-		case n.Script != "" || n.ScriptText != "":
-			return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script, not both", storeerr.ErrInvalid)
-		case n.TimeoutSeconds != 0:
+		case n.Script == "" && n.ScriptText == "" && n.TimeoutSeconds != 0:
 			return n, sched, fmt.Errorf("%w: a prompt run works for at most %s; only a script's limit is set",
 				storeerr.ErrInvalid, PromptTimeout)
+		case n.Script == "" && n.ScriptText == "":
+			n.TimeoutSeconds = int(PromptTimeout / time.Second)
+
+			return n, sched, nil
 		}
 
-		n.TimeoutSeconds = int(PromptTimeout / time.Second)
+		// A prompt Routine with a script: the script checks first whether the Bot is woken (issue #656, Hermes's
+		// script before the agent, cron/scheduler.py L2264-2290). The limit is the script's.
+		if err := checkScript(&n); err != nil {
+			return n, sched, err
+		}
 	case RoutineScript:
-		if n.TimeoutSeconds == 0 {
-			n.TimeoutSeconds = int(ScriptTimeout / time.Second)
+		if err := checkScript(&n); err != nil {
+			return n, sched, err
 		}
 
-		switch {
-		case !scriptPattern.MatchString(n.Script):
-			return n, sched, fmt.Errorf("%w: a script is named by its file under the bot's routines directory, a "+
-				"name of letters, digits, dots, dashes and underscores; never a path or a command line", storeerr.ErrInvalid)
-		case strings.TrimSpace(n.ScriptText) == "":
-			return n, sched, fmt.Errorf("%w: a script routine needs the script's text", storeerr.ErrInvalid)
-		case len(n.ScriptText) > MaxScriptText:
-			return n, sched, fmt.Errorf("%w: a script is at most %d bytes", storeerr.ErrInvalid, MaxScriptText)
-		case n.Prompt != "":
-			return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script, not both", storeerr.ErrInvalid)
+		if n.Prompt != "" {
+			return n, sched, fmt.Errorf("%w: a script routine runs its script alone; a prompt routine may have a "+
+				"script that checks first", storeerr.ErrInvalid)
 		}
 	default:
 		return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script", storeerr.ErrInvalid)
 	}
 
 	return n, sched, nil
+}
+
+// checkScript checks a spec's script and fills in its limit.
+func checkScript(n *RoutineSpec) error {
+	if n.TimeoutSeconds == 0 {
+		n.TimeoutSeconds = int(ScriptTimeout / time.Second)
+	}
+
+	switch {
+	case !scriptPattern.MatchString(n.Script):
+		return fmt.Errorf("%w: a script is named by its file under the bot's routines directory, a name of "+
+			"letters, digits, dots, dashes and underscores; never a path or a command line", storeerr.ErrInvalid)
+	case strings.TrimSpace(n.ScriptText) == "":
+		return fmt.Errorf("%w: a script routine needs the script's text", storeerr.ErrInvalid)
+	case len(n.ScriptText) > MaxScriptText:
+		return fmt.Errorf("%w: a script is at most %d bytes", storeerr.ErrInvalid, MaxScriptText)
+	}
+
+	return nil
 }
 
 func nullInt(n int) sql.NullInt64 { return sql.NullInt64{Int64: int64(n), Valid: n != 0} }
@@ -927,7 +953,8 @@ func LiveRunTx(ctx context.Context, q *store.Queries, routineID string) (*Routin
 
 // StartRunTx records a run of a Routine that has none live, with the
 // caller's queries. A prompt run's chat, which chatID names, was opened by
-// the caller in the same transaction; chatID is empty for a script's run.
+// the caller in the same transaction; chatID is empty for a script's run
+// and for a prompt run whose script checks first (OpenRunChatTx).
 func StartRunTx(ctx context.Context, q *store.Queries, now int64, r Routine, id, by, chatID string,
 ) (StartedRun, error) {
 	if err := q.InsertRoutineRun(ctx, store.InsertRoutineRunParams{
@@ -942,6 +969,34 @@ func StartRunTx(ctx context.Context, q *store.Queries, now int64, r Routine, id,
 	}
 
 	return StartedRun{Routine: r, Run: routineRunFromRow(run)}, nil
+}
+
+// OpenRunChatTx gives a live run the chat the caller opened for it in the
+// same transaction: a prompt run whose script said to wake the Bot (issue
+// #656). A run that ended, or has a chat, is a conflict.
+func OpenRunChatTx(ctx context.Context, q *store.Queries, runID, chatID string) (StartedRun, error) {
+	run, err := q.GetRoutineRun(ctx, runID)
+	if err != nil {
+		return StartedRun{}, storeutil.NotFound(err, "routine run", runID)
+	}
+
+	n, err := q.OpenRoutineRunChat(ctx, store.OpenRoutineRunChatParams{ID: runID, ChatID: nullString(chatID)})
+	if err != nil {
+		return StartedRun{}, fmt.Errorf("opening the chat of run %s: %w", runID, err)
+	}
+
+	if n != 1 {
+		return StartedRun{}, fmt.Errorf("%w: run %s has ended or has its chat", storeerr.ErrConflict, runID)
+	}
+
+	routine, err := GetRoutineTx(ctx, q, run.RoutineID)
+	if err != nil {
+		return StartedRun{}, err
+	}
+
+	run.ChatID = nullString(chatID)
+
+	return StartedRun{Routine: routine, Run: routineRunFromRow(run)}, nil
 }
 
 // ClaimDueTx returns the Routines whose time has come and whose run is to
@@ -998,8 +1053,8 @@ func ClaimDueTx(ctx context.Context, q *store.Queries, now int64, limit int) (du
 	return due, false, nil
 }
 
-// ClaimRoutineScript gives the launcher of a script Routine's live run what
-// it runs: the file's name, its text, its limit, and the run's key. It is
+// ClaimRoutineScript gives the launcher of the live run of a Routine with a
+// script, a script Routine or a prompt Routine's check, what it runs: the file's name, its text, its limit, and the run's key. It is
 // given once a run, to a caller that names the Routine's Bot: whoever asks
 // again is refused, so a request can present the key only from inside the
 // run the launcher started.
@@ -1020,7 +1075,7 @@ func (s *Store) ClaimRoutineScript(ctx context.Context, routineID, bot string) (
 		switch {
 		case row.BotID != bot:
 			return fmt.Errorf("%w: routine %s is not bot %s's", storeerr.ErrInvalid, routineID, bot)
-		case row.Kind != string(RoutineScript):
+		case row.Script == "":
 			return fmt.Errorf("%w: routine %s runs a prompt, not a script", storeerr.ErrInvalid, routineID)
 		}
 
@@ -1137,8 +1192,9 @@ func (s *Store) LiveRoutineRuns(ctx context.Context) ([]StartedRun, error) {
 	return out, nil
 }
 
-// tail keeps the end of a run's output, cut on a character boundary.
-func tail(s string) string {
+// KeptOutput is the end of a run's output that is kept, MaxRunOutput, cut on a
+// character boundary.
+func KeptOutput(s string) string {
 	if len(s) <= MaxRunOutput {
 		return s
 	}
@@ -1206,7 +1262,7 @@ func EndRunTx(ctx context.Context, q *store.Queries, now int64, runID string, r 
 
 	n, err := q.FinishRoutineRun(ctx, store.FinishRoutineRunParams{
 		ID: runID, State: string(r.State), Now: sql.NullInt64{Int64: now, Valid: true},
-		ExitCode: nullCode(r.ExitCode), Output: tail(r.Output), Error: r.Error,
+		ExitCode: nullCode(r.ExitCode), Output: KeptOutput(r.Output), Error: r.Error,
 	})
 	if err != nil {
 		return fmt.Errorf("ending run %s: %w", runID, err)

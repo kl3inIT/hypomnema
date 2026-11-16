@@ -218,6 +218,58 @@ func TestRoutinesFromTheCLI(t *testing.T) {
 	require.ErrorContains(t, err, "not_found")
 }
 
+// Scenario: the owner makes a prompt Routine whose script checks first
+// (issue #656), with --prompt-file and --script-file together: it works on
+// the prompt, has the script under its file's name with a script's limit,
+// and shows both. The launcher is given the check's script for a run. Set
+// again with --prompt-file alone, it drops the check.
+func TestAPromptRoutineWithACheckFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newRoutineWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	dir := t.TempDir()
+	promptFile, checkFile := filepath.Join(dir, "d9.md"), filepath.Join(dir, "d9-check.sh")
+	prompt := "Adapt files/d9/bieu-do.json to the dashboard's change."
+	check := "#!/bin/sh\nhypomnema superset dashboard 9 | ./routines/changed || echo '{\"wakeAgent\": false}'\n"
+	require.NoError(t, os.WriteFile(promptFile, []byte(prompt), 0o600))
+	require.NoError(t, os.WriteFile(checkFile, []byte(check), 0o600))
+
+	var watch openapi.Routine
+	w.jsonCmd(t, &watch, "", "routines", "set", "d9-watch", "--every", "60", "--prompt-file", promptFile,
+		"--script-file", checkFile, "--timeout", "120")
+	assert.Equal(t, openapi.Prompt, watch.Kind)
+	assert.Equal(t, prompt, *watch.Prompt)
+	assert.Equal(t, "d9-check.sh", *watch.Script)
+	assert.Equal(t, check, *watch.ScriptText)
+	assert.Equal(t, 120, watch.TimeoutSeconds, "the check's limit")
+	assert.Equal(t, "Every hour, coordinator runs the script d9-check.sh and works on a prompt when it says so.",
+		watch.Sentence)
+
+	out, err := w.cmd(t, "routines", "show", watch.Id)
+	require.NoError(t, err)
+	assert.Contains(t, out, "prompt:\n"+prompt)
+	assert.Contains(t, out, "checked first by the script d9-check.sh (stops after 120 s):\n"+check)
+
+	pi := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
+	pi.login(t, bearertoken.Coordinator)
+
+	_, err = w.cmd(t, "routines", "run", watch.Id)
+	require.NoError(t, err)
+
+	into := filepath.Join(dir, "routines")
+	out, err = pi.cmd(t, "routines", "script", watch.Id, "--bot", "coordinator", "--into", into)
+	require.NoError(t, err)
+	assert.Equal(t, "d9-check.sh\n120\n", out, "the launcher runs the check as a script")
+
+	var plain openapi.Routine
+	w.jsonCmd(t, &plain, "", "routines", "set", "d9-watch", "--prompt-file", promptFile)
+	assert.Equal(t, openapi.Prompt, plain.Kind)
+	assert.Empty(t, val(plain.Script), "a prompt alone drops the check")
+	assert.Equal(t, 3600, plain.TimeoutSeconds)
+}
+
 // Scenario: a script Routine changes a chart in Superset. Its launcher was
 // given the run's key, which the command presents: the change waits for the
 // owner where it is, as an Approval of the Routine's run. He approves it

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Bot tokens (issue #260): the key of one pi process, made when the
@@ -61,8 +60,8 @@ func (s *Service) AddBotToken(ctx context.Context, coordinator, chatID, bot stri
 	return s.addBotToken(botToken{coordinatorID: parent.ID, chat: chatID, bot: bot})
 }
 
-// AddRoutineToken makes the key of a script Routine's run starting (issue
-// #211), under the coordinator token named coordinator, and returns its
+// AddRoutineToken makes the key of a run starting of a Routine with a
+// script, a script Routine or a prompt Routine's check (issues #211, #656), under the coordinator token named coordinator, and returns its
 // secret. It is bound to the Routine's Bot and to no chat, as #211's
 // comment of 2026-11-12 says: a script answers no chat. It ends when the run
 // does. The secret is shown only here.
@@ -77,7 +76,7 @@ func (s *Service) AddRoutineToken(ctx context.Context, coordinator, routineID st
 		return "", err
 	}
 
-	if r.Kind != routinestore.RoutineScript {
+	if r.Script == "" {
 		return "", fmt.Errorf("%w: routine %s runs no script", ErrInvalid, routineID)
 	}
 

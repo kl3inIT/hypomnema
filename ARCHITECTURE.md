@@ -1198,7 +1198,8 @@ flowchart LR
   schedule. What the work is, is not built in.
   - **Where the code is** (issue #404). The store imports the generated queries and never the root. What also
     writes another domain's tables stays in the root and calls the store's functions that end in `Tx` with its
-    own queries: starting a run (`RunRoutineNow`, `ClaimDueRoutines`: a prompt run's chat), ending one
+    own queries: starting a run (`RunRoutineNow`, `ClaimDueRoutines`: a prompt run's chat), waking the Bot of a
+    prompt run whose check found work (`WakeRoutineRun`: its chat, `OpenRunChatTx`), ending one
     (`FinishRoutineRun`: what the run still asked is refused), what a run's approvals ended as
     (`RoutineRunAnswers`), a line in a chat (`TellChat`), an approval that waits a run or grants "always for this
     Routine" (`RunOfAskerTx`, `GrantedTx`, `WaitRunTx`, `ResumeRunTx`, `GrantTx`), and a Bot removed with its
@@ -1209,8 +1210,9 @@ flowchart LR
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
-    runs. A Bot with
-    Routines is not removed.
+    runs. A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
+    Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
+    whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
     expression with an IANA time zone, which is required (`github.com/robfig/cron/v3` parses it; the zones are
     compiled in). An interval stays on the grid of its first due time (`anchor_at`), also after a failure or
@@ -1252,10 +1254,26 @@ flowchart LR
     coordinator's supervisor starts pi for it as for any chat. The runner reads the chat: while something waits
     for pi or pi works, the run goes on; when pi has answered and stopped, the run succeeded with that answer;
     a kept failure of pi's model call fails it; a run still going 60 minutes after it started, the time it waited
-    for the owner included, is stopped and fails (OpenClaw's wall-clock timeout, `timeout-policy.ts`).
+    for the owner included, is stopped and fails (OpenClaw's wall-clock timeout, `timeout-policy.ts`). A turn
+    that ends without text (the Bot did its work with tools and said nothing) ends the run at once, succeeded with
+    an empty answer, which is told nowhere (OpenClaw `run-finalize.ts`, OpenMausBot `routines.ts`; issue #656).
+    The supervisor tells such an end from pi exiting during its turn (`Supervisor.Idle`: pi still runs and works
+    on nothing); a pi that exited, or never started, still fails the run after its hour.
+  - **A prompt run with a check** (issue #656). The script runs first exactly as a script run does (the launcher,
+    the box, the run's token and key, the script's limit); the run has no chat meanwhile. When the script exits 0
+    and printed nothing, or its last line that is not empty is `{"wakeAgent": false}` (Hermes,
+    `cron/scheduler_prompt.py` `_parse_wake_gate`), the run ends succeeded with what it printed kept on the run, no
+    chat is made and nothing is told: no turn of the model is paid for. What the script prints goes to one stream
+    with its errors, so stderr counts for the last line. Anything else wakes the Bot: the run's chat is opened
+    then, its prompt led by what the script printed (its last 16 KiB) under `## Script Output` (Hermes), and from
+    there it is a prompt run whose hour counts from the chat's opening. A script that fails fails the run as a
+    script run does, and the Bot is not woken to report it (Hermes wakes it; not taken, so that a broken hourly
+    check costs no turn). The script still starts no Routine: the scheduler applies its verdict (OpenClaw's
+    `trigger.script`). It keeps its own state in a file of the Bot's directory; a Bot adapts a config file the
+    script reads, never the Routine's script. The web form keeps a prompt's check as it is, and does not edit it.
   - **Result** (OpenClaw, `delivery-defaults.ts`). A run's answer, or what a script printed, is added to the chat
     the Routine was made in, unless the owner chose none (`announce` false, `--quiet`). A Routine made without a
-    chat tells its result nowhere. The message names its run in a part (`routine_run`, with the Routine's id),
+    chat tells its result nowhere, and neither does a check that woke nobody, nor a turn that ended without text. The message names its run in a part (`routine_run`, with the Routine's id),
     which the web draws as the run's card; its text is for every other reader.
   - **Who makes one.** The owner and a Bot use the same operation, `PUT /bots/{name}/routines/{routine}`
     (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`). A

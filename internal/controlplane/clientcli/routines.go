@@ -32,7 +32,8 @@ func routineFlags(fs *flag.FlagSet) {
 	fs.String("cron", "", "run by this 5-field cron expression; needs --tz")
 	fs.String("tz", "", "the IANA time zone of the cron expression, such as Asia/Ho_Chi_Minh")
 	fs.String("prompt-file", "", "a file with the prompt the bot works on at each run, or - for standard input")
-	fs.String("script-file", "", "a file with the script to run at each run with no model, or - for standard input")
+	fs.String("script-file", "", "a file with the script to run at each run with no model, or - for standard input; "+
+		"with --prompt-file, a check that runs first and wakes the bot only when it finds work")
 	fs.String("script", "", "the script's file name (default: --script-file's name)")
 	fs.Int("timeout", 0, "seconds a script may run (default 600)")
 	fs.String("summary", "", "what the work is, in one line")
@@ -56,8 +57,9 @@ func routineBot(ctx context.Context, e *env, fs *flag.FlagSet) (string, error) {
 }
 
 // routineSettings reads what the flags say on top of what a Routine has: a
-// flag left out keeps it, as `bots set` does. The chat is the one named, or
-// the one pi works in.
+// flag left out keeps it, as `bots set` does. What runs is given whole: a
+// prompt, a script, or both, a prompt whose script checks first (issue
+// #656). The chat is the one named, or the one pi works in.
 func routineSettings(e *env, fs *flag.FlagSet, have *openapi.Routine) (openapi.RoutineSettings, error) {
 	var set openapi.RoutineSettings
 
@@ -68,7 +70,7 @@ func routineSettings(e *env, fs *flag.FlagSet, have *openapi.Routine) (openapi.R
 			ChatId: have.ChatId, Announce: &have.Announce,
 		}
 
-		if have.Kind == openapi.Script {
+		if val(have.Script) != "" {
 			set.TimeoutSeconds = &have.TimeoutSeconds
 		}
 	}
@@ -81,7 +83,42 @@ func routineSettings(e *env, fs *flag.FlagSet, have *openapi.Routine) (openapi.R
 		set.FromRoutine = &routine
 	}
 
-	var failed error
+	var (
+		failed             error
+		prompt, scriptText *string
+	)
+
+	// What runs is applied first, so that --timeout and --script, read after, stay.
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name != "prompt-file" && f.Name != "script-file" {
+			return
+		}
+
+		text, err := e.read(f.Value.String())
+		if err != nil {
+			failed = err
+		}
+
+		if f.Name == "prompt-file" {
+			prompt = &text
+		} else {
+			scriptText = &text
+		}
+	})
+
+	switch {
+	case prompt != nil && scriptText != nil:
+		set.Kind, set.Prompt, set.ScriptText = openapi.Prompt, prompt, scriptText
+	case prompt != nil:
+		set.Kind, set.Prompt, set.Script, set.ScriptText, set.TimeoutSeconds = openapi.Prompt, prompt, nil, nil, nil
+	case scriptText != nil:
+		set.Kind, set.ScriptText, set.Prompt = openapi.Script, scriptText, nil
+	}
+
+	if file := str(fs, "script-file"); scriptText != nil && val(set.Script) == "" && file != "-" {
+		name := filepath.Base(file)
+		set.Script = &name
+	}
 
 	fs.Visit(func(f *flag.Flag) {
 		v := f.Value.String()
@@ -94,25 +131,6 @@ func routineSettings(e *env, fs *flag.FlagSet, have *openapi.Routine) (openapi.R
 			set.Cron, set.EveryMinutes = &v, nil
 		case "tz":
 			set.Timezone = &v
-		case "prompt-file":
-			text, err := e.read(v)
-			if err != nil {
-				failed = err
-			}
-
-			set.Kind, set.Prompt, set.Script, set.ScriptText, set.TimeoutSeconds = openapi.Prompt, &text, nil, nil, nil
-		case "script-file":
-			text, err := e.read(v)
-			if err != nil {
-				failed = err
-			}
-
-			set.Kind, set.ScriptText, set.Prompt = openapi.Script, &text, nil
-
-			if set.Script == nil && v != "-" {
-				name := filepath.Base(v)
-				set.Script = &name
-			}
 		case "script":
 			set.Script = &v
 		case "timeout":
@@ -209,7 +227,12 @@ func printRoutine(e *env, bots map[string]string, r *openapi.Routine) {
 	}
 
 	if text := val(r.ScriptText); text != "" {
-		e.printf("\nscript %s (stops after %d s):\n%s\n", val(r.Script), r.TimeoutSeconds, text)
+		what := "script"
+		if r.Kind == openapi.Prompt {
+			what = "checked first by the script"
+		}
+
+		e.printf("\n%s %s (stops after %d s):\n%s\n", what, val(r.Script), r.TimeoutSeconds, text)
 	}
 
 	if len(r.Grants) > 0 {
