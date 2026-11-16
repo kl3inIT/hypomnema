@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	signallog "go.mau.fi/libsignal/logger"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -71,7 +72,13 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 
 	// The device's name is whatsmeow's package-wide setting, written once: two Opens at a time, as tests do, would
 	// write it together.
-	osInfo.Do(func() { store.SetOSInfo(deviceName, [3]uint32{1, 0, 0}) })
+	osInfo.Do(func() {
+		store.SetOSInfo(deviceName, [3]uint32{1, 0, 0})
+		// libsignal makes its package-wide logger on first use, which two new devices at a time race on: it is
+		// set here, once, before any device is made.
+		var quiet signallog.Loggable = signalLogger{}
+		signallog.Setup(&quiet)
+	})
 
 	return &Service{
 		closeDB: db.Close, container: container, mirror: kept, log: logger,
@@ -79,7 +86,20 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 	}, nil
 }
 
-// osInfo writes the device's name into whatsmeow once for the process.
+// signalLogger is libsignal's log in the control plane's: its debug and info lines are left out.
+type signalLogger struct{}
+
+func (signalLogger) Debug(string, string) {}
+func (signalLogger) Info(string, string)  {}
+func (signalLogger) Configure(string)     {}
+func (signalLogger) Warning(caller, msg string) {
+	slog.Warn("libsignal: "+msg, slog.String("caller", caller))
+}
+func (signalLogger) Error(caller, msg string) {
+	slog.Error("libsignal: "+msg, slog.String("caller", caller))
+}
+
+// osInfo writes the device's name into whatsmeow once for the process, and libsignal's logger.
 var osInfo sync.Once
 
 // Close closes the sessions' database; close the accounts first.
