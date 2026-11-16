@@ -76,15 +76,67 @@ CREATE TRIGGER IF NOT EXISTS zl_messages_au AFTER UPDATE ON zl_messages BEGIN
 END;
 `
 
+// upgrades change the tables made by schema, in order; zl_version keeps how many ran, as WhatsApp's mirror does
+// (whatsapp/store.go, wa_version).
+var upgrades = []string{
+	// 1 (issue #669): each message's file and the queue's cursor; each group's walk back through its past; the
+	// direct chats' walk.
+	`ALTER TABLE zl_messages ADD COLUMN action_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE zl_messages ADD COLUMN media_type TEXT NOT NULL DEFAULT '';
+	ALTER TABLE zl_messages ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE zl_messages ADD COLUMN mime_type TEXT NOT NULL DEFAULT '';
+	ALTER TABLE zl_messages ADD COLUMN local_path TEXT NOT NULL DEFAULT '';
+	ALTER TABLE zl_messages ADD COLUMN media_error TEXT NOT NULL DEFAULT '';
+	ALTER TABLE zl_chats ADD COLUMN history_cursor TEXT NOT NULL DEFAULT '';
+	ALTER TABLE zl_chats ADD COLUMN history_old INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE zl_chats ADD COLUMN history_done INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE IF NOT EXISTS zl_queue (
+		account TEXT PRIMARY KEY,
+		cursor TEXT NOT NULL DEFAULT '',
+		done INTEGER NOT NULL DEFAULT 0
+	);`,
+}
+
 // mirror reads and writes the kept sessions, chats and messages.
 type mirror struct{ db *sql.DB }
 
 func openMirror(ctx context.Context, db *sql.DB) (*mirror, error) {
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	const versionTable = `CREATE TABLE IF NOT EXISTS zl_version (version INTEGER NOT NULL);`
+	if _, err := db.ExecContext(ctx, schema+versionTable); err != nil {
 		return nil, fmt.Errorf("zalo: preparing the tables: %w", err)
 	}
 
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM zl_version`).Scan(&version); err != nil {
+		return nil, fmt.Errorf("zalo: reading the tables' version: %w", err)
+	}
+
+	for v := version; v < len(upgrades); v++ {
+		if err := upgrade(ctx, db, v+1, upgrades[v]); err != nil {
+			return nil, err
+		}
+	}
+
 	return &mirror{db: db}, nil
+}
+
+func upgrade(ctx context.Context, db *sql.DB, version int, stmt string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // Rolling back after a commit does nothing.
+
+	if _, err := tx.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("zalo: upgrading the tables to version %d: %w", version, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM zl_version; INSERT INTO zl_version (version) VALUES (?)`,
+		version); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // saveSession keeps an account's session, as the link or a renewal of its cookies gives it.
@@ -121,35 +173,44 @@ func (m *mirror) session(ctx context.Context, account string) (credentials []byt
 	return []byte(raw), name, true, nil
 }
 
-// kept is a message ready to keep.
+// kept is a message ready to keep. Its file is at mediaURL, named fileName: attachment_url and attachment_title
+// in the table, as step 1 named them.
 type kept struct {
 	account, chat, chatKind, chatName string
-	id, cliID, sender, senderName     string
+	id, cliID, actionID               string
+	sender, senderName                string
 	at                                time.Time
 	fromMe                            bool
 	kind, text, quotedID              string
-	attachmentURL, attachmentTitle    string
+	mediaType, mediaURL, fileName     string
+	fileSize                          int64
 }
 
-// keep stores a message once, and moves its chat's last message on.
-func (m *mirror) keep(ctx context.Context, k kept) error {
+// keep stores a message once, and moves its chat's last message on. added says it was not kept before.
+func (m *mirror) keep(ctx context.Context, k kept) (added bool, err error) {
 	tx, err := m.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback() //nolint:errcheck // Rolling back after a commit does nothing.
 
 	// Milliseconds, as Zalo stamps its messages, so that paging by Before misses none sent in the same second.
 	ts := k.at.UnixMilli()
 
-	_, err = tx.ExecContext(ctx, `INSERT INTO zl_messages (account, chat_id, chat_name, msg_id, cli_msg_id,
-		sender_id, sender_name, ts, from_me, kind, text, quoted_msg_id, attachment_url, attachment_title)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	res, err := tx.ExecContext(ctx, `INSERT INTO zl_messages (account, chat_id, chat_name, msg_id, cli_msg_id,
+		action_id, sender_id, sender_name, ts, from_me, kind, text, quoted_msg_id, media_type, attachment_url,
+		attachment_title, file_size, mime_type)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (account, chat_id, msg_id) DO NOTHING`,
-		k.account, k.chat, k.chatName, k.id, k.cliID, k.sender, k.senderName, ts, k.fromMe, k.kind, k.text,
-		k.quotedID, k.attachmentURL, k.attachmentTitle)
+		k.account, k.chat, k.chatName, k.id, k.cliID, k.actionID, k.sender, k.senderName, ts, k.fromMe, k.kind,
+		k.text, k.quotedID, k.mediaType, k.mediaURL, k.fileName, k.fileSize, mimeOf(k.mediaType, k.fileName))
 	if err != nil {
-		return fmt.Errorf("zalo: keeping message %s: %w", k.id, err)
+		return false, fmt.Errorf("zalo: keeping message %s: %w", k.id, err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
 	}
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO zl_chats (account, id, kind, name, last_message_ts)
@@ -159,10 +220,10 @@ func (m *mirror) keep(ctx context.Context, k kept) error {
 			last_message_ts = max(zl_chats.last_message_ts, excluded.last_message_ts)`,
 		k.account, k.chat, k.chatKind, k.chatName, ts)
 	if err != nil {
-		return fmt.Errorf("zalo: keeping chat %s: %w", k.chat, err)
+		return false, fmt.Errorf("zalo: keeping chat %s: %w", k.chat, err)
 	}
 
-	return tx.Commit()
+	return n > 0, tx.Commit()
 }
 
 // nameChat keeps a chat's name, as Zalo lists its groups.
@@ -269,7 +330,8 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 	//nolint:gosec // The conditions are this function's own; every value is a parameter.
 	rows, err := m.db.QueryContext(ctx, `SELECT m.msg_id, m.chat_id,
 			CASE WHEN c.name IS NOT NULL AND c.name <> '' THEN c.name ELSE m.chat_name END,
-			m.sender_id, m.sender_name, m.ts, m.from_me, m.text, m.quoted_msg_id, m.attachment_title
+			m.sender_id, m.sender_name, m.ts, m.from_me, m.text, m.quoted_msg_id, m.media_type, m.attachment_title,
+			m.mime_type, m.local_path <> ''
 		FROM zl_messages m LEFT JOIN zl_chats c ON c.account = m.account AND c.id = m.chat_id
 		WHERE `+strings.Join(where, " AND ")+` ORDER BY m.ts DESC, m.rowid DESC LIMIT ?`, args...)
 	if err != nil {
@@ -285,7 +347,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 			ts  int64
 		)
 		if err := rows.Scan(&msg.ID, &msg.Chat, &msg.ChatName, &msg.Sender, &msg.SenderName, &ts, &msg.FromMe,
-			&msg.Text, &msg.QuotedID, &msg.FileName); err != nil {
+			&msg.Text, &msg.QuotedID, &msg.MediaType, &msg.FileName, &msg.MimeType, &msg.MediaKept); err != nil {
 			return nil, err
 		}
 
@@ -300,7 +362,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 func (m *mirror) forget(ctx context.Context, account string) error {
 	var errs []error
 
-	for _, table := range []string{"zl_messages", "zl_chats", "zl_sessions"} {
+	for _, table := range []string{"zl_messages", "zl_chats", "zl_sessions", "zl_queue"} {
 		//nolint:gosec // The table names are this function's own.
 		if _, err := m.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE account = ?`, account); err != nil {
 			errs = append(errs, err)

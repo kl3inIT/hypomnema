@@ -49,45 +49,88 @@ export function closed(code, reason) {
   return { code, reason: String(reason ?? ""), replaced: REPLACED.has(Number(code)) };
 }
 
-// text is what a message says: its text, or an attachment's title and description.
-function text(content) {
-  if (typeof content === "string") return content;
-  if (content && typeof content === "object") {
-    return [content.title, content.description].filter((s) => typeof s === "string" && s !== "").join("\n");
-  }
+const str = (v) => (typeof v === "string" ? v : "");
 
-  return "";
+// params is an attachment's extra fields, which Zalo sends as a JSON string (zca-js TAttachmentContent.params).
+function params(content) {
+  if (typeof content.params !== "string" || content.params === "") return {};
+  try {
+    const out = JSON.parse(content.params);
+
+    return out && typeof out === "object" ? out : {};
+  } catch {
+    return {};
+  }
 }
 
-// attachment is a message's file or link, when it has one (zca-js TAttachmentContent).
-function attachment(content) {
-  if (!content || typeof content !== "object" || typeof content.href !== "string" || content.href === "") {
-    return null;
-  }
+// media reads a message's content as its text and its file, after the Hermes Zalo plugin's parseContent
+// (sidecar/server.js) and zaloclaw's media URLs (src/channel/monitor.ts): an image's best URL is hdUrl, then
+// normalUrl; a file's is fileUrl, then href; a voice note is an .m4a href. A link keeps its title as the text and
+// its address after it; a sticker and a call keep no file.
+export function media(msgType, content) {
+  const type = str(msgType);
+  if (typeof content === "string") return { text: content, media: null };
+  if (!content || typeof content !== "object") return { text: "", media: null };
 
-  return {
-    url: content.href,
-    title: typeof content.title === "string" ? content.title : "",
-    thumb: typeof content.thumb === "string" ? content.thumb : "",
-  };
+  const p = params(content);
+  const title = str(content.title);
+  const description = str(content.description);
+  const href = str(content.href);
+  const file = (mediaType, url, fileName, size, text) => ({
+    text,
+    media: url ? { type: mediaType, url, fileName, size: Number(size) || 0 } : { type: mediaType, url: "", fileName, size: 0 },
+  });
+
+  if (/call/i.test(str(content.action))) return { text: [title, description].filter(Boolean).join("\n"), media: null };
+  if (type === "chat.sticker") return { text: "", media: { type: "sticker", url: "", fileName: "", size: 0 } };
+  if (type === "chat.photo" || type === "chat.gif" || content.hdUrl || content.normalUrl || content.oriUrl) {
+    const url = str(content.hdUrl) || str(p.hd) || str(content.normalUrl) || str(content.oriUrl) || href;
+
+    return file("image", url, "", 0, title);
+  }
+  if (type === "chat.video.msg") return file("video", href, "", p.fileSize, title);
+  if (type === "chat.voice" || /\.(m4a|aac|mp3|opus|ogg)(\?|$)/i.test(str(content.fileName) || href)) {
+    return file("audio", str(content.fileUrl) || href, str(content.fileName), content.totalSize ?? p.fileSize, "");
+  }
+  if (type === "share.file" || content.fileUrl) {
+    return file("document", str(content.fileUrl) || href, str(content.fileName) || title, content.totalSize ?? p.fileSize, "");
+  }
+  if (href) return { text: [title, description, href].filter(Boolean).join("\n"), media: null };
+
+  return { text: [title, description].filter(Boolean).join("\n"), media: null };
 }
 
 // message is a zca-js UserMessage or GroupMessage as the control plane keeps it (zca-js src/models/Message.ts).
 export function message(m) {
   const d = m?.data ?? {};
+  const { text, media: file } = media(d.msgType, d.content);
 
   return {
     id: String(d.msgId ?? ""),
     cliId: String(d.cliMsgId ?? ""),
+    actionId: String(d.actionId ?? ""),
     chat: String(m?.threadId ?? ""),
     group: m?.type === 1,
     from: String(d.uidFrom ?? ""),
-    fromName: typeof d.dName === "string" ? d.dName : "",
+    fromName: str(d.dName),
     fromMe: Boolean(m?.isSelf),
     at: Number(d.ts ?? 0),
-    kind: typeof d.msgType === "string" ? d.msgType : "",
-    text: text(d.content),
-    attachment: attachment(d.content),
+    kind: str(d.msgType),
+    text,
+    media: file,
     quoteId: d.quote ? String(d.quote.globalMsgId ?? "") : "",
   };
+}
+
+// older is the oldest of some actionIds, the cursor of the next page of the direct chats' queue (zca-js
+// requestOldMessages; softtyos realtime/listener.ts names it the actionId). They are decimal strings too long for a
+// Number.
+export function older(ids) {
+  let out = "";
+  for (const id of ids) {
+    if (!/^\d+$/.test(id)) continue;
+    if (out === "" || id.length < out.length || (id.length === out.length && id < out)) out = id;
+  }
+
+  return out;
 }
