@@ -23,21 +23,7 @@ func TestFilesServeReadsOnlyABotsFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ask := func(question string) workspacefs.Result {
-		t.Helper()
-
-		var out bytes.Buffer
-		if err := files(t.Context(), []string{"serve", "--root", root}, strings.NewReader(question), &out); err != nil {
-			t.Fatal(err)
-		}
-
-		var res workspacefs.Result
-		if err := json.Unmarshal(out.Bytes(), &res); err != nil {
-			t.Fatal(err)
-		}
-
-		return res
-	}
+	ask := func(question string) workspacefs.Result { return serve(t, root, question) }
 
 	if res := ask(`{"bot":"coordinator","request":{"op":"read","path":"notes.md"}}`); res.File == nil ||
 		res.File.Content != "plan" {
@@ -59,4 +45,43 @@ func TestFilesServeReadsOnlyABotsFolder(t *testing.T) {
 	if err == nil {
 		t.Error("a relative root is refused")
 	}
+}
+
+// Scenario (issue #606): the owner attaches a file in the first chat with a Bot made a moment ago, before pi has ever
+// started for it. Its folder is not there; making the attachments folder makes it, as pi's launcher would, while a
+// list before that still says the folder is not there.
+func TestFilesServeMakesANewBotsFolderOnAChange(t *testing.T) {
+	root := t.TempDir()
+
+	ask := func(question string) workspacefs.Result { return serve(t, root, question) }
+
+	if res := ask(`{"bot":"bot_new","request":{"op":"list"}}`); res.Error == nil ||
+		res.Error.Code != workspacefs.CodeGone {
+		t.Fatalf("list before: %+v", res)
+	}
+
+	if res := ask(`{"bot":"bot_new","request":{"op":"mkdir","path":"attachments"}}`); res.Error != nil {
+		t.Fatalf("mkdir: %+v", res.Error)
+	}
+
+	if info, err := os.Stat(filepath.Join(root, "bot_new", "attachments")); err != nil || !info.IsDir() {
+		t.Errorf("the attachments folder: %v", err)
+	}
+}
+
+// serve asks `files serve --root root` one question.
+func serve(t *testing.T, root, question string) workspacefs.Result {
+	t.Helper()
+
+	var out bytes.Buffer
+	if err := files(t.Context(), []string{"serve", "--root", root}, strings.NewReader(question), &out); err != nil {
+		t.Fatal(err)
+	}
+
+	var res workspacefs.Result
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+
+	return res
 }

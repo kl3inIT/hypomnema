@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 
@@ -59,8 +61,30 @@ func files(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer
 		Code: workspacefs.CodeInvalidPath, Message: fmt.Sprintf("%q is not a Bot's name", req.Bot),
 	}}
 	if botID.MatchString(req.Bot) {
-		res = workspacefs.Serve(ctx, filepath.Join(*root, req.Bot), req.Request)
+		dir := filepath.Join(*root, req.Bot)
+		if err := makeBotFolder(dir, req.Request.Op); err != nil {
+			res.Error = &workspacefs.Error{Code: workspacefs.CodeFailed, Message: "making the Bot's folder: " + err.Error()}
+		} else {
+			res = workspacefs.Serve(ctx, dir, req.Request)
+		}
 	}
 
 	return json.NewEncoder(stdout).Encode(res)
+}
+
+// makeBotFolder makes a Bot's folder, when it is not there, before a change that adds something to it: a Bot made
+// a moment ago has none until pi first starts for it (deploy/coordinator/hypomnema-pi), and a file attached before
+// its first message goes there (issue #606). As the launchers' `mkdir -p "$dir"`; a read still finds no folder.
+func makeBotFolder(dir string, op workspacefs.Op) error {
+	switch op {
+	case workspacefs.OpMkdir, workspacefs.OpWrite, workspacefs.OpUploadBegin:
+	default:
+		return nil
+	}
+
+	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	return os.MkdirAll(dir, 0o700)
 }
