@@ -211,6 +211,10 @@ func (s *Server) whatsappCall(w http.ResponseWriter, r *http.Request, a agent, l
 		return
 	}
 
+	// A send waits for the owner's approval (the proxy's hold), older messages for the phone and a file for its
+	// download: longer than the server's write timeout, within their own bounds, as webCall does (issue #654).
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
 	ctx := r.Context()
 	s.logger.InfoContext(ctx, "a WhatsApp tool used", slog.String("event", "whatsapp.read"),
 		slog.String("agent", a.name), slog.String("tool", call.Tool), slog.String("account", label))
