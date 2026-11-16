@@ -24,7 +24,8 @@ func TestTheStartingSetIsThere(t *testing.T) {
 
 	// The seed, the seed with its description, for the two that report in a set form that form (issue #155), and
 	// the model gateway's model (issue #462), now its subscription's (issue #549).
-	versions := map[string]int{"explorer": 4, "implementer": 3, "reviewer": 4}
+	// The instructions rewritten (issue #672).
+	versions := map[string]int{"explorer": 5, "implementer": 4, "reviewer": 5}
 	models := map[string]string{
 		"explorer": "claude-sonnet-5-5", "implementer": "claude-opus-5-5", "reviewer": "claude-opus-5-5",
 	}
@@ -79,7 +80,7 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 	v2, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
 	assert.True(t, created)
-	assert.Equal(t, 5, v2.Version, "after the three seeded and the world's own")
+	assert.Equal(t, 6, v2.Version, "after the four seeded and the world's own")
 	assert.Equal(t, "model-gateway", v2.Provider)
 
 	same, created, err := w.s.ApplyProfile(ctx, "", source)
@@ -89,8 +90,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 
 	versions, err := w.s.ListProfileVersions(ctx, "implementer")
 	require.NoError(t, err)
-	require.Len(t, versions, 5)
-	assert.Equal(t, 5, versions[0].Version, "newest first")
+	require.Len(t, versions, 6)
+	assert.Equal(t, 6, versions[0].Version, "newest first")
 
 	w.tasks(NewTask{Ref: "b", Spec: "b"})
 	second := w.dispatchOf(w.schedule().Created[0])
