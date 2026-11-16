@@ -2732,9 +2732,11 @@ calls, and each call is recorded on a gateway key.
   Readability, which OpenClaw's `web-readability` uses) and made markdown, its links whole, by html-to-markdown
   (`github.com/JohannesKaufmann/html-to-markdown/v2`); JSON is indented; anything else is kept as text. HTML with
   nothing readable is read by Jina Reader without a key (`r.jina.ai/<address>`, markdown, no cache, the text after
-  `Markdown Content:` unless Jina's own fetch failed or found under 100 characters; omp's fallback). A page is read
-  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`; one that does not answer
-  2xx fails.
+  `Markdown Content:` unless Jina's own fetch failed, found under 100 characters, or copied a bot check: omp's
+  fallback and its `BLOCK_PAGE_PHRASES`). A page whose server answers outside 2xx, such as a bot wall's 403, is read
+  by Jina too, which fetches it from its own servers (issue #667; OpenClaw asks its fetch provider on `!res.ok`); a
+  404 or 410 fails without asking it (inferred), and an address the check refuses never reaches it. A page is read
+  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`.
 - A page is read only where the shared browser may go (the gate's rules, `browser/egress`): each connection's
   address is checked as it is made, after the name was resolved, so a name or a redirect that leads to loopback,
   the machine's own addresses, a private network, link-local, the cloud's metadata service or a reserved address

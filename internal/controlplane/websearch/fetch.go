@@ -27,9 +27,11 @@ import (
 // markdown asked for first, the readable part of HTML taken with Readability
 // (extensions/web-readability; here go-readability, a port of the same
 // Mozilla code) and made markdown, JSON indented, anything else as it came,
-// and the text cut at 20,000 characters. When Readability finds nothing,
-// Jina Reader is asked without a key, as omp's fetch falls back to it
-// (src/tools/fetch.ts).
+// and the text cut at 20,000 characters. When Readability finds nothing, or
+// the server answers outside 2xx (a bot wall's 403, issue #667), Jina Reader
+// is asked without a key, as omp's fetch falls back to it
+// (src/tools/fetch.ts) and OpenClaw asks its provider on a response that is
+// not ok.
 
 const (
 	// MaxContent is OpenClaw's DEFAULT_FETCH_MAX_CHARS.
@@ -114,7 +116,7 @@ func (s *Service) Fetch(ctx context.Context, address string) (Page, error) {
 	defer resp.Body.Close() //nolint:errcheck // The body was read or the read failed; closing adds nothing.
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return Page{}, fmt.Errorf("%w: it answered %d", ErrUnreadable, resp.StatusCode)
+		return s.refused(ctx, final, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPageBytes+1))
@@ -165,6 +167,34 @@ func (s *Service) Fetch(ctx context.Context, address string) (Page, error) {
 	}
 
 	return page, nil
+}
+
+// refused reads a page whose server answered outside 2xx through Jina Reader,
+// which fetches it from its own servers, as OpenClaw asks its fetch provider
+// when the response is not ok (src/agents/tools/web-fetch.ts, !res.ok) and
+// omp's remote readers get past a wall that refuses this host
+// (src/tools/fetch.ts, REMOTE_FETCH_PROVIDERS). A page that does not exist
+// (404, 410) is not asked for again (inferred: neither reference skips it).
+// A request the address check refused never gets here: get returns it as
+// ErrRefused, and Jina is not asked for a private address (OpenClaw rethrows
+// SsrFBlockedError).
+func (s *Service) refused(ctx context.Context, page *url.URL, status int) (Page, error) {
+	if status == http.StatusNotFound || status == http.StatusGone {
+		return Page{}, fmt.Errorf("%w: it answered %d", ErrUnreadable, status)
+	}
+
+	text, err := s.jina(ctx, page)
+	if err != nil {
+		return Page{}, fmt.Errorf("%w: it answered %d, and Jina Reader could not read it either (%w)", ErrUnreadable,
+			status, err)
+	}
+
+	out := Page{URL: page.String(), Content: text}
+	if runes := []rune(out.Content); len(runes) > MaxContent {
+		out.Content, out.Truncated = string(runes[:MaxContent]), true
+	}
+
+	return out, nil
 }
 
 // get asks for a page and follows its redirects by hand, at most
@@ -314,5 +344,36 @@ func (s *Service) jina(ctx context.Context, page *url.URL) (string, error) {
 		return "", errors.New("it found too little to read")
 	}
 
+	if blockPage(content) {
+		return "", errors.New("it was served a bot check instead of the page")
+	}
+
 	return content, nil
+}
+
+// blockPagePhrases and blockPageMaxChars are omp's BLOCK_PAGE_PHRASES and
+// BLOCK_PAGE_MAX_CHARS (src/tools/fetch.ts): a remote reader's short copy of
+// a bot wall or a JavaScript gate is no rendering of the page.
+var blockPagePhrases = []string{
+	"blocked by network security", "verify you are human", "are you a robot", "access to this page has been denied",
+	"enable javascript", "javascript required", "javascript is required", "turn on javascript",
+	"please enable javascript", "browser not supported",
+}
+
+const blockPageMaxChars = 2048
+
+// blockPage reports whether a reader's text is a short page holding a bot wall's or a gate's wording.
+func blockPage(content string) bool {
+	if len(content) > blockPageMaxChars {
+		return false
+	}
+
+	lower := strings.ToLower(content)
+	for _, phrase := range blockPagePhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+
+	return false
 }
