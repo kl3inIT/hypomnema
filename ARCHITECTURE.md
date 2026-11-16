@@ -2182,7 +2182,10 @@ capabilities do not exist yet.
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`). Codex's and Claude's providers
   gain the names they lack and lose none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
   OpenClaw and Hermes read them); Antigravity's is set to the roster, as omp takes it as authoritative, except a
-  model a profile's current version uses (issue [#639](https://github.com/kl3inIT/hypomnema/issues/639)). The table
+  model a profile's current version uses (issue [#639](https://github.com/kl3inIT/hypomnema/issues/639)). A
+  provider's `min_versions` (`{gpt: "6", gemini: "3.8"}`, by the name's first word) keeps older versions out of
+  what the vendor's list adds; a model listed by hand stays (owner, 2026-11-16; issue
+  [#642](https://github.com/kl3inIT/hypomnema/issues/642)). The table
   is left for a name made on purpose, such as one over several targets. The
   pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
   table name has. Migration 00090 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
