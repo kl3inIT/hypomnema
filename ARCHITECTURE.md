@@ -3629,9 +3629,15 @@ the internet, so that a machine created at a provider can install the node from 
 
 - Control plane: zm, user `dat`, `~/hypomnema-cp` (binary, `env`, SQLite in `data/`), since 2026-11-13 the systemd
   unit `hypomnema-cp.service` (a tmux session `hyp-cp` until then) updated from each release by
-  `hypomnema-update.timer` (v0.9.7 was the first), listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, as the systemd unit `hypomnema-tailscale.service` since
+  `hypomnema-update.timer` (v0.9.7 was the first), listening on `0.0.0.0:18990` since 2026-11-16 (`127.0.0.1:18990`
+  until then; the owner's choice, issue #581), so that the machine's Nginx Proxy Manager container reaches it at
+  `172.17.0.1:18990`. It publishes `https://hypomnema.vadan.app` (Let's Encrypt, HTTPS forced, websockets on,
+  buffering off, 64 MiB bodies, 720 s timeouts; proxy host 33), which is `HYPOMNEMA_PUBLIC_URL` since 2026-11-16:
+  through Funnel each request took 1.5–14 s, the Funnel ingress in Tokyo reaching zm only through Tailscale's relay
+  (issue #581); through the domain about 0.25 s. Tailscale runs without root (userspace networking, as the systemd unit `hypomnema-tailscale.service` since
   2026-11-13, a tmux session `hyp-ts` until then, state in `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as
-  `https://hypomnema.taild3b6dc.ts.net`, which is `HYPOMNEMA_PUBLIC_URL` in `env`. The client API still refuses a
+  `https://hypomnema.taild3b6dc.ts.net`, which was `HYPOMNEMA_PUBLIC_URL` in `env` until 2026-11-16 and still
+  serves the nodes set up with it. The client API still refuses a
   call without a token. `tailscale funnel --https=443 off` makes it tailnet-only again, and then no machine can
   be created at a provider.
 - Machines at AWS, since 2026-11-10: the provider `aws` (`ap-southeast-1`, `t3.medium`, up to 3 machines), its
