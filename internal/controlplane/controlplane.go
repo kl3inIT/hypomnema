@@ -430,7 +430,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	sup := coordinator.New(svc, coordinator.Config{
-		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway},
+		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 	})
 

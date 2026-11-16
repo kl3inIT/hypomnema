@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -102,4 +103,48 @@ func TestAnAPIProviderRequestRecordsNoAccount(t *testing.T) {
 	status, _, body := g.call(t, g.key, `{"model":"gpt","messages":[]}`)
 	require.Equal(t, http.StatusOK, status, body)
 	assert.Empty(t, g.lastUsage(t).AccountID)
+}
+
+// Scenario (issue #626): over a day the VMAP Bot's chat started pi twice, each time with a new key, a worker ran a
+// Task, and a script used the owner's key "pi". The usage by key counts the Bot's two keys as the Bot, the worker's
+// as the workers, and the owner's key under its name.
+func TestTheUsageByKeyIsByBotWorkersAndTheOwnersKeys(t *testing.T) {
+	t.Parallel()
+
+	backend, _, _ := anthropicBackend(t, stream(claudeHello...))
+	g := newClaudeGateway(t, backend, &accounts{})
+	ctx := t.Context()
+
+	ask := func(key string) {
+		t.Helper()
+
+		status, _, body := g.send(t, "/v1/messages", claudeCodeAsk, claudeCodeHeaders(key)...)
+		require.Equal(t, http.StatusOK, status, body)
+	}
+
+	// Each start of the chat's pi has its own key, and the earlier one stops working.
+	for range 2 {
+		_, key, err := g.svc.AddChatKey(ctx, "cht_vmap", "bot_vmap", "")
+		require.NoError(t, err)
+		ask(key)
+	}
+
+	worker, err := g.svc.AddDispatchKey(ctx, "dsp_1", "sol")
+	require.NoError(t, err)
+	ask(worker)
+	ask(g.key)
+
+	report, err := g.svc.Usage(ctx, "24h", 0)
+	require.NoError(t, err)
+
+	byKey := map[string]int64{}
+	for _, k := range report.ByKey {
+		if k.Name == "pi" {
+			assert.True(t, strings.HasPrefix(k.ID, "gwk"), "the owner's key is its own row: %s", k.ID)
+		}
+
+		byKey[k.Name+"|"+map[bool]string{true: k.ID, false: "key"}[k.Name == ""]] = k.Requests
+	}
+
+	assert.Equal(t, map[string]int64{"|bot_vmap": 2, "|workers": 1, "pi|key": 1}, byKey)
 }

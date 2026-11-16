@@ -2295,7 +2295,10 @@ capabilities do not exist yet.
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
   `GET /gateway/usage?period=24h|7d|30d&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day else,
-  starting at the viewer's midnight; the counts by model, by key and by account, an account named by its label) and
+  starting at the viewer's midnight; the counts by model, by key and by account, an account named by its label; by
+  key counts every chat key of a Bot under the Bot, which a chat's key names (`gateway_keys.bot_id`), every Dispatch
+  key under "Workers", and each key the owner made under its name, issue
+  [#626](https://github.com/kl3inIT/hypomnema/issues/626)) and
   `GET /gateway/usage/requests?period=&failed=&offset=&limit=` (the requests, newest first, 50 a page, `has_more`). A
   request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
   owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by

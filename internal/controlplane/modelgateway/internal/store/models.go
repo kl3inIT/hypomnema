@@ -25,6 +25,7 @@ type GatewayKey struct {
 	DispatchID sql.NullString
 	ChatID     sql.NullString
 	KeyPrefix  string
+	BotID      sql.NullString
 }
 
 type GatewayModel struct {
