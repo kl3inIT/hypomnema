@@ -157,6 +157,7 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 
 	built, err := antigravity.BuildRequest(call.req.raw, antigravity.Options{
 		Model: model, Project: token.Project, RequestID: "agent-" + cacheKey(s.svc.newID("req")),
+		SystemReplacements: s.svc.antigravityReplacements(ctx),
 	})
 	if err != nil {
 		release()

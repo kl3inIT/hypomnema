@@ -88,3 +88,40 @@ func TestOwnerSetsUpTheGateway(t *testing.T) {
 		require.ErrorIs(t, err, ErrUsage, bad)
 	}
 }
+
+// Scenario: the owner lists the Antigravity rewrites (empty at first), sets two from a file, lists them, then
+// clears them (issue #591). A rule with no text to find is refused.
+func TestOwnerSetsAntigravityRewrites(t *testing.T) {
+	t.Parallel()
+
+	cfg := migratedConfig(t)
+
+	out, err := command(t, cfg, "gateway", "antigravity-rewrites", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "no Antigravity rewrites")
+
+	file := filepath.Join(t.TempDir(), "rewrites.json")
+	require.NoError(t, os.WriteFile(file,
+		[]byte(`[{"find":"You are Hermes Agent.","with":"You are a coding assistant."},{"find":" Be brief.","with":""}]`),
+		0o600))
+
+	out, err = command(t, cfg, "gateway", "antigravity-rewrites", "set", file)
+	require.NoError(t, err)
+	assert.Contains(t, out, "2 Antigravity rewrite(s) set")
+
+	out, err = command(t, cfg, "gateway", "antigravity-rewrites", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, `1	"You are Hermes Agent."	"You are a coding assistant."`)
+	assert.Contains(t, out, `2	" Be brief."	""`)
+
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	require.NoError(t, os.WriteFile(bad, []byte(`[{"find":"  ","with":"x"}]`), 0o600))
+	_, err = command(t, cfg, "gateway", "antigravity-rewrites", "set", bad)
+	require.ErrorIs(t, err, modelgateway.ErrInvalid)
+
+	empty := filepath.Join(t.TempDir(), "empty.json")
+	require.NoError(t, os.WriteFile(empty, []byte(`[]`), 0o600))
+	out, err = command(t, cfg, "gateway", "antigravity-rewrites", "set", empty)
+	require.NoError(t, err)
+	assert.Contains(t, out, "0 Antigravity rewrite(s) set")
+}

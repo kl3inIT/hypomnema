@@ -198,3 +198,13 @@ SELECT provider,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed
 FROM gateway_usage WHERE model LIKE 'image/%' AND created_at >= @since
 GROUP BY provider ORDER BY provider;
+
+-- name: ListAntigravityRewrites :many
+SELECT position, find, replacement FROM antigravity_prompt_rewrites ORDER BY position;
+
+-- name: DeleteAntigravityRewrites :exec
+DELETE FROM antigravity_prompt_rewrites;
+
+-- name: InsertAntigravityRewrite :exec
+INSERT INTO antigravity_prompt_rewrites (position, find, replacement, updated_at)
+VALUES (@position, @find, @replacement, @now);

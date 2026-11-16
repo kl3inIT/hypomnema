@@ -52,6 +52,14 @@ type Options struct {
 	Project string
 	// RequestID names this request.
 	RequestID string
+	// SystemReplacements are the owner's find→replace rules for the system instruction, in order (issue #591):
+	// Google's filter answers a false 429 to a flagged phrase, and the owner rewrites it. Empty: nothing changes.
+	SystemReplacements []Replacement
+}
+
+// Replacement is one literal find→replace rule for the system instruction; an empty With deletes the text.
+type Replacement struct {
+	Find, With string
 }
 
 // Request is a body for the backend, with what is needed to read its answer.
@@ -132,6 +140,7 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 
 	names := sendNames(in)
 	contents, system := convertMessages(in, names)
+	rewriteSystem(system, opt.SystemReplacements)
 
 	request := object{"contents": contents, "sessionId": sessionID(in)}
 	if len(system) > 0 {
@@ -572,4 +581,25 @@ func fitName(name string) string {
 	}
 
 	return fitted[:min(len(fitted), maxNameBytes)]
+}
+
+// rewriteSystem applies the owner's replacements, in order, to each part of the system instruction only (issue
+// #591), as CLIProxyAPI rewrites the systemInstruction and no other field. A part without text is left alone.
+func rewriteSystem(system []object, rules []Replacement) {
+	if len(rules) == 0 {
+		return
+	}
+
+	for _, part := range system {
+		text, ok := part["text"].(string)
+		if !ok {
+			continue
+		}
+
+		for _, r := range rules {
+			text = strings.ReplaceAll(text, r.Find, r.With)
+		}
+
+		part["text"] = text
+	}
 }
