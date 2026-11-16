@@ -102,7 +102,7 @@ its branch does not hold another Task's unmerged changes. So:
   all of them succeeded. It does not carry their changes, nor their reports.
 - When a Task needs what an earlier Task found (fixing the items an audit listed), paste that Task's report, the
   summary in `hypomnema tasks show <task_id> --json`, into the spec word for word, under a heading that names its
-  Task id, such as `## Report of task tsk_…`. Do not shorten or reword it.
+  Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
 
 Make each spec self-contained: the goal and the change in the repository's terms; the decisions already made
 (names, formats, interfaces), so parallel Tasks agree; what it may change; and the evidence that proves it is done:
