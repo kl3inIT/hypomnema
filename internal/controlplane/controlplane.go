@@ -559,6 +559,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		vendorModelsLoop(ctx, subscriptions, svc, logger)
 	}()
 
+	// Old requests and the revoked keys no request names are deleted once a day (issue #628).
+	purgeDone := make(chan struct{})
+
+	go func() {
+		defer close(purgeDone)
+
+		gateway.PurgeLoop(ctx, logger)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -604,6 +613,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-refreshDone
 	<-vendorModelsDone
 	<-keysDone
+	<-purgeDone
 	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {

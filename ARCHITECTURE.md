@@ -2285,7 +2285,9 @@ capabilities do not exist yet.
   owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
   model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
   Every count carries `cost_micros` and `unpriced` (requests with tokens and no price), a request its cost; the
-  page shows them as "API cost", a `+` when part is unpriced.
+  page shows them as "API cost", a `+` when part is unpriced. Once a day the gateway deletes the requests older than
+  31 days and every revoked key no request names any more; a live key is never deleted (issue
+  [#628](https://github.com/kl3inIT/hypomnema/issues/628), as Coder's dbpurge deletes expired API keys).
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
