@@ -76,7 +76,7 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	_, err = gateway.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
 	require.NoError(t, err)
 
-	chatKey, chatSecret, err := gateway.AddChatKey(ctx, "chat_1", "")
+	chatKey, chatSecret, err := gateway.AddChatKey(ctx, "chat_1", "", "")
 	require.NoError(t, err)
 
 	worker := workerWeb{metered}
