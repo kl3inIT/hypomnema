@@ -2294,6 +2294,11 @@ capabilities do not exist yet.
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
+  - The gateway applies the owner's find→replace rules to the Antigravity system instruction before sending it
+    (issue #591): Google answers a false 429 to a system prompt its filter flags (an agent's identity sentence, a
+    harness marker), and the owner, who accepts the account risk, rewrites it. The rules are empty by default, so
+    nothing is changed unless the owner sets them; only the system instruction is touched, as CLIProxyAPI does.
+    Hypomnema ships no default rules and does no automatic cloaking (9router disabled its own).
   - Antigravity counts its quota in groups, Gemini, Claude & GPT and Gemini 4 Argon, each with a five-hour and a
     weekly window that every model of the group draws on (issue #576). On a 429, when the account's limits say a
     window of the model's group is used up, the model waits on that account until the window resets, whatever
@@ -2934,7 +2939,11 @@ The owner's commands:
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b]` prints a gateway key once, with `gateway keys list` and
-    `gateway keys revoke <id>`; `gateway usage [--limit N]` lists the latest requests it served.
+    `gateway keys revoke <id>`; `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
+    manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
+    `{find, with}`, applied in order, an empty `with` deleting the text), empty by default and applied to the
+    system instruction only, as CLIProxyAPI's `sensitive-words-replace`; `gateway usage [--limit N]` lists the
+    latest requests it served.
 - From any machine, over the client API (`internal/controlplane/clientcli`):
   - `login --url URL --token-file FILE` checks the token and keeps both in `~/.hypomnema/client.json` (0600);
   - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the

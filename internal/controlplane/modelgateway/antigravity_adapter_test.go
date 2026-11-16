@@ -417,3 +417,38 @@ func TestAnAccountNearItsQuotaIsUsedLast(t *testing.T) {
 	status, _, body = single.call(t, single.key, askFlash+`}`)
 	assert.Equal(t, http.StatusOK, status, body)
 }
+
+// Scenario: the owner has set a rewrite for the Antigravity system instruction (issue #591). A request whose
+// system prompt carries the found phrase is sent to the backend with it replaced, while a gateway with no rules
+// sends it unchanged.
+func TestTheOwnersRewritesAreAppliedToTheSentSystemPrompt(t *testing.T) {
+	t.Parallel()
+
+	backend, got := cloudCode(t, stream(geminiEvents...))
+	g := newAntigravityGateway(t, backend, &googleAccount{})
+
+	ask := `{"model":"flash","messages":[{"role":"system","content":"You are Hermes Agent. Be brief."},` +
+		`{"role":"user","content":"hi"}]}`
+
+	status, _, body := g.call(t, g.key, ask)
+	require.Equal(t, http.StatusOK, status, body)
+	_, sent := got.last(t)
+	assert.Contains(t, sent, "You are Hermes Agent.", "no rules yet: unchanged")
+
+	require.NoError(t, g.svc.SetAntigravityRewrites(t.Context(), []modelgateway.Rewrite{
+		{Find: "You are Hermes Agent.", With: "You are a coding assistant."},
+	}))
+
+	status, _, body = g.call(t, g.key, ask)
+	require.Equal(t, http.StatusOK, status, body)
+	_, sent = got.last(t)
+	assert.Contains(t, sent, "You are a coding assistant.")
+	assert.NotContains(t, sent, "You are Hermes Agent.")
+
+	rules, err := g.svc.AntigravityRewrites(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []modelgateway.Rewrite{{Find: "You are Hermes Agent.", With: "You are a coding assistant."}}, rules)
+
+	require.ErrorIs(t, g.svc.SetAntigravityRewrites(t.Context(), []modelgateway.Rewrite{{Find: "  "}}),
+		modelgateway.ErrInvalid)
+}

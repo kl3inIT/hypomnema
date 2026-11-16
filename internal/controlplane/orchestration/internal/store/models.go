@@ -50,6 +50,13 @@ type AgentSession struct {
 	RevokedAt  sql.NullInt64
 }
 
+type AntigravityPromptRewrite struct {
+	Position    int64
+	Find        string
+	Replacement string
+	UpdatedAt   int64
+}
+
 type Approval struct {
 	ID           string
 	Integration  string
