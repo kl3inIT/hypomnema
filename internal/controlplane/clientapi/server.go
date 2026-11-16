@@ -86,6 +86,8 @@ type Server struct {
 	now    func() time.Time
 	// hostTokens keeps git hosts' tokens; nil when the control plane wired none.
 	hostTokens HostTokens
+	// gitSSHKey is the control plane's SSH key for git (issue #625); nil when the control plane wired none.
+	gitSSHKey GitSSHKey
 	// secrets is how the owner reaches the vault; nil when the control plane wired none.
 	secrets Secrets
 	// integrations signs accounts in; nil when the control plane wired none.
@@ -203,6 +205,20 @@ type HostTokens interface {
 // WithHostTokens sets where git hosts' tokens are kept.
 func (s *Server) WithHostTokens(h HostTokens) *Server {
 	s.hostTokens = h
+
+	return s
+}
+
+// GitSSHKey is the control plane's one SSH key for git (issue #625): its
+// public half, made on the first read. The private half never passes
+// through this API.
+type GitSSHKey interface {
+	PublicKey(ctx context.Context) (string, error)
+}
+
+// WithGitSSHKey sets the control plane's SSH key for git.
+func (s *Server) WithGitSSHKey(k GitSSHKey) *Server {
+	s.gitSSHKey = k
 
 	return s
 }

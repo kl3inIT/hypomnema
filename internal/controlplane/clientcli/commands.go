@@ -610,9 +610,26 @@ var commands = []command{
 			fs.String("name", "", "the name (default: the last part of its path)")
 			fs.String("base", "", "branch worktrees start from when a Run names none")
 			fs.String("connection", "", "the label of the host's connected account work on it uses")
+			fs.String("ssh-url", "", "clone it over SSH from this address, with the key `hypomnema git ssh-key` "+
+				"shows, such as ssh://git@host:222/group/name.git")
 			jsonFlag(fs)
 		},
 		run: reposAdd,
+	},
+	{
+		name: "repos set", args: "<name>", min: 1, max: 1,
+		summary: "change what a registered repository says; a flag given empty clears it (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("base", "", "branch worktrees start from when a Run names none")
+			fs.String("connection", "", "the label of the host's connected account work on it uses")
+			fs.String("ssh-url", "", "clone it over SSH from this address; empty clones it over HTTPS")
+			jsonFlag(fs)
+		},
+		run: reposSet,
+	},
+	{
+		name: "git ssh-key", summary: "the public key nodes clone over SSH with, to add to the git host (owner)",
+		flags: jsonFlag, run: gitSSHKey,
 	},
 	{
 		name: "repos rm", args: "<name>", min: 1, max: 1, summary: "forget a registered repository (owner)",

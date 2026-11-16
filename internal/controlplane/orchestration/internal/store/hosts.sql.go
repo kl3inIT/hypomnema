@@ -185,7 +185,7 @@ func (q *Queries) GetIntegrationClient(ctx context.Context, integration string) 
 }
 
 const getRepo = `-- name: GetRepo :one
-SELECT name, host, path, base, created_at, connection FROM repos WHERE name = ?1
+SELECT name, host, path, base, created_at, connection, ssh_url FROM repos WHERE name = ?1
 `
 
 func (q *Queries) GetRepo(ctx context.Context, name string) (Repo, error) {
@@ -198,6 +198,7 @@ func (q *Queries) GetRepo(ctx context.Context, name string) (Repo, error) {
 		&i.Base,
 		&i.CreatedAt,
 		&i.Connection,
+		&i.SshUrl,
 	)
 	return i, err
 }
@@ -455,7 +456,7 @@ func (q *Queries) ListIntegrationClientsBySecret(ctx context.Context, secret str
 }
 
 const listRepos = `-- name: ListRepos :many
-SELECT name, host, path, base, created_at, connection FROM repos ORDER BY name
+SELECT name, host, path, base, created_at, connection, ssh_url FROM repos ORDER BY name
 `
 
 func (q *Queries) ListRepos(ctx context.Context) ([]Repo, error) {
@@ -474,6 +475,7 @@ func (q *Queries) ListRepos(ctx context.Context) ([]Repo, error) {
 			&i.Base,
 			&i.CreatedAt,
 			&i.Connection,
+			&i.SshUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -573,6 +575,41 @@ func (q *Queries) RevokeAgentSessionsOfDispatch(ctx context.Context, arg RevokeA
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const sSHURLOfDispatch = `-- name: SSHURLOfDispatch :one
+SELECT repos.ssh_url FROM dispatches
+JOIN tasks ON tasks.id = dispatches.task_id
+JOIN runs ON runs.id = tasks.run_id
+JOIN repos ON repos.host = runs.repo_host AND repos.path = runs.repo
+WHERE dispatches.id = ?1 AND repos.ssh_url IS NOT NULL
+ORDER BY repos.name LIMIT 1
+`
+
+// The SSH address of the repository a Dispatch's Run works on, when it is registered with one (issue #625).
+func (q *Queries) SSHURLOfDispatch(ctx context.Context, dispatchID string) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, sSHURLOfDispatch, dispatchID)
+	var ssh_url sql.NullString
+	err := row.Scan(&ssh_url)
+	return ssh_url, err
+}
+
+const sSHURLOfRepo = `-- name: SSHURLOfRepo :one
+SELECT ssh_url FROM repos
+WHERE host = ?1 AND path = ?2 AND ssh_url IS NOT NULL ORDER BY name LIMIT 1
+`
+
+type SSHURLOfRepoParams struct {
+	Host string
+	Path string
+}
+
+// The SSH address a repository registered at this host and path is cloned from (issue #625).
+func (q *Queries) SSHURLOfRepo(ctx context.Context, arg SSHURLOfRepoParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, sSHURLOfRepo, arg.Host, arg.Path)
+	var ssh_url sql.NullString
+	err := row.Scan(&ssh_url)
+	return ssh_url, err
 }
 
 const setConnectionAccess = `-- name: SetConnectionAccess :execrows
@@ -724,10 +761,11 @@ func (q *Queries) UpsertIntegrationClient(ctx context.Context, arg UpsertIntegra
 }
 
 const upsertRepo = `-- name: UpsertRepo :exec
-INSERT INTO repos (name, host, path, base, connection, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+INSERT INTO repos (name, host, path, base, connection, ssh_url, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
 ON CONFLICT (name) DO UPDATE
-SET host = excluded.host, path = excluded.path, base = excluded.base, connection = excluded.connection
+SET host = excluded.host, path = excluded.path, base = excluded.base, connection = excluded.connection,
+    ssh_url = excluded.ssh_url
 `
 
 type UpsertRepoParams struct {
@@ -736,6 +774,7 @@ type UpsertRepoParams struct {
 	Path       string
 	Base       sql.NullString
 	Connection sql.NullString
+	SshUrl     sql.NullString
 	Now        int64
 }
 
@@ -746,6 +785,7 @@ func (q *Queries) UpsertRepo(ctx context.Context, arg UpsertRepoParams) error {
 		arg.Path,
 		arg.Base,
 		arg.Connection,
+		arg.SshUrl,
 		arg.Now,
 	)
 	return err

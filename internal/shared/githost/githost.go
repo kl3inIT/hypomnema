@@ -302,3 +302,41 @@ func ParseRequest(ref string, kindOf func(host string) (Kind, bool)) (Request, b
 
 	return Request{Repo: Repo{Host: host, Path: path}, Number: n}, true
 }
+
+// userPattern is the user an SSH address logs in as: git on GitHub and GitLab.
+var userPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
+
+// ValidSSHURL reports whether s is an address git can clone a repository
+// from over SSH (issue #625): ssh://user@host[:port]/path, or git's
+// user@host:path form, as a host shows it under "Clone with SSH". The host
+// and the path follow Parse's rules, so nothing in it can be read by ssh or
+// git as an option.
+func ValidSSHURL(s string) bool {
+	var user, host, path string
+
+	if strings.Contains(s, "://") {
+		u, err := url.Parse(s)
+		if err != nil || u.Scheme != "ssh" || u.User == nil || u.RawQuery != "" || u.Fragment != "" {
+			return false
+		}
+
+		if _, hasPassword := u.User.Password(); hasPassword {
+			return false
+		}
+
+		user, host, path = u.User.Username(), u.Host, u.Path
+	} else {
+		var ok bool
+
+		if user, host, ok = strings.Cut(s, "@"); !ok {
+			return false
+		}
+
+		if host, path, ok = strings.Cut(host, ":"); !ok {
+			return false
+		}
+	}
+
+	return userPattern.MatchString(user) && ValidHost(host) &&
+		validPath(strings.TrimSuffix(strings.Trim(path, "/"), ".git"))
+}

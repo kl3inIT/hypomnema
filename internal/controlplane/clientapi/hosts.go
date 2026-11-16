@@ -32,7 +32,7 @@ func toGitHost(h orchestration.GitHost) openapi.GitHost {
 func toRepo(r orchestration.Repo) openapi.Repo {
 	return openapi.Repo{
 		Name: r.Name, Host: r.Host, Path: r.Path, Base: ptr(r.Base), Connection: ptr(r.Connection),
-		CreatedAt: r.CreatedAt,
+		SshUrl: ptr(r.SSHURL), CreatedAt: r.CreatedAt,
 	}
 }
 
@@ -182,7 +182,8 @@ func (s *Server) ListRepos(ctx context.Context, _ openapi.ListReposRequestObject
 // PutRepo registers a repository under a name.
 func (s *Server) PutRepo(ctx context.Context, req openapi.PutRepoRequestObject,
 ) (openapi.PutRepoResponseObject, error) {
-	r, err := s.svc.AddRepo(ctx, req.Name, req.Body.Repo, val(req.Body.Base), val(req.Body.Connection))
+	r, err := s.svc.AddRepo(ctx, req.Name, req.Body.Repo, val(req.Body.Base), val(req.Body.Connection),
+		val(req.Body.SshUrl))
 	if err != nil {
 		return nil, err
 	}
@@ -198,4 +199,21 @@ func (s *Server) DeleteRepo(ctx context.Context, req openapi.DeleteRepoRequestOb
 	}
 
 	return openapi.DeleteRepo204Response{}, nil
+}
+
+// GetGitSSHKey shows the public half of the control plane's SSH key for git,
+// which the owner adds to the git host (issue #625), as Coder's SSH keys page
+// shows a user's (site/src/pages/UserSettingsPage/SSHKeysPage/SSHKeysPageView.tsx).
+func (s *Server) GetGitSSHKey(ctx context.Context, _ openapi.GetGitSSHKeyRequestObject,
+) (openapi.GetGitSSHKeyResponseObject, error) {
+	if s.gitSSHKey == nil {
+		return nil, fmt.Errorf("%w: this control plane keeps no SSH key for git", orchestration.ErrUnavailable)
+	}
+
+	public, err := s.gitSSHKey.PublicKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetGitSSHKey200JSONResponse{PublicKey: public}, nil
 }

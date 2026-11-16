@@ -141,10 +141,10 @@ func TestAHostWithSeveralConnections(t *testing.T) {
 	_, ok = tokens.Token(ctx, githost.GitHubHost, "acme/shop")
 	assert.False(t, ok, "with two connections and none named, none is used")
 
-	_, err = svc.AddRepo(ctx, "shop", "acme/shop", "", "nobody")
+	_, err = svc.AddRepo(ctx, "shop", "acme/shop", "", "nobody", "")
 	require.ErrorIs(t, err, orchestration.ErrInvalid, "a repository can only name a connection its host has")
 
-	repo, err := svc.AddRepo(ctx, "shop", "acme/shop", "", "work")
+	repo, err := svc.AddRepo(ctx, "shop", "acme/shop", "", "work", "")
 	require.NoError(t, err)
 	assert.Equal(t, "work", repo.Connection)
 

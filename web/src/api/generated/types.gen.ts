@@ -1488,7 +1488,18 @@ export type Repo = {
    * The label of the host's Connection work on it uses; absent for the host's only one.
    */
   connection?: string;
+  /**
+   * Where nodes clone and fetch it from over SSH, with the control plane's SSH key; absent when they use HTTPS with the host's token.
+   */
+  ssh_url?: string;
   created_at: string;
+};
+
+export type GitSshKey = {
+  /**
+   * The public key in the authorized_keys form, to add to the git host.
+   */
+  public_key: string;
 };
 
 export type RepoList = {
@@ -1505,6 +1516,10 @@ export type NewRepo = {
    * The label of a Connection of the repository's host.
    */
   connection?: string;
+  /**
+   * Where nodes clone it from over SSH, as the host shows it: ssh://git@host[:port]/group/name.git or git@host:group/name.git. Absent: over HTTPS with the host's token.
+   */
+  ssh_url?: string;
 };
 
 export type NodeList = {
@@ -5341,6 +5356,31 @@ export type PutRepoResponses = {
 };
 
 export type PutRepoResponse = PutRepoResponses[keyof PutRepoResponses];
+
+export type GetGitSshKeyData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/git/ssh-key';
+};
+
+export type GetGitSshKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGitSshKeyError = GetGitSshKeyErrors[keyof GetGitSshKeyErrors];
+
+export type GetGitSshKeyResponses = {
+  /**
+   * The public key.
+   */
+  200: GitSshKey;
+};
+
+export type GetGitSshKeyResponse = GetGitSshKeyResponses[keyof GetGitSshKeyResponses];
 
 export type ListAccountsData = {
   body?: never;

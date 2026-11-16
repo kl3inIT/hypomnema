@@ -35,6 +35,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/gitssh"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
@@ -250,6 +251,20 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo, o.RepoToken)
 		if err != nil {
 			return err
+		}
+
+		// A repository registered with an SSH address is cloned over SSH, with the control plane's key that
+		// the helper asks for with the Dispatch's own key (issue #625).
+		if o.RepoSSHURL != "" {
+			if s.URL == "" || o.AgentKey == "" {
+				return errors.New("the repository is cloned over SSH, but the node has no key or control plane " +
+					"address to ask for the SSH key with")
+			}
+
+			src, err = src.OverSSH(o.RepoSSHURL, gitssh.Env(s.Exe, gitssh.KnownHosts(s.Home), s.URL, o.AgentKey))
+			if err != nil {
+				return err
+			}
 		}
 
 		// The worker's git, gh and glab act with the host's token, when the offer carried one.

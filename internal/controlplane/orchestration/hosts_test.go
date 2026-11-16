@@ -84,7 +84,7 @@ func TestAHostInUseIsNotForgotten(t *testing.T) {
 	run, err := w.runOn("https://gitlab.company.example/team/app", "")
 	require.NoError(t, err)
 
-	_, err = w.s.AddRepo(ctx, "app", "https://gitlab.company.example/team/app", "develop", "")
+	_, err = w.s.AddRepo(ctx, "app", "https://gitlab.company.example/team/app", "develop", "", "")
 	require.NoError(t, err)
 
 	require.ErrorIs(t, w.s.RemoveGitHost(ctx, "gitlab.company.example"), ErrConflict)
@@ -109,18 +109,18 @@ func TestARunNamesARegisteredRepository(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "")
+	_, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "", "")
 	require.ErrorIs(t, err, ErrInvalid, "a repository on a host that is not known")
 
 	_, err = w.s.AddGitHost(ctx, "gitlab.company.example", githost.GitLab)
 	require.NoError(t, err)
 
-	api, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "")
+	api, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, [4]string{"api", "gitlab.company.example", "team/platform/api", "develop"},
 		[4]string{api.Name, api.Host, api.Path, api.Base})
 
-	_, err = w.s.AddRepo(ctx, "hypomnema", "kl3inIT/hypomnema", "", "")
+	_, err = w.s.AddRepo(ctx, "hypomnema", "kl3inIT/hypomnema", "", "", "")
 	require.NoError(t, err)
 
 	run, err := w.runOn("api", "")
@@ -144,7 +144,7 @@ func TestARunNamesARegisteredRepository(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, repos, 2)
 
-	_, err = w.s.AddRepo(ctx, "Not A Name", "kl3inIT/hypomnema", "", "")
+	_, err = w.s.AddRepo(ctx, "Not A Name", "kl3inIT/hypomnema", "", "", "")
 	require.ErrorIs(t, err, ErrInvalid)
 	require.ErrorIs(t, w.s.RemoveRepo(ctx, "missing"), ErrNotFound)
 }
@@ -176,6 +176,62 @@ func TestAnOfferNamesTheHostAndItsKind(t *testing.T) {
 	o := pending.Offers[0]
 	assert.Equal(t, [4]string{"gitlab.company.example", "gitlab", "team/app", "develop"},
 		[4]string{o.RepoHost, o.RepoKind, o.Repo, o.Base})
+	assert.Empty(t, o.RepoSSHURL, "a repository not registered with an SSH address is cloned over HTTPS")
+}
+
+// Scenario: the company's GitLab cuts a large clone over HTTPS, so the owner
+// registers the repository with its SSH address (issue #625). The offer of a
+// Task of a Run on it carries the address, and so does the repository's
+// record; the Dispatch is one whose worker may have the SSH key. Registered
+// again without it, the repository is cloned over HTTPS again. An address
+// that is not one is refused.
+func TestARepositoryRegisteredWithAnSSHAddressIsClonedFromIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	const sshURL = "ssh://git@167.254.68.172:222/mobility/platform.git"
+
+	_, err := w.s.AddGitHost(ctx, "gitlab.company.example", githost.GitLab)
+	require.NoError(t, err)
+
+	_, err = w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "",
+		"https://gitlab.company.example/mobility/platform.git")
+	require.ErrorIs(t, err, ErrInvalid, "an HTTPS address is not an SSH one")
+
+	platform, err := w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", sshURL)
+	require.NoError(t, err)
+	assert.Equal(t, sshURL, platform.SSHURL)
+
+	run, err := w.runOn("platform", "")
+	require.NoError(t, err)
+
+	tasks, err := w.s.CreateTasks(ctx, run.ID, []NewTask{{Ref: "a", Profile: "implementer", Spec: "a"}})
+	require.NoError(t, err)
+
+	w.dispatch(tasks[0].ID)
+
+	pending, err := w.s.NodePending(ctx, w.node.ID)
+	require.NoError(t, err)
+	require.Len(t, pending.Offers, 1)
+	assert.Equal(t, sshURL, pending.Offers[0].RepoSSHURL)
+
+	got, ok, err := w.s.SSHURLOfDispatch(ctx, pending.Offers[0].DispatchID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, sshURL, got)
+
+	_, err = w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", "")
+	require.NoError(t, err)
+
+	_, ok, err = w.s.SSHURLOfDispatch(ctx, pending.Offers[0].DispatchID)
+	require.NoError(t, err)
+	assert.False(t, ok, "registered without the address, the repository is cloned over HTTPS again")
+
+	_, ok, err = w.s.SSHURLOfDispatch(ctx, "dsp_unknown")
+	require.NoError(t, err)
+	assert.False(t, ok)
 }
 
 // Scenario: a database with Runs from before hosts existed: one on a

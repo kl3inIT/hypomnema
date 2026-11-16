@@ -1966,6 +1966,25 @@ flowchart LR
     itself can read it, as with the Claude token; there is no proxy on the node
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
   - A host without a token works as before: git and the host's tool use the node user's own logins.
+  - A registered repository may carry an SSH address (`repos add|set --ssh-url`, `ssh_url` on `/repos/{name}`,
+    `repos.ssh_url`; issue [#625](https://github.com/kl3inIT/hypomnema/issues/625)): its node then clones and
+    fetches it over SSH, for a host whose HTTPS cuts a large pack (a company GitLab behind Cloudflare). HTTPS with
+    the token stays the default.
+    - The control plane has one SSH key pair for git, an ed25519 key made on first use and kept in the vault as
+      the secret `git-ssh-key` (`internal/controlplane/gitsshkey.go`), as Coder makes a user's key
+      (`coderd/gitsshkey`). The owner reads its public half with `hypomnema git ssh-key`, `GET /git/ssh-key` or the
+      Integrations page, and adds it to the git host's account once. Deleting the secret makes a new pair on the
+      next use; there is no regenerate command.
+    - The offer carries the address (`repo_ssh_url`), never the key. The node sets `GIT_SSH_COMMAND` to its own
+      `hypomnema-node gitssh` (`internal/node/gitssh`), with `GIT_SSH_VARIANT=ssh` and the agent API's address
+      and the Dispatch's key, for the mirror's clone and fetch and for the worker's push. On each git call the
+      helper asks `GET /agent/v1/git/ssh-key`, writes the private key to a 0600 temporary file, runs
+      `ssh -i <file> -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new` with the node's own
+      `<home>/ssh/known_hosts`, and removes the file, as Coder's `coder gitssh` fetches its key per use. On ssh's
+      own failure (255) it prints the public key the host must have.
+    - The agent API gives the key only to a worker whose Run's repository is registered with an SSH address;
+      every other agent (a coordinator, a Bot's pi, a Routine's script, the owner's token) is refused. The worker
+      itself can ask for it, as it can read the host's token.
   - A node says which hosts it reaches. The control plane names the hosts it knows in the answer to hello and to
     every heartbeat; the node tries each when the list changes and every minute (an HTTPS request with no
     credential, through the environment's proxy; any answer counts, and so does a certificate the machine does not
@@ -2982,11 +3001,13 @@ The owner's commands:
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
   - `hosts list|add|rm`, `integrations list|connect|disconnect` (and the older `hosts token set|rm`) and
-    `repos list|add|rm`: the git hosts a Run can be on, the accounts connected to each, and the repositories
+    `repos list|add|set|rm`: the git hosts a Run can be on, the accounts connected to each, and the repositories
     registered under a name; every token reads them, only the owner's changes them.
     `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
     set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
-    URL (`--name`, `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
+    URL (`--name`, `--base`, `--connection`, `--ssh-url`); `repos set <name>` changes the flags it is given and
+    keeps the rest (an empty `--ssh-url` clones over HTTPS again). `git ssh-key` prints the public key nodes clone
+    over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
   - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
@@ -3212,7 +3233,9 @@ Node (`internal/node`):
   `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
   branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
-  address. A GitHub mirror stays under `repos/<owner>/<name>.git`; another host's is under `repos/_hosts/<host>/`.
+  address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
+  the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub
+  mirror stays under `repos/<owner>/<name>.git`; another host's is under `repos/_hosts/<host>/`.
 - A repository's setup script (issue #186, [research](docs/research/2026-11-12-a-repository-tools-for-workers.md)):
   a repository may declare one under `scripts.setup` in `hypomnema.yaml` at its root, as Orca's `orca.yaml` and
   t3code's `t3.json` do. The node runs it in a shell (bash, else sh) in a worktree it has just made, with
@@ -3793,6 +3816,7 @@ internal/node/terminal    the shells opened from the web: a session per id, its 
 internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvfb, adb and the emulator, the idle stop
 internal/node/workertools the worker's MCP server: ask, finish and memory, and the tools the control plane lists (the shared browser's, the gateway's, the phone's), on toolsmcp
 internal/node/worktree    bare mirrors and git worktrees per Task
+internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat

@@ -519,7 +519,7 @@ func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
 
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)
-	assert.Equal(t, "shop\tacme/shop\t\twork\n", out)
+	assert.Equal(t, "shop\tacme/shop\t\twork\t\n", out)
 
 	_, err = w.cmd(t, "integrations", "disconnect", "github.com")
 	require.ErrorContains(t, err, "<integration>:<label>")
@@ -634,8 +634,32 @@ func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
 
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)
-	assert.Equal(t,
-		"hyp\tkl3inIT/hypomnema\t\t\nplatform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\t\n", out)
+	assert.Equal(t, "hyp\tkl3inIT/hypomnema\t\t\t\n"+
+		"platform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\t\t\n", out)
+
+	// The host cuts a large clone over HTTPS, so the repository is cloned over SSH (issue #625); what else it
+	// says is kept, and an empty address clones it over HTTPS again.
+	_, err = w.cmd(t, "repos", "set", "platform-api", "--ssh-url", "https://gitlab.company.example/team/x.git")
+	require.Error(t, err, "an HTTPS address is not an SSH one")
+
+	out, err = w.cmd(t, "repos", "set", "platform-api", "--ssh-url",
+		"ssh://git@167.254.68.172:222/team/Platform-API.git")
+	require.NoError(t, err)
+	assert.Equal(t, "repository platform-api is https://gitlab.company.example/team/Platform-API, cloned over SSH "+
+		"from ssh://git@167.254.68.172:222/team/Platform-API.git\n", out)
+
+	out, err = w.cmd(t, "repos", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "platform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\t\t"+
+		"ssh://git@167.254.68.172:222/team/Platform-API.git\n")
+
+	out, err = w.cmd(t, "repos", "set", "platform-api", "--ssh-url", "")
+	require.NoError(t, err)
+	assert.Equal(t, "repository platform-api is https://gitlab.company.example/team/Platform-API, cloned over "+
+		"HTTPS\n", out)
+
+	_, err = w.cmd(t, "repos", "set", "missing", "--ssh-url", "")
+	require.ErrorContains(t, err, "hypomnema repos add")
 
 	var run openapi.Run
 	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "platform-api", "ship it")
@@ -664,6 +688,31 @@ func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
 	require.Error(t, err, "only the owner declares a host")
 	_, err = w.cmd(t, "repos", "rm", "hyp")
 	require.Error(t, err, "only the owner changes the repositories")
+	_, err = w.cmd(t, "repos", "set", "hyp", "--base", "main")
+	require.Error(t, err, "only the owner changes the repositories")
+}
+
+// sshKey stands for the control plane's SSH key for git.
+type sshKey string
+
+func (k sshKey) PublicKey(context.Context) (string, error) { return string(k), nil }
+
+// Scenario: the owner reads the public key the nodes clone over SSH with
+// (issue #625), one line to paste into the git host. A coordinator does not.
+func TestTheSSHKeyFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithGitSSHKey(sshKey("ssh-ed25519 AAAAC3Nz hypomnema")) })
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "git", "ssh-key")
+	require.NoError(t, err)
+	assert.Equal(t, "ssh-ed25519 AAAAC3Nz hypomnema\n", out)
+
+	w.login(t, bearertoken.Coordinator)
+
+	_, err = w.cmd(t, "git", "ssh-key")
+	require.Error(t, err, "only the owner reads it")
 }
 
 // A worker's output may hold terminal escapes; printed as text they are shown,

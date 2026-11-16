@@ -17,6 +17,9 @@
 //	                        run one worker (started by the daemon)
 //	hypomnema-node mcp --dir DIR
 //	                        the worker's ask and finish tools over stdio (started by the worker's CLI)
+//	hypomnema-node gitssh --known-hosts FILE -- ARGS
+//	                        git's ssh for a repository cloned over SSH, with the control plane's key
+//	                        (set as GIT_SSH_COMMAND by the daemon)
 //	hypomnema-node version  print the version
 package main
 
@@ -31,6 +34,7 @@ import (
 	"syscall"
 
 	"github.com/kl3inIT/hypomnema/internal/node"
+	"github.com/kl3inIT/hypomnema/internal/node/gitssh"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/workertools"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -154,6 +158,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 
 		return agenttool.FromEnv().Run(ctx, args[1], args[2:])
+	case gitssh.Subcommand:
+		return gitssh.Main(ctx, args[1:])
 	case "shim", "mcp":
 		fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		dir := fs.String("dir", "", "the worker's directory (shim) or bridge directory (mcp)")

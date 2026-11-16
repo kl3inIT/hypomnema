@@ -170,3 +170,35 @@ func TestAHostsTokenReachesGitAndItsTool(t *testing.T) {
 	assert.Empty(t, gh.Env(GitHubHost, ""))
 	assert.Empty(t, gl.Env(GitLabHost, ""))
 }
+
+// The owner gives a repository's SSH address (issue #625) as the host shows
+// it: with a port in the URL form, or in git's short form. One with a
+// password, of another scheme, or whose user, host or path could be read as
+// an option is refused.
+func TestAnSSHAddressIsCheckedBeforeGitSeesIt(t *testing.T) {
+	t.Parallel()
+
+	for _, good := range []string{
+		"ssh://git@167.254.68.172:222/mobility/platform.git",
+		"ssh://git@gitlab.company.example/team/app",
+		"git@github.com:kl3inIT/hypomnema.git",
+	} {
+		assert.True(t, ValidSSHURL(good), good)
+	}
+
+	for _, bad := range []string{
+		"",
+		"https://gitlab.company.example/team/app.git",
+		"ssh://gitlab.company.example/team/app.git",
+		"ssh://git:secret@gitlab.company.example/team/app.git",
+		"ssh://git@-oProxyCommand=x/team/app.git",
+		"ssh://-oProxyCommand=x@gitlab.company.example/team/app.git",
+		"ssh://git@gitlab.company.example/-team/app.git",
+		"ssh://git@gitlab.company.example/app.git",
+		"ssh://git@Gitlab.Company.example/team/app.git",
+		"git@gitlab.company.example",
+		"gitlab.company.example:team/app.git",
+	} {
+		assert.False(t, ValidSSHURL(bad), bad)
+	}
+}
