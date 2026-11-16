@@ -1205,6 +1205,10 @@ export type MessagingMessage = {
    * Its sender deleted it for everyone; its content is gone.
    */
   revoked: boolean;
+  /**
+   * Its image or file was downloaded and is kept.
+   */
+  media_kept: boolean;
 };
 
 /**
@@ -5004,6 +5008,36 @@ export type ListMessagingMessagesResponses = {
 };
 
 export type ListMessagingMessagesResponse = ListMessagingMessagesResponses[keyof ListMessagingMessagesResponses];
+
+export type ReadMessagingMediaData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+    chat: string;
+    message: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/messages/{chat}/{message}/media';
+};
+
+export type ReadMessagingMediaErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadMessagingMediaError = ReadMessagingMediaErrors[keyof ReadMessagingMediaErrors];
+
+export type ReadMessagingMediaResponses = {
+  /**
+   * The bytes, never served as a page.
+   */
+  200: Blob | File;
+};
+
+export type ReadMessagingMediaResponse = ReadMessagingMediaResponses[keyof ReadMessagingMediaResponses];
 
 export type CheckIntegrationConnectionData = {
   body?: never;

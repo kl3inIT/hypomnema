@@ -8,6 +8,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -38,8 +39,11 @@ func (a *account) Messages(ctx context.Context, q messaging.Query) ([]messaging.
 }
 
 func (a *account) forgetMirror(ctx context.Context) {
+	// The link ended: no file is downloaded any more.
+	a.stopOnce.Do(func() { close(a.stop) })
+
 	if key := a.mirrorKey(); key != "" {
-		if err := a.mirror.forget(ctx, key); err != nil {
+		if err := errors.Join(a.mirror.forget(ctx, key), a.forgetFiles(key)); err != nil {
 			a.log.WarnContext(ctx, "whatsapp: what was kept of the account could not be removed",
 				slog.String("error", err.Error()))
 		}
@@ -94,6 +98,12 @@ func (a *account) keep(ctx context.Context, p parsed) {
 	k := kept{parsed: p, account: key, chatKind: kindOf(p.chat), chatName: a.chatName(ctx, p)}
 	if err := a.mirror.keep(ctx, k); err != nil {
 		a.log.WarnContext(ctx, "whatsapp: a message could not be kept", slog.String("error", err.Error()))
+
+		return
+	}
+
+	if p.directPath != "" && !p.edited && !p.revoked {
+		a.queueMedia(mediaJob{account: key, chat: p.chat.String(), id: p.id})
 	}
 }
 

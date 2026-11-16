@@ -120,6 +120,7 @@ var policies = map[string]policy{
 	"CompleteIntegrationSignIn":   {scope: scopeOwner, long: true},
 	"ListMessagingChats":          {scope: scopeOwner},
 	"ListMessagingMessages":       {scope: scopeOwner},
+	"ReadMessagingMedia":          {scope: scopeOwner, long: true},
 	"GetIntegrationSignIn":        {scope: scopeOwner},
 	"PutIntegrationConnection":    {scope: scopeOwner},
 	"DeleteIntegrationConnection": {scope: scopeOwner},

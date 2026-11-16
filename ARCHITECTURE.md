@@ -1809,6 +1809,14 @@ flowchart LR
       The shape and the parsing follow wacli (`internal/store/schema.sql`, `internal/wa/messages.go`, MIT).
     - `GET /integrations/whatsapp/connections/{label}/chats` and `…/messages` (`chat`, `q` for a search, `before`,
       `limit`) read the mirror, the latest first, for the owner only. Agents have no tool for it yet.
+    - **Every image and file is downloaded** ([issue #634](https://github.com/kl3inIT/hypomnema/issues/634)): a
+      media message keeps its download keys (the mirror's version 1, `wa_version`); four workers download each as
+      it arrives, live or from history, and the kept ones without a file when the session connects (500 at a time,
+      newest first), as wacli's `sync --download-media` and `media backfill`. whatsmeow checks the hashes, the
+      length must match, a file over 100 MiB is not downloaded, and one WhatsApp no longer has is marked. Files
+      live in `whatsapp-media/<number>/<chat>/` beside `whatsapp.db`, private; disconnecting removes them.
+      `GET …/messages/{chat}/{message}/media` answers one as an opaque download, downloaded first when it is not
+      kept; a message says `media_kept`.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and

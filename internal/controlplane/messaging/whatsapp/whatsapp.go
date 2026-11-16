@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -42,7 +44,9 @@ type Service struct {
 	closeDB   func() error
 	container *sqlstore.Container
 	mirror    *mirror
-	log       *slog.Logger
+	// mediaDir holds the kept files, beside the database (issue #634).
+	mediaDir string
+	log      *slog.Logger
 	// connect connects a client; whatsmeow's own outside tests.
 	connect func(context.Context, *whatsmeow.Client) error
 }
@@ -75,7 +79,8 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 
 	return &Service{
 		closeDB: db.Close, container: container, mirror: kept, log: logger,
-		connect: func(ctx context.Context, c *whatsmeow.Client) error { return c.ConnectContext(ctx) },
+		mediaDir: filepath.Join(filepath.Dir(path), "whatsapp-media"),
+		connect:  func(ctx context.Context, c *whatsmeow.Client) error { return c.ConnectContext(ctx) },
 	}, nil
 }
 
@@ -89,7 +94,7 @@ func (s *Service) Close() error { return s.closeDB() }
 // (bots.go, open and pair).
 func (s *Service) Link(ctx context.Context) (<-chan messaging.LinkStep, error) {
 	device := s.container.NewDevice()
-	acc := s.newAccount(device)
+	acc := s.newAccount(ctx, device)
 
 	codes, err := acc.client.GetQRChannel(ctx)
 	if err != nil {
@@ -192,10 +197,10 @@ func (s *Service) Open(ctx context.Context, id string) (messaging.Account, error
 	}
 
 	if device == nil {
-		return &gone{id: id, name: phoneOf(jid), account: jid.User, mirror: s.mirror}, nil
+		return &gone{id: id, name: phoneOf(jid), account: jid.User, mirror: s.mirror, mediaDir: s.mediaDir}, nil
 	}
 
-	acc := s.newAccount(device)
+	acc := s.newAccount(ctx, device)
 	// A session opened while WhatsApp cannot be reached keeps trying, as one that was connected does.
 	acc.client.InitialAutoReconnect = true
 
@@ -209,13 +214,15 @@ func (s *Service) Open(ctx context.Context, id string) (messaging.Account, error
 	return acc, nil
 }
 
-func (s *Service) newAccount(device *store.Device) *account {
+func (s *Service) newAccount(ctx context.Context, device *store.Device) *account {
 	client := whatsmeow.NewClient(device, waLogger{s.log.With(slog.String("module", "whatsmeow"))})
 	client.EnableAutoReconnect = true
 
 	acc := &account{
 		client: client, mirror: s.mirror, log: s.log, state: messaging.State{Status: messaging.StatusConnecting},
+		mediaDir: s.mediaDir, jobs: make(chan mediaJob, mediaQueueSize), stop: make(chan struct{}),
 	}
+	acc.startMedia(context.WithoutCancel(ctx))
 	client.AddEventHandler(acc.handle)
 
 	return acc
@@ -226,6 +233,12 @@ type account struct {
 	client *whatsmeow.Client
 	mirror *mirror
 	log    *slog.Logger
+
+	// mediaDir, jobs and stop are the downloads of its files (media.go); stop ends them with the session.
+	mediaDir string
+	jobs     chan mediaJob
+	stop     chan struct{}
+	stopOnce sync.Once
 
 	mu    sync.Mutex
 	state messaging.State
@@ -278,6 +291,7 @@ func (a *account) handle(evt any) {
 		a.setState(messaging.State{Status: messaging.StatusConnected})
 		// Group names come with the groups list, not with their messages (wacli group_info.go, --refresh-groups).
 		go a.nameGroups()
+		go a.backfillMedia()
 	case *events.Disconnected:
 		// A session logged out, banned or replaced is not merely disconnected. whatsmeow calls handlers from
 		// several goroutines, so the check and the change are one step.
@@ -332,13 +346,17 @@ func (a *account) Logout(ctx context.Context) error {
 	return nil
 }
 
-func (a *account) Close() { a.client.Disconnect() }
+func (a *account) Close() {
+	a.stopOnce.Do(func() { close(a.stop) })
+	a.client.Disconnect()
+}
 
 // gone is a device whatsmeow no longer holds: it was logged out while the control plane was not running. What was
 // kept of it is still read, until it is disconnected.
 type gone struct {
 	id, name, account string
 	mirror            *mirror
+	mediaDir          string
 }
 
 func (g *gone) ID() string   { return g.id }
@@ -346,8 +364,26 @@ func (g *gone) Name() string { return g.name }
 func (g *gone) State() messaging.State {
 	return messaging.State{Status: messaging.StatusLoggedOut, Reason: "the session is no longer kept"}
 }
-func (g *gone) Logout(ctx context.Context) error { return g.mirror.forget(ctx, g.account) }
-func (g *gone) Close()                           {}
+func (g *gone) Logout(ctx context.Context) error {
+	return errors.Join(g.mirror.forget(ctx, g.account),
+		os.RemoveAll(filepath.Join(g.mediaDir, unsafeName.ReplaceAllString(g.account, "_"))))
+}
+
+// Media is a file kept before the logout; nothing more can be downloaded.
+func (g *gone) Media(ctx context.Context, chat, id string) (messaging.Media, error) {
+	row, err := g.mirror.mediaOf(ctx, g.account, chat, id)
+	if err != nil {
+		return messaging.Media{}, err
+	}
+
+	if row.localPath == "" {
+		return messaging.Media{}, fmt.Errorf("whatsapp: the file of message %s was not kept, and the session is "+
+			"logged out", id)
+	}
+
+	return messaging.Media{Path: row.localPath, MimeType: row.mime, FileName: row.fileName}, nil
+}
+func (g *gone) Close() {}
 
 func (g *gone) Chats(ctx context.Context, limit int) ([]messaging.Chat, error) {
 	return g.mirror.chats(ctx, g.account, limit)

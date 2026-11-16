@@ -33,6 +33,12 @@ type parsed struct {
 	caption   string
 	fileName  string
 	mime      string
+	// What downloading the media needs (issue #634), as wacli keeps it.
+	directPath  string
+	mediaKey    []byte
+	fileSHA256  []byte
+	fileEncHash []byte
+	fileLength  uint64
 
 	// edited replaces the text of the message id names; revoked marks it.
 	edited  bool
@@ -159,7 +165,36 @@ func (p *parsed) key(k *waCommon.MessageKey) {
 	}
 }
 
+// downloadable is a media message's download keys (whatsmeow.DownloadableMessage).
+type downloadable interface {
+	GetDirectPath() string
+	GetMediaKey() []byte
+	GetFileSHA256() []byte
+	GetFileEncSHA256() []byte
+	GetFileLength() uint64
+}
+
+func (p *parsed) keys(d downloadable) {
+	p.directPath, p.mediaKey, p.fileSHA256 = d.GetDirectPath(), d.GetMediaKey(), d.GetFileSHA256()
+	p.fileEncHash, p.fileLength = d.GetFileEncSHA256(), d.GetFileLength()
+}
+
 func (p *parsed) media(m *waE2E.Message) {
+	defer func() {
+		switch {
+		case m.GetImageMessage() != nil:
+			p.keys(m.GetImageMessage())
+		case m.GetVideoMessage() != nil:
+			p.keys(m.GetVideoMessage())
+		case m.GetAudioMessage() != nil:
+			p.keys(m.GetAudioMessage())
+		case m.GetDocumentMessage() != nil:
+			p.keys(m.GetDocumentMessage())
+		case m.GetStickerMessage() != nil:
+			p.keys(m.GetStickerMessage())
+		}
+	}()
+
 	switch {
 	case m.GetImageMessage() != nil:
 		img := m.GetImageMessage()

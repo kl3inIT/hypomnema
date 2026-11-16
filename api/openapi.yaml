@@ -1052,6 +1052,31 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MessagingMessageList" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/messages/{chat}/{message}/media:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: chat
+        in: path
+        required: true
+        schema: { type: string, maxLength: 128 }
+      - name: message
+        in: path
+        required: true
+        schema: { type: string, maxLength: 128 }
+    get:
+      operationId: ReadMessagingMedia
+      summary: A kept message's image or file, downloaded first when it is not kept yet; only the owner
+      description: >-
+        Every media message's file is downloaded as it arrives (issue #634); one not kept yet is downloaded now.
+        A file over 100 MiB, or one WhatsApp no longer has, is refused with why.
+      responses:
+        "200":
+          description: The bytes, never served as a page.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}/check:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -4948,7 +4973,7 @@ components:
           items: { $ref: "#/components/schemas/MessagingMessage" }
     MessagingMessage:
       type: object
-      required: [id, chat, chat_name, sender, sender_name, at, from_me, text, edited, revoked]
+      required: [id, chat, chat_name, sender, sender_name, at, from_me, text, edited, revoked, media_kept]
       properties:
         id: { type: string }
         chat: { type: string }
@@ -4965,6 +4990,7 @@ components:
         mime_type: { type: string }
         edited: { type: boolean }
         revoked: { type: boolean, description: "Its sender deleted it for everyone; its content is gone." }
+        media_kept: { type: boolean, description: "Its image or file was downloaded and is kept." }
     DeviceSession:
       type: object
       description: >-
