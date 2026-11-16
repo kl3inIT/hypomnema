@@ -58,6 +58,8 @@ func TestAGoogleAccountCanDoWhatItsSignInGranted(t *testing.T) {
 		accessOf(conn, "drive.read"))
 	assert.Equal(t, orchestration.ActionAccess{Access: "missing", Reason: "docs or sheets not granted at sign-in"},
 		accessOf(conn, "docs.read"))
+	assert.Equal(t, orchestration.ActionAccess{Access: "missing", Reason: "searchconsole not granted at sign-in"},
+		accessOf(conn, "searchconsole.read"))
 	assert.Equal(t, t0, conn.Access.CheckedAt)
 
 	listed := w.theGoogle().Connections[0]

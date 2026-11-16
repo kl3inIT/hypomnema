@@ -254,14 +254,16 @@ func (d Definition) CredentialKind() Kind {
 // GoogleID is the id of the Google Integration.
 const GoogleID = "google"
 
-// Google is Google Workspace for one account: Gmail, Calendar, Drive, Docs
-// and Sheets, as one Integration with its services chosen at sign-in (gog).
+// Google is Google Workspace for one account: Gmail, Calendar, Drive, Docs,
+// Sheets and Search Console, as one Integration with its services chosen at sign-in (gog).
 //
 // The scopes to write are the ones Hermes' google-workspace skill asks for
 // (scripts/setup.py, SCOPES); the scopes to read are the read-only set of the
 // Google Workspace CLI (crates/google-workspace-cli/src/auth_commands.rs,
 // READONLY_SCOPES). The scope for the account's email is the one the
-// Antigravity login in this repository already uses.
+// Antigravity login in this repository already uses. Search Console's pair
+// is the one treg grants (src/treg/catalog/google-search-console.yaml; issue
+// #609).
 func Google() Definition {
 	const scope = "https://www.googleapis.com/auth/"
 
@@ -283,6 +285,10 @@ func Google() Definition {
 			{Name: "drive", Read: []string{scope + "drive.readonly"}, Write: []string{scope + "drive"}},
 			{Name: "docs", Read: []string{scope + "documents.readonly"}, Write: []string{scope + "documents"}},
 			{Name: "sheets", Read: []string{scope + "spreadsheets.readonly"}, Write: []string{scope + "spreadsheets"}},
+			{
+				Name: "searchconsole", Read: []string{scope + "webmasters.readonly"},
+				Write: []string{scope + "webmasters"},
+			},
 		},
 	}
 }

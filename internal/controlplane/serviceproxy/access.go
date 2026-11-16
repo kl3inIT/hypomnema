@@ -94,6 +94,7 @@ func missing(reason string) orchestration.ActionAccess {
 // are one part with two services.
 var googleGrants = map[string][]string{
 	"gmail": {"gmail"}, "calendar": {"calendar"}, "drive": {"drive"}, "docs": {"docs", "sheets"},
+	"searchconsole": {"searchconsole"},
 }
 
 // googleAccess reads a Google action from the grants its sign-in gave
