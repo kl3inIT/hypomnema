@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -451,7 +452,7 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) ([]Chat, error)
 
 	var deleted []Chat
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		deleted = nil
 
 		row, err := q.GetBot(ctx, id)
@@ -475,7 +476,7 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) ([]Chat, error)
 				return fmt.Errorf("reading chat %s: %w", chat, err)
 			}
 
-			if err := deleteChatTx(ctx, q, chat, now); err != nil {
+			if err := s.deleteChatTx(ctx, tx, q, chat, now); err != nil {
 				return fmt.Errorf("deleting chat %s: %w", chat, err)
 			}
 

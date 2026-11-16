@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
@@ -504,6 +505,8 @@ func TestTheOwnerDeletesAChat(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
+	// The gateway's own revocation, as the control plane wires it (issue #405).
+	w.s.chatKeys = modelgateway.RevokeDeletedChatKeysTx
 	ctx := t.Context()
 
 	chat, err := w.s.CreateChat(ctx, "", "")

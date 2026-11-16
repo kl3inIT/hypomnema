@@ -456,7 +456,7 @@ func (s *Service) ListChats(ctx context.Context, limit int) ([]Chat, error) {
 func (s *Service) DeleteChat(ctx context.Context, id string) (Chat, error) {
 	var chat Chat
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		row, err := q.GetChat(ctx, id)
 		if err != nil {
 			return notFound(err, "chat", id)
@@ -468,7 +468,7 @@ func (s *Service) DeleteChat(ctx context.Context, id string) (Chat, error) {
 			return err
 		}
 
-		return deleteChatTx(ctx, q, id, now)
+		return s.deleteChatTx(ctx, tx, q, id, now)
 	})
 	if err != nil {
 		return Chat{}, fmt.Errorf("deleting chat %s: %w", id, err)
@@ -500,10 +500,12 @@ func chatLive(ctx context.Context, q *store.Queries, id string) error {
 	return nil
 }
 
-// deleteChatTx deletes one chat with the caller's queries: what refers to it is let go of or removed first
-// (queries/chats.sql), then the bytes of its artifacts that no other artifact keeps. A chat and a Bot removed with
-// its chats (ForceDeleteBot) take the same steps, as ForceDeleteBot's own did (issue #330).
-func deleteChatTx(ctx context.Context, q *store.Queries, id string, now int64) error {
+// deleteChatTx deletes one chat with the caller's transaction and queries: what refers to it is let go of or removed
+// first (queries/chats.sql), then the bytes of its artifacts that no other artifact keeps. Its gateway keys are
+// revoked by the gateway's own function in the same transaction (issue #405), so the chat and its live keys never
+// outlast one another. A chat and a Bot removed with its chats (ForceDeleteBot) take the same steps, as
+// ForceDeleteBot's own did (issue #330).
+func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries, id string, now int64) error {
 	blobs, err := q.ListArtifactBlobsOfChat(ctx, id)
 	if err != nil {
 		return err
@@ -514,9 +516,11 @@ func deleteChatTx(ctx context.Context, q *store.Queries, id string, now int64) e
 		func(ctx context.Context, id string) error { return routinestore.DetachFromChatTx(ctx, q, id) },
 		q.DetachApprovalsFromChat,
 		func(ctx context.Context, id string) error {
-			return q.RevokeGatewayKeysOfChat(ctx, store.RevokeGatewayKeysOfChatParams{
-				Now: sql.NullInt64{Int64: now, Valid: true}, ChatID: id,
-			})
+			if s.chatKeys == nil {
+				return nil
+			}
+
+			return s.chatKeys(ctx, tx, id, now)
 		},
 		q.DeleteSetupChangesOfChat,
 		func(ctx context.Context, id string) error { return channelstore.DeleteChannelChatOfChatTx(ctx, q, id) },

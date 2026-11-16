@@ -519,6 +519,24 @@ func (s *Service) RevokeAllChatKeys(ctx context.Context) error {
 	})
 }
 
+// RevokeDeletedChatKeysTx revokes the keys of a chat being deleted, in the
+// transaction that deletes it (issue #405): the gateway's table is written
+// only here, and the chat and its keys end in one commit, as Omnara's
+// orglifecycle has secretstore's CreateTx and executionstore's …InUnit write
+// their own tables in its transaction and Coder removes a deleted user's
+// api_keys in the transaction that marks it. A key already revoked keeps its
+// time; every key loses the chat, as the chat's Runs do (issue #484). It
+// begins no transaction: the caller's holds the write lock.
+func RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now int64) error {
+	if err := store.New(tx).RevokeGatewayKeysOfDeletedChat(ctx, store.RevokeGatewayKeysOfDeletedChatParams{
+		Now: sql.NullInt64{Int64: now, Valid: true}, ChatID: chatID,
+	}); err != nil {
+		return fmt.Errorf("revoking the keys of chat %s: %w", chatID, err)
+	}
+
+	return nil
+}
+
 // RevokeDispatchKeys stops every key of a Dispatch from working; none is no error.
 func (s *Service) RevokeDispatchKeys(ctx context.Context, dispatchID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {

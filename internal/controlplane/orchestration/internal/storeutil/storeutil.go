@@ -25,12 +25,22 @@ func Write(
 	ctx context.Context, db *sql.DB, clock platform.Clock, signal func(),
 	fn func(q *store.Queries, now int64) error,
 ) error {
+	return WriteTx(ctx, db, clock, signal, func(_ *sql.Tx, q *store.Queries, now int64) error { return fn(q, now) })
+}
+
+// WriteTx is Write that gives fn the transaction too, for a package that owns
+// other tables to write them in it with its own queries (issue #405), as
+// Omnara's stores take the caller's pgx.Tx.
+func WriteTx(
+	ctx context.Context, db *sql.DB, clock platform.Clock, signal func(),
+	fn func(tx *sql.Tx, q *store.Queries, now int64) error,
+) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning a transaction: %w", err)
 	}
 
-	if err := fn(store.New(tx), clock.Now().UnixMilli()); err != nil {
+	if err := fn(tx, store.New(tx), clock.Now().UnixMilli()); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 

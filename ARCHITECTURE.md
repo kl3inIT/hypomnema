@@ -661,7 +661,8 @@ sequenceDiagram
   Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). The owner
   deletes a chat for good (`DELETE /chats/{id}`, `hypomnema chats rm`, the sidebar row's menu; issue #484, after
   OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its Runs, Routines, Routines' runs
-  and approvals, revokes and keeps its gateway keys, and deletes its setup changes, its Lark chat, its artifacts
+  and approvals, revokes and keeps its gateway keys (they lose the chat; the gateway's own
+  `RevokeDeletedChatKeysTx` writes them in that transaction, issue #405), and deletes its setup changes, its Lark chat, its artifacts
   (with their revisions, and the bytes no other artifact keeps), its messages and the chat. A chat pi works in is
   refused (409, "stop it first"), as are a chat a Routine tells its runs in and the chat of a Routine's live run.
   After the commit (t3code's thread deletion) its pi is stopped and its files go: `attachments/<chat>` in its Bot's
@@ -771,8 +772,8 @@ sequenceDiagram
     remove one with its chats and its memory (`DELETE /bots/{bot_id}?force=true`,
   `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): each chat is deleted as a chat is
   (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
-  made in them stay without the chat, and the chats' gateway keys are revoked and kept. Their files on the
-  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then.
+  made in them stay without the chat, and the chats' gateway keys are revoked and kept, in that one transaction as for
+  one chat. Their files on the coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then.
   - **Order and pins** (issue #470, migration 00089; after OpenMausBot's one fleet order with a `pinned` flag and
     onyx's dense `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
     column came, so the main Bot is 0); a new Bot goes last and a removed one leaves no gap. `PUT /bots/order`
@@ -2418,7 +2419,12 @@ capabilities do not exist yet.
   models.dev has none) and the rest of the write `cache_write`, the five-minute rate. Rows recorded before keep 0
   and their cost. The Usage page's request shows the part next to the cache written.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
-  stream and are read and written only by this package, through its own generated queries. Providers are read
+  stream and are read and written only by this package, through its own generated queries. A chat orchestration
+  deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's
+  `RevokeDeletedChatKeysTx`, which takes the caller's `*sql.Tx`, begins none and writes with the gateway's queries;
+  the control plane's wiring passes it to orchestration (`orchestration.WithChatKeys`), so orchestration imports no
+  gateway code (issue #405, as Omnara's `orglifecycle` has its stores' `CreateTx` and `…InUnit` write in its
+  transaction, and Coder removes a deleted user's `api_keys` in the transaction that marks it). Providers are read
   through orchestration and keys through the vault.
 
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,

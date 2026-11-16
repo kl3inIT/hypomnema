@@ -252,7 +252,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	// A deleted chat's gateway keys end in its transaction, written by the gateway (issue #405).
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
+		orchestration.WithChatKeys(modelgateway.RevokeDeletedChatKeysTx))
 	publishBuiltinSkills(ctx, svc, logger)
 
 	// The scheduler runs while the server does; if it fails, the server stops.
