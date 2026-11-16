@@ -50,3 +50,25 @@ stranger becomes a contact in an inbox, a bot answers first and hands off to a p
 `bot_handoff!`). That is the model for answering customers, a different need from acting as the owner.
 
 Clones in `.tmp/`: openclaw, hermes-agent, memoryos, chatwoot, evolution-api, waha, whatsmeow.
+
+## Zalo, studied again (later on 2026-11-16)
+
+The owner asked which library and which repositories do it best, and named `DTHSoftwareCompany/zlog`. Read in
+`.tmp/` at these revisions: `zca-js` 1e1c503, `zcago` d4ff65b, `zlog` e4d2b82f, `deplao-builder` 515f1dc,
+`hermes-zalo-plugin` f00cf56, `softtyos/zca-js` e1c09a9; GitHub searched for Zalo personal-account projects.
+
+| Project | What it is | Read in code |
+|---|---|---|
+| `RFS-ADRENO/zca-js` (MIT, 740 stars) | The library almost every project builds on | Pure JavaScript dependencies (`ws`, `crypto-js`, `pako`, `tough-cookie`…), Node ≥ 18. A session is `{imei, cookie, userAgent}` (`src/zalo.ts:34`), from a QR login (`loginQR`). Zalo removed `/api/group/history` (`getGroupChatHistory.ts`, deprecated); a group's past is paged with `getCloudMessage` (`hasMore`, `isOld`, filtered at the owner's join, `tsJoinGroup`); a direct chat's with `listener.requestOldMessages` (command 510). One web listener per account: opening Zalo Web stops it (README:113). Fixed the day before for Zalo's API version (`src/apiVersion.ts`, after v2.3.0) |
+| `amrakk/zcago` (MIT, Go) | A Go rewrite of `zca-js` | Last commit 2026-09-08; a fixed API version (`config.DefaultAPIVersion`); no `getCloudMessage`; sending attachments still a TODO |
+| `zlog` (MIT) | A product that logs many Zalo accounts for companies | A Go backend and a NestJS service holding the sessions with a private fork of `zca-js` (`"zca-js": "file:../zca-core"`, not in the repository). Reconnects (`listener.start({retryOnClose: true})`), refreshes cookies on a schedule (`cookie-refresh.service.ts`), and pulls the whole history from the phone after the owner confirms on it (`zalo-client.ts:3147`, `pullMobileMessage`), which only its fork has |
+| `softtyos/zca-js` (MIT, one author, 1 star) | A fork of `zca-js` 2.1.1 that follows Zalo PC 26.7.10 | Has the phone sync in the open: `requestSyncFromPhone` sends `pull_mobile_msg` (command 12000) with an RSA key and a sequence range, no chat filter: the phone sends its whole store, decrypted by `getSyncData` (ZDB 4.0) |
+| OpenClaw `zalouser`, `deplao-builder` (272 stars), `zalo-agent`, `zaloclaw` | Agents and apps on a personal account | All on `zca-js` 2.x, in a Node process |
+| `hitechcloudvn/hermes-zalo-plugin` | Zalo for Hermes, which is Python | `zca-js` in a Node sidecar the plugin talks to over HTTP and WebSocket (`sidecar/server.js`) |
+
+Decided by the owner (2026-11-16): `zca-js` itself, pinned, in a small Node bridge the control plane starts and talks
+to, as Hermes, MemoryOS and `zlog` keep Zalo in a process of its language; the past of groups with `getCloudMessage`
+and of direct chats with `requestOldMessages`; then, as a second step, the phone's whole store, ported from
+`softtyos/zca-js` with its notice rather than depending on a one-author package that would hold the owner's cookies;
+everything kept, as WhatsApp's mirror. Not `zcago`: two months behind Zalo and without a group's past. Design in issue
+#613.
