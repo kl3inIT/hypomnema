@@ -586,7 +586,9 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 	var (
 		usage                 claude.PassUsage
 		completed, clientGone bool
-		sent                  int
+		// answered is when the event that completes the answer was passed on (issue #635).
+		answered bool
+		sent     int
 	)
 
 	for scanner.Scan() {
@@ -609,6 +611,7 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 			break
 		}
 
+		answered = completed
 		sent += len(line)
 
 		// An empty line ends an event.
@@ -620,10 +623,12 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 	flush()
 
 	switch {
+	case answered:
+		// The whole answer was passed on; a client that closes once it has read message_stop was answered
+		// (issue #635).
+		record.Outcome = OutcomeOK
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
-	case completed:
-		record.Outcome = OutcomeOK
 	default:
 		// The answer ended without message_stop: Anthropic said it failed
 		// inside the stream, or went away. The client has what was sent.

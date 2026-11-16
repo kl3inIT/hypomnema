@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
@@ -275,8 +276,8 @@ func reposList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, r := range resp.JSON200.Data {
-			e.printf("%s\t%s\t%s\t%s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String(), val(r.Base),
-				val(r.Connection))
+			e.printf("%s\t%s\t%s\t%s\t%s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String(), val(r.Base),
+				val(r.Connection), val(r.SshUrl))
 		}
 	})
 }
@@ -295,8 +296,14 @@ func reposAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		name = strings.ToLower(parsed.Path[strings.LastIndex(parsed.Path, "/")+1:])
 	}
 
+	hostKey, err := sshHostKey(e, fs)
+	if err != nil {
+		return err
+	}
+
 	resp, err := e.api.PutRepoWithResponse(ctx, name, openapi.NewRepo{
-		Repo: repo, Base: optional(fs, "base"), Connection: optional(fs, "connection"),
+		Repo: repo, Base: optional(fs, "base"), Connection: optional(fs, "connection"), SshUrl: optional(fs, "ssh-url"),
+		SshHostKey: hostKey,
 	})
 	if err != nil {
 		return fmt.Errorf("registering repository %s: %w", name, err)
@@ -310,7 +317,37 @@ func reposAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, r, func() {
 		e.printf("repository %s is %s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String())
+		printHostKeys(e, r.SshHostKey)
 	})
+}
+
+// sshHostKey reads --ssh-host-key-file: the SSH host's keys, as ssh-keyscan
+// prints them. Nil when it is not given.
+func sshHostKey(e *env, fs *flag.FlagSet) (*string, error) {
+	file := str(fs, "ssh-host-key-file")
+	if file == "" {
+		return nil, nil //nolint:nilnil // No file, no keys: the flag is optional.
+	}
+
+	keys, err := e.read(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return &keys, nil
+}
+
+// printHostKeys prints the fingerprints of the SSH host's keys a repository
+// trusts, for the owner to check against the host's own (issue #625): a host
+// is trusted under them alone, never on first use.
+func printHostKeys(e *env, keys *string) {
+	if keys == nil {
+		return
+	}
+
+	for _, fingerprint := range githost.HostKeyFingerprints(*keys) {
+		e.printf("  trusts the SSH host key %s\n", fingerprint)
+	}
 }
 
 func reposRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -326,4 +363,87 @@ func reposRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, map[string]string{"removed": name}, func() { e.printf("repository %s is forgotten\n", name) })
+}
+
+// reposSet changes the flags given of a registered repository and keeps the
+// rest: the API registers a name whole, so what it says now is read first.
+func reposSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	name := fs.Arg(0)
+
+	list, err := e.api.ListReposWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("reading repository %s: %w", name, err)
+	}
+
+	if list.JSON200 == nil {
+		return apiError("reading repository "+name, list.StatusCode(), list.JSONDefault)
+	}
+
+	i := slices.IndexFunc(list.JSON200.Data, func(r openapi.Repo) bool { return r.Name == name })
+	if i < 0 {
+		return fmt.Errorf("no repository is registered as %s; register it with `hypomnema repos add`", name)
+	}
+
+	r := list.JSON200.Data[i]
+	body := openapi.NewRepo{
+		Repo: githost.Repo{Host: r.Host, Path: r.Path}.String(), Base: r.Base, Connection: r.Connection,
+		SshUrl: r.SshUrl, SshHostKey: r.SshHostKey,
+	}
+
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "base":
+			body.Base = optional(fs, "base")
+		case "connection":
+			body.Connection = optional(fs, "connection")
+		case "ssh-url":
+			// Cloned over HTTPS again, the host's keys go with the address.
+			if body.SshUrl = optional(fs, "ssh-url"); body.SshUrl == nil {
+				body.SshHostKey = nil
+			}
+		}
+	})
+
+	if hostKey, err := sshHostKey(e, fs); err != nil {
+		return err
+	} else if hostKey != nil {
+		body.SshHostKey = hostKey
+	}
+
+	resp, err := e.api.PutRepoWithResponse(ctx, name, body)
+	if err != nil {
+		return fmt.Errorf("changing repository %s: %w", name, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("changing repository "+name, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	changed := resp.JSON200
+
+	return e.print(fs, changed, func() {
+		over := "over HTTPS"
+		if changed.SshUrl != nil {
+			over = "over SSH from " + *changed.SshUrl
+		}
+
+		e.printf("repository %s is %s, cloned %s\n", changed.Name,
+			githost.Repo{Host: changed.Host, Path: changed.Path}.String(), over)
+		printHostKeys(e, changed.SshHostKey)
+	})
+}
+
+// gitSSHKey prints the public key nodes clone over SSH with (issue #625),
+// one line to paste into the git host's SSH keys.
+func gitSSHKey(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	resp, err := e.api.GetGitSSHKeyWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the SSH key: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("reading the SSH key", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { e.printf("%s\n", resp.JSON200.PublicKey) })
 }
