@@ -1134,7 +1134,7 @@ export type IntegrationConnection = {
    */
   app_id?: string;
   /**
-   * For a user Connection, the owner's own sign-in through an app: the label of the app Connection it signs in with. It acts as the owner, so only the owner's token and the main Bot on the owner's own turn may use it.
+   * For a user Connection, the owner's own sign-in through an app: the label of the app Connection it signs in with. It acts as the owner, so only the owner's token and a Bot given it, on the owner's own turn, may use it.
    */
   app?: string;
   /**

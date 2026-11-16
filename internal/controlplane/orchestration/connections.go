@@ -112,7 +112,7 @@ var connectionLabelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
 func ValidConnectionLabel(label string) bool { return connectionLabelPattern.MatchString(label) }
 
 // User says the Connection is a person's own sign-in through an app (issue #468): it acts as the owner, so only
-// the owner's token and the main Bot on the owner's turn may use it.
+// the owner's token and a Bot that may use it, on the owner's turn, may use it (issue #618).
 func (c Connection) User() bool { return c.AppLabel != "" }
 
 // SetConnection records a Connection and the secret that holds its

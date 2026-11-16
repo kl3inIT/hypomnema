@@ -907,7 +907,7 @@ export const putIntegrationClientMutation = (options?: Partial<Options<PutIntegr
 /**
  * Start signing an account in, as a Connection under a label; only the owner
  *
- * Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services. With `app`, the owner signs in to an app Integration (Lark) as himself through the app of that Connection: the answer has a `user_code` he enters on the page the link opens, and completing waits for it. Such a user Connection acts as the owner and is used only by the owner's token and by the main Bot on the owner's own turn.
+ * Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services. With `app`, the owner signs in to an app Integration (Lark) as himself through the app of that Connection: the answer has a `user_code` he enters on the page the link opens, and completing waits for it. Such a user Connection acts as the owner and is used only by the owner's token and by a Bot given it, on the owner's own turn.
  */
 export const beginIntegrationSignInMutation = (options?: Partial<Options<BeginIntegrationSignInData>>): UseMutationOptions<BeginIntegrationSignInResponse, BeginIntegrationSignInError, Options<BeginIntegrationSignInData>> => {
   const mutationOptions: UseMutationOptions<BeginIntegrationSignInResponse, BeginIntegrationSignInError, Options<BeginIntegrationSignInData>> = {
