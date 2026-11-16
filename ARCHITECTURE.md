@@ -2123,7 +2123,13 @@ capabilities do not exist yet.
 - The gateway serves every model of every subscription under `<provider>/<model>`, such as
   `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
   every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
-  logged-in accounts). The table is left for a name made on purpose, such as one over several targets. The
+  logged-in accounts). A subscription provider's models are what its migration listed plus what its vendor serves:
+  soon after the start and then every hour the control plane asks, with the first active account of each runtime,
+  Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
+  (`GET api.anthropic.com/v1/models` with the OAuth token) and Antigravity (`fetchAvailableModels`, without internal
+  or disabled ones), and adds the names the provider lacks through `ApplyProvider`; nothing is removed (issue
+  [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex, OpenClaw, omp and Hermes read them). The table
+  is left for a name made on purpose, such as one over several targets. The
   pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
   table name has. Migration 00090 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
   to the subscription and model of the name they used when it had one target only, a subscription's model (a

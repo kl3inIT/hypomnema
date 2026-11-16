@@ -263,9 +263,9 @@ type profileSource struct {
 type providerSource struct {
 	Name      string   `yaml:"name"`
 	Kind      string   `yaml:"kind"`
-	BaseURL   string   `yaml:"base_url"`
-	APIKeyRef string   `yaml:"api_key_ref"`
-	Models    []string `yaml:"models"`
+	BaseURL   string   `yaml:"base_url,omitempty"`
+	APIKeyRef string   `yaml:"api_key_ref,omitempty"`
+	Models    []string `yaml:"models,flow"`
 }
 
 // decodeStrict reads one YAML document, refusing unknown fields.
@@ -793,6 +793,45 @@ func (s *Service) ApplyProvider(ctx context.Context, name, source string) (Provi
 	}
 
 	return s.GetProvider(ctx, in.Name)
+}
+
+// AddProviderModels adds to a provider the models it does not list yet, as a subscription's vendor names what it
+// serves (issue #623): Codex reads its catalog from its backend and keeps a bundled one (codex-rs/models-manager),
+// as OpenClaw, omp and Hermes do. Nothing is removed, so a key or a Bot that names a model the vendor stopped listing
+// keeps it until the owner changes the provider. The source is written again with the models added. added are the
+// ones that were not there.
+func (s *Service) AddProviderModels(ctx context.Context, name string, models []string) (added []string, err error) {
+	p, err := s.GetProvider(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var in providerSource
+	if err := decodeStrict(p.Source, &in); err != nil {
+		return nil, err
+	}
+
+	for _, m := range models {
+		if m = strings.TrimSpace(m); m != "" && !slices.Contains(in.Models, m) {
+			in.Models = append(in.Models, m)
+			added = append(added, m)
+		}
+	}
+
+	if len(added) == 0 {
+		return nil, nil
+	}
+
+	source, err := yaml.Marshal(in)
+	if err != nil {
+		return nil, fmt.Errorf("writing provider %s: %w", name, err)
+	}
+
+	if _, err := s.ApplyProvider(ctx, name, string(source)); err != nil {
+		return nil, err
+	}
+
+	return added, nil
 }
 
 func validProvider(in providerSource) error {
