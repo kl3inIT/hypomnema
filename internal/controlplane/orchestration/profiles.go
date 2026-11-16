@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -266,6 +267,9 @@ type providerSource struct {
 	BaseURL   string   `yaml:"base_url,omitempty"`
 	APIKeyRef string   `yaml:"api_key_ref,omitempty"`
 	Models    []string `yaml:"models,flow"`
+	// MinVersions are the oldest version of each family of models the vendor's list adds, by the name's first word:
+	// {gpt: "6", gemini: "3.8"} (owner, 2026-11-16: "Gemini 3.8 and up, Codex 6 and up"; issue #642).
+	MinVersions map[string]string `yaml:"min_versions,omitempty"`
 }
 
 // decodeStrict reads one YAML document, refusing unknown fields.
@@ -812,7 +816,7 @@ func (s *Service) AddProviderModels(ctx context.Context, name string, models []s
 	}
 
 	for _, m := range models {
-		if m = strings.TrimSpace(m); m != "" && !slices.Contains(in.Models, m) {
+		if m = strings.TrimSpace(m); m != "" && !slices.Contains(in.Models, m) && !belowFloor(m, in.MinVersions) {
 			in.Models = append(in.Models, m)
 			added = append(added, m)
 		}
@@ -853,7 +857,7 @@ func (s *Service) SetProviderModels(
 
 	served := map[string]bool{}
 	for _, m := range models {
-		if m = strings.TrimSpace(m); m != "" {
+		if m = strings.TrimSpace(m); m != "" && !belowFloor(m, in.MinVersions) {
 			served[m] = true
 		}
 	}
@@ -869,7 +873,7 @@ func (s *Service) SetProviderModels(
 	}
 
 	for _, m := range models {
-		if m = strings.TrimSpace(m); m != "" && !slices.Contains(kept, m) {
+		if m = strings.TrimSpace(m); served[m] && !slices.Contains(kept, m) {
 			kept = append(kept, m)
 			added = append(added, m)
 		}
@@ -893,6 +897,77 @@ func (s *Service) SetProviderModels(
 	return added, removed, nil
 }
 
+// belowFloor says whether a model is of a family whose oldest version is named and is older than it (issue #642).
+// A name with no version that can be read, such as gpt-oss-120b, is never below.
+func belowFloor(model string, floors map[string]string) bool {
+	family, version, ok := modelVersion(model)
+	if !ok {
+		return false
+	}
+
+	floor, named := floors[family]
+	if !named {
+		return false
+	}
+
+	least, _ := parseVersion(floor)
+
+	return slices.Compare(padded(version, len(least)), padded(least, len(version))) < 0
+}
+
+// modelVersion reads a model's family and version from its name: the first word, and the first word that is a
+// version. A second short number is its minor version, as Anthropic writes them: claude-opus-5-5 is claude 5.5,
+// claude-haiku-4-5-20251001 claude 4.5, gemini-3.8-flash-high gemini 3.8, gpt-6.1-sol gpt 6.1.
+func modelVersion(name string) (family string, version []int, ok bool) {
+	parts := strings.Split(name, "-")
+
+	for i := 1; i < len(parts); i++ {
+		if parts[i] == "" || parts[i][0] < '0' || parts[i][0] > '9' {
+			continue
+		}
+
+		version, ok = parseVersion(parts[i])
+		if !ok {
+			return "", nil, false
+		}
+
+		if len(version) == 1 && i+1 < len(parts) && len(parts[i+1]) <= 2 {
+			if minor, ok := parseVersion(parts[i+1]); ok && len(minor) == 1 {
+				version = append(version, minor[0])
+			}
+		}
+
+		return parts[0], version, true
+	}
+
+	return "", nil, false
+}
+
+// parseVersion reads "6" or "3.8" as its numbers.
+func parseVersion(v string) ([]int, bool) {
+	var out []int
+
+	for _, seg := range strings.Split(v, ".") {
+		n, err := strconv.Atoi(seg)
+		if err != nil || n < 0 {
+			return nil, false
+		}
+
+		out = append(out, n)
+	}
+
+	return out, len(out) > 0
+}
+
+// padded gives v n numbers at least, the missing ones zero: 6 is 6.0 beside 6.1.
+func padded(v []int, n int) []int {
+	for len(v) < n {
+		v = append(slices.Clone(v), 0)
+	}
+
+	return v
+}
+
 func validProvider(in providerSource) error {
 	kinds := []string{
 		ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription,
@@ -909,6 +984,12 @@ func validProvider(in providerSource) error {
 			"never the key itself", ErrInvalid)
 	case in.BaseURL != "" && !strings.HasPrefix(in.BaseURL, "https://") && !strings.HasPrefix(in.BaseURL, "http://"):
 		return fmt.Errorf("%w: base_url is an http or https URL", ErrInvalid)
+	}
+
+	for family, v := range in.MinVersions {
+		if _, ok := parseVersion(v); !ok || family == "" {
+			return fmt.Errorf("%w: min_versions names a family and a version such as 6 or 3.8", ErrInvalid)
+		}
 	}
 
 	seen := map[string]bool{}

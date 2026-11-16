@@ -396,3 +396,52 @@ func TestAProviderIsSetToItsVendorsRoster(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, p.Models, "gemini-3-flash")
 }
+
+// Scenario (issue #642): the owner keeps only the current lines, Codex 6 and up and Gemini 3.8 and up. Codex's list
+// adds gpt-6.2-sol and not gpt-5.6-mini; Antigravity's roster brings gemini-4-pro and gemini-3.8-flash-low, not
+// gemini-2.5-flash or gemini-3-flash, and the gemini-2.5-pro listed before goes; gpt-oss-120b, with no version to
+// read, stays. A model the owner lists by hand below the line stays listed.
+func TestAProviderAddsOnlyTheVersionsItsOwnerKeeps(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: cx\nkind: codex_subscription\nmin_versions: {gpt: \"6\"}\n"+
+		"models: [gpt-6.1-sol, gpt-5.6-luna]\n")
+	require.NoError(t, err)
+
+	added, err := w.s.AddProviderModels(ctx, "cx", []string{"gpt-6.2-sol", "gpt-5.6-mini", "gpt-6-luna"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gpt-6.2-sol", "gpt-6-luna"}, added)
+
+	p, err := w.s.GetProvider(ctx, "cx")
+	require.NoError(t, err)
+	assert.Contains(t, p.Models, "gpt-5.6-luna", "what the owner listed stays")
+
+	_, err = w.s.ApplyProvider(ctx, "", "name: ag\nkind: antigravity_subscription\nmin_versions: {gemini: \"3.8\"}\n"+
+		"models: [gemini-3.8-flash-high, gemini-2.5-pro]\n")
+	require.NoError(t, err)
+
+	added, removed, err := w.s.SetProviderModels(ctx, "ag", []string{
+		"gemini-3.8-flash-high", "gemini-3.8-flash-low", "gemini-4-pro", "gemini-2.5-flash", "gemini-3-flash",
+		"gpt-oss-120b-medium",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gemini-3.8-flash-low", "gemini-4-pro", "gpt-oss-120b-medium"}, added)
+	assert.Equal(t, []string{"gemini-2.5-pro"}, removed)
+
+	// Anthropic writes a version as two numbers and may end the name with a date.
+	_, err = w.s.ApplyProvider(ctx, "", "name: cl\nkind: claude_subscription\nmin_versions: {claude: \"5\"}\n"+
+		"models: [claude-opus-5-5]\n")
+	require.NoError(t, err)
+
+	added, err = w.s.AddProviderModels(ctx, "cl", []string{
+		"claude-haiku-4-5-20251001", "claude-opus-4-8", "claude-fable-5", "claude-sonnet-5-5", "claude-opus-6",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-fable-5", "claude-sonnet-5-5", "claude-opus-6"}, added)
+
+	_, err = w.s.ApplyProvider(ctx, "", "name: bad\nkind: codex_subscription\nmin_versions: {gpt: six}\n")
+	require.ErrorIs(t, err, ErrInvalid)
+}
