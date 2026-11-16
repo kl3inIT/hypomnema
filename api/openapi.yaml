@@ -755,7 +755,9 @@ paths:
         answer has a `user_code` he enters on the page the link opens, and
         completing waits for it. Such a user Connection acts as the owner and
         is used only by the owner's token and by a Bot given it, on the
-        owner's own turn.
+        owner's own turn. For an Integration of kind device (WhatsApp) the
+        answer has no link but a `qr_code` the owner scans with his phone;
+        linking a label again replaces its device.
       requestBody:
         required: true
         content:
@@ -775,6 +777,19 @@ paths:
         in: path
         required: true
         schema: { type: string, minLength: 1, maxLength: 64 }
+    get:
+      operationId: GetIntegrationSignIn
+      summary: The current QR code of a linking in progress; only the owner
+      description: >-
+        For an Integration of kind device: the QR code to show now, which changes about every 20 seconds, while
+        completing the sign-in waits. Not found once the linking was completed or is older than its time.
+      responses:
+        "200":
+          description: The linking, with its current code.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignIn" }
+        default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CompleteIntegrationSignIn
       summary: Complete a sign-in with the address the browser ended on, or by waiting for the code; only the owner
@@ -4636,12 +4651,13 @@ components:
         name: { type: string }
         kind:
           type: string
-          enum: [oauth, app, account, role]
+          enum: [oauth, app, account, role, device]
           description: >-
             How a Connection is made: oauth signs an account in, in a browser;
             app has no sign-in, each Connection being an app of the service
             with its own id and secret; account is the service's address, a
-            user name and a password.
+            user name and a password; device is the owner's own messaging
+            account (WhatsApp), linked by a QR code his phone scans.
         client_id:
           type: string
           description: >-
@@ -4844,6 +4860,7 @@ components:
           description: >-
             Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
             turns it on.
+        session: { $ref: "#/components/schemas/DeviceSession" }
         cannot:
           type: array
           items: { $ref: "#/components/schemas/ConnectionCannot" }
@@ -4856,6 +4873,20 @@ components:
           description: When what the account can do was last read at the service; absent when never.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    DeviceSession:
+      type: object
+      description: >-
+        The session of a Connection of kind device, held by the control plane. logged_out needs a link again
+        (sign_in_required is then true); disconnected comes back by itself; banned lasts until `until` when the
+        service said; replaced is another client that opened the same session; outdated needs the control
+        plane updated.
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [connecting, connected, disconnected, logged_out, banned, replaced, outdated]
+        reason: { type: string, description: "The service's own words for a ban or a logout, when it gave some." }
+        until: { type: string, format: date-time, description: "When a ban ends, when the service said." }
     ConnectionCannot:
       type: object
       description: One action a Connection's account cannot do at the service, and why.
@@ -5179,6 +5210,17 @@ components:
           description: >-
             The code the owner enters on the page the link opens, for a sign-in
             by device code; completing it then takes no callback.
+        qr_code:
+          type: string
+          description: >-
+            For an Integration of kind device, what the QR code the phone scans
+            shows; the url is then empty. A new one comes about every 20
+            seconds: read the sign-in again for it. Absent once the linking
+            ended; completing it answers how.
+        qr_expires_at:
+          type: string
+          format: date-time
+          description: When the QR code stops being valid.
         expires_in_seconds: { type: integer }
     SignInCallback:
       type: object

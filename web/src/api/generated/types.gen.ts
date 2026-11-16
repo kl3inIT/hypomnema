@@ -961,9 +961,9 @@ export type Integration = {
   id: string;
   name: string;
   /**
-   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password.
+   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans.
    */
-  kind: 'oauth' | 'app' | 'account' | 'role';
+  kind: 'oauth' | 'app' | 'account' | 'role' | 'device';
   /**
    * The id of the OAuth client it signs in with; absent until one is set, and for an app, whose Connections each have their own. Not secret.
    */
@@ -1149,6 +1149,7 @@ export type IntegrationConnection = {
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
+  session?: DeviceSession;
   /**
    * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
    */
@@ -1159,6 +1160,21 @@ export type IntegrationConnection = {
   access_checked_at?: string;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * The session of a Connection of kind device, held by the control plane. logged_out needs a link again (sign_in_required is then true); disconnected comes back by itself; banned lasts until `until` when the service said; replaced is another client that opened the same session; outdated needs the control plane updated.
+ */
+export type DeviceSession = {
+  state: 'connecting' | 'connected' | 'disconnected' | 'logged_out' | 'banned' | 'replaced' | 'outdated';
+  /**
+   * The service's own words for a ban or a logout, when it gave some.
+   */
+  reason?: string;
+  /**
+   * When a ban ends, when the service said.
+   */
+  until?: string;
 };
 
 /**
@@ -1448,6 +1464,14 @@ export type SignIn = {
    * The code the owner enters on the page the link opens, for a sign-in by device code; completing it then takes no callback.
    */
   user_code?: string;
+  /**
+   * For an Integration of kind device, what the QR code the phone scans shows; the url is then empty. A new one comes about every 20 seconds: read the sign-in again for it. Absent once the linking ended; completing it answers how.
+   */
+  qr_code?: string;
+  /**
+   * When the QR code stops being valid.
+   */
+  qr_expires_at?: string;
   expires_in_seconds: number;
 };
 
@@ -4519,6 +4543,34 @@ export type BeginIntegrationSignInResponses = {
 };
 
 export type BeginIntegrationSignInResponse = BeginIntegrationSignInResponses[keyof BeginIntegrationSignInResponses];
+
+export type GetIntegrationSignInData = {
+  body?: never;
+  path: {
+    integration: string;
+    sign_in_id: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/sign-ins/{sign_in_id}';
+};
+
+export type GetIntegrationSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetIntegrationSignInError = GetIntegrationSignInErrors[keyof GetIntegrationSignInErrors];
+
+export type GetIntegrationSignInResponses = {
+  /**
+   * The linking, with its current code.
+   */
+  200: SignIn;
+};
+
+export type GetIntegrationSignInResponse = GetIntegrationSignInResponses[keyof GetIntegrationSignInResponses];
 
 export type CompleteIntegrationSignInData = {
   body: SignInCallback;

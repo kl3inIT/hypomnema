@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -97,6 +98,12 @@ type Service struct {
 	after func(time.Duration) <-chan time.Time
 	// checker reads and keeps what a Connection's account can do (holdings.go); nil when none was wired.
 	checker Checker
+	// devices is the messaging service of each Integration of kind device, by its id, and held the session of
+	// each of its Connections, by "integration:label" (device.go).
+	devices map[string]messaging.Service
+	held    map[string]messaging.Account
+	// deviceMu orders the changes of a device Connection: a link saved, a disconnect.
+	deviceMu sync.Mutex
 }
 
 // signIn is one sign-in the owner started and has not completed.
@@ -110,6 +117,8 @@ type signIn struct {
 	// device is set for a person's sign-in through an app, by device code (larkuser.go); the fields above
 	// that are not the definition, the label and the start are then unused.
 	device *deviceSignIn
+	// link is set for the linking of a messaging account (device.go); the same fields are then unused.
+	link *deviceLink
 }
 
 // New returns a Service for the given Integrations.
@@ -119,7 +128,7 @@ func New(store Store, secrets *vault.Service, clock platform.Clock, newID func(s
 		store: store, vault: secrets, defs: defs, client: &http.Client{Timeout: httpTimeout}, clock: clock,
 		newID: newID, signIns: map[string]*signIn{}, appTokens: map[string]Token{},
 		accounts: map[string]accountSession{}, accountClient: newAccountClient(), roles: map[string]awsRole{},
-		after: time.After,
+		after: time.After, devices: map[string]messaging.Service{}, held: map[string]messaging.Account{},
 	}
 }
 
@@ -155,6 +164,8 @@ type Connection struct {
 	Key     string
 	// Chats says the coordinator may use the Connection in chats.
 	Chats bool
+	// Session is the state of the account's session, for an Integration of kind device; nil otherwise.
+	Session *messaging.State
 	// Access is what the account can really do, action by action, as last read at the service (issue #567).
 	Access    orchestration.ConnectionAccess
 	CreatedAt time.Time
@@ -176,12 +187,16 @@ type Integration struct {
 // machine and signs in; the browser ends on an address that does not load,
 // which they copy and give to Complete with the ID. A sign-in by device code
 // has a UserCode instead: the page URL opens asks for it, and Complete waits
-// until it was entered.
+// until it was entered. The linking of a messaging account has no URL but a
+// Code, the QR code's content until CodeExpires, which Code answers anew
+// (device.go); Complete waits until the phone scanned one.
 type SignIn struct {
-	ID        string
-	URL       string
-	UserCode  string
-	ExpiresIn time.Duration
+	ID          string
+	URL         string
+	UserCode    string
+	ExpiresIn   time.Duration
+	Code        string
+	CodeExpires time.Time
 }
 
 func (s *Service) definition(id string) (Definition, error) {
@@ -257,10 +272,15 @@ func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connec
 	// What is stored was checked when it was written; a service since removed from the catalog is left out.
 	out.Grants, _ = d.ParseGrants(c.Services)
 
+	if d.IsDevice() {
+		state := s.deviceState(c.Integration, c.Label)
+		out.Session = &state
+	}
+
 	secret, err := s.vault.Get(ctx, c.Secret)
 	// An account's password does not expire: it needs a sign-in when the service refused it the last time.
 	out.SignInRequired = err != nil || secret.LoginRequired || secret.KeyMissing || c.SignInFailed ||
-		(c.User() && !s.appStillSignsIn(ctx, d, c))
+		(c.User() && !s.appStillSignsIn(ctx, d, c)) || (out.Session != nil && out.Session.NeedsLink())
 
 	return out
 }
@@ -342,6 +362,10 @@ func (s *Service) Begin(ctx context.Context, integration, label string, services
 		return SignIn{}, fmt.Errorf("%w: %s is connected with its address, a user name and a password", ErrInvalid, d.ID)
 	}
 
+	if d.IsDevice() {
+		return s.beginLink(ctx, d, label)
+	}
+
 	if !orchestration.ValidConnectionLabel(label) {
 		return SignIn{}, fmt.Errorf("%w: a label is lower-case letters, digits and dashes, such as work", ErrInvalid)
 	}
@@ -408,6 +432,10 @@ func (s *Service) Complete(ctx context.Context, integration, id, pasted string) 
 
 	if pending.device != nil {
 		return s.completeDevice(ctx, id, pending, pasted)
+	}
+
+	if pending.link != nil {
+		return s.completeLink(ctx, id, pending, strings.TrimSpace(pasted))
 	}
 
 	d := pending.def
@@ -554,6 +582,10 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 		return Token{AccessToken: session.access}, err
 	}
 
+	if d.IsDevice() {
+		return Token{}, fmt.Errorf("%w: a %s account is linked as a device and has no token", ErrInvalid, d.Name)
+	}
+
 	opened, err := s.vault.Open(ctx, conn.Secret)
 	if err != nil {
 		return Token{}, vaultError(err)
@@ -654,6 +686,10 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 
 	if d.IsRole() {
 		return true, s.forgetRole(ctx, d, conn)
+	}
+
+	if d.IsDevice() {
+		return s.forgetDevice(ctx, d, conn)
 	}
 
 	if opened, err := s.vault.Open(ctx, conn.Secret); err == nil {

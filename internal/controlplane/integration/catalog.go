@@ -40,6 +40,10 @@ const (
 	// with a key the owner gave once; the control plane keeps the role's
 	// session (issue #331).
 	KindRole Kind = "role"
+	// KindDevice: a Connection is the owner's own messaging account, linked
+	// as a device of his by a QR code his phone scans; the control plane holds
+	// its session (issue #615).
+	KindDevice Kind = "device"
 )
 
 // Definition is what an Integration declares. It is code, not something the
@@ -242,6 +246,10 @@ func (d Definition) IsAccount() bool { return d.Kind == KindAccount }
 // with a key.
 func (d Definition) IsRole() bool { return d.Kind == KindRole }
 
+// IsDevice says whether a Connection of the Integration is a messaging
+// account linked as a device.
+func (d Definition) IsDevice() bool { return d.Kind == KindDevice }
+
 // CredentialKind is the Integration's Kind, with the default spelled out.
 func (d Definition) CredentialKind() Kind {
 	if d.Kind == "" {
@@ -369,4 +377,18 @@ const AWSID = "aws"
 // choose here.
 func AWS() Definition {
 	return Definition{ID: AWSID, Name: "AWS", Kind: KindRole}
+}
+
+// WhatsAppID is the id of the WhatsApp Integration.
+const WhatsAppID = "whatsapp"
+
+// WhatsApp is the owner's own WhatsApp account, linked as a device of his by
+// QR as on WhatsApp Web (issue #615, step 1 of #612): the main Bot reads and
+// writes in his chats as him. Meta's Cloud API serves a business number, not a
+// person in his groups, so the link is WhatsApp Web's, as OpenClaw's
+// (extensions/whatsapp, personal-number mode), Hermes's (self-chat mode) and
+// MemoryOS's (whatsmeow) are. The owner links his main number knowing it can be
+// banned (owner, 2026-11-16).
+func WhatsApp() Definition {
+	return Definition{ID: WhatsAppID, Name: "WhatsApp", Kind: KindDevice}
 }
