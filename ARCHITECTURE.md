@@ -3640,8 +3640,9 @@ the internet, so that a machine created at a provider can install the node from 
   2026-11-13, a tmux session `hyp-ts` until then, state in `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as
   `https://hypomnema.taild3b6dc.ts.net`, which was `HYPOMNEMA_PUBLIC_URL` in `env` until 2026-11-16 and still
   serves the nodes set up with it. The client API still refuses a
-  call without a token. `tailscale funnel --https=443 off` makes it tailnet-only again, and then no machine can
-  be created at a provider.
+  call without a token. Funnel was turned off on 2026-11-16 once every node used the domain (issue #581); `tailscale funnel --https=443 off`
+  also removed the serve, so `tailscale serve --bg --https=443 http://127.0.0.1:18990` put back the tailnet-only
+  address. A machine created at a provider installs the node from the domain.
 - Machines at AWS, since 2026-11-10: the provider `aws` (`ap-southeast-1`, `t3.medium`, up to 3 machines), its
   key in the vault as `aws`.
 - Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`. The owner's Codex account is
