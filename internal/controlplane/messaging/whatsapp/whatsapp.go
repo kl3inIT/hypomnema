@@ -69,13 +69,18 @@ func Open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 		return nil, errors.Join(err, db.Close())
 	}
 
-	store.SetOSInfo(deviceName, [3]uint32{1, 0, 0})
+	// The device's name is whatsmeow's package-wide setting, written once: two Opens at a time, as tests do, would
+	// write it together.
+	osInfo.Do(func() { store.SetOSInfo(deviceName, [3]uint32{1, 0, 0}) })
 
 	return &Service{
 		closeDB: db.Close, container: container, mirror: kept, log: logger,
 		connect: func(ctx context.Context, c *whatsmeow.Client) error { return c.ConnectContext(ctx) },
 	}, nil
 }
+
+// osInfo writes the device's name into whatsmeow once for the process.
+var osInfo sync.Once
 
 // Close closes the sessions' database; close the accounts first.
 func (s *Service) Close() error { return s.closeDB() }
