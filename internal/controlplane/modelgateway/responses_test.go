@@ -1,7 +1,9 @@
 package modelgateway_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -193,4 +195,58 @@ func jsonInt(n int64) string {
 	encoded, _ := json.Marshal(n) //nolint:errchkjson // A number always encodes.
 
 	return string(encoded)
+}
+
+// leavingClient is a client that reads the stream and leaves as it reads a mark: its request ends, and what is
+// written after fails. With the mark "response.completed" it is the Codex CLI, which returns from its read as it
+// reads that event (codex-rs/codex-api/src/sse/responses.rs).
+type leavingClient struct {
+	*httptest.ResponseRecorder
+
+	mark  string
+	leave context.CancelFunc
+	gone  bool
+}
+
+func (c *leavingClient) Write(p []byte) (int, error) {
+	if c.gone {
+		return 0, errors.New("the client closed the connection")
+	}
+
+	n, err := c.ResponseRecorder.Write(p)
+	if strings.Contains(c.Body.String(), c.mark) && strings.HasSuffix(c.Body.String(), "\n\n") {
+		c.gone = true
+		c.leave()
+	}
+
+	return n, err
+}
+
+// Scenario (issue #635): a Codex CLI reads the answer to its end and closes the connection at once. The request was
+// answered: it is recorded ok, with its tokens. One that leaves in the middle of the answer is recorded as a client
+// gone.
+func TestAClientThatLeavesAfterTheEndWasAnswered(t *testing.T) {
+	t.Parallel()
+
+	backend, _ := codexBackend(t, stream(helloEvents...))
+	g := newCodexGateway(t, backend, &accounts{})
+
+	for mark, want := range map[string]modelgateway.Outcome{
+		`"response.completed"`: modelgateway.OutcomeOK,
+		`"delta":"hel"`:        modelgateway.OutcomeClientGone,
+	} {
+		ctx, leave := context.WithCancel(t.Context())
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/responses", strings.NewReader(codexAsks))
+		req.Header.Set("Authorization", "Bearer "+g.key)
+
+		g.mux.ServeHTTP(&leavingClient{ResponseRecorder: httptest.NewRecorder(), mark: mark, leave: leave}, req)
+		leave()
+
+		usage := g.lastUsage(t)
+		assert.Equal(t, want, usage.Outcome, mark)
+
+		if want == modelgateway.OutcomeOK {
+			assert.Equal(t, modelgateway.Tokens{Prompt: 30, Completion: 7, Cached: 20, Reasoning: 4}, usage.Tokens)
+		}
+	}
 }
