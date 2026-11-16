@@ -115,6 +115,10 @@ export type Task = {
    */
   not_before?: string;
   cancel_requested_at?: string;
+  /**
+   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+   */
+  waiting_reason?: string;
 };
 
 export type TaskDetail = Task & {
@@ -364,8 +368,15 @@ export type Node = {
   created_at: string;
 };
 
+/**
+ * What changes of a node; what is left out stays.
+ */
 export type NodeChange = {
-  name: string;
+  name?: string;
+  /**
+   * Dispatches the node runs at once (issue #660). The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
+   */
+  max_dispatches?: number;
 };
 
 export type NewTerminal = {
@@ -2247,6 +2258,10 @@ export type Bot = {
     [key: string]: ConnectionScope;
   };
   tool_display: ToolDisplay;
+  /**
+   * How many of the Bot's workers run at once, across every node (issue #660): the unsettled Dispatches of the Runs it made. 4 unless the Bot sets its own.
+   */
+  max_dispatches: number;
   created_at: string;
   updated_at: string;
 };
@@ -2566,6 +2581,10 @@ export type BotSettings = {
     [key: string]: ConnectionScope;
   };
   tool_display?: ToolDisplay;
+  /**
+   * How many of the Bot's workers run at once; left out, the Bot keeps it, 4 for a new one.
+   */
+  max_dispatches?: number;
 };
 
 export type Memory = {

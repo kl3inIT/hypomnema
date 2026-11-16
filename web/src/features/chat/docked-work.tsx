@@ -14,13 +14,14 @@ import {
 import { useMemo } from "react"
 
 import "@/api/client"
-import { listProfilesOptions } from "@/api/generated/@tanstack/react-query.gen"
+import { listBotsOptions, listProfilesOptions } from "@/api/generated/@tanstack/react-query.gen"
 import type { RunDetail, TaskDetail } from "@/api/generated/types.gen"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { QuestionForm } from "@/features/questions/question-form"
 import { RunActions } from "@/features/runs/run-actions"
 import { firstLine } from "@/lib/text"
+import { waitingText } from "@/features/work/waiting"
 import { runtimeOf } from "@/features/work/work-state"
 import { cn } from "@/lib/utils"
 
@@ -190,9 +191,10 @@ function DockedRun({
   )
 }
 
-// TaskRow is one Task: its status icon and words, its worker's runtime and its first line. It opens the Task's panel
-// over the chat, kept in the URL as a wake-up's Task chip does. A row that opens stays its own design rather than a
-// Button (docs/conventions.md), as the Run page's rows.
+// TaskRow is one Task: its status icon and words, its worker's runtime and its first line, and under it, for a
+// queued Task, why it waits (issue #660). It opens the Task's panel over the chat, kept in the URL as a wake-up's
+// Task chip does. A row that opens stays its own design rather than a Button (docs/conventions.md), as the Run
+// page's rows.
 function TaskRow({
   task,
   asking,
@@ -203,15 +205,18 @@ function TaskRow({
   runtime: string
 }) {
   const navigate = useNavigate()
+  const bots = useQuery({ ...listBotsOptions(), select: (page) => page.data })
   const state = taskState(task, asking)
   const Icon = icons[state.icon]
   const title = firstLine(task.spec, 120)
+  const waiting =
+    task.status === "ready" && !asking ? waitingText(task.waiting_reason, bots.data) : undefined
 
   return (
     <li>
       <button
         type="button"
-        aria-label={`Open Task ${title}: ${state.word}`}
+        aria-label={`Open Task ${title}: ${state.word}${waiting ? `. ${waiting}` : ""}`}
         onClick={() =>
           void navigate({
             to: ".",
@@ -222,7 +227,10 @@ function TaskRow({
       >
         <Icon aria-hidden className={cn("size-3.5 shrink-0", tones[state.tone])} />
         <RuntimeMark runtime={runtime} className="size-4.5" />
-        <span className="min-w-0 flex-1 truncate text-foreground/90">{title}</span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-foreground/90">{title}</span>
+          {waiting && <span className="truncate text-muted-foreground">{waiting}</span>}
+        </span>
         <span className={cn("shrink-0", tones[state.tone])}>{state.word}</span>
       </button>
     </li>

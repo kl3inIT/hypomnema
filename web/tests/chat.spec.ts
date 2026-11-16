@@ -68,6 +68,7 @@ const builder = {
   workers: { limited: false, names: [] },
   scopes: {},
   tool_display: "on",
+  max_dispatches: 4,
   created_at: "2026-11-09T10:00:00Z",
   updated_at: "2026-11-09T10:00:00Z",
 }

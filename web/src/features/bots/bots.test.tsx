@@ -55,6 +55,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   workers: { limited: false, names: [] },
   scopes: {},
   tool_display: "on",
+  max_dispatches: 4,
   created_at: new Date(Date.now() - 48 * 3_600_000).toISOString(),
   updated_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   ...m,
@@ -568,6 +569,27 @@ test("a Bot's Connections and workers are limited by switches that save at once"
 
   await user.click(await within(workers).findByRole("switch", { name: "Workers: reviewer" }))
   expect(put.at(-1)?.settings.workers).toEqual({ limited: true, names: ["reviewer"] })
+})
+
+// Scenario: the owner sets how many of a Bot's workers run at once (issue #660). The card starts from the Bot's
+// number and cannot send it unchanged; a new number is saved with the Bot's stored model and persona.
+test("a Bot's workers at once are saved from its card", async () => {
+  const { put } = server([bot("vmap", { persona: "You answer about VMAP." })])
+  open("/bots/vmap")
+  const user = userEvent.setup()
+
+  const card = await screen.findByRole("region", { name: "Workers at once" })
+  const input = within(card).getByRole("spinbutton", { name: "Workers at once" })
+  expect(input).toHaveValue(4)
+  expect(within(card).getByRole("button", { name: "Save workers at once" })).toBeDisabled()
+
+  await user.clear(input)
+  await user.type(input, "2")
+  await user.click(within(card).getByRole("button", { name: "Save workers at once" }))
+  expect(put.at(-1)).toEqual({
+    name: "vmap",
+    settings: { persona: "You answer about VMAP.", max_dispatches: 2 },
+  })
 })
 
 // Each save carries the Bot's whole settings: while the form saves a new persona, the switches wait, so that one

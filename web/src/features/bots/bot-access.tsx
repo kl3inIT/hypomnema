@@ -1,11 +1,12 @@
 import { useIsMutating, useQuery } from "@tanstack/react-query"
-import { Bot as BotIcon, LayoutDashboard, Plug, Wrench } from "lucide-react"
-import type { ReactNode } from "react"
+import { Bot as BotIcon, Gauge, LayoutDashboard, Plug, Wrench } from "lucide-react"
+import { useState, type ReactNode } from "react"
 
 import "@/api/client"
 import { listSupersetDashboardsOptions } from "@/api/generated/@tanstack/react-query.gen"
 import type { AllowList, Bot, BotSettings, ToolDisplay } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import {
   Field,
   FieldContent,
@@ -13,6 +14,7 @@ import {
   FieldLabel,
   FieldTitle,
 } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { errorText } from "@/lib/server-error"
@@ -182,6 +184,74 @@ function ToolDisplayCard({
   )
 }
 
+// WorkersAtOnceCard is how many of a Bot's workers run at once, across every machine (issue #660), after
+// OpenMausBot's threads.maxConcurrentPerBot (server/bot-thread-limits.ts): its other Tasks wait their turn, and other
+// Bots' Tasks go on. It is saved with its button, a number being typed one digit at a time.
+function WorkersAtOnceCard({
+  bot,
+  pending,
+  onSave,
+}: {
+  bot: Bot
+  pending: boolean
+  onSave: (max: number) => void
+}) {
+  const [max, setMax] = useState(String(bot.max_dispatches))
+  const n = Number(max)
+  const unchanged = !Number.isInteger(n) || n < 1 || n > 64 || n === bot.max_dispatches
+
+  return (
+    <section
+      aria-labelledby="bot-workers-at-once"
+      className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 shrink-0 text-primary">
+          <Gauge className="size-4" aria-hidden />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h3 id="bot-workers-at-once" className="text-sm font-medium">
+            Workers at once
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            How many of its workers run at the same time, across every machine. Its other Tasks wait
+            their turn; other Bots&apos; go on.
+          </p>
+        </div>
+      </div>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (!unchanged) onSave(n)
+        }}
+      >
+        <div className="w-24">
+          <Input
+            aria-labelledby="bot-workers-at-once"
+            type="number"
+            required
+            min={1}
+            max={64}
+            step={1}
+            inputMode="numeric"
+            value={max}
+            onChange={(event) => setMax(event.target.value)}
+          />
+        </div>
+        <Button
+          type="submit"
+          variant="outline"
+          aria-label="Save workers at once"
+          disabled={pending || unchanged}
+        >
+          Save
+        </Button>
+      </form>
+    </section>
+  )
+}
+
 // DashboardsCard is the dashboards a Bot may read of one Superset Connection it may use (issue #562), the same card
 // as the Connections', under them: OpenMausBot's app shows the scope control beside the connected app
 // (connector-scopes.ts L4). Off, the Bot reads every dashboard the account sees and may send its own requests to
@@ -257,7 +327,10 @@ export function BotAccess({ bot }: { bot: Bot }) {
   const profiles = useProfiles()
 
   function save(
-    change: Pick<BotSettings, "connections" | "workers" | "scopes" | "tool_display">,
+    change: Pick<
+      BotSettings,
+      "connections" | "workers" | "scopes" | "tool_display" | "max_dispatches"
+    >,
     what: string,
   ) {
     put.mutate(
@@ -375,6 +448,14 @@ export function BotAccess({ bot }: { bot: Bot }) {
             { workers },
             workers.limited ? `Workers of ${bot.name} saved` : `${bot.name} may use every worker`,
           )
+        }
+      />
+      <WorkersAtOnceCard
+        key={bot.max_dispatches}
+        bot={bot}
+        pending={saving}
+        onSave={(max_dispatches) =>
+          save({ max_dispatches }, `${bot.name} runs up to ${max_dispatches} workers at once`)
         }
       />
       <ToolDisplayCard

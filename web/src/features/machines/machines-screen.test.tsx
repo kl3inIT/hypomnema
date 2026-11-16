@@ -682,6 +682,31 @@ test("a machine is renamed from its menu", async () => {
   ])
 })
 
+// Scenario: the owner changes how many Dispatches a machine runs at once from its menu (issue #660). The dialog
+// starts from the machine's number and cannot send it unchanged; a new number is sent and the dialog closes.
+test("a machine's limit is changed from its menu", async () => {
+  const user = userEvent.setup()
+  const requests = nodesServer([node("stc-hy-app")], {
+    "PATCH /nodes/stc-hy-app": () => json(node("stc-hy-app", { max_dispatches: 6 })),
+  })
+  await open()
+
+  await user.click(await screen.findByRole("button", { name: "Actions for stc-hy-app" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Change limit" }))
+
+  const dialog = await screen.findByRole("dialog")
+  const input = within(dialog).getByLabelText(/Max Dispatches/)
+  expect(input).toHaveValue(node("stc-hy-app").max_dispatches)
+  expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled()
+
+  await user.clear(input)
+  await user.type(input, "6")
+  await user.click(within(dialog).getByRole("button", { name: "Save" }))
+
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  expect(requests).toEqual([{ call: "PATCH /nodes/stc-hy-app", body: { max_dispatches: 6 } }])
+})
+
 const GiB = 2 ** 30
 const gpu = (index: number, usage: number, usedGiB: number, celsius: number) => ({
   index,

@@ -262,7 +262,7 @@ export const removeNode = <ThrowOnError extends boolean = true>(options: Options
 });
 
 /**
- * Rename a node (owner only); its id, its tokens and what it runs stay
+ * Rename a node or change how many Dispatches it runs at once (owner only); its id, its tokens and what it runs stay
  */
 export const updateNode = <ThrowOnError extends boolean = true>(options: Options<UpdateNodeData, ThrowOnError>): RequestResult<UpdateNodeResponses, UpdateNodeErrors, ThrowOnError> => (options.client ?? client).patch<UpdateNodeResponses, UpdateNodeErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
