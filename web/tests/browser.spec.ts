@@ -88,14 +88,16 @@ async function frame(page: Page) {
   return Buffer.from(data, "base64")
 }
 
-// fakeServer answers the API and plays a tab on the WebSocket: it says the agents control, the tab's size and
-// address, and sends one frame; asked for control it gives it. It keeps the tabs tickets were asked for, the
+// fakeServer answers the API and plays a tab on the WebSocket: it says who controls, the tab's size and address,
+// and sends one frame; asked for control it gives it. As the control plane, it keeps the owner's hold until the
+// owner hands it back, not when a view closes (issue #603). It keeps the tabs tickets were asked for, the
 // WebSockets it was given and what the page sent.
 async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boolean } = {}) {
   const asked: string[] = []
   const sockets: WebSocketRoute[] = []
   const sent: Record<string, unknown>[] = []
   const picture = await frame(page)
+  let held = options.held ?? false
 
   await page.addInitScript({ content: "localStorage.setItem('hypomnema.token', 'secret')" })
   await page.route("**/api/v1/**", async (route) => {
@@ -120,7 +122,7 @@ async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boo
           return json({ code: "unavailable", message: "this control plane has no browser" }, 503)
         }
 
-        return json({ installed: true, running: true, held: options.held ?? false, tabs })
+        return json({ installed: true, running: true, held, tabs })
       case "GET /bots":
         return json({ data: [{ id: "coordinator", name: "Atlas", main: true }] })
       case "GET /chats":
@@ -155,14 +157,18 @@ async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boo
     ws.onMessage((message) => {
       const input = JSON.parse(String(message)) as Record<string, unknown>
       sent.push(input)
-      if (input.type === "takeControl")
+      if (input.type === "takeControl") {
+        held = true
         ws.send(JSON.stringify({ type: "control", controller: "you" }))
-      if (input.type === "releaseControl")
+      }
+      if (input.type === "releaseControl") {
+        held = false
         ws.send(JSON.stringify({ type: "control", controller: "agent" }))
+      }
       if (input.type === "navigate")
         ws.send(JSON.stringify({ type: "url", url: String(input.url) }))
     })
-    ws.send(JSON.stringify({ type: "control", controller: "agent" }))
+    ws.send(JSON.stringify({ type: "control", controller: held ? "you" : "agent" }))
     ws.send(JSON.stringify({ type: "viewport", width: 1280, height: 720 }))
     ws.send(JSON.stringify({ type: "url", url: tabs.find((t) => t.id === asked.at(-1))!.url }))
     ws.send(picture)
@@ -357,6 +363,35 @@ test("a dropped view comes back by itself", async ({ page }) => {
   await server.sockets[0].close({ code: 1006, reason: "" })
   await expect.poll(() => server.asked, { timeout: 10_000 }).toEqual(["owner", "owner"])
   await painted(page)
+})
+
+// Scenario: the owner holds the browser and goes to the chat's tab in the same pane, then back. The browser's view
+// closes, but the page does not hand the browser back: only "Hand back" does, and the control plane keeps the hold
+// meanwhile (issue #603). The sidebar still says the owner holds it, and the tab comes back held.
+test("switching to another tab of the pane keeps the owner's hold on the browser", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "phone", "a phone has no sidebar")
+  const server = await fakeServer(page)
+  await page.goto("/chats/cht_1")
+  await open(page, "My browser")
+  await expect.poll(() => server.sockets).toHaveLength(1)
+  let closed = 0
+  server.sockets[0].onClose(() => closed++)
+  await page.getByRole("button", { name: /Take control/ }).click()
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  await expect(page.getByText("You hold the browser.")).toBeVisible({ timeout: 10_000 })
+
+  await page.getByRole("tab", { name: "health page" }).click()
+  await expect(page.getByText("add a health page")).toBeVisible()
+  await expect.poll(() => closed).toBe(1)
+  expect(server.of("releaseControl")).toHaveLength(0)
+  await expect(page.getByText("You hold the browser.")).toBeVisible()
+
+  await page.getByRole("tab", { name: "My browser" }).click()
+  await expect.poll(() => server.sockets).toHaveLength(2)
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  await expect(page.getByText("You hold the browser.")).toBeVisible()
 })
 
 // A control plane with no browser offers none: "+" has only a new chat.

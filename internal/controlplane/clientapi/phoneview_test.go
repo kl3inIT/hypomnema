@@ -25,12 +25,12 @@ type sharedPhone struct {
 	gone    bool
 	updates chan phone.Update
 	did     chan phone.Action
-	closed  chan bool
+	closed  chan struct{}
 }
 
 func newSharedPhone() *sharedPhone {
 	return &sharedPhone{
-		updates: make(chan phone.Update, 4), did: make(chan phone.Action, 4), closed: make(chan bool, 4),
+		updates: make(chan phone.Update, 4), did: make(chan phone.Action, 4), closed: make(chan struct{}, 4),
 	}
 }
 
@@ -59,7 +59,7 @@ func (p *sharedPhone) Do(_ context.Context, a phone.Action) error {
 	return nil
 }
 
-func (p *sharedPhone) Close(_ context.Context, clean bool) { p.closed <- clean }
+func (p *sharedPhone) Close(context.Context) { p.closed <- struct{}{} }
 
 func (w *world) phoneTicket(c *openapi.ClientWithResponses) string {
 	w.t.Helper()
@@ -74,7 +74,7 @@ func (w *world) phoneTicket(c *openapi.ClientWithResponses) string {
 // Scenario: the owner watches the phone. The ticket opens the WebSocket once;
 // the page is told who controls, the phone's state and the screen's size as
 // JSON and gets a frame as a binary message; what it sends reaches the view;
-// and when the owner closes the page the view is closed as the owner's doing.
+// and when the owner closes the page the view is closed.
 // Only the owner is given a ticket.
 func TestTheOwnerWatchesThePhoneThroughATicket(t *testing.T) {
 	t.Parallel()
@@ -127,7 +127,7 @@ func TestTheOwnerWatchesThePhoneThroughATicket(t *testing.T) {
 	require.Error(t, err, "a ticket opens its WebSocket once")
 
 	require.NoError(t, conn.Close(websocket.StatusNormalClosure, ""))
-	assert.True(t, <-p.closed)
+	<-p.closed
 }
 
 // The phone's status says when the owner holds it; a phone that cannot be
