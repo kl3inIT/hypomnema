@@ -2055,7 +2055,7 @@ flowchart LR
     - The control plane has one SSH key pair for git, an ed25519 key made on first use and kept in the vault as
       the secret `git-ssh-key` (`internal/controlplane/gitsshkey.go`), as Coder makes a user's key
       (`coderd/gitsshkey`). The owner reads its public half with `hypomnema git ssh-key`, `GET /git/ssh-key` or the
-      Integrations page, and adds it to the git host's account once. Deleting the secret makes a new pair on the
+      Repositories page, and adds it to the git host's account once. Deleting the secret makes a new pair on the
       next use; there is no regenerate command.
     - The offer carries the address (`repo_ssh_url`), never the key. The node sets `GIT_SSH_COMMAND` to its own
       `hypomnema-node gitssh` (`internal/node/gitssh`), with `GIT_SSH_VARIANT=ssh` and the agent API's address
@@ -3649,8 +3649,17 @@ Node (`internal/node`):
     password field and sends it once; it is never read back. A company's server is added from its product's card
     ("Add server") with its address (a name or a pasted URL) and, if wanted, its token; it runs what the card is.
     Removing a token or a declared server asks first.
-  - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
-    proposed name with an optional base branch, and removes one after a confirmation.
+  - `/settings/repositories` (under Agents, after Skills and About you; issue #647, as t3code lists its Projects
+    and Orca its repositories in Settings) opens with the control plane's SSH key: the public key with a copy
+    button, as Coder's SSH keys page, and the git hosts whose repositories are cloned over SSH, each with a link to
+    that host's page for SSH keys. Below, the registered repositories as rows: name, an HTTPS or SSH badge, the
+    host (a link to Integrations) and path, the base branch and the SSH host and port, with Edit and Remove. Pills
+    narrow the list to one host, kept in the URL (`?host=`). One dialog adds and edits a repository (`PUT
+    /repos/{name}`, sent whole with its Connection kept, as `hypomnema repos set`): the URL and name when added,
+    the base branch, and Clone over HTTPS or SSH; SSH asks for the address and the host's keys and shows each
+    key's SHA256 fingerprint, computed in the browser. Remove asks first.
+  - Each git host row of `/settings/integrations` says how many registered repositories are on it, a link to
+    `/settings/repositories?host=<host>`.
   - `/settings/models` (under Gateway, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
     [research](docs/research/2026-11-12-model-gateway-pages.md)) shows where models come from
     (`web/src/features/models/`).

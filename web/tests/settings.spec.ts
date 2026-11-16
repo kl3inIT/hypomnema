@@ -659,42 +659,134 @@ test("the owner adds and removes a company's git server", async ({ page }) => {
   ])
 })
 
-// Scenario: the company's GitLab cuts a large clone over HTTPS (issue #625). Under the git hosts the owner finds
-// the public key the nodes clone over SSH with, whole on a phone too, and registers the repository with its SSH
-// address; its row says it is cloned over SSH.
-test("the owner reads the SSH key and registers a repository with its SSH address", async ({
-  page,
-}) => {
-  const calls = await fakeServer(page)
-  await page.goto("/settings/integrations")
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8"
 
-  const key = page.getByTestId("ssh-key-card")
-  await expect(key).toContainText("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5")
-  await expect(key.getByRole("button", { name: "Copy" })).toBeVisible()
-  expect(await fits(page)).toBe(true)
-  await top(key)
-  await shot(page, "git-ssh-key")
-
-  await page.goto("/settings/repositories")
-  await page.getByRole("button", { name: "Add repository" }).click()
-  const dialog = page.locator("[data-slot=dialog-content]")
-  await dialog.getByLabel("Repository").fill("https://git.company.example/mobility/platform")
-  await dialog.getByLabel("SSH address").fill("ssh://git@167.254.68.172:222/mobility/platform.git")
-  await dialog
-    .getByLabel("SSH host key")
-    .fill("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8")
-  await shot(page, "repositories-add-ssh")
-  await dialog.getByRole("button", { name: "Add", exact: true }).click()
-
-  await expect(page.locator("[data-slot=item]")).toContainText(
-    "cloned over SSH from ssh://git@167.254.68.172:222/mobility/platform.git",
-  )
-  expect(await fits(page)).toBe(true)
-  await shot(page, "repositories-ssh")
-  expect(calls).toEqual(["PUT /repos/platform"])
+const registered = (name: string, host: string, over: Partial<Repo> = {}): Repo => ({
+  name,
+  host,
+  path: host === "github.com" ? `kl3inIT/${name}` : `mobility/${name}`,
+  created_at: now,
+  ...over,
 })
 
-// Scenario: no repository is registered. The owner opens the Repositories page (it has no entry in the menu yet), registers one from its URL under the
+// The repositories of the pictures: a few on the company's GitLab, one cloned over SSH, and one on GitHub.
+const several = () => [
+  registered("beyondpilot", "github.com", { base: "main" }),
+  registered("deployment", "git.company.example"),
+  registered("platform", "git.company.example", {
+    ssh_url: "ssh://git@167.254.68.172:222/mobility/platform.git",
+    ssh_host_key: hostKey,
+  }),
+  registered("vmap-ai-faq", "git.company.example", { base: "main" }),
+]
+
+// Scenario: the owner finds Repositories in the Settings menu under Agents, after Skills and About you (issue #647);
+// a phone finds it in the list of sections. The page opens with the SSH key the nodes clone with, whole on a phone
+// too, and the host whose repositories use it with a link to that host's SSH keys page; each repository says
+// whether it is cloned over HTTPS or SSH.
+test("the owner opens Repositories from the Settings menu and reads the SSH key", async ({
+  page,
+  isMobile,
+}) => {
+  await fakeServer(page, { repos: several() })
+  await page.goto(isMobile ? "/settings" : "/settings/integrations")
+
+  const menu = page.getByRole("navigation", { name: "Settings" })
+  const agents = isMobile
+    ? menu.getByRole("region", { name: "Agents" })
+    : menu.locator("div").filter({ has: page.getByText("Agents", { exact: true }) })
+  await expect(agents.getByRole("link")).toHaveText(["Skills", "About you", "Repositories"])
+  if (isMobile) await shot(page, "settings-list")
+  await agents.getByRole("link", { name: "Repositories" }).click()
+
+  await expect(page).toHaveURL(/\/settings\/repositories$/)
+  await expect(page.getByRole("heading", { name: "Repositories", level: 1 })).toBeVisible()
+  const key = page.getByTestId("ssh-key")
+  await expect(key).toContainText("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5")
+  await expect(key.getByRole("button", { name: "Copy" })).toBeVisible()
+  await expect(
+    page.getByLabel("SSH host git.company.example").getByRole("link", { name: /SSH keys/ }),
+  ).toHaveAttribute("href", "https://git.company.example/-/user_settings/ssh_keys")
+  const platform = page.locator("[data-slot=item]").filter({ hasText: "platform" })
+  await expect(platform).toContainText("SSH")
+  await expect(platform).toContainText("cloned over SSH from 167.254.68.172:222")
+  await expect(page.locator("[data-slot=item]").filter({ hasText: "deployment" })).toContainText(
+    "HTTPS",
+  )
+  expect(await fits(page)).toBe(true)
+  await shot(page, "repositories")
+  await top(page.getByRole("heading", { name: "Repositories", level: 2 }))
+  await shot(page, "repositories-list")
+})
+
+// Scenario: the company's GitLab cuts a large clone over HTTPS (issue #625), so the owner moves a repository to SSH
+// from its row's Edit (issue #647): the dialog starts from what the repository is now, asks for the address and the
+// host's key once SSH is chosen, and shows the key's fingerprint to check. The row then says SSH.
+test("the owner moves a repository to SSH from its Edit dialog", async ({ page }) => {
+  const calls = await fakeServer(page, {
+    repos: [registered("app", "git.company.example", { path: "team/app", base: "main" })],
+  })
+  await page.goto("/settings/repositories")
+
+  const row = page.locator("[data-slot=item]").filter({ hasText: "app" })
+  await expect(row).toContainText("HTTPS")
+  await row.getByRole("button", { name: "Edit app" }).click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await expect(dialog.getByRole("heading", { name: "Edit app" })).toBeVisible()
+  await expect(dialog.getByLabel("Base branch")).toHaveValue("main")
+  await expect(dialog.getByLabel("SSH address")).toHaveCount(0)
+  await shot(page, "repositories-edit")
+
+  await dialog.getByRole("button", { name: "SSH", exact: true }).click()
+  await dialog.getByLabel("SSH address").fill("ssh://git@167.254.68.172:222/team/app.git")
+  await dialog.getByLabel("SSH host key").fill(hostKey)
+  await expect(dialog.getByTestId("host-key-fingerprint")).toContainText(
+    "SHA256:Ls1IQVqyE39d8qi/ZFNrZbP7SsHmSqWVrJiVjUjpJ/M",
+  )
+  await shot(page, "repositories-edit-ssh")
+  await dialog.getByRole("button", { name: "Save" }).click()
+
+  await expect(dialog).toBeHidden()
+  await expect(row).toContainText("cloned over SSH from 167.254.68.172:222")
+  await expect(row).toContainText("SSH")
+  expect(calls).toEqual(["PUT /repos/app"])
+})
+
+// Scenario: the company's GitLab row under Integrations says how many registered repositories are on it; the link
+// opens Repositories narrowed to that host (issue #647), where the pills narrow the list, or show all again.
+// Integrations no longer holds the SSH key.
+test("the owner opens a host's repositories from Integrations and filters them", async ({
+  page,
+}) => {
+  await fakeServer(page, { repos: several() })
+  await page.goto("/settings/integrations")
+
+  await expect(page.getByTestId("ssh-key")).toHaveCount(0)
+  await expect(page.getByText("SSH key", { exact: true })).toHaveCount(0)
+  const company = card(page, "GitLab").getByLabel("GitLab host git.company.example")
+  await top(card(page, "GitLab"))
+  await shot(page, "integrations-repositories-link")
+  await company.getByRole("link", { name: "3 repositories" }).click()
+
+  await expect(page).toHaveURL(/\/settings\/repositories\?host=git\.company\.example$/)
+  const filter = page.getByRole("group", { name: "Git host" })
+  await expect(filter.getByRole("button", { name: "git.company.example 3" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  const rows = page.locator("[data-slot=item][data-variant=outline]")
+  await expect(rows).toHaveCount(3)
+  await expect(rows.filter({ hasText: "beyondpilot" })).toHaveCount(0)
+  expect(await fits(page)).toBe(true)
+  await top(page.getByRole("heading", { name: "Repositories", level: 2 }))
+  await shot(page, "repositories-filtered")
+
+  await filter.getByRole("button", { name: "All 4" }).click()
+  await expect(page).toHaveURL(/\/settings\/repositories$/)
+  await expect(rows).toHaveCount(4)
+})
+
+// Scenario: no repository is registered. The owner opens the Repositories page, registers one from its URL under the
 // proposed name, and removes it.
 test("the owner registers and removes a repository", async ({ page }) => {
   const calls = await fakeServer(page)
