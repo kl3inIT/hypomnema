@@ -65,11 +65,11 @@ func TestADeletedChatEndsItsGatewayKeysInItsTransaction(t *testing.T) {
 	other, err := orch.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	earlier, _, err := g.AddChatKey(ctx, chat.ID, "")
+	earlier, _, err := g.AddChatKey(ctx, chat.ID, "", "")
 	require.NoError(t, err)
-	_, live, err := g.AddChatKey(ctx, chat.ID, "")
+	_, live, err := g.AddChatKey(ctx, chat.ID, "", "")
 	require.NoError(t, err, "the second key revokes the first")
-	_, kept, err := g.AddChatKey(ctx, other.ID, "")
+	_, kept, err := g.AddChatKey(ctx, other.ID, "", "")
 	require.NoError(t, err)
 
 	_, err = orch.DeleteChat(ctx, chat.ID)

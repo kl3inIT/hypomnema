@@ -498,11 +498,12 @@ func (s *Service) AddDispatchKey(ctx context.Context, dispatchID, model string) 
 }
 
 // AddChatKey makes the key a chat's pi calls the gateway with and returns
-// it with its secret (issue #204). It is good for model, or for every model
+// it with its secret (issue #204). botID is the chat's Bot, which its usage
+// counts under (issue #626); empty when not known. It is good for model, or for every model
 // when model is empty: a Bot that names no model uses pi's own default. A
 // key made earlier for the chat stops working: a pi started again gets a
 // new one.
-func (s *Service) AddChatKey(ctx context.Context, chatID, model string) (Key, string, error) {
+func (s *Service) AddChatKey(ctx context.Context, chatID, botID, model string) (Key, string, error) {
 	if chatID == "" || (model != "" && !modelNamePattern.MatchString(model)) {
 		return Key{}, "", fmt.Errorf("%w: a chat's key needs the chat, and a model name when it names one", ErrInvalid)
 	}
@@ -515,7 +516,7 @@ func (s *Service) AddChatKey(ctx context.Context, chatID, model string) (Key, st
 	// The name is only for the owner's list; the chat is what finds the key.
 	name := strings.ToLower(strings.ReplaceAll(s.newID("chat"), "_", "-"))
 
-	return s.addKey(ctx, name, models, keyOwner{chatID: chatID})
+	return s.addKey(ctx, name, models, keyOwner{chatID: chatID, botID: botID})
 }
 
 // RevokeAllChatKeys stops the key of every chat from working. The control
@@ -582,6 +583,8 @@ func (s *Service) DispatchesWithKeys(ctx context.Context) ([]string, error) {
 type keyOwner struct {
 	dispatchID string
 	chatID     string
+	// botID is the Bot of the chat, kept on the key so that usage is told by Bot after the chat is gone (#626).
+	botID string
 }
 
 func (s *Service) addKey(ctx context.Context, name string, models []string, owner keyOwner) (Key, string, error) {
@@ -619,7 +622,8 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 			ID: id, Name: name, KeyHash: bearertoken.Hash(secret), KeyPrefix: secret[:keyPrefixLength],
 			Models:     string(encoded),
 			DispatchID: sql.NullString{String: owner.dispatchID, Valid: owner.dispatchID != ""},
-			ChatID:     sql.NullString{String: owner.chatID, Valid: owner.chatID != ""}, Now: now,
+			ChatID:     sql.NullString{String: owner.chatID, Valid: owner.chatID != ""},
+			BotID:      sql.NullString{String: owner.botID, Valid: owner.botID != ""}, Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: storing key %q: %w", ErrConflict, name, err)
 		}

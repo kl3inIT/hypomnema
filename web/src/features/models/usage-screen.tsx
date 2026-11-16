@@ -213,7 +213,7 @@ function Breakdown({ usage }: { usage: GatewayUsage }) {
     <Tabs defaultValue="model">
       <TabsList aria-label="Group by">
         <TabsTrigger value="model">By model</TabsTrigger>
-        <TabsTrigger value="key">By key</TabsTrigger>
+        <TabsTrigger value="key">By Bot and key</TabsTrigger>
         <TabsTrigger value="account">By account</TabsTrigger>
       </TabsList>
       <TabsContent value="model">
@@ -232,8 +232,8 @@ function Breakdown({ usage }: { usage: GatewayUsage }) {
       </TabsContent>
       <TabsContent value="key">
         <GroupTable
-          label="Usage by key"
-          head="Key"
+          label="Usage by Bot and key"
+          head="Bot or key"
           groups={usage.by_key}
           total={usage.totals.prompt_tokens + usage.totals.completion_tokens}
           name={(g) => <span className="font-medium">{g.name}</span>}

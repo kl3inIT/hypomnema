@@ -281,7 +281,7 @@ func TestAChatsPiHasAKeyOfItsOwn(t *testing.T) {
 	worker, err := g.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
 	require.NoError(t, err)
 
-	made, first, err := g.AddChatKey(ctx, "cht_1", "gpt-sol")
+	made, first, err := g.AddChatKey(ctx, "cht_1", "", "gpt-sol")
 	require.NoError(t, err)
 
 	k, err := g.Authenticate(ctx, first)
@@ -291,20 +291,20 @@ func TestAChatsPiHasAKeyOfItsOwn(t *testing.T) {
 	assert.True(t, k.Allows("gpt-sol"))
 	assert.False(t, k.Allows("small"), "the key is for the Bot's model")
 
-	_, second, err := g.AddChatKey(ctx, "cht_1", "small")
+	_, second, err := g.AddChatKey(ctx, "cht_1", "", "small")
 	require.NoError(t, err)
 
 	_, err = g.Authenticate(ctx, first)
 	require.ErrorIs(t, err, modelgateway.ErrUnauthorized, "only the key of the pi that runs now works")
 
-	_, open, err := g.AddChatKey(ctx, "cht_2", "")
+	_, open, err := g.AddChatKey(ctx, "cht_2", "", "")
 	require.NoError(t, err)
 
 	k, err = g.Authenticate(ctx, open)
 	require.NoError(t, err)
 	assert.True(t, k.Allows("small"), "a Bot that names no model uses pi's default, whichever it is")
 
-	_, _, err = g.AddChatKey(ctx, "", "gpt-sol")
+	_, _, err = g.AddChatKey(ctx, "", "", "gpt-sol")
 	require.ErrorIs(t, err, modelgateway.ErrInvalid)
 
 	require.NoError(t, g.RevokeAllChatKeys(ctx))
