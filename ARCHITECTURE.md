@@ -2876,7 +2876,12 @@ OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Code
 servers, a Bot's (`hypomnema mcp`) and a worker's (`hypomnema-node mcp`), list them on `GET /agent/v1/tools` and
 run one on `POST /agent/v1/tools/call` (`{tool, arguments}`; the answer is the tool's result as MCP has it); a tool
 an agent was not given is a 404 there. The phone's tools stay on their own routes, which both servers list
-beside the one list (see "A phone, on a node that holds one"). The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
+beside the one list (see "A phone, on a node that holds one"). The list follows the agent's settings at each
+`GET` (a Bot's Connections, `-tools`, Superset dashboards), so a running agent can see it change (issue #653): the
+server declares `tools.listChanged`, and after each `tools/call`, before its answer, lists again and sends
+`notifications/tools/list_changed` when the list differs from the one it last answered (a list that failed to load
+is no change), as the MCP Go SDK notifies only on a real change and Omnigent's bridge on a changed agent; pi lists
+again on it. A turn that calls no tool keeps the list it had. The older routes stay for tools servers of an earlier release: `GET /agent/v1/gateway/tools` and
 `POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
 gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 

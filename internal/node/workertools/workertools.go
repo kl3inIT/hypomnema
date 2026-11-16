@@ -87,14 +87,16 @@ func agentOf(dir string) (*toolsmcp.Agent, string) {
 func (s *server) config() toolsmcp.Config {
 	return toolsmcp.Config{
 		Name: Name,
-		List: func(ctx context.Context) []map[string]any {
+		List: func(ctx context.Context) ([]map[string]any, error) {
 			listed := tools()
-			if s.agent != nil {
-				listed = append(listed, s.agent.Tools(ctx, agenttool.PathTools)...)
-				listed = append(listed, s.agent.Tools(ctx, agenttool.PathDeviceTools)...)
+			if s.agent == nil {
+				return listed, nil
 			}
 
-			return listed
+			own, err := s.agent.Tools(ctx, agenttool.PathTools)
+			device, deviceErr := s.agent.Tools(ctx, agenttool.PathDeviceTools)
+
+			return append(append(listed, own...), device...), errors.Join(err, deviceErr)
 		},
 		Call: s.call,
 	}
