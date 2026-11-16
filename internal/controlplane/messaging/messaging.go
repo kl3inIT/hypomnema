@@ -53,6 +53,11 @@ type Account interface {
 	Chats(ctx context.Context, limit int) ([]Chat, error)
 	// Messages lists kept messages, the latest first: of one chat, or matching a search, or both.
 	Messages(ctx context.Context, q Query) ([]Message, error)
+	// Media is a kept message's image or file, downloaded first when it is not kept yet (issue #634).
+	Media(ctx context.Context, chat, id string) (Media, error)
+	// Backfill asks the service for up to count messages of a chat older than the oldest kept, keeps them, and
+	// answers how many came (issue #634).
+	Backfill(ctx context.Context, chat string, count int) (int, error)
 }
 
 // Chat is one chat of the account, as kept.
@@ -87,6 +92,17 @@ type Message struct {
 	MimeType  string
 	Edited    bool
 	Revoked   bool
+	// MediaKept says its image or file was downloaded and is kept (issue #634).
+	MediaKept bool
+}
+
+// Media is a kept message's image or file, downloaded (issue #634).
+type Media struct {
+	// Path is the file on the control plane's disk.
+	Path     string
+	MimeType string
+	// FileName is the name its sender gave, for a document; empty otherwise.
+	FileName string
 }
 
 // Query is which kept messages to list.

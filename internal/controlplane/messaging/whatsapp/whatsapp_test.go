@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // A device whatsmeow no longer keeps, because WhatsApp logged it out while the control plane was stopped, opens
@@ -75,11 +76,11 @@ func TestALogoutThatFailedKeepsTheSession(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = svc.Close() })
 
-	linked := svc.newAccount(svc.container.NewDevice())
+	linked := svc.newAccount(t.Context(), svc.container.NewDevice())
 	linked.setState(messaging.State{Status: messaging.StatusConnected})
 	require.Error(t, linked.Logout(t.Context()), "WhatsApp was not reached: the device may still be on the phone")
 
-	gone := svc.newAccount(svc.container.NewDevice())
+	gone := svc.newAccount(t.Context(), svc.container.NewDevice())
 	gone.setState(messaging.State{Status: messaging.StatusLoggedOut})
 	require.NoError(t, gone.Logout(t.Context()), "WhatsApp had ended the link: only the session was left")
 }
@@ -103,7 +104,7 @@ func linkedAccount(t *testing.T) *account {
 	// Saved as a pairing saves it, which gives it its contacts and LIDs.
 	require.NoError(t, svc.container.PutDevice(t.Context(), device))
 
-	return svc.newAccount(device)
+	return svc.newAccount(t.Context(), device)
 }
 
 func incoming(chat, sender types.JID, id, push string, at time.Time, m *waE2E.Message) *events.Message {
@@ -209,4 +210,118 @@ func TestEveryChatIsKeptAsWhatsAppSendsIt(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, older, 1, "paging back reaches the history")
 	assert.Equal(t, "Gửi báo giá nhé", older[0].Text)
+}
+
+// Scenario: a media message keeps what downloading it needs (issue #634). A file over 100 MiB is refused with why
+// and is no longer pending; a file kept is answered from the disk without WhatsApp; the link ending removes the
+// files with the mirror.
+func TestAMediaMessageKeepsWhatDownloadingItNeeds(t *testing.T) {
+	t.Parallel()
+
+	acc := linkedAccount(t)
+	ctx := t.Context()
+	group := types.NewJID("120363000000002", types.GroupServer)
+	lan := types.NewJID("84911111111", types.DefaultUserServer)
+	doc := func(id string, length uint64) *events.Message {
+		return incoming(group, lan, id, "Lan", time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC), &waE2E.Message{
+			DocumentMessage: &waE2E.DocumentMessage{
+				FileName: proto.String("bao-gia.pdf"), Mimetype: proto.String("application/pdf"),
+				DirectPath: proto.String("/v/t62/doc-" + id), MediaKey: make([]byte, 32),
+				FileSHA256: make([]byte, 32), FileEncSHA256: make([]byte, 32), FileLength: proto.Uint64(length),
+			},
+		})
+	}
+
+	// Kept, not downloaded: the account has no connection, so the queue's workers fail quietly.
+	acc.Close()
+	acc.handle(doc("small", 1024))
+	acc.handle(doc("huge", 200<<20))
+
+	pending, err := acc.mirror.pendingMedia(ctx, acc.mirrorKey(), 10)
+	require.NoError(t, err)
+	assert.Len(t, pending, 2, "both wait for their file")
+
+	_, err = acc.Media(ctx, group.String(), "huge")
+	require.ErrorContains(t, err, "larger than 100 MiB")
+
+	pending, err = acc.mirror.pendingMedia(ctx, acc.mirrorKey(), 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "a file too big is not tried again")
+	assert.Equal(t, "small", pending[0].id)
+
+	// A file already kept is answered from the disk.
+	path := filepath.Join(acc.mediaDir, acc.mirrorKey(), "kept.pdf")
+	require.NoError(t, writePrivate(path, []byte("%PDF")))
+	require.NoError(t, acc.mirror.keptMedia(ctx, acc.mirrorKey(), group.String(), "small", path, ""))
+
+	media, err := acc.Media(ctx, group.String(), "small")
+	require.NoError(t, err)
+	assert.Equal(t, messaging.Media{Path: path, MimeType: "application/pdf", FileName: "bao-gia.pdf"}, media)
+
+	msgs, err := acc.Messages(ctx, messaging.Query{Chat: group.String()})
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.True(t, msgs[0].MediaKept || msgs[1].MediaKept)
+
+	acc.forgetMirror(ctx)
+	assert.NoFileExists(t, path, "the link ending removes the files")
+}
+
+// A mirror made before files were downloaded (#631) is brought to this version as it opens.
+func TestAMirrorOfTheFirstVersionIsUpgraded(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "whatsapp.db")
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: path})
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), schema)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `INSERT INTO wa_messages (account, chat_jid, msg_id, ts, from_me, text)
+		VALUES ('84900000001', '120363@g.us', 'old', 1, 0, 'kept before')`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	svc, err := Open(t.Context(), path, slog.New(slog.DiscardHandler))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = svc.Close() })
+
+	msgs, err := svc.mirror.messages(t.Context(), "84900000001", messaging.Query{})
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.False(t, msgs[0].MediaKept)
+}
+
+// Older messages of a chat (issue #634): a chat with nothing kept has no anchor to ask from, and the phone's
+// on-demand answer is kept and tells the waiting request how many came.
+func TestThePhonesAnswerForOlderMessagesIsKept(t *testing.T) {
+	t.Parallel()
+
+	acc := linkedAccount(t)
+	ctx := t.Context()
+	minh := types.NewJID("84922222222", types.DefaultUserServer)
+
+	_, err := acc.Backfill(ctx, minh.String(), 0)
+	require.ErrorIs(t, err, errNoMessage, "nothing kept, nothing to ask from")
+
+	waiting := make(chan int, 1)
+	acc.waiting[minh.String()] = waiting
+
+	acc.handle(&events.HistorySync{Data: &waHistorySync.HistorySync{
+		SyncType: waHistorySync.HistorySync_ON_DEMAND.Enum(),
+		Conversations: []*waHistorySync.Conversation{{
+			ID: proto.String(minh.String()),
+			Messages: []*waHistorySync.HistorySyncMsg{{Message: &waWeb.WebMessageInfo{
+				Key:              &waCommon.MessageKey{ID: proto.String("old1"), RemoteJID: proto.String(minh.String())},
+				MessageTimestamp: proto.Uint64(1700000000),
+				Message:          &waE2E.Message{Conversation: proto.String("Tin cũ")},
+			}}},
+		}},
+	}})
+
+	assert.Equal(t, 1, <-waiting)
+
+	msgs, err := acc.Messages(ctx, messaging.Query{Chat: minh.String()})
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Tin cũ", msgs[0].Text)
 }

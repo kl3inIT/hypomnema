@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -21,7 +22,7 @@ const (
 	maxLimit     = 500
 )
 
-// schema is the mirror's tables. A later change of them adds a version table first.
+// schema is the mirror's tables as they were first made (issue #631); upgrades change them, in order.
 const schema = `
 CREATE TABLE IF NOT EXISTS wa_chats (
 	account TEXT NOT NULL,
@@ -79,15 +80,63 @@ CREATE TABLE IF NOT EXISTS wa_groups (
 );
 `
 
+// upgrades bring the mirror's tables to this version, each from the one before; wa_version says which ran.
+var upgrades = []string{
+	// 1: a media message keeps what downloading it needs, and where and when its file was kept (issue #634), as
+	// wacli's messages do (direct_path, media_key, file_sha256, file_enc_sha256, file_length, local_path,
+	// downloaded_at); media_error says why it was not.
+	`ALTER TABLE wa_messages ADD COLUMN direct_path TEXT NOT NULL DEFAULT '';
+	ALTER TABLE wa_messages ADD COLUMN media_key BLOB;
+	ALTER TABLE wa_messages ADD COLUMN file_sha256 BLOB;
+	ALTER TABLE wa_messages ADD COLUMN file_enc_sha256 BLOB;
+	ALTER TABLE wa_messages ADD COLUMN file_length INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE wa_messages ADD COLUMN local_path TEXT NOT NULL DEFAULT '';
+	ALTER TABLE wa_messages ADD COLUMN downloaded_at INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE wa_messages ADD COLUMN media_error TEXT NOT NULL DEFAULT '';
+	CREATE INDEX IF NOT EXISTS wa_messages_media_pending ON wa_messages (account, ts DESC)
+		WHERE direct_path <> '' AND local_path = '' AND media_error = '';`,
+}
+
 // mirror reads and writes the kept chats and messages.
 type mirror struct{ db *sql.DB }
 
 func openMirror(ctx context.Context, db *sql.DB) (*mirror, error) {
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	const versionTable = `CREATE TABLE IF NOT EXISTS wa_version (version INTEGER NOT NULL);`
+	if _, err := db.ExecContext(ctx, schema+versionTable); err != nil {
 		return nil, fmt.Errorf("whatsapp: preparing the mirror's tables: %w", err)
 	}
 
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM wa_version`).Scan(&version); err != nil {
+		return nil, fmt.Errorf("whatsapp: reading the mirror's version: %w", err)
+	}
+
+	for v := version; v < len(upgrades); v++ {
+		if err := upgrade(ctx, db, v+1, upgrades[v]); err != nil {
+			return nil, err
+		}
+	}
+
 	return &mirror{db: db}, nil
+}
+
+func upgrade(ctx context.Context, db *sql.DB, version int, stmt string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // Rolling back after a commit does nothing.
+
+	if _, err := tx.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("whatsapp: upgrading the mirror to version %d: %w", version, err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM wa_version; INSERT INTO wa_version (version) VALUES (?)`,
+		version); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // kept is a message ready to keep: parsed, with its names and ids resolved.
@@ -119,11 +168,13 @@ func (m *mirror) keep(ctx context.Context, k kept) error {
 			WHERE account = ? AND chat_jid = ? AND msg_id = ?`, k.text, k.caption, k.account, chat, k.id)
 	default:
 		_, err = tx.ExecContext(ctx, `INSERT INTO wa_messages (account, chat_jid, chat_name, msg_id, sender_jid,
-			sender_name, ts, from_me, text, quoted_msg_id, media_type, media_caption, filename, mime_type)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			sender_name, ts, from_me, text, quoted_msg_id, media_type, media_caption, filename, mime_type,
+			direct_path, media_key, file_sha256, file_enc_sha256, file_length)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (account, chat_jid, msg_id) DO NOTHING`,
 			k.account, chat, k.chatName, k.id, k.sender, k.pushName, ts, k.fromMe, k.text, k.quotedID, k.mediaType,
-			k.caption, k.fileName, k.mime)
+			k.caption, k.fileName, k.mime, k.directPath, k.mediaKey, k.fileSHA256, k.fileEncHash,
+			min(k.fileLength, math.MaxInt64))
 	}
 
 	if err != nil {
@@ -258,7 +309,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 	rows, err := m.db.QueryContext(ctx, `SELECT m.msg_id, m.chat_jid,
 			CASE WHEN c.name IS NOT NULL AND c.name <> '' THEN c.name ELSE m.chat_name END,
 			m.sender_jid, m.sender_name, m.ts, m.from_me, m.text, m.quoted_msg_id, m.media_type, m.media_caption,
-			m.filename, m.mime_type, m.edited, m.revoked
+			m.filename, m.mime_type, m.edited, m.revoked, m.local_path <> ''
 		FROM wa_messages m LEFT JOIN wa_chats c ON c.account = m.account AND c.jid = m.chat_jid
 		WHERE `+strings.Join(where, " AND ")+` ORDER BY m.ts DESC, m.rowid DESC LIMIT ?`, args...)
 	if err != nil {
@@ -275,7 +326,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 		)
 		if err := rows.Scan(&msg.ID, &msg.Chat, &msg.ChatName, &msg.Sender, &msg.SenderName, &ts, &msg.FromMe,
 			&msg.Text, &msg.QuotedID, &msg.MediaType, &msg.Caption, &msg.FileName, &msg.MimeType, &msg.Edited,
-			&msg.Revoked); err != nil {
+			&msg.Revoked, &msg.MediaKept); err != nil {
 			return nil, err
 		}
 

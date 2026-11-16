@@ -3,6 +3,9 @@ package clientapi
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
@@ -312,6 +315,8 @@ func (s *Server) DeleteIntegrationConnection(ctx context.Context, req openapi.De
 type Messaging interface {
 	Chats(ctx context.Context, integration, label string, limit int) ([]messaging.Chat, error)
 	Messages(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
+	Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error)
+	Backfill(ctx context.Context, integration, label, chat string, count int) (int, error)
 }
 
 // WithMessaging sets the service that reads the messaging accounts' kept chats.
@@ -368,6 +373,7 @@ func (s *Server) ListMessagingMessages(ctx context.Context, req openapi.ListMess
 			Id: m.ID, Chat: m.Chat, ChatName: m.ChatName, Sender: m.Sender, SenderName: m.SenderName, At: m.At,
 			FromMe: m.FromMe, Text: m.Text, QuotedId: opt(m.QuotedID), Caption: opt(m.Caption),
 			FileName: opt(m.FileName), MimeType: opt(m.MimeType), Edited: m.Edited, Revoked: m.Revoked,
+			MediaKept: m.MediaKept,
 		}
 		if m.MediaType != "" {
 			kind := openapi.MessagingMessageMediaType(m.MediaType)
@@ -378,4 +384,52 @@ func (s *Server) ListMessagingMessages(ctx context.Context, req openapi.ListMess
 	}
 
 	return out, nil
+}
+
+// ReadMessagingMedia answers a kept message's image or file (issue #634), downloaded first when it is not kept yet.
+// It is sent as an opaque download, as an Artifact's file is: never served as a page.
+func (s *Server) ReadMessagingMedia(ctx context.Context, req openapi.ReadMessagingMediaRequestObject,
+) (openapi.ReadMessagingMediaResponseObject, error) {
+	if s.messaging == nil {
+		return nil, errNoMessaging
+	}
+
+	media, err := s.messaging.Media(ctx, req.Integration, req.Label, req.Chat, req.Message)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(media.Path)
+	if err != nil {
+		return nil, fmt.Errorf("reading the kept file: %w", err)
+	}
+
+	name := media.FileName
+	if name == "" {
+		name = filepath.Base(media.Path)
+	}
+
+	return download{name: name, data: data}, nil
+}
+
+func (d download) VisitReadMessagingMediaResponse(w http.ResponseWriter) error { return d.write(w) }
+
+// BackfillMessagingChat asks the phone for older messages of a chat (issue #634).
+func (s *Server) BackfillMessagingChat(ctx context.Context, req openapi.BackfillMessagingChatRequestObject,
+) (openapi.BackfillMessagingChatResponseObject, error) {
+	if s.messaging == nil {
+		return nil, errNoMessaging
+	}
+
+	count := 0
+	if req.Body != nil {
+		count = val(req.Body.Count)
+	}
+
+	n, err := s.messaging.Backfill(ctx, req.Integration, req.Label, req.Chat, count)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.BackfillMessagingChat200JSONResponse{Received: n}, nil
 }
