@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +22,9 @@ import (
 // bridges/zalo/src/protocol.mjs as bridge.mjs does, with what zca-js would give, so that the control plane's side is
 // tested without Node or Zalo. FAKE_ZALO picks the script it plays.
 const fakeEnv = "FAKE_ZALO"
+
+// fakeMediaEnv is where the fake bridge's files are served, as Zalo's CDN serves them.
+const fakeMediaEnv = "FAKE_ZALO_MEDIA"
 
 func TestFakeBridge(t *testing.T) {
 	script := os.Getenv(fakeEnv)
@@ -62,6 +67,55 @@ func TestFakeBridge(t *testing.T) {
 			write(map[string]any{"id": req.ID, "result": map[string]any{"uid": "100", "name": "Owner"}})
 		case "groups":
 			write(map[string]any{"id": req.ID, "result": []any{map[string]any{"id": "g1", "name": "Báo giá"}}})
+		// A group's past in two pages, the second its start; the first has a photo (zca-js getCloudMessage).
+		case "groupHistory":
+			var p struct {
+				Params struct {
+					LastMsgID string `json:"lastMsgId"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(in.Bytes(), &p)
+
+			if p.Params.LastMsgID == "" {
+				write(map[string]any{"id": req.ID, "result": map[string]any{"lastMsgId": "h1", "isOld": true, "more": true,
+					"messages": []any{map[string]any{
+						"id": "h1", "chat": "g1", "group": true, "from": "200", "fromName": "Lan", "at": 1_690_000_000_000,
+						"text": "Ảnh hiện trường", "media": map[string]any{
+							"type": "image", "url": os.Getenv(fakeMediaEnv) + "/p.jpg", "fileName": "", "size": 0,
+						},
+					}},
+				}})
+
+				continue
+			}
+
+			write(map[string]any{"id": req.ID, "result": map[string]any{"lastMsgId": "h2", "more": false,
+				"messages": []any{map[string]any{
+					"id": "h2", "chat": "g1", "group": true, "from": "200", "fromName": "Lan", "at": 1_680_000_000_000,
+					"text": "Chào cả nhóm",
+				}},
+			}})
+		// The direct chats' queue: one page, then nothing more.
+		case "oldMessages":
+			var p struct {
+				Params struct {
+					LastID string `json:"lastId"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(in.Bytes(), &p)
+
+			if p.Params.LastID == "" {
+				write(map[string]any{"id": req.ID, "result": map[string]any{"next": "50", "messages": []any{
+					map[string]any{"id": "d1", "actionId": "50", "chat": "u9", "from": "100", "fromMe": true,
+						"at": 1_695_000_000_000, "text": "Mai họp nhé"},
+				}}})
+
+				continue
+			}
+
+			write(map[string]any{"id": req.ID, "result": map[string]any{"next": "", "messages": []any{}}})
+		case "users":
+			write(map[string]any{"id": req.ID, "result": []any{map[string]any{"id": "u9", "name": "Minh"}}})
 		case "listen":
 			write(map[string]any{"id": req.ID, "result": map[string]any{}})
 			emit("message", map[string]any{
@@ -87,6 +141,15 @@ func fakeService(t *testing.T, script string) *Service {
 	t.Cleanup(func() { _ = svc.Close() })
 
 	t.Setenv(fakeEnv, script)
+
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte("jpeg bytes"))
+	}))
+	t.Cleanup(cdn.Close)
+	t.Setenv(fakeMediaEnv, cdn.URL)
+
+	svc.gap = 0
 
 	svc.start = func(ctx context.Context) (*bridge, error) {
 		return startBridge(ctx, os.Args[0], "-test.run=^TestFakeBridge$", svc.log)
@@ -147,10 +210,11 @@ func TestALinkShowsTheQRThenKeepsTheSessionAndEveryMessage(t *testing.T) {
 
 	var found []messaging.Message
 
-	eventually(t, "the message kept", func() bool {
-		found, err = acc.Messages(t.Context(), messaging.Query{Search: "báo giá"})
+	// The listener starts before the groups are named: the name shows once they are.
+	eventually(t, "the message kept under its group's name", func() bool {
+		found, err = acc.Messages(t.Context(), messaging.Query{Search: "giúp em"})
 
-		return err == nil && len(found) == 1
+		return err == nil && len(found) == 1 && found[0].ChatName != ""
 	})
 	assert.Equal(t, "g1", found[0].Chat)
 	assert.Equal(t, "Báo giá", found[0].ChatName)
@@ -159,8 +223,66 @@ func TestALinkShowsTheQRThenKeepsTheSessionAndEveryMessage(t *testing.T) {
 
 	chats, err := acc.Chats(t.Context(), 0)
 	require.NoError(t, err)
-	require.Len(t, chats, 1)
+	require.NotEmpty(t, chats)
 	assert.Equal(t, "group", chats[0].Kind)
+}
+
+// Scenario (issue #669): after connecting, the account walks each group's past back to its start and the direct
+// chats' queue to its end, names the direct chats it found, and downloads the files of what it kept. Asking a group
+// for more then answers that its start is reached.
+func TestAfterConnectingThePastIsWalkedAndItsFilesKept(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	require.NoError(t, svc.mirror.saveSession(ctx, "100", "Owner", []byte(`{"imei":"i1"}`)))
+
+	acc, err := svc.Open(ctx, "100")
+	require.NoError(t, err)
+	t.Cleanup(acc.Close)
+
+	eventually(t, "the group walked to its start", func() bool {
+		w, err := svc.mirror.walkOf(ctx, "100", "g1")
+
+		return err == nil && w.done
+	})
+
+	group, err := acc.Messages(ctx, messaging.Query{Chat: "g1"})
+	require.NoError(t, err)
+	require.Len(t, group, 3, "the live message and the two pages of the past")
+	assert.Equal(t, "Gửi báo giá giúp em", group[0].Text)
+	assert.Equal(t, "Chào cả nhóm", group[2].Text)
+
+	eventually(t, "the direct chat named", func() bool {
+		chats, err := acc.Chats(ctx, 0)
+		for _, c := range chats {
+			if c.ID == "u9" {
+				return err == nil && c.Name == "Minh" && c.Kind == "dm"
+			}
+		}
+
+		return false
+	})
+
+	eventually(t, "the photo downloaded", func() bool {
+		found, err := acc.Messages(ctx, messaging.Query{Search: "hiện trường"})
+
+		return err == nil && len(found) == 1 && found[0].MediaKept
+	})
+
+	photo, err := acc.Media(ctx, "g1", "h1")
+	require.NoError(t, err)
+	assert.Equal(t, "image/jpeg", photo.MimeType)
+
+	data, err := os.ReadFile(photo.Path)
+	require.NoError(t, err)
+	assert.Equal(t, "jpeg bytes", string(data))
+
+	more, err := acc.Backfill(ctx, "g1", 50)
+	require.NoError(t, err)
+	assert.Equal(t, messaging.Backfilled{Added: 0, Complete: true}, more)
+
+	require.NoError(t, acc.Logout(ctx))
+	_, err = os.Stat(photo.Path)
+	assert.ErrorIs(t, err, os.ErrNotExist, "disconnecting removes the files")
 }
 
 // An account opened again logs in with its kept session; one another Zalo Web took over is replaced and its bridge
@@ -196,8 +318,9 @@ func TestTheMirrorFindsByALateNameAndPagesByMilliseconds(t *testing.T) {
 	ctx := t.Context()
 	at := time.UnixMilli(1_700_000_000_750)
 
-	require.NoError(t, svc.mirror.keep(ctx, kept{account: "100", chat: "g1", chatKind: "group", id: "m1", at: at,
-		text: "hello"}))
+	_, err := svc.mirror.keep(ctx, kept{account: "100", chat: "g1", chatKind: "group", id: "m1", at: at,
+		text: "hello"})
+	require.NoError(t, err)
 	require.NoError(t, svc.mirror.nameChat(ctx, "100", "g1", "group", "Kế toán"))
 
 	found, err := svc.mirror.messages(ctx, "100", messaging.Query{Search: "kế toán"})
@@ -224,8 +347,8 @@ func TestLogoutForgetsTheSessionAndTheChats(t *testing.T) {
 	ctx := t.Context()
 
 	require.NoError(t, svc.mirror.saveSession(ctx, "100", "Owner", []byte(`{}`)))
-	require.NoError(t, svc.mirror.keep(ctx, kept{account: "100", chat: "u2", chatKind: "dm", id: "m1",
-		at: time.Now()}))
+	_, err := svc.mirror.keep(ctx, kept{account: "100", chat: "u2", chatKind: "dm", id: "m1", at: time.Now()})
+	require.NoError(t, err)
 
 	acc := svc.newAccount(func() {}, whoAmI{UID: "100"}, nil)
 	require.NoError(t, acc.Logout(ctx))
