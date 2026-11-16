@@ -2783,6 +2783,16 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Provider" }
         default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteProvider
+      summary: Remove a provider and its models; only the owner
+      description: >-
+        A provider that a bot, a chat, a profile version or a gateway model's
+        target still names is kept, with what uses it in the error; the owner
+        removes those first. Deleting a provider removes its models too.
+      responses:
+        "204": { description: The provider is removed. }
+        default: { $ref: "#/components/responses/Error" }
   /models:
     get:
       operationId: ListModels

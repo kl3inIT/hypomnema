@@ -884,6 +884,51 @@ func providerStillServes(ctx context.Context, q *store.Queries, in providerSourc
 	return nil
 }
 
+// DeleteProvider removes a provider and its models, when nothing names it. A provider that a bot, a chat, a profile
+// version or a gateway model's target still uses is kept, with what uses it named in the error, so no reference is
+// orphaned (issue #610).
+func (s *Service) DeleteProvider(ctx context.Context, name string) error {
+	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		if _, err := q.GetProvider(ctx, name); err != nil {
+			return notFound(err, "provider", name)
+		}
+
+		uses, err := q.ProviderUses(ctx, sql.NullString{String: name, Valid: true})
+		if err != nil {
+			return fmt.Errorf("counting what uses provider %s: %w", name, err)
+		}
+
+		counts := []struct {
+			n    int64
+			what string
+		}{
+			{uses.Bots, "bot"}, {uses.Chats, "chat"},
+			{uses.Versions, "profile version"}, {uses.Targets, "gateway model target"},
+		}
+
+		var used []string
+		for _, u := range counts {
+			if u.n > 0 {
+				used = append(used, fmt.Sprintf("%d %s(s)", u.n, u.what))
+			}
+		}
+
+		if len(used) > 0 {
+			return fmt.Errorf("%w: provider %s is used by %s", ErrConflict, name, strings.Join(used, ", "))
+		}
+
+		if err := q.DeleteModelsOfProvider(ctx, name); err != nil {
+			return fmt.Errorf("removing the models of %s: %w", name, err)
+		}
+
+		if _, err := q.DeleteProvider(ctx, name); err != nil {
+			return fmt.Errorf("deleting provider %s: %w", name, err)
+		}
+
+		return nil
+	})
+}
+
 // GetProvider returns a provider and its models.
 func (s *Service) GetProvider(ctx context.Context, name string) (Provider, error) {
 	q := s.read()

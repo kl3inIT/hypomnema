@@ -958,6 +958,20 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 		openapi.Source{Source: "name: router\nkind: openai_compatible\nmodels: [m1]\n"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, provider.StatusCode())
+
+	// Removing a provider is the owner's too (issue #610).
+	made, err := owner.ApplyProviderWithResponse(ctx, "spare",
+		openapi.Source{Source: "name: spare\nkind: openai_compatible\napi_key_ref: K\nmodels: [m1]\n"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, made.StatusCode(), string(made.Body))
+
+	notOwnerRm, err := laptop.DeleteProviderWithResponse(ctx, "spare")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, notOwnerRm.StatusCode())
+
+	removed, err := owner.DeleteProviderWithResponse(ctx, "spare")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, removed.StatusCode(), string(removed.Body))
 }
 
 // fakeCoordinator says pi runs and is never working; a test sends live

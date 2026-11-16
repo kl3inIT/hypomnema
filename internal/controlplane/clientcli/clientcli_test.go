@@ -1140,6 +1140,32 @@ func TestChatWithoutACoordinator(t *testing.T) {
 	assert.Contains(t, out, "no coordinator runs on the server")
 }
 
+// Scenario: the owner starts a chat with another Bot from the terminal; the
+// chat is that Bot's, and a chat already made cannot be moved to it (issue #616).
+func TestChatWithAChosenBot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	var vmap openapi.Bot
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap")
+
+	out, err := w.cmd(t, "chat", "--bot", vmap.Id, "hello")
+	require.NoError(t, err)
+
+	chatID := regexp.MustCompile(`chat (cht_\w+)`).FindStringSubmatch(out)[1]
+
+	var chats openapi.ChatList
+	w.jsonCmd(t, &chats, "", "chats")
+	require.Len(t, chats.Data, 1)
+	assert.Equal(t, chatID, chats.Data[0].Id)
+	assert.Equal(t, vmap.Id, chats.Data[0].Bot, "the chat talks with the Bot named")
+
+	_, err = w.cmd(t, "chat", "--bot", vmap.Id, "--chat", chatID, "again")
+	require.ErrorContains(t, err, "a chat's Bot is fixed when it is made")
+}
+
 // pi's environment names its chat; the Runs it creates record it.
 func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	w := newWorld(t)

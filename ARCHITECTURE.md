@@ -1470,6 +1470,10 @@ flowchart LR
       `hypomnema-node tool gws`, the launcher. On every call the launcher asks the control plane's agent API
       (`internal/controlplane/agentapi`: `GET /agent/v1/connections`) which accounts the agent may use and runs
       the real tool. `--account <label>` names one of several and never reaches the tool.
+      `hypomnema tool run <integration> [--account <label>] -- <command> [args...]` runs any command, such as
+      `curl`, the same way, through the Integration's proxy: what a pinned tool's own list does not cover, such as
+      Search Console, which gws lacks (issue [#617](https://github.com/kl3inIT/hypomnema/issues/617); treg's
+      `treg run` and `shell --proxy`, Onyx's egress proxy).
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -1481,8 +1485,9 @@ flowchart LR
       Connection: **allow** (reading, drafts, a new file), **ask** (what reaches other people or cannot be taken
       back; and any request that matches no action), or **never**. Only then is the account's token added. No
       token of a proxied Integration is handed to an agent. A request that the proxy and the service could read
-      differently is refused: another address, a path that climbs or hides a slash, a method override, a query
-      that does not parse strictly. What an agent may use is asked again for every request. Every request is
+      differently is refused: another address, a path that climbs or hides a slash (an encoded slash is allowed
+      on Search Console's host, whose paths carry a URL as one segment and whose every non-read asks; #617), a
+      method override, a query that does not parse strictly. What an agent may use is asked again for every request. Every request is
       logged with the agent, the Connection, the action and the verdict. A request is the action whose route
       names the most of its path. No launcher asks for a token any more; `POST /agent/v1/token` answers only an
       owner's token.
@@ -2304,7 +2309,9 @@ capabilities do not exist yet.
   the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
   is not declared, or the body is wrong) and 413.
 - A provider is of one of two sorts. An `openai_compatible` one is data the owner declares (a base URL, a key in the
-  vault, its models), and its adapter passes the request and the answer through. A built-in one is seeded by a
+  vault, its models), and its adapter passes the request and the answer through. The owner removes a declared
+  provider with `providers rm` (`DELETE /providers/{name}`, issue #610); one a bot, a chat, a profile version or a
+  gateway model's target still names is kept, with what uses it in the error, and its models go with it. A built-in one is seeded by a
   migration and has an adapter of its own, which translates both ways and handles everything specific to its vendor;
   the answer it returns is already in OpenAI's chat format, so failover, the stream's end and the usage record work
   the same for both.
@@ -3000,8 +3007,10 @@ The owner's commands:
     result. `tasks transcript <task>` prints the latest attempt's transcript, a line an item (`--after`,
     `--json` for one item a line); `--follow` keeps printing until the worker has ended and nothing more comes.
 - `chat [message]` writes to pi and prints its replies and the tools it ran until it is idle (`--chat`, `--new`,
-  `--text-file`); without a message it shows the chat. `chats` lists them. `runs create` sends `HYPOMNEMA_CHAT_ID`
-  when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends (issue #260).
+  `--text-file`); `--bot <id>` starts a new chat with that Bot instead of the main one, and is refused with
+  `--chat` (issue #616); without a message it shows the chat. `chats` lists them. `runs create` sends
+  `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
+  (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).

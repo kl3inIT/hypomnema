@@ -7609,6 +7609,33 @@ export type ListProvidersResponses = {
 
 export type ListProvidersResponse = ListProvidersResponses[keyof ListProvidersResponses];
 
+export type DeleteProviderData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/providers/{name}';
+};
+
+export type DeleteProviderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteProviderError = DeleteProviderErrors[keyof DeleteProviderErrors];
+
+export type DeleteProviderResponses = {
+  /**
+   * The provider is removed.
+   */
+  204: void;
+};
+
+export type DeleteProviderResponse = DeleteProviderResponses[keyof DeleteProviderResponses];
+
 export type ApplyProviderData = {
   body: Source;
   path: {

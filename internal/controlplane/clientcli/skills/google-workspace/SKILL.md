@@ -4,8 +4,9 @@ description: >-
   Reads, searches and changes the owner's Gmail, Google Calendar and Google Drive with the gws command, which
   Hypomnema installs and signs in. Use when the owner asks about their mail, calendar or files: what arrived today,
   what needs an answer, today's or tomorrow's schedule, a morning brief, finding a message or a file, drafting or
-  sending a reply, creating an event, uploading a file; and a site's Google Search Console: why a page is not on
-  Google, its sitemaps, its search performance. Not for a Google account Hypomnema was not given.
+  sending a reply, creating an event, uploading a file; and a site's Google Search Console (with curl through
+  Hypomnema): why a page is not on Google, its sitemaps, its search performance. Not for a Google account Hypomnema
+  was not given.
 metadata:
   hypomnema:
     requires:
@@ -14,10 +15,11 @@ metadata:
 
 # Google Workspace through Hypomnema
 
-Read, search and change the owner's Gmail, Google Calendar and Google Drive, and read a site's Search Console, with
-the `gws` command (the Google Workspace CLI). Hypomnema installed `gws` for you and signs it in on every call: you
-never see a password or a token, and you never log in. Every request `gws` makes passes Hypomnema's service proxy, which adds the account's
-credential and decides what runs at once and what waits for the owner.
+Read, search and change the owner's Gmail, Google Calendar and Google Drive with the `gws` command (the Google
+Workspace CLI), and read a site's Search Console with `curl` run the same way (`references/searchconsole.md`).
+Hypomnema installed `gws` for you and signs it in on every call: you never see a password or a token, and you never
+log in. Every request `gws` makes passes Hypomnema's service proxy, which adds the account's credential and decides
+what runs at once and what waits for the owner.
 
 Adapted from the Google Workspace CLI's `gws-shared` skill (Apache-2.0, https://github.com/googleworkspace/cli).
 Changed for Hypomnema: how the command is signed in, which account it acts as, and what happens to anything that
@@ -125,4 +127,4 @@ Load only the one the work needs. Each is a file in the `references` folder besi
 | Drive: every command | `gws-drive` |
 | Upload a file | `gws-drive-upload` |
 | A morning or next-day brief from mail and calendar | `daily-brief` |
-| Search Console: a site's indexing, sitemaps, search performance | `gws-searchconsole` |
+| Search Console: a site's indexing, sitemaps, search performance (with curl, not gws) | `searchconsole` |

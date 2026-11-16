@@ -207,6 +207,7 @@ var policies = map[string]policy{
 	"ChangeOwnerMemory": {},
 	"ListProviders":     {},
 	"ApplyProvider":     {scope: scopeOwner},
+	"DeleteProvider":    {scope: scopeOwner},
 	"ListModels":        {},
 	"ListTools":         {},
 	// Artifacts (issue #402): every token reads them, a Bot's only its own chat's; only a Bot's shows one, and
