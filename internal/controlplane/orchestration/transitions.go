@@ -17,10 +17,12 @@ var taskTransitions = map[TaskStatus][]TaskStatus{
 	TaskBlocked: {TaskPending, TaskReady, TaskRunning, TaskSucceeded, TaskFailed, TaskCanceled},
 	// ready: the owner reopened it.
 	TaskFailed: {TaskReady},
+	// ready: the coordinator or the owner sent its worker a follow-up (issue #666).
+	TaskSucceeded: {TaskReady},
 }
 
 // taskTerminal lists the statuses in which a Task has ended. A failed Task
-// can still be reopened by the owner.
+// can still be reopened by the owner, and a succeeded one followed up.
 var taskTerminal = []TaskStatus{TaskSucceeded, TaskFailed, TaskCanceled}
 
 // runTransitions lists every allowed Run status change.

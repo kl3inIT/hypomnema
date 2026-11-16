@@ -41,7 +41,7 @@ func (q *Queries) AcceptDispatch(ctx context.Context, arg AcceptDispatchParams) 
 }
 
 const activeDispatchOfTask = `-- name: ActiveDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason FROM dispatches
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id FROM dispatches
 WHERE task_id = ?1 AND status IN ('queued', 'starting', 'running', 'stopping', 'unknown', 'stop_unknown')
 `
 
@@ -83,6 +83,7 @@ func (q *Queries) ActiveDispatchOfTask(ctx context.Context, taskID string) (Disp
 		&i.FallbackUntil,
 		&i.Handoff,
 		&i.StalledReason,
+		&i.FollowUpID,
 	)
 	return i, err
 }
@@ -207,7 +208,7 @@ func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (Accou
 }
 
 const getDispatch = `-- name: GetDispatch :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason FROM dispatches WHERE id = ?1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id FROM dispatches WHERE id = ?1
 `
 
 func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) {
@@ -248,6 +249,7 @@ func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) 
 		&i.FallbackUntil,
 		&i.Handoff,
 		&i.StalledReason,
+		&i.FollowUpID,
 	)
 	return i, err
 }
@@ -304,11 +306,11 @@ func (q *Queries) InsertConversation(ctx context.Context, arg InsertConversation
 }
 
 const insertDispatch = `-- name: InsertDispatch :exec
-INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
+INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id, follow_up_id,
                         model, effort, profile_version_id, fallback_for, fallback_until, handoff, created_at,
                         updated_at)
-VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6,
-        ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
+VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6, ?7,
+        ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
 `
 
 type InsertDispatchParams struct {
@@ -318,6 +320,7 @@ type InsertDispatchParams struct {
 	NodeID           string
 	Recovery         int64
 	GateQuestionID   sql.NullString
+	FollowUpID       sql.NullString
 	Model            sql.NullString
 	Effort           sql.NullString
 	ProfileVersionID sql.NullString
@@ -335,6 +338,7 @@ func (q *Queries) InsertDispatch(ctx context.Context, arg InsertDispatchParams) 
 		arg.NodeID,
 		arg.Recovery,
 		arg.GateQuestionID,
+		arg.FollowUpID,
 		arg.Model,
 		arg.Effort,
 		arg.ProfileVersionID,
@@ -373,7 +377,7 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) er
 }
 
 const lastDispatchOfConversation = `-- name: LastDispatchOfConversation :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID string) (Dispatch, error) {
@@ -414,12 +418,13 @@ func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID
 		&i.FallbackUntil,
 		&i.Handoff,
 		&i.StalledReason,
+		&i.FollowUpID,
 	)
 	return i, err
 }
 
 const lastDispatchOfTask = `-- name: LastDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispatch, error) {
@@ -460,6 +465,7 @@ func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispat
 		&i.FallbackUntil,
 		&i.Handoff,
 		&i.StalledReason,
+		&i.FollowUpID,
 	)
 	return i, err
 }
@@ -863,7 +869,7 @@ func (q *Queries) MarkUnknown(ctx context.Context, arg MarkUnknownParams) (int64
 }
 
 const previousDispatchOfTask = `-- name: PreviousDispatchOfTask :one
-SELECT p.id, p.task_id, p.conversation_id, p.node_id, p.status, p.epoch, p.failure_class, p.unknown_cause, p.recovery, p.process_ref, p.result, p.resets_at, p.created_at, p.updated_at, p.accepted_at, p.started_at, p.lease_expires_at, p.progress_at, p.stop_requested_at, p.stop_acked_at, p.stalled_at, p.overrun_at, p.settled_at, p.waiting_since, p.waited_ms, p.gate_question_id, p.model, p.effort, p.profile_version_id, p.activity, p.fallback_for, p.fallback_until, p.handoff, p.stalled_reason FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
+SELECT p.id, p.task_id, p.conversation_id, p.node_id, p.status, p.epoch, p.failure_class, p.unknown_cause, p.recovery, p.process_ref, p.result, p.resets_at, p.created_at, p.updated_at, p.accepted_at, p.started_at, p.lease_expires_at, p.progress_at, p.stop_requested_at, p.stop_acked_at, p.stalled_at, p.overrun_at, p.settled_at, p.waiting_since, p.waited_ms, p.gate_question_id, p.model, p.effort, p.profile_version_id, p.activity, p.fallback_for, p.fallback_until, p.handoff, p.stalled_reason, p.follow_up_id FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
 WHERE d.id = ?1 AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
 ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1
 `
@@ -907,6 +913,7 @@ func (q *Queries) PreviousDispatchOfTask(ctx context.Context, id string) (Dispat
 		&i.FallbackUntil,
 		&i.Handoff,
 		&i.StalledReason,
+		&i.FollowUpID,
 	)
 	return i, err
 }

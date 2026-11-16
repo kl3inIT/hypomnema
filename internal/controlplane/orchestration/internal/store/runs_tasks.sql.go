@@ -38,6 +38,23 @@ func (q *Queries) CountUnfinishedTasks(ctx context.Context, arg CountUnfinishedT
 	return count, err
 }
 
+const getFollowUp = `-- name: GetFollowUp :one
+SELECT id, task_id, note, asked_by, created_at FROM task_follow_ups WHERE id = ?1
+`
+
+func (q *Queries) GetFollowUp(ctx context.Context, id string) (TaskFollowUp, error) {
+	row := q.db.QueryRowContext(ctx, getFollowUp, id)
+	var i TaskFollowUp
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.Note,
+		&i.AskedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getRun = `-- name: GetRun :one
 SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses, bot_id FROM runs WHERE id = ?1
 `
@@ -127,6 +144,30 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.WaitingReason,
 	)
 	return i, err
+}
+
+const insertFollowUp = `-- name: InsertFollowUp :exec
+INSERT INTO task_follow_ups (id, task_id, note, asked_by, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5)
+`
+
+type InsertFollowUpParams struct {
+	ID      string
+	TaskID  string
+	Note    string
+	AskedBy string
+	Now     int64
+}
+
+func (q *Queries) InsertFollowUp(ctx context.Context, arg InsertFollowUpParams) error {
+	_, err := q.db.ExecContext(ctx, insertFollowUp,
+		arg.ID,
+		arg.TaskID,
+		arg.Note,
+		arg.AskedBy,
+		arg.Now,
+	)
+	return err
 }
 
 const insertRun = `-- name: InsertRun :exec
@@ -331,6 +372,40 @@ func (q *Queries) ListDependents(ctx context.Context, taskID string) ([]ListDepe
 	for rows.Next() {
 		var i ListDependentsRow
 		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFollowUpsOfTask = `-- name: ListFollowUpsOfTask :many
+SELECT id, task_id, note, asked_by, created_at FROM task_follow_ups WHERE task_id = ?1 ORDER BY created_at, rowid
+`
+
+// Oldest first.
+func (q *Queries) ListFollowUpsOfTask(ctx context.Context, taskID string) ([]TaskFollowUp, error) {
+	rows, err := q.db.QueryContext(ctx, listFollowUpsOfTask, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskFollowUp{}
+	for rows.Next() {
+		var i TaskFollowUp
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.Note,
+			&i.AskedBy,
+			&i.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -551,6 +626,28 @@ func (q *Queries) NextTaskPosition(ctx context.Context, runID string) (int64, er
 	var next int64
 	err := row.Scan(&next)
 	return next, err
+}
+
+const pendingFollowUpOfTask = `-- name: PendingFollowUpOfTask :one
+SELECT f.id, f.task_id, f.note, f.asked_by, f.created_at FROM task_follow_ups f
+WHERE f.task_id = ?1
+  AND NOT EXISTS (SELECT 1 FROM dispatches d WHERE d.follow_up_id = f.id AND d.status = 'succeeded')
+ORDER BY f.created_at DESC, f.rowid DESC
+LIMIT 1
+`
+
+// The newest note that no Dispatch which gave it to the worker has yet ended succeeded.
+func (q *Queries) PendingFollowUpOfTask(ctx context.Context, taskID string) (TaskFollowUp, error) {
+	row := q.db.QueryRowContext(ctx, pendingFollowUpOfTask, taskID)
+	var i TaskFollowUp
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.Note,
+		&i.AskedBy,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const recordTaskFailure = `-- name: RecordTaskFailure :one

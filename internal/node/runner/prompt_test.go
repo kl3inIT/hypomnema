@@ -83,3 +83,44 @@ func TestPromptCarriesTheMemories(t *testing.T) {
 	d.Offer.AgentKey = "the-dispatch's-key"
 	assert.Contains(t, Prompt(d), "Keep in memory, with the `memory` tool")
 }
+
+// Scenario: the coordinator asked more of a Task whose worker had finished
+// (issue #666). The next turn goes on in the same Conversation and tells the
+// worker the note, to continue on its branch and update its pull request,
+// before a Gate answered since; a Dispatch with no follow-up says nothing of
+// one.
+func TestPromptCarriesTheFollowUp(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	assert.NotContains(t, Prompt(d), "more is asked of it", "no follow-up, no section")
+
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Accepted = &nodeproto.Accepted{Epoch: 1, FollowUp: "  The review found: the button has no test.\n"}
+
+	p := Prompt(d)
+	assert.Contains(t, p, "You finished this task before, and more is asked of it now:\n"+
+		"The review found: the button has no test.\n"+
+		"Continue in this worktree and on this branch; update the same pull request, then call `finish` again.\n")
+	assert.Contains(t, p, "Task (implementer):\nadd the Google login button", "the spec is still given")
+
+	d.Accepted.Gate = &nodeproto.Question{Text: "Add an e2e test too?", Answer: &nodeproto.Answer{Text: "yes"}}
+	p = Prompt(d)
+	assert.Greater(t, strings.Index(p, "DECISION GATE RESOLVED"), strings.Index(p, "more is asked of it now"),
+		"the answer to the newest question comes last")
+
+	d.Offer.Repo, d.Accepted.Gate = "", nil
+	assert.Contains(t, Prompt(d), "Continue in this directory, then call `finish` again.\n",
+		"without a repository there is no pull request to update")
+}
+
+// Scenario: a worker ends with a report the coordinator can act on (issue
+// #666): the answer first, what was done, found and left, the checks run and
+// skipped, then the evidence.
+func TestPromptAsksForTheReportShape(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, Prompt(offered()), "the answer first; then what you did, what you found and what is left; "+
+		"which checks you ran and which you skipped; then the evidence")
+}

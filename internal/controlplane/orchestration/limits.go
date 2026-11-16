@@ -62,6 +62,10 @@ const (
 	MaxQuestionText = 4000
 	MaxAnswerText   = 4000
 	MaxOptions      = 10
+	// MaxFollowUpText bounds a follow-up's note (issue #666; inferred: a
+	// review's findings pasted whole run longer than an answer, so it takes
+	// the client API's bound of an answer's text, 20,000).
+	MaxFollowUpText = 20000
 	// EventPageDefault and EventPageMax bound one page of the event log (Omnara).
 	EventPageDefault = 100
 	EventPageMax     = 500

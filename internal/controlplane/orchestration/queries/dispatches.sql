@@ -27,10 +27,10 @@ WHERE id = @id AND status = 'open';
 UPDATE conversations SET cli_session_ref = @cli_session_ref, updated_at = @now WHERE id = @id;
 
 -- name: InsertDispatch :exec
-INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
+INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id, follow_up_id,
                         model, effort, profile_version_id, fallback_for, fallback_until, handoff, created_at,
                         updated_at)
-VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id,
+VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id, @follow_up_id,
         @model, @effort, @profile_version_id, @fallback_for, @fallback_until, @handoff, @now, @now);
 
 -- name: CountFallbacksOfTask :one
