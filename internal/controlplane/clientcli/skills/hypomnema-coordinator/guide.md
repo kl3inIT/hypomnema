@@ -70,8 +70,11 @@ what a profile was called or did before.
 
 - Choose by the description: it says what the profile is for and when to use it. When several fit, take the one
   whose description names the work most closely; when none says more than another, take `implementer`.
-- A question about the code that changes nothing goes to a profile that reads and reports: load the `investigate`
-  reference.
+- Choose by the purpose. A change goes to one worker that makes changes: it reads what it needs and then changes
+  it, in the same Task. Do not put a reading Task before it to find out what to change; what that worker read would
+  reach the next one only as far as you copy it into a spec.
+- A question whose answer the owner or you need, and which changes nothing, goes to a profile that reads and
+  reports: load the `investigate` reference.
 - A review of a pull request goes to a profile that reviews: load the `review` reference. Review when the owner
   asks for it, or has told you to as a standing rule; it is the owner's to decide, since a review is one more
   worker's run on the owner's accounts.
@@ -96,7 +99,10 @@ its branch does not hold another Task's unmerged changes. So:
 - Keep steps that build on each other's changes in one Task, such as an endpoint, its test and its README section.
 - Use separate Tasks for work that can go on in parallel on different files, each ending in its own pull request.
 - `depends_on` (refs earlier in the file, or ids of Tasks already in the Run) only orders Tasks: a Task starts once
-  all of them succeeded. It does not carry their changes.
+  all of them succeeded. It does not carry their changes, nor their reports.
+- When a Task needs what an earlier Task found (fixing the items an audit listed), paste that Task's report, the
+  summary in `hypomnema tasks show <task_id> --json`, into the spec word for word, under a heading that names its
+  Task id, such as `## Report of task tsk_…`. Do not shorten or reword it.
 
 Make each spec self-contained: the goal and the change in the repository's terms; the decisions already made
 (names, formats, interfaces), so parallel Tasks agree; what it may change; and the evidence that proves it is done:
@@ -143,9 +149,19 @@ A worker's report is a claim; the Task's record and its evidence are what count.
 - `succeeded`: `hypomnema tasks show <task_id> --json` has the latest Dispatch's summary and evidence, such as
   `{"kind": "pull_request", "ref": "<url>"}`. Check them against the spec: the pull request is in the right
   repository, and the checks the spec asked for ran. When the evidence has no pull request, look for one read-only
-  (`gh pr list --repo <owner/name> --head hyp/<task_id>`); when there is none, create a follow-up Task whose spec
-  says to start from the branch `hyp/<task_id>` (fetch it and merge it into its own branch) and names what is
-  missing. `gh pr checks <url>` shows whether the checks ran.
+  (`gh pr list --repo <owner/name> --head hyp/<task_id>`); when there is none, send the worker a follow-up (below)
+  that names what is missing. `gh pr checks <url>` shows whether the checks ran.
+- More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
+  worker as a follow-up, not to a new Task:
+  ```text
+  hypomnema tasks follow-up <task_id> --note-file <file> --json
+  ```
+  The note says what to change or add. The Task is ready again; its worker continues its own conversation in the
+  same worktree and branch, updates the same pull request, and finishes again; wait as before.
+  `tasks show` lists the follow-ups. When the follow-up is refused because the worker's conversation was closed,
+  create a new Task whose spec says to start from the branch `hyp/<task_id>` (fetch it and merge it into its own
+  branch) and names what is left. A follow-up is for a succeeded Task only; a failed one is the `recovery`
+  reference's.
 - `failed` or `blocked`: load the `recovery` reference before acting.
 - Report a failed, blocked or canceled Task as exactly that, with what is left.
 - Never merge a pull request: it is what the worker delivers, and the owner reviews and merges it.

@@ -13,6 +13,7 @@ at a file or two to scope the question is yours; a read across the repository is
    file paths with lines, commands with their output, URLs. It says to change nothing and open no pull request.
 3. Wait as for any Run. Each worker's report is the summary in `hypomnema tasks show <task_id> --json`.
 4. Answer the owner from those reports, and say which Task each part comes from. When reports disagree or leave a
-   gap, create a follow-up Task for that point; do not settle it by reading the code yourself.
-5. When the answer is that the code must change, that is a new Task under a profile that makes changes, with what
-   was found in its spec.
+   gap, ask the worker that left it with `hypomnema tasks follow-up <task_id> --note-file <file> --json`, which
+   continues with what it already read; do not settle it by reading the code yourself.
+5. When the answer is that the code must change, that is a new Task under a profile that makes changes. Paste the
+   report it rests on into its spec word for word, under a heading that names its Task id; do not reword it.

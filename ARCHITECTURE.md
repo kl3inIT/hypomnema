@@ -215,9 +215,19 @@ sequenceDiagram
     C->>CP: finish the Run
 ```
 
-- Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
-  Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
-  it; reopening a failed Task resets its failure count and unblocks them.
+- Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, follow one up, finish or
+  cancel a Run. A Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every
+  Task downstream of it; reopening a failed Task resets its failure count and unblocks them.
+- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task of an open
+  Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
+  who asked: the owner or the coordinator, by the token), the failure count is reset, and the Task goes from
+  succeeded back to ready, the one transition from succeeded. Its next Dispatch continues the Conversation, and
+  every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
+  succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
+  as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
+  create a new Task from the branch `hyp/<task_id>`. Learned from Orca, whose finished worker gets a message "as a
+  follow-up Task" (`skill-guides/orchestration.md`), Polly, which sends fixes "to the SAME implementer
+  conversation", and omp's "Prefer messaging an existing agent" for follow-up work (`docs/tools/task.md`).
 - Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
@@ -763,6 +773,9 @@ sequenceDiagram
   pending Approval cards and in their scrolling box:
   - Each open question to the owner from the chat's Runs, with the Task it comes from, answered with the
     `QuestionForm`; read every 3 s, as the Approvals are.
+  - The Task's panel (`features/tasks/task-panel.tsx`) starts a failed Task again, cancels one not ended, and asks
+    more of a succeeded one of an open Run ("Ask for more": a note sent as a follow-up, issue #666; a refusal shows
+    the server's message); each follow-up shows under the Task's spec.
   - The chat's open Runs as strips, after Orca's `NativeChatDockedTaskList.tsx` and `NativeChatTaskList.tsx`: the
     Run's status icon and words (Needs you, Failed, Working, Queued, Ready to finish), its objective and "n of m
     Tasks done". A strip opens to its Tasks, a row each with its status icon and words and the runtime's mark,
@@ -3097,7 +3110,8 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
   (403 otherwise), and so does reading a worker's transcript. An answer is recorded as the owner's or the
   coordinator's by the token's kind.
 - Operations: who am I; list, create, show (with each Task's latest Dispatch), finish and cancel Runs; create Tasks
-  with dependencies; show, cancel and reopen a Task; list the Tasks in flight (`GET /tasks`: every Task of an
+  with dependencies; show, cancel, reopen and follow up a Task (`POST /tasks/{id}/follow-ups` with a note; a
+  Task's detail lists its `follow_ups`); list the Tasks in flight (`GET /tasks`: every Task of an
   open Run and other Runs' Tasks changed in the last 24 h, with their latest Dispatch, their Runs, and the newest
   event's seq to follow the stream from); read a worker's transcript (`GET /dispatches/{id}/items`: the items after a
   seq, or the newest ones before a seq, 100 a page; it can wait up to 50 s for the next item); list, show, answer
@@ -3170,7 +3184,7 @@ The owner's commands:
   - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the
     owner) until the Task ends, then finishes the Run; each read waits for the next event;
   - `answer <question> <number or text>`, and `questions` lists the open questions to the owner;
-  - the coordinator's commands: `whoami`; `runs create|list|show|finish|cancel|wait`; `tasks create|show|cancel|reopen`
+  - the coordinator's commands: `whoami`; `runs create|list|show|finish|cancel|wait`; `tasks create|show|cancel|reopen|follow-up`
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
@@ -3199,11 +3213,16 @@ The owner's commands:
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
   The guide names no runtime and no vendor ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md),
-  issue #155): a profile is chosen by its description, which the owner writes; a question that changes nothing
-  goes to a profile that reads and reports; a pull request is reviewed, when the owner asks or has said so as a
+  issue #155): a profile is chosen by its description, which the owner writes, and by the purpose (issue #666):
+  a change goes to one worker that reads and then changes in the same Task, and a reading Task is for an answer
+  the owner or the coordinator needs, not a step before an edit (omp's "Prefer one agent to investigate + edit"
+  and "lone subagent lossy handoff", Coder's subagent catalog); a question that changes nothing goes to a profile
+  that reads and reports; a Task that needs an earlier one's findings gets that Task's report pasted word for word
+  under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
+  follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
   standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only; findings that make a change incorrect are reported with an offer of a fix Task, two rounds at
-  most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  the spec only; findings that make a change incorrect are reported with an offer to send them to the change's
+  worker as a follow-up, two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
@@ -3397,12 +3416,16 @@ Node (`internal/node`):
       worktree of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
     - `ask` instead of guessing, `finish` exactly once (with a Gate for decisions the owner must make), and no
       subagents;
+    - a short report in `finish`: the answer first; what was done, found and left; the checks run and skipped;
+      then the evidence (issue #666, after Orca's `worker_done` body, "what you did, what you found, what's left",
+      and OpenAI's GPT-6 guide's handoff);
     - that the task, an issue, a document or a memory is a claim, checked in the base branch's code or on the
       system it names before it is built on, with what was seen cited; a false premise ends the Task with `finish`
       and that evidence, and no change (issue #513, after OpenClaw's and Hermes's `AGENTS.md` and Coder's "state
       uncertainty instead of guessing");
     - the profile's instruction, then the agent's memory and the one about the owner (issue #21);
-    - the recovery note and a resolved Gate.
+    - the recovery note, a follow-up ("You finished this task before, and more is asked of it now: …", then to
+      continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate.
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
   `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
   branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
