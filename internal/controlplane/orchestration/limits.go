@@ -68,11 +68,17 @@ const (
 	// RunPageDefault and RunPageMax bound one page of Runs (Omnara's PageLimit).
 	RunPageDefault = 50
 	RunPageMax     = 100
-	// MaxActiveDispatches: Dispatches that have not settled, across every node
-	// (Orca MAX_CONCURRENT_DEFAULT; Coder admits inside the transaction).
-	MaxActiveDispatches = 4
+	// BotDispatchesDefault: the unsettled Dispatches of one Bot's Runs, across
+	// every node, unless the Bot sets its own (issue #660). The owner's Runs
+	// without a Bot are one more group with this limit (inferred: no
+	// reference has that case). There is no limit across every node.
+	// From: OpenMausBot threads.maxConcurrentPerBot, server/bot-thread-limits.ts; 4 the owner's, 2026-11-16.
+	BotDispatchesDefault = 4
 	// NodeDispatchesDefault: a node's own limit unless set (inferred).
 	NodeDispatchesDefault = 2
+	// MaxDispatchesLimit bounds a node's and a Bot's limit, as the client API
+	// bounds a new node's (api/openapi.yaml, NewNode).
+	MaxDispatchesLimit = 64
 	// NodeOfflineAfter: a node not heard from for this long is not connected
 	// (Omnara, docs/agents/failure-handling.mdx).
 	NodeOfflineAfter = 30 * time.Second

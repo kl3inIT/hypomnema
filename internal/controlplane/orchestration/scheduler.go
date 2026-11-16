@@ -5,15 +5,21 @@ import (
 	"database/sql"
 	"fmt"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
 // The scheduler (issue #19, PR 5): every ScheduleEvery, and whenever a commit
-// signals, one pass gives ready Tasks a Dispatch, oldest Run first, while
-// fewer than MaxActiveDispatches have not settled (Orca coordinator.ts tick;
-// Coder admits inside the acquisition transaction).
+// signals, one pass goes through every ready Task, oldest Run first, and gives
+// each a Dispatch when its Bot is under its limit and a node has room (Orca
+// coordinator.ts tick; Coder admits inside the acquisition transaction). There
+// is no limit across every node (issue #660): each Bot has its own, as
+// OpenMausBot's threads.maxConcurrentPerBot (server/bot-thread-limits.ts), and
+// each node its own, as Coder's provisioner daemons (provisionerd.go). A Task
+// left ready is told why it waits (tasks.waiting_reason), as OpenMausBot's
+// queued reason (server/host/queued-reason.ts).
 
 // ServiceOption configures a Service.
 type ServiceOption func(*Service)
@@ -40,10 +46,6 @@ func (s *Service) Schedule(ctx context.Context) (Scheduled, error) {
 		}
 
 		for _, taskID := range ids {
-			if p.active >= MaxActiveDispatches {
-				break
-			}
-
 			if err := s.scheduleTask(ctx, q, now, p, taskID, &out); err != nil {
 				return err
 			}
@@ -72,6 +74,16 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return notFound(err, "task", taskID)
 	}
 
+	group, limit, err := runGroup(ctx, q, task.RunID)
+	if err != nil {
+		return err
+	}
+
+	// A Bot at its limit waits for one of its own Dispatches to settle; the other Bots' Tasks go on.
+	if p.groups[group] >= limit {
+		return s.wait(ctx, q, now, task, ReasonBotAtLimit+group, out)
+	}
+
 	r, err := resolve(ctx, q, task)
 	if err != nil {
 		return err
@@ -95,7 +107,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 	}
 
 	if spec == nil {
-		return s.unplaceable(ctx, q, now, task, reason, out)
+		return s.wait(ctx, q, now, task, reason, out)
 	}
 
 	told := int64(1)
@@ -216,37 +228,61 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 
 // runBotGives says which profiles the Bot that created a Run may give work
 // to; every one for a Run no Bot created (the owner's), or whose Bot is gone.
-// A Run a coordinator created in a chat without its Bot recorded is that
-// chat's Bot's.
 func runBotGives(ctx context.Context, q *store.Queries, runID string) (func(string) bool, error) {
-	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		return nil, notFound(err, "run", runID)
-	}
-
 	every := func(string) bool { return true }
 
-	name := run.BotID.String
-
-	if !run.BotID.Valid && run.ChatID.Valid && run.CoordinatorTokenID.Valid {
-		chat, err := q.GetChat(ctx, run.ChatID.String)
-		if err != nil {
-			return nil, notFound(err, "chat", run.ChatID.String)
-		}
-
-		name = chat.BotID
-	}
-
-	if name == "" {
-		return every, nil
-	}
-
-	bot, found, err := botIfAny(ctx, q, name)
+	_, bot, found, err := runBot(ctx, q, runID)
 	if err != nil || !found {
 		return every, err
 	}
 
 	return func(profile string) bool { return bot.MayGive(profile) == nil }, nil
+}
+
+// runBot is the Bot that created a Run: its id, "" for a Run no Bot created
+// (the owner's), and the Bot when it is still there. A Run a coordinator
+// created in a chat without its Bot recorded is that chat's Bot's.
+func runBot(ctx context.Context, q *store.Queries, runID string) (string, Bot, bool, error) {
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		return "", Bot{}, false, notFound(err, "run", runID)
+	}
+
+	id := run.BotID.String
+
+	if !run.BotID.Valid && run.ChatID.Valid && run.CoordinatorTokenID.Valid {
+		chat, err := q.GetChat(ctx, run.ChatID.String)
+		if err != nil {
+			return "", Bot{}, false, notFound(err, "chat", run.ChatID.String)
+		}
+
+		id = chat.BotID
+	}
+
+	if id == "" {
+		return "", Bot{}, false, nil
+	}
+
+	bot, found, err := botIfAny(ctx, q, id)
+
+	return id, bot, found, err
+}
+
+// runGroup is the group a Run's Dispatches count in (issue #660), its Bot's
+// id or "" for the owner's Runs without a Bot, and the group's limit: the
+// Bot's own, else BotDispatchesDefault. CountActiveDispatchesPerBot groups
+// the same way.
+func runGroup(ctx context.Context, q *store.Queries, runID string) (string, int, error) {
+	id, bot, found, err := runBot(ctx, q, runID)
+	if err != nil {
+		return "", 0, err
+	}
+
+	if !found {
+		return id, BotDispatchesDefault, nil
+	}
+
+	return id, bot.DispatchLimit(), nil
 }
 
 // placeHandoff is where a backup takes over a Conversation's work: on its
@@ -330,6 +366,10 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNeedsGateway, nil
 		}
 
+		if p.atLimit(conv.NodeID, conv.Runtime, host) {
+			return nil, ReasonNodesFull, nil
+		}
+
 		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
 			return nil, ReasonNoNode, nil
 		}
@@ -359,12 +399,17 @@ func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchS
 
 	n := p.pickNode(runtime, host)
 	if runtime == "" || n == nil {
-		if !p.anyReaches(host.host) {
+		// A Run without a repository has no host to reach: with no node connected, it has no node.
+		if host.host != "" && !p.anyReaches(host.host) {
 			return nil, ReasonNoNodeReaches + host.host
 		}
 
 		if missing := p.anyHas(host.tools); missing != "" {
 			return nil, ReasonNoNodeHasTool + missing
+		}
+
+		if runtime != "" && p.anyAtLimit(runtime, host) {
+			return nil, ReasonNodesFull
 		}
 
 		return nil, ReasonNoNode
@@ -401,14 +446,43 @@ func runHost(ctx context.Context, q *store.Queries, runID string) (where, error)
 	return where{host: run.RepoHost.String, tools: toolsOf(splitUses(run.Uses))}, nil
 }
 
+// wait leaves a ready Task without a Dispatch this pass: it records why
+// (issue #660), only when that changed and without touching the Task's
+// updated_at, and escalates a wait that does not resolve by itself. reason
+// is "" for a Task that waits for a cooling account.
+func (s *Service) wait(ctx context.Context, q *store.Queries, now int64, task store.Task, reason string,
+	out *Scheduled,
+) error {
+	shown := or(reason, ReasonAccountsCooling)
+
+	if !task.WaitingReason.Valid || task.WaitingReason.String != shown {
+		if err := q.SetTaskWaitingReason(ctx, store.SetTaskWaitingReasonParams{
+			WaitingReason: nullString(shown), ID: task.ID,
+		}); err != nil {
+			return fmt.Errorf("recording why task %s waits: %w", task.ID, err)
+		}
+	}
+
+	if resolvesByItself(reason) {
+		return nil
+	}
+
+	return s.unplaceable(ctx, q, now, task, reason, out)
+}
+
+// resolvesByItself reports whether a wait ends without anyone acting: a
+// cooling account, a Bot at its limit, every fitting node at its own. Such a
+// wait is not escalated.
+func resolvesByItself(reason string) bool {
+	return reason == "" || reason == ReasonAccountsCooling || reason == ReasonNodesFull ||
+		strings.HasPrefix(reason, ReasonBotAtLimit)
+}
+
 // unplaceable escalates a Task that has waited UnplaceableAfter for a node or
 // an account, once each time it becomes ready.
 func (s *Service) unplaceable(ctx context.Context, q *store.Queries, now int64, task store.Task, reason string,
 	out *Scheduled,
 ) error {
-	if reason == "" {
-		return nil
-	}
 
 	since := task.UpdatedAt
 	if task.NotBefore.Valid {

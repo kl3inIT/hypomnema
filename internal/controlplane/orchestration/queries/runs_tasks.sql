@@ -98,6 +98,11 @@ SELECT id FROM tasks WHERE run_id = @run_id AND status IN (sqlc.slice('statuses'
 UPDATE tasks SET failure_count = failure_count + 1, updated_at = @now WHERE id = @id
 RETURNING failure_count;
 
+-- name: SetTaskWaitingReason :exec
+-- Why a ready Task waits, as the scheduler found (issue #660); NULL clears it. updated_at stays: it is when the Task
+-- became ready, which the unplaceable escalation counts from.
+UPDATE tasks SET waiting_reason = @waiting_reason WHERE id = @id;
+
 -- name: SetTaskNotBefore :exec
 UPDATE tasks SET not_before = @not_before, updated_at = @now WHERE id = @id;
 

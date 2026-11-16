@@ -138,6 +138,7 @@ type Bot struct {
 	Tools            string
 	ToolsOff         string
 	ConnectionScopes sql.NullString
+	MaxDispatches    sql.NullInt64
 }
 
 type Channel struct {
@@ -768,6 +769,7 @@ type Task struct {
 	FinishedAt        sql.NullInt64
 	NotBefore         sql.NullInt64
 	CancelRequestedAt sql.NullInt64
+	WaitingReason     sql.NullString
 }
 
 type TaskDep struct {

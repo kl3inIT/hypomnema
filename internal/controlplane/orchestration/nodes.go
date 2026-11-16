@@ -288,6 +288,29 @@ func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
 	})
 }
 
+// SetNodeLimit changes how many Dispatches a node runs at once (issue #660),
+// as Coder's provisioner daemons are a setting, not fixed at install. The
+// next scheduling pass places by it; Dispatches it runs over a lower limit
+// go on.
+func (s *Service) SetNodeLimit(ctx context.Context, nodeID string, maxDispatches int) (Node, error) {
+	if maxDispatches < 1 || maxDispatches > MaxDispatchesLimit {
+		return Node{}, fmt.Errorf("%w: a node runs 1 to %d Dispatches at once", ErrInvalid, MaxDispatchesLimit)
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetNodeMaxDispatches(ctx, store.SetNodeMaxDispatchesParams{
+			Now: now, MaxDispatches: int64(maxDispatches), ID: nodeID,
+		})
+
+		return oneRow(n, err, "node", nodeID)
+	})
+	if err != nil {
+		return Node{}, fmt.Errorf("changing a node's limit: %w", err)
+	}
+
+	return s.GetNode(ctx, nodeID)
+}
+
 // maxNodeName bounds a node's name, as the client API does.
 const maxNodeName = 64
 

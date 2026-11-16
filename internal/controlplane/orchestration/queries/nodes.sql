@@ -40,6 +40,10 @@ SET cpu_percent = @cpu_percent, memory_used_bytes = @memory_used_bytes, disk_use
     load1 = @load1, gpus = @gpus, stats_at = @now
 WHERE id = @id AND status <> 'deleted';
 
+-- name: SetNodeMaxDispatches :execrows
+-- A node's own limit, which the owner changes after the node was added (issue #660).
+UPDATE nodes SET updated_at = @now, max_dispatches = @max_dispatches WHERE id = @id AND status <> 'deleted';
+
 -- name: SetNodeStatus :execrows
 UPDATE nodes SET updated_at = @now, status = @status WHERE id = @id AND status <> 'deleted';
 
@@ -84,6 +88,18 @@ SELECT count(*) FROM dispatches WHERE status IN (sqlc.slice(statuses));
 
 -- name: CountActiveDispatchesPerNode :many
 SELECT node_id, count(*) AS n FROM dispatches WHERE status IN (sqlc.slice(statuses)) GROUP BY node_id;
+
+-- name: CountActiveDispatchesPerBot :many
+-- The unsettled Dispatches of each Bot's Runs (issue #660), the Bot found as runBotGives finds it: the Run's own,
+-- else, for a Run a coordinator made in a chat, that chat's; '' for the owner's Runs without a Bot.
+SELECT CAST(coalesce(r.bot_id, CASE WHEN r.coordinator_token_id IS NOT NULL THEN c.bot_id END, '') AS TEXT) AS bot,
+       count(*) AS n
+FROM dispatches d
+JOIN tasks t ON t.id = d.task_id
+JOIN runs r ON r.id = t.run_id
+LEFT JOIN chats c ON c.id = r.chat_id
+WHERE d.status IN (sqlc.slice(statuses))
+GROUP BY 1;
 
 -- name: InsertAccount :exec
 INSERT INTO accounts (id, runtime, label, status, position, created_at, updated_at)

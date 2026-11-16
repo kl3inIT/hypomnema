@@ -91,20 +91,26 @@ func specs(n int) []NewTask {
 	return out
 }
 
-// Scenario: more ready Tasks than slots. At most MaxActiveDispatches run; a
-// Dispatch waiting on a question keeps its slot, a gated or settled one
-// frees it, and the coordinator's own CreateDispatch meets the same limit.
-func TestSchedulerAdmitsUpToTheLimit(t *testing.T) {
+// Scenario: more ready Tasks of the owner's Runs than their limit (issue
+// #660), on a node with room for more. The owner's Runs without a Bot are one
+// group: at most BotDispatchesDefault run and the rest wait, told why; a
+// Dispatch waiting on a question keeps its slot, a gated or settled one frees
+// it, and the coordinator's own CreateDispatch meets the same limit.
+func TestSchedulerAdmitsTheOwnersRunsUpToTheirLimit(t *testing.T) {
 	t.Parallel()
 
 	w := newSchedWorld(t)
+	_, err := w.s.SetNodeLimit(t.Context(), w.node.ID, 8)
+	require.NoError(t, err)
+
 	tasks := w.tasks(specs(6)...)
 
 	first := w.schedule().Created
-	require.Len(t, first, MaxActiveDispatches)
+	require.Len(t, first, BotDispatchesDefault)
 	assert.Empty(t, w.schedule().Created, "a second pass with nothing changed creates nothing")
+	assert.Equal(t, ReasonBotAtLimit, w.task(tasks[5].ID).WaitingReason, "the owner's group has no Bot id")
 
-	_, err := w.create(tasks[5].ID, w.spec())
+	_, err = w.create(tasks[5].ID, w.spec())
 	require.ErrorIs(t, err, ErrUnavailable)
 
 	waiting := w.begin(first[0])
@@ -358,6 +364,8 @@ func TestUnplaceableTaskIsEscalatedOnce(t *testing.T) {
 	require.Len(t, out.Escalations, 2)
 	assert.Equal(t, ReasonNoNode, out.Escalations[0].Reason)
 	assert.Equal(t, ReasonNoAccount, out.Escalations[1].Reason)
+	assert.Equal(t, []string{ReasonNoNode, ReasonNoAccount}, waiting(w, w.run.ID, "a", "g"),
+		"each Task says why it waits")
 	assert.Equal(t, []string{"escalation a unplaceable", "escalation g unplaceable"}, w.events(before, EventFilter{}))
 
 	assert.Empty(t, w.schedule().Escalations, "escalated once")

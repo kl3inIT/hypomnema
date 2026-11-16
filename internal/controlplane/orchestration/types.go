@@ -86,6 +86,10 @@ type Task struct {
 	NotBefore *time.Time
 	// CancelRequestedAt: a cancel waits for the running Dispatch to stop.
 	CancelRequestedAt *time.Time
+	// WaitingReason is why a ready Task has no Dispatch yet, as the scheduler's
+	// last pass found: a Reason code (dispatch_types.go). Empty for a Task that
+	// is not ready, or that no pass has looked at yet (issue #660).
+	WaitingReason string
 }
 
 // NewTask describes a Task to create. Ref names it within one CreateTasks
