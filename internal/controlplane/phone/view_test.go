@@ -129,7 +129,7 @@ func TestAViewWakesAStoppedMachineAndPassesTheScreenOn(t *testing.T) {
 
 	v, err := p.Watch(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { v.Close(context.Background(), true) })
+	t.Cleanup(func() { v.Close(context.Background()) })
 
 	assert.Equal(t, ControllerAgent, nextUp(t, v).Controller)
 	assert.Equal(t, StateWaking, nextUp(t, v).Said.State)
@@ -144,7 +144,7 @@ func TestAViewWakesAStoppedMachineAndPassesTheScreenOn(t *testing.T) {
 	// A second view while the machine is still starting does not start it again.
 	second, err := p.Watch(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { second.Close(context.Background(), true) })
+	t.Cleanup(func() { second.Close(context.Background()) })
 	assert.Equal(t, []string{"n-phone"}, machines.started)
 }
 
@@ -164,7 +164,7 @@ func TestTheOwnerTakesThePhoneAndAgentsArePaused(t *testing.T) {
 
 	v, err := p.Watch(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { v.Close(context.Background(), true) })
+	t.Cleanup(func() { v.Close(context.Background()) })
 
 	assert.Equal(t, ControllerAgent, nextUp(t, v).Controller)
 
@@ -240,7 +240,7 @@ func TestACallRunningWhenTheOwnerTakesThePhoneIsAnsweredPaused(t *testing.T) {
 
 	v, err := p.Watch(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { v.Close(context.Background(), true) })
+	t.Cleanup(func() { v.Close(context.Background()) })
 
 	taken := make(chan struct{})
 
@@ -258,9 +258,10 @@ func TestACallRunningWhenTheOwnerTakesThePhoneIsAnsweredPaused(t *testing.T) {
 	assert.Equal(t, Refusal, answer.Content[0].Text)
 }
 
-// The browser's release rules: closing the last view gives the phone back at
-// once; a view that dropped keeps the hold for the grace, then it goes back;
-// and a hold the owner sends nothing in goes back after the idle time.
+// The browser's release rules: handing back gives the phone back at once; the
+// last view going, closed by the page or dropped, keeps the hold for the
+// grace, and a view opened within it carries the hold on (issue #603); and a
+// hold the owner sends nothing in goes back after the idle time.
 func TestTheHoldEndsAsTheBrowsers(t *testing.T) {
 	t.Parallel()
 
@@ -280,19 +281,26 @@ func TestTheHoldEndsAsTheBrowsers(t *testing.T) {
 	}
 
 	p, _, v := take(t)
-	v.Close(t.Context(), true)
-	assert.False(t, p.Controlled(), "a view the owner closed gives the phone back")
+	require.NoError(t, v.Do(t.Context(), Action{Type: "releaseControl"}))
+	assert.False(t, p.Controlled(), "handing back gives the phone back at once")
+	v.Close(t.Context())
 
 	p, c, v := take(t)
-	v.Close(t.Context(), false)
-	assert.True(t, p.Controlled(), "a view that dropped keeps the hold for a while")
+	v.Close(t.Context())
+	assert.True(t, p.Controlled(), "a view the page closed keeps the hold for the grace")
 	c.pass(ownerhold.Grace - time.Second)
 	assert.Empty(t, p.hold.Expire(c.Now()))
+
+	next, err := p.Watch(t.Context())
+	require.NoError(t, err)
 	c.pass(2 * time.Second)
-	assert.Equal(t, ownerhold.ReleasedDropped, p.hold.Expire(c.Now()))
+	assert.Empty(t, p.hold.Expire(c.Now()), "a view opened within the grace carries the hold on")
+	next.Close(t.Context())
+	c.pass(ownerhold.Grace)
+	assert.Equal(t, ownerhold.ReleasedGone, p.hold.Expire(c.Now()))
 
 	p, c, v = take(t)
-	t.Cleanup(func() { v.Close(context.Background(), true) })
+	t.Cleanup(func() { v.Close(context.Background()) })
 	c.pass(ownerhold.Idle)
 	assert.Equal(t, ownerhold.ReleasedIdle, p.hold.Expire(c.Now()))
 	assert.False(t, p.Controlled())
@@ -310,7 +318,7 @@ func TestViewsAreBounded(t *testing.T) {
 	for range maxViews {
 		v, err := p.Watch(t.Context())
 		require.NoError(t, err)
-		t.Cleanup(func() { v.Close(context.Background(), true) })
+		t.Cleanup(func() { v.Close(context.Background()) })
 	}
 
 	_, err := p.Watch(t.Context())
@@ -336,7 +344,7 @@ func TestAViewWaitsForANodeThatRestarts(t *testing.T) {
 
 	v, err := p.Watch(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { v.Close(context.Background(), true) })
+	t.Cleanup(func() { v.Close(context.Background()) })
 
 	assert.Equal(t, ControllerAgent, nextUp(t, v).Controller)
 
@@ -350,7 +358,7 @@ func TestAViewWaitsForANodeThatRestarts(t *testing.T) {
 	gone, _ := viewPhone(newLink(), machines, newEnd(), phoneNode(""))
 	lost, err := gone.Watch(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { lost.Close(context.Background(), true) })
+	t.Cleanup(func() { lost.Close(context.Background()) })
 
 	assert.Equal(t, ControllerAgent, nextUp(t, lost).Controller)
 

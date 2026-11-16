@@ -320,9 +320,9 @@ func (v *View) send(ctx context.Context, in nodeproto.DeviceViewMessage) error {
 	return end.Send(ctx, in)
 }
 
-// Close ends the view. clean says the owner closed it, which gives the phone
-// back at once; a view that dropped keeps the hold for a while.
-func (v *View) Close(ctx context.Context, clean bool) {
+// Close ends the view. The owner's hold outlives the last view for the grace,
+// however it went (ownerhold.Closed); only releaseControl ends it at once.
+func (v *View) Close(_ context.Context) {
 	v.closing.Do(func() {
 		v.stop()
 
@@ -334,9 +334,7 @@ func (v *View) Close(ctx context.Context, clean bool) {
 			end.Close("the owner's view closed")
 		}
 
-		if reason := v.p.hold.Closed(clean, v.p.cfg.Clock.Now()); reason != "" {
-			v.p.released(ctx, reason)
-		}
+		v.p.hold.Closed(v.p.cfg.Clock.Now())
 
 		v.p.busy()
 	})

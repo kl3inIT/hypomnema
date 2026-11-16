@@ -444,9 +444,11 @@ sequenceDiagram
     agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
     browser: every agent's call is then answered, as a tool's result, that the browser is paused, a read included,
     and nothing reaches agent-browser. Taking control holds at once and lets an agent's running call end for up
-    to 15 seconds; that call is answered as refused too. Control goes back to the agents when the owner releases
-    it, at once when the owner's view is closed, 2 minutes after a view dropped, and 5 minutes after the owner's
-    last input (OpenMausBot's limits).
+    to 15 seconds; that call is answered as refused too. Control goes back to the agents at once when the owner
+    hands it back (`releaseControl`), 2 minutes after the owner's last view went, however it went (the page
+    closing it, as switching to another tab of the pane does, or a socket that dropped; a view opened meanwhile
+    carries the hold on; issue #603, after OpenMausBot's phone, `server/routes/phone-screen.ts`), and 5 minutes
+    after the owner's last input (OpenMausBot's limits).
   - The owner watches a tab (issue #219; `view.go`, `clientapi/browser.go`): an agent's, or the owner's own tab
     `owner`, which is made when it is first watched and is where a sign-in is made. `POST
     /api/v1/browser/tabs/{tab}/views` gives a ticket (owner only, once, 30 seconds), which opens the WebSocket
@@ -651,7 +653,7 @@ sequenceDiagram
     for the calls and views that find it so. The page is told who controls (`control`) and is passed what the node
     says. Taking control, releasing it and its ends are the browser's rules, now in `internal/controlplane/ownerhold`
     which both use: while the owner holds the phone every agent's phone call is answered that the tools are paused, one running when control was taken included; input without control is
-    dropped and the page told again; a view closed gives the phone back, one that dropped after two minutes, and a
+    dropped and the page told again; handing back gives the phone back at once, the last view going, however, after two minutes, and a
     hold with no input after five. At most 4 views; `GET /api/v1/device` says `held`. Each view is logged
     (`clientapi.phone_view_opened`, `_closed`, `phone.taken`, `phone.released`), frames and input never. A phone
     that cannot be shown closes the view with 4404 and its reason.

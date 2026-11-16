@@ -19,7 +19,9 @@ import (
 const (
 	// TakeoverWait is how long taking control lets an agent's running call end.
 	TakeoverWait = 15 * time.Second
-	// Grace is how long the hold outlives a view that dropped.
+	// Grace is how long the hold outlives the owner's last view, however it
+	// went: a socket that dropped, or a page that closed it, as switching to
+	// another tab in a pane does (issue #603).
 	Grace = 2 * time.Minute
 	// Idle is how long the hold outlives the owner's last input.
 	Idle = 5 * time.Minute
@@ -29,10 +31,9 @@ const (
 
 // Why the owner's hold ended.
 const (
-	ReleasedAsked   = "the owner released it"
-	ReleasedClosed  = "the owner's view was closed"
-	ReleasedDropped = "the owner's view dropped and did not come back"
-	ReleasedIdle    = "the owner sent nothing for a while"
+	ReleasedAsked = "the owner released it"
+	ReleasedGone  = "the owner's last view went and none came back"
+	ReleasedIdle  = "the owner sent nothing for a while"
 )
 
 // Hold is who drives one shared tool. The zero value is not ready: use New.
@@ -48,8 +49,8 @@ type Hold struct {
 	changed chan struct{}
 	// views counts the owner's open views.
 	views int
-	// dropped is when the last view dropped while the owner held; zero while a view is open.
-	dropped time.Time
+	// gone is when the last view went while the owner held; zero while a view is open.
+	gone time.Time
 	// active is when the owner took control or last sent input.
 	active time.Time
 }
@@ -96,7 +97,7 @@ func (c *Hold) Take(ctx context.Context, now time.Time) {
 		c.signal()
 	}
 
-	c.active, c.dropped = now, time.Time{}
+	c.active, c.gone = now, time.Time{}
 
 	var drained chan struct{}
 
@@ -178,7 +179,7 @@ func (c *Hold) Opened(limit int) bool {
 	}
 
 	c.views++
-	c.dropped = time.Time{}
+	c.gone = time.Time{}
 
 	return true
 }
@@ -199,28 +200,23 @@ func (c *Hold) Viewing() bool {
 	return c.views > 0
 }
 
-// Closed counts a view out. When it was the last one, a view the owner
-// closed ends the hold at once, and one that dropped starts the grace. It
-// returns why the hold ended, or "".
-func (c *Hold) Closed(clean bool, now time.Time) string {
+// Closed counts a view out. When it was the last one while the owner held,
+// the grace starts, however the view went: only Release, the owner's hand
+// back, ends the hold at once. As OpenMausBot's phone
+// (server/routes/phone-screen.ts, the last stream's close calls
+// hold.watched(false); server/browser/hold.ts, watched). Its browser ends a
+// hold at once on a view closed on purpose; here the browser keeps it too
+// (owner, 2026-11-16, issue #603).
+func (c *Hold) Closed(now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.views--
 	if c.views > 0 || !c.held {
-		return ""
+		return
 	}
 
-	if !clean {
-		c.dropped = now
-
-		return ""
-	}
-
-	c.held = false
-	c.signal()
-
-	return ReleasedClosed
+	c.gone = now
 }
 
 // Expire ends a hold that outlived its view or the owner's last input, and
@@ -236,8 +232,8 @@ func (c *Hold) Expire(now time.Time) string {
 	var reason string
 
 	switch {
-	case !c.dropped.IsZero() && now.Sub(c.dropped) >= Grace:
-		reason = ReleasedDropped
+	case !c.gone.IsZero() && now.Sub(c.gone) >= Grace:
+		reason = ReleasedGone
 	case now.Sub(c.active) >= Idle:
 		reason = ReleasedIdle
 	default:
