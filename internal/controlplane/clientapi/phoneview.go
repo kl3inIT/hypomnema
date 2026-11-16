@@ -29,7 +29,7 @@ import (
 type PhoneView interface {
 	Next(ctx context.Context) (phone.Update, error)
 	Do(ctx context.Context, a phone.Action) error
-	Close(ctx context.Context, clean bool)
+	Close(ctx context.Context)
 }
 
 // Phone is the phone the owner watches.
@@ -118,11 +118,11 @@ func (s *Server) phoneViewSocket(w http.ResponseWriter, r *http.Request) {
 	s.logger.InfoContext(ctx, "phone view opened",
 		append([]any{slog.String("event", "clientapi.phone_view_opened")}, who...)...)
 
-	clean, reason := copyPhoneView(ctx, conn, view)
+	reason := copyPhoneView(ctx, conn, view)
 
 	closing := context.WithoutCancel(ctx)
 
-	view.Close(closing, clean)
+	view.Close(closing)
 
 	s.logger.InfoContext(closing, "phone view closed", append([]any{
 		slog.String("event", "clientapi.phone_view_closed"),
@@ -134,9 +134,9 @@ func (s *Server) phoneViewSocket(w http.ResponseWriter, r *http.Request) {
 // the browser's code for a tab that is gone.
 const phoneGone = websocket.StatusCode(4404)
 
-// copyPhoneView copies between the page and the view until either leaves, as
-// copyBrowserView does.
-func copyPhoneView(ctx context.Context, conn *websocket.Conn, view PhoneView) (clean bool, reason string) {
+// copyPhoneView copies between the page and the view until either leaves, and
+// says why, as copyBrowserView does.
+func copyPhoneView(ctx context.Context, conn *websocket.Conn, view PhoneView) (reason string) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -176,12 +176,12 @@ func copyPhoneView(ctx context.Context, conn *websocket.Conn, view PhoneView) (c
 		}
 	}()
 
+	var left string
+
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
-			// The page closing its socket, or leaving for another page, is the owner closing the view.
-			status := websocket.CloseStatus(err)
-			clean = status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway
+			left = pageLeft(ctx, err)
 
 			break
 		}
@@ -192,15 +192,19 @@ func copyPhoneView(ctx context.Context, conn *websocket.Conn, view PhoneView) (c
 		}
 
 		if err := view.Do(ctx, action); err != nil {
+			left = err.Error()
+
 			break
 		}
 	}
 
 	cancel()
 
-	reason = <-viewLeft
+	if reason = <-viewLeft; reason != "" {
+		return reason
+	}
 
-	return clean && reason == "", reason
+	return left
 }
 
 // writePhoneUpdate sends the page what a view has for it: a frame as a

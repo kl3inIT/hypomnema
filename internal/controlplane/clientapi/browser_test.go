@@ -26,13 +26,13 @@ type sharedBrowser struct {
 	watched chan string
 	updates chan shared.Update
 	did     chan shared.Action
-	closed  chan bool
+	closed  chan struct{}
 }
 
 func newSharedBrowser(tabs ...shared.Tab) *sharedBrowser {
 	return &sharedBrowser{
 		tabs: tabs, watched: make(chan string, 4), updates: make(chan shared.Update, 4),
-		did: make(chan shared.Action, 4), closed: make(chan bool, 4),
+		did: make(chan shared.Action, 4), closed: make(chan struct{}, 4),
 	}
 }
 
@@ -65,7 +65,7 @@ func (b *sharedBrowser) Do(_ context.Context, a shared.Action) error {
 	return nil
 }
 
-func (b *sharedBrowser) Close(_ context.Context, clean bool) { b.closed <- clean }
+func (b *sharedBrowser) Close(context.Context) { b.closed <- struct{}{} }
 
 // ticket asks for a view of a tab and returns the WebSocket's address.
 func (w *world) viewTicket(c *openapi.ClientWithResponses, tab string) string {
@@ -222,7 +222,7 @@ func TestATabNamesItsChat(t *testing.T) {
 // Scenario: the owner watches a tab. The ticket opens the WebSocket once.
 // The page is told who controls, the tab's size and address as JSON and
 // gets a frame as a binary message; what it sends reaches the view; and
-// when the owner closes the page the view is closed as the owner's doing.
+// when the owner closes the page the view is closed.
 func TestTheOwnerWatchesATabThroughATicket(t *testing.T) {
 	t.Parallel()
 
@@ -267,12 +267,12 @@ func TestTheOwnerWatchesATabThroughATicket(t *testing.T) {
 	require.Error(t, err, "a ticket opens its WebSocket once")
 
 	require.NoError(t, conn.Close(websocket.StatusNormalClosure, ""))
-	assert.True(t, <-b.closed, "the owner closed the page: the view is closed as the owner's doing")
+	<-b.closed
 }
 
-// A page that goes away without closing its view leaves the view dropped,
-// not closed by the owner; and a tab that is gone is said to be.
-func TestAViewThatDropsIsNotClosedByTheOwner(t *testing.T) {
+// A page that goes away without closing its socket closes the view too;
+// and a tab that is gone is said to be.
+func TestAViewThatDropsIsClosed(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -287,7 +287,7 @@ func TestAViewThatDropsIsNotClosedByTheOwner(t *testing.T) {
 	assert.Equal(t, "d-dsp_1", <-b.watched)
 
 	require.NoError(t, conn.CloseNow())
-	assert.False(t, <-b.closed)
+	<-b.closed
 
 	//nolint:bodyclose // A WebSocket: no body is left open.
 	gone, _, err := websocket.Dial(t.Context(), w.viewTicket(owner, "d-gone"), nil)

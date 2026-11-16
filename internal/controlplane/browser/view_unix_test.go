@@ -84,7 +84,7 @@ func (r rig) watch(t *testing.T, tab string) *View {
 
 	v, err := r.Watch(t.Context(), tab)
 	require.NoError(t, err)
-	t.Cleanup(func() { v.Close(context.WithoutCancel(t.Context()), false) })
+	t.Cleanup(func() { v.Close(context.WithoutCancel(t.Context())) })
 
 	return v
 }
@@ -202,25 +202,26 @@ func TestACallRunningWhenTheOwnerTakesTheBrowserIsAnsweredAsRefused(t *testing.T
 	}
 }
 
-// The browser goes back to the agents at once when the owner closes the
-// view, HoldGrace after a view that dropped, and HoldIdle after the owner's
-// last input.
+// The browser goes back to the agents at once when the owner hands it back,
+// HoldGrace after the last view went, closed by the page or dropped (issue
+// #603), and HoldIdle after the owner's last input.
 func TestTheOwnersHoldEndsByItself(t *testing.T) {
 	r := newRig(t, Config{})
 	st := r.stream(t, OwnerTab)
 
+	handed := r.watch(t, OwnerTab)
+	do(t, handed, `{"type":"takeControl"}`)
+	do(t, handed, `{"type":"releaseControl"}`)
+	assert.False(t, r.held(t), "handing back gives the browser back at once")
+	handed.Close(t.Context())
+
 	closed := r.watch(t, OwnerTab)
 	do(t, closed, `{"type":"takeControl"}`)
-	closed.Close(t.Context(), true)
-	assert.False(t, r.held(t), "a view the owner closed gives the browser back at once")
-
-	dropped := r.watch(t, OwnerTab)
-	do(t, dropped, `{"type":"takeControl"}`)
-	dropped.Close(t.Context(), false)
+	closed.Close(t.Context())
 
 	r.clock.pass(HoldGrace - time.Second)
 	r.Sweep(t.Context())
-	assert.True(t, r.held(t), "a view that dropped may come back")
+	assert.True(t, r.held(t), "a view the page closed keeps the hold for the grace")
 
 	r.clock.pass(time.Second)
 	r.Sweep(t.Context())
@@ -409,7 +410,7 @@ func TestOnlyOpenTabsAreWatchedAndAWatchedTabIsKept(t *testing.T) {
 	assert.Equal(t, []string{"d-one"}, r.Status().Agents, "a tab that is watched is not closed as idle")
 
 	for _, v := range views {
-		v.Close(t.Context(), true)
+		v.Close(t.Context())
 	}
 
 	r.clock.pass(TabIdle)
@@ -477,7 +478,7 @@ func TestATabFillsThePaneItIsWatchedIn(t *testing.T) {
 	do(t, v, `{"type":"resize","width":390,"height":700}`)
 	do(t, v, `{"type":"resize","width":0,"height":0}`)
 
-	v.Close(t.Context(), true)
+	v.Close(t.Context())
 
 	sizes := containing(r.runs(t), "viewport session=d-one")
 	require.Len(t, sizes, 3, "the agent drives, and the same pane sets nothing again")

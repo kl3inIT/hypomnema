@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { dropZone, parseGrid, removePane, splitGrid, type GridLayout } from "./grid-layout"
+import {
+  dropZone,
+  gridAreas,
+  parseGrid,
+  removePane,
+  splitGrid,
+  type GridLayout,
+} from "./grid-layout"
 
 const two: GridLayout = { axis: "columns", children: ["a", "b"] }
 const four: GridLayout = {
@@ -98,5 +105,21 @@ describe("where a pointer is over a pane", () => {
     expect(dropZone(pane, 300, 245)).toBe("bottom")
     // A corner goes to the side.
     expect(dropZone(pane, 105, 55)).toBe("left")
+  })
+})
+
+describe("the place of each pane", () => {
+  it("is its share of two rows by two columns, as Omnigent's", () => {
+    expect(gridAreas("a")).toEqual([{ pane: "a", area: "1 / 1 / span 2 / span 2" }])
+    expect(gridAreas(two)).toEqual([
+      { pane: "a", area: "1 / 1 / span 2 / span 1" },
+      { pane: "b", area: "1 / 2 / span 2 / span 1" },
+    ])
+    expect(gridAreas(four).map((p) => `${p.pane} ${p.area}`)).toEqual([
+      "a 1 / 1 / span 1 / span 1",
+      "c 2 / 1 / span 1 / span 1",
+      "b 1 / 2 / span 1 / span 1",
+      "d 2 / 2 / span 1 / span 1",
+    ])
   })
 })

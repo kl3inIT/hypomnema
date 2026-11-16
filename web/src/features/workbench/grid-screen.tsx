@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/page-header"
 import { cn } from "@/lib/utils"
 
 import { GridDrop } from "./grid-drop"
-import { gridPanes, type GridLayout } from "./grid-layout"
+import { gridAreas, gridPanes } from "./grid-layout"
 import { alone, dropTab, openBeside, withoutPane, type Bench } from "./moves"
 import { frontOf, hasTab, tabKey, type Pane } from "./pane"
 import { PaneView, type Beside } from "./pane-view"
@@ -67,61 +67,60 @@ export function GridScreen() {
     void navigate({ to: "/chats/$chatId", params: { chatId: chat } })
   }
 
-  const draw = (node: GridLayout) =>
-    typeof node === "string" ? (
-      <GridPane
-        key={node}
-        id={node}
-        pane={bench.panes[node] ?? { tabs: [], active: "" }}
-        full={full === node}
-        onFull={() => setFull(full === node ? null : node)}
-        onRemove={() => commit(withoutPane(bench, node))}
-        beside={{
-          open: (tab) => {
-            const next = openBeside(bench, node, tab, newPaneId())
-            // A pane filling the screen gives way to the pane the tab opened in, so that it is seen.
-            const at = gridPanes(next.layout).find((id) => next.panes[id]?.active === tabKey(tab))
-            if (full !== null && at !== full) setFull(null)
-            commit(next)
-          },
-          has: (key) =>
-            gridPanes(bench.layout).some((id) => {
-              const pane = bench.panes[id]
+  // The panes are one list keyed by their ids, each in its place of the grid, as Omnigent's: a pane added or taken
+  // off moves the others without making them again, so that a phone or a browser watched in one stays connected
+  // (issue #597).
+  const draw = ({ pane: node, area }: { pane: string; area: string }) => (
+    <GridPane
+      key={node}
+      id={node}
+      area={area}
+      pane={bench.panes[node] ?? { tabs: [], active: "" }}
+      full={full === node}
+      onFull={() => setFull(full === node ? null : node)}
+      onRemove={() => commit(withoutPane(bench, node))}
+      beside={{
+        open: (tab) => {
+          const next = openBeside(bench, node, tab, newPaneId())
+          // A pane filling the screen gives way to the pane the tab opened in, so that it is seen.
+          const at = gridPanes(next.layout).find((id) => next.panes[id]?.active === tabKey(tab))
+          if (full !== null && at !== full) setFull(null)
+          commit(next)
+        },
+        has: (key) =>
+          gridPanes(bench.layout).some((id) => {
+            const pane = bench.panes[id]
 
-              return pane !== undefined && hasTab(pane, key)
-            }),
-        }}
-        onChange={(next) =>
-          commit(
-            next === null
-              ? withoutPane(bench, node)
-              : { ...bench, panes: { ...bench.panes, [node]: next } },
-          )
-        }
-        drop={
-          <GridDrop
-            takes={(dragged, zone) => dropTab(bench, node, zone, dragged, "new") !== null}
-            onDrop={(dragged, zone) => {
-              const next = dropTab(bench, node, zone, dragged, newPaneId())
-              if (next !== null) commit(next)
-            }}
-          />
-        }
-      />
-    ) : (
-      <div
-        key={gridPanes(node).join()}
-        className={cn("flex min-h-0 min-w-0 flex-1 gap-1.5", node.axis === "rows" && "flex-col")}
-      >
-        {node.children.map(draw)}
-      </div>
-    )
+            return pane !== undefined && hasTab(pane, key)
+          }),
+      }}
+      onChange={(next) =>
+        commit(
+          next === null
+            ? withoutPane(bench, node)
+            : { ...bench, panes: { ...bench.panes, [node]: next } },
+        )
+      }
+      drop={
+        <GridDrop
+          takes={(dragged, zone) => dropTab(bench, node, zone, dragged, "new") !== null}
+          onDrop={(dragged, zone) => {
+            const next = dropTab(bench, node, zone, dragged, newPaneId())
+            if (next !== null) commit(next)
+          }}
+        />
+      }
+    />
+  )
 
   return (
     <>
       <AppSidebar />
-      <main aria-label="Grid of chats" className="relative flex min-w-0 flex-1 p-1.5">
-        {draw(bench.layout)}
+      <main
+        aria-label="Grid of chats"
+        className="relative grid min-w-0 flex-1 grid-cols-2 grid-rows-2 gap-1.5 p-1.5"
+      >
+        {gridAreas(bench.layout).map(draw)}
       </main>
     </>
   )
@@ -129,6 +128,7 @@ export function GridScreen() {
 
 function GridPane({
   id,
+  area,
   pane,
   full,
   onFull,
@@ -138,6 +138,7 @@ function GridPane({
   drop,
 }: {
   id: string
+  area: string
   pane: Pane
   full: boolean
   onFull: () => void
@@ -167,6 +168,8 @@ function GridPane({
         // A pane alone on the screen lies over the others, which stay as they are underneath.
         full && "absolute inset-1.5 z-20",
       )}
+      // A pane filling the screen is placed by the grid's padding, not its area.
+      style={full ? undefined : { gridArea: area }}
     >
       <PaneView
         id={id}

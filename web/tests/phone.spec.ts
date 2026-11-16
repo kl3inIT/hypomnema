@@ -15,6 +15,8 @@ const chat = {
   updated_at: "2026-11-15T10:00:00Z",
 }
 
+const other = { ...chat, id: "cht_2", title: "check the order page" }
+
 const phoneNode = {
   node_id: "nod_phone",
   name: "phone",
@@ -117,13 +119,15 @@ function semu(frame: Frame, pts: number) {
 
 type Options = { noPhone?: boolean; held?: boolean; frames?: Frame[]; waking?: boolean }
 
-// fakeServer answers the API and plays the phone on the WebSocket: it says the agents control, the phone's state,
-// the screen's size and the frames; asked for a key frame it sends the key frame again; asked for control it gives
-// it. It keeps the WebSockets it was given and what the page sent.
+// fakeServer answers the API and plays the phone on the WebSocket: it says who controls, the phone's state, the
+// screen's size and the frames; asked for a key frame it sends the key frame again; asked for control it gives it.
+// As the control plane, it keeps the owner's hold until the owner hands it back, not when a view closes (issue
+// #603). It keeps the WebSockets it was given and what the page sent.
 async function fakeServer(page: Page, options: Options = {}) {
   const sockets: WebSocketRoute[] = []
   const sent: Record<string, unknown>[] = []
   let tickets = 0
+  let held = options.held ?? false
 
   await page.addInitScript({ content: "localStorage.setItem('hypomnema.token', 'secret')" })
   await page.route("**/api/v1/**", async (route) => {
@@ -137,7 +141,7 @@ async function fakeServer(page: Page, options: Options = {}) {
       case "GET /me":
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "GET /device":
-        return json({ data: options.noPhone ? [] : [phoneNode], held: options.held ?? false })
+        return json({ data: options.noPhone ? [] : [phoneNode], held })
       case "POST /device/views":
         tickets++
 
@@ -145,9 +149,11 @@ async function fakeServer(page: Page, options: Options = {}) {
       case "GET /browser":
         return json({ code: "unavailable", message: "this control plane has no browser" }, 503)
       case "GET /chats":
-        return json({ data: [chat] })
+        return json({ data: [chat, other] })
       case "GET /chats/cht_1":
         return json(chat)
+      case "GET /chats/cht_2":
+        return json(other)
       case "GET /chats/cht_1/stream": {
         const said = {
           seq: 1,
@@ -182,13 +188,17 @@ async function fakeServer(page: Page, options: Options = {}) {
     ws.onMessage((message) => {
       const input = JSON.parse(String(message)) as Record<string, unknown>
       sent.push(input)
-      if (input.type === "takeControl")
+      if (input.type === "takeControl") {
+        held = true
         ws.send(JSON.stringify({ type: "control", controller: "you" }))
-      if (input.type === "releaseControl")
+      }
+      if (input.type === "releaseControl") {
+        held = false
         ws.send(JSON.stringify({ type: "control", controller: "agent" }))
+      }
       if (input.type === "reset-video" && frames.length > 0) play(ws)
     })
-    ws.send(JSON.stringify({ type: "control", controller: "agent" }))
+    ws.send(JSON.stringify({ type: "control", controller: held ? "you" : "agent" }))
     if (options.waking) {
       ws.send(JSON.stringify({ type: "state", state: "waking" }))
 
@@ -367,6 +377,67 @@ test("the phone's frame fits a narrow pane", async ({ page }, info) => {
   const button = (await control.boundingBox())!
   expect(button.x + button.width).toBeLessThanOrEqual(view.x + view.width - 4)
   await shot(page, "phone-narrow")
+})
+
+// Scenario: the owner holds the phone beside a chat and drags another chat into the grid. The phone's pane moves
+// over but stays as it was: its view is not closed and opened again, which would give the phone back to the agents
+// (issue #597).
+test("a chat added to the grid leaves the phone held and connected", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "a phone has no grid")
+  const server = await fakeServer(page)
+  await page.goto("/chats/cht_1")
+  await openPhone(page)
+  await expect.poll(() => server.sockets).toHaveLength(1)
+  let closed = 0
+  server.sockets[0].onClose(() => closed++)
+  await page.getByRole("button", { name: /Take control/ }).click()
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+
+  await page.getByRole("button", { name: "Show the chats of coordinator" }).click()
+  const box = (await page.getByRole("region", { name: chat.title }).boundingBox())!
+  await page
+    .getByRole("list", { name: "Chats of coordinator" })
+    .getByRole("link", { name: other.title })
+    .hover()
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.97, { steps: 12 })
+  await page.mouse.up()
+  await expect(page.getByRole("region", { name: other.title })).toBeVisible()
+
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  expect(closed).toBe(0)
+  expect(server.sockets).toHaveLength(1)
+})
+
+// Scenario: the owner holds the phone and looks at another tab of the phone's pane, then comes back. The phone's
+// view closes, but the page does not hand the phone back: only "Hand back" does, and the control plane keeps the
+// hold meanwhile (issue #603). The sidebar still says the owner holds it, and the phone comes back held.
+test("switching to another tab of the pane keeps the owner's hold on the phone", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "phone", "a phone has no sidebar")
+  const server = await fakeServer(page)
+  await page.goto("/chats/cht_1")
+  await openPhone(page)
+  await expect.poll(() => server.sockets).toHaveLength(1)
+  let closed = 0
+  server.sockets[0].onClose(() => closed++)
+  await page.getByRole("button", { name: /Take control/ }).click()
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  await expect(page.getByText("You hold the phone.")).toBeVisible({ timeout: 10_000 })
+
+  const phonePane = page.getByRole("region", { name: "Phone" })
+  await phonePane.getByRole("button", { name: "Open new" }).click()
+  await page.getByRole("menuitem", { name: "New chat" }).click()
+  await expect(page.getByTestId("phone-view")).toHaveCount(0)
+  await expect.poll(() => closed).toBe(1)
+  expect(server.of("releaseControl")).toHaveLength(0)
+  await expect(page.getByText("You hold the phone.")).toBeVisible()
+
+  await page.getByRole("tab", { name: "Phone" }).click()
+  await expect.poll(() => server.sockets).toHaveLength(2)
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  await expect(page.getByText("You hold the phone.")).toBeVisible()
 })
 
 // While the phone's machine starts, the view says so on the phone's card.

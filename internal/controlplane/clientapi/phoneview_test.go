@@ -3,6 +3,7 @@ package clientapi
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -24,12 +25,12 @@ type sharedPhone struct {
 	gone    bool
 	updates chan phone.Update
 	did     chan phone.Action
-	closed  chan bool
+	closed  chan struct{}
 }
 
 func newSharedPhone() *sharedPhone {
 	return &sharedPhone{
-		updates: make(chan phone.Update, 4), did: make(chan phone.Action, 4), closed: make(chan bool, 4),
+		updates: make(chan phone.Update, 4), did: make(chan phone.Action, 4), closed: make(chan struct{}, 4),
 	}
 }
 
@@ -58,7 +59,7 @@ func (p *sharedPhone) Do(_ context.Context, a phone.Action) error {
 	return nil
 }
 
-func (p *sharedPhone) Close(_ context.Context, clean bool) { p.closed <- clean }
+func (p *sharedPhone) Close(context.Context) { p.closed <- struct{}{} }
 
 func (w *world) phoneTicket(c *openapi.ClientWithResponses) string {
 	w.t.Helper()
@@ -73,7 +74,7 @@ func (w *world) phoneTicket(c *openapi.ClientWithResponses) string {
 // Scenario: the owner watches the phone. The ticket opens the WebSocket once;
 // the page is told who controls, the phone's state and the screen's size as
 // JSON and gets a frame as a binary message; what it sends reaches the view;
-// and when the owner closes the page the view is closed as the owner's doing.
+// and when the owner closes the page the view is closed.
 // Only the owner is given a ticket.
 func TestTheOwnerWatchesThePhoneThroughATicket(t *testing.T) {
 	t.Parallel()
@@ -126,7 +127,7 @@ func TestTheOwnerWatchesThePhoneThroughATicket(t *testing.T) {
 	require.Error(t, err, "a ticket opens its WebSocket once")
 
 	require.NoError(t, conn.Close(websocket.StatusNormalClosure, ""))
-	assert.True(t, <-p.closed)
+	<-p.closed
 }
 
 // The phone's status says when the owner holds it; a phone that cannot be
@@ -151,6 +152,32 @@ func TestThePhoneSaysItIsHeldAndAPhoneNotThereIsSaid(t *testing.T) {
 
 	_, _, err = conn.Read(t.Context())
 	assert.Equal(t, websocket.StatusCode(4404), websocket.CloseStatus(err))
+}
+
+// The log says how the page left a view: the code it closed the WebSocket
+// with, a connection that dropped, or the control plane stopping it.
+func TestTheLogSaysHowThePageLeftAView(t *testing.T) {
+	t.Parallel()
+
+	stopped, stop := context.WithCancel(t.Context())
+	stop()
+
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{websocket.CloseError{Code: websocket.StatusNormalClosure}, "the page closed it (1000)"},
+		{
+			websocket.CloseError{Code: websocket.StatusGoingAway},
+			"the page went away: a reload, another page or the tab closed (1001)",
+		},
+		{websocket.CloseError{Code: websocket.StatusNoStatusRcvd}, "the page closed it (1005)"},
+		{io.EOF, "the page's connection dropped"},
+	} {
+		assert.Equal(t, c.want, pageLeft(t.Context(), c.err))
+	}
+
+	assert.Equal(t, "the control plane stopped the view", pageLeft(stopped, context.Canceled))
 }
 
 // noDevices is a control plane whose nodes said nothing of a phone.

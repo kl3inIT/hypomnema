@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "vitest"
 
 import type { Bot, Chat } from "@/api/generated/types.gen"
 
-import { botSections, keepOpenBots, readOpenBots, reorderBots } from "./bot-rows"
+import { botSections, keepOpenBots, readOpenBots, reorderBots, visibleChats } from "./bot-rows"
 
 beforeEach(() => window.localStorage.clear())
 
@@ -101,4 +101,36 @@ test("the Bots the owner opened are kept, and anything else kept reads as none",
   expect(readOpenBots()).toEqual({})
   window.localStorage.setItem("hypomnema.sidebar.open-bots", '["coordinator"]')
   expect(readOpenBots()).toEqual({})
+})
+
+// Scenario: an open Bot with 15 chats, newest first, lists its 6 newest (issue #599); the open chat, a working one and
+// one waiting on the owner are listed whatever their age, in the list's order; Show all lists every chat.
+test("an open Bot lists its 6 newest chats and every chat that needs looking at", () => {
+  const list = Array.from({ length: 15 }, (_, i) =>
+    chat(`c${i}`, "coordinator", `2026-11-${String(30 - i).padStart(2, "0")}T09:00:00Z`),
+  )
+  list[9] = { ...list[9]!, working: true }
+
+  expect(visibleChats(list, undefined, new Set(), false).map((c) => c.id)).toEqual([
+    "c0",
+    "c1",
+    "c2",
+    "c3",
+    "c4",
+    "c5",
+    "c9",
+  ])
+  expect(visibleChats(list, "c14", new Set(["c11"]), false).map((c) => c.id)).toEqual([
+    "c0",
+    "c1",
+    "c2",
+    "c3",
+    "c4",
+    "c5",
+    "c9",
+    "c11",
+    "c14",
+  ])
+  expect(visibleChats(list, "c14", new Set(["c11"]), true)).toEqual(list)
+  expect(visibleChats(list.slice(0, 4), undefined, new Set(), false)).toEqual(list.slice(0, 4))
 })

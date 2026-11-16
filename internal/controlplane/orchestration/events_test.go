@@ -265,6 +265,52 @@ func TestSubscribeSignalsAfterCommit(t *testing.T) {
 	}, time.Second, time.Millisecond)
 }
 
+// A commit that changed no row wakes no one (issue #586): the coordinator's
+// pass wakes the chats of its Runs in a transaction each, and an empty one
+// that signaled woke the coordinator again at once, in a loop. A commit that
+// changed something still wakes every subscriber.
+func TestACommitThatChangedNothingSignalsNoOne(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	signals := w.s.Subscribe(ctx)
+
+	pending := func() bool {
+		select {
+		case <-signals:
+			return true
+		default:
+			return false
+		}
+	}
+
+	chat, err := w.s.CreateChat(ctx, "", "health page")
+	require.NoError(t, err)
+
+	run, err := w.s.CreateRun(ctx, NewRun{Objective: "health page", CreatedBy: "pi", ChatID: chat.ID})
+	require.NoError(t, err)
+
+	tasks, err := w.s.CreateTasks(ctx, run.ID, []NewTask{{Ref: "a", Spec: "a"}})
+	require.NoError(t, err)
+	assert.True(t, pending())
+
+	for range 3 {
+		n, err := w.s.WakeChats(ctx)
+		require.NoError(t, err)
+		assert.Zero(t, n)
+		assert.False(t, pending(), "waking a chat with nothing new writes nothing, and signals nothing")
+	}
+
+	require.NoError(t, w.s.CancelTask(ctx, tasks[0].ID))
+	assert.True(t, pending(), "the canceled Task is written")
+
+	n, err := w.s.WakeChats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	assert.True(t, pending(), "the wake-up is written")
+}
+
 // Migration 4 only adds the log; data written under migration 3 is untouched.
 func TestMigrationAddsTheEventLog(t *testing.T) {
 	t.Parallel()

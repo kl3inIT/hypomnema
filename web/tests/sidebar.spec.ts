@@ -66,7 +66,7 @@ const held = {
 
 // fakeServer answers as the control plane; the Bots' order and pins are kept across reloads, and every order the
 // page sends is returned.
-async function fakeServer(page: Page) {
+async function fakeServer(page: Page, list = chats, approvals = [held]) {
   const listed = ["coordinator", "researcher", "reporter", "writer"].map(bot)
   const orders: string[][] = []
 
@@ -94,7 +94,7 @@ async function fakeServer(page: Page) {
       return json(patched)
     }
 
-    const open = chats.find((c) => path.startsWith(`/chats/${c.id}`))
+    const open = list.find((c) => path.startsWith(`/chats/${c.id}`))
     if (open && path.endsWith("/stream")) {
       const said = {
         seq: 1,
@@ -118,11 +118,11 @@ async function fakeServer(page: Page) {
       case "/me":
         return json({ id: "usr_1", name: "admin", kind: "owner" })
       case "/chats":
-        return json({ data: chats })
+        return json({ data: list })
       case "/bots":
         return json({ data: listed })
       case "/approvals":
-        return json({ data: [held] })
+        return json({ data: approvals })
       case "/events/stream":
         return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
       case "/tasks":
@@ -198,6 +198,52 @@ test("the sidebar lists the Bots, each opening to its chats", async ({ page }) =
 
   await botRow(page, "reporter").click()
   await expect(page).toHaveURL(/\/chats\/cht_6$/)
+})
+
+// Scenario: writer has 17 chats (issue #599). Opened, it lists its 6 newest and, older than those, the one that is
+// working and the one waiting on the owner; "Show all (9)" lists the other 9, and "Show less" folds them back. The
+// short list is what a reload shows again, in the light theme as in the dark.
+test("an open Bot lists its 6 newest chats, with Show all", async ({ page }) => {
+  const many = Array.from({ length: 17 }, (_, i) =>
+    chat(`cht_w${i}`, "writer", `Draft ${"ABCDEFGHIJKLMNOPQ"[i]}`, 3600 * (i + 1), {
+      working: i === 10,
+    }),
+  )
+  await fakeServer(page, [...chats, ...many], [held, { ...held, id: "apr_2", chat_id: "cht_w13" }])
+  await page.goto("/")
+
+  await bots(page).getByRole("button", { name: "Show the chats of writer" }).click()
+  const writer = bots(page).getByRole("list", { name: "Chats of writer" })
+  const short = [..."ABCDEF"].map((n) => new RegExp(`^Draft ${n}`))
+  await expect(writer.getByRole("link")).toHaveText([
+    ...short,
+    /^Draft K.*Working/,
+    /^Draft N.*Needs you/,
+  ])
+  const more = writer.getByRole("button", { name: "Show all (9)" })
+  await expect(more).toBeVisible()
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  )
+  await more.scrollIntoViewIfNeeded()
+  await shot(page, "sidebar-six-dark")
+
+  await more.click()
+  await expect(writer.getByRole("link")).toHaveCount(17)
+  await writer.getByRole("button", { name: "Show less" }).scrollIntoViewIfNeeded()
+  await shot(page, "sidebar-all-dark")
+  await writer.getByRole("button", { name: "Show less" }).click()
+  await expect(writer.getByRole("link")).toHaveCount(8)
+
+  await page.evaluate(`localStorage.setItem("theme", "light")`)
+  await page.reload()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+  await expect(writer.getByRole("link")).toHaveCount(8)
+  await more.scrollIntoViewIfNeeded()
+  await shot(page, "sidebar-six-light")
+  await more.click()
+  await writer.getByRole("button", { name: "Show less" }).scrollIntoViewIfNeeded()
+  await shot(page, "sidebar-all-light")
 })
 
 // Scenario: pointing at a Bot's row offers a new chat with it; the start page opens with that Bot picked. A phone
