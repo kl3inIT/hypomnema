@@ -4,3 +4,10 @@ allowBuilds:
   esbuild: true
   # pdfjs-dist (react-pdf) names it as an optional dependency for rendering in Node; the browser does not use it.
   canvas: false
+
+# Security fixes for transitive dev dependencies whose parents have no fixed release (#595).
+overrides:
+  # GHSA-g3hv-75wg-m249: @ts-morph/common (via the shadcn CLI) still asks for minimatch ^10; the fix is 11.0.1.
+  "@ts-morph/common>minimatch": ^11.0.1
+  # GHSA-r3ph-w7gj-g6xm: the @hey-api/openapi-ts snapshot pins js-yaml 5.3.0; the fix is 5.4.1.
+  "@hey-api/json-schema-ref-parser>js-yaml": 5.4.1
