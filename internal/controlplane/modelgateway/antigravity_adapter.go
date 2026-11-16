@@ -247,6 +247,8 @@ func (s *Server) antigravityPost(
 // antigravityRefused does what a refusal calls for and gives the client the
 // error in OpenAI's shape.
 //
+//   - A window of the model's group that the account's limits say is used
+//     up (issue #576): the model waits until the window resets.
 //   - A quota that is used up: that model of that account waits until the
 //     reset, half an hour when the backend names none.
 //   - A rate limit: the model waits as long as the backend asks.
@@ -260,6 +262,11 @@ func (s *Server) antigravityRefused(
 	now := s.svc.clock.Now()
 	wait := f.RetryAfter
 
+	var usedUp time.Time
+	if q, ok := s.accounts.(groupQuota); ok && f.Status == http.StatusTooManyRequests {
+		usedUp = q.UsedUpUntil(ctx, token.AccountID, model)
+	}
+
 	switch {
 	case f.Reason == antigravity.ReasonTermsViolation:
 		s.antigravityPark(ctx, token, now.Add(antigravitySuspended), "suspended by Google for its terms of service", f)
@@ -271,6 +278,9 @@ func (s *Server) antigravityRefused(
 
 		return openAIError(http.StatusServiceUnavailable, typeServer, "account_verification_required",
 			"Google asks for the Antigravity account to be verified", 0)
+	case !usedUp.IsZero():
+		wait = usedUp.Sub(now)
+		s.antigravity.wait(token.AccountID, model, usedUp)
 	case f.Reason == antigravity.ReasonNoCapacity:
 		// Nothing of the account's is used up: Google has no room for the model.
 	case f.Status != http.StatusTooManyRequests:
@@ -299,6 +309,13 @@ func (s *Server) antigravityRefused(
 	}
 
 	return openAIError(f.Status, kind, f.Code, f.Message, wait)
+}
+
+// groupQuota is what the accounts can tell of Antigravity's groups (issue #576): until when a window of a model's
+// group is used up, zero when none is or nothing is known. 9router-go blocks a group's models the same way
+// (internal/handlers/chat/antigravity_quota.go, IsAntigravityModelBlocked).
+type groupQuota interface {
+	UsedUpUntil(ctx context.Context, accountID, model string) time.Time
 }
 
 // antigravityPark takes an account out of use until a time, with the reason

@@ -2279,6 +2279,11 @@ capabilities do not exist yet.
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
+  - Antigravity counts its quota in groups, Gemini, Claude & GPT and Gemini 4 Argon, each with a five-hour and a
+    weekly window that every model of the group draws on (issue #576). On a 429, when the account's limits say a
+    window of the model's group is used up, the model waits on that account until the window resets, whatever
+    Google's answer named; 9router-go blocks a group's models the same way
+    (`internal/handlers/chat/antigravity_quota.go`, `IsAntigravityModelBlocked`).
   - A Claude or Codex account with a tenth or less of its whole quota left is kept in reserve
     ([research](docs/research/2026-11-11-account-reserve.md)): it comes after the accounts that have more in the
     order above, a session's home too, and serves only when no other can; when every account is in reserve the
@@ -2895,7 +2900,8 @@ The owner's commands:
     prints what is left of each window of a Claude or Codex subscription, 5 hours, week and a model's own week,
     with its reset (issue #199, step 3, after 9router-go, Orca and OpenMausBot): one call with the account's
     token to `api.anthropic.com/api/oauth/usage` or `chatgpt.com/backend-api/wham/usage`, neither a published
-    API; the service keeps a reading for 60 seconds, does not ask for 3 minutes after a 429 (or the wait it
+    API; for Antigravity each group's five hours and week, such as `5 hours (Gemini)` and `week (Claude & GPT)`,
+    from Cloud Code's `v1internal:retrieveUserQuotaSummary` (issue #576, as 9router-go and 9router read it); the service keeps a reading for 60 seconds, does not ask for 3 minutes after a 429 (or the wait it
     names, up to 15 minutes) and gives the last reading when a call fails; a token the vendor refuses (401 or 403,
     as a Claude token pasted by hand is) is not sent again until it changes, and the refusal is said in the
     vendor's words; the limits are then what the headers of the account's last answer through the gateway said

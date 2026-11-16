@@ -61,6 +61,11 @@ func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[strin
 	return g.subs.Quota(ctx, accountID)
 }
 
+// UsedUpUntil says until when a window of a model's Antigravity group is used up (issue #576).
+func (g gatewayAccounts) UsedUpUntil(ctx context.Context, accountID, model string) time.Time {
+	return g.subs.UsedUpUntil(ctx, accountID, model)
+}
+
 func (g gatewayAccounts) NoteQuota(accountID string, left float64) {
 	g.subs.NoteQuota(accountID, left)
 }
