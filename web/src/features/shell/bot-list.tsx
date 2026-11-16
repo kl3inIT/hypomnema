@@ -15,7 +15,7 @@ import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { BotMenu, PinItem } from "./bot-menu"
-import { type BotRow, botSections, keepOpenBots, readOpenBots } from "./bot-rows"
+import { type BotRow, botSections, keepOpenBots, readOpenBots, visibleChats } from "./bot-rows"
 import { ChatMenu } from "./chat-menu"
 import { useChats } from "./chats"
 import { ReorderableList, RowGrab } from "./reorderable-list"
@@ -133,6 +133,11 @@ function BotItem({
   // The chat a Bot's row stands for when it has no other.
   const onlyChat = chats.length === 1 ? latest : undefined
   const expanded = hasChatList && open
+  // Show all, kept while the page is open and not after, as OpenMausBot's sidebar keeps its showAll (issue #599).
+  const [showAll, setShowAll] = useState(false)
+  const short = visibleChats(chats, current, waiting, false)
+  const shown = showAll ? chats : short
+  const hidden = chats.length - short.length
   const needsYou = chats.some((c) => waiting.has(c.id))
   const working = chats.some((c) => c.working)
   // The Bot's row stands for the open chat while its chats are not shown, as OpenMausBot's aria-current.
@@ -290,11 +295,20 @@ function BotItem({
           aria-label={`Chats of ${name}`}
           className="ms-5 flex flex-col gap-px border-s border-sidebar-border ps-1.5"
         >
-          {chats.map((c) => (
+          {shown.map((c) => (
             <li key={c.id}>
               <ChatRow chat={c} current={c.id === current} waits={waiting.has(c.id)} />
             </li>
           ))}
+          {/* OpenMausBot's ThreadListFooter (Sidebar.tsx canShowAll), with the number it hides; Show less folds the
+              list back (owner, 2026-11-16). */}
+          {hidden > 0 && (
+            <li className="ps-0.5 text-muted-foreground">
+              <Button variant="ghost" size="xs" onClick={() => setShowAll(!showAll)}>
+                {showAll ? "Show less" : `Show all (${hidden})`}
+              </Button>
+            </li>
+          )}
         </ul>
       )}
     </div>

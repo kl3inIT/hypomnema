@@ -36,6 +36,23 @@ export function botSections(bots: readonly Bot[], chats: readonly Chat[]): BotSe
   }
 }
 
+// visibleChats is what an open Bot lists of its chats (issue #599), OpenMausBot's visibleSidebarThreads (Apache
+// License 2.0, https://github.com/milind-soni/OpenMausBot; src/components/SidebarThreadRow.tsx): its 6 newest, and,
+// whatever their age, the chat that is open, a chat that is working and one waiting on the owner (OpenMausBot's
+// demandsAttention), in the list's order. showAll lists them all. Left out of OpenMausBot's: the search, folders,
+// pins, archived, snoozed, routine runs and helper chats, none of which a chat here has.
+export function visibleChats(
+  chats: readonly Chat[],
+  current: string | undefined,
+  waiting: ReadonlySet<string>,
+  showAll: boolean,
+): Chat[] {
+  if (showAll) return [...chats]
+  let shown = 0
+
+  return chats.filter((c) => shown++ < 6 || c.id === current || c.working || waiting.has(c.id))
+}
+
 // reorderBots is the Bots as the server orders them after a reorder that names some of them: those named take, in
 // the order given, the places they already hold together; every other Bot keeps its place. It is OpenMausBot's
 // reorderStable (shared/bot-order.ts, Apache License 2.0), so the sidebar shows the new order before the server
