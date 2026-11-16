@@ -33,9 +33,13 @@ func (o *ownWhatsApp) Send(_ context.Context, _, _ string, out messaging.Outgoin
 type ownerJudge struct {
 	approved bool
 	asked    []serviceproxy.Act
+	// takes is how long the owner takes to answer.
+	takes time.Duration
 }
 
 func (j *ownerJudge) Judge(_ context.Context, a serviceproxy.Act) error {
+	time.Sleep(j.takes)
+
 	j.asked = append(j.asked, a)
 	if !j.approved {
 		return &serviceproxy.RefusedError{Message: "Waiting for the owner's approval"}
@@ -183,4 +187,35 @@ func TestABotSendsAsTheOwnerOnlyAfterHisApproval(t *testing.T) {
 	assert.True(t, isError)
 	assert.Contains(t, text, "cannot send a file yet")
 	assert.Len(t, w.whatsapp.sent, 1)
+}
+
+// Scenario (issue #654): the owner takes longer to approve a send than the server takes to give up writing an
+// answer (30 s on the control plane). The send still answers the Bot that it went, rather than leaving it with a
+// broken connection and not knowing whether it sent.
+func TestASendTheOwnerApprovesSlowlyStillAnswers(t *testing.T) {
+	t.Parallel()
+
+	w := newWorldWriting(t, 100*time.Millisecond)
+	w.judge.approved, w.judge.takes = true, 300*time.Millisecond
+	ctx := t.Context()
+
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Account: "+84 900 000 001", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "whatsapp", "me", true)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, orchestration.DefaultBotID, "")
+	require.NoError(t, err)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "send the test message")
+	require.NoError(t, err)
+
+	_, text, isError := w.use(pi, agenttool.ToolWhatsAppSend, `{"chat":"120363@g.us","text":"test"}`)
+	require.False(t, isError, text)
+	assert.Contains(t, text, "message sent-1")
 }

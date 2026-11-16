@@ -44,6 +44,14 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
+	return newWorldWriting(t, 0)
+}
+
+// newWorldWriting is newWorld on a server that ends an answer not written within writeTimeout, as the control
+// plane's does (platform/http.go); zero is none.
+func newWorldWriting(t *testing.T, writeTimeout time.Duration) *world {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -66,7 +74,9 @@ func newWorld(t *testing.T) *world {
 	}, slog.New(slog.NewTextHandler(w.logs, nil))).WithBrowser(w.browser).WithMessaging(w.whatsapp).
 		WithJudge(w.judge).Register(mux)
 
-	w.srv = httptest.NewServer(mux)
+	w.srv = httptest.NewUnstartedServer(mux)
+	w.srv.Config.WriteTimeout = writeTimeout
+	w.srv.Start()
 	t.Cleanup(w.srv.Close)
 
 	return w
