@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
 import {
+  getGitSshKeyOptions,
   listConnectionActionsOptions,
   listConnectionActionsQueryKey,
   listGitHostsOptions,
@@ -53,6 +54,11 @@ export function useRefreshConnectionActions() {
     queryClient.invalidateQueries({
       queryKey: listConnectionActionsQueryKey({ path: { integration, label } }),
     })
+}
+
+// useGitSSHKey reads the public half of the control plane's SSH key for git (issue #625), made on the first read.
+export function useGitSSHKey() {
+  return useQuery({ ...getGitSshKeyOptions() })
 }
 
 export function useRepos() {

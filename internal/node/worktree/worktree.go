@@ -4,7 +4,9 @@
 // Omnigent (omnigent/host/git_worktree.py) do. The repository is on a git
 // host of a kind (internal/shared/githost, issue #44). Git authenticates with
 // the host's token the control plane gives the Dispatch, or else the node
-// user's own credentials (`gh auth setup-git`).
+// user's own credentials (`gh auth setup-git`); a repository registered with
+// an SSH address is cloned over SSH with the control plane's key instead
+// (issue #625, internal/node/gitssh).
 package worktree
 
 import (
@@ -58,6 +60,21 @@ func SourceOf(host, kind, path, token string) (Source, error) {
 	}
 
 	return Source{Repo: repo, URL: adapter.CloneURL(repo), Env: adapter.Env(repo.Host, token)}, nil
+}
+
+// OverSSH is the source cloned and fetched from an SSH address instead, with
+// env added to git's: the helper that gives ssh the control plane's key. The
+// host's token stays in the environment for its CLI, which opens the pull
+// request over HTTPS.
+func (src Source) OverSSH(url string, env []string) (Source, error) {
+	if !githost.ValidSSHURL(url) {
+		return Source{}, fmt.Errorf("%q is not an SSH address of a repository", url)
+	}
+
+	src.URL = url
+	src.Env = append(append([]string{}, src.Env...), env...)
+
+	return src, nil
 }
 
 // Branch is the branch a Task's worktree works on.
@@ -150,6 +167,12 @@ func (m Maker) mirror(ctx context.Context, src Source) (string, error) {
 		if err := git(ctx, "", src.Env, "clone", "--bare", "--", url, path); err != nil {
 			return "", err
 		}
+	}
+
+	// The worker pushes to origin: it goes where the mirror is fetched from, over SSH once the repository is
+	// registered with an SSH address.
+	if err := git(ctx, path, nil, "remote", "set-url", "origin", url); err != nil {
+		return "", err
 	}
 
 	// Into remote-tracking refs: a branch checked out in a worktree must not be overwritten.

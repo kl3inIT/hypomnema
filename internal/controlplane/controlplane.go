@@ -280,6 +280,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	referrers := secretReferrers(svc)
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, referrers)
 	tokens := connections{svc: svc, vault: secrets}
+	sshKey := &gitSSHKey{vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp())
 
@@ -468,10 +469,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	})
 	// A Bot's pi runs its own Routines with its routines tool, through the same runner (issue #536).
 	agents.WithRoutines(routineRunner)
+	agents.WithGitSSHKey(sshKey.Pair)
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
-		WithHostTokens(tokens).
+		WithHostTokens(tokens).WithGitSSHKey(sshKey).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
 		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).

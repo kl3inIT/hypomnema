@@ -78,6 +78,9 @@ type Store interface {
 	Memories() *memorystore.Store
 	// Routines keeps the Routines, for a Bot's pi's routines tool (issue #536).
 	Routines() *routinestore.Store
+	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
+	// (issue #625).
+	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
 }
 
 // Token is a Connection's access token and when it ends.
@@ -120,7 +123,10 @@ type Server struct {
 	// routines starts a Routine's run for a Bot's pi's routines tool (issue #536); nil when the control plane
 	// gave none.
 	routines Routines
-	logger   *slog.Logger
+	// gitSSHKey is the control plane's SSH key for git (issue #625, gitssh.go); nil when the control plane gave
+	// none.
+	gitSSHKey GitSSHKey
+	logger    *slog.Logger
 }
 
 // New returns a Server.
@@ -149,6 +155,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+agenttool.PathGatewayCall, s.callGateway)
 	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
 	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.callTool)
+	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of

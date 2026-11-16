@@ -451,12 +451,19 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       repos = repos.filter((r) => r.name !== name)
       if (request.method() === "DELETE") return route.fulfill({ status: 204 })
 
-      const body = request.postDataJSON() as { repo: string; base?: string }
+      const body = request.postDataJSON() as {
+        repo: string
+        base?: string
+        ssh_url?: string
+        ssh_host_key?: string
+      }
       const added = {
         name,
         host: "git.company.example",
         path: "team/app",
         base: body.base,
+        ssh_url: body.ssh_url,
+        ssh_host_key: body.ssh_host_key,
         created_at: now,
       }
       repos = [...repos, added]
@@ -512,6 +519,11 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
         })
       case "GET /repos":
         return json({ data: repos })
+      case "GET /git/ssh-key":
+        return json({
+          public_key:
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGq0Zx4bU3m7cJ9eWQb0rS2n8yF1vKpT6dHhXoL5aE3c hypomnema",
+        })
       case "GET /tasks":
         return json({ data: [], runs: [], after: 0 })
       case "GET /events/stream":
@@ -645,6 +657,41 @@ test("the owner adds and removes a company's git server", async ({ page }) => {
     "PUT /hosts/gitlab.other.example",
     "DELETE /hosts/gitlab.other.example",
   ])
+})
+
+// Scenario: the company's GitLab cuts a large clone over HTTPS (issue #625). Under the git hosts the owner finds
+// the public key the nodes clone over SSH with, whole on a phone too, and registers the repository with its SSH
+// address; its row says it is cloned over SSH.
+test("the owner reads the SSH key and registers a repository with its SSH address", async ({
+  page,
+}) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/integrations")
+
+  const key = page.getByTestId("ssh-key-card")
+  await expect(key).toContainText("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5")
+  await expect(key.getByRole("button", { name: "Copy" })).toBeVisible()
+  expect(await fits(page)).toBe(true)
+  await top(key)
+  await shot(page, "git-ssh-key")
+
+  await page.goto("/settings/repositories")
+  await page.getByRole("button", { name: "Add repository" }).click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await dialog.getByLabel("Repository").fill("https://git.company.example/mobility/platform")
+  await dialog.getByLabel("SSH address").fill("ssh://git@167.254.68.172:222/mobility/platform.git")
+  await dialog
+    .getByLabel("SSH host key")
+    .fill("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8")
+  await shot(page, "repositories-add-ssh")
+  await dialog.getByRole("button", { name: "Add", exact: true }).click()
+
+  await expect(page.locator("[data-slot=item]")).toContainText(
+    "cloned over SSH from ssh://git@167.254.68.172:222/mobility/platform.git",
+  )
+  expect(await fits(page)).toBe(true)
+  await shot(page, "repositories-ssh")
+  expect(calls).toEqual(["PUT /repos/platform"])
 })
 
 // Scenario: no repository is registered. The owner opens the Repositories page (it has no entry in the menu yet), registers one from its URL under the
