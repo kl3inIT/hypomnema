@@ -18,6 +18,27 @@ export function gridPanes(layout: GridLayout): string[] {
   return typeof layout === "string" ? [layout] : layout.children.flatMap(gridPanes)
 }
 
+// gridAreas places each pane in a grid of two rows by two columns, as a CSS `grid-area`, so that the panes are drawn
+// side by side in one list and a split or a pane taken off moves them without making them again (issue #597), as
+// Omnigent's gridPanes does (here gridPanes is only the ids).
+export function gridAreas(
+  layout: GridLayout,
+  column = 1,
+  row = 1,
+  columns = 2,
+  rows = 2,
+): { pane: string; area: string }[] {
+  if (typeof layout === "string") {
+    return [{ pane: layout, area: `${row} / ${column} / span ${rows} / span ${columns}` }]
+  }
+
+  return layout.children.flatMap((child, index) =>
+    layout.axis === "columns"
+      ? gridAreas(child, column + (index * columns) / 2, row, columns / 2, rows)
+      : gridAreas(child, column, row + (index * rows) / 2, columns, rows / 2),
+  )
+}
+
 // splitGrid puts a pane on an edge of another, or returns null when it cannot: the pane is on screen already,
 // there are four, or the pane was split that way before. Each axis is split once along a path, so the
 // grid is at most two rows and two columns.

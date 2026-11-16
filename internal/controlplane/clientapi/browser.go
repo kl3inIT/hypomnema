@@ -269,8 +269,8 @@ func (s *Server) browserViewSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // copyBrowserView copies between the page and the view until either leaves.
-// It reports whether the page closed the view itself, and why the view ended
-// when it was not the page that left.
+// It reports whether the page closed the view itself, and why the view ended:
+// the view's reason, or how the page left (pageLeft).
 func copyBrowserView(ctx context.Context, conn *websocket.Conn, view BrowserView) (clean bool, reason string) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -306,12 +306,15 @@ func copyBrowserView(ctx context.Context, conn *websocket.Conn, view BrowserView
 		}
 	}()
 
+	var left string
+
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
 			// The page closing its socket, or leaving for another page, is the owner closing the view.
 			status := websocket.CloseStatus(err)
 			clean = status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway
+			left = pageLeft(ctx, err)
 
 			break
 		}
@@ -322,15 +325,39 @@ func copyBrowserView(ctx context.Context, conn *websocket.Conn, view BrowserView
 		}
 
 		if err := view.Do(ctx, action); err != nil {
+			left = err.Error()
+
 			break
 		}
 	}
 
 	cancel()
 
-	reason = <-viewLeft
+	if reason = <-viewLeft; reason != "" {
+		return false, reason
+	}
 
-	return clean && reason == "", reason
+	return clean, left
+}
+
+// pageLeft says, for the log, why reading a view's page ended: the control
+// plane stopping, the code the page closed its WebSocket with, or a
+// connection that dropped without one (issue #597).
+func pageLeft(ctx context.Context, err error) string {
+	if ctx.Err() != nil {
+		return "the control plane stopped the view"
+	}
+
+	switch status := websocket.CloseStatus(err); status {
+	case websocket.StatusNormalClosure:
+		return "the page closed it (1000)"
+	case websocket.StatusGoingAway:
+		return "the page went away: a reload, another page or the tab closed (1001)"
+	case -1:
+		return "the page's connection dropped"
+	default:
+		return fmt.Sprintf("the page closed it (%d)", int(status))
+	}
 }
 
 // writeBrowserUpdate sends the page what a view has for it: a frame as a

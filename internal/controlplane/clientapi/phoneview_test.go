@@ -3,6 +3,7 @@ package clientapi
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -151,6 +152,32 @@ func TestThePhoneSaysItIsHeldAndAPhoneNotThereIsSaid(t *testing.T) {
 
 	_, _, err = conn.Read(t.Context())
 	assert.Equal(t, websocket.StatusCode(4404), websocket.CloseStatus(err))
+}
+
+// The log says how the page left a view: the code it closed the WebSocket
+// with, a connection that dropped, or the control plane stopping it.
+func TestTheLogSaysHowThePageLeftAView(t *testing.T) {
+	t.Parallel()
+
+	stopped, stop := context.WithCancel(t.Context())
+	stop()
+
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{websocket.CloseError{Code: websocket.StatusNormalClosure}, "the page closed it (1000)"},
+		{
+			websocket.CloseError{Code: websocket.StatusGoingAway},
+			"the page went away: a reload, another page or the tab closed (1001)",
+		},
+		{websocket.CloseError{Code: websocket.StatusNoStatusRcvd}, "the page closed it (1005)"},
+		{io.EOF, "the page's connection dropped"},
+	} {
+		assert.Equal(t, c.want, pageLeft(t.Context(), c.err))
+	}
+
+	assert.Equal(t, "the control plane stopped the view", pageLeft(stopped, context.Canceled))
 }
 
 // noDevices is a control plane whose nodes said nothing of a phone.
