@@ -71,7 +71,8 @@ export function GoogleIcon(props: SVGProps<SVGSVGElement>) {
 
 // The marks of Google's services, each the SVG body Onyx uses (MIT, as above; web/lib/opal/src/logos/gmail.tsx,
 // google-calendar.tsx, google-drive.tsx, google-docs.tsx). A mark with gradients names them with an id of its
-// own, as Onyx does, so that two of them on a page do not share one. No reference carries a mark for Sheets.
+// own, as Onyx does, so that two of them on a page do not share one. No reference carries a mark for Sheets;
+// see GoogleSheetsIcon.
 
 export function GmailIcon(props: SVGProps<SVGSVGElement>) {
   const id = useId()
@@ -243,6 +244,57 @@ export function GoogleDocsIcon(props: SVGProps<SVGSVGElement>) {
       <path
         d="M17 25.5H35V28.5H17V25.5ZM17 31.5H35V34.5H17V31.5ZM17 37.5H29.5V40.5H17V37.5Z"
         fill="white"
+      />
+    </svg>
+  )
+}
+
+// Sheets' and Search Console's marks, the product icons Google serves for them
+// (https://www.gstatic.com/images/branding/productlogos/sheets_2020q4/v11/192px.svg and
+// .../search_console/v1/192px.svg, fetched 2026-11-16), their empty boxes left out; no reference clone carries
+// either (issue #609). The marks belong to Google.
+export function GoogleSheetsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 192 192" fill="none" aria-hidden="true" {...props}>
+      <polygon fill="#188038" points="116,8 160,52 138,56 116,52 112,30" />
+      <path
+        d="M116,52V8H44c-6.63,0-12,5.37-12,12v152c0,6.63,5.37,12,12,12h104c6.63,0,12-5.37,12-12V52H116z"
+        fill="#34A853"
+      />
+      <path
+        d="M56,76v58h80V76H56z M91,124H66v-14h25V124z M91,100H66V86h25V100z M126,124h-25v-14h25V124z M126,100h-25 V86h25V100z"
+        fill="#FFFFFF"
+      />
+    </svg>
+  )
+}
+
+export function GoogleSearchConsoleIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 192 192" fill="none" aria-hidden="true" {...props}>
+      <path
+        fill="#FBBC04"
+        d="M53.19,146.53l-22.66,22.66c-1.74,1.74-4.57,1.74-6.32,0l-1.4-1.4c-1.74-1.74-1.74-4.57,0-6.32l22.66-22.66c1.74-1.74,4.57-1.74,6.32,0l1.4,1.4C54.94,141.95,54.94,144.78,53.19,146.53z"
+      />
+      <path
+        fill="#4285F4"
+        d="M114,156h29c16.02,0,29-12.98,29-29V49c0-16.02-12.98-29-29-29h0c-16.02,0-29,12.980-29,29V156z"
+      />
+      <path
+        fill="#FBBC04"
+        d="M66,156L66,156c16.02,0,29-12.98,29-29v0c0-16.02-12.98-29-29-29h0c-16.02,0-29,12.98-29,29v0C37,143.02,49.98,156,66,156z"
+      />
+      <path
+        fill="#34A853"
+        d="M134.26,156H106c-16.02,0-29-12.98-29-29V89c0-16.02,12.98-29,29-29h0c16.02,0,29,12.98,29,29v66.26C135,155.67,134.67,156,134.26,156z"
+      />
+      <path
+        fill="#1967D2"
+        d="M135,155.26V89c0-13.24-8.88-24.4-21-27.87V156h20.26C134.67,156,135,155.67,135,155.26z"
+      />
+      <path
+        fill="#EA4335"
+        d="M95,127.56L95,127.56c0-12.12-7.44-22.5-18-26.83v26.83c0,8.26,3.46,15.71,9,20.99C91.54,143.27,95,135.82,95,127.56z"
       />
     </svg>
   )

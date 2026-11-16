@@ -1430,7 +1430,9 @@ flowchart LR
     A Connection a registered repository names cannot be removed.
   - An Integration that is not a git host signs in with OAuth (`internal/controlplane/integration`, step 2 of
     [issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Google is the only one: Gmail, Calendar, Drive,
-    Docs and Sheets as its services, each granted to read and write or to read only (`gmail:read`).
+    Docs, Sheets and Search Console (`searchconsole`, `webmasters` scopes; issue
+    [#609](https://github.com/kl3inIT/hypomnema/issues/609)) as its services, each granted to read and write or to
+    read only (`gmail:read`).
     - The owner creates the OAuth client at the service once and gives its file
       (`integrations client set google --client-file`, `PUT /integrations/{integration}/client`). The client's id
       is in the `integration_clients` table; its secret is the vault secret `integration-google-client`.

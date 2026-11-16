@@ -79,7 +79,7 @@ func TestTheOwnerChecksAnAccountAgain(t *testing.T) {
 
 	out, err := w.cmd(t, "integrations", "check", "google:work")
 	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(out, "google:work: the account cannot do 14 actions; a request for one is "+
+	assert.True(t, strings.HasPrefix(out, "google:work: the account cannot do 17 actions; a request for one is "+
 		"refused before it is sent\n"), out)
 	assert.Contains(t, out, "gmail.send         Gmail: Send mail  cannot: gmail granted read only\n")
 	assert.Contains(t, out, "drive.read         Drive: Read files  cannot: drive not granted at sign-in\n")
@@ -90,12 +90,12 @@ func TestTheOwnerChecksAnAccountAgain(t *testing.T) {
 
 	var checked openapi.IntegrationConnection
 	require.NoError(t, json.Unmarshal([]byte(raw), &checked))
-	assert.Len(t, checked.Cannot, 14)
+	assert.Len(t, checked.Cannot, 17)
 	assert.NotNil(t, checked.AccessCheckedAt)
 
 	listed, err := w.cmd(t, "integrations", "list")
 	require.NoError(t, err)
-	assert.Contains(t, listed, "work (owner@example.com: gmail:read) cannot 14")
+	assert.Contains(t, listed, "work (owner@example.com: gmail:read) cannot 17")
 
 	_, err = w.cmd(t, "integrations", "check", "google:other")
 	require.Error(t, err)

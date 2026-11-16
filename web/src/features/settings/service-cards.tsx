@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { Copy, ExternalLink, Plug, Plus, RefreshCw, Sheet, UserRound } from "lucide-react"
+import { Copy, ExternalLink, Plug, Plus, RefreshCw, UserRound } from "lucide-react"
 import { useId, useState, type ComponentType, type ReactElement, type SVGProps } from "react"
 import { z } from "zod"
 
@@ -19,6 +19,8 @@ import {
   GoogleDocsIcon,
   GoogleDriveIcon,
   GoogleIcon,
+  GoogleSearchConsoleIcon,
+  GoogleSheetsIcon,
   LarkIcon,
   AwsIcon,
   SupersetIcon,
@@ -105,14 +107,18 @@ const accountHolds: Record<string, string> = {
 
 type Mark = ComponentType<SVGProps<SVGSVGElement>>
 
-// Each service of an Integration as a person knows it: its name, its mark, and what it holds. A service with no
-// mark in the references (Sheets) carries a plain icon.
+// Each service of an Integration as a person knows it: its name, its mark, and what it holds.
 const about: Record<string, { name: string; holds: string; Mark: Mark }> = {
   gmail: { name: "Gmail", holds: "Mail, drafts and labels", Mark: GmailIcon },
   calendar: { name: "Calendar", holds: "Events and calendars", Mark: GoogleCalendarIcon },
   drive: { name: "Drive", holds: "Files and folders", Mark: GoogleDriveIcon },
   docs: { name: "Docs", holds: "Documents", Mark: GoogleDocsIcon },
-  sheets: { name: "Sheets", holds: "Spreadsheets", Mark: Sheet },
+  sheets: { name: "Sheets", holds: "Spreadsheets", Mark: GoogleSheetsIcon },
+  searchconsole: {
+    name: "Search Console",
+    holds: "Sites, sitemaps, search performance and indexing",
+    Mark: GoogleSearchConsoleIcon,
+  },
 }
 
 const serviceName = (id: string) => about[id]?.name ?? id

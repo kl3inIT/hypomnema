@@ -137,7 +137,9 @@ func (c Catalog) Of(req *http.Request, body []byte, host string) Action {
 		return c.Name(req, body, host)
 	}
 
-	return c.Match(req.Method, host, req.URL.Path)
+	// The escaped path, so that a segment that is itself a URL, as Search Console's site and sitemap are
+	// (https%3A%2F%2Fexample.com%2F), stays one segment (issue #609).
+	return c.Match(req.Method, host, req.URL.EscapedPath())
 }
 
 // literals counts the segments of a route's path that are not placeholders.
@@ -274,6 +276,7 @@ func google() Catalog {
 		www    = "www.googleapis.com"
 		docs   = "docs.googleapis.com"
 		sheets = "sheets.googleapis.com"
+		search = "searchconsole.googleapis.com"
 
 		user   = "/gmail/v1/users/{user}"
 		upload = "/upload/gmail/v1/users/{user}"
@@ -289,11 +292,12 @@ func google() Catalog {
 
 	discovery := Action{
 		ID: "google.discovery", Plumbing: true, Kind: Reads,
-		Routes: append(append(append(
+		Routes: append(append(append(append(
 			routes(www, get, "/discovery/v1/apis/{api}/{version}/rest"),
 			routes(gmail, get, "/$discovery/rest")...),
 			routes(docs, get, "/$discovery/rest")...),
 			routes(sheets, get, "/$discovery/rest")...),
+			routes(search, get, "/$discovery/rest")...),
 	}
 
 	return Catalog{Integration: "google", Actions: []Action{
@@ -385,6 +389,26 @@ func google() Catalog {
 			Routes: append(
 				routes(docs, get, "/v1/documents/{rest...}"),
 				routes(sheets, get, "/v4/spreadsheets/{rest...}")...),
+		},
+		// Search Console keeps its classic API under /webmasters/v3 and URL Inspection under /v1 on one host; a
+		// site and a sitemap are each a URL in one segment. Two reads are POSTs: a query of search performance and
+		// an inspection of a URL (treg, src/treg/catalog/google-search-console.yaml and .extended.yaml; issue #609).
+		{
+			ID: "searchconsole.sitemap", Service: "Search Console", Name: "Submit or remove a sitemap", Kind: NeedsCare,
+			Text:   "Google crawls what a submitted sitemap lists",
+			Routes: routes(search, []string{http.MethodPut, http.MethodDelete}, "/webmasters/v3/sites/{site}/sitemaps/{feed}"),
+		},
+		{
+			ID: "searchconsole.site", Service: "Search Console", Name: "Add or remove a site", Kind: NeedsCare,
+			Routes: routes(search, []string{http.MethodPut, http.MethodDelete}, "/webmasters/v3/sites/{site}"),
+		},
+		{
+			ID: "searchconsole.read", Service: "Search Console", Name: "Read Search Console", Kind: Reads,
+			Text: "Sites, sitemaps, search performance, and why a page is or is not indexed",
+			Routes: append(append(
+				routes(search, get, "/webmasters/v3/{rest...}"),
+				routes(search, post, "/webmasters/v3/sites/{site}/searchAnalytics/query")...),
+				routes(search, post, "/v1/urlInspection/index:inspect", "/v1/urlTestingTools/mobileFriendlyTest:run")...),
 		},
 	}}
 }

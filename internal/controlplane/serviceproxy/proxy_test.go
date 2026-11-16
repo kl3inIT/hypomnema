@@ -978,6 +978,40 @@ func TestAnAccountsActionsAreListedFromReadingToWhatNeedsCare(t *testing.T) {
 		catalog.Match(http.MethodPost, "gmail.googleapis.com", "/gmail/v1/users/me/settings/filters").ID)
 }
 
+// Scenario (issue #609): a Bot looks into why a page of a site is not on Google. Listing the sites, reading the
+// sitemaps, a query of search performance and an inspection of the URL run at once, though the last two are
+// POSTs; submitting a sitemap waits for the owner. The site and the sitemap are URLs, each escaped into one
+// segment of the path, and are matched so.
+func TestSearchConsoleReadsRunAndASitemapAsks(t *testing.T) {
+	t.Parallel()
+
+	catalog, ok := serviceproxy.CatalogOf("google")
+	require.True(t, ok)
+
+	const site = "/webmasters/v3/sites/https%3A%2F%2Fbeyondpilot.ai%2F"
+
+	for want, req := range map[string][2]string{
+		"sites":       {http.MethodGet, "/webmasters/v3/sites"},
+		"sitemaps":    {http.MethodGet, site + "/sitemaps"},
+		"performance": {http.MethodPost, site + "/searchAnalytics/query"},
+		"inspection":  {http.MethodPost, "/v1/urlInspection/index:inspect"},
+		"submit":      {http.MethodPut, site + "/sitemaps/https%3A%2F%2Fbeyondpilot.ai%2Fsitemap.xml"},
+	} {
+		r := httptest.NewRequestWithContext(t.Context(), req[0], "https://searchconsole.googleapis.com"+req[1], nil)
+		a := catalog.Of(r, nil, "searchconsole.googleapis.com")
+
+		if want == "submit" {
+			assert.Equal(t, "searchconsole.sitemap", a.ID, want)
+			assert.Equal(t, serviceproxy.NeedsCare, a.Kind, want)
+
+			continue
+		}
+
+		assert.Equal(t, "searchconsole.read", a.ID, want)
+		assert.Equal(t, serviceproxy.Reads, a.Kind, want)
+	}
+}
+
 // Scenario: pi works in Lark as the owner's app. Reading a chat runs on its
 // own, and so does a read lark-cli's own list does not name. Sending a
 // message, which that list does not name either, is a write of Messages and
