@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"regexp"
 	"strconv"
@@ -36,10 +38,18 @@ const (
 	screensDir = "screens"
 	// plainScreen is the file a screen without boxes is taken into.
 	plainScreen = "plain.png"
+	// pictureQuality is the JPEG quality of the picture an agent is given,
+	// mobile-mcp's for its agent's screenshot (src/server.ts,
+	// mobile_take_screenshot: format jpeg, quality 75).
+	pictureQuality = 75
+	// enterKeycode is KEYCODE_ENTER, which Google's android-cli skill presses
+	// to submit (skills/android-cli/SKILL.md: `adb shell input keyevent 66`).
+	enterKeycode = "66"
 )
 
-// pngSignature starts every PNG file.
-var pngSignature = []byte("\x89PNG\r\n\x1a\n")
+// adbTypeable is the text adb's `input text` types as it is, with no
+// keyboard of its own: OpenMausBot's SAFE_TEXT (server/drivers/phone-proxy.ts).
+var adbTypeable = regexp.MustCompile(`^[A-Za-z0-9 _.,@-]+$`)
 
 // resolved is what `android screen resolve --string="#N"` prints: the box's
 // center as "x y" (developer.android.com/tools/agents/android-cli/commands/screen_resolve).
@@ -132,15 +142,7 @@ func (m *Manager) runTool(ctx context.Context, agent string, c devicetool.Call) 
 	case devicetool.Swipe:
 		return m.swipe(ctx, agent, c), true
 	case devicetool.Type:
-		args := []string{"input", "--device=" + serial, "text"}
-		if c.Submit {
-			args = append(args, "--submit")
-		}
-
-		// After --, a text that starts with "-" is not read as an option (tried with 1.1.16919734).
-		out, err := m.android(ctx, append(args, "--", c.Text, c.Into)...)
-
-		return done(out, err, "Typed."), true
+		return m.typeText(ctx, c), true
 	case devicetool.Key:
 		out, err := m.android(ctx, "input", "--device="+serial, "key", c.Key)
 
@@ -155,10 +157,10 @@ func (m *Manager) runTool(ctx context.Context, agent string, c devicetool.Call) 
 }
 
 // screen takes a picture of the screen with adb, as OpenMausBot does
-// (server/drivers/phone-proxy.ts, `exec-out screencap -p`, its PNG signature
-// checked): no boxes are looked for, which is what makes Android CLI's
-// capture slower. The picture is not kept: the agent's last screen with boxes
-// stays the one its numbers are taken from.
+// (server/drivers/phone-proxy.ts, `exec-out screencap -p`): no boxes are
+// looked for, which is what makes Android CLI's capture slower. The picture
+// is not kept: the agent's last screen with boxes stays the one its numbers
+// are taken from.
 func (m *Manager) screen(ctx context.Context) nodeproto.DeviceAnswer {
 	if err := os.MkdirAll(m.path(runDir, screensDir), 0o700); err != nil {
 		return failed("keeping the screen: " + err.Error())
@@ -175,17 +177,18 @@ func (m *Manager) screen(ctx context.Context) nodeproto.DeviceAnswer {
 		return failed("The screen could not be captured: " + why)
 	}
 
-	png, err := os.ReadFile(file) //nolint:gosec // The node's own file under its run directory.
+	raw, err := os.ReadFile(file) //nolint:gosec // The node's own file under its run directory.
 	if err != nil {
 		return failed("The screen could not be read: " + err.Error())
 	}
 
-	if !bytes.HasPrefix(png, pngSignature) {
+	picture, err := agentPicture(raw)
+	if err != nil {
 		return failed("The phone answered with something that is not a picture of its screen.")
 	}
 
 	return nodeproto.DeviceAnswer{Content: []nodeproto.DeviceContent{
-		{Type: "image", Data: base64.StdEncoding.EncodeToString(png), MimeType: "image/png"},
+		picture,
 		{Type: "text", Text: "Tap a point with device_tap and its x,y in this picture's pixels, or call " +
 			"device_screen with boxes to tap by number; take a new screen after each action."},
 	}}
@@ -208,19 +211,48 @@ func (m *Manager) screenWithBoxes(ctx context.Context, agent string) nodeproto.D
 		return failed("The screen could not be captured: " + why)
 	}
 
-	png, err := os.ReadFile(file) //nolint:gosec // The node's own file, named by a hash under its run directory.
+	raw, err := os.ReadFile(file) //nolint:gosec // The node's own file, named by a hash under its run directory.
 	if err != nil {
 		return failed("The screen could not be read: " + err.Error())
+	}
+
+	picture, err := agentPicture(raw)
+	if err != nil {
+		return failed("Android CLI's capture is not a picture of the screen: " + err.Error())
 	}
 
 	m.agents.stale[agent] = false
 	m.agents.boot[agent] = m.bootNumber()
 
 	return nodeproto.DeviceAnswer{Content: []nodeproto.DeviceContent{
-		{Type: "image", Data: base64.StdEncoding.EncodeToString(png), MimeType: "image/png"},
+		picture,
 		{Type: "text", Text: "Numbered boxes mark what was found on the screen. Tap one with device_tap and " +
 			"its number, such as \"#3\"; take a new screen after each action."},
 	}}
+}
+
+// agentPicture is a screen's PNG as the picture an agent is given: a JPEG of
+// the same pixels, so a point's x,y in it is the screen's. The answer goes to
+// the control plane, and back to an agent, through the control plane's public
+// address, which carried 145 to 400 KB a second (Tailscale Funnel, measured on
+// 2026-11-16, issue #578), and the Home screen's grainy wallpaper made a PNG of
+// 690 KB at 720x1280 and a JPEG of 38 KB. mobile-mcp gives its agent a JPEG
+// too (src/server.ts, mobile_take_screenshot); it also scales it down, which
+// is not done here, where the picture's pixels are a tap's coordinates.
+func agentPicture(raw []byte) (nodeproto.DeviceContent, error) {
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nodeproto.DeviceContent{}, err
+	}
+
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: pictureQuality}); err != nil {
+		return nodeproto.DeviceContent{}, err
+	}
+
+	return nodeproto.DeviceContent{
+		Type: "image", Data: base64.StdEncoding.EncodeToString(out.Bytes()), MimeType: "image/jpeg",
+	}, nil
 }
 
 // bootNumber is the count of the phone's boots, which changes each time it
@@ -310,6 +342,76 @@ func (m *Manager) swipe(ctx context.Context, agent string, c devicetool.Call) no
 		strconv.Itoa(c.DurationMs))
 
 	return done(out, err, "Swiped.")
+}
+
+// typeText types with Android CLI, which finds the field in the view tree,
+// replaces what it holds and types any language. A focused field the tree
+// does not show, such as the launcher's search while it asks "Always show
+// keyboard here?" (issue #578), is "no_matches" there: text adb types as it
+// is then goes to whatever has input focus with `adb shell input text`, as
+// Google's android-cli skill types (skills/android-cli/SKILL.md: spaces as
+// %s, Enter as keyevent 66) and Orca (androidTypeText) and OpenMausBot
+// (typePhoneText) do. adb adds to what the field holds.
+func (m *Manager) typeText(ctx context.Context, c devicetool.Call) nodeproto.DeviceAnswer {
+	args := []string{"input", "--device=" + serial, "text"}
+	if c.Submit {
+		args = append(args, "--submit")
+	}
+
+	// After --, a text that starts with "-" is not read as an option (tried with 1.1.16919734).
+	out, err := m.android(ctx, append(args, "--", c.Text, c.Into)...)
+	if err != nil || c.Into != devicetool.FocusedField || !noMatches(out) {
+		return done(out, err, "Typed.")
+	}
+
+	if !adbTypeable.MatchString(c.Text) {
+		return failed("The focused field is not in the phone's view tree (see device_layout), so Android CLI cannot " +
+			"type into it, and without it only letters, digits, spaces and _.,@- can be typed. Dismiss what covers " +
+			"the field, or type only those characters.")
+	}
+
+	out, err = m.adb(ctx, toolWithin, "-s", serial, "shell", "input", "text", strings.ReplaceAll(c.Text, " ", "%s"))
+	if why := failure(out, err); why != "" {
+		return failed("The text could not be typed: " + why)
+	}
+
+	if c.Submit {
+		out, err = m.adb(ctx, toolWithin, "-s", serial, "shell", "input", "keyevent", enterKeycode)
+		if why := failure(out, err); why != "" {
+			return failed("Typed, but Enter could not be pressed: " + why)
+		}
+	}
+
+	return text("Typed with adb into what has input focus, after what it held, since the focused field is not in " +
+		"the phone's view tree; take a screen to see it.")
+}
+
+// androidResults is how Android CLI answers an input command:
+// {"results":[{"action":"text","status":"no_matches",...}]}, as it printed
+// it on the phone on 2026-11-15 (issue #578).
+type androidResults struct {
+	Results []struct {
+		Status string `json:"status"`
+	} `json:"results"`
+}
+
+// noMatches says whether Android CLI answered that no view matched its
+// selector.
+func noMatches(out Output) bool {
+	for _, said := range []string{out.Stdout, out.Stderr} {
+		var answer androidResults
+		if json.Unmarshal([]byte(strings.TrimSpace(said)), &answer) != nil {
+			continue
+		}
+
+		for _, r := range answer.Results {
+			if r.Status == "no_matches" {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // launch opens an app's launcher activity with monkey, as Orca and

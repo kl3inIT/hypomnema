@@ -11,7 +11,9 @@
 // `android screen resolve` gives for a box's number. Typing is Android CLI's
 // `input text`, which typed Vietnamese where `adb shell input text` types
 // ASCII only (docs/research/2026-11-14-android-device-for-agents.md, section
-// 3). A screen without boxes is adb's `exec-out screencap -p`, as OpenMausBot
+// 3); a focused field Android CLI cannot find in the view tree is typed into
+// with adb, as the skill types, when the text is ASCII adb types as it is
+// (issue #578). A screen without boxes is adb's `exec-out screencap -p`, as OpenMausBot
 // takes one (server/drivers/phone-proxy.ts). Launching an app and reading its log are Orca's (src/main/emulator/android,
 // launchAppArgs and logcatArgs). The names and arguments are this repository's.
 package devicetool
@@ -78,6 +80,9 @@ const (
 	defaultSwipe  = 300
 	maxCoordinate = 100000
 )
+
+// FocusedField is the selector device_type types into when it names none.
+const FocusedField = "focused=true"
 
 const point = `"#N", a number from your last device_screen with boxes, or "x,y" in the screen's pixels`
 
@@ -319,7 +324,7 @@ func (c *Call) readType(text *string, into string, submit bool) error {
 
 	into = strings.TrimSpace(into)
 	if into == "" {
-		into = "focused=true"
+		into = FocusedField
 	}
 
 	if !isSelector(into) {

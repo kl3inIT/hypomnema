@@ -1,13 +1,17 @@
 package device
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -29,14 +33,54 @@ type phoneTools struct {
 	captures int
 	// failWith is what an `android input` command prints, as a failure.
 	failWith string
-	logcat   string
+	// noMatches makes `android input` answer that no view matches, as it did
+	// for the launcher's search field (issue #578).
+	noMatches bool
+	logcat    string
 	// noLauncher makes monkey fail as it does for a package not installed.
 	noLauncher bool
 	// notPNG makes screencap write what is not a PNG.
 	notPNG bool
 }
 
+// noMatchesAnswer is what Android CLI answered to `input text` on the phone
+// when the focused field was not in the view tree (2026-11-15, issue #578).
+const noMatchesAnswer = "{\n  \"results\": [\n    {\n      \"action\": \"text\",\n      \"status\": \"no_matches\",\n" +
+	"      \"error\": \"No matching elements\"\n    }\n  ]\n}"
+
 var boxArg = regexp.MustCompile(`^--string=#([0-9]+)$`)
+
+// screenPNG is a PNG of a screen w pixels wide and h high, as a capture
+// writes one: its size tells which capture it is.
+func screenPNG(w, h int) []byte {
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for x := range w {
+		for y := range h {
+			img.Set(x, y, color.NRGBA{R: byte(x * 16 % 256), G: byte(y * 8 % 256), B: 200, A: 255})
+		}
+	}
+
+	var out bytes.Buffer
+	_ = png.Encode(&out, img)
+
+	return out.Bytes()
+}
+
+// pictureSize decodes a picture an answer gives as a JPEG and says its size.
+func pictureSize(t *testing.T, c nodeproto.DeviceContent) (int, int) {
+	t.Helper()
+
+	assert.Equal(t, "image", c.Type)
+	assert.Equal(t, "image/jpeg", c.MimeType)
+
+	raw, err := base64.StdEncoding.DecodeString(c.Data)
+	require.NoError(t, err)
+
+	config, err := jpeg.DecodeConfig(bytes.NewReader(raw))
+	require.NoError(t, err, "the picture is a JPEG")
+
+	return config.Width, config.Height
+}
 
 func (p *phoneTools) answer(c Command) (Output, bool) {
 	p.mu.Lock()
@@ -50,7 +94,7 @@ func (p *phoneTools) answer(c Command) (Output, bool) {
 
 		for _, a := range c.Args {
 			if file, ok := strings.CutPrefix(a, "--output="); ok {
-				_ = os.WriteFile(file, []byte("png "+strconv.Itoa(p.captures)), 0o600)
+				_ = os.WriteFile(file, screenPNG(10+p.captures, 30), 0o600)
 			}
 		}
 
@@ -58,12 +102,12 @@ func (p *phoneTools) answer(c Command) (Output, bool) {
 	case program(c) == "adb" && strings.Contains(args, "exec-out screencap -p"):
 		p.captures++
 
-		picture := string(pngSignature) + "plain " + strconv.Itoa(p.captures)
+		picture := screenPNG(10+p.captures, 20)
 		if p.notPNG {
-			picture = "screencap: error"
+			picture = []byte("screencap: error")
 		}
 
-		_ = os.WriteFile(c.Out, []byte(picture), 0o600)
+		_ = os.WriteFile(c.Out, picture, 0o600)
 
 		return Output{}, true
 	case program(c) == "android" && strings.Contains(args, "screen resolve"):
@@ -75,6 +119,10 @@ func (p *phoneTools) answer(c Command) (Output, bool) {
 
 		return Output{Code: 2}, true
 	case program(c) == "android" && slices.Contains(c.Args, "input"):
+		if p.noMatches {
+			return Output{Code: 1, Stdout: noMatchesAnswer}, true
+		}
+
 		if p.failWith != "" {
 			return Output{Stdout: p.failWith}, true
 		}
@@ -128,9 +176,9 @@ func textOf(a nodeproto.DeviceAnswer) string {
 // ranSince is what the machine ran after the first n commands.
 func ranSince(r *rig, n int) []string { return r.sys.ranCommands()[n:] }
 
-// A call on a stopped phone boots it first, then answers: the screen as a
-// PNG image, taken by adb's screencap into a file whole, without Android
-// CLI's search for boxes.
+// A call on a stopped phone boots it first, then answers: the screen taken
+// by adb's screencap into a file whole, without Android CLI's search for
+// boxes, given as a JPEG of the same pixels (issue #578).
 func TestACallStartsAStoppedPhoneAndShowsItsScreen(t *testing.T) {
 	t.Parallel()
 
@@ -141,12 +189,9 @@ func TestACallStartsAStoppedPhoneAndShowsItsScreen(t *testing.T) {
 	assert.Equal(t, nodeproto.DeviceRunning, r.m.Status().State)
 
 	require.Len(t, answer.Content, 2)
-	assert.Equal(t, "image", answer.Content[0].Type)
-	assert.Equal(t, "image/png", answer.Content[0].MimeType)
 
-	png, err := base64.StdEncoding.DecodeString(answer.Content[0].Data)
-	require.NoError(t, err)
-	assert.Equal(t, string(pngSignature)+"plain 1", string(png))
+	w, h := pictureSize(t, answer.Content[0])
+	assert.Equal(t, []int{11, 20}, []int{w, h}, "the first capture's pixels, not scaled")
 
 	assert.Contains(t, r.sys.ranCommands(), "adb -s emulator-5554 exec-out screencap -p")
 
@@ -156,7 +201,8 @@ func TestACallStartsAStoppedPhoneAndShowsItsScreen(t *testing.T) {
 }
 
 // A screen with boxes is Android CLI's annotated capture, run against the
-// phone's own SDK with no metrics sent, and kept as the agent's last screen.
+// phone's own SDK with no metrics sent, and kept as the agent's last screen:
+// a PNG on disk, which `screen resolve` reads, and a JPEG to the agent.
 func TestAScreenWithBoxesIsAndroidCLIsAnnotatedCapture(t *testing.T) {
 	t.Parallel()
 
@@ -166,10 +212,14 @@ func TestAScreenWithBoxesIsAndroidCLIsAnnotatedCapture(t *testing.T) {
 	require.False(t, answer.IsError, textOf(answer))
 	require.Len(t, answer.Content, 2)
 
-	png, err := base64.StdEncoding.DecodeString(answer.Content[0].Data)
-	require.NoError(t, err)
-	assert.Equal(t, "png 1", string(png))
+	w, h := pictureSize(t, answer.Content[0])
+	assert.Equal(t, []int{11, 30}, []int{w, h})
 	assert.Contains(t, textOf(answer), "Numbered boxes")
+
+	kept, err := os.ReadFile(r.m.screenFile("d-1"))
+	require.NoError(t, err)
+	_, err = png.DecodeConfig(bytes.NewReader(kept))
+	require.NoError(t, err, "the screen kept is Android CLI's PNG")
 
 	sdk := filepath.Join(r.dir, "sdk")
 	capture := slices.IndexFunc(r.sys.ranCommands(), func(line string) bool {
@@ -292,6 +342,59 @@ func TestTypeGivesTheTextAsOneArgument(t *testing.T) {
 	require.Len(t, ran, 1)
 	assert.True(t, strings.HasSuffix(ran[0], "input --device=emulator-5554 text --submit -- -5 Phở Hà Nội focused=true"),
 		ran[0])
+}
+
+// A focused field the view tree does not show, as the launcher's search was
+// while it asked "Always show keyboard here?", is no match for Android CLI:
+// the text is typed with adb into what has input focus, spaces as %s, and
+// Enter pressed with keyevent 66, as Google's android-cli skill types
+// (issue #578).
+func TestTypeIntoAFieldTheViewTreeDoesNotShowGoesThroughAdb(t *testing.T) {
+	t.Parallel()
+
+	r, tools := toolRig(t)
+	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+
+	tools.noMatches = true
+
+	before := len(r.sys.ranCommands())
+	answer := call(t, r, "d-1", "device_type", `{"text":"hello world","submit":true}`)
+	require.False(t, answer.IsError, textOf(answer))
+	assert.Contains(t, textOf(answer), "Typed with adb")
+
+	ran := ranSince(r, before)
+	require.Len(t, ran, 3, ran)
+	assert.True(t, strings.HasSuffix(ran[0], "input --device=emulator-5554 text --submit -- hello world focused=true"),
+		ran[0])
+	assert.Equal(t, "adb -s emulator-5554 shell input text hello%sworld", ran[1])
+	assert.Equal(t, "adb -s emulator-5554 shell input keyevent 66", ran[2])
+}
+
+// adb types only what it can without a keyboard of its own, and never into
+// another field than the one named: the agent is told why instead.
+func TestTypeThatAdbCannotStandInForFails(t *testing.T) {
+	t.Parallel()
+
+	for name, arguments := range map[string]string{
+		"text adb cannot type": `{"text":"Phở Hà Nội"}`,
+		"a field named":        `{"text":"hello","into":"id=search"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r, tools := toolRig(t)
+			require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+
+			tools.noMatches = true
+
+			before := len(r.sys.ranCommands())
+			answer := call(t, r, "d-1", "device_type", arguments)
+			assert.True(t, answer.IsError)
+
+			ran := ranSince(r, before)
+			assert.Len(t, ran, 1, "adb typed nothing: %v", ran)
+		})
+	}
 }
 
 // Android CLI says some failures on its output and exits with 0; the agent
