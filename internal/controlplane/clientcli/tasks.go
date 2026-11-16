@@ -168,6 +168,36 @@ func tasksReopen(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printf("task %s is %s\n", resp.JSON200.Id, resp.JSON200.Status) })
 }
 
+// tasksFollowUp asks more of a succeeded Task's worker (issue #666), as the
+// token's holder: the owner, or the Run's coordinator.
+func tasksFollowUp(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	note := strings.Join(fs.Args()[1:], " ")
+
+	if str(fs, "note-file") != "" {
+		var err error
+		if note, err = e.text(fs, "note"); err != nil {
+			return err
+		}
+	}
+
+	if strings.TrimSpace(note) == "" {
+		return fmt.Errorf("%w: hypomnema tasks follow-up <task_id> <note> or --note-file <file>", ErrUsage)
+	}
+
+	resp, err := e.api.FollowUpTaskWithResponse(ctx, fs.Arg(0), openapi.NewFollowUp{Note: note})
+	if err != nil {
+		return fmt.Errorf("sending the follow-up: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("sending the follow-up", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		e.printf("task %s is %s; its worker continues with the note\n", resp.JSON200.Id, resp.JSON200.Status)
+	})
+}
+
 // tasksList prints the board: GET /tasks.
 func tasksList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	params := &openapi.ListTasksParams{}

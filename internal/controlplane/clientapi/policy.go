@@ -54,6 +54,7 @@ var policies = map[string]policy{
 	"ListDispatchItems":           {scope: scopeDispatch, long: true},
 	"CancelTask":                  {scope: scopeTask},
 	"ReopenTask":                  {scope: scopeTask},
+	"FollowUpTask":                {scope: scopeTask},
 	"ListQuestions":               {},
 	"GetQuestion":                 {},
 	"AnswerQuestion":              {scope: scopeQuestion},
@@ -360,6 +361,8 @@ func (s *Server) runOf(ctx context.Context, sc scope, request any) (string, erro
 	case openapi.CancelTaskRequestObject:
 		return s.runOfTask(ctx, r.TaskId)
 	case openapi.ReopenTaskRequestObject:
+		return s.runOfTask(ctx, r.TaskId)
+	case openapi.FollowUpTaskRequestObject:
 		return s.runOfTask(ctx, r.TaskId)
 	case openapi.AnswerQuestionRequestObject:
 		return s.runOfQuestion(ctx, r.QuestionId)

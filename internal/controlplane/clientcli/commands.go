@@ -129,6 +129,15 @@ var commands = []command{
 		summary: "give a failed Task, or one waiting for a login, a new start", flags: jsonFlag, run: tasksReopen,
 	},
 	{
+		name: "tasks follow-up", args: "<task_id> [note]", min: 1, max: -1,
+		summary: "ask more of a succeeded Task's worker; it continues its own conversation, branch and pull request",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("note-file", "", "read the note from this file, or - for standard input")
+			jsonFlag(fs)
+		},
+		run: tasksFollowUp,
+	},
+	{
 		name: "questions", summary: "open questions from workers",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("to", "owner", "owner or coordinator")
