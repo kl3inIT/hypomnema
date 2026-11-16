@@ -28,6 +28,8 @@ const firstCodeWait = 30 * time.Second
 
 // deviceLink is one linking in progress, followed in the background.
 type deviceLink struct {
+	label  string
+	ctx    context.Context //nolint:containedctx // The linking's own lifetime, which a disconnect ends.
 	cancel context.CancelFunc
 	done   chan struct{}
 
@@ -108,8 +110,11 @@ func (s *Service) beginLink(ctx context.Context, d Definition, label string) (Si
 		return SignIn{}, fmt.Errorf("%w: %w", ErrSignInFailed, first.Err)
 	}
 
-	link := &deviceLink{cancel: cancel, done: make(chan struct{}), code: first.Code, expires: first.Expires}
-	go s.followLink(context.WithoutCancel(ctx), d, label, link, steps)
+	link := &deviceLink{
+		label: label, ctx: linkCtx, cancel: cancel, done: make(chan struct{}), code: first.Code,
+		expires: first.Expires,
+	}
+	go s.followLink(linkCtx, d, label, link, steps)
 
 	id := s.newID("signin")
 	pending := &signIn{def: d, label: label, started: s.clock.Now(), link: link}
@@ -156,7 +161,7 @@ steps:
 
 			continue
 		case step.Account != nil:
-			conn, err = s.saveDevice(ctx, d, label, step.Account)
+			conn, err = s.saveDevice(context.WithoutCancel(ctx), d, label, link, step.Account)
 		case step.Err != nil:
 			err = step.Err
 		}
@@ -177,8 +182,21 @@ steps:
 
 // saveDevice records a linked account as the label's Connection, its device named in the vault, and holds its
 // session. A device the label had before is logged out: the phone keeps only the new one.
-func (s *Service) saveDevice(ctx context.Context, d Definition, label string, acc messaging.Account,
+func (s *Service) saveDevice(ctx context.Context, d Definition, label string, link *deviceLink,
+	acc messaging.Account,
 ) (Connection, error) {
+	// One change of a label's device at a time, a disconnect included, so the vault, the Connection and the
+	// session held name the same device.
+	s.deviceMu.Lock()
+	defer s.deviceMu.Unlock()
+
+	// A linking the owner gave up, or a disconnect of its label ended, keeps nothing.
+	if link.ctx.Err() != nil {
+		_ = acc.Logout(ctx)
+
+		return Connection{}, errors.New("the link was given up before the phone scanned the code")
+	}
+
 	name := connectionSecretName(d.ID, label)
 	payload := vault.Payload{vault.KeyValue: acc.ID()}
 
@@ -343,34 +361,55 @@ func (s *Service) deviceState(integration, label string) messaging.State {
 }
 
 // forgetDevice logs a Connection's device out, which drops it from the phone, and forgets the Connection.
+// A linking of the same label still waiting is ended: it would bring the Connection back. A session that was not
+// open is opened to log it out; one that cannot be logged out keeps its Connection, to try again.
 func (s *Service) forgetDevice(ctx context.Context, d Definition, conn orchestration.Connection) (bool, error) {
+	s.deviceMu.Lock()
+	defer s.deviceMu.Unlock()
+
 	key := deviceKey(d.ID, conn.Label)
 
 	s.mu.Lock()
-	acc := s.held[key]
-	s.mu.Unlock()
-
-	loggedOut := acc == nil
-
-	if acc != nil {
-		if err := acc.Logout(ctx); err != nil {
-			return false, fmt.Errorf("logging the device out: %w", err)
+	for _, p := range s.signIns {
+		if p.link != nil && p.def.ID == d.ID && p.link.label == conn.Label {
+			p.link.cancel()
 		}
-
-		loggedOut = true
-
-		s.mu.Lock()
-		delete(s.held, key)
-		s.mu.Unlock()
 	}
 
+	acc, svc := s.held[key], s.devices[d.ID]
+	s.mu.Unlock()
+
+	if acc == nil {
+		if svc == nil {
+			return false, fmt.Errorf("%w: this control plane does not link %s accounts", orchestration.ErrUnavailable,
+				d.Name)
+		}
+
+		opened, err := s.vault.Open(ctx, conn.Secret)
+		if err != nil {
+			return false, vaultError(err)
+		}
+
+		if acc, err = svc.Open(ctx, opened.Payload[vault.KeyValue]); err != nil {
+			return false, fmt.Errorf("opening the session to log it out: %w", err)
+		}
+	}
+
+	if err := acc.Logout(ctx); err != nil {
+		return false, fmt.Errorf("logging the device out: %w", err)
+	}
+
+	s.mu.Lock()
+	delete(s.held, key)
+	s.mu.Unlock()
+
 	if _, err := s.store.RemoveConnection(ctx, d.ID, conn.Label); err != nil {
-		return loggedOut, err
+		return true, err
 	}
 
 	if err := s.vault.Delete(ctx, conn.Secret); err != nil && !errors.Is(err, vault.ErrNotFound) {
-		return loggedOut, vaultError(err)
+		return true, vaultError(err)
 	}
 
-	return loggedOut, nil
+	return true, nil
 }

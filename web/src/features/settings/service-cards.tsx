@@ -2,7 +2,14 @@ import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Copy, ExternalLink, Plug, Plus, RefreshCw, Smartphone, UserRound } from "lucide-react"
 import QRCode from "qrcode"
-import { useId, useState, type ComponentType, type ReactElement, type SVGProps } from "react"
+import {
+  useId,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactElement,
+  type SVGProps,
+} from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -971,6 +978,8 @@ function LinkDeviceDialog({
   const refresh = useRefreshServices()
   const [open, setOpen] = useState(false)
   const [started, setStarted] = useState<SignIn | null>(null)
+  // Each linking the owner starts; closing the dialog moves it on, so a late answer of a closed one is dropped.
+  const attempt = useRef(0)
 
   const begin = useMutation({
     mutationFn: async (value: z.infer<typeof linkSchema>) =>
@@ -999,12 +1008,14 @@ function LinkDeviceDialog({
     defaultValues: { label: connection?.label ?? "main" },
     validators: { onSubmit: linkSchema },
     onSubmit: async ({ value }) => {
+      const mine = ++attempt.current
       let signIn: SignIn
       try {
         signIn = await begin.mutateAsync(value)
       } catch {
         return // The dialog stays open and shows what the server refused.
       }
+      if (attempt.current !== mine) return
 
       setStarted(signIn)
 
@@ -1015,6 +1026,7 @@ function LinkDeviceDialog({
       }
 
       await refresh()
+      if (attempt.current !== mine) return
       change(false)
       said(`${service.name} ${value.label} is linked`)
     },
@@ -1023,6 +1035,7 @@ function LinkDeviceDialog({
   function change(next: boolean) {
     setOpen(next)
     if (!next) {
+      attempt.current++
       setStarted(null)
       form.reset()
       begin.reset()
@@ -1031,6 +1044,7 @@ function LinkDeviceDialog({
   }
 
   function again() {
+    attempt.current++
     setStarted(null)
     begin.reset()
     complete.reset()

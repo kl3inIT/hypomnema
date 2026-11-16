@@ -99,7 +99,19 @@ func (s *Service) Link(ctx context.Context) (<-chan messaging.LinkStep, error) {
 
 		for item := range codes {
 			step, last := s.linkStep(acc, item)
-			steps <- step
+
+			select {
+			case steps <- step:
+			case <-ctx.Done():
+				// Nobody takes the step any more: a device linked meanwhile must not stay on the phone.
+				if step.Account != nil {
+					_ = step.Account.Logout(context.WithoutCancel(ctx))
+				}
+
+				acc.client.Disconnect()
+
+				return
+			}
 
 			if last {
 				return
@@ -107,7 +119,11 @@ func (s *Service) Link(ctx context.Context) (<-chan messaging.LinkStep, error) {
 		}
 
 		acc.client.Disconnect()
-		steps <- messaging.LinkStep{Err: errors.New("whatsapp: the link ended before a code was scanned")}
+
+		select {
+		case steps <- messaging.LinkStep{Err: errors.New("whatsapp: the link ended before a code was scanned")}:
+		case <-ctx.Done():
+		}
 	}()
 
 	return steps, nil
@@ -169,8 +185,11 @@ func (s *Service) Open(ctx context.Context, id string) (messaging.Account, error
 	}
 
 	acc := s.newAccount(device)
+	// A session opened while WhatsApp cannot be reached keeps trying, as one that was connected does.
+	acc.client.InitialAutoReconnect = true
+
 	if err := s.connect(context.WithoutCancel(ctx), acc.client); err != nil {
-		// whatsmeow reconnects by itself only once it was connected; this one is tried again at the next start.
+		// whatsmeow keeps trying a connection that failed for a reason worth retrying (InitialAutoReconnect).
 		acc.setState(messaging.State{Status: messaging.StatusDisconnected, Reason: err.Error()})
 		s.log.WarnContext(ctx, "whatsapp: the session could not connect", slog.String("device", id),
 			slog.String("error", err.Error()))
@@ -233,10 +252,13 @@ func (a *account) handle(evt any) {
 	case *events.Connected:
 		a.setState(messaging.State{Status: messaging.StatusConnected})
 	case *events.Disconnected:
-		// A session logged out, banned or replaced is not merely disconnected.
-		if a.State().Status == messaging.StatusConnected {
-			a.setState(messaging.State{Status: messaging.StatusDisconnected})
+		// A session logged out, banned or replaced is not merely disconnected. whatsmeow calls handlers from
+		// several goroutines, so the check and the change are one step.
+		a.mu.Lock()
+		if a.state.Status == messaging.StatusConnected {
+			a.state = messaging.State{Status: messaging.StatusDisconnected}
 		}
+		a.mu.Unlock()
 	case *events.LoggedOut:
 		a.setState(messaging.State{Status: messaging.StatusLoggedOut, Reason: e.Reason.String()})
 	case *events.StreamReplaced:

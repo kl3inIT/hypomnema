@@ -102,6 +102,8 @@ type Service struct {
 	// each of its Connections, by "integration:label" (device.go).
 	devices map[string]messaging.Service
 	held    map[string]messaging.Account
+	// deviceMu orders the changes of a device Connection: a link saved, a disconnect.
+	deviceMu sync.Mutex
 }
 
 // signIn is one sign-in the owner started and has not completed.

@@ -222,3 +222,33 @@ func TestALinkNoPhoneScannedKeepsNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, all[0].Connections)
 }
+
+// A link of a label still waiting when the label is disconnected is ended: the phone scanning it afterwards
+// brings nothing back, and the device it linked is logged out (review of #622).
+func TestDisconnectingALabelEndsItsWaitingLink(t *testing.T) {
+	t.Parallel()
+
+	w, p := deviceWorld(t)
+	ctx := t.Context()
+
+	first, err := w.svc.Begin(ctx, integration.WhatsAppID, "main", nil)
+	require.NoError(t, err)
+	p.scan("84912345678:11@s.whatsapp.net", "+84912345678")
+	_, err = w.svc.Complete(ctx, integration.WhatsAppID, first.ID, "")
+	require.NoError(t, err)
+
+	waiting, err := w.svc.Begin(ctx, integration.WhatsAppID, "main", nil)
+	require.NoError(t, err)
+
+	_, err = w.svc.Disconnect(ctx, integration.WhatsAppID, "main")
+	require.NoError(t, err)
+
+	late := p.scan("84912345678:12@s.whatsapp.net", "+84912345678")
+	_, err = w.svc.Complete(ctx, integration.WhatsAppID, waiting.ID, "")
+	require.ErrorIs(t, err, integration.ErrSignInFailed)
+	assert.True(t, late.loggedOut(), "the device linked after the disconnect does not stay on the phone")
+
+	all, err := w.svc.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, all[0].Connections)
+}

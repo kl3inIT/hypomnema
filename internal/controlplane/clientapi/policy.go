@@ -117,7 +117,7 @@ var policies = map[string]policy{
 	"DeleteGitHostConnection":     {scope: scopeOwner},
 	"PutIntegrationClient":        {scope: scopeOwner},
 	"BeginIntegrationSignIn":      {scope: scopeOwner},
-	"CompleteIntegrationSignIn":   {scope: scopeOwner},
+	"CompleteIntegrationSignIn":   {scope: scopeOwner, long: true},
 	"GetIntegrationSignIn":        {scope: scopeOwner},
 	"PutIntegrationConnection":    {scope: scopeOwner},
 	"DeleteIntegrationConnection": {scope: scopeOwner},
