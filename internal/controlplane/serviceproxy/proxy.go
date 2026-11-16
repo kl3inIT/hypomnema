@@ -349,7 +349,7 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 	// A request is what it says it is in one way only. One written so that the proxy and the service could
 	// read it differently is refused: another host in its address, a path that does not stay where it
 	// starts, a header or a parameter that asks the service to treat it as another method.
-	if reason := malformed(req); reason != "" {
+	if reason := malformed(req, slices.Contains(s.catalog.SlashInSegment, s.host)); reason != "" {
 		p.cfg.Logger.InfoContext(ctx, "a request through the service proxy",
 			slog.String("event", "serviceproxy.request"), slog.String("agent", s.caller.Name),
 			slog.String("connection", s.connection()), slog.String("verdict", "malformed: "+reason))
@@ -722,8 +722,9 @@ var (
 
 // malformed says why a request is not one the proxy sends on, or "" for one
 // that is. It leaves the request's query written the one way it was read, so
-// that the service is sent exactly what was checked.
-func malformed(req *http.Request) string {
+// that the service is sent exactly what was checked. slashInSegment allows an
+// encoded slash, on a host whose paths carry a URL as one segment.
+func malformed(req *http.Request, slashInSegment bool) string {
 	u := req.URL
 
 	switch {
@@ -740,7 +741,8 @@ func malformed(req *http.Request) string {
 	}
 
 	// An encoded slash is one segment to the proxy and may be two to the service.
-	if raw := strings.ToLower(u.RawPath); strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") {
+	raw := strings.ToLower(u.RawPath)
+	if (strings.Contains(raw, "%2f") && !slashInSegment) || strings.Contains(raw, "%5c") {
 		return "a request's path may not hide a slash"
 	}
 

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -298,22 +299,80 @@ type ExitError struct{ Code int }
 
 func (e *ExitError) Error() string { return fmt.Sprintf("the tool exited with code %d", e.Code) }
 
+// RunCommand is the name under which the launcher runs a command of the agent's choosing instead of a pinned tool:
+// `hypomnema tool run <integration> [--account label] -- <command> [args...]`.
+const RunCommand = "run"
+
 // Run runs the tool named name with args. Its errors are written for the
 // agent that reads them: they say what is missing and who can give it.
+//
+// Named RunCommand, it runs any command, such as curl, as a pinned tool runs: through the service proxy of the
+// Integration named, which adds the account's credential to a request to one of the Integration's hosts and holds
+// it to the owner's rules (issue #617). A pinned tool covers only what its own list knows (gws has no Search
+// Console); the proxy relays what the catalog names. As treg runs a command or a shell with HTTPS_PROXY and its CA
+// (`treg run`, `treg shell --proxy`) and as every process of Onyx's sandbox goes through its egress proxy.
 func (l Launcher) Run(ctx context.Context, name string, args []string) error {
+	if name == RunCommand {
+		return l.runCommand(ctx, args)
+	}
+
 	def, ok := Named(name)
 	if !ok {
 		return fmt.Errorf("%s is not a tool Hypomnema provides", name)
 	}
 
-	if l.URL == "" || l.Key == "" || l.ToolsHome == "" {
-		return fmt.Errorf("%s is run through Hypomnema, which did not set it up for this agent "+
-			"(%s, %s and %s are needed)", name, EnvURL, EnvKey, EnvTools)
-	}
-
 	label, rest, err := account(args)
 	if err != nil {
 		return err
+	}
+
+	//nolint:gosec // The pinned tool, installed by this machine's own installer.
+	return l.launch(ctx, def, label, exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), rest...))
+}
+
+// runCommand runs `<integration> [--account label] -- <command> [args...]`. The account flag is read only before
+// the "--", so the command's own arguments are its own.
+func (l Launcher) runCommand(ctx context.Context, args []string) error {
+	usage := fmt.Errorf("%s needs an integration and a command: hypomnema tool %s google [--account work] -- "+
+		"curl https://searchconsole.googleapis.com/webmasters/v3/sites", RunCommand, RunCommand)
+
+	if len(args) == 0 {
+		return usage
+	}
+
+	def, ok := Of(args[0])
+	if !ok {
+		return fmt.Errorf("%s is not an integration Hypomnema runs a command through", args[0])
+	}
+
+	dash := slices.Index(args, "--")
+	if dash < 0 || dash == len(args)-1 {
+		return usage
+	}
+
+	label, rest, err := account(args[1:dash])
+	if err != nil {
+		return err
+	}
+
+	if len(rest) != 0 {
+		return fmt.Errorf("%q comes before \"--\"; only %s may: %w", rest[0], accountFlag, usage)
+	}
+
+	command := args[dash+1:]
+
+	//nolint:gosec // The agent's own command, run as the agent, as any command it runs.
+	return l.launch(ctx, def, label, exec.CommandContext(ctx, command[0], command[1:]...))
+}
+
+// launch runs cmd for an Integration's account: the account named, or the only one the agent was given, through
+// the service proxy, with the tool's placeholder and variables and without the agent's key.
+func (l Launcher) launch(ctx context.Context, def Def, label string, cmd *exec.Cmd) error {
+	name := filepath.Base(cmd.Path)
+
+	if l.URL == "" || l.Key == "" || l.ToolsHome == "" {
+		return fmt.Errorf("%s is run through Hypomnema, which did not set it up for this agent "+
+			"(%s, %s and %s are needed)", name, EnvURL, EnvKey, EnvTools)
 	}
 
 	fetchCtx, cancel := context.WithTimeout(ctx, launchTimeout)
@@ -335,8 +394,6 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 		_, _ = fmt.Fprintln(l.Stderr, line)
 	}
 
-	//nolint:gosec // The pinned tool, installed by this machine's own installer.
-	cmd := exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), rest...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = l.Stdin, l.Stdout, l.Stderr
 	cmd.Env = append(without(os.Environ(), append([]string{EnvKey}, def.Unset...)...), def.Env...)
 

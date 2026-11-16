@@ -241,6 +241,43 @@ func TestTheLauncherRunsAProxiedToolWithAPlaceholderAndABridge(t *testing.T) {
 	assert.Equal(t, 3, exit.Code)
 }
 
+// Scenario (issue #617): a Bot reads Search Console, which gws's own list of services does not know, with curl.
+// `tool run google -- <command>` runs the command it names as gws is run: through the proxy of the Google account
+// it was given, with the placeholder and without the agent's key; the command's own arguments, an --account among
+// them, are passed as they are, and its exit code is the launcher's. Without "--", or for an integration Hypomnema
+// does not run, nothing runs and the agent is told how to call it.
+func TestTheLauncherRunsACommandThroughAnIntegrationsProxy(t *testing.T) {
+	c := newControlPlane(t, Connection{Label: "beyondpilot", Account: "team@example.com"})
+	t.Setenv(fakeTool, "1")
+	t.Setenv(EnvKey, "the-agents-key")
+
+	var out, errs bytes.Buffer
+
+	launcher := c.launcher(t.TempDir(), &out)
+	launcher.Stderr = &errs
+
+	require.NoError(t, launcher.Run(t.Context(), RunCommand,
+		[]string{"google", "--account", "beyondpilot", "--", os.Args[0], "--account", "x"}))
+	assert.Equal(t, "token= key=\"\" args=--account x\nproxy=true ca=true connect=502\n", out.String())
+	assert.Equal(t, []string{"connections google", "certificate", "tunnel google:beyondpilot gmail.googleapis.com:443"},
+		c.calls)
+
+	err := launcher.Run(t.Context(), RunCommand, []string{"google", "--", os.Args[0], "fail"})
+
+	var exit *ExitError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, 3, exit.Code)
+
+	for _, args := range [][]string{
+		nil, {"google"}, {"google", "curl"}, {"google", "--"}, {"google", "curl", "--", "x"}, {"gitlab", "--", "curl"},
+	} {
+		c.calls = nil
+
+		require.Error(t, launcher.Run(t.Context(), RunCommand, args), "%q", args)
+		assert.Empty(t, c.calls, "%q runs nothing", args)
+	}
+}
+
 // Scenario: an agent given two Lark accounts, each an app of its own (issue
 // #311), runs lark-cli as "report". Lark's tool will not run on a token alone:
 // the launcher also gives it the id of that account's app, which the control

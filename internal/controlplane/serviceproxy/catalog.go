@@ -88,6 +88,10 @@ type Catalog struct {
 	Name    func(req *http.Request, body []byte, host string) Action
 	Known   func(id string) (Action, bool)
 	Signed  bool
+	// SlashInSegment are the hosts whose paths carry a URL as one segment, its slashes encoded (%2F): Search
+	// Console's site and sitemap (issue #617). Elsewhere an encoded slash is refused, as one the service could read
+	// as two segments; on these hosts the service reads it as one, and every action that is not a read asks.
+	SlashInSegment []string
 }
 
 // Has reports whether host is one the Integration's actions are on.
@@ -300,7 +304,7 @@ func google() Catalog {
 			routes(search, get, "/$discovery/rest")...),
 	}
 
-	return Catalog{Integration: "google", Actions: []Action{
+	return Catalog{Integration: "google", SlashInSegment: []string{search}, Actions: []Action{
 		discovery,
 		{
 			ID: "gmail.send", Service: "Gmail", Name: "Send mail", Kind: NeedsCare,
