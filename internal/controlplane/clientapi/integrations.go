@@ -6,6 +6,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 )
@@ -305,4 +306,76 @@ func (s *Server) DeleteIntegrationConnection(ctx context.Context, req openapi.De
 	}
 
 	return openapi.DeleteIntegrationConnection200JSONResponse{Revoked: revoked}, nil
+}
+
+// Messaging is what the API asks of the messaging accounts linked as devices (issue #631).
+type Messaging interface {
+	Chats(ctx context.Context, integration, label string, limit int) ([]messaging.Chat, error)
+	Messages(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
+}
+
+// WithMessaging sets the service that reads the messaging accounts' kept chats.
+func (s *Server) WithMessaging(m Messaging) *Server {
+	s.messaging = m
+
+	return s
+}
+
+var errNoMessaging = fmt.Errorf("%w: this control plane keeps no messaging accounts", orchestration.ErrUnavailable)
+
+// ListMessagingChats lists the chats kept of a messaging account, the latest first.
+func (s *Server) ListMessagingChats(ctx context.Context, req openapi.ListMessagingChatsRequestObject,
+) (openapi.ListMessagingChatsResponseObject, error) {
+	if s.messaging == nil {
+		return nil, errNoMessaging
+	}
+
+	chats, err := s.messaging.Chats(ctx, req.Integration, req.Label, val(req.Params.Limit))
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListMessagingChats200JSONResponse{Data: make([]openapi.MessagingChat, 0, len(chats))}
+	for _, c := range chats {
+		out.Data = append(out.Data, openapi.MessagingChat{
+			Id: c.ID, Kind: openapi.MessagingChatKind(c.Kind), Name: c.Name, LastMessageAt: c.LastMessageAt,
+		})
+	}
+
+	return out, nil
+}
+
+// ListMessagingMessages lists the messages kept of a messaging account, the latest first.
+func (s *Server) ListMessagingMessages(ctx context.Context, req openapi.ListMessagingMessagesRequestObject,
+) (openapi.ListMessagingMessagesResponseObject, error) {
+	if s.messaging == nil {
+		return nil, errNoMessaging
+	}
+
+	q := messaging.Query{Chat: val(req.Params.Chat), Search: val(req.Params.Q), Limit: val(req.Params.Limit)}
+	if req.Params.Before != nil {
+		q.Before = *req.Params.Before
+	}
+
+	msgs, err := s.messaging.Messages(ctx, req.Integration, req.Label, q)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListMessagingMessages200JSONResponse{Data: make([]openapi.MessagingMessage, 0, len(msgs))}
+	for _, m := range msgs {
+		msg := openapi.MessagingMessage{
+			Id: m.ID, Chat: m.Chat, ChatName: m.ChatName, Sender: m.Sender, SenderName: m.SenderName, At: m.At,
+			FromMe: m.FromMe, Text: m.Text, QuotedId: opt(m.QuotedID), Caption: opt(m.Caption),
+			FileName: opt(m.FileName), MimeType: opt(m.MimeType), Edited: m.Edited, Revoked: m.Revoked,
+		}
+		if m.MediaType != "" {
+			kind := openapi.MessagingMessageMediaType(m.MediaType)
+			msg.MediaType = &kind
+		}
+
+		out.Data = append(out.Data, msg)
+	}
+
+	return out, nil
 }

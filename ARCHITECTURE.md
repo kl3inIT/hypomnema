@@ -1800,6 +1800,15 @@ flowchart LR
       whatsmeow reconnects a dropped one. A Connection says its session's state (`session`: connecting, connected,
       disconnected, logged out, banned until, replaced, outdated), as MemoryOS's bridge reports them; logged out
       needs a link again. Disconnecting logs the device out, which drops it from the phone.
+    - **Every chat is kept** ([issue #631](https://github.com/kl3inIT/hypomnema/issues/631); owner, 2026-11-16: no
+      allowlist of groups), since a personal account has no server to ask for past messages: each message as it
+      arrives, the owner's own from his other devices included, and the history WhatsApp sends after a link (about
+      three months). Edits replace a message's text, revokes blank it. A person's LID is kept as his number when
+      whatsmeow knows it. The mirror is `wa_chats`, `wa_messages` with `wa_messages_fts` (FTS5) and `wa_groups` in
+      `whatsapp.db`, keyed by the number, so a number linked again keeps its history; disconnecting removes it.
+      The shape and the parsing follow wacli (`internal/store/schema.sql`, `internal/wa/messages.go`, MIT).
+    - `GET /integrations/whatsapp/connections/{label}/chats` and `…/messages` (`chat`, `q` for a search, `before`,
+      `limit`) read the mirror, the latest first, for the owner only. Agents have no tool for it yet.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
@@ -3818,7 +3827,7 @@ internal/controlplane/clientapi  the client API: policies, handlers, events and 
 internal/controlplane/clientcli  the commands that call the client API, and the skills this binary ships (skills/)
 internal/controlplane/integration  the Integrations whose credential the control plane mints: Google (OAuth), Lark (an app), Superset (an account at an address), AWS (roles), WhatsApp (a linked device)
 internal/controlplane/messaging  a messaging account the owner linked as himself: the Service that links and opens one, the Account that is its live session
-internal/controlplane/messaging/whatsapp  WhatsApp on whatsmeow: linking by QR, the sessions in whatsapp.db, their states
+internal/controlplane/messaging/whatsapp  WhatsApp on whatsmeow: linking by QR, the sessions in whatsapp.db, their states, the mirror of every chat
 internal/controlplane/channels  the Channels' runtime every kind shares: the registry of kinds, connecting and retrying, who may talk, groups and mentions, /new and /stop, the reply relay, questions, files, the owner's settings
 internal/controlplane/channels/lark  LarkChannel: Lark's SDK and persistent connection, its events, CardKit cards, emoji marks, mention tags, file types, the app's and a person's ids at Lark
 internal/controlplane/modelgateway  the model gateway: the OpenAI-compatible API, the model table, the adapters, usage per key

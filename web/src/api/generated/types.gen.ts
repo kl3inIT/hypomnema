@@ -1162,6 +1162,51 @@ export type IntegrationConnection = {
   updated_at: string;
 };
 
+export type MessagingChatList = {
+  data: Array<MessagingChat>;
+};
+
+export type MessagingChat = {
+  /**
+   * The service's id of the chat: a WhatsApp JID.
+   */
+  id: string;
+  kind: 'dm' | 'group' | 'broadcast';
+  name: string;
+  last_message_at: string;
+};
+
+export type MessagingMessageList = {
+  data: Array<MessagingMessage>;
+};
+
+export type MessagingMessage = {
+  id: string;
+  chat: string;
+  chat_name: string;
+  /**
+   * The sender's id, his number's JID when known.
+   */
+  sender: string;
+  sender_name: string;
+  at: string;
+  from_me: boolean;
+  text: string;
+  /**
+   * The message it replies to.
+   */
+  quoted_id?: string;
+  media_type?: 'image' | 'video' | 'audio' | 'document' | 'sticker';
+  caption?: string;
+  file_name?: string;
+  mime_type?: string;
+  edited: boolean;
+  /**
+   * Its sender deleted it for everyone; its content is gone.
+   */
+  revoked: boolean;
+};
+
 /**
  * The session of a Connection of kind device, held by the control plane. logged_out needs a link again (sign_in_required is then true); disconnected comes back by itself; banned lasts until `until` when the service said; replaced is another client that opened the same session; outdated needs the control plane updated.
  */
@@ -4919,6 +4964,69 @@ export type SetLarkChannelGroupResponses = {
 };
 
 export type SetLarkChannelGroupResponse = SetLarkChannelGroupResponses[keyof SetLarkChannelGroupResponses];
+
+export type ListMessagingChatsData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: {
+    limit?: number;
+  };
+  url: '/integrations/{integration}/connections/{label}/chats';
+};
+
+export type ListMessagingChatsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMessagingChatsError = ListMessagingChatsErrors[keyof ListMessagingChatsErrors];
+
+export type ListMessagingChatsResponses = {
+  /**
+   * The chats.
+   */
+  200: MessagingChatList;
+};
+
+export type ListMessagingChatsResponse = ListMessagingChatsResponses[keyof ListMessagingChatsResponses];
+
+export type ListMessagingMessagesData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: {
+    chat?: string;
+    q?: string;
+    before?: string;
+    limit?: number;
+  };
+  url: '/integrations/{integration}/connections/{label}/messages';
+};
+
+export type ListMessagingMessagesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMessagingMessagesError = ListMessagingMessagesErrors[keyof ListMessagingMessagesErrors];
+
+export type ListMessagingMessagesResponses = {
+  /**
+   * The messages.
+   */
+  200: MessagingMessageList;
+};
+
+export type ListMessagingMessagesResponse = ListMessagingMessagesResponses[keyof ListMessagingMessagesResponses];
 
 export type CheckIntegrationConnectionData = {
   body?: never;

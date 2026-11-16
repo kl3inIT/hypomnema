@@ -477,7 +477,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
 		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
+		WithIntegrations(integrations).WithMessaging(integrations).
+		WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
 		WithBuiltinSkills(builtinSkills).

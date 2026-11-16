@@ -49,6 +49,56 @@ type Account interface {
 	Logout(ctx context.Context) error
 	// Close disconnects the session and keeps it, to be opened again.
 	Close()
+	// Chats lists the account's chats kept, the latest first (issue #631).
+	Chats(ctx context.Context, limit int) ([]Chat, error)
+	// Messages lists kept messages, the latest first: of one chat, or matching a search, or both.
+	Messages(ctx context.Context, q Query) ([]Message, error)
+}
+
+// Chat is one chat of the account, as kept.
+type Chat struct {
+	// ID is the service's own id of the chat: for WhatsApp its JID.
+	ID string
+	// Kind is dm, group or broadcast.
+	Kind string
+	Name string
+	// LastMessageAt is when its latest kept message was sent.
+	LastMessageAt time.Time
+}
+
+// Message is one message as kept. Every chat's messages are kept as they arrive, with the history the service
+// sends after a link: a personal account has no server to ask for past ones (owner, 2026-11-16, #631).
+type Message struct {
+	ID       string
+	Chat     string
+	ChatName string
+	// Sender is the person's id, his number's JID when known; SenderName his name as last seen.
+	Sender     string
+	SenderName string
+	At         time.Time
+	FromMe     bool
+	Text       string
+	// QuotedID is the message it replies to.
+	QuotedID string
+	// MediaType is image, video, audio, document or sticker; Caption, FileName and MimeType describe it.
+	MediaType string
+	Caption   string
+	FileName  string
+	MimeType  string
+	Edited    bool
+	Revoked   bool
+}
+
+// Query is which kept messages to list.
+type Query struct {
+	// Chat keeps one chat's messages; empty is every chat.
+	Chat string
+	// Search keeps the messages whose text, caption, file name, chat or sender has these words.
+	Search string
+	// Before keeps the messages sent before it, to page back; zero is now.
+	Before time.Time
+	// Limit is how many at most; zero is the service's default.
+	Limit int
 }
 
 // Status is where a session is.
