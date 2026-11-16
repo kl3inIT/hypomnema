@@ -193,7 +193,7 @@ sequenceDiagram
     participant W as Worker
     participant G as Git host
     C->>CP: create a Run (repository, base branch), then Tasks with dependencies
-    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the least loaded node with the runtime and a worktree root,<br/>an account or a gateway model, at most 4 Dispatches unsettled
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the least loaded node with the runtime, a worktree root and room under its own limit,<br/>an account or a gateway model, while its Bot runs fewer workers than its limit (4 by default)
     CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
     N->>CP: accept (new epoch, 90 s lease)
     N->>N: fetch the skills, add the Task's worktree, start the shim
@@ -871,6 +871,11 @@ sequenceDiagram
     calls in chats", saved on change), in `PUT /bots/{name}` `tool_display` (left out, kept) and `hypomnema bots
     set --tool-display off|on|full`; a change from the coordinator's chat is undone with the rest of the Bot's
     settings.
+  - How many of a Bot's workers run at once (issue #660, migration 00099): `bots.max_dispatches`, 1 to 64, NULL for
+    the default 4 (the scheduler, above). It is set on the Bot's page ("Workers at once", saved with its button), in
+    `PUT /bots/{name}` `max_dispatches` (left out, kept; the Bot's answer has the number in force) and `hypomnema
+    bots set --max-dispatches N`; a change from the coordinator's chat is undone with the rest of the Bot's
+    settings.
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
     `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
     the owner replaces a whole memory.
@@ -1396,15 +1401,37 @@ flowchart LR
   nothing enforces it. `deploy/profiles/` holds samples for profiles on Codex, whose model is a gateway model
   named by the deployment.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
-  commit signal. At most 4 Dispatches that have not settled exist at once, one waiting on a question included; the
-  coordinator's `CreateDispatch` meets the same limit and checks. Ready Tasks of open Runs go oldest Run first, then
-  by position; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
+  commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
+  desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
+  a question included, a gated one not:
+  - a Bot's (migration 00099, `bots.max_dispatches`, `BotDispatchesDefault` 4 when unset; from OpenMausBot's
+    `threads.maxConcurrentPerBot`, `server/bot-thread-limits.ts`, the 4 the owner's, 2026-11-16): the Dispatches of
+    the Runs it made, the Bot found as `runBotGives` finds it (the Run's `bot_id`, else, for a Run a coordinator made
+    in a chat, that chat's Bot). The owner's Runs without a Bot count together as one more group with the default
+    (inference: no reference has that case);
+  - a node's own `max_dispatches` (from Coder's provisioner daemons per machine, `provisionerd/provisionerd.go`: any
+    machine with room takes the next job). The owner changes it after the node was added: `PATCH /nodes/{node_id}`
+    `max_dispatches` (1 to 64), `hypomnema nodes set <node> --max N`, and Change limit in a machine's menu on the
+    Machines page; the next pass places by it, and Dispatches running over a lower number go on.
+
+  The coordinator's `CreateDispatch` meets both and checks. Ready Tasks of open Runs go oldest Run first, then
+  by position, and the pass goes through every one of them; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
   records the model, the effort and that version; its worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node, once that node is active, connected, not
   unavailable and below its limit; a new one goes to the least loaded such node that has the runtime and a worktree
   root, ties by id, with the first active account of the runtime that is not cooling down (none for a model the
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
+  Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00099; from OpenMausBot's
+  queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
+  written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
+  cleared when its Dispatch is made: `bot_at_limit:<bot id>` (nothing after the colon for the owner's Runs),
+  `nodes_full` (a node could run it but every such node is at its limit), `accounts_cooling`, `no_node`,
+  `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first three resolve by
+  themselves and are never escalated. The API's Task has it as `waiting_reason` while the Task is ready;
+  `hypomnema tasks show` and `runs show` print it as a sentence, and the web says it under a queued Task in a
+  chat's docked Run and on the Task's panel ("Waiting: vmap already runs 4 of 4 workers", "Waiting: every machine
+  that can run it is busy").
   A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
@@ -3057,6 +3084,8 @@ The owner's commands:
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
   - `nodes rename <node> <new name>` gives a node another name (`PATCH /nodes/{node_id}`, owner only): its id, its
     tokens and what it runs stay, and the name of another node that is not removed is refused;
+  - `nodes set <node> --max N` changes how many Dispatches the node runs at once (`PATCH /nodes/{node_id}`
+    `max_dispatches`, owner only; issue #660);
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
   - `machines providers add <name> --kind aws --key vault:<secret>|aws:<role> --region R --size S [--max N]
