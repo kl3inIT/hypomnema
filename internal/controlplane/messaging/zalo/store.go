@@ -139,7 +139,8 @@ func (m *mirror) keep(ctx context.Context, k kept) error {
 	}
 	defer tx.Rollback() //nolint:errcheck // Rolling back after a commit does nothing.
 
-	ts := k.at.Unix()
+	// Milliseconds, as Zalo stamps its messages, so that paging by Before misses none sent in the same second.
+	ts := k.at.UnixMilli()
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO zl_messages (account, chat_id, chat_name, msg_id, cli_msg_id,
 		sender_id, sender_name, ts, from_me, kind, text, quoted_msg_id, attachment_url, attachment_title)
@@ -172,6 +173,12 @@ func (m *mirror) nameChat(ctx context.Context, account, id, kind, name string) e
 
 	_, err := m.db.ExecContext(ctx, `INSERT INTO zl_chats (account, id, kind, name) VALUES (?, ?, ?, ?)
 		ON CONFLICT (account, id) DO UPDATE SET name = excluded.name`, account, id, kind, name)
+	if err == nil {
+		// Messages kept before the name was known are found by it too (the search indexes chat_name).
+		_, err = m.db.ExecContext(ctx, `UPDATE zl_messages SET chat_name = ? WHERE account = ? AND chat_id = ? AND
+			chat_name <> ?`, name, account, id, name)
+	}
+
 	if err != nil {
 		return fmt.Errorf("zalo: keeping the name of chat %s: %w", id, err)
 	}
@@ -221,7 +228,7 @@ func (m *mirror) chats(ctx context.Context, account string, limit int) ([]messag
 			return nil, err
 		}
 
-		c.LastMessageAt = time.Unix(ts, 0).UTC()
+		c.LastMessageAt = time.UnixMilli(ts).UTC()
 		out = append(out, c)
 	}
 
@@ -249,7 +256,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 
 	if !q.Before.IsZero() {
 		where = append(where, "m.ts < ?")
-		args = append(args, q.Before.Unix())
+		args = append(args, q.Before.UnixMilli())
 	}
 
 	if phrase := ftsPhrase(q.Search); phrase != "" {
@@ -282,7 +289,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 			return nil, err
 		}
 
-		msg.At = time.Unix(ts, 0).UTC()
+		msg.At = time.UnixMilli(ts).UTC()
 		out = append(out, msg)
 	}
 

@@ -1893,8 +1893,11 @@ flowchart LR
       (private), keyed by the owner's Zalo id, which is the Connection's account; cookies Zalo renews are kept
       again.
     - **The session**: opened with the kept session as the control plane starts; a bridge that ends is started
-      again after 5 s, doubling up to 5 min. Another Zalo Web taking the session (close code 3000 or 3003) is
-      `replaced` and not taken back. Disconnecting forgets the session and what is kept; the owner removes the
+      again after 5 s, doubling up to 5 min; a listener that stopped retrying ends its bridge, to be started again.
+      The listener starts only once the control plane reads the bridge's events, so no message is lost to the
+      hand-over. A session Zalo refuses (zca-js's "Đăng nhập thất bại") is `logged_out` and needs a link. Another
+      Zalo Web taking the session (close code 3000 or 3003) is `replaced` and not taken back. Messages are stamped
+      in milliseconds. Disconnecting forgets the session and what is kept; the owner removes the
       login from his phone (Zalo has no call for it).
     - **Every chat is kept** as it arrives, as WhatsApp's: `zl_chats` and `zl_messages` with a full-text search in
       `zalo.db`, groups named from Zalo's list of groups, a direct chat after the person in it, read through the

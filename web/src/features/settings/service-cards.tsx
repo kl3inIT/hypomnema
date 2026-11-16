@@ -1070,7 +1070,8 @@ function LinkDeviceDialog({
             {started
               ? (scanHow[service.id] ??
                 `On your phone, open ${service.name} › Linked devices › Link a device, and scan this code.`)
-              : `Your phone links Hypomnema as one of its devices, as ${service.name} Web is. The main Bot can then read and write in your chats as you. ${service.name} forbids clients it did not make, so a number can be banned; Hypomnema never sends in bulk.`}
+              : (introHow[service.id] ??
+                `Your phone links Hypomnema as one of its devices, as ${service.name} Web is. The main Bot can then read and write in your chats as you. ${service.name} forbids clients it did not make, so a number can be banned; Hypomnema never sends in bulk.`)}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -1143,6 +1144,12 @@ function LinkDeviceDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+// introHow says what linking gives, for a service whose Bot tools are not there yet: Zalo keeps the chats first and
+// gets the Bot's tools in a later step (issue #613).
+const introHow: Record<string, string> = {
+  zalo: "Your phone logs Hypomnema in, as Zalo Web is, and every chat is kept from then on. The main Bot reads and writes in them in a later step. Zalo forbids clients it did not make, so an account can be locked; Hypomnema never sends in bulk.",
 }
 
 // forgetHow says what disconnecting does, for a service whose phone cannot be told to drop the login: Zalo has no

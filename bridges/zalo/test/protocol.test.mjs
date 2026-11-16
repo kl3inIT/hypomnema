@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { closed, message, parseRequest } from "../src/protocol.mjs";
+import { closed, failure, message, parseRequest, rejected } from "../src/protocol.mjs";
 
 test("a line that is no request is said so, and a request keeps its id", () => {
   assert.equal(parseRequest("{").error, "not JSON");
   assert.equal(parseRequest('{"method":"groups"}').error, "a request is {id, method, params}");
   assert.deepEqual(parseRequest('{"id":7,"method":"groups"}').request, { id: 7, method: "groups", params: {} });
+});
+
+test("a login Zalo refuses is answered with the code rejected; a network failure is not", () => {
+  assert.deepEqual(JSON.parse(failure(3, rejected(new Error("Đăng nhập thất bại")))),
+    { id: 3, error: "Đăng nhập thất bại", code: "rejected" });
+  assert.deepEqual(JSON.parse(failure(4, rejected(new Error("fetch failed")))), { id: 4, error: "fetch failed" });
 });
 
 test("a socket another Zalo Web took over is told as replaced; another close as lost", () => {

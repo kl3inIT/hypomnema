@@ -49,12 +49,21 @@ func TestFakeBridge(t *testing.T) {
 		case "loginQR":
 			emit("qr", map[string]any{"image": "iVBORw0KGgo", "code": "c1"})
 			emit("scanned", map[string]any{"name": "Owner"})
-			emit("credentials", map[string]any{"imei": "i1", "cookie": []any{}, "userAgent": "ua"})
-			write(map[string]any{"id": req.ID, "result": map[string]any{"uid": "100", "name": "Owner"}})
+			write(map[string]any{"id": req.ID, "result": map[string]any{
+				"uid": "100", "name": "Owner", "credentials": map[string]any{"imei": "i1", "cookie": []any{}, "userAgent": "ua"},
+			}})
 		case "login":
+			if script == "rejected" {
+				write(map[string]any{"id": req.ID, "error": "Đăng nhập thất bại", "code": "rejected"})
+
+				continue
+			}
+
 			write(map[string]any{"id": req.ID, "result": map[string]any{"uid": "100", "name": "Owner"}})
 		case "groups":
 			write(map[string]any{"id": req.ID, "result": []any{map[string]any{"id": "g1", "name": "Báo giá"}}})
+		case "listen":
+			write(map[string]any{"id": req.ID, "result": map[string]any{}})
 			emit("message", map[string]any{
 				"id": "m1", "chat": "g1", "group": true, "from": "200", "fromName": "Lan", "at": 1_700_000_000_000,
 				"text": "Gửi báo giá giúp em",
@@ -166,6 +175,39 @@ func TestAnAccountOpenedAgainLogsInAndStaysOutWhenReplaced(t *testing.T) {
 
 	eventually(t, "the session replaced", func() bool { return acc.State().Status == messaging.StatusReplaced })
 	assert.Equal(t, "duplicate", acc.State().Reason)
+}
+
+// A session Zalo refuses (its cookies no longer taken) needs a link, and is not tried again.
+func TestASessionZaloRefusesNeedsALink(t *testing.T) {
+	svc := fakeService(t, "rejected")
+	require.NoError(t, svc.mirror.saveSession(t.Context(), "100", "Owner", []byte(`{"imei":"i1"}`)))
+
+	acc, err := svc.Open(t.Context(), "100")
+	require.NoError(t, err)
+	t.Cleanup(acc.Close)
+
+	eventually(t, "the session logged out", func() bool { return acc.State().NeedsLink() })
+}
+
+// A message kept before its group's name was known is found by the name once it is; paging by Before keeps a
+// message sent earlier in the same second, as Zalo stamps milliseconds.
+func TestTheMirrorFindsByALateNameAndPagesByMilliseconds(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	at := time.UnixMilli(1_700_000_000_750)
+
+	require.NoError(t, svc.mirror.keep(ctx, kept{account: "100", chat: "g1", chatKind: "group", id: "m1", at: at,
+		text: "hello"}))
+	require.NoError(t, svc.mirror.nameChat(ctx, "100", "g1", "group", "Kế toán"))
+
+	found, err := svc.mirror.messages(ctx, "100", messaging.Query{Search: "kế toán"})
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+
+	found, err = svc.mirror.messages(ctx, "100", messaging.Query{Before: at.Add(150 * time.Millisecond)})
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Equal(t, at.UTC(), found[0].At)
 }
 
 func TestAnAccountWhoseSessionIsNotKeptOpensLoggedOut(t *testing.T) {

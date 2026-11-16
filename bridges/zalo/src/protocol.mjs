@@ -20,8 +20,25 @@ export function parseRequest(line) {
 }
 
 export const answer = (id, result) => JSON.stringify({ id, result });
-export const failure = (id, error) => JSON.stringify({ id, error: String(error?.message ?? error) });
+export const failure = (id, error) =>
+  JSON.stringify({ id, error: String(error?.message ?? error), ...(error?.code ? { code: error.code } : {}) });
 export const event = (name, data) => JSON.stringify({ event: name, data: data ?? null });
+
+// zca-js's words when Zalo answers a login without the account's info, as for cookies it no longer takes
+// (src/zalo.ts, loginCookie); a network failure says something else.
+const REFUSED = "Đăng nhập thất bại";
+
+// rejected marks a login error as Zalo refusing the session (code "rejected"), which no retry mends.
+export function rejected(err) {
+  if (String(err?.message ?? err).includes(REFUSED)) {
+    const out = new Error(String(err.message));
+    out.code = "rejected";
+
+    return out;
+  }
+
+  return err;
+}
 
 // The close codes Zalo ends a listener with when another session took the account
 // (zca-js src/apis/listen.ts: DuplicateConnection, KickConnection).

@@ -118,8 +118,16 @@ func (s *Service) Link(ctx context.Context) (<-chan messaging.LinkStep, error) {
 	return steps, nil
 }
 
+// linked is what loginQR answers: the account, and the session Zalo gave it in the same answer, so that the two
+// cannot arrive apart.
+type linked struct {
+	whoAmI
+
+	Credentials json.RawMessage `json:"credentials"`
+}
+
 type loggedIn struct {
-	who whoAmI
+	who linked
 	err error
 }
 
@@ -129,7 +137,7 @@ func (s *Service) follow(ctx context.Context, b *bridge, steps chan<- messaging.
 	done := make(chan loggedIn, 1)
 
 	go func() {
-		var who whoAmI
+		var who linked
 
 		err := b.call(ctx, "loginQR", map[string]any{}, &who)
 		done <- loggedIn{who: who, err: err}
@@ -144,8 +152,6 @@ func (s *Service) follow(ctx context.Context, b *bridge, steps chan<- messaging.
 		}
 	}
 
-	var credentials json.RawMessage
-
 	for {
 		select {
 		case e, ok := <-b.events:
@@ -155,8 +161,7 @@ func (s *Service) follow(ctx context.Context, b *bridge, steps chan<- messaging.
 				return
 			}
 
-			switch e.Name {
-			case "qr":
+			if e.Name == "qr" {
 				var qr struct {
 					Image string `json:"image"`
 				}
@@ -167,11 +172,9 @@ func (s *Service) follow(ctx context.Context, b *bridge, steps chan<- messaging.
 
 					return
 				}
-			case "credentials":
-				credentials = e.Data
 			}
 		case r := <-done:
-			if r.err != nil || len(credentials) == 0 {
+			if r.err != nil || len(r.who.Credentials) == 0 {
 				b.stop()
 
 				if r.err == nil {
@@ -183,7 +186,8 @@ func (s *Service) follow(ctx context.Context, b *bridge, steps chan<- messaging.
 				return
 			}
 
-			if err := s.mirror.saveSession(context.WithoutCancel(ctx), r.who.UID, r.who.Name, credentials); err != nil {
+			if err := s.mirror.saveSession(context.WithoutCancel(ctx), r.who.UID, r.who.Name,
+				r.who.Credentials); err != nil {
 				b.stop()
 				send(messaging.LinkStep{Err: err})
 
@@ -192,7 +196,7 @@ func (s *Service) follow(ctx context.Context, b *bridge, steps chan<- messaging.
 
 			// The session lives until the account is closed, whatever the linking's end.
 			life, cancel := context.WithCancel(context.WithoutCancel(ctx))
-			acc := s.newAccount(cancel, r.who, credentials)
+			acc := s.newAccount(cancel, r.who.whoAmI, r.who.Credentials)
 			acc.attach(life, b)
 
 			if !send(messaging.LinkStep{Account: acc}) {
@@ -331,7 +335,13 @@ func (a *account) login(ctx context.Context, b *bridge) error {
 	var who whoAmI
 	if err := b.call(ctx, "login", map[string]any{"credentials": credentials}, &who); err != nil {
 		b.stop()
-		a.setState(messaging.State{Status: messaging.StatusDisconnected, Reason: err.Error()})
+
+		// A session Zalo refused needs a link; the owner is told so, and it is not tried again.
+		if errors.Is(err, errRejected) {
+			a.setState(messaging.State{Status: messaging.StatusLoggedOut, Reason: err.Error()})
+		} else {
+			a.setState(messaging.State{Status: messaging.StatusDisconnected, Reason: err.Error()})
+		}
 
 		return err
 	}
@@ -348,8 +358,10 @@ func (a *account) login(ctx context.Context, b *bridge) error {
 	return nil
 }
 
-// follow reads a logged-in bridge's events until it ends.
+// follow reads a logged-in bridge's events until it ends. The listener starts once they are read, so that no
+// message comes before (bridge.mjs, listen); a closed listener ends the bridge, which run starts again.
 func (a *account) follow(ctx context.Context, b *bridge) {
+	go a.listen(ctx, b)
 	go a.nameGroups(ctx, b)
 
 	for e := range b.events {
@@ -391,6 +403,16 @@ func (a *account) follow(ctx context.Context, b *bridge) {
 		a.state = messaging.State{Status: messaging.StatusDisconnected, Reason: "the bridge ended"}
 	}
 	a.mu.Unlock()
+}
+
+func (a *account) listen(ctx context.Context, b *bridge) {
+	ctx, cancel := context.WithTimeout(ctx, loginWait)
+	defer cancel()
+
+	if err := b.call(ctx, "listen", map[string]any{}, nil); err != nil {
+		a.svc.log.WarnContext(ctx, "zalo: the listener could not start", slog.String("error", err.Error()))
+		b.stop()
+	}
 }
 
 // renew keeps the cookies Zalo renewed, so that the next start logs in with them.

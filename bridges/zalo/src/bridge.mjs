@@ -4,18 +4,20 @@
 // (zca-js src/zalo.ts, Credentials), which the control plane keeps: the bridge keeps nothing on disk.
 //
 // Methods:
-//   loginQR {}            QR events until the phone confirms, then a `credentials` event; answers {uid, name}
-//   login {credentials}   a session kept before; answers {uid, name}
+//   loginQR {}            QR events until the phone confirms; answers {uid, name, credentials}
+//   login {credentials}   a session kept before; answers {uid, name}, or the code "rejected" when Zalo refuses it
+//   listen {}             starts the listener, once the control plane follows the events: no message comes before
 //   groups {}             every group the account is in: [{id, name}]
 //   stop {}               ends the listener and the process
 // Events: qr {image, code}, scanned {name}, declined, expired, credentials {imei, cookie, userAgent},
-//   connected, message {...}, closed {code, reason, replaced}, error {message}.
+//   connected, message {...}, closed {code, reason, replaced}, error {message}. A closed listener has stopped
+//   retrying (zca-js src/apis/listen.ts): the bridge ends after it, for the control plane to start it again.
 
 import { createInterface } from "node:readline";
 
 import { LoginQRCallbackEventType, Zalo } from "zca-js";
 
-import { answer, closed, event, failure, message, parseRequest } from "./protocol.mjs";
+import { answer, closed, event, failure, message, parseRequest, rejected } from "./protocol.mjs";
 
 // The listener reconnects a socket Zalo closed (zlog's zalo-client.ts starts it so); a session another Zalo Web took
 // over is told as replaced and not fought for (zca-js README: one web listener an account).
@@ -56,13 +58,19 @@ function listen() {
     emit("credentials", credentials());
   });
   api.listener.on("message", (m) => emit("message", message(m)));
-  api.listener.on("closed", (code, reason) => emit("closed", closed(code, reason)));
+  api.listener.on("closed", (code, reason) => {
+    // Written, then the process ends: stdout is flushed before exit.
+    process.stdout.write(event("closed", closed(code, reason)) + "\n", () => process.exit(0));
+  });
   api.listener.on("error", (err) => emit("error", { message: String(err?.message ?? err) }));
   api.listener.start({ retryOnClose: true });
+
+  return {};
 }
 
 async function loginQR() {
   let shown = 0;
+  let session = null;
 
   api = await zalo.loginQR({}, (e) => {
     switch (e.type) {
@@ -83,21 +91,22 @@ async function loginQR() {
         e.actions.abort();
         break;
       case LoginQRCallbackEventType.GotLoginInfo:
-        emit("credentials", e.data);
+        session = e.data;
         break;
     }
   });
 
   if (!api) throw new Error("the link ended before the phone confirmed");
 
-  listen();
-
-  return whoAmI();
+  return { ...(await whoAmI()), credentials: session ?? credentials() };
 }
 
 async function login(params) {
-  api = await zalo.login(params.credentials);
-  listen();
+  try {
+    api = await zalo.login(params.credentials);
+  } catch (err) {
+    throw rejected(err);
+  }
 
   return whoAmI();
 }
@@ -125,7 +134,7 @@ function stop() {
   return {};
 }
 
-const methods = { loginQR, login, groups, stop };
+const methods = { loginQR, login, listen, groups, stop };
 
 const lines = createInterface({ input: process.stdin });
 
