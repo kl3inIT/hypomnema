@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PageHeader, PageHeading } from "@/components/page-header"
 import { since } from "@/lib/time"
@@ -231,8 +232,14 @@ function NotReady({ node, note }: { node: Node; note: string }) {
       )}
       {state === "stopped" && (
         <div className="flex items-center gap-2 pt-1">
-          <Button size="sm" disabled={power.isPending} onClick={() => power.mutate(true)}>
-            {power.isPending ? "Starting…" : "Start"}
+          <Button
+            size="sm"
+            focusableWhenDisabled={power.isPending}
+            disabled={power.isPending}
+            onClick={() => power.mutate(true)}
+          >
+            {power.isPending && <Spinner data-icon="inline-start" />}
+            Start
           </Button>
           {power.error && (
             <span role="alert" className="min-w-0 truncate text-xs text-destructive">

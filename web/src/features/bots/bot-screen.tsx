@@ -7,6 +7,7 @@ import { getBotQueryKey, listBotsQueryKey } from "@/api/generated/@tanstack/reac
 import type { Bot, Model } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -141,9 +142,11 @@ function Rename({ bot }: { bot: Bot }) {
           <Button
             type="submit"
             variant="outline"
+            focusableWhenDisabled={rename.isPending}
             disabled={!changed || wrong !== null || rename.isPending}
           >
-            {rename.isPending ? "Renaming…" : "Rename"}
+            {rename.isPending && <Spinner data-icon="inline-start" />}
+            Rename
           </Button>
         </div>
         <FieldDescription>
@@ -292,14 +295,13 @@ function BotForm({
             Discard changes
           </Button>
         )}
-        <Button type="submit" disabled={put.isPending || !dirty || wrong !== null}>
-          {stored
-            ? put.isPending
-              ? "Saving…"
-              : "Save"
-            : put.isPending
-              ? "Creating…"
-              : "Create Bot"}
+        <Button
+          type="submit"
+          focusableWhenDisabled={put.isPending}
+          disabled={put.isPending || !dirty || wrong !== null}
+        >
+          {put.isPending && <Spinner data-icon="inline-start" />}
+          {stored ? "Save" : "Create Bot"}
         </Button>
       </div>
     </form>

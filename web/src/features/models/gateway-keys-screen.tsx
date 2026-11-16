@@ -573,7 +573,12 @@ function CreateKey() {
             <ErrorAlert error={create.error} />
             <DialogFooter>
               <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-              <Button type="submit" form={formId} disabled={create.isPending}>
+              <Button
+                type="submit"
+                form={formId}
+                focusableWhenDisabled={create.isPending}
+                disabled={create.isPending}
+              >
                 {create.isPending && <Spinner data-icon="inline-start" />}
                 Create key
               </Button>

@@ -652,7 +652,12 @@ function AddPersonDialog({ channel, trigger }: { channel: string; trigger: React
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={add.isPending}>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={add.isPending}
+            disabled={add.isPending}
+          >
             {add.isPending && <Spinner data-icon="inline-start" />}
             Add
           </Button>
@@ -839,7 +844,12 @@ function SetUpDialog({
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={save.isPending}>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={save.isPending}
+            disabled={save.isPending}
+          >
             {save.isPending && <Spinner data-icon="inline-start" />}
             Save
           </Button>

@@ -20,6 +20,7 @@ import { removeNodeMutation, updateNodeMutation } from "@/api/generated/@tanstac
 import { drainNode, resumeNode } from "@/api/generated/sdk.gen"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 
 import { errorText } from "@/lib/server-error"
 import { machineState, noTerminal } from "./machines-state"
@@ -186,10 +187,12 @@ export function RemoveMachine({
             <AlertDialog.Close render={<Button variant="outline" />}>Cancel</AlertDialog.Close>
             <Button
               variant="destructive"
+              focusableWhenDisabled={remove.isPending}
               disabled={remove.isPending}
               onClick={() => remove.mutate({ path: { node_id: node.id } })}
             >
-              {remove.isPending ? "Removing…" : "Remove"}
+              {remove.isPending && <Spinner data-icon="inline-start" />}
+              Remove
             </Button>
           </div>
         </AlertDialog.Popup>
@@ -248,8 +251,13 @@ function RenameMachine({ node, onClose }: { node: Node; onClose: () => void }) {
             )}
             <div className="flex justify-end gap-2">
               <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-              <Button type="submit" disabled={rename.isPending || unchanged}>
-                {rename.isPending ? "Renaming…" : "Rename"}
+              <Button
+                type="submit"
+                focusableWhenDisabled={rename.isPending}
+                disabled={rename.isPending || unchanged}
+              >
+                {rename.isPending && <Spinner data-icon="inline-start" />}
+                Rename
               </Button>
             </div>
           </form>

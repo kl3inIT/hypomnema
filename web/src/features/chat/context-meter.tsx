@@ -4,6 +4,7 @@ import "@/api/client"
 import { compactChat } from "@/api/generated/sdk.gen"
 import type { ChatContextUsage } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import {
   Popover,
   PopoverContent,
@@ -84,11 +85,13 @@ export function ContextMeter({
           type="button"
           variant="outline"
           size="sm"
+          focusableWhenDisabled={compact.isPending}
           disabled={working || compact.isPending}
           title={working ? "pi is working; compact when it is done" : undefined}
           onClick={() => compact.mutate()}
         >
-          {compact.isPending ? "Compacting…" : "Compact"}
+          {compact.isPending && <Spinner data-icon="inline-start" />}
+          Compact
         </Button>
         {compact.error && (
           <p role="alert" className="text-xs text-destructive">

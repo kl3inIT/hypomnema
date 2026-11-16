@@ -230,7 +230,12 @@ function AddRepo() {
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={add.isPending}>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={add.isPending}
+            disabled={add.isPending}
+          >
             {add.isPending && <Spinner data-icon="inline-start" />}
             Add
           </Button>

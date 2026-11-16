@@ -335,6 +335,7 @@ function AccountRow({
             size="icon-xs"
             aria-label={`Move ${account.label} up`}
             title="Try this account earlier"
+            focusableWhenDisabled={move.isPending}
             disabled={order === 1 || move.isPending}
             onClick={() => move.mutate("up")}
           >
@@ -345,6 +346,7 @@ function AccountRow({
             size="icon-xs"
             aria-label={`Move ${account.label} down`}
             title="Try this account later"
+            focusableWhenDisabled={move.isPending}
             disabled={last || move.isPending}
             onClick={() => move.mutate("down")}
           >
@@ -449,6 +451,7 @@ function LimitBars({ account }: { account: Account }) {
       size="icon-xs"
       aria-label={`Read the limits of ${account.label} again`}
       title="Read the limits again"
+      focusableWhenDisabled={refresh.isPending}
       disabled={refresh.isPending}
       onClick={() => refresh.mutate()}
     >
