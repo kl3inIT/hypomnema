@@ -49,7 +49,7 @@ func (s *Server) gitSSHKeyFor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, overSSH, err := s.store.SSHURLOfDispatch(r.Context(), a.dispatchID)
+	hostKeys, overSSH, err := s.store.SSHOfDispatch(r.Context(), a.dispatchID)
 	if err != nil {
 		s.fail(w, r, err)
 
@@ -74,5 +74,5 @@ func (s *Server) gitSSHKeyFor(w http.ResponseWriter, r *http.Request) {
 		slog.String("event", "agentapi.git_ssh_key"), slog.String("agent", a.name))
 
 	w.Header().Set("Cache-Control", "no-store")
-	answer(w, agenttool.GitSSHKey{PrivateKey: private, PublicKey: public})
+	answer(w, agenttool.GitSSHKey{PrivateKey: private, PublicKey: public, HostKeys: hostKeys})
 }

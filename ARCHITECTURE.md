@@ -1989,6 +1989,10 @@ flowchart LR
     `repos.ssh_url`; issue [#625](https://github.com/kl3inIT/hypomnema/issues/625)): its node then clones and
     fetches it over SSH, for a host whose HTTPS cuts a large pack (a company GitLab behind Cloudflare). HTTPS with
     the token stays the default.
+    - The address goes with the SSH host's keys (`--ssh-host-key-file`, what `ssh-keyscan -p <port> <host>` prints;
+      `ssh_host_key`, `repos.ssh_host_key`, kept as `<type> <base64>` lines). An address without them is refused:
+      a host is never trusted on first use, so a first connection cannot be intercepted and handed the key. The CLI
+      prints each key's SHA256 fingerprint for the owner to check against the host's own.
     - The control plane has one SSH key pair for git, an ed25519 key made on first use and kept in the vault as
       the secret `git-ssh-key` (`internal/controlplane/gitsshkey.go`), as Coder makes a user's key
       (`coderd/gitsshkey`). The owner reads its public half with `hypomnema git ssh-key`, `GET /git/ssh-key` or the
@@ -1997,10 +2001,11 @@ flowchart LR
     - The offer carries the address (`repo_ssh_url`), never the key. The node sets `GIT_SSH_COMMAND` to its own
       `hypomnema-node gitssh` (`internal/node/gitssh`), with `GIT_SSH_VARIANT=ssh` and the agent API's address
       and the Dispatch's key, for the mirror's clone and fetch and for the worker's push. On each git call the
-      helper asks `GET /agent/v1/git/ssh-key`, writes the private key to a 0600 temporary file, runs
-      `ssh -i <file> -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new` with the node's own
-      `<home>/ssh/known_hosts`, and removes the file, as Coder's `coder gitssh` fetches its key per use. On ssh's
-      own failure (255) it prints the public key the host must have.
+      helper asks `GET /agent/v1/git/ssh-key`, which answers the private key and the repository's host keys,
+      writes each to a 0600 temporary file, runs `ssh -i <file> -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+      -o HostKeyAlias=hypomnema-git-host -o UserKnownHostsFile=<file>` (no global known_hosts), and removes both
+      files, as Coder's `coder gitssh` fetches its key per use. Without host keys it runs no ssh. On ssh's own
+      failure (255) it prints the public key the host must have.
     - The agent API gives the key only to a worker whose Run's repository is registered with an SSH address;
       every other agent (a coordinator, a Bot's pi, a Routine's script, the owner's token) is refused. The worker
       itself can ask for it, as it can read the host's token.
@@ -3029,8 +3034,8 @@ The owner's commands:
     registered under a name; every token reads them, only the owner's changes them.
     `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
     set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
-    URL (`--name`, `--base`, `--connection`, `--ssh-url`); `repos set <name>` changes the flags it is given and
-    keeps the rest (an empty `--ssh-url` clones over HTTPS again). `git ssh-key` prints the public key nodes clone
+    URL (`--name`, `--base`, `--connection`, `--ssh-url` with `--ssh-host-key-file`); `repos set <name>` changes the
+    flags it is given and keeps the rest (an empty `--ssh-url` clones over HTTPS again). `git ssh-key` prints the public key nodes clone
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).

@@ -18,11 +18,11 @@ SELECT count(*) FROM runs WHERE status = 'open' AND repo IS NOT NULL AND repo_ho
 SELECT count(*) FROM repos WHERE host = @host;
 
 -- name: UpsertRepo :exec
-INSERT INTO repos (name, host, path, base, connection, ssh_url, created_at)
-VALUES (@name, @host, @path, @base, @connection, @ssh_url, @now)
+INSERT INTO repos (name, host, path, base, connection, ssh_url, ssh_host_key, created_at)
+VALUES (@name, @host, @path, @base, @connection, @ssh_url, @ssh_host_key, @now)
 ON CONFLICT (name) DO UPDATE
 SET host = excluded.host, path = excluded.path, base = excluded.base, connection = excluded.connection,
-    ssh_url = excluded.ssh_url;
+    ssh_url = excluded.ssh_url, ssh_host_key = excluded.ssh_host_key;
 
 -- name: GetRepo :one
 SELECT * FROM repos WHERE name = @name;
@@ -117,9 +117,10 @@ WHERE host = @host AND path = @path AND connection IS NOT NULL ORDER BY name LIM
 SELECT ssh_url FROM repos
 WHERE host = @host AND path = @path AND ssh_url IS NOT NULL ORDER BY name LIMIT 1;
 
--- name: SSHURLOfDispatch :one
--- The SSH address of the repository a Dispatch's Run works on, when it is registered with one (issue #625).
-SELECT repos.ssh_url FROM dispatches
+-- name: SSHOfDispatch :one
+-- The SSH address and host keys of the repository a Dispatch's Run works on, when it is registered with an
+-- address (issue #625).
+SELECT repos.ssh_url, repos.ssh_host_key FROM dispatches
 JOIN tasks ON tasks.id = dispatches.task_id
 JOIN runs ON runs.id = tasks.run_id
 JOIN repos ON repos.host = runs.repo_host AND repos.path = runs.repo

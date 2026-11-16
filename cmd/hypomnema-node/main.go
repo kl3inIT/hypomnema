@@ -17,7 +17,7 @@
 //	                        run one worker (started by the daemon)
 //	hypomnema-node mcp --dir DIR
 //	                        the worker's ask and finish tools over stdio (started by the worker's CLI)
-//	hypomnema-node gitssh --known-hosts FILE -- ARGS
+//	hypomnema-node gitssh -- ARGS
 //	                        git's ssh for a repository cloned over SSH, with the control plane's key
 //	                        (set as GIT_SSH_COMMAND by the daemon)
 //	hypomnema-node version  print the version

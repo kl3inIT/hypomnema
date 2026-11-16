@@ -451,13 +451,19 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       repos = repos.filter((r) => r.name !== name)
       if (request.method() === "DELETE") return route.fulfill({ status: 204 })
 
-      const body = request.postDataJSON() as { repo: string; base?: string; ssh_url?: string }
+      const body = request.postDataJSON() as {
+        repo: string
+        base?: string
+        ssh_url?: string
+        ssh_host_key?: string
+      }
       const added = {
         name,
         host: "git.company.example",
         path: "team/app",
         base: body.base,
         ssh_url: body.ssh_url,
+        ssh_host_key: body.ssh_host_key,
         created_at: now,
       }
       repos = [...repos, added]
@@ -674,6 +680,9 @@ test("the owner reads the SSH key and registers a repository with its SSH addres
   const dialog = page.locator("[data-slot=dialog-content]")
   await dialog.getByLabel("Repository").fill("https://git.company.example/mobility/platform")
   await dialog.getByLabel("SSH address").fill("ssh://git@167.254.68.172:222/mobility/platform.git")
+  await dialog
+    .getByLabel("SSH host key")
+    .fill("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8")
   await shot(page, "repositories-add-ssh")
   await dialog.getByRole("button", { name: "Add", exact: true }).click()
 

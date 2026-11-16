@@ -19,6 +19,8 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8"
+
 const sshPrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjE\n-----END OPENSSH PRIVATE KEY-----\n"
 
 // withSSHKey serves the agent API again with the control plane's SSH key.
@@ -102,9 +104,9 @@ func TestOnlyAWorkerWhoseRepositoryIsClonedOverSSHGetsTheSSHKey(t *testing.T) {
 	_, err := w.svc.AddGitHost(ctx, "gitlab.company.example", githost.GitLab)
 	require.NoError(t, err)
 	_, err = w.svc.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "",
-		"ssh://git@167.254.68.172:222/mobility/platform.git")
+		"ssh://git@167.254.68.172:222/mobility/platform.git", hostKey)
 	require.NoError(t, err)
-	_, err = w.svc.AddRepo(ctx, "site", "https://gitlab.company.example/mobility/site", "", "", "")
+	_, err = w.svc.AddRepo(ctx, "site", "https://gitlab.company.example/mobility/site", "", "", "", "")
 	require.NoError(t, err)
 
 	onPlatform, platformDispatch := w.workerOnRepo("box-1", "platform")
@@ -114,6 +116,7 @@ func TestOnlyAWorkerWhoseRepositoryIsClonedOverSSHGetsTheSSHKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, sshPrivateKey, key.PrivateKey)
 	assert.Equal(t, "ssh-ed25519 AAAA hypomnema", key.PublicKey)
+	assert.Equal(t, hostKey, key.HostKeys, "the host's keys the owner confirmed come with it")
 
 	status, _ = w.sshKey(onSite)
 	assert.Equal(t, http.StatusForbidden, status, "a repository registered without an SSH address")

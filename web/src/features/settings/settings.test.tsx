@@ -23,6 +23,8 @@ beforeEach(() => {
 })
 afterEach(() => vi.restoreAllMocks())
 
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8"
+
 const sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH0nodes hypomnema"
 
 const json = (body: unknown, status = 200) =>
@@ -246,6 +248,7 @@ function server(
         path: "team/app",
         base: body?.base,
         ssh_url: body?.ssh_url,
+        ssh_host_key: body?.ssh_host_key,
         created_at: new Date().toISOString(),
       }
       repos = [...repos, added]
@@ -484,8 +487,8 @@ test("the owner registers a repository under a name and removes it", async () =>
 })
 
 // Scenario: the company's server cuts a large clone over HTTPS, so the owner gives the repository its SSH address
-// too (issue #625). It is sent with the repository and its row says it is cloned over SSH; an address that is not
-// one is not sent.
+// too (issue #625), with the host's key: a host is never trusted on first use. They are sent with the repository and
+// its row says it is cloned over SSH; an address that is not one, or one without the host's key, is not sent.
 test("the owner registers a repository with its SSH address", async () => {
   const user = userEvent.setup()
   const requests = server({})
@@ -509,6 +512,11 @@ test("the owner registers a repository with its SSH address", async () => {
     "ssh://git@167.254.68.172:222/mobility/platform.git",
   )
   await user.click(dialog.getByRole("button", { name: "Add" }))
+  expect(await dialog.findByText(/Give the SSH host's key/)).toBeInTheDocument()
+  expect(requests).toEqual([])
+
+  await user.type(dialog.getByLabelText("SSH host key"), hostKey)
+  await user.click(dialog.getByRole("button", { name: "Add" }))
 
   const row = (await screen.findByText("platform")).closest<HTMLElement>("[data-slot=item]")!
   expect(row).toHaveTextContent(
@@ -520,6 +528,7 @@ test("the owner registers a repository with its SSH address", async () => {
       body: {
         repo: "https://gitlab.company.example/mobility/platform",
         ssh_url: "ssh://git@167.254.68.172:222/mobility/platform.git",
+        ssh_host_key: hostKey,
       },
     },
   ])

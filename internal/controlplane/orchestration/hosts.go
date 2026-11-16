@@ -45,8 +45,12 @@ type Repo struct {
 	// SSHURL is the address the node clones and fetches it from over SSH,
 	// with the control plane's own key (issue #625); empty for HTTPS with
 	// the host's token.
-	SSHURL    string
-	CreatedAt time.Time
+	SSHURL string
+	// SSHHostKey is the SSH host's public keys the owner confirmed, one
+	// "<type> <base64>" a line: the node trusts the host under them alone.
+	// Set whenever SSHURL is.
+	SSHHostKey string
+	CreatedAt  time.Time
 }
 
 var repoNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
@@ -211,8 +215,11 @@ func (s *Service) KindOfHost(ctx context.Context, host string) (githost.Kind, bo
 // The repository is given as a Run takes it: owner/name or a URL on a host
 // that is known. connection, when given, is the label of the host's Connection
 // work on it uses; sshURL, when given, is where the node clones it from over
-// SSH instead of HTTPS (issue #625).
-func (s *Service) AddRepo(ctx context.Context, name, repo, base, connection, sshURL string) (Repo, error) {
+// SSH instead of HTTPS (issue #625), and sshHostKey the host's public keys,
+// as ssh-keyscan prints them, which it must then be given: the node trusts
+// the host under them alone, never on first use.
+func (s *Service) AddRepo(ctx context.Context, name, repo, base, connection, sshURL, sshHostKey string,
+) (Repo, error) {
 	if !repoNamePattern.MatchString(name) {
 		return Repo{}, fmt.Errorf("%w: a repository's name is lower-case letters, digits, dots and dashes", ErrInvalid)
 	}
@@ -220,6 +227,19 @@ func (s *Service) AddRepo(ctx context.Context, name, repo, base, connection, ssh
 	if sshURL != "" && !githost.ValidSSHURL(sshURL) {
 		return Repo{}, fmt.Errorf("%w: an SSH address is ssh://git@host[:port]/group/name.git or "+
 			"git@host:group/name.git", ErrInvalid)
+	}
+
+	switch {
+	case sshURL == "" && sshHostKey != "":
+		return Repo{}, fmt.Errorf("%w: an SSH host key goes with an SSH address", ErrInvalid)
+	case sshURL != "":
+		keys, err := githost.ParseHostKeys(sshHostKey)
+		if err != nil {
+			return Repo{}, fmt.Errorf("%w: %w; read it with `ssh-keyscan -p <port> <host>` and check its "+
+				"fingerprint", ErrInvalid, err)
+		}
+
+		sshHostKey = keys
 	}
 
 	parsed, err := githost.Parse(repo)
@@ -245,7 +265,8 @@ func (s *Service) AddRepo(ctx context.Context, name, repo, base, connection, ssh
 
 		return q.UpsertRepo(ctx, store.UpsertRepoParams{
 			Name: name, Host: parsed.Host, Path: parsed.Path, Base: nullString(base),
-			Connection: nullString(connection), SshUrl: nullString(sshURL), Now: now,
+			Connection: nullString(connection), SshUrl: nullString(sshURL), SshHostKey: nullString(sshHostKey),
+			Now: now,
 		})
 	})
 	if err != nil {
@@ -295,15 +316,16 @@ func (s *Service) ListRepos(ctx context.Context) ([]Repo, error) {
 func repoFromRow(r store.Repo) Repo {
 	return Repo{
 		Name: r.Name, Host: r.Host, Path: r.Path, Base: r.Base.String, Connection: r.Connection.String,
-		SSHURL: r.SshUrl.String, CreatedAt: millis(r.CreatedAt),
+		SSHURL: r.SshUrl.String, SSHHostKey: r.SshHostKey.String, CreatedAt: millis(r.CreatedAt),
 	}
 }
 
-// SSHURLOfDispatch is the SSH address of the repository a Dispatch's Run
-// works on, when the owner registered it with one (issue #625), and false
-// otherwise: only such a Dispatch is given the control plane's SSH key.
-func (s *Service) SSHURLOfDispatch(ctx context.Context, dispatchID string) (string, bool, error) {
-	url, err := s.read().SSHURLOfDispatch(ctx, dispatchID)
+// SSHOfDispatch is the SSH host keys of the repository a Dispatch's Run
+// works on, when the owner registered it with an SSH address (issue #625),
+// and false otherwise: only such a Dispatch is given the control plane's SSH
+// key, and the host's keys to trust.
+func (s *Service) SSHOfDispatch(ctx context.Context, dispatchID string) (string, bool, error) {
+	row, err := s.read().SSHOfDispatch(ctx, dispatchID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -312,7 +334,7 @@ func (s *Service) SSHURLOfDispatch(ctx context.Context, dispatchID string) (stri
 		return "", false, fmt.Errorf("reading the SSH address of dispatch %s: %w", dispatchID, err)
 	}
 
-	return url.String, url.Valid, nil
+	return row.SshHostKey.String, row.SshUrl.Valid, nil
 }
 
 // sshURLOf is the SSH address of the repository registered at host and path,

@@ -32,7 +32,7 @@ func toGitHost(h orchestration.GitHost) openapi.GitHost {
 func toRepo(r orchestration.Repo) openapi.Repo {
 	return openapi.Repo{
 		Name: r.Name, Host: r.Host, Path: r.Path, Base: ptr(r.Base), Connection: ptr(r.Connection),
-		SshUrl: ptr(r.SSHURL), CreatedAt: r.CreatedAt,
+		SshUrl: ptr(r.SSHURL), SshHostKey: ptr(r.SSHHostKey), CreatedAt: r.CreatedAt,
 	}
 }
 
@@ -183,7 +183,7 @@ func (s *Server) ListRepos(ctx context.Context, _ openapi.ListReposRequestObject
 func (s *Server) PutRepo(ctx context.Context, req openapi.PutRepoRequestObject,
 ) (openapi.PutRepoResponseObject, error) {
 	r, err := s.svc.AddRepo(ctx, req.Name, req.Body.Repo, val(req.Body.Base), val(req.Body.Connection),
-		val(req.Body.SshUrl))
+		val(req.Body.SshUrl), val(req.Body.SshHostKey))
 	if err != nil {
 		return nil, err
 	}

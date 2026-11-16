@@ -84,7 +84,7 @@ func TestAHostInUseIsNotForgotten(t *testing.T) {
 	run, err := w.runOn("https://gitlab.company.example/team/app", "")
 	require.NoError(t, err)
 
-	_, err = w.s.AddRepo(ctx, "app", "https://gitlab.company.example/team/app", "develop", "", "")
+	_, err = w.s.AddRepo(ctx, "app", "https://gitlab.company.example/team/app", "develop", "", "", "")
 	require.NoError(t, err)
 
 	require.ErrorIs(t, w.s.RemoveGitHost(ctx, "gitlab.company.example"), ErrConflict)
@@ -109,18 +109,18 @@ func TestARunNamesARegisteredRepository(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "", "")
+	_, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "", "", "")
 	require.ErrorIs(t, err, ErrInvalid, "a repository on a host that is not known")
 
 	_, err = w.s.AddGitHost(ctx, "gitlab.company.example", githost.GitLab)
 	require.NoError(t, err)
 
-	api, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "", "")
+	api, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, [4]string{"api", "gitlab.company.example", "team/platform/api", "develop"},
 		[4]string{api.Name, api.Host, api.Path, api.Base})
 
-	_, err = w.s.AddRepo(ctx, "hypomnema", "kl3inIT/hypomnema", "", "", "")
+	_, err = w.s.AddRepo(ctx, "hypomnema", "kl3inIT/hypomnema", "", "", "", "")
 	require.NoError(t, err)
 
 	run, err := w.runOn("api", "")
@@ -144,7 +144,7 @@ func TestARunNamesARegisteredRepository(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, repos, 2)
 
-	_, err = w.s.AddRepo(ctx, "Not A Name", "kl3inIT/hypomnema", "", "", "")
+	_, err = w.s.AddRepo(ctx, "Not A Name", "kl3inIT/hypomnema", "", "", "", "")
 	require.ErrorIs(t, err, ErrInvalid)
 	require.ErrorIs(t, w.s.RemoveRepo(ctx, "missing"), ErrNotFound)
 }
@@ -179,12 +179,16 @@ func TestAnOfferNamesTheHostAndItsKind(t *testing.T) {
 	assert.Empty(t, o.RepoSSHURL, "a repository not registered with an SSH address is cloned over HTTPS")
 }
 
+const hostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8"
+
 // Scenario: the company's GitLab cuts a large clone over HTTPS, so the owner
-// registers the repository with its SSH address (issue #625). The offer of a
-// Task of a Run on it carries the address, and so does the repository's
-// record; the Dispatch is one whose worker may have the SSH key. Registered
-// again without it, the repository is cloned over HTTPS again. An address
-// that is not one is refused.
+// registers the repository with its SSH address and the host's key, pasted as
+// ssh-keyscan prints it (issue #625). The offer of a Task of a Run on it
+// carries the address, and so does the repository's record with the key; the
+// Dispatch is one whose worker may have the SSH key, and the host's. Registered
+// again without the address, the repository is cloned over HTTPS again. An
+// address that is not one, an address without the host's key (never trusted
+// on first use) and a key without an address are refused.
 func TestARepositoryRegisteredWithAnSSHAddressIsClonedFromIt(t *testing.T) {
 	t.Parallel()
 
@@ -197,12 +201,20 @@ func TestARepositoryRegisteredWithAnSSHAddressIsClonedFromIt(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "",
-		"https://gitlab.company.example/mobility/platform.git")
+		"https://gitlab.company.example/mobility/platform.git", hostKey)
 	require.ErrorIs(t, err, ErrInvalid, "an HTTPS address is not an SSH one")
 
-	platform, err := w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", sshURL)
+	_, err = w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", sshURL, "")
+	require.ErrorIs(t, err, ErrInvalid, "an SSH address needs the host's key")
+
+	_, err = w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", "", hostKey)
+	require.ErrorIs(t, err, ErrInvalid, "a host key goes with an SSH address")
+
+	platform, err := w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", sshURL,
+		"# 167.254.68.172:222 SSH-2.0-OpenSSH_9.6\n[167.254.68.172]:222 "+hostKey+"\n")
 	require.NoError(t, err)
 	assert.Equal(t, sshURL, platform.SSHURL)
+	assert.Equal(t, hostKey, platform.SSHHostKey)
 
 	run, err := w.runOn("platform", "")
 	require.NoError(t, err)
@@ -217,19 +229,19 @@ func TestARepositoryRegisteredWithAnSSHAddressIsClonedFromIt(t *testing.T) {
 	require.Len(t, pending.Offers, 1)
 	assert.Equal(t, sshURL, pending.Offers[0].RepoSSHURL)
 
-	got, ok, err := w.s.SSHURLOfDispatch(ctx, pending.Offers[0].DispatchID)
+	got, ok, err := w.s.SSHOfDispatch(ctx, pending.Offers[0].DispatchID)
 	require.NoError(t, err)
 	assert.True(t, ok)
-	assert.Equal(t, sshURL, got)
+	assert.Equal(t, hostKey, got)
 
-	_, err = w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", "")
+	_, err = w.s.AddRepo(ctx, "platform", "https://gitlab.company.example/mobility/platform", "", "", "", "")
 	require.NoError(t, err)
 
-	_, ok, err = w.s.SSHURLOfDispatch(ctx, pending.Offers[0].DispatchID)
+	_, ok, err = w.s.SSHOfDispatch(ctx, pending.Offers[0].DispatchID)
 	require.NoError(t, err)
 	assert.False(t, ok, "registered without the address, the repository is cloned over HTTPS again")
 
-	_, ok, err = w.s.SSHURLOfDispatch(ctx, "dsp_unknown")
+	_, ok, err = w.s.SSHOfDispatch(ctx, "dsp_unknown")
 	require.NoError(t, err)
 	assert.False(t, ok)
 }

@@ -78,8 +78,9 @@ type Store interface {
 	Memories() *memorystore.Store
 	// Routines keeps the Routines, for a Bot's pi's routines tool (issue #536).
 	Routines() *routinestore.Store
-	// SSHURLOfDispatch says whether a Dispatch's repository is cloned over SSH, for the SSH key (issue #625).
-	SSHURLOfDispatch(ctx context.Context, dispatchID string) (string, bool, error)
+	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
+	// (issue #625).
+	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
 }
 
 // Token is a Connection's access token and when it ends.

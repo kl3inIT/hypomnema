@@ -6,9 +6,11 @@
 // agent sets as GIT_SSH_COMMAND (agent/agent.go), fetches the key per use.
 //
 // Unlike Coder's, the user's own keys are not tried (IdentitiesOnly): a node
-// clones with the control plane's key only. A host seen the first time is
-// trusted and remembered in the node's own known_hosts file
-// (StrictHostKeyChecking=accept-new), so a changed host key is refused.
+// clones with the control plane's key only. The host is trusted under the
+// keys the owner confirmed when he registered the repository, which come with
+// the private key and go into a known_hosts file of this call alone
+// (StrictHostKeyChecking=yes): a host is never trusted on first use, so a
+// first connection cannot be intercepted and handed the key.
 package gitssh
 
 import (
@@ -31,8 +33,10 @@ import (
 // Subcommand is the node binary's subcommand that runs the helper.
 const Subcommand = "gitssh"
 
-// KnownHosts is the node's own known_hosts file under its home.
-func KnownHosts(home string) string { return filepath.Join(home, "ssh", "known_hosts") }
+// hostAlias is the name the host's keys are written under in the call's
+// known_hosts file and that ssh looks them up by (HostKeyAlias), whatever the
+// address's host and port: the file holds this one repository's host.
+const hostAlias = "hypomnema-git-host"
 
 // Env is what git's environment gains to clone over SSH with the control
 // plane's key: GIT_SSH_COMMAND naming the helper, and the agent API's address
@@ -41,9 +45,8 @@ func KnownHosts(home string) string { return filepath.Join(home, "ssh", "known_h
 // slashes, as Coder's agent writes its path. GIT_SSH_VARIANT tells git the
 // helper takes OpenSSH's options: git would otherwise probe it with -G,
 // fetching the key once more, and without the probe give no port.
-func Env(exe, knownHosts, url, key string) []string {
-	command := quote(filepath.ToSlash(exe)) + " " + Subcommand + " --known-hosts " +
-		quote(filepath.ToSlash(knownHosts)) + " --"
+func Env(exe, url, key string) []string {
+	command := quote(filepath.ToSlash(exe)) + " " + Subcommand + " --"
 
 	return []string{
 		"GIT_SSH_COMMAND=" + command, "GIT_SSH_VARIANT=ssh", agenttool.EnvURL + "=" + url, agenttool.EnvKey + "=" + key,
@@ -56,37 +59,34 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 // Helper runs ssh for git with the control plane's key.
 type Helper struct {
 	// URL is the control plane's address; Key the Dispatch's own key.
-	URL string
-	Key string
-	// KnownHosts is the node's known_hosts file.
-	KnownHosts string
-	Client     *http.Client
+	URL    string
+	Key    string
+	Client *http.Client
 	// SSH runs ssh with args; nil runs the ssh on PATH with the helper's
 	// standard streams, which carry git's protocol.
 	SSH    func(ctx context.Context, args []string) error
 	Stderr io.Writer
 }
 
-// Main runs the helper as `hypomnema-node gitssh --known-hosts FILE -- <ssh
-// arguments>`, with the address and the key from the environment.
+// Main runs the helper as `hypomnema-node gitssh -- <ssh arguments>`, with
+// the address and the key from the environment.
 func Main(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet(Subcommand, flag.ContinueOnError)
-	knownHosts := fs.String("known-hosts", "", "the node's known_hosts file")
 
-	if err := fs.Parse(args); err != nil || *knownHosts == "" || fs.NArg() == 0 {
-		return errors.New("usage: hypomnema-node gitssh --known-hosts FILE -- <ssh arguments>")
+	if err := fs.Parse(args); err != nil || fs.NArg() == 0 {
+		return errors.New("usage: hypomnema-node gitssh -- <ssh arguments>")
 	}
 
 	h := Helper{
-		URL: os.Getenv(agenttool.EnvURL), Key: os.Getenv(agenttool.EnvKey), KnownHosts: *knownHosts,
+		URL: os.Getenv(agenttool.EnvURL), Key: os.Getenv(agenttool.EnvKey),
 		Client: &http.Client{Timeout: time.Minute}, Stderr: os.Stderr,
 	}
 
 	return h.Run(ctx, fs.Args())
 }
 
-// Run runs ssh with args and the control plane's key, which is on disk only
-// while ssh runs. ssh's own exit code is returned as an agenttool.ExitError,
+// Run runs ssh with args, the control plane's key and the host's keys, which
+// are on disk only while ssh runs. Without the host's keys it runs nothing. ssh's own exit code is returned as an agenttool.ExitError,
 // so git sees it.
 func (h Helper) Run(ctx context.Context, args []string) error {
 	if h.URL == "" || h.Key == "" {
@@ -99,20 +99,37 @@ func (h Helper) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(h.KnownHosts), 0o700); err != nil {
-		return fmt.Errorf("making %s: %w", filepath.Dir(h.KnownHosts), err)
+	var known strings.Builder
+
+	for line := range strings.SplitSeq(key.HostKeys, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			known.WriteString(hostAlias + " " + line + "\n")
+		}
 	}
 
-	file, err := writeKey(key.PrivateKey)
+	if known.Len() == 0 {
+		return errors.New("the repository's SSH host key is not known, and a host is not trusted on first use; " +
+			"the owner sets it with `hypomnema repos set <name> --ssh-host-key`")
+	}
+
+	file, err := writeFile("hypomnema-gitssh-*", key.PrivateKey)
 	if err != nil {
 		return err
 	}
 
 	defer func() { _ = os.Remove(file) }()
 
+	knownHosts, err := writeFile("hypomnema-known-hosts-*", known.String())
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = os.Remove(knownHosts) }()
+
 	sshArgs := append([]string{
-		"-i", file, "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=accept-new",
-		"-o", "UserKnownHostsFile=" + h.KnownHosts,
+		"-i", file, "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=yes",
+		"-o", "HostKeyAlias=" + hostAlias, "-o", "UserKnownHostsFile=" + knownHosts,
+		"-o", "GlobalKnownHostsFile=" + os.DevNull,
 	}, args...)
 
 	run := h.SSH
@@ -176,9 +193,9 @@ func (h Helper) fetch(ctx context.Context) (agenttool.GitSSHKey, error) {
 	return key, nil
 }
 
-// writeKey writes the private key to a new file only this user reads.
-func writeKey(private string) (string, error) {
-	f, err := os.CreateTemp("", "hypomnema-gitssh-*")
+// writeFile writes content to a new file only this user reads.
+func writeFile(pattern, content string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", fmt.Errorf("making the key's file: %w", err)
 	}
@@ -187,7 +204,7 @@ func writeKey(private string) (string, error) {
 
 	err = f.Chmod(0o600)
 	if err == nil {
-		_, err = f.WriteString(private)
+		_, err = f.WriteString(content)
 	}
 
 	if closeErr := f.Close(); err == nil {

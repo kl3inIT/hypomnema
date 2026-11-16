@@ -261,7 +261,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 					"address to ask for the SSH key with")
 			}
 
-			src, err = src.OverSSH(o.RepoSSHURL, gitssh.Env(s.Exe, gitssh.KnownHosts(s.Home), s.URL, o.AgentKey))
+			src, err = src.OverSSH(o.RepoSSHURL, gitssh.Env(s.Exe, s.URL, o.AgentKey))
 			if err != nil {
 				return err
 			}

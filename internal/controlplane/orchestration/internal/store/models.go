@@ -602,6 +602,7 @@ type Repo struct {
 	CreatedAt  int64
 	Connection sql.NullString
 	SshUrl     sql.NullString
+	SshHostKey sql.NullString
 }
 
 type Routine struct {

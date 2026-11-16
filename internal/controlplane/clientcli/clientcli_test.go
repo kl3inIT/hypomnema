@@ -642,11 +642,18 @@ func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
 	_, err = w.cmd(t, "repos", "set", "platform-api", "--ssh-url", "https://gitlab.company.example/team/x.git")
 	require.Error(t, err, "an HTTPS address is not an SSH one")
 
-	out, err = w.cmd(t, "repos", "set", "platform-api", "--ssh-url",
-		"ssh://git@167.254.68.172:222/team/Platform-API.git")
+	_, err = w.cmd(t, "repos", "set", "platform-api", "--ssh-url", "ssh://git@167.254.68.172:222/team/Platform-API.git")
+	require.ErrorContains(t, err, "needs the host's key", "a host is never trusted on first use")
+
+	// The owner pipes ssh-keyscan's output in and checks the fingerprint printed against the host's own.
+	out, err = w.cmdIn(t, "# 167.254.68.172:222 SSH-2.0-OpenSSH_9.6\n[167.254.68.172]:222 "+
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB8TL1wZn5vEveB+nHTVCX490uF9kH8g6jcBT6BgFep8\n",
+		"repos", "set", "platform-api", "--ssh-url", "ssh://git@167.254.68.172:222/team/Platform-API.git",
+		"--ssh-host-key-file", "-")
 	require.NoError(t, err)
-	assert.Equal(t, "repository platform-api is https://gitlab.company.example/team/Platform-API, cloned over SSH "+
-		"from ssh://git@167.254.68.172:222/team/Platform-API.git\n", out)
+	assert.Regexp(t, `^repository platform-api is https://gitlab.company.example/team/Platform-API, cloned over SSH `+
+		`from ssh://git@167.254.68.172:222/team/Platform-API.git\n  trusts the SSH host key ssh-ed25519 SHA256:\S{43}\n$`,
+		out)
 
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)

@@ -296,8 +296,14 @@ func reposAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		name = strings.ToLower(parsed.Path[strings.LastIndex(parsed.Path, "/")+1:])
 	}
 
+	hostKey, err := sshHostKey(e, fs)
+	if err != nil {
+		return err
+	}
+
 	resp, err := e.api.PutRepoWithResponse(ctx, name, openapi.NewRepo{
 		Repo: repo, Base: optional(fs, "base"), Connection: optional(fs, "connection"), SshUrl: optional(fs, "ssh-url"),
+		SshHostKey: hostKey,
 	})
 	if err != nil {
 		return fmt.Errorf("registering repository %s: %w", name, err)
@@ -311,7 +317,37 @@ func reposAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, r, func() {
 		e.printf("repository %s is %s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String())
+		printHostKeys(e, r.SshHostKey)
 	})
+}
+
+// sshHostKey reads --ssh-host-key-file: the SSH host's keys, as ssh-keyscan
+// prints them. Nil when it is not given.
+func sshHostKey(e *env, fs *flag.FlagSet) (*string, error) {
+	file := str(fs, "ssh-host-key-file")
+	if file == "" {
+		return nil, nil //nolint:nilnil // No file, no keys: the flag is optional.
+	}
+
+	keys, err := e.read(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return &keys, nil
+}
+
+// printHostKeys prints the fingerprints of the SSH host's keys a repository
+// trusts, for the owner to check against the host's own (issue #625): a host
+// is trusted under them alone, never on first use.
+func printHostKeys(e *env, keys *string) {
+	if keys == nil {
+		return
+	}
+
+	for _, fingerprint := range githost.HostKeyFingerprints(*keys) {
+		e.printf("  trusts the SSH host key %s\n", fingerprint)
+	}
 }
 
 func reposRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -351,7 +387,7 @@ func reposSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	r := list.JSON200.Data[i]
 	body := openapi.NewRepo{
 		Repo: githost.Repo{Host: r.Host, Path: r.Path}.String(), Base: r.Base, Connection: r.Connection,
-		SshUrl: r.SshUrl,
+		SshUrl: r.SshUrl, SshHostKey: r.SshHostKey,
 	}
 
 	fs.Visit(func(f *flag.Flag) {
@@ -361,9 +397,18 @@ func reposSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		case "connection":
 			body.Connection = optional(fs, "connection")
 		case "ssh-url":
-			body.SshUrl = optional(fs, "ssh-url")
+			// Cloned over HTTPS again, the host's keys go with the address.
+			if body.SshUrl = optional(fs, "ssh-url"); body.SshUrl == nil {
+				body.SshHostKey = nil
+			}
 		}
 	})
+
+	if hostKey, err := sshHostKey(e, fs); err != nil {
+		return err
+	} else if hostKey != nil {
+		body.SshHostKey = hostKey
+	}
 
 	resp, err := e.api.PutRepoWithResponse(ctx, name, body)
 	if err != nil {
@@ -384,6 +429,7 @@ func reposSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 		e.printf("repository %s is %s, cloned %s\n", changed.Name,
 			githost.Repo{Host: changed.Host, Path: changed.Path}.String(), over)
+		printHostKeys(e, changed.SshHostKey)
 	})
 }
 

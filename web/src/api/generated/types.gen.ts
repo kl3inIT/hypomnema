@@ -1516,6 +1516,10 @@ export type Repo = {
    * Where nodes clone and fetch it from over SSH, with the control plane's SSH key; absent when they use HTTPS with the host's token.
    */
   ssh_url?: string;
+  /**
+   * The SSH host's public keys the owner confirmed, one "<type> <base64>" a line; nodes trust the host under them alone.
+   */
+  ssh_host_key?: string;
   created_at: string;
 };
 
@@ -1544,6 +1548,10 @@ export type NewRepo = {
    * Where nodes clone it from over SSH, as the host shows it: ssh://git@host[:port]/group/name.git or git@host:group/name.git. Absent: over HTTPS with the host's token.
    */
   ssh_url?: string;
+  /**
+   * The SSH host's public keys, as `ssh-keyscan -p <port> <host>` prints them; required with ssh_url. Nodes trust the host under them alone, never on first use.
+   */
+  ssh_host_key?: string;
 };
 
 export type NodeList = {

@@ -612,6 +612,8 @@ var commands = []command{
 			fs.String("connection", "", "the label of the host's connected account work on it uses")
 			fs.String("ssh-url", "", "clone it over SSH from this address, with the key `hypomnema git ssh-key` "+
 				"shows, such as ssh://git@host:222/group/name.git")
+			fs.String("ssh-host-key-file", "", "with --ssh-url: the SSH host's keys as `ssh-keyscan -p <port> <host>` "+
+				"prints them, in a file or - for standard input; check the fingerprints it prints")
 			jsonFlag(fs)
 		},
 		run: reposAdd,
@@ -623,6 +625,8 @@ var commands = []command{
 			fs.String("base", "", "branch worktrees start from when a Run names none")
 			fs.String("connection", "", "the label of the host's connected account work on it uses")
 			fs.String("ssh-url", "", "clone it over SSH from this address; empty clones it over HTTPS")
+			fs.String("ssh-host-key-file", "", "the SSH host's keys as `ssh-keyscan -p <port> <host>` prints them, "+
+				"in a file or - for standard input; check the fingerprints it prints")
 			jsonFlag(fs)
 		},
 		run: reposSet,
