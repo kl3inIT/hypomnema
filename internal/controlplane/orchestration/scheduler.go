@@ -483,7 +483,6 @@ func resolvesByItself(reason string) bool {
 func (s *Service) unplaceable(ctx context.Context, q *store.Queries, now int64, task store.Task, reason string,
 	out *Scheduled,
 ) error {
-
 	since := task.UpdatedAt
 	if task.NotBefore.Valid {
 		since = max(since, task.NotBefore.Int64)
