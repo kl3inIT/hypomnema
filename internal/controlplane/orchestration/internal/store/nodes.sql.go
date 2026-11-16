@@ -95,6 +95,57 @@ func (q *Queries) CountActiveDispatchesOfNode(ctx context.Context, arg CountActi
 	return count, err
 }
 
+const countActiveDispatchesPerBot = `-- name: CountActiveDispatchesPerBot :many
+SELECT CAST(coalesce(r.bot_id, CASE WHEN r.coordinator_token_id IS NOT NULL THEN c.bot_id END, '') AS TEXT) AS bot,
+       count(*) AS n
+FROM dispatches d
+JOIN tasks t ON t.id = d.task_id
+JOIN runs r ON r.id = t.run_id
+LEFT JOIN chats c ON c.id = r.chat_id
+WHERE d.status IN (/*SLICE:statuses*/?)
+GROUP BY 1
+`
+
+type CountActiveDispatchesPerBotRow struct {
+	Bot string
+	N   int64
+}
+
+// The unsettled Dispatches of each Bot's Runs (issue #660), the Bot found as runBotGives finds it: the Run's own,
+// else, for a Run a coordinator made in a chat, that chat's; ” for the owner's Runs without a Bot.
+func (q *Queries) CountActiveDispatchesPerBot(ctx context.Context, statuses []string) ([]CountActiveDispatchesPerBotRow, error) {
+	query := countActiveDispatchesPerBot
+	var queryParams []interface{}
+	if len(statuses) > 0 {
+		for _, v := range statuses {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:statuses*/?", strings.Repeat(",?", len(statuses))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:statuses*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountActiveDispatchesPerBotRow{}
+	for rows.Next() {
+		var i CountActiveDispatchesPerBotRow
+		if err := rows.Scan(&i.Bot, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countActiveDispatchesPerNode = `-- name: CountActiveDispatchesPerNode :many
 SELECT node_id, count(*) AS n FROM dispatches WHERE status IN (/*SLICE:statuses*/?) GROUP BY node_id
 `
@@ -980,6 +1031,25 @@ type SetNodeGitHostsParams struct {
 
 func (q *Queries) SetNodeGitHosts(ctx context.Context, arg SetNodeGitHostsParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setNodeGitHosts, arg.GitHosts, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setNodeMaxDispatches = `-- name: SetNodeMaxDispatches :execrows
+UPDATE nodes SET updated_at = ?1, max_dispatches = ?2 WHERE id = ?3 AND status <> 'deleted'
+`
+
+type SetNodeMaxDispatchesParams struct {
+	Now           int64
+	MaxDispatches int64
+	ID            string
+}
+
+// A node's own limit, which the owner changes after the node was added (issue #660).
+func (q *Queries) SetNodeMaxDispatches(ctx context.Context, arg SetNodeMaxDispatchesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setNodeMaxDispatches, arg.Now, arg.MaxDispatches, arg.ID)
 	if err != nil {
 		return 0, err
 	}

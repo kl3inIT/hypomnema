@@ -235,19 +235,52 @@ func TestOnlyTheOwnerRenamesANode(t *testing.T) {
 	_, _, err = w.svc.AddNode(ctx, "builder", 0)
 	require.NoError(t, err)
 
-	refused, err := laptop.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: "stc-dev"})
+	refused, err := laptop.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: ptr("stc-dev")})
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Forbidden, errorCode(t, refused.Body, refused.StatusCode(), http.StatusForbidden))
 
-	renamed, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: "stc-dev"})
+	renamed, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: ptr("stc-dev")})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, renamed.StatusCode(), string(renamed.Body))
 	assert.Equal(t, "stc-dev", renamed.JSON200.Name)
 	assert.Equal(t, n.ID, renamed.JSON200.Id)
 
-	taken, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: "builder"})
+	taken, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: ptr("builder")})
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Conflict, errorCode(t, taken.Body, taken.StatusCode(), http.StatusConflict))
+}
+
+// Scenario: the owner changes how many Dispatches a machine runs at once
+// after it was added (issue #660). Its name stays; a coordinator token changes
+// nothing; a number out of range, or a change that names nothing, is refused.
+func TestOnlyTheOwnerChangesANodesLimit(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("web", bearertoken.Owner)
+	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+
+	n, _, err := w.svc.AddNode(ctx, "stc-hy-app", 0)
+	require.NoError(t, err)
+
+	refused, err := laptop.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{MaxDispatches: ptr(4)})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, refused.Body, refused.StatusCode(), http.StatusForbidden))
+
+	changed, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{MaxDispatches: ptr(4)})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
+	assert.Equal(t, 4, changed.JSON200.MaxDispatches)
+	assert.Equal(t, "stc-hy-app", changed.JSON200.Name)
+
+	tooMany, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{MaxDispatches: ptr(65)})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, tooMany.StatusCode())
+
+	empty, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, empty.StatusCode())
 }
 
 // Scenario: the Machines page reads a node whose machine has a GPU. The

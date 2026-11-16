@@ -59,7 +59,7 @@ func toTask(t orchestration.Task) openapi.Task {
 		Runtime: ptr(t.Runtime), Model: ptr(t.Model), Effort: ptr(t.Effort),
 		Status: openapi.TaskStatus(t.Status), BlockedReason: reason, FailureCount: t.FailureCount,
 		Result: ptr(t.Result), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, FinishedAt: t.FinishedAt,
-		NotBefore: t.NotBefore, CancelRequestedAt: t.CancelRequestedAt,
+		NotBefore: t.NotBefore, CancelRequestedAt: t.CancelRequestedAt, WaitingReason: ptr(t.WaitingReason),
 	}
 }
 
@@ -70,6 +70,7 @@ func toTaskDetail(t orchestration.Task, d *orchestration.Dispatch) openapi.TaskD
 		Model: b.Model, Effort: b.Effort, Status: b.Status, BlockedReason: b.BlockedReason,
 		FailureCount: b.FailureCount, Result: b.Result, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 		FinishedAt: b.FinishedAt, NotBefore: b.NotBefore, CancelRequestedAt: b.CancelRequestedAt,
+		WaitingReason: b.WaitingReason,
 	}
 
 	if d != nil {

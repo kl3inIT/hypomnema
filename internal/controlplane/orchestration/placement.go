@@ -14,10 +14,12 @@ import (
 // nodes with their load, the accounts and their cooldowns. The scheduler
 // updates it as it places, so one pass never exceeds a limit.
 type placement struct {
-	now      int64
-	active   int
-	nodes    map[string]*nodeLoad
-	order    []*nodeLoad
+	now   int64
+	nodes map[string]*nodeLoad
+	order []*nodeLoad
+	// groups counts the unsettled Dispatches of each Bot's Runs, "" the
+	// owner's Runs without a Bot (issue #660; runGroup).
+	groups   map[string]int
 	accounts []store.Account
 	cooling  map[[2]string]int64
 	// reasons says why each cooling account cools.
@@ -52,14 +54,19 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 		return nil, fmt.Errorf("listing accounts: %w", err)
 	}
 
+	groups, err := q.CountActiveDispatchesPerBot(ctx, activeDispatchStatuses())
+	if err != nil {
+		return nil, fmt.Errorf("counting active dispatches per bot: %w", err)
+	}
+
 	cooldowns, err := q.ListActiveCooldowns(ctx, now)
 	if err != nil {
 		return nil, fmt.Errorf("listing cooldowns: %w", err)
 	}
 
 	p := &placement{
-		now: now, nodes: map[string]*nodeLoad{}, accounts: accounts, cooling: map[[2]string]int64{},
-		reasons: map[[2]string]string{},
+		now: now, nodes: map[string]*nodeLoad{}, groups: map[string]int{}, accounts: accounts,
+		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{},
 	}
 
 	for _, row := range nodes {
@@ -87,8 +94,11 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 		p.order = append(p.order, n)
 	}
 
+	for _, g := range groups {
+		p.groups[g.Bot] = int(g.N)
+	}
+
 	for _, l := range loads {
-		p.active += int(l.N)
 		if n, ok := p.nodes[l.NodeID]; ok {
 			n.active = int(l.N)
 		}
@@ -256,6 +266,23 @@ func (p *placement) checkAccountKnown(runtime, id string) bool {
 	})
 }
 
+// atLimit reports whether a node could take a Dispatch of the runtime, on the
+// git host, but for its own limit (issue #660).
+func (p *placement) atLimit(id, runtime string, w where) bool {
+	n, ok := p.nodes[id]
+
+	return ok && n.active >= int(n.row.MaxDispatches) && p.serves(n, runtime) == nil && n.reaches(w.host) &&
+		n.lacks(w.tools) == ""
+}
+
+// anyAtLimit reports whether a node with a worktree root could take a new
+// Conversation of the runtime but for its own limit.
+func (p *placement) anyAtLimit(runtime string, w where) bool {
+	return slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
+		return n.row.WorktreeRoot.String != "" && p.atLimit(n.row.ID, runtime, w)
+	})
+}
+
 // nodeReady reports whether a node can take a Dispatch of the runtime, on the git host, now.
 func (p *placement) nodeReady(id, runtime string, w where) bool {
 	return p.checkNode(id, runtime, w) == nil
@@ -383,9 +410,10 @@ func (p *placement) pickAccount(runtime string) (id string, cooling bool) {
 	return "", cooling
 }
 
-// take counts a new Dispatch on a node.
-func (p *placement) take(nodeID string) {
-	p.active++
+// take counts a new Dispatch on a node and in its Bot's group.
+func (p *placement) take(nodeID, group string) {
+	p.groups[group]++
+
 	if n, ok := p.nodes[nodeID]; ok {
 		n.active++
 	}

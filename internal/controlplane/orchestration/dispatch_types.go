@@ -308,6 +308,15 @@ const (
 	// ReasonNoNodeHasTool is followed by the tool: "no_node_has_tool:gws". The
 	// Run uses an account whose tool no connected node has installed yet.
 	ReasonNoNodeHasTool = "no_node_has_tool:"
+	// ReasonBotAtLimit is followed by the Bot's id, nothing for the owner's
+	// Runs without a Bot: "bot_at_limit:bot_x". The Bot's Runs already have
+	// as many unsettled Dispatches as its limit (issue #660). It resolves by
+	// itself and is not escalated.
+	ReasonBotAtLimit = "bot_at_limit:"
+	// ReasonNodesFull: a node could run the Task, but every such node runs as
+	// many Dispatches as its own limit (issue #660). Unlike ReasonNoNode it
+	// resolves by itself and is not escalated.
+	ReasonNodesFull = "nodes_full"
 )
 
 // Escalation is one thing the reaper or the scheduler found.

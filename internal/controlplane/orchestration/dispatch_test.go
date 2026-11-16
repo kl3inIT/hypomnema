@@ -58,8 +58,8 @@ func newSeedWorld(t *testing.T) *world {
 
 	s, db, clock := newTestService(t)
 	w := &world{t: t, s: s, db: db, clock: clock}
-	// The node's own limit is the system's, so the older scenarios meet only one.
-	w.node = w.addNode("node_a", MaxActiveDispatches, "claude")
+	// The node's own limit is the owner's Runs' (issue #660), so the older scenarios meet one number.
+	w.node = w.addNode("node_a", BotDispatchesDefault, "claude")
 
 	w.run = newRun(t, s)
 

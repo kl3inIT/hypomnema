@@ -1222,6 +1222,60 @@ func TestChatWithAChosenBot(t *testing.T) {
 	require.ErrorContains(t, err, "a chat's Bot is fixed when it is made")
 }
 
+// Scenario: the owner sets how many of a Bot's workers run at once (issue
+// #660). bots show prints it, a later change of another setting keeps it, and
+// a number out of range is refused.
+func TestBotsSetMaxDispatches(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	var vmap openapi.Bot
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap")
+	assert.Equal(t, orchestration.BotDispatchesDefault, vmap.MaxDispatches, "a new Bot has the default")
+
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap", "--max-dispatches", "2")
+	assert.Equal(t, 2, vmap.MaxDispatches)
+
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap", "--effort", "high")
+	assert.Equal(t, 2, vmap.MaxDispatches, "kept when another setting changes")
+
+	out, err := w.cmd(t, "bots", "show", "vmap")
+	require.NoError(t, err)
+	assert.Contains(t, out, "workers at once: 2")
+
+	_, err = w.cmd(t, "bots", "set", "vmap", "--max-dispatches", "65")
+	require.Error(t, err)
+}
+
+// Scenario: a ready Task waits, and tasks show and runs show say why in a
+// sentence (issue #660): here no node has connected.
+func TestTasksShowWhyATaskWaits(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+	ctx := t.Context()
+
+	run, err := w.svc.CreateRun(ctx, orchestration.NewRun{Objective: "audit", CreatedBy: "owner"})
+	require.NoError(t, err)
+
+	tasks, err := w.svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{{Ref: "a", Spec: "read the code"}})
+	require.NoError(t, err)
+
+	_, err = w.svc.Schedule(ctx)
+	require.NoError(t, err)
+
+	out, err := w.cmd(t, "tasks", "show", tasks[0].ID)
+	require.NoError(t, err)
+	assert.Contains(t, out, "waiting: no connected node can run its agent")
+
+	out, err = w.cmd(t, "runs", "show", run.ID)
+	require.NoError(t, err)
+	assert.Contains(t, out, "    waiting: no connected node can run its agent")
+}
+
 // pi's environment names its chat; the Runs it creates record it.
 func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	w := newWorld(t)

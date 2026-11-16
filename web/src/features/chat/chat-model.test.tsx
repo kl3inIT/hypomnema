@@ -121,6 +121,7 @@ const vmap = {
   workers: { limited: false, names: [] },
   scopes: {},
   tool_display: "on",
+  max_dispatches: 4,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 } satisfies Bot

@@ -39,10 +39,6 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 			return err
 		}
 
-		if p.active >= MaxActiveDispatches {
-			return fmt.Errorf("%w: %d dispatches are active, the limit", ErrUnavailable, p.active)
-		}
-
 		r, err := resolve(ctx, q, task)
 		if err != nil {
 			return err
@@ -78,6 +74,16 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
 	}
 
+	// The Bot's limit (issue #660): a Dispatch made by hand meets it as the scheduler's does.
+	group, limit, err := runGroup(ctx, q, task.RunID)
+	if err != nil {
+		return err
+	}
+
+	if p.groups[group] >= limit {
+		return fmt.Errorf("%w: %s runs %d of %d Dispatches", ErrUnavailable, groupName(group), p.groups[group], limit)
+	}
+
 	conv, node, recovery, err := s.conversationFor(ctx, q, now, task.ID, spec, p)
 	if err != nil {
 		return err
@@ -102,7 +108,13 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return err
 	}
 
-	p.take(node)
+	p.take(node, group)
+
+	if task.WaitingReason.Valid {
+		if err := q.SetTaskWaitingReason(ctx, store.SetTaskWaitingReasonParams{ID: task.ID}); err != nil {
+			return fmt.Errorf("clearing why task %s waited: %w", task.ID, err)
+		}
+	}
 
 	if err := emit(ctx, q, now, event{
 		kind: EventDispatchCreated, run: task.RunID, task: task.ID, dispatch: id, node: node,
@@ -115,6 +127,15 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	}
 
 	return transitionTask(ctx, q, now, task.ID, TaskRunning, BlockedNone, "")
+}
+
+// groupName says whose Dispatches a group counts: a Bot's, or the owner's.
+func groupName(group string) string {
+	if group == "" {
+		return "the owner's Runs without a Bot"
+	}
+
+	return "bot " + group
 }
 
 // openConversation returns the Task's latest Conversation and whether it is open.

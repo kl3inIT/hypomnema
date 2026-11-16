@@ -146,6 +146,10 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 		bot.ToolDisplay = orchestration.ToolDisplay(*d)
 	}
 
+	if n := in.MaxDispatches; n != nil {
+		bot.MaxDispatches = *n
+	}
+
 	return bot
 }
 
@@ -304,7 +308,8 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
 		Tools: append([]string{}, b.Tools...), ToolsOff: append([]string{}, b.ToolsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
-		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), Position: b.Position, Pinned: b.Pinned,
+		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), MaxDispatches: b.DispatchLimit(),
+		Position: b.Position, Pinned: b.Pinned,
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }

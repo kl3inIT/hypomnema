@@ -890,5 +890,16 @@ func taskFromRow(t store.Task) Task {
 		FailureCount: int(t.FailureCount), Result: t.Result.String,
 		CreatedAt: millis(t.CreatedAt), UpdatedAt: millis(t.UpdatedAt), FinishedAt: optionalTime(t.FinishedAt),
 		NotBefore: optionalTime(t.NotBefore), CancelRequestedAt: optionalTime(t.CancelRequestedAt),
+		WaitingReason: waitingReason(t),
 	}
+}
+
+// waitingReason is why the Task waits, kept only while it is ready: a reason
+// recorded before it went on is stale.
+func waitingReason(t store.Task) string {
+	if TaskStatus(t.Status) != TaskReady {
+		return ""
+	}
+
+	return t.WaitingReason.String
 }

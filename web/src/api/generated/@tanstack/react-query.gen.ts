@@ -569,7 +569,7 @@ export const removeNodeMutation = (options?: Partial<Options<RemoveNodeData>>): 
 };
 
 /**
- * Rename a node (owner only); its id, its tokens and what it runs stay
+ * Rename a node or change how many Dispatches it runs at once (owner only); its id, its tokens and what it runs stay
  */
 export const updateNodeMutation = (options?: Partial<Options<UpdateNodeData>>): UseMutationOptions<UpdateNodeResponse, UpdateNodeError, Options<UpdateNodeData>> => {
   const mutationOptions: UseMutationOptions<UpdateNodeResponse, UpdateNodeError, Options<UpdateNodeData>> = {

@@ -427,6 +427,7 @@ var commands = []command{
 				"slug separated by commas, such as prod=8,9; label= for none, label=all for every one")
 			fs.String("tool-display", "", "what its chats show of its tool calls: off (none), on (each tool's name) "+
 				"or full (arguments, output and time as well)")
+			fs.Int("max-dispatches", 0, "how many of its workers run at once, across every node: 1 to 64 (4 for a new bot)")
 			jsonFlag(fs)
 		},
 		run: botsSet,

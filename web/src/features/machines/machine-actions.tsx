@@ -7,6 +7,7 @@ import {
   CirclePause,
   CirclePlay,
   Ellipsis,
+  Gauge,
   Pencil,
   Power,
   PowerOff,
@@ -20,6 +21,8 @@ import { removeNodeMutation, updateNodeMutation } from "@/api/generated/@tanstac
 import { drainNode, resumeNode } from "@/api/generated/sdk.gen"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 
 import { errorText } from "@/lib/server-error"
@@ -38,6 +41,7 @@ export function MachineActions({ node }: { node: Node }) {
   const refresh = useRefreshMachines()
   const [removing, setRemoving] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const [limiting, setLimiting] = useState(false)
   const drained = node.status === "drained"
 
   const toggle = useMutation({
@@ -98,6 +102,10 @@ export function MachineActions({ node }: { node: Node }) {
                 <Pencil className="size-4" />
                 Rename
               </Menu.Item>
+              <Menu.Item className={itemClass} onClick={() => setLimiting(true)}>
+                <Gauge className="size-4" />
+                Change limit
+              </Menu.Item>
               {unreachable === undefined ? (
                 <Menu.Item
                   className={itemClass}
@@ -138,6 +146,7 @@ export function MachineActions({ node }: { node: Node }) {
 
       <RemoveMachine node={node} open={removing} onOpenChange={setRemoving} />
       {renaming && <RenameMachine node={node} onClose={() => setRenaming(false)} />}
+      {limiting && <LimitMachine node={node} onClose={() => setLimiting(false)} />}
     </div>
   )
 }
@@ -258,6 +267,78 @@ function RenameMachine({ node, onClose }: { node: Node; onClose: () => void }) {
               >
                 {rename.isPending && <Spinner data-icon="inline-start" />}
                 Rename
+              </Button>
+            </div>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  )
+}
+
+// LimitMachine is the dialog that changes how many Dispatches a machine runs at once (issue #660), as RenameMachine
+// changes its name and Add machine sets the number first; Coder's provisioner daemons per machine are a setting, not
+// fixed at install. The next Task placed goes by the new number; work already running goes on. A refusal shows
+// the server's message and keeps the dialog open.
+function LimitMachine({ node, onClose }: { node: Node; onClose: () => void }) {
+  const refresh = useRefreshMachines()
+  const [max, setMax] = useState(String(node.max_dispatches))
+  const change = useMutation({
+    ...updateNodeMutation(),
+    onSuccess: async () => {
+      onClose()
+      await refresh()
+    },
+  })
+  const n = Number(max)
+  const unchanged = !Number.isInteger(n) || n < 1 || n === node.max_dispatches
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border bg-background p-5 text-start font-normal whitespace-normal outline-none">
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!unchanged)
+                change.mutate({ path: { node_id: node.id }, body: { max_dispatches: n } })
+            }}
+          >
+            <Dialog.Title className="text-sm font-medium">Limit of {node.name}</Dialog.Title>
+            <Field>
+              <FieldLabel htmlFor="machine-limit">Max Dispatches</FieldLabel>
+              <Input
+                id="machine-limit"
+                type="number"
+                required
+                min={1}
+                max={64}
+                step={1}
+                inputMode="numeric"
+                value={max}
+                onChange={(event) => setMax(event.target.value)}
+              />
+              <FieldDescription>
+                How many Dispatches it runs at once. The next Task placed goes by it; work already
+                running goes on.
+              </FieldDescription>
+            </Field>
+            {change.error && (
+              <p role="alert" className="text-sm text-destructive">
+                {errorText(change.error)}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
+              <Button
+                type="submit"
+                focusableWhenDisabled={change.isPending}
+                disabled={change.isPending || unchanged}
+              >
+                {change.isPending && <Spinner data-icon="inline-start" />}
+                Save
               </Button>
             </div>
           </form>

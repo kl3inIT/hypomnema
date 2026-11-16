@@ -99,6 +99,10 @@ func runsShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 		for _, t := range run.Tasks {
 			e.printf("  %s\t%s\t%s\n", t.Id, taskState(t.Status, t.BlockedReason), firstLine(t.Spec))
+
+			if w := val(t.WaitingReason); w != "" {
+				e.printf("    waiting: %s\n", waitingLine(w))
+			}
 		}
 	})
 }
@@ -286,6 +290,37 @@ func taskState(s openapi.TaskStatus, reason *openapi.BlockedReason) string {
 	}
 
 	return string(s)
+}
+
+// waitingLine says why a ready Task waits (issue #660), from its reason code (dispatch_types.go), as
+// OpenMausBot's queued reason says it in one sentence (server/host/queued-reason.ts).
+func waitingLine(code string) string {
+	kind, arg, _ := strings.Cut(code, ":")
+
+	switch kind {
+	case "bot_at_limit":
+		if arg == "" {
+			return "the owner's Runs without a Bot already run as many workers as their limit"
+		}
+
+		return "bot " + arg + " already runs as many workers as its limit"
+	case "nodes_full":
+		return "every node that can run it runs as many workers as its limit"
+	case "accounts_cooling":
+		return "every account of its agent waits for its limit to reset"
+	case "no_node":
+		return "no connected node can run its agent"
+	case "no_account":
+		return "no account can run its agent"
+	case "needs_gateway":
+		return "its agent runs only through the model gateway, and its profile names none"
+	case "no_node_reaches":
+		return "no node reaches " + arg
+	case "no_node_has_tool":
+		return "no node has " + arg + " installed"
+	}
+
+	return code
 }
 
 func firstLine(s string) string {

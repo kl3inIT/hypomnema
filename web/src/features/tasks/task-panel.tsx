@@ -1,5 +1,5 @@
 import { Dialog } from "@base-ui/react/dialog"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ArrowDown, ExternalLink, X } from "lucide-react"
 import type { ReactNode } from "react"
@@ -9,6 +9,7 @@ import "@/api/client"
 import {
   getRunQueryKey,
   getTaskQueryKey,
+  listBotsOptions,
   listQuestionsQueryKey,
   listTasksQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
@@ -22,6 +23,7 @@ import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { QuestionForm } from "@/features/questions/question-form"
 import { useRun, useTask, useWork } from "@/features/work/use-work"
+import { waitingText } from "@/features/work/waiting"
 import { callsOf } from "@/lib/query-keys"
 import {
   boardCards,
@@ -66,6 +68,7 @@ function useCard(taskId: string): Card | undefined {
 
 function PanelBody({ taskId }: { taskId: string }) {
   const card = useCard(taskId)
+  const bots = useQuery({ ...listBotsOptions(), select: (page) => page.data })
 
   if (!card) {
     return (
@@ -77,6 +80,10 @@ function PanelBody({ taskId }: { taskId: string }) {
   }
 
   const { task, run } = card
+  const waiting =
+    task.status === "ready" && !card.question
+      ? waitingText(task.waiting_reason, bots.data)
+      : undefined
   const pr = pullRequest(task)
   const dispatch = task.latest_dispatch
   const live = isLive(dispatch)
@@ -105,7 +112,7 @@ function PanelBody({ taskId }: { taskId: string }) {
       >
         <StickToBottom.Content className="flex flex-col gap-5 px-5 pt-4 pb-8">
           <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-            <Chip>{statusText(card)}</Chip>
+            <Chip>{waiting ?? statusText(card)}</Chip>
             {/* The Run opens in the chat that started it, where it is docked (issue #327); one made from the
                 command line has no chat and is only named. */}
             {run.chat_id ? (
@@ -242,7 +249,9 @@ function statusText(card: Card) {
 
 function Chip({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex h-6 items-center rounded-md bg-foreground/5 px-2">{children}</span>
+    <span className="inline-flex min-h-6 items-center rounded-md bg-foreground/5 px-2 py-0.5">
+      {children}
+    </span>
   )
 }
 

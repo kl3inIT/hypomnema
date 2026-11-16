@@ -81,6 +81,9 @@ type Bot struct {
 	Scopes map[string]ConnectionScope
 	// ToolDisplay is what its chats show of its tool calls; empty is ToolsOn.
 	ToolDisplay ToolDisplay
+	// MaxDispatches is how many of its workers run at once, across every node
+	// (issue #660); 0 is BotDispatchesDefault (DispatchLimit).
+	MaxDispatches int
 	// Position is the Bot's place in the order the owner sets, 0 first, and Pinned lists it in the sidebar's
 	// Pinned section (issue #470). Neither is a setting: PutBot keeps them as they are.
 	Position  int
@@ -95,9 +98,19 @@ func botFromRow(r store.Bot) Bot {
 		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
 		Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff), Connections: allowListOf(r.Connections),
 		Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
-		Position: int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
+		MaxDispatches: int(r.MaxDispatches.Int64),
+		Position:      int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
+}
+
+// DispatchLimit is how many of the Bot's workers run at once: its own number, else BotDispatchesDefault.
+func (b Bot) DispatchLimit() int {
+	if b.MaxDispatches > 0 {
+		return b.MaxDispatches
+	}
+
+	return BotDispatchesDefault
 }
 
 // Main says the Bot is the main one.
@@ -126,6 +139,10 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 
 	if !b.ToolDisplay.valid() {
 		return Bot{}, fmt.Errorf("%w: a bot's tool display is off, on or full", ErrInvalid)
+	}
+
+	if b.MaxDispatches < 0 || b.MaxDispatches > MaxDispatchesLimit {
+		return Bot{}, fmt.Errorf("%w: a bot runs 1 to %d workers at once", ErrInvalid, MaxDispatchesLimit)
 	}
 
 	if b.ID == "" {
@@ -304,7 +321,8 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 		Effort: nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
 		SkillsOff: strings.Join(b.SkillsOff, ","), Tools: strings.Join(b.Tools, ","),
 		ToolsOff: strings.Join(b.ToolsOff, ","), Connections: b.Connections.stored(), Workers: b.Workers.stored(),
-		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes), Now: now,
+		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes),
+		MaxDispatches: storedLimit(b.MaxDispatches), Now: now,
 	})
 	if err != nil {
 		return fmt.Errorf("%w: another bot is named %q: %w", ErrConflict, b.Name, err)
@@ -323,8 +341,13 @@ func updateBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 		Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
 		Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay),
-		ConnectionScopes: storedScopes(b.Scopes), Now: now, ID: b.ID,
+		ConnectionScopes: storedScopes(b.Scopes), MaxDispatches: storedLimit(b.MaxDispatches), Now: now, ID: b.ID,
 	})
+}
+
+// storedLimit is a Bot's limit as kept: NULL for the default.
+func storedLimit(n int) sql.NullInt64 {
+	return sql.NullInt64{Int64: int64(n), Valid: n > 0}
 }
 
 // restoreBot puts back what a Bot was before a change: made again with its id when it was removed, else its
