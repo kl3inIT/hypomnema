@@ -422,7 +422,9 @@ paths:
       - $ref: "#/components/parameters/NodeID"
     patch:
       operationId: UpdateNode
-      summary: Rename a node (owner only); its id, its tokens and what it runs stay
+      summary: >-
+        Rename a node or change how many Dispatches it runs at once (owner only); its id, its tokens and what it
+        runs stay
       requestBody:
         required: true
         content:
@@ -3906,6 +3908,14 @@ components:
           format: date-time
           description: No new Dispatch starts before it (a back-off or a rate limit).
         cancel_requested_at: { type: string, format: date-time }
+        waiting_reason:
+          type: string
+          description: >-
+            Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task
+            that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its
+            limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could
+            run it runs as many as its own limit), accounts_cooling, no_node, no_account, needs_gateway,
+            no_node_reaches:<git host> and no_node_has_tool:<tool>.
     TaskDetail:
       allOf:
         - $ref: "#/components/schemas/Task"
@@ -4211,9 +4221,16 @@ components:
     NodeChange:
       type: object
       additionalProperties: false
-      required: [name]
+      description: What changes of a node; what is left out stays.
       properties:
         name: { type: string, minLength: 1, maxLength: 64 }
+        max_dispatches:
+          type: integer
+          minimum: 1
+          maximum: 64
+          description: >-
+            Dispatches the node runs at once (issue #660). The next scheduling pass places by it; Dispatches it
+            already runs over a lower number go on.
     NewTerminal:
       type: object
       additionalProperties: false
@@ -6244,7 +6261,7 @@ components:
       type: object
       required:
         [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
-         connections, workers, scopes, tool_display, created_at, updated_at]
+         connections, workers, scopes, tool_display, max_dispatches, created_at, updated_at]
       properties:
         id:
           type: string
@@ -6311,6 +6328,11 @@ components:
             integration:label: of a Superset Connection, the dashboards it may
             read. A Connection not named here is reached whole.
         tool_display: { $ref: "#/components/schemas/ToolDisplay" }
+        max_dispatches:
+          type: integer
+          description: >-
+            How many of the Bot's workers run at once, across every node (issue #660): the unsettled Dispatches of
+            the Runs it made. 4 unless the Bot sets its own.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     ToolDisplay:
@@ -6633,6 +6655,11 @@ components:
         tool_display:
           $ref: "#/components/schemas/ToolDisplay"
           description: What the Bot's chats show of its tool calls; left out, the Bot keeps it, on for a new one.
+        max_dispatches:
+          type: integer
+          minimum: 1
+          maximum: 64
+          description: How many of the Bot's workers run at once; left out, the Bot keeps it, 4 for a new one.
     Memory:
       type: object
       additionalProperties: false

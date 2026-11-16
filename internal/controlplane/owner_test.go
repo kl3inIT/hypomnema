@@ -37,7 +37,7 @@ func command(t *testing.T, cfg Config, args ...string) (string, error) {
 
 // Scenario: the owner sets up a node and an account on the server. The
 // node's token is printed once; listing shows the node offline until it
-// connects.
+// connects; its limit can be changed later.
 func TestOwnerSetsUpANodeAndAnAccount(t *testing.T) {
 	t.Parallel()
 
@@ -53,6 +53,14 @@ func TestOwnerSetsUpANodeAndAnAccount(t *testing.T) {
 	out, err = command(t, cfg, "nodes", "list")
 	require.NoError(t, err)
 	assert.Contains(t, out, "\tzm\tactive\toffline\t0/3\t")
+
+	// The owner changes the node's limit after adding it (issue #660).
+	out, err = command(t, cfg, "nodes", "set", "zm", "--max", "5")
+	require.NoError(t, err)
+	assert.Contains(t, out, "up to 5 Dispatches")
+
+	_, err = command(t, cfg, "nodes", "set", "zm")
+	require.ErrorIs(t, err, ErrUsage, "a change names the limit")
 
 	out, err = command(t, cfg, "accounts", "add", "claude", "personal")
 	require.NoError(t, err)

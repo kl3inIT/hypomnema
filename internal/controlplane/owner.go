@@ -188,6 +188,27 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 		o.printf("node %s (%s) is now %s\n", n.Name, n.ID, renamed.Name)
 
 		return nil
+	case len(args) >= 2 && args[0] == "set":
+		fs := flag.NewFlagSet("nodes set", flag.ContinueOnError)
+		limit := fs.Int("max", 0, "Dispatches the node runs at once")
+
+		if err := fs.Parse(args[2:]); err != nil || *limit == 0 {
+			return fmt.Errorf("%w: nodes set <node> --max N", ErrUsage)
+		}
+
+		n, err := o.node(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		changed, err := o.svc.SetNodeLimit(ctx, n.ID, *limit)
+		if err != nil {
+			return err
+		}
+
+		o.printf("node %s (%s), up to %d Dispatches\n", changed.Name, changed.ID, changed.MaxDispatches)
+
+		return nil
 	case len(args) >= 1 && args[0] == "token":
 		return o.nodeTokens(ctx, args[1:])
 	default:

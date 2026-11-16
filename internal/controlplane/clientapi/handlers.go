@@ -486,9 +486,25 @@ func (s *Server) ListMachineProviders(ctx context.Context, _ openapi.ListMachine
 // UpdateNode renames a node.
 func (s *Server) UpdateNode(ctx context.Context, req openapi.UpdateNodeRequestObject,
 ) (openapi.UpdateNodeResponseObject, error) {
-	n, err := s.svc.RenameNode(ctx, req.NodeId, req.Body.Name)
-	if err != nil {
-		return nil, err
+	if req.Body.Name == nil && req.Body.MaxDispatches == nil {
+		return nil, fmt.Errorf("%w: name a node's new name or limit", orchestration.ErrInvalid)
+	}
+
+	var (
+		n   orchestration.Node
+		err error
+	)
+
+	if req.Body.Name != nil {
+		if n, err = s.svc.RenameNode(ctx, req.NodeId, *req.Body.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.Body.MaxDispatches != nil {
+		if n, err = s.svc.SetNodeLimit(ctx, req.NodeId, *req.Body.MaxDispatches); err != nil {
+			return nil, err
+		}
 	}
 
 	return openapi.UpdateNode200JSONResponse(toNode(n)), nil

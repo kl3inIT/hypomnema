@@ -114,6 +114,10 @@ func tasksShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		e.printf("task %s (%s), run %s, %d failed attempts\n%s\n", t.Id, taskState(t.Status, t.BlockedReason), t.RunId,
 			t.FailureCount, t.Spec)
 
+		if w := val(t.WaitingReason); w != "" {
+			e.printf("waiting: %s\n", waitingLine(w))
+		}
+
 		if d := t.LatestDispatch; d != nil {
 			e.printf("latest dispatch %s on %s: %s\n", d.Id, d.NodeId, d.Status)
 
