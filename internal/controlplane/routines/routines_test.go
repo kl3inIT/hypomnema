@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -102,11 +103,13 @@ func (s *script) ran() [][]string {
 	return append([][]string(nil), s.calls...)
 }
 
-// pi stands in for the supervisor of the Bots' pi.
+// pi stands in for the supervisor of the Bots' pi. A chat's pi runs unless
+// it exited.
 type pi struct {
 	mu      sync.Mutex
 	off     bool
 	working map[string]bool
+	exited  map[string]bool
 	aborted []string
 }
 
@@ -117,6 +120,13 @@ func (p *pi) Working(chatID string) bool {
 	defer p.mu.Unlock()
 
 	return p.working[chatID]
+}
+
+func (p *pi) Idle(chatID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return !p.working[chatID] && !p.exited[chatID]
 }
 
 func (p *pi) Abort(_ context.Context, chatID string) error {
@@ -178,7 +188,8 @@ func newWorld(t *testing.T) *world {
 
 	n := 0
 	w := &world{
-		t: t, clock: &clock{now: t0}, script: &script{}, pi: &pi{working: map[string]bool{}}, lark: &lark{},
+		t: t, clock: &clock{now: t0}, script: &script{}, lark: &lark{},
+		pi: &pi{working: map[string]bool{}, exited: map[string]bool{}},
 	}
 	w.svc = orchestration.New(db, w.clock, func(prefix string) string {
 		n++
@@ -897,4 +908,216 @@ func TestTheOwnerIsToldWhenARoutineIsPausedForItsFailures(t *testing.T) {
 	told := w.said(chat, 2)
 	assert.Contains(t, told[1], "was paused after 10 failed runs")
 	assert.Equal(t, routinestore.RoutinePaused, w.routine(sync.ID).State)
+}
+
+// watched is an hourly prompt Routine whose script checks first whether the
+// Bot has work (issue #656).
+func (w *world) watched(name, chatID string) routinestore.Routine {
+	w.t.Helper()
+
+	r, err := w.svc.Routines().PutRoutine(w.t.Context(), routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: name, Kind: routinestore.RoutinePrompt,
+		Prompt: "Adapt files/d9/bieu-do.json to the dashboard's change, then check the copy.",
+		Script: "d9-check.sh", ScriptText: "#!/bin/sh\nhypomnema superset dashboard 9\n", EveryMinutes: 60,
+		ChatID: chatID, Announce: true,
+	}, owner)
+	require.NoError(w.t, err)
+
+	return r
+}
+
+// chats counts the chats there are.
+func (w *world) chats() int {
+	w.t.Helper()
+
+	all, err := w.svc.ListChats(w.t.Context(), 0)
+	require.NoError(w.t, err)
+
+	return len(all)
+}
+
+// Scenario: an hourly prompt Routine whose script checks the dashboard first
+// (issue #656). The script runs through the launcher as a script Routine's
+// does. When it prints nothing, and when its last line is {"wakeAgent":
+// false}, the run succeeded with what it printed, no chat is made and
+// nothing is told: no turn of the model was paid for.
+func TestACheckThatFindsNothingWakesNoBot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	home := w.chat()
+	watch := w.watched("d9-watch", home)
+	before := w.chats()
+
+	w.script.then(exits("", 0))
+	w.clock.add(time.Hour)
+	w.runner.Tick(t.Context())
+
+	quiet := w.ended(watch.ID, 1, routinestore.RunSucceeded)
+	assert.Empty(t, quiet.ChatID, "no chat for a check that found nothing")
+	require.NotNil(t, quiet.ExitCode)
+	assert.Zero(t, *quiet.ExitCode)
+	assert.Equal(t, [][]string{
+		{"sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-routine", orchestration.DefaultBotID, watch.ID},
+	}, w.script.ran(), "the check runs through the launcher as a script does")
+
+	said := "dashboard 9: 14 charts, unchanged since 08:00\n{\"wakeAgent\": false}\n\n"
+	w.script.then(exits(said, 0))
+
+	_, err := w.runner.RunNow(t.Context(), watch.ID)
+	require.NoError(t, err)
+
+	gated := w.ended(watch.ID, 2, routinestore.RunSucceeded)
+	assert.Empty(t, gated.ChatID)
+	assert.Equal(t, said, gated.Output, "what the check printed is kept on the run")
+
+	w.runner.Follow(t.Context())
+	assert.Equal(t, before, w.chats(), "no chat was made")
+	w.said(home, 0)
+	assert.Zero(t, w.routine(watch.ID).Failures)
+}
+
+// Scenario: the check finds a change and says so. A chat is made as for a
+// prompt run, its prompt led by what the script printed under "## Script
+// Output". From there the run is a prompt run: it goes on while the Bot
+// works, its hour counts from the wake, and it ends with the Bot's answer,
+// which is told where the Routine was made.
+func TestACheckThatFindsWorkWakesTheBot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	home := w.chat()
+	watch := w.watched("d9-watch", home)
+
+	held := make(chan struct{})
+
+	w.script.then(func(context.Context) (string, int, error) {
+		<-held
+
+		return "chart 164 has a new column: region\n", 0, nil
+	})
+
+	_, err := w.runner.RunNow(t.Context(), watch.ID)
+	require.NoError(t, err)
+
+	w.clock.add(5 * time.Minute)
+	w.runner.Follow(t.Context())
+	checking := w.ended(watch.ID, 1, routinestore.RunRunning)
+	assert.Empty(t, checking.ChatID, "while the check runs there is no chat to follow")
+
+	close(held)
+
+	var run routinestore.RoutineRun
+
+	require.Eventually(t, func() bool {
+		runs, err := w.svc.Routines().ListRoutineRuns(t.Context(), watch.ID, 0)
+		if err != nil || len(runs) != 1 {
+			return false
+		}
+
+		run = runs[0]
+
+		return run.ChatID != ""
+	}, eventual, every, "the check never woke the bot")
+	assert.Equal(t, routinestore.RunRunning, run.State)
+
+	msgs, err := w.svc.ListChatMessages(t.Context(), run.ChatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	prompt := msgs[0].Text
+	assert.Contains(t, prompt, "## Script Output\n")
+	assert.Contains(t, prompt, "```\nchart 164 has a new column: region\n```")
+	assert.Less(t, strings.Index(prompt, "## Script Output"), strings.Index(prompt, "Adapt files/d9/bieu-do.json"),
+		"what the script printed comes before the prompt")
+
+	waiting, err := w.svc.Undelivered(t.Context(), run.ChatID)
+	require.NoError(t, err)
+	assert.Len(t, waiting, 1, "the prompt waits for the bot")
+
+	w.work(run.ChatID, true)
+	w.says(run.ChatID, "Reading the dashboard…")
+	w.clock.add(58 * time.Minute)
+	w.runner.Follow(t.Context())
+	w.ended(watch.ID, 1, routinestore.RunRunning)
+	assert.Empty(t, w.pi.stopped(), "the hour counts from the wake, not from the check's start")
+
+	w.says(run.ChatID, "bieu-do.json has the region column; the copy matches.")
+	w.work(run.ChatID, false)
+	w.runner.Follow(t.Context())
+
+	done := w.ended(watch.ID, 1, routinestore.RunSucceeded)
+	assert.Equal(t, "bieu-do.json has the region column; the copy matches.", done.Output)
+	assert.Contains(t, w.said(home, 1)[0], "the copy matches")
+}
+
+// Scenario: the check itself fails. The run fails as a script run fails, and
+// the Bot is not woken to report it (unlike Hermes): a broken hourly check
+// costs no turn. The second failure in a row tells the owner.
+func TestAFailingCheckFailsWithoutAChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	home := w.chat()
+	watch := w.watched("d9-watch", home)
+	before := w.chats()
+
+	for i := range 2 {
+		w.script.then(exits("superset: 401 unauthorized\n", 2))
+
+		_, err := w.runner.RunNow(t.Context(), watch.ID)
+		require.NoError(t, err)
+
+		failed := w.ended(watch.ID, i+1, routinestore.RunFailed)
+		assert.Equal(t, "the script exited with code 2", failed.Error)
+		assert.Empty(t, failed.ChatID)
+	}
+
+	assert.Equal(t, before, w.chats(), "no chat was made")
+	assert.Equal(t, 2, w.routine(watch.ID).Failures)
+	require.Eventually(t, func() bool { return len(w.lark.heard()) == 1 }, eventual, every)
+	assert.Contains(t, w.lark.heard()[0], "|A routine keeps failing|")
+}
+
+// Scenario: a prompt run's Bot does its work with tools and ends its turn
+// without a word. The run ends at once, succeeded with an empty answer, and
+// nothing is told (OpenClaw, OpenMausBot); it no longer waits out its hour.
+// A pi that exited during its turn has not ended it: that run still fails
+// when its hour is up.
+func TestABotTurnWithNoTextEndsTheRunAtOnce(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	home := w.chat()
+	brief := w.daily("brief", home)
+
+	run, err := w.runner.RunNow(t.Context(), brief.ID)
+	require.NoError(t, err)
+	require.NoError(t, w.svc.MarkDelivered(t.Context(), run.ChatID, 1<<40))
+
+	_, err = w.svc.AddChatMessages(t.Context(), run.ChatID, orchestration.NewChatMessage{
+		Role: orchestration.ChatTool, Text: "lark-cli base +record-batch-update: 3 records",
+	})
+	require.NoError(t, err)
+	w.runner.Follow(t.Context())
+
+	silent := w.ended(brief.ID, 1, routinestore.RunSucceeded)
+	assert.Empty(t, silent.Output)
+	w.said(home, 0)
+
+	crashed, err := w.runner.RunNow(t.Context(), brief.ID)
+	require.NoError(t, err)
+	require.NoError(t, w.svc.MarkDelivered(t.Context(), crashed.ChatID, 1<<40))
+
+	w.pi.mu.Lock()
+	w.pi.exited[crashed.ChatID] = true
+	w.pi.mu.Unlock()
+
+	w.runner.Follow(t.Context())
+	w.ended(brief.ID, 2, routinestore.RunRunning)
+
+	w.clock.add(time.Hour + time.Minute)
+	w.runner.Follow(t.Context())
+
+	failed := w.ended(brief.ID, 2, routinestore.RunFailed)
+	assert.Equal(t, "the bot gave no answer in 1h0m0s", failed.Error)
 }

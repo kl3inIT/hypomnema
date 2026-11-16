@@ -84,8 +84,9 @@ func routineTool(a agent) (agenttool.BrowserTool, bool) {
 				"description": "set: the IANA time zone of cron, such as Asia/Ho_Chi_Minh."},
 			"prompt": map[string]any{"type": "string", "description": "set: the work, for a Routine you do " +
 				"with your model in a new chat each time; self-contained, since that chat does not see this one."},
-			"script": map[string]any{"type": "string", "description": "set: instead of prompt, a script file " +
-				"in the folder you work in, such as routines/report.sh, for work that needs no model."},
+			"script": map[string]any{"type": "string", "description": "set: a script file in the folder you " +
+				"work in, such as routines/report.sh: alone, for work that needs no model; with prompt, a check " +
+				"that runs first and wakes you only when it finds work."},
 			"timeout_seconds": map[string]any{"type": "integer", "minimum": 1,
 				"description": "set: seconds a script may run (default 600)."},
 			"summary": map[string]any{"type": "string", "description": "set: what the work is, in one line."},
@@ -107,7 +108,10 @@ func routineTool(a agent) (agenttool.BrowserTool, bool) {
 			"sentence when it runs and what it does, and have the owner's yes in this chat. Give a schedule, " +
 			"every_minutes or cron with timezone, and what runs: script, a file you wrote under routines/ in the " +
 			"folder you work in, with its #! line (it runs later in that folder with your commands, no model and " +
-			"no tools, and prints what it did), or prompt. What runs is the text as it was when you set it: after " +
+			"no tools, and prints what it did), or prompt, or both. With both, the script runs first as a check: " +
+			"when it prints nothing, or its last line is {\"wakeAgent\": false}, the run ends there and costs no " +
+			"turn; otherwise you are woken with what it printed before the prompt. Give what runs whole each time " +
+			"you change it: prompt alone drops a check. What runs is the text as it was when you set it: after " +
 			"changing the file, set the Routine again. action run starts a run now, in the background; its result " +
 			"is added to this chat when it ends, and list with the name shows how it went. After you set one, run " +
 			"it once and tell the owner what that run did; if it failed, say so and that he can undo the Routine " +
@@ -252,6 +256,10 @@ func (s *Server) listRoutines(ctx context.Context, a agent, name string) (string
 			b.WriteString("\n\nprompt:\n" + r.Prompt)
 		}
 
+		if r.Kind == routinestore.RoutinePrompt && r.Script != "" {
+			b.WriteString("\n\nchecked first by the script " + r.Script + ":\n" + r.ScriptText)
+		}
+
 		if len(runs) > 0 {
 			b.WriteString("\n\nruns, the newest first:")
 		}
@@ -314,7 +322,7 @@ func routineSpec(a agent, have *routinestore.Routine, in agenttool.RoutineCall) 
 			Summary: have.Summary, Announce: have.Announce,
 		}
 
-		if have.Kind == routinestore.RoutineScript {
+		if have.Script != "" {
 			spec.TimeoutSeconds = int(have.Timeout / time.Second)
 		}
 	}
@@ -333,18 +341,21 @@ func routineSpec(a agent, have *routinestore.Routine, in agenttool.RoutineCall) 
 		spec.Timezone = *in.Timezone
 	}
 
-	if in.Prompt != nil {
-		spec.Kind, spec.Prompt, spec.Script, spec.ScriptText, spec.TimeoutSeconds =
-			routinestore.RoutinePrompt, *in.Prompt, "", "", 0
+	if in.Script != nil && in.ScriptText == nil {
+		// A tools server of an earlier release sends the path without reading it.
+		return spec, fmt.Errorf("%w: this tools server cannot send a script yet; wait for its update",
+			orchestration.ErrUnavailable)
 	}
 
-	if in.Script != nil {
-		if in.ScriptText == nil {
-			// A tools server of an earlier release sends the path without reading it.
-			return spec, fmt.Errorf("%w: this tools server cannot send a script yet; wait for its update",
-				orchestration.ErrUnavailable)
-		}
-
+	// What runs is given whole: a prompt, a script, or both, a prompt whose script checks first (issue #656).
+	switch {
+	case in.Prompt != nil && in.Script != nil:
+		spec.Kind, spec.Prompt, spec.Script, spec.ScriptText =
+			routinestore.RoutinePrompt, *in.Prompt, path.Base(strings.ReplaceAll(*in.Script, `\`, "/")), *in.ScriptText
+	case in.Prompt != nil:
+		spec.Kind, spec.Prompt, spec.Script, spec.ScriptText, spec.TimeoutSeconds =
+			routinestore.RoutinePrompt, *in.Prompt, "", "", 0
+	case in.Script != nil:
 		spec.Kind, spec.Script, spec.ScriptText, spec.Prompt =
 			routinestore.RoutineScript, path.Base(strings.ReplaceAll(*in.Script, `\`, "/")), *in.ScriptText, ""
 	}

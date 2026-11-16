@@ -38,6 +38,14 @@ are for is said after these rules, with your memory; these rules hold for every 
   its runs); if it failed, say so and that he can undo the Routine on its card. What runs is the text you gave:
   changing the file afterwards changes nothing until you set it again. Action `list` shows what exists, so that you
   do not make one twice. A Routine's own run makes, changes and starts no Routines.
+- A `prompt` Routine that most often has nothing to do (watching a dashboard for a change, a mailbox for a new
+  request) gets a cheap check in front: give `prompt` and `script` together. The script runs first, with no model;
+  when it prints nothing, or its last line is `{"wakeAgent": false}`, the run ends there and costs no turn of the
+  model. Otherwise you are woken in a new chat with what it printed above the prompt, so print what changed. What it
+  prints to stderr counts too: keep warnings off its last line. A failing script fails the run without waking you.
+  The script keeps what it last saw in a file of your directory; when the work is adapting what the script does,
+  change a config file the script reads (a JSON file under `files/`), never the script itself, which a Routine's
+  run cannot set.
 - A message that starts with "Message from the Hypomnema control plane" is a wake-up, not a person: an event of
   your Runs, the owner's answer to an approval, or a Routine's run starting in a chat of its own. Act on it as the skill says, say what changed when it matters,
   then end your turn.

@@ -2656,7 +2656,7 @@ paths:
       - $ref: "#/components/parameters/RoutineID"
     post:
       operationId: LaunchRoutineScript
-      summary: What the launcher of a script Routine's run runs, given once a run
+      summary: What the launcher of a Routine's script runs, given once a run
       description: >-
         The file's name, its text, its limit and the run's key. Only while a
         run of the Routine has started and its script has not: the first
@@ -6385,7 +6385,8 @@ components:
       description: >-
         Work a Bot does on a schedule: a prompt the Bot works on with its
         model in a new chat, or a script that runs with the Bot's tools and
-        no model.
+        no model. A prompt Routine may have a script that runs first and
+        wakes the Bot only when it finds work.
       required:
         [id, bot, name, kind, schedule, sentence, timeout_seconds, state, announce, failures, skipped, created_by,
          can_undo, created_at, updated_at, grants]
@@ -6397,7 +6398,9 @@ components:
         prompt: { type: string, description: What a prompt Routine gives its Bot. }
         script:
           type: string
-          description: The file a script Routine runs, under the Bot's routines directory.
+          description: >-
+            The file a script Routine runs, or a prompt Routine runs first as a
+            check, under the Bot's routines directory.
         script_text: { type: string, description: What the script's file holds. }
         every_minutes: { type: integer }
         cron: { type: string }
@@ -6406,7 +6409,9 @@ components:
         sentence:
           type: string
           description: One sentence that restates the schedule and the work.
-        timeout_seconds: { type: integer }
+        timeout_seconds:
+          type: integer
+          description: A script's limit; 3600 for a prompt Routine without one.
         state: { $ref: "#/components/schemas/RoutineState" }
         paused_reason: { type: string }
         summary: { type: string, description: "What the work is, in the words of whoever made it." }
@@ -6447,7 +6452,11 @@ components:
         prompt: { type: string }
         script:
           type: string
-          description: A file name, never a path or a command line.
+          description: >-
+            A file name, never a path or a command line. With a prompt, the
+            script runs first: when it prints nothing, or its last line is
+            {"wakeAgent": false}, the run ends succeeded with no chat;
+            otherwise the Bot is woken with what it printed before the prompt.
         script_text: { type: string }
         every_minutes: { type: integer, minimum: 5, maximum: 1440 }
         cron:
@@ -6457,7 +6466,9 @@ components:
         timeout_seconds:
           type: integer
           minimum: 1
-          description: How long a script may run; 600 when absent. A prompt run works for at most an hour.
+          description: >-
+            How long a script, or a prompt's check, may run; 600 when absent.
+            A prompt run works for at most an hour.
         summary: { type: string }
         chat_id:
           type: string
