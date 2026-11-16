@@ -9,6 +9,71 @@ import (
 	"context"
 )
 
+const listLiveDispatchesOfNode = `-- name: ListLiveDispatchesOfNode :many
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason FROM dispatches
+WHERE node_id = ?1 AND status IN ('starting', 'running', 'unknown', 'stop_unknown')
+ORDER BY created_at, id
+`
+
+// The Dispatches whose worker may run on the node: settled at its hello when it no longer holds them (issue #590).
+func (q *Queries) ListLiveDispatchesOfNode(ctx context.Context, nodeID string) ([]Dispatch, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveDispatchesOfNode, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Dispatch{}
+	for rows.Next() {
+		var i Dispatch
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.ConversationID,
+			&i.NodeID,
+			&i.Status,
+			&i.Epoch,
+			&i.FailureClass,
+			&i.UnknownCause,
+			&i.Recovery,
+			&i.ProcessRef,
+			&i.Result,
+			&i.ResetsAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AcceptedAt,
+			&i.StartedAt,
+			&i.LeaseExpiresAt,
+			&i.ProgressAt,
+			&i.StopRequestedAt,
+			&i.StopAckedAt,
+			&i.StalledAt,
+			&i.OverrunAt,
+			&i.SettledAt,
+			&i.WaitingSince,
+			&i.WaitedMs,
+			&i.GateQuestionID,
+			&i.Model,
+			&i.Effort,
+			&i.ProfileVersionID,
+			&i.Activity,
+			&i.FallbackFor,
+			&i.FallbackUntil,
+			&i.Handoff,
+			&i.StalledReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedDispatchesOfNode = `-- name: ListQueuedDispatchesOfNode :many
 SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason FROM dispatches WHERE node_id = ?1 AND status = 'queued' ORDER BY created_at, id
 `

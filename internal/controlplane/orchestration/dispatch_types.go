@@ -6,7 +6,8 @@ import "time"
 type DispatchStatus string
 
 // Dispatch statuses. unknown and stop_unknown are not final: a report from
-// the proven epoch, a reattach, a settlement or an abandon ends them.
+// the proven epoch, a reattach, or the node's next hello (NodeConnect) ends
+// them. SettleUnknown and AbandonDispatch are called only from tests.
 const (
 	DispatchQueued      DispatchStatus = "queued"
 	DispatchStarting    DispatchStatus = "starting"

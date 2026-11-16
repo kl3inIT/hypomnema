@@ -249,14 +249,19 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	claims := []nodeproto.Claim{}
+	// Every Dispatch held is listed, so the control plane ends the ones the
+	// node lost (issue #590): an accept or a final report still queued settles
+	// the others.
+	claims, ids := []nodeproto.Claim{}, make([]string, 0, len(held))
 	for _, h := range held {
+		ids = append(ids, h.ID)
+
 		if h.State == statedb.StateAccepted && h.Epoch > 0 {
 			claims = append(claims, nodeproto.Claim{DispatchID: h.ID, Epoch: h.Epoch})
 		}
 	}
 
-	resp, err := d.hello(ctx, claims)
+	resp, err := d.hello(ctx, claims, ids)
 	if err != nil {
 		return false, err
 	}
@@ -278,7 +283,7 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 // Hello says hello once, claiming nothing, and returns the node's id. It
 // checks an install.
 func (d *Daemon) Hello(ctx context.Context) (string, error) {
-	resp, err := d.hello(ctx, []nodeproto.Claim{})
+	resp, err := d.hello(ctx, []nodeproto.Claim{}, nil)
 	if err != nil {
 		return "", err
 	}
@@ -286,8 +291,11 @@ func (d *Daemon) Hello(ctx context.Context) (string, error) {
 	return resp.NodeID, nil
 }
 
-func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim) (nodeproto.HelloResponse, error) {
+// hello says hello with the Dispatches claimed. held, when not nil, is every
+// Dispatch the node holds; nil says nothing of them, as a check of an install.
+func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim, held []string) (nodeproto.HelloResponse, error) {
 	body, err := json.Marshal(nodeproto.HelloRequest{
+		Held: held, ListsHeld: held != nil,
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),

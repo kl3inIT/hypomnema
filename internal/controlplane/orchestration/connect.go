@@ -45,28 +45,95 @@ type Disposition struct {
 	Kind       DispositionKind `json:"kind"`
 }
 
+// What a Dispatch settled at a node's hello is told, after Omnara's reasons
+// (machine_daemon_runtime_store.go:33, LocalProcessMissingAfterDaemonReconnectReason).
+const (
+	// summaryMissingAfterReconnect: the node came back and no longer holds the Dispatch.
+	summaryMissingAfterReconnect = "Lost: the node reconnected without this Dispatch " +
+		"(local_process_missing_after_node_reconnect)."
+	// summaryNotStarted: the node holds it, but its worker never started, so there is nothing to reattach to.
+	summaryNotStarted = "The worker never started before its outcome became unknown (execution_not_started)."
+)
+
 // NodeConnect records a node's hello and answers each Dispatch it claims.
+// A node that lists every Dispatch it holds (Hello.ListsHeld) also ends the
+// ones it no longer holds (issue #590).
 func (s *Service) NodeConnect(ctx context.Context, nodeID string, h Hello, claims []Claim) ([]Disposition, error) {
 	if err := s.NodeHello(ctx, nodeID, h); err != nil {
 		return nil, err
 	}
 
-	q := s.read()
 	out := make([]Disposition, 0, len(claims))
 
-	for _, c := range claims {
-		kind, err := disposition(ctx, q, nodeID, c)
-		if err != nil {
-			return nil, err
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		out = out[:0]
+
+		if h.ListsHeld {
+			if err := s.settleMissing(ctx, q, now, nodeID, h.Held, claims); err != nil {
+				return err
+			}
 		}
 
-		out = append(out, Disposition{DispatchID: c.DispatchID, Kind: kind})
+		for _, c := range claims {
+			kind, err := s.disposition(ctx, q, now, nodeID, c)
+			if err != nil {
+				return err
+			}
+
+			out = append(out, Disposition{DispatchID: c.DispatchID, Kind: kind})
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return out, nil
 }
 
-func disposition(ctx context.Context, q *store.Queries, nodeID string, c Claim) (DispositionKind, error) {
+// settleMissing ends, as lost, every Dispatch whose worker may run on the
+// node and that the node neither claims nor holds (Omnara's daemon
+// reconciliation, machine_daemon_reconciliation_store.go:54-92: a process
+// the reconnecting daemon does not claim is completed with
+// local_process_missing_after_daemon_reconnect). A held Dispatch the node
+// does not claim is one whose accept or final report is still queued in its
+// outbox; that report settles it. The settlement is not first-hand, so the
+// Conversation is closed; a cancel that was asked for cancels the Task.
+func (s *Service) settleMissing(ctx context.Context, q *store.Queries, now int64, nodeID string, held []string,
+	claims []Claim,
+) error {
+	live, err := q.ListLiveDispatchesOfNode(ctx, nodeID)
+	if err != nil {
+		return fmt.Errorf("listing the dispatches of node %s: %w", nodeID, err)
+	}
+
+	holds := make(map[string]bool, len(held)+len(claims))
+	for _, id := range held {
+		holds[id] = true
+	}
+
+	for _, c := range claims {
+		holds[c.DispatchID] = true
+	}
+
+	for _, d := range live {
+		if holds[d.ID] {
+			continue
+		}
+
+		if err := s.settle(ctx, q, now, d, DispatchFailed, FailureLost,
+			&Result{Summary: summaryMissingAfterReconnect}, nil, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) disposition(ctx context.Context, q *store.Queries, now int64, nodeID string,
+	c Claim,
+) (DispositionKind, error) {
 	d, err := q.GetDispatch(ctx, c.DispatchID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DispositionRelease, nil
@@ -81,6 +148,16 @@ func disposition(ctx context.Context, q *store.Queries, nodeID string, c Claim) 
 	switch {
 	case d.NodeID != nodeID || status.settled() || status == DispatchQueued:
 		// A queued Dispatch was never accepted, so nothing of it runs; it is offered again.
+		return DispositionRelease, nil
+	case (status == DispatchUnknown || status == DispatchStopUnknown) && !d.ProcessRef.Valid:
+		// Its worker never started, so a reattach, which names the process, cannot match
+		// (Omnara fails a claimed process whose execution was never committed,
+		// execution_not_started). The node is told to release it.
+		if err := s.settle(ctx, q, now, d, DispatchFailed, FailureStartFailed,
+			&Result{Summary: summaryNotStarted}, nil, false); err != nil {
+			return "", err
+		}
+
 		return DispositionRelease, nil
 	case status == DispatchUnknown || status == DispatchStopUnknown:
 		return DispositionReattach, nil
