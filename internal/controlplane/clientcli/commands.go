@@ -226,7 +226,7 @@ var commands = []command{
 			fs.String("app-file", "", "for an app such as lark: a JSON file with its app_id and app_secret, or - "+
 				"for standard input; without it, a label that exists is checked again")
 			fs.Bool("as-user", false, "for lark: sign in as yourself, by a code entered on any device; the "+
-				"account acts as you, for the main Bot on your own turn only")
+				"account acts as you, for a Bot given it, on your own turn only")
 			fs.String("app", "", "with --as-user: the label of the app to sign in through, such as work")
 			fs.String("services", "", "for a service that signs in: what to connect, such as gmail:read,calendar "+
 				"(:read is read only)")

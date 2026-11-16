@@ -291,7 +291,7 @@ function AccountItem({
                   <UserRound className="size-4 shrink-0" aria-hidden />
                   {`You, through ${connection.app}`}
                 </span>
-                <span>Only the main Bot, when you ask it yourself</span>
+                <span>Only a Bot given it, when you ask it yourself</span>
               </>
             )}
             {role && (
@@ -390,7 +390,7 @@ function AccountItem({
           title={`Disconnect ${connection.label} (${connection.account})?`}
           consequence={
             user
-              ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; the main Bot no longer acts as you. If ${service.name} cannot be reached, remove the app's access in your own account.`
+              ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; no Bot acts as you any more. If ${service.name} cannot be reached, remove the app's access in your own account.`
               : role
                 ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
                 : account
@@ -997,7 +997,7 @@ function UserSignInDialog({
           <DialogDescription>
             {started
               ? `Open the link on any device where you are signed in to ${service.name}, and enter the code there.`
-              : `The main Bot then reads what you can read in ${service.name}, only when you ask it yourself. Anything it would send or change as you waits for your yes. Your password never passes through here.`}
+              : `A Bot given it then reads what you can read in ${service.name}, only when you ask it yourself. Anything it would send or change as you waits for your yes. Your password never passes through here.`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
