@@ -78,6 +78,15 @@ func (q *Queries) CountGatewaySearch(ctx context.Context, arg CountGatewaySearch
 	return err
 }
 
+const deleteAntigravityRewrites = `-- name: DeleteAntigravityRewrites :exec
+DELETE FROM antigravity_prompt_rewrites
+`
+
+func (q *Queries) DeleteAntigravityRewrites(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAntigravityRewrites)
+	return err
+}
+
 const deleteGatewayModel = `-- name: DeleteGatewayModel :execrows
 DELETE FROM gateway_models WHERE name = ?1
 `
@@ -213,6 +222,28 @@ func (q *Queries) GetLiveGatewayKeyOfDispatch(ctx context.Context, dispatchID sq
 	return i, err
 }
 
+const insertAntigravityRewrite = `-- name: InsertAntigravityRewrite :exec
+INSERT INTO antigravity_prompt_rewrites (position, find, replacement, updated_at)
+VALUES (?1, ?2, ?3, ?4)
+`
+
+type InsertAntigravityRewriteParams struct {
+	Position    int64
+	Find        string
+	Replacement string
+	Now         int64
+}
+
+func (q *Queries) InsertAntigravityRewrite(ctx context.Context, arg InsertAntigravityRewriteParams) error {
+	_, err := q.db.ExecContext(ctx, insertAntigravityRewrite,
+		arg.Position,
+		arg.Find,
+		arg.Replacement,
+		arg.Now,
+	)
+	return err
+}
+
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
 INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -326,6 +357,39 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.Now,
 	)
 	return err
+}
+
+const listAntigravityRewrites = `-- name: ListAntigravityRewrites :many
+SELECT position, find, replacement FROM antigravity_prompt_rewrites ORDER BY position
+`
+
+type ListAntigravityRewritesRow struct {
+	Position    int64
+	Find        string
+	Replacement string
+}
+
+func (q *Queries) ListAntigravityRewrites(ctx context.Context) ([]ListAntigravityRewritesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAntigravityRewrites)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAntigravityRewritesRow{}
+	for rows.Next() {
+		var i ListAntigravityRewritesRow
+		if err := rows.Scan(&i.Position, &i.Find, &i.Replacement); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDispatchesWithGatewayKeys = `-- name: ListDispatchesWithGatewayKeys :many

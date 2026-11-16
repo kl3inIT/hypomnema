@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
 	"gateway keys add <name> [--models a,b] | gateway keys list | gateway keys revoke <key id> | " +
+	"gateway antigravity-rewrites list | gateway antigravity-rewrites set FILE | " +
 	"gateway usage [--limit N]"
 
 // gatewaySecrets gives the gateway a provider's key from the vault. A
@@ -164,6 +166,10 @@ func (o *owner) gatewayCommand(ctx context.Context, args []string) error {
 		return o.gatewayUsageList(ctx, args[1:])
 	}
 
+	if len(args) >= 1 && args[0] == "antigravity-rewrites" {
+		return o.gatewayRewrites(ctx, args[1:])
+	}
+
 	if len(args) < 2 {
 		return usage
 	}
@@ -222,6 +228,62 @@ func (o *owner) gatewayCommand(ctx context.Context, args []string) error {
 	default:
 		return usage
 	}
+}
+
+// gatewayRewrites lists or sets the owner's find→replace rules for the Antigravity system instruction (issue
+// #591). "set" reads a JSON array [{"find": "...", "with": "..."}] from a file or - for standard input, and
+// replaces every rule; an empty array clears them.
+func (o *owner) gatewayRewrites(ctx context.Context, args []string) error {
+	usage := fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
+
+	switch {
+	case len(args) == 1 && args[0] == "list":
+		rules, err := o.gateway.AntigravityRewrites(ctx)
+		if err != nil {
+			return err
+		}
+
+		if len(rules) == 0 {
+			o.printf("no Antigravity rewrites; the system prompt is sent unchanged\n")
+
+			return nil
+		}
+
+		for i, r := range rules {
+			o.printf("%d\t%q\t%q\n", i+1, r.Find, r.With)
+		}
+
+		return nil
+	case len(args) == 2 && args[0] == "set":
+		source, err := readOwnerInput(o, args[1])
+		if err != nil {
+			return fmt.Errorf("reading the rewrites: %w", err)
+		}
+
+		var rules []modelgateway.Rewrite
+		if err := json.Unmarshal(source, &rules); err != nil {
+			return fmt.Errorf("the rewrites are not a JSON array of {find, with}: %w", err)
+		}
+
+		if err := o.gateway.SetAntigravityRewrites(ctx, rules); err != nil {
+			return err
+		}
+
+		o.printf("%d Antigravity rewrite(s) set\n", len(rules))
+
+		return nil
+	default:
+		return usage
+	}
+}
+
+// readOwnerInput reads the owner's input from a file, or standard input for "-".
+func readOwnerInput(o *owner, name string) ([]byte, error) {
+	if name == "-" {
+		return io.ReadAll(o.in)
+	}
+
+	return os.ReadFile(name) //nolint:gosec // the owner names the file
 }
 
 func (o *owner) gatewayModelsApply(ctx context.Context, file string) error {

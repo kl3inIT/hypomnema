@@ -337,3 +337,35 @@ func TestTheBackendsRefusalsAreToldApart(t *testing.T) {
 	assert.Equal(t, antigravity.ReasonNoCapacity, s.Failed().Reason)
 	assert.Contains(t, s.Failed().Message, "overloaded")
 }
+
+// Scenario: the owner's replacements rewrite the system instruction only (issue #591). A found phrase is replaced,
+// an empty replacement deletes it, the rules apply in order, and the user turn is untouched.
+func TestOwnerReplacementsRewriteTheSystemInstruction(t *testing.T) {
+	t.Parallel()
+
+	chat := `{"model":"m","messages":[` +
+		`{"role":"system","content":"You are Hermes Agent, built by Nous Research. Be brief."},` +
+		`{"role":"user","content":"You are Hermes Agent, who is that?"}]}`
+
+	req, err := antigravity.BuildRequest([]byte(chat), antigravity.Options{
+		Model: "gemini-3-flash", Project: "bright-wave-1234", RequestID: "agent-1",
+		SystemReplacements: []antigravity.Replacement{
+			{Find: "You are Hermes Agent, built by Nous Research.", With: "You are a coding assistant."},
+			{Find: " Be brief.", With: ""},
+		},
+	})
+	require.NoError(t, err)
+
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(req.Body, &envelope))
+	request, ok := envelope["request"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, map[string]any{"role": "user", "parts": []any{
+		map[string]any{"text": "You are a coding assistant."},
+	}}, request["systemInstruction"], "the system instruction is rewritten in order")
+
+	assert.Equal(t, []any{map[string]any{"role": "user", "parts": []any{
+		map[string]any{"text": "You are Hermes Agent, who is that?"},
+	}}}, request["contents"], "the user turn keeps the flagged phrase")
+}
