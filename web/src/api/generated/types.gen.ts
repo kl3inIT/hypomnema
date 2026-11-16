@@ -5039,6 +5039,39 @@ export type ReadMessagingMediaResponses = {
 
 export type ReadMessagingMediaResponse = ReadMessagingMediaResponses[keyof ReadMessagingMediaResponses];
 
+export type BackfillMessagingChatData = {
+  body?: {
+    count?: number;
+  };
+  path: {
+    integration: string;
+    label: string;
+    chat: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/chats/{chat}/history';
+};
+
+export type BackfillMessagingChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type BackfillMessagingChatError = BackfillMessagingChatErrors[keyof BackfillMessagingChatErrors];
+
+export type BackfillMessagingChatResponses = {
+  /**
+   * How many older messages the phone sent.
+   */
+  200: {
+    received: number;
+  };
+};
+
+export type BackfillMessagingChatResponse = BackfillMessagingChatResponses[keyof BackfillMessagingChatResponses];
+
 export type CheckIntegrationConnectionData = {
   body?: never;
   path: {

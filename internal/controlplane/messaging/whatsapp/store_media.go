@@ -63,6 +63,30 @@ func (m *mirror) pendingMedia(ctx context.Context, account string, limit int) ([
 	return out, rows.Err()
 }
 
+// anchor is the oldest message kept in a chat, which a request for older ones starts from.
+type anchor struct {
+	id     string
+	at     time.Time
+	fromMe bool
+}
+
+func (m *mirror) oldest(ctx context.Context, account, chat string) (anchor, error) {
+	var (
+		a  anchor
+		ts int64
+	)
+
+	err := m.db.QueryRowContext(ctx, `SELECT msg_id, ts, from_me FROM wa_messages
+		WHERE account = ? AND chat_jid = ? ORDER BY ts, rowid LIMIT 1`, account, chat).Scan(&a.id, &ts, &a.fromMe)
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, fmt.Errorf("%w: no message of %s is kept yet, to ask for older ones from", errNoMessage, chat)
+	}
+
+	a.at = time.Unix(ts, 0)
+
+	return a, err
+}
+
 // keptMedia records where a message's file was kept, or why it was not.
 func (m *mirror) keptMedia(ctx context.Context, account, chat, id, path, why string) error {
 	at := int64(0)

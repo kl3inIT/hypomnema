@@ -1077,6 +1077,40 @@ paths:
             application/octet-stream:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/chats/{chat}/history:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: chat
+        in: path
+        required: true
+        schema: { type: string, maxLength: 128 }
+    post:
+      operationId: BackfillMessagingChat
+      summary: Ask the phone for messages of a chat older than the oldest kept; only the owner
+      description: >-
+        One request for up to `count` (50 by default, 500 at most) messages before the oldest kept one, as wacli's
+        history backfill (issue #634). The phone must be online and decides what it sends; this waits up to a
+        minute for its answer, and the messages are kept as any history.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                count: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: How many older messages the phone sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [received]
+                properties:
+                  received: { type: integer }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}/check:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"

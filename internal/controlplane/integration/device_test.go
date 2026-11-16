@@ -58,6 +58,8 @@ func (d *device) Media(context.Context, string, string) (messaging.Media, error)
 	return messaging.Media{}, nil
 }
 
+func (d *device) Backfill(context.Context, string, int) (int, error) { return 0, nil }
+
 func (d *device) Messages(_ context.Context, q messaging.Query) ([]messaging.Message, error) {
 	return []messaging.Message{{ID: "m1", Chat: q.Chat, Text: "hello"}}, nil
 }

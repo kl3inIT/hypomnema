@@ -316,6 +316,7 @@ type Messaging interface {
 	Chats(ctx context.Context, integration, label string, limit int) ([]messaging.Chat, error)
 	Messages(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
 	Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error)
+	Backfill(ctx context.Context, integration, label, chat string, count int) (int, error)
 }
 
 // WithMessaging sets the service that reads the messaging accounts' kept chats.
@@ -412,3 +413,23 @@ func (s *Server) ReadMessagingMedia(ctx context.Context, req openapi.ReadMessagi
 }
 
 func (d download) VisitReadMessagingMediaResponse(w http.ResponseWriter) error { return d.write(w) }
+
+// BackfillMessagingChat asks the phone for older messages of a chat (issue #634).
+func (s *Server) BackfillMessagingChat(ctx context.Context, req openapi.BackfillMessagingChatRequestObject,
+) (openapi.BackfillMessagingChatResponseObject, error) {
+	if s.messaging == nil {
+		return nil, errNoMessaging
+	}
+
+	count := 0
+	if req.Body != nil {
+		count = val(req.Body.Count)
+	}
+
+	n, err := s.messaging.Backfill(ctx, req.Integration, req.Label, req.Chat, count)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.BackfillMessagingChat200JSONResponse{Received: n}, nil
+}

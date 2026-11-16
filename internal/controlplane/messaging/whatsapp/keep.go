@@ -76,6 +76,8 @@ func (a *account) keepHistory(e *events.HistorySync) {
 				a.keep(ctx, parseHistory(chat, web))
 			}
 		}
+
+		a.answered(e.Data, a.toNumber(ctx, chat).String(), len(conv.GetMessages()))
 	}
 }
 

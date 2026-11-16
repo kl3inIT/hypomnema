@@ -1817,6 +1817,10 @@ flowchart LR
       live in `whatsapp-media/<number>/<chat>/` beside `whatsapp.db`, private; disconnecting removes them.
       `GET …/messages/{chat}/{message}/media` answers one as an opaque download, downloaded first when it is not
       kept; a message says `media_kept`.
+    - **Older messages of a chat** (issue #634; owner, 2026-11-16): `POST …/chats/{chat}/history` asks the phone
+      for up to 500 (50 by default) before the oldest kept one and waits a minute for its on-demand history
+      sync, which is kept as any history; the answer says how many came, as wacli's `history backfill`. The phone
+      must be online. wacli's retry of a direct chat under its other identity is left out.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and

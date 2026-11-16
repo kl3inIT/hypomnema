@@ -290,3 +290,38 @@ func TestAMirrorOfTheFirstVersionIsUpgraded(t *testing.T) {
 	require.Len(t, msgs, 1)
 	assert.False(t, msgs[0].MediaKept)
 }
+
+// Older messages of a chat (issue #634): a chat with nothing kept has no anchor to ask from, and the phone's
+// on-demand answer is kept and tells the waiting request how many came.
+func TestThePhonesAnswerForOlderMessagesIsKept(t *testing.T) {
+	t.Parallel()
+
+	acc := linkedAccount(t)
+	ctx := t.Context()
+	minh := types.NewJID("84922222222", types.DefaultUserServer)
+
+	_, err := acc.Backfill(ctx, minh.String(), 0)
+	require.ErrorIs(t, err, errNoMessage, "nothing kept, nothing to ask from")
+
+	waiting := make(chan int, 1)
+	acc.waiting[minh.String()] = waiting
+
+	acc.handle(&events.HistorySync{Data: &waHistorySync.HistorySync{
+		SyncType: waHistorySync.HistorySync_ON_DEMAND.Enum(),
+		Conversations: []*waHistorySync.Conversation{{
+			ID: proto.String(minh.String()),
+			Messages: []*waHistorySync.HistorySyncMsg{{Message: &waWeb.WebMessageInfo{
+				Key:              &waCommon.MessageKey{ID: proto.String("old1"), RemoteJID: proto.String(minh.String())},
+				MessageTimestamp: proto.Uint64(1700000000),
+				Message:          &waE2E.Message{Conversation: proto.String("Tin cũ")},
+			}}},
+		}},
+	}})
+
+	assert.Equal(t, 1, <-waiting)
+
+	msgs, err := acc.Messages(ctx, messaging.Query{Chat: minh.String()})
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Tin cũ", msgs[0].Text)
+}

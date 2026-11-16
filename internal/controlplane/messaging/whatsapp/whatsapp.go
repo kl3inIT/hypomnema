@@ -241,6 +241,7 @@ func (s *Service) newAccount(ctx context.Context, device *store.Device) *account
 	acc := &account{
 		client: client, mirror: s.mirror, log: s.log, state: messaging.State{Status: messaging.StatusConnecting},
 		mediaDir: s.mediaDir, jobs: make(chan mediaJob, mediaQueueSize), stop: make(chan struct{}),
+		waiting: map[string]chan int{},
 	}
 	acc.startMedia(context.WithoutCancel(ctx))
 	client.AddEventHandler(acc.handle)
@@ -259,6 +260,10 @@ type account struct {
 	jobs     chan mediaJob
 	stop     chan struct{}
 	stopOnce sync.Once
+
+	// waiting is the Backfill waiting for each chat's older messages (backfill.go).
+	waitMu  sync.Mutex
+	waiting map[string]chan int
 
 	mu    sync.Mutex
 	state messaging.State
@@ -387,6 +392,11 @@ func (g *gone) State() messaging.State {
 func (g *gone) Logout(ctx context.Context) error {
 	return errors.Join(g.mirror.forget(ctx, g.account),
 		os.RemoveAll(filepath.Join(g.mediaDir, unsafeName.ReplaceAllString(g.account, "_"))))
+}
+
+// Backfill cannot ask a phone that logged the device out.
+func (g *gone) Backfill(context.Context, string, int) (int, error) {
+	return 0, errors.New("whatsapp: the session is logged out; link it again to ask the phone for older messages")
 }
 
 // Media is a file kept before the logout; nothing more can be downloaded.

@@ -466,6 +466,16 @@ func (s *Service) Media(ctx context.Context, integration, label, chat, id string
 	return acc.Media(ctx, chat, id)
 }
 
+// Backfill asks for older messages of a chat of a Connection of kind device (issue #634).
+func (s *Service) Backfill(ctx context.Context, integration, label, chat string, count int) (int, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return 0, err
+	}
+
+	return acc.Backfill(ctx, chat, count)
+}
+
 // Messages lists the messages kept of a Connection of kind device, the latest first (issue #631).
 func (s *Service) Messages(ctx context.Context, integration, label string, q messaging.Query,
 ) ([]messaging.Message, error) {

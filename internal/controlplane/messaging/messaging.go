@@ -55,6 +55,9 @@ type Account interface {
 	Messages(ctx context.Context, q Query) ([]Message, error)
 	// Media is a kept message's image or file, downloaded first when it is not kept yet (issue #634).
 	Media(ctx context.Context, chat, id string) (Media, error)
+	// Backfill asks the service for up to count messages of a chat older than the oldest kept, keeps them, and
+	// answers how many came (issue #634).
+	Backfill(ctx context.Context, chat string, count int) (int, error)
 }
 
 // Chat is one chat of the account, as kept.
