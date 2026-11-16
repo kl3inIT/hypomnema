@@ -276,11 +276,16 @@ func (a *account) handle(evt any) {
 }
 
 // Logout ends the link on WhatsApp, which drops the device from the phone and makes whatsmeow forget it. A session
-// that cannot reach WhatsApp is forgotten here; the phone drops it when WhatsApp ends it.
+// WhatsApp already logged out is only forgotten here. Any other failure keeps the session, to try again: the
+// device may still be linked on the phone (review of #622).
 func (a *account) Logout(ctx context.Context) error {
 	err := a.client.Logout(ctx)
 	if err == nil {
 		return nil
+	}
+
+	if !a.State().NeedsLink() {
+		return fmt.Errorf("whatsapp: logging the device out: %w", err)
 	}
 
 	a.client.Disconnect()
@@ -290,7 +295,7 @@ func (a *account) Logout(ctx context.Context) error {
 	}
 
 	if delErr := a.client.Store.Delete(ctx); delErr != nil {
-		return fmt.Errorf("whatsapp: forgetting the session after the logout failed (%w): %w", err, delErr)
+		return fmt.Errorf("whatsapp: forgetting a session WhatsApp logged out: %w", delErr)
 	}
 
 	return nil

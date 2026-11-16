@@ -393,6 +393,11 @@ func (s *Service) forgetDevice(ctx context.Context, d Definition, conn orchestra
 		if acc, err = svc.Open(ctx, opened.Payload[vault.KeyValue]); err != nil {
 			return false, fmt.Errorf("opening the session to log it out: %w", err)
 		}
+
+		// Held from now on, so that a logout that fails while it connects is tried again on the same session.
+		s.mu.Lock()
+		s.held[key] = acc
+		s.mu.Unlock()
 	}
 
 	if err := acc.Logout(ctx); err != nil {

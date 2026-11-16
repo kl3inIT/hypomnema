@@ -58,3 +58,21 @@ func TestTheSessionFollowsWhatsAppsEvents(t *testing.T) {
 		})
 	}
 }
+
+// A logout WhatsApp did not take keeps the session, to try again, unless WhatsApp had logged the device out
+// already (review of #622).
+func TestALogoutThatFailedKeepsTheSession(t *testing.T) {
+	t.Parallel()
+
+	svc, err := Open(t.Context(), filepath.Join(t.TempDir(), "whatsapp.db"), slog.New(slog.DiscardHandler))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = svc.Close() })
+
+	linked := svc.newAccount(svc.container.NewDevice())
+	linked.setState(messaging.State{Status: messaging.StatusConnected})
+	require.Error(t, linked.Logout(t.Context()), "WhatsApp was not reached: the device may still be on the phone")
+
+	gone := svc.newAccount(svc.container.NewDevice())
+	gone.setState(messaging.State{Status: messaging.StatusLoggedOut})
+	require.NoError(t, gone.Logout(t.Context()), "WhatsApp had ended the link: only the session was left")
+}
