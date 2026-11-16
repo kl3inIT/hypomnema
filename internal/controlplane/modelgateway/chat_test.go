@@ -361,6 +361,31 @@ func TestAProvidersErrorReachesTheClientAsItIs(t *testing.T) {
 	assert.JSONEq(t, `{"error":{"message":"slow down"}}`, body)
 }
 
+// Scenario: a chat full of phone screenshots (issue #675). A request of 20 MiB, twice the gateway's old limit, is
+// forwarded; one over 32 MiB, the limit pi's catalog and Hermes state for Anthropic, is refused with a 413 the
+// provider never sees, which pi takes as a context overflow.
+func TestARequestFullOfImagesIsForwardedUpTo32MiB(t *testing.T) {
+	t.Parallel()
+
+	upstream, got := provider(t, plain(http.StatusOK, answer))
+	g := newChatGateway(t, modelgateway.Config{}, upstream)
+
+	withImage := func(size int) string {
+		return `{"model":"gpt","messages":[{"role":"user","content":[{"type":"image_url","image_url":` +
+			`{"url":"data:image/jpeg;base64,` + strings.Repeat("A", size) + `"}}]}]}`
+	}
+
+	status, _, body := g.call(t, g.key, withImage(20<<20))
+	assert.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, 1, got.calls())
+
+	status, _, body = g.call(t, g.key, withImage(32<<20))
+	assert.Equal(t, http.StatusRequestEntityTooLarge, status)
+	assert.JSONEq(t, `{"error":{"message":"the request is over 33554432 bytes","type":"invalid_request_error",`+
+		`"code":"request_too_large"}}`, body)
+	assert.Equal(t, 1, got.calls(), "a refused request does not reach the provider")
+}
+
 // Scenario: no provider can be reached. The client gets a 502 in OpenAI's
 // error shape, which a client retries, and the record says so.
 func TestNoProviderReachableIsABadGateway(t *testing.T) {

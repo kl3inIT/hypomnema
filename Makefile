@@ -17,7 +17,7 @@ BINARIES := hypomnema hypomnema-node
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
 	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
 	web-api-check web-build web-e2e release-node release-controlplane web-doctor \
-	zalo-bridge-install zalo-bridge-check zalo-bridge-build
+	zalo-bridge-install zalo-bridge-check zalo-bridge-build pi-extension-check
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -139,6 +139,10 @@ zalo-bridge-check: ## Unit tests of the Zalo bridge's protocol
 
 zalo-bridge-build: ## Bundle the Zalo bridge into bridges/zalo/dist, which hypomnema embeds (issue #657)
 	$(ZALO) build
+
+# pi loads the extension as TypeScript (jiti); Node 24 runs its tests without a build, as the Zalo bridge's run.
+pi-extension-check: ## Unit tests of pi's image extension (issue #675; needs Node 24)
+	node --test deploy/coordinator/pi-image-eviction.test.mts
 
 # Not a gate: its findings are read, then fixed or ignored in web/doctor.config.json. It runs local checks only
 # (no score API, no crash reports, no Socket.dev lookups).
