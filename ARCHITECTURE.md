@@ -1580,7 +1580,7 @@ flowchart LR
     - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
       secret; the answer says when Google could not be asked.
     - `GET /integrations` lists these Integrations with their Connections and their kind (`oauth`, `app`,
-      `account`) for every token; a token, a password or a client secret is in no answer.
+      `account`, `role`, `device`) for every token; a token, a password or a client secret is in no answer.
   - Lark is an Integration of kind `app` ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)): each
     Connection is a custom app of the owner's Lark organization, and nothing is signed in. One organization can
     so have several apps, one a Bot ([issue #311](https://github.com/kl3inIT/hypomnema/issues/311), as each of
@@ -1774,6 +1774,25 @@ flowchart LR
     - **On the web** the Integrations page has an AWS card: add a role (name, ARN, key name, and the access key
       the first time a key name is used), see each role's ARN, account and key and whether the last assume
       worked, "Use in chats", connect again, disconnect.
+  - WhatsApp is an Integration of kind `device` ([issue #615](https://github.com/kl3inIT/hypomnema/issues/615),
+    step 1 of [#612](https://github.com/kl3inIT/hypomnema/issues/612); `internal/controlplane/integration/device.go`,
+    `internal/controlplane/messaging`, `messaging/whatsapp`;
+    [research](docs/research/2026-11-16-messaging-accounts-as-the-owner.md)): the owner's own account, his main
+    number (owner, 2026-11-16), linked as a device of his as on WhatsApp Web, so that the main Bot can later act in
+    his chats as him. Nothing reads or sends messages yet (steps 2 to 4 of #612).
+    - `messaging.Service` links a new account and opens a linked one; `messaging.Account` is its live session
+      (state, logout, close). `messaging/whatsapp` implements them on whatsmeow in the control plane's process,
+      with its sessions in whatsmeow's own tables in `whatsapp.db` beside the control plane's database (private as
+      it is; a copy of it can take over the number). The phone lists the device as "Hypomnema".
+    - `POST /integrations/whatsapp/sign-ins` with a label starts linking and answers a `qr_code` and when it
+      expires; `GET /integrations/whatsapp/sign-ins/{id}` answers the current code, a new one about every 20 s;
+      `POST /integrations/whatsapp/sign-ins/{id}` waits until the phone scanned one, then records the Connection:
+      its account is the number, its vault secret `conn-whatsapp-<label>` names the device. Linking a label again
+      replaces the device and logs the old one out.
+    - The control plane opens every WhatsApp Connection's session when it starts and holds it while it runs;
+      whatsmeow reconnects a dropped one. A Connection says its session's state (`session`: connecting, connected,
+      disconnected, logged out, banned until, replaced, outdated), as MemoryOS's bridge reports them; logged out
+      needs a link again. Disconnecting logs the device out, which drops it from the phone.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
@@ -3747,7 +3766,9 @@ internal/controlplane/browser  the browser every agent shares: the pinned agent-
 internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
 internal/controlplane/clientcli  the commands that call the client API, and the skills this binary ships (skills/)
-internal/controlplane/integration  the Integrations whose credential the control plane mints: Google (OAuth), Lark (an app), Superset (an account at an address), AWS (roles)
+internal/controlplane/integration  the Integrations whose credential the control plane mints: Google (OAuth), Lark (an app), Superset (an account at an address), AWS (roles), WhatsApp (a linked device)
+internal/controlplane/messaging  a messaging account the owner linked as himself: the Service that links and opens one, the Account that is its live session
+internal/controlplane/messaging/whatsapp  WhatsApp on whatsmeow: linking by QR, the sessions in whatsapp.db, their states
 internal/controlplane/channels  the Channels' runtime every kind shares: the registry of kinds, connecting and retrying, who may talk, groups and mentions, /new and /stop, the reply relay, questions, files, the owner's settings
 internal/controlplane/channels/lark  LarkChannel: Lark's SDK and persistent connection, its events, CardKit cards, emoji marks, mention tags, file types, the app's and a person's ids at Lark
 internal/controlplane/modelgateway  the model gateway: the OpenAI-compatible API, the model table, the adapters, usage per key

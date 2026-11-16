@@ -118,6 +118,7 @@ var policies = map[string]policy{
 	"PutIntegrationClient":        {scope: scopeOwner},
 	"BeginIntegrationSignIn":      {scope: scopeOwner},
 	"CompleteIntegrationSignIn":   {scope: scopeOwner},
+	"GetIntegrationSignIn":        {scope: scopeOwner},
 	"PutIntegrationConnection":    {scope: scopeOwner},
 	"DeleteIntegrationConnection": {scope: scopeOwner},
 	"ListLarkChannels":            {scope: scopeOwner},

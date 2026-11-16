@@ -23,6 +23,8 @@ type Integrations interface {
 	// BeginAsUser starts the owner's own sign-in to an app Integration through one of its app Connections.
 	BeginAsUser(ctx context.Context, id, label, app string) (integration.SignIn, error)
 	Complete(ctx context.Context, id, signInID, pasted string) (integration.Connection, error)
+	// Code answers the current QR code of a linking in progress, for an Integration of kind device.
+	Code(ctx context.Context, id, signInID string) (integration.SignIn, error)
 	// Connect connects an Integration that is an app: each Connection is an app of its own.
 	Connect(ctx context.Context, id, label string, app integration.App) (integration.Connection, error)
 	// ConnectAccount connects an Integration of kind account: an address, a user name and a password.
@@ -58,6 +60,13 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 		out.Cannot = append(out.Cannot, openapi.ConnectionCannot{
 			Action: no.Action.ID, Service: no.Action.Service, Name: no.Action.Name, Reason: no.Reason,
 		})
+	}
+
+	if st := c.Session; st != nil {
+		out.Session = &openapi.DeviceSession{State: openapi.DeviceSessionState(st.Status), Reason: opt(st.Reason)}
+		if !st.Until.IsZero() {
+			out.Session.Until = &st.Until
+		}
 	}
 
 	if !c.Access.CheckedAt.IsZero() {
@@ -162,10 +171,34 @@ func (s *Server) BeginIntegrationSignIn(ctx context.Context, req openapi.BeginIn
 		return nil, err
 	}
 
-	return openapi.BeginIntegrationSignIn200JSONResponse{
-		Id: started.ID, Url: started.URL, UserCode: opt(started.UserCode),
-		ExpiresInSeconds: int(started.ExpiresIn.Seconds()),
-	}, nil
+	return openapi.BeginIntegrationSignIn200JSONResponse(toSignIn(started)), nil
+}
+
+func toSignIn(in integration.SignIn) openapi.SignIn {
+	out := openapi.SignIn{
+		Id: in.ID, Url: in.URL, UserCode: opt(in.UserCode), QrCode: opt(in.Code),
+		ExpiresInSeconds: int(in.ExpiresIn.Seconds()),
+	}
+	if in.Code != "" && !in.CodeExpires.IsZero() {
+		out.QrExpiresAt = &in.CodeExpires
+	}
+
+	return out
+}
+
+// GetIntegrationSignIn answers the current QR code of a linking in progress (issue #615).
+func (s *Server) GetIntegrationSignIn(ctx context.Context, req openapi.GetIntegrationSignInRequestObject,
+) (openapi.GetIntegrationSignInResponseObject, error) {
+	if s.integrations == nil {
+		return nil, errNoIntegrations
+	}
+
+	current, err := s.integrations.Code(ctx, req.Integration, req.SignInId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetIntegrationSignIn200JSONResponse(toSignIn(current)), nil
 }
 
 // CompleteIntegrationSignIn finishes a sign-in with the address the browser

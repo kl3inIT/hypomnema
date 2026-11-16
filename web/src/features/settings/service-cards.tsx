@@ -1,6 +1,7 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation } from "@tanstack/react-query"
-import { Copy, ExternalLink, Plug, Plus, RefreshCw, UserRound } from "lucide-react"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { Copy, ExternalLink, Plug, Plus, RefreshCw, Smartphone, UserRound } from "lucide-react"
+import QRCode from "qrcode"
 import { useId, useState, type ComponentType, type ReactElement, type SVGProps } from "react"
 import { z } from "zod"
 
@@ -11,8 +12,16 @@ import {
   deleteIntegrationConnection,
   putIntegrationConnection,
 } from "@/api/generated/sdk.gen"
-import { patchIntegrationConnectionMutation } from "@/api/generated/@tanstack/react-query.gen"
-import type { Integration, IntegrationConnection, SignIn } from "@/api/generated/types.gen"
+import {
+  getIntegrationSignInOptions,
+  patchIntegrationConnectionMutation,
+} from "@/api/generated/@tanstack/react-query.gen"
+import type {
+  DeviceSession,
+  Integration,
+  IntegrationConnection,
+  SignIn,
+} from "@/api/generated/types.gen"
 import {
   GmailIcon,
   GoogleCalendarIcon,
@@ -24,6 +33,7 @@ import {
   LarkIcon,
   AwsIcon,
   SupersetIcon,
+  WhatsAppIcon,
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -90,6 +100,7 @@ const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   lark: LarkIcon,
   superset: SupersetIcon,
   aws: AwsIcon,
+  whatsapp: WhatsAppIcon,
 }
 
 // IntegrationMark is an Integration's logo, or a plain plug for one that has none here. The Bot page shows it beside
@@ -153,13 +164,15 @@ export function ServiceCard({ service }: { service: Integration }) {
   const account = service.kind === "account"
   // A role of an AWS account is connected from a terminal with the key that assumes it (issue #331).
   const role = service.kind === "role"
-  const ready = account || app || role || Boolean(service.client_id)
+  // The owner's own messaging account, linked as a device of his by a QR code his phone scans (issue #615).
+  const device = service.kind === "device"
+  const ready = account || app || role || device || Boolean(service.client_id)
   // The owner may sign in to an app service as himself through one of its apps (issue #468): a user Connection.
   const apps = service.connections.filter((c) => !c.app)
   const add = (
     <Button variant="outline" size="sm">
       <Plus data-icon="inline-start" />
-      {app ? "Add app" : role ? "Add role" : "Add account"}
+      {app ? "Add app" : role ? "Add role" : device ? "Link phone" : "Add account"}
     </Button>
   )
 
@@ -176,9 +189,11 @@ export function ServiceCard({ service }: { service: Integration }) {
                   ? "Each account works as one of your apps, or as you through one"
                   : role
                     ? "Roles of your AWS accounts, each with the rights its work needs"
-                    : account
-                      ? (accountHolds[service.id] ?? "An account at its own address")
-                      : service.services.map(serviceName).join(" · ")}
+                    : device
+                      ? "Your own account, linked as a device of your phone"
+                      : account
+                        ? (accountHolds[service.id] ?? "An account at its own address")
+                        : service.services.map(serviceName).join(" · ")}
               </CardDescription>
             </span>
           </span>
@@ -199,7 +214,8 @@ export function ServiceCard({ service }: { service: Integration }) {
               />
             )}
             {role && <ConnectRoleDialog service={service} trigger={add} />}
-            {!app && !account && !role && service.client_id && (
+            {device && <LinkDeviceDialog service={service} trigger={add} />}
+            {!app && !account && !role && !device && service.client_id && (
               <SignInDialog service={service} trigger={add} />
             )}
             <Badge variant={accounts > 0 && !needsSignIn ? "success" : "warning"}>
@@ -208,10 +224,16 @@ export function ServiceCard({ service }: { service: Integration }) {
                 : accounts === 0
                   ? app || role
                     ? "Not connected"
-                    : "No account"
+                    : device
+                      ? "Not linked"
+                      : "No account"
                   : needsSignIn
-                    ? "Needs sign-in"
-                    : "Connected"}
+                    ? device
+                      ? "Needs a link"
+                      : "Needs sign-in"
+                    : device
+                      ? "Linked"
+                      : "Connected"}
             </Badge>
           </span>
         </CardAction>
@@ -270,6 +292,7 @@ function AccountItem({
   const app = service.kind === "app" && !user
   const account = service.kind === "account"
   const role = service.kind === "role"
+  const device = service.kind === "device"
 
   return (
     <Item variant="muted" size="sm" aria-label={`${service.name} account ${connection.label}`}>
@@ -277,7 +300,9 @@ function AccountItem({
         <ItemTitle>
           {connection.label}
           <span className="font-normal text-muted-foreground">{connection.account}</span>
-          {connection.sign_in_required && <Badge variant="warning">Needs sign-in</Badge>}
+          {connection.sign_in_required && (
+            <Badge variant="warning">{device ? "Needs a link" : "Needs sign-in"}</Badge>
+          )}
         </ItemTitle>
         <ItemDescription>
           <span className="flex flex-wrap gap-x-3 gap-y-1">
@@ -305,6 +330,7 @@ function AccountItem({
                 </span>
               </>
             )}
+            {device && connection.session && <span>{sessionSays(connection.session)}</span>}
             {account && (
               <>
                 <span className="break-all">{connection.address}</span>
@@ -357,6 +383,18 @@ function AccountItem({
             }
           />
         )}
+        {device && (
+          <LinkDeviceDialog
+            service={service}
+            connection={connection}
+            trigger={
+              <Button variant="ghost" size="sm">
+                <RefreshCw data-icon="inline-start" />
+                Link again
+              </Button>
+            }
+          />
+        )}
         {user && (
           <UserSignInDialog
             service={service}
@@ -369,7 +407,7 @@ function AccountItem({
             }
           />
         )}
-        {!app && !account && !role && !user && (
+        {!app && !account && !role && !device && !user && (
           <SignInDialog
             service={service}
             connection={connection}
@@ -391,13 +429,15 @@ function AccountItem({
           consequence={
             user
               ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; the main Bot no longer acts as you. If ${service.name} cannot be reached, remove the app's access in your own account.`
-              : role
-                ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
-                : account
-                  ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
-                  : app
-                    ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
-                    : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
+              : device
+                ? `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`
+                : role
+                  ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
+                  : account
+                    ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
+                    : app
+                      ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
+                      : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
           }
           action="Disconnect"
           run={() =>
@@ -411,6 +451,29 @@ function AccountItem({
       </ItemActions>
     </Item>
   )
+}
+
+// sessionSays is a linked account's session in a few words, as MemoryOS's runbook explains each state
+// (docs/runbooks/whatsapp-bot.md, "When it stops").
+function sessionSays(session: DeviceSession): string {
+  switch (session.state) {
+    case "connected":
+      return "Connected"
+    case "connecting":
+      return "Connecting"
+    case "disconnected":
+      return "Disconnected; it reconnects by itself"
+    case "logged_out":
+      return "Logged out on the phone; link it again"
+    case "banned":
+      return session.until
+        ? `Banned by WhatsApp until ${new Date(session.until).toLocaleString()}`
+        : "Banned by WhatsApp for a while"
+    case "replaced":
+      return "Another client opened this session"
+    case "outdated":
+      return "WhatsApp refuses this version; update Hypomnema"
+  }
 }
 
 const labelSchema = z
@@ -885,6 +948,197 @@ function ConnectRoleDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+const linkSchema = z.object({ label: labelSchema })
+
+// LinkDeviceDialog links the owner's own messaging account (WhatsApp) as a device of his phone (issue #615): he
+// names it, then scans the QR code in WhatsApp › Linked devices › Link a device, as MemoryOS's runbook has it
+// (docs/runbooks/whatsapp-bot.md, "Linking"). The code changes about every 20 seconds, so the dialog reads the
+// current one meanwhile, as MemoryOS's bot page refreshes its code, and waits for the scan as UserSignInDialog
+// waits for its code. Linking an account again replaces its device.
+function LinkDeviceDialog({
+  service,
+  connection,
+  trigger,
+}: {
+  service: Integration
+  connection?: IntegrationConnection
+  trigger: ReactElement
+}) {
+  const formId = useId()
+  const refresh = useRefreshServices()
+  const [open, setOpen] = useState(false)
+  const [started, setStarted] = useState<SignIn | null>(null)
+
+  const begin = useMutation({
+    mutationFn: async (value: z.infer<typeof linkSchema>) =>
+      (
+        await beginIntegrationSignIn({
+          path: { integration: service.id },
+          body: { label: value.label },
+        })
+      ).data,
+  })
+
+  const complete = useMutation({
+    mutationFn: (id: string) =>
+      completeIntegrationSignIn({ path: { integration: service.id, sign_in_id: id }, body: {} }),
+  })
+
+  const current = useQuery({
+    ...getIntegrationSignInOptions({
+      path: { integration: service.id, sign_in_id: started?.id ?? "" },
+    }),
+    enabled: started !== null && complete.isPending,
+    refetchInterval: 5000,
+  })
+
+  const form = useForm({
+    defaultValues: { label: connection?.label ?? "main" },
+    validators: { onSubmit: linkSchema },
+    onSubmit: async ({ value }) => {
+      let signIn: SignIn
+      try {
+        signIn = await begin.mutateAsync(value)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
+      setStarted(signIn)
+
+      try {
+        await complete.mutateAsync(signIn.id)
+      } catch {
+        return // The dialog shows why, and the owner starts again.
+      }
+
+      await refresh()
+      change(false)
+      said(`${service.name} ${value.label} is linked`)
+    },
+  })
+
+  function change(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      setStarted(null)
+      form.reset()
+      begin.reset()
+      complete.reset()
+    }
+  }
+
+  function again() {
+    setStarted(null)
+    begin.reset()
+    complete.reset()
+  }
+
+  const code = current.data?.qr_code ?? started?.qr_code
+  const waiting = started !== null && complete.isPending
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {connection ? `Link ${connection.label} again` : `Link your ${service.name}`}
+          </DialogTitle>
+          <DialogDescription>
+            {started
+              ? `On your phone, open ${service.name} › Linked devices › Link a device, and scan this code.`
+              : `Your phone links Hypomnema as one of its devices, as ${service.name} Web is. The main Bot can then read and write in your chats as you. ${service.name} forbids clients it did not make, so a number can be banned; Hypomnema never sends in bulk.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            {!started && !connection && (
+              <FieldGroup>
+                <form.Field name="label">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Name"
+                      placeholder="main"
+                      description="What you call this account here, such as main."
+                    />
+                  )}
+                </form.Field>
+              </FieldGroup>
+            )}
+            {started && waiting && code && (
+              <div className="flex flex-col items-center gap-3">
+                <QrCode text={code} label={`QR code to link ${service.name}`} />
+                <output className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Spinner />
+                  Waiting for your phone to scan it
+                </output>
+              </div>
+            )}
+            <ErrorAlert error={begin.error ?? complete.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          {started && complete.isError ? (
+            <Button onClick={again}>Start again</Button>
+          ) : (
+            !started && (
+              <Button
+                type="submit"
+                form={formId}
+                focusableWhenDisabled={begin.isPending}
+                disabled={begin.isPending}
+              >
+                {begin.isPending ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <Smartphone data-icon="inline-start" />
+                )}
+                Show the code
+              </Button>
+            )
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// QrCode draws a QR code with qrcode's own encoder (MIT; OpenClaw's web login draws its WhatsApp code with the same
+// package), one square a dark module.
+function QrCode({ text, label }: { text: string; label: string }) {
+  const { modules } = QRCode.create(text, { errorCorrectionLevel: "M" })
+  const quiet = 2
+  const size = modules.size + quiet * 2
+  let path = ""
+  for (let y = 0; y < modules.size; y++) {
+    for (let x = 0; x < modules.size; x++) {
+      if (modules.get(x, y)) path += `M${x + quiet} ${y + quiet}h1v1h-1z`
+    }
+  }
+
+  // Black on white whatever the theme, as a phone's camera reads it.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/><path d="${path}" fill="black"/></svg>`
+
+  return (
+    <img
+      src={`data:image/svg+xml,${encodeURIComponent(svg)}`}
+      alt={label}
+      className="size-64 rounded-md"
+    />
   )
 }
 
