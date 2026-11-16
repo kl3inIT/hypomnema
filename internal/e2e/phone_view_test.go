@@ -70,8 +70,9 @@ func (s *fakeScreen) Close() { close(s.closed) }
 // socket; the node opens a connection of its own and the phone's state and
 // frames come through it to the page. The owner's touch before taking control
 // does not reach the phone; after, it does, and an agent's phone call is
-// answered paused meanwhile. Closing the page closes the node's view and gives
-// the phone back.
+// answered paused meanwhile. Handing back gives the phone back at once;
+// closing the page closes the node's view and keeps the owner's hold for the
+// grace (issue #603).
 func TestTheOwnerWatchesAndTakesOverThePhoneThroughTheNode(t *testing.T) {
 	t.Parallel()
 
@@ -198,6 +199,17 @@ func TestTheOwnerWatchesAndTakesOverThePhoneThroughTheNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(answer), "paused while the owner controls the phone")
 
+	send(`{"type":"releaseControl"}`)
+
+	_, said = read()
+	assert.JSONEq(t, `{"type":"control","controller":"agent"}`, said)
+	assert.False(t, shared.Controlled(), "handing back gives the phone back at once")
+
+	send(`{"type":"takeControl"}`)
+
+	_, said = read()
+	assert.JSONEq(t, `{"type":"control","controller":"you"}`, said)
+
 	require.NoError(t, page.Close(websocket.StatusNormalClosure, ""))
 
 	select {
@@ -206,7 +218,7 @@ func TestTheOwnerWatchesAndTakesOverThePhoneThroughTheNode(t *testing.T) {
 		t.Fatal("the node's view was not closed")
 	}
 
-	assert.Eventually(t, func() bool { return !shared.Controlled() }, wait, 10*time.Millisecond)
+	assert.True(t, shared.Controlled(), "a page that closed its view keeps the hold for the grace")
 }
 
 // ownersPhone is the phone as the client API sees it, as the control plane
