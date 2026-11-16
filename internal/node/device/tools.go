@@ -47,6 +47,12 @@ const (
 	enterKeycode = "66"
 )
 
+// keycodes are the Android key codes device_key presses with adb's `input
+// keyevent`, as Orca (android-input-mapping.ts, BUTTON_KEYCODES) and
+// OpenMausBot (electron/android-device.mjs, KEYCODES) press them: Android
+// CLI's `input key` took 1.3 to 3.5 s a press on the phone (issue #584).
+var keycodes = map[string]string{"back": "4", "home": "3", "recents": "187", "enter": enterKeycode}
+
 // adbTypeable is the text adb's `input text` types as it is, with no
 // keyboard of its own: OpenMausBot's SAFE_TEXT (server/drivers/phone-proxy.ts).
 var adbTypeable = regexp.MustCompile(`^[A-Za-z0-9 _.,@-]+$`)
@@ -144,9 +150,7 @@ func (m *Manager) runTool(ctx context.Context, agent string, c devicetool.Call) 
 	case devicetool.Type:
 		return m.typeText(ctx, c), true
 	case devicetool.Key:
-		out, err := m.android(ctx, "input", "--device="+serial, "key", c.Key)
-
-		return done(out, err, "Pressed "+c.Key+"."), true
+		return m.key(ctx, c.Key), true
 	case devicetool.Launch:
 		return m.launch(ctx, c.Package), true
 	case devicetool.Logcat:
@@ -325,6 +329,18 @@ func (m *Manager) tap(ctx context.Context, agent string, c devicetool.Call) node
 	out, err := m.adb(ctx, toolWithin, "-s", serial, "shell", "input", "tap", x, y)
 
 	return done(out, err, "Tapped at "+x+","+y+".")
+}
+
+// key presses one of the phone's keys with adb.
+func (m *Manager) key(ctx context.Context, key string) nodeproto.DeviceAnswer {
+	code, ok := keycodes[key]
+	if !ok {
+		return failed("no such key: " + key)
+	}
+
+	out, err := m.adb(ctx, toolWithin, "-s", serial, "shell", "input", "keyevent", code)
+
+	return done(out, err, "Pressed "+key+".")
 }
 
 func (m *Manager) swipe(ctx context.Context, agent string, c devicetool.Call) nodeproto.DeviceAnswer {

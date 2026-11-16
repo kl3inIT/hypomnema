@@ -59,7 +59,7 @@ type Tool struct {
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-// The keys device_key presses: Android CLI's names for them (`android input key`).
+// The keys device_key presses; the node presses each by its Android key code.
 var keys = []string{"back", "home", "recents", "enter"}
 
 // The priorities logcat filters by, lowest first.

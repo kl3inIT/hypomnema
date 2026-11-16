@@ -41,6 +41,8 @@ type phoneTools struct {
 	noLauncher bool
 	// notPNG makes screencap write what is not a PNG.
 	notPNG bool
+	// adbInputFails is what `adb shell input` prints as it exits with 1.
+	adbInputFails string
 }
 
 // noMatchesAnswer is what Android CLI answered to `input text` on the phone
@@ -134,6 +136,8 @@ func (p *phoneTools) answer(c Command) (Output, bool) {
 		return Output{Stdout: p.logcat}, true
 	case program(c) == "adb" && slices.Contains(c.Args, "monkey") && p.noLauncher:
 		return Output{Code: 252, Stdout: "  bash arg: -p\n** No activities found to run, monkey aborted.\n"}, true
+	case program(c) == "adb" && slices.Contains(c.Args, "input") && p.adbInputFails != "":
+		return Output{Code: 1, Stderr: p.adbInputFails}, true
 	case program(c) == "adb" && (slices.Contains(c.Args, "input") || slices.Contains(c.Args, "monkey")):
 		return Output{Stdout: "Events injected: 1"}, true
 	}
@@ -405,7 +409,40 @@ func TestAnErrorAndroidCLIPrintsIsAFailure(t *testing.T) {
 	r, tools := toolRig(t)
 	tools.failWith = "Error: Device with serial or AVD name 'emulator-5554' not found."
 
-	answer := call(t, r, "d-1", "device_key", `{"key":"home"}`)
+	answer := call(t, r, "d-1", "device_tap", `{"target":"text=Search"}`)
+	assert.True(t, answer.IsError)
+	assert.Contains(t, textOf(answer), "not found")
+}
+
+// A key is pressed with adb's input keyevent by its Android key code, as
+// Orca and OpenMausBot press keys, not with Android CLI (issue #584).
+func TestAKeyIsPressedWithAdbKeyevent(t *testing.T) {
+	t.Parallel()
+
+	r, _ := toolRig(t)
+
+	for key, code := range map[string]string{"back": "4", "home": "3", "recents": "187", "enter": "66"} {
+		n := len(r.sys.ranCommands())
+
+		answer := call(t, r, "d-1", "device_key", `{"key":"`+key+`"}`)
+		require.False(t, answer.IsError, textOf(answer))
+		assert.Equal(t, "Pressed "+key+".", textOf(answer))
+		assert.Contains(t, ranSince(r, n), "adb -s emulator-5554 shell input keyevent "+code)
+
+		for _, line := range ranSince(r, n) {
+			assert.NotContains(t, line, " input --device", "Android CLI is not run for a key")
+		}
+	}
+}
+
+// adb's own failure, its exit code and what it said, is the key's failure.
+func TestAKeyAdbCannotPressIsAFailure(t *testing.T) {
+	t.Parallel()
+
+	r, tools := toolRig(t)
+	tools.adbInputFails = "adb: device 'emulator-5554' not found"
+
+	answer := call(t, r, "d-1", "device_key", `{"key":"back"}`)
 	assert.True(t, answer.IsError)
 	assert.Contains(t, textOf(answer), "not found")
 }
