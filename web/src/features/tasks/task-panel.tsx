@@ -2,7 +2,7 @@ import { Dialog } from "@base-ui/react/dialog"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ArrowDown, ExternalLink, X } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import "@/api/client"
@@ -18,7 +18,7 @@ import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
-import { errorText } from "@/lib/server-error"
+import { errorText, problemOf } from "@/lib/server-error"
 import { since, span } from "@/lib/time"
 
 import { RuntimeMark } from "@/components/icons/runtime-mark"
@@ -183,7 +183,10 @@ function PanelBody({ taskId }: { taskId: string }) {
           </Section>
 
           {task.follow_ups?.map((f) => (
-            <Section key={f.id} title={`Asked for more · ${since(f.created_at)}`}>
+            <Section
+              key={f.id}
+              title={`${f.asked_by === "owner" ? "You asked" : "The Bot asked"} for more · ${since(f.created_at)}`}
+            >
               <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/88">
                 {f.note}
               </p>
@@ -282,6 +285,16 @@ function FollowUp({ taskId }: { taskId: string }) {
   const refresh = useRefresh()
   const [open, setOpen] = useState(false)
   const [note, setNote] = useState("")
+  const box = useRef<HTMLTextAreaElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const opened = useRef(false)
+  // Opening the box puts the cursor in it, so the owner types straight away; closing it gives focus back to the
+  // button that opened it.
+  useEffect(() => {
+    if (open) box.current?.focus()
+    else if (opened.current) button.current?.focus()
+    opened.current = open
+  }, [open])
   const send = useMutation({
     mutationFn: () => followUpTask({ path: { task_id: taskId }, body: { note: note.trim() } }),
     onSuccess: () => {
@@ -293,7 +306,7 @@ function FollowUp({ taskId }: { taskId: string }) {
 
   if (!open) {
     return (
-      <Button variant="outline" onClick={() => setOpen(true)}>
+      <Button ref={button} variant="outline" onClick={() => setOpen(true)}>
         Ask for more
       </Button>
     )
@@ -308,12 +321,23 @@ function FollowUp({ taskId }: { taskId: string }) {
         if (note.trim() && !send.isPending) send.mutate()
       }}
     >
+      <label htmlFor={`follow-up-${taskId}`} className="text-xs font-medium text-muted-foreground">
+        What more to ask of the worker
+      </label>
       <Textarea
-        aria-label="What more to do"
+        id={`follow-up-${taskId}`}
+        ref={box}
         rows={3}
         value={note}
         placeholder="What to change or add; the worker goes on with its branch and pull request"
         onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          // Escape closes the box, keeping the draft, not the whole panel behind it.
+          if (e.key === "Escape") {
+            e.stopPropagation()
+            setOpen(false)
+          }
+        }}
       />
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -328,11 +352,29 @@ function FollowUp({ taskId }: { taskId: string }) {
           Cancel
         </Button>
         {send.error && (
-          <span className="text-xs text-destructive">Not sent: {errorText(send.error)}</span>
+          <span className="text-xs text-destructive">
+            Not sent: {followUpRefusal(send.error, taskId)}
+          </span>
         )}
       </div>
     </form>
   )
+}
+
+// followUpRefusal says why a follow-up was not sent. The one refusal a person meets here, a worker whose
+// conversation was closed, is said in plain words; any other is the server's own message.
+function followUpRefusal(error: unknown, taskId: string): ReactNode {
+  const { code, message } = problemOf(error)
+  if (code === "conflict" && message.includes("no open conversation")) {
+    return (
+      <>
+        this worker can no longer go on, as its conversation was closed. Start a new Task from the
+        branch <code className="font-mono">hyp/{taskId}</code>
+      </>
+    )
+  }
+
+  return errorText(error)
 }
 
 // taskReads matches what the owner's act on a Task changes: the Tasks, the questions, each Run and each Task.
