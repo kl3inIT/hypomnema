@@ -1,6 +1,6 @@
 ---
 name: pages
-description: "Build a fast, good-looking page: a data dashboard, or any other page (a landing page, a pricing page, a tool), shown to the owner in the chat as an artifact with the `show_artifact` tool. Use when the owner asks for a dashboard, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures."
+description: "Builds a fast, good-looking page, a data dashboard or any other page (a landing page, a pricing page, a tool), and shows it to the owner in the chat as an artifact with the `show_artifact` tool. Use when the owner asks for a dashboard, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures."
 ---
 
 # Data dashboards and pages

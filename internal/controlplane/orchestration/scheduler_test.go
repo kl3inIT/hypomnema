@@ -1141,8 +1141,10 @@ func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
 	assert.True(t, strings.HasPrefix(offer.Spec, "do a\n\nAnother worker began this task"), offer.Spec)
 	assert.Contains(t, offer.Spec, "The files are what is true")
 	assert.Contains(t, offer.Spec, "Do not redo or rewrite a finished step")
-	assert.Contains(t, offer.Spec, "worker: I will write the handler first.\n"+
-		"tool Bash: {\"command\":\"go test ./...\"}\nresult: ok\n---\n")
+	assert.Contains(t, offer.Spec, "<previous_transcript>\nworker: I will write the handler first.\n"+
+		"tool Bash: {\"command\":\"go test ./...\"}\nresult: ok\n</previous_transcript>\n")
+	assert.Greater(t, strings.Index(offer.Spec, "The files are what is true"),
+		strings.Index(offer.Spec, "</previous_transcript>"), "the rules follow the transcript (issue #672)")
 	assert.NotContains(t, offer.Spec, "private thoughts")
 	assert.Empty(t, offer.CLISessionRef, "no session of the first CLI is resumed")
 

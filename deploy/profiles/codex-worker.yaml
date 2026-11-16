@@ -17,6 +17,13 @@ model:
   provider: <gateway provider>
   name: <gateway model>
   effort: high
+# What done means, the seeded implementer's instruction (issue #672, migration 00102; after OpenAI's GPT-6 guide,
+# "Define what 'done' includes", and Omnigent's Polly codex agent, examples/polly/agents/codex/config.yaml:20-32).
+instruction: |
+  You are done when the change the task asks for is made, and:
+  - the repository's checks for the code you touched (tests, lint, type checks; its AGENTS.md or contributing
+    guide names them) have run and pass. Fix what fails; name a check you could not run, with the reason.
+  - the pull request says what changed and how it was checked, with the exact commands.
 # Optional backups, off by default. `fallbacks` is an ordered list of other workers' profiles, tried in the order
 # written, with at most 5 entries. It applies only to a Task that has not started (it has no Conversation yet): a
 # Task already running stays on its own profile. To use it, remove the leading "# " and name profiles that exist

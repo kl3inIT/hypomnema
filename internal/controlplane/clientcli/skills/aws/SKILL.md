@@ -1,11 +1,9 @@
 ---
 name: aws
 description: >-
-  Works in the owner's AWS accounts with the aws command (AWS's own CLI), which Hypomnema installs and signs with
-  the role the owner gave you: reads logs in CloudWatch, describes servers, databases and load balancers, reads
-  metrics, and does whatever else the role allows. Use when the owner asks about something running on AWS: why a
-  service failed, what its logs say, what is deployed, how a server is doing. Not for creating Hypomnema's own
-  machines, which the control plane does itself.
+  Works in the owner's AWS accounts with the aws command, signed in with the role the owner gave you. Use when
+  the owner asks about something running on AWS: why a service failed, what its logs say, what is deployed, how a
+  server is doing. Not for creating Hypomnema's own machines, which the control plane does itself.
 metadata:
   hypomnema:
     requires:

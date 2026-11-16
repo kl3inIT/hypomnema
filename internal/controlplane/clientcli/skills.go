@@ -68,7 +68,10 @@ const defaultSkill = "hypomnema-coordinator"
 // releasedDigests). A changed stub adds its digest here
 // (TestShippedStubsAreReleased).
 var releasedStubs = map[string][]string{
-	"hypomnema-coordinator": {"a47e4460588d8d58dfc994b34b6aaf8cad11dd7ec13c9151d9188f2c2d587e2a"},
+	"hypomnema-coordinator": {
+		"a47e4460588d8d58dfc994b34b6aaf8cad11dd7ec13c9151d9188f2c2d587e2a",
+		"f35f29bba09f26acf8be84321b0c0998b6a76b9853c03a8a5e5737528cc4b5f8", // #672: the description says when to use it
+	},
 }
 
 // retiredStubs holds, as releasedStubs does, the digests of the stubs of the

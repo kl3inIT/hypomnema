@@ -1,11 +1,11 @@
 ---
 name: hypomnema-coordinator
 description: >-
-  Plans a Hypomnema Run, has Hypomnema workers do its coding on the owner's nodes through the hypomnema CLI, and
-  reports each Task's outcome with its evidence. Use when the owner asks to give coding work to Hypomnema or its
-  workers, to start, follow, finish or cancel a Run, or to answer or forward a Hypomnema worker's question, and when
-  the control plane wakes you about a Run. Otherwise do the work yourself or with your own subagents: Hypomnema
-  workers suit work that should run on the nodes and end in a pull request.
+  Has Hypomnema workers do coding work on the owner's nodes through the hypomnema CLI: plans a Run,
+  follows it and reports each Task's outcome with its evidence. Use when the owner asks to give coding work to
+  Hypomnema or its workers, to start, follow, finish or cancel a Run, or to answer or forward a worker's question,
+  and when the control plane wakes you about a Run. Otherwise do the work yourself: workers suit work that should run
+  on the nodes and end in a pull request.
 ---
 
 # Hypomnema coordinator

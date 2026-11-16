@@ -1,11 +1,11 @@
 ---
 name: hypomnema-coordinator
 description: >-
-  Plans a Hypomnema Run, has Hypomnema workers do its coding on the owner's nodes through the hypomnema CLI, and
-  reports each Task's outcome with its evidence. Use when the owner asks to give coding work to Hypomnema or its
-  workers, to start, follow, finish or cancel a Run, or to answer or forward a Hypomnema worker's question, and when
-  the control plane wakes you about a Run. Otherwise do the work yourself or with your own subagents: Hypomnema
-  workers suit work that should run on the nodes and end in a pull request.
+  Has Hypomnema workers do coding work on the owner's nodes through the hypomnema CLI: plans a Run,
+  follows it and reports each Task's outcome with its evidence. Use when the owner asks to give coding work to
+  Hypomnema or its workers, to start, follow, finish or cancel a Run, or to answer or forward a worker's question,
+  and when the control plane wakes you about a Run. Otherwise do the work yourself: workers suit work that should run
+  on the nodes and end in a pull request.
 ---
 
 # Coordinating Hypomnema workers
@@ -102,7 +102,7 @@ its branch does not hold another Task's unmerged changes. So:
   all of them succeeded. It does not carry their changes, nor their reports.
 - When a Task needs what an earlier Task found (fixing the items an audit listed), paste that Task's report, the
   summary in `hypomnema tasks show <task_id> --json`, into the spec word for word, under a heading that names its
-  Task id, such as `## Report of task tsk_…`. Do not shorten or reword it.
+  Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
 
 Make each spec self-contained: the goal and the change in the repository's terms; the decisions already made
 (names, formats, interfaces), so parallel Tasks agree; what it may change; and the evidence that proves it is done:
