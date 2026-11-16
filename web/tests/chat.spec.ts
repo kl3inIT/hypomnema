@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises"
 
 import { expect, test, type Page } from "@playwright/test"
 
+import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
 
 // One open chat against a fake client API, with its stream held open by the test: page.route can only answer a
@@ -1147,7 +1148,7 @@ test("tool calls shown off leave only the answers", async ({ page }) => {
 // Scenario: the owner writes in a chat, goes to another chat and comes back, then reloads (issue #433): what was
 // written is still there. Sent, the draft goes and a reload finds the box empty. In the empty box ↑ brings back
 // what the chat sent, newest first, and ↓ goes back to the empty box.
-test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page, isMobile }) => {
+test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page }) => {
   await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
   const other = { ...chat, id: "cht_2", title: "login page" }
   // The other chat: listed beside this one, with no work of its own.
@@ -1169,9 +1170,9 @@ test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page, 
       return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) })
     },
   )
-  // goTo opens a chat from the Bot's chats in the list, which a phone shows behind its menu.
+  // goTo opens a chat from the Bot's chats in the list, which a phone shows in the drawer behind ≡.
   const goTo = async (title: string) => {
-    if (isMobile) await page.getByRole("link", { name: "Menu" }).click()
+    await openMenu(page)
     // The Bot's two chats are under it, shown with its toggle once the list is read.
     const toggle = page
       .getByRole("button", { name: /the chats of builder$/ })

@@ -11,9 +11,8 @@ import {
 import { AvatarName } from "@/components/agent-avatar"
 import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
-import { AppSidebar, Places, SettingsLink, SignOut } from "@/features/shell/app-shell"
-import { MenuLink, PageHeader } from "@/components/page-header"
-import { BotList } from "@/features/shell/bot-list"
+import { AppSidebar } from "@/features/shell/app-shell"
+import { MenuButton, PageHeader } from "@/components/page-header"
 import { SoloPane } from "@/features/workbench/solo-pane"
 
 import { AttachDrop } from "./attach-drop"
@@ -28,7 +27,7 @@ import { useStartChat } from "./start-chat"
 // The chat with pi, laid out as t3code's app (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code): the app's sidebar (features/shell), and beside it a column with a quiet
 // header (ChatView.tsx, ChatHeader.tsx), the conversation and the composer. On a phone the sidebar hides and the
-// header's menu opens the start screen, which lists the places and the Bots with their chats. Without a chat open, the start
+// header's ≡ opens it as a drawer (AppDrawer, issue #604). Without a chat open, the start
 // screen's composer starts one (chat/DraftHeroHeadline.tsx). A chat talks with one Bot (issue #169): the start
 // screen offers the Bots when there are several, and an open chat's header names its Bot. The start screen chooses
 // its chat's id when it opens (issue #357), so that files are attached there before the chat is made.
@@ -104,14 +103,6 @@ function NewChat({ initialBot }: { initialBot?: string }) {
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">
             pi plans the work, gives it to workers on your machines, and reports back here.
           </p>
-          <div className="w-full max-w-(--chat-content-max-width) md:hidden">
-            <Places />
-            <BotList />
-            <div className="mt-2 flex flex-col gap-px">
-              <SettingsLink />
-              <SignOut />
-            </div>
-          </div>
         </div>
       </AttachDrop>
     </main>
@@ -123,7 +114,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
 function OpenChat({ chatId }: { chatId: string }) {
   return (
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <SoloPane chat={chatId} start={<MenuLink />} />
+      <SoloPane chat={chatId} start={<MenuButton />} />
     </main>
   )
 }

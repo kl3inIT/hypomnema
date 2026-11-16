@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
 
 // Deleting a chat from the sidebar (issue #484), built, against a fake client API: a chat row's menu has Delete,
@@ -87,6 +88,7 @@ async function openChats(page: Page) {
 test("a chat's menu deletes it after asking", async ({ page }) => {
   const deleted = await fakeServer(page)
   await page.goto("/")
+  await openMenu(page)
   await openChats(page)
 
   const menu = chatsOf(page).getByRole("button", { name: "Actions for Fix the header layout" })
@@ -130,11 +132,10 @@ test("a chat's menu deletes it after asking", async ({ page }) => {
 })
 
 // Scenario: the owner deletes the chat he has open; the page goes to a new chat with its Bot.
-test("deleting the open chat goes to its Bot's new chat", async ({ page, isMobile }) => {
-  test.skip(isMobile, "a phone lists the Bots on the start page only, where no chat is open")
-
+test("deleting the open chat goes to its Bot's new chat", async ({ page }) => {
   const deleted = await fakeServer(page)
   await page.goto("/chats/cht_3")
+  await openMenu(page)
   await openChats(page)
 
   await chatsOf(page)
@@ -153,6 +154,7 @@ test("deleting the open chat goes to its Bot's new chat", async ({ page, isMobil
 test("a Bot with one chat deletes it from its row's menu", async ({ page }) => {
   const deleted = await fakeServer(page, [chat("cht_9", "Only chat", 60)])
   await page.goto("/")
+  await openMenu(page)
 
   await expect(
     bots(page).getByRole("button", { name: "Show the chats of coordinator" }),

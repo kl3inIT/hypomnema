@@ -16,6 +16,7 @@ import { skillFileTree } from "./file-tree"
 import { SkillScreen } from "./skill-screen"
 import { SkillsScreen } from "./skills-screen"
 import { auditResult, installsLabel, isAdded, sourceLine, usersLine, usersOf } from "./skills-state"
+import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
   // The router scrolls to the top when it opens a page; jsdom has no scrolling.
@@ -187,7 +188,9 @@ function open(path: string) {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <SidebarProvider>
+        <RouterProvider router={router} />
+      </SidebarProvider>
     </QueryClientProvider>,
   )
 

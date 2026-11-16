@@ -102,7 +102,7 @@ const row = (page: Page, label: string) => page.getByLabel(label, { exact: true 
 // phone, and reads on the light theme as on the dark.
 test("the owner sees the image providers in their order", async ({ page }) => {
   await fakeServer(page)
-  await page.goto("/settings/models")
+  await page.goto("/settings")
   await page.getByRole("link", { name: "Images" }).first().click()
 
   await expect(page.getByRole("heading", { name: "Images", level: 1 })).toBeVisible()

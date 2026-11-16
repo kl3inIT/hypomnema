@@ -410,7 +410,7 @@ const card = (page: Page, name: string) =>
 // each is served from, in order, and which an agent may name.
 test("the owner sees where models come from", async ({ page }) => {
   await fakeServer(page)
-  await page.goto("/settings/integrations")
+  await page.goto("/settings")
   await page.getByRole("link", { name: "Models" }).first().click()
 
   await expect(page.getByRole("heading", { name: "Models", level: 1 })).toBeVisible()

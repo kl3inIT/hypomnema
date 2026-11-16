@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import type { Secret } from "@/api/generated/types.gen"
 
 import { VaultScreen } from "./vault-screen"
+import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
   // The router scrolls to the top when it opens a page; jsdom has no scrolling.
@@ -95,7 +96,9 @@ async function open() {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <SidebarProvider>
+        <RouterProvider router={router} />
+      </SidebarProvider>
     </QueryClientProvider>,
   )
   await screen.findByRole("heading", { name: "Vault" })

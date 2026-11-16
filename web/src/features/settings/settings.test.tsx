@@ -15,6 +15,7 @@ import type { ConnectionAction, GitHost, Integration, Repo } from "@/api/generat
 import { IntegrationsScreen } from "./integrations-screen"
 import { RepositoriesScreen } from "./repositories-screen"
 import { hostOf, nameOf } from "./use-integrations"
+import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
   // The router scrolls to the top when it opens a page; jsdom has no scrolling.
@@ -263,7 +264,9 @@ async function open(Screen: () => React.JSX.Element, heading: string) {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <SidebarProvider>
+        <RouterProvider router={router} />
+      </SidebarProvider>
     </QueryClientProvider>,
   )
   await screen.findByRole("heading", { name: heading })

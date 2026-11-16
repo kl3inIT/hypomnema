@@ -1,29 +1,45 @@
-import { Link } from "@tanstack/react-router"
 import { Menu } from "lucide-react"
 import type { ReactNode } from "react"
 
+import { Button } from "@/components/ui/button"
+import { useSidebar } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 
-// PageHeader is the quiet bar above a page: on a phone a way to the start page, the title, and the page's tools.
-// MenuLink goes to the menu on a phone, where there is no sidebar. A desktop does not show it.
-export function MenuLink({ className }: { className?: string }) {
+// PageHeader is the quiet bar above a page: on a phone the ≡ that opens the app's sidebar, the title, and the page's
+// tools.
+// MenuButton opens the app's sidebar as a drawer on a phone, where it is hidden (issue #604; t3code's SidebarTrigger,
+// OpenMausBot's menu button with aria-expanded, src/App.tsx). A desktop does not show it.
+export function MenuButton({ className }: { className?: string }) {
+  const { openMobile, setOpenMobile } = useSidebar()
+
   return (
-    <Link
-      to="/"
-      aria-label="Menu"
-      className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden",
-        className,
-      )}
-    >
-      <Menu className="size-4" />
-    </Link>
+    <div className={cn("flex shrink-0 md:hidden", className)}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Menu"
+        aria-expanded={openMobile}
+        onClick={() => setOpenMobile(true)}
+      >
+        <Menu />
+      </Button>
+    </div>
   )
 }
 
 // The bar carries a detail page's breadcrumb ("Agents / reviewer", t3code's SettingsBreadcrumb.tsx) or a page's
-// tools; a list page, whose title is its PageHeading, gives it neither, and it shows only on a phone, for the menu.
-export function PageHeader({ title, children }: { title?: ReactNode; children?: ReactNode }) {
+// tools; a list page, whose title is its PageHeading, gives it neither, and it shows only on a phone, for ≡.
+// back is a phone's way up to the list the page is in ("‹ Settings"), beside ≡; a desktop, whose sidebar lists the
+// same, does not show it.
+export function PageHeader({
+  title,
+  back,
+  children,
+}: {
+  title?: ReactNode
+  back?: ReactNode
+  children?: ReactNode
+}) {
   return (
     <header
       className={cn(
@@ -31,7 +47,8 @@ export function PageHeader({ title, children }: { title?: ReactNode; children?: 
         !title && !children && "md:hidden",
       )}
     >
-      <MenuLink className="-ms-1.5" />
+      <MenuButton className="-ms-1.5" />
+      {back && <div className="flex items-center md:hidden">{back}</div>}
       {title && <h1 className="min-w-0 truncate text-sm font-medium text-foreground">{title}</h1>}
       {children}
     </header>
