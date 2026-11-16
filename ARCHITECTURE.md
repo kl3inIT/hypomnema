@@ -68,6 +68,10 @@ sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's id and the Routine's id appended to it; unset, a script Routine's run fails and says so.
 `HYPOMNEMA_CHAT_RM_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm`) removes a
 deleted chat's files of pi for the chat's id appended to it (issue #484); unset, they stay and the deletion says so.
+`HYPOMNEMA_PPROF_ADDR` (unset by default) serves Go's profiles (`net/http/pprof`, under `/debug/pprof/`) on a
+listener and mux of their own, never on `HYPOMNEMA_HTTP_ADDR` (issue #586, as Coder's `--pprof-address`); only a
+loopback `host:port` such as `127.0.0.1:6060` is taken, anything else stops the start. A profiler that cannot
+listen is logged and the control plane serves without it, as Coder's does.
 The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
 which providers are on and the keyed ones' order are set on Settings → Gateway → Web search and stored (see "Web
 search and fetch").
@@ -119,7 +123,11 @@ queue (`chat_queue`, issue #497, after OpenMausBot's `server/channel-queue.ts`):
 settles, when the supervisor moves the queue into the chat in order and sends it with the wake-ups. Wake-ups also
 wait for the turn. The owner may remove a queued message or send it now, which moves it into the chat and goes to
 pi at once as a `steer` (read after the running tool calls, before the next model call). The chat's stream sends the
-whole queue as a `queue` frame when it opens and whenever it changes. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
+whole queue as a `queue` frame when it opens and whenever it changes. The supervisor makes a pass (wake the chats
+of their Runs' new events, deliver, stop idle pi) every 5 s and on each commit signal. A pass with nothing to do
+commits nothing, so it does not wake itself (issue #586). It keeps a signal that came during its pass, unlike the
+scheduler's `Loop`: a pass waits on pi, and an owner's message or pi's own rows committed meanwhile go at once.
+pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
 the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
 its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
 the chat's watchers from memory only and are never stored. A reply that ends in an error is followed by a `failed`
@@ -239,8 +247,9 @@ sequenceDiagram
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
   canceled, and the reaper's escalations. Lease renewals, effects and resources are not events. With one
   writer, a later commit always has higher `seq` values, so a reader following `ListEvents` (cursor, limit up to
-  500, `has_more`, filters by Run or Task) misses nothing. `Subscribe` wakes readers after each commit with a
-  signal that carries no data.
+  500, `has_more`, filters by Run or Task) misses nothing. `Subscribe` wakes readers after each commit that changed
+  a row with a signal that carries no data; a commit that changed nothing (SQLite's `total_changes()` the same
+  before and after it, read in the transaction) signals no one (issue #586).
 
 - Nodes and accounts: the owner adds a node, which mints a token shown once (only its SHA-256 is stored). A node
   has any number of tokens (`node_tokens`, after Omnara's `machine_daemon_tokens`): each has a name, is revoked on
@@ -1960,7 +1969,7 @@ flowchart LR
   at most once an hour). A session acts as the owner. A new password ends every session of the user. They are kept
   by the domain store `orchestration/userstore` (issue #404), reached through `Service.Users()`; it imports the
   generated queries, the one write helper (`orchestration/internal/storeutil`, which signals event readers after
-  the commit) and the errors (`orchestration/storeerr`, re-exported by the root), never the root package.
+  a commit that changed a row) and the errors (`orchestration/storeerr`, re-exported by the root), never the root package.
 - Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
 

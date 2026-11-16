@@ -407,6 +407,46 @@ func TestPiIsWokenByItsRuns(t *testing.T) {
 		"echo: Message from the Hypomnema control plane: these need you.")
 }
 
+// Scenario: a chat has a Run and nothing happens (issue #586). The coordinator
+// writes nothing, so no commit wakes it or anyone else; it once woke itself
+// with an empty commit per pass and read the database in a loop. A Task that
+// ends still wakes pi.
+func TestAnIdleCoordinatorDoesNotWakeItself(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "health page")
+	require.NoError(t, err)
+
+	run, err := svc.CreateRun(ctx, orchestration.NewRun{Objective: "health", CreatedBy: "pi", ChatID: chat.ID})
+	require.NoError(t, err)
+
+	tasks, err := svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{{Ref: "a", Spec: "a"}})
+	require.NoError(t, err)
+
+	commits := svc.Subscribe(ctx)
+	window := time.After(time.Second)
+	woken := 0
+
+count:
+	for {
+		select {
+		case <-commits:
+			woken++
+		case <-window:
+			break count
+		}
+	}
+
+	assert.Zero(t, woken, "an idle coordinator commits nothing")
+
+	require.NoError(t, svc.CancelTask(ctx, tasks[0].ID))
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator,
+		"echo: Message from the Hypomnema control plane: these need you.")
+}
+
 // Scenario: pi dies mid-turn. The next message starts it again.
 func TestPiIsStartedAgainAfterItExits(t *testing.T) {
 	t.Parallel()
