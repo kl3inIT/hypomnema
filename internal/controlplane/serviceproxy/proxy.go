@@ -359,7 +359,7 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 
 	action := s.catalog.Of(req, body, s.host)
 
-	verdict, message, err := p.decide(ctx, req, body, action, s)
+	verdict, message, err := p.decide(ctx, action, s, func() asking { return httpAsking(req, body, action, s) })
 	if err != nil {
 		// Every error refuses.
 		p.cfg.Logger.ErrorContext(ctx, "the proxy could not decide a request", slog.String("event", "serviceproxy.failed"),
@@ -376,8 +376,9 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 }
 
 // decide applies the action's Policy. An empty message means the request
-// runs; otherwise it is what the tool is told.
-func (p *Proxy) decide(ctx context.Context, req *http.Request, body []byte, action Action, s session,
+// runs; otherwise it is what the tool is told. describe says what the owner is
+// asked, when he is.
+func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func() asking,
 ) (verdict, message string, err error) {
 	if action.Plumbing {
 		return "plumbing", "", nil
@@ -423,12 +424,19 @@ func (p *Proxy) decide(ctx context.Context, req *http.Request, body []byte, acti
 			"way. Say so in your answer.", action.Name, s.connection()), nil
 	}
 
-	return p.ask(ctx, req, body, action, s)
+	return p.ask(ctx, action, s, describe())
 }
 
-// ask holds a request for the owner's Approval.
-func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action Action, s session,
-) (verdict, message string, err error) {
+// asking is what the owner is asked to approve: its title, what it shows him, and the digest that tells the same
+// request asked again.
+type asking struct {
+	title  string
+	fields []orchestration.Field
+	hash   string
+}
+
+// httpAsking is what the owner is asked about an HTTP request, decoded.
+func httpAsking(req *http.Request, body []byte, action Action, s session) asking {
 	d := decode(req.Method, s.host, req.URL.Path, req.URL.RawQuery, req.Header.Get("Content-Type"), body)
 
 	asked := req.Method + " " + req.URL.Path
@@ -451,6 +459,12 @@ func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action 
 		fields = []orchestration.Field{{Label: "Request", Value: asked}}
 	}
 
+	return asking{title: title, fields: fields, hash: d.Hash}
+}
+
+// ask holds a request for the owner's Approval.
+func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (verdict, message string, err error) {
+
 	askedBy := "worker"
 	if s.caller.Coordinator {
 		askedBy = "pi"
@@ -460,9 +474,9 @@ func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action 
 
 	approval, granted, err := p.cfg.Store.AskApproval(ctx, orchestration.NewApproval{
 		Integration: s.integration, Label: s.label, Action: action.ID, ActionName: action.Name,
-		DispatchID: s.caller.DispatchID, ChatID: s.chatID, RunKey: s.runKey, AskedBy: askedBy, Title: title,
-		Payload:   fields,
-		MatchHash: d.Hash,
+		DispatchID: s.caller.DispatchID, ChatID: s.chatID, RunKey: s.runKey, AskedBy: askedBy, Title: q.title,
+		Payload:   q.fields,
+		MatchHash: q.hash,
 	})
 	if err != nil {
 		return "", "", err

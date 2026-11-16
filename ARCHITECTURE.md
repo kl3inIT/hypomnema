@@ -1816,6 +1816,13 @@ flowchart LR
       coordinator token and a Routine never. Built as Superset's tools (`agentapi/whatsapp.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
+    - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
+      `whatsapp_send` sends a text, or a file of the Bot's folder (read by its tools server as `show_artifact`'s,
+      at most 5 MB) with the text as its caption, as a reply when `reply_to` is set (wacli `send text` and
+      `send file`). It is the action `whatsapp.send` of the service proxy's catalog, decided as a request is
+      (`serviceproxy.Proxy.Judge`, `act.go`): it asks the owner until he sets it to allow or never on the
+      Connection's actions; the approval shows the chat's name, the text and the file, and sends once. What is
+      sent is kept in the mirror as his.
     - **Every image and file is downloaded** ([issue #634](https://github.com/kl3inIT/hypomnema/issues/634)): a
       media message keeps its download keys (the mirror's version 1, `wa_version`); four workers download each as
       it arrives, live or from history, and the kept ones without a file when the session connects (500 at a time,

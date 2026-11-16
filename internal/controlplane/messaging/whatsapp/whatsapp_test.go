@@ -325,3 +325,33 @@ func TestThePhonesAnswerForOlderMessagesIsKept(t *testing.T) {
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "Tin cũ", msgs[0].Text)
 }
+
+// A reply quotes the message it answers with its sender and text, as wacli's buildTextReplyContextInfo does, so
+// that WhatsApp shows it as a reply (issue #645); a message not kept cannot be replied to.
+func TestAReplyQuotesTheMessageItAnswers(t *testing.T) {
+	t.Parallel()
+
+	acc := linkedAccount(t)
+	ctx := t.Context()
+	group := types.NewJID("120363000000003", types.GroupServer)
+	lan := types.NewJID("84911111111", types.DefaultUserServer)
+
+	acc.handle(incoming(group, lan, "q1", "Lan", time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC),
+		&waE2E.Message{Conversation: proto.String("Báo giá đâu anh?")}))
+
+	quote, err := acc.quote(ctx, group, "q1")
+	require.NoError(t, err)
+
+	msg, err := acc.build(ctx, messaging.Outgoing{Chat: group.String(), Text: "Đây em"}, quote)
+	require.NoError(t, err)
+
+	got := msg.GetExtendedTextMessage()
+	require.NotNil(t, got)
+	assert.Equal(t, "Đây em", got.GetText())
+	assert.Equal(t, "q1", got.GetContextInfo().GetStanzaID())
+	assert.Equal(t, lan.String(), got.GetContextInfo().GetParticipant())
+	assert.Equal(t, "Báo giá đâu anh?", got.GetContextInfo().GetQuotedMessage().GetConversation())
+
+	_, err = acc.quote(ctx, group, "never-kept")
+	require.ErrorIs(t, err, errNoMessage)
+}
