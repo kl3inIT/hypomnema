@@ -331,3 +331,33 @@ func TestMigrationRemovesClaudesShortNames(t *testing.T) {
 	assert.Contains(t, claude.Source,
 		"models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, opus, sonnet, haiku]\n")
 }
+
+// Scenario (issue #623): Codex now serves gpt-6.1-terra, which the codex-subscription provider's list lacks. It is
+// added, once, after the models already there; a model Codex no longer names stays, and the source says what was
+// stored, so applying it again changes nothing.
+func TestAProviderIsGivenTheModelsItsVendorServes(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: cx\nkind: codex_subscription\nmodels: [gpt-6.1-sol, gpt-5.6-luna]\n")
+	require.NoError(t, err)
+
+	added, err := w.s.AddProviderModels(ctx, "cx", []string{"gpt-6.1-sol", "gpt-6.1-terra"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gpt-6.1-terra"}, added)
+
+	p, err := w.s.GetProvider(ctx, "cx")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"gpt-6.1-sol", "gpt-5.6-luna", "gpt-6.1-terra"}, p.Models,
+		"gpt-5.6-luna, which the vendor no longer named, stays")
+	assert.Contains(t, p.Source, "models: [gpt-6.1-sol, gpt-5.6-luna, gpt-6.1-terra]")
+
+	added, err = w.s.AddProviderModels(ctx, "cx", []string{"gpt-6.1-terra"})
+	require.NoError(t, err)
+	assert.Empty(t, added, "nothing is added twice")
+
+	_, err = w.s.AddProviderModels(ctx, "nobody", []string{"m"})
+	require.ErrorIs(t, err, ErrNotFound)
+}
