@@ -754,10 +754,10 @@ paths:
         Integration (Lark) as himself through the app of that Connection: the
         answer has a `user_code` he enters on the page the link opens, and
         completing waits for it. Such a user Connection acts as the owner and
-        is used only by the owner's token and by the main Bot on the owner's
-        own turn. For an Integration of kind device (WhatsApp) the answer has
-        no link but a `qr_code` the owner scans with his phone; linking a label
-        again replaces its device.
+        is used only by the owner's token and by a Bot given it, on the
+        owner's own turn. For an Integration of kind device (WhatsApp) the
+        answer has no link but a `qr_code` the owner scans with his phone;
+        linking a label again replaces its device.
       requestBody:
         required: true
         content:
@@ -4847,8 +4847,8 @@ components:
           description: >-
             For a user Connection, the owner's own sign-in through an app: the
             label of the app Connection it signs in with. It acts as the owner,
-            so only the owner's token and the main Bot on the owner's own turn
-            may use it.
+            so only the owner's token and a Bot given it, on the owner's own
+            turn, may use it.
         role_arn:
           type: string
           description: The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.

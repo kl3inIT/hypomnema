@@ -13,12 +13,13 @@
 //     vault.
 //
 // A user Connection, the owner's own sign-in through an app (issue #468),
-// acts as him, so it is narrower still: only the owner's token, and the main
-// Bot's pi on the owner's own turn in its chat, may use it. A worker, a
-// coordinator token, a Routine's script and any other Bot never get it,
-// whatever the switches say, as OpenMausBot keeps a person's connected app to
-// the requests that are that person's own (docs/composio.md) and out of a team
-// (server/cloud-team.ts).
+// acts as him, so it is narrower still: only the owner's token, and the pi of
+// a Bot that may use it on the owner's own turn in its chat, may use it
+// (issue #618), as a personal OpenMausBot installation gives every bot the
+// person's connected apps (docs/composio.md). A worker, a coordinator token
+// and a Routine's script never get it, whatever the switches say, as
+// OpenMausBot keeps a person's connected app to the requests that are that
+// person's own and out of a team (server/cloud-team.ts).
 //
 // An agent's tools server lists and calls here the control plane's tools
 // (tools.go, issue #536), each given to the agent kinds its definition names:
@@ -261,8 +262,8 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 }
 
 // botMay is what a Bot's pi in a chat may use: what its Bot may, and the
-// owner's own sign-in only for the main Bot on the owner's turn in that chat
-// (issue #468), which is read once a request, when a user Connection is
+// owner's own sign-in only on the owner's turn in that chat (issues #468,
+// #618), which is read once a request, when a user Connection is
 // asked about. A turn that cannot be read is not his.
 func (s *Server) botMay(ctx context.Context, bot orchestration.Bot, chatID string,
 ) func(orchestration.Connection) bool {
@@ -275,10 +276,6 @@ func (s *Server) botMay(ctx context.Context, bot orchestration.Bot, chatID strin
 
 		if !c.User() {
 			return true
-		}
-
-		if !bot.Main() {
-			return false
 		}
 
 		if !asked {

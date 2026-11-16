@@ -297,6 +297,9 @@ func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, e
 		answer struct {
 			Models map[string]struct {
 				IsInternal bool `json:"isInternal"`
+				// Disabled is a model the account is not served now; omp leaves it out as it does an internal one
+				// (packages/catalog/src/discovery/antigravity.ts; issue #623).
+				Disabled bool `json:"disabled"`
 				// MaxTokens and MaxOutputTokens are the model's window and largest output, as omp reads them
 				// (packages/catalog/src/discovery/antigravity.ts, contextWindow and maxTokens).
 				MaxTokens       int64 `json:"maxTokens"`
@@ -323,7 +326,7 @@ func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, e
 		models := make([]ServedModel, 0, len(answer.Models))
 
 		for name, info := range answer.Models {
-			if info.IsInternal {
+			if info.IsInternal || info.Disabled {
 				continue
 			}
 

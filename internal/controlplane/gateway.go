@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -404,4 +405,88 @@ func (o *owner) gatewayUsageList(ctx context.Context, args []string) error {
 	}
 
 	return nil
+}
+
+// subscriptionRuntimes is the runtime of the accounts of each kind of subscription provider.
+var subscriptionRuntimes = map[string]string{
+	orchestration.ProviderCodexSubscription:       "codex",
+	orchestration.ProviderClaudeSubscription:      "claude",
+	orchestration.ProviderAntigravitySubscription: "antigravity",
+}
+
+// vendorModelsEvery is how often the subscription providers are given the models their vendors serve, and
+// vendorModelsFirst how long after the start the first time is: the accounts' tokens are made fresh first. The
+// vendor is asked at most once an hour anyway (subscription.ServedNames).
+const (
+	vendorModelsEvery = time.Hour
+	vendorModelsFirst = 2 * time.Minute
+)
+
+// servedNames is what a runtime's accounts are served (subscription.Service.ServedNames).
+type servedNames interface {
+	ServedNames(ctx context.Context, runtime string) ([]string, bool)
+}
+
+// providerModels lists the providers and adds models to one (orchestration.Service).
+type providerModels interface {
+	ListProviders(ctx context.Context) ([]orchestration.Provider, error)
+	AddProviderModels(ctx context.Context, name string, models []string) ([]string, error)
+}
+
+// vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
+// the start and then every hour, until ctx ends.
+func vendorModelsLoop(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger) {
+	timer := time.NewTimer(vendorModelsFirst)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+
+		addVendorModels(ctx, subs, providers, logger)
+		timer.Reset(vendorModelsEvery)
+	}
+}
+
+// addVendorModels adds to each subscription provider the models its vendor serves that it does not list, as Codex,
+// OpenClaw, omp and Hermes take a subscription's models from its vendor. A vendor that does not answer, or a runtime
+// with no account logged in, leaves the provider as it is: its list is the fallback.
+func addVendorModels(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger) {
+	list, err := providers.ListProviders(ctx)
+	if err != nil {
+		logger.WarnContext(ctx, "the providers could not be read for their vendors' models",
+			slog.String("event", "gateway.vendor_models_failed"), slog.String("error", err.Error()))
+
+		return
+	}
+
+	for _, p := range list {
+		runtime, ok := subscriptionRuntimes[p.Kind]
+		if !ok {
+			continue
+		}
+
+		names, ok := subs.ServedNames(ctx, runtime)
+		if !ok {
+			continue
+		}
+
+		added, err := providers.AddProviderModels(ctx, p.Name, names)
+		if err != nil {
+			logger.WarnContext(ctx, "a provider was not given its vendor's models",
+				slog.String("event", "gateway.vendor_models_failed"), slog.String("provider", p.Name),
+				slog.String("error", err.Error()))
+
+			continue
+		}
+
+		if len(added) > 0 {
+			logger.InfoContext(ctx, "a provider was given models its vendor serves",
+				slog.String("event", "gateway.vendor_models_added"), slog.String("provider", p.Name),
+				slog.String("models", strings.Join(added, ",")))
+		}
+	}
 }

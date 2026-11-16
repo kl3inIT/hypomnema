@@ -566,6 +566,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		subscriptions.Loop(ctx)
 	}()
 
+	// The subscription providers are given the models their vendors serve (issue #623).
+	vendorModelsDone := make(chan struct{})
+
+	go func() {
+		defer close(vendorModelsDone)
+
+		vendorModelsLoop(ctx, subscriptions, svc, logger)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -609,6 +618,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-loopDone
 	<-machinesDone
 	<-refreshDone
+	<-vendorModelsDone
 	<-keysDone
 	<-supDone
 

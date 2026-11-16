@@ -36,6 +36,8 @@ type anthropicOAuth struct {
 	usage http.HandlerFunc
 	// reset answers the use of a limit reset; nil: not found.
 	reset http.HandlerFunc
+	// models answers the model list (issue #623); nil answers 404.
+	models http.HandlerFunc
 }
 
 func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
@@ -113,10 +115,32 @@ func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
 		usage(w, r)
 	})
 
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		models := a.models
+		a.mu.Unlock()
+
+		if models == nil {
+			http.NotFound(w, r)
+
+			return
+		}
+
+		models(w, r)
+	})
+
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 
 	return a
+}
+
+// answerModels sets what Anthropic answers for the model list.
+func (a *anthropicOAuth) answerModels(h http.HandlerFunc) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.models = h
 }
 
 // answerReset sets what Anthropic answers when a limit reset is used.

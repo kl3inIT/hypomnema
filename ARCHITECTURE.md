@@ -1137,7 +1137,7 @@ flowchart LR
     by a profile or Bot, only to an agent that has every requirement, as OpenClaw leaves out a skill whose
     requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
     the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
-    the owner's own sign-in only for the main Bot, read as `hypomnema-pi` syncs its skills when pi starts for a
+    the owner's own sign-in among them, read as `hypomnema-pi` syncs its skills when pi starts for a
     chat); both have the phone while a node holds one.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
@@ -1647,10 +1647,12 @@ flowchart LR
         `invalid_grant`, mark the Connection as needing a sign-in.
       - `integrations disconnect lark:me` revokes its refresh and access tokens at `/oauth/v1/revoke` with the
         app's id and secret (lark-cli `revoke.go`), then forgets it; the answer says when Lark could not be asked.
-      - **Who may use it**: only the owner's own token, and the main Bot's pi (`Bot.Main()`) on the owner's turn
-        in its chat (see the Channels below), when the Connection is also switched on for chats. A worker given
-        it, a coordinator token, a Routine's script and every other Bot never get it (OpenMausBot's per-bot
-        grants, `docs/composio.md`, and personal connections kept out of a team, `server/cloud-team.ts`). The
+      - **Who may use it**: only the owner's own token, and the pi of any Bot that may use it (switched on for
+        chats and on its list, `Bot.MayUse`) on the owner's turn in its chat (see the Channels below;
+        [issue #618](https://github.com/kl3inIT/hypomnema/issues/618): until 2026-11-16 only the main Bot's),
+        as a personal OpenMausBot installation gives every bot the person's connected apps
+        (`docs/composio.md`). A worker given it, a coordinator token and a Routine's script never get it
+        (personal connections kept out of a team, `server/cloud-team.ts`). The
         agent API applies it in its list of accounts and so in the service proxy's check of every request;
         actions and approvals are the Lark catalog's.
   - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
@@ -2140,7 +2142,13 @@ capabilities do not exist yet.
 - The gateway serves every model of every subscription under `<provider>/<model>`, such as
   `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
   every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
-  logged-in accounts). The table is left for a name made on purpose, such as one over several targets. The
+  logged-in accounts). A subscription provider's models are what its migration listed plus what its vendor serves:
+  soon after the start and then every hour the control plane asks, with the first active account of each runtime,
+  Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
+  (`GET api.anthropic.com/v1/models` with the OAuth token) and Antigravity (`fetchAvailableModels`, without internal
+  or disabled ones), and adds the names the provider lacks through `ApplyProvider`; nothing is removed (issue
+  [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex, OpenClaw, omp and Hermes read them). The table
+  is left for a name made on purpose, such as one over several targets. The
   pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
   table name has. Migration 00090 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
   to the subscription and model of the name they used when it had one target only, a subscription's model (a
@@ -3630,7 +3638,7 @@ Node (`internal/node`):
     ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)) has "Connect app", which takes a name only,
     and its Connection has no "Sign in again". Once an app is there it has "Sign in as me" (issue #468): a name
     (`me`) and the app, then the code and a link to Lark's page while the dialog waits; the owner's account
-    shows "You, through <app>" and who may use it, with "Sign in again" and "Disconnect".
+    shows "You, through <app>" and who may use it (a Bot given it, when he asks it himself), with "Sign in again" and "Disconnect".
   - Both pages do only what `hosts ...`, `repos ...` and `integrations ...` do in the CLI.
   - `/settings/web-search` (under Gateway, issues #354 and #393, `web/src/features/models/web-search-screen.tsx`)
     lists the web search chain above in three parts, a row each as the Models page's account rows: "With your

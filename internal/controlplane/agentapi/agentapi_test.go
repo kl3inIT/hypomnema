@@ -368,14 +368,15 @@ func TestEachLarkAccountIsListedWithItsOwnApp(t *testing.T) {
 	}, list().Data)
 }
 
-// Scenario (issue #468, rules 6 and 7): the owner connected his Lark app as
+// Scenario (issues #468 and #618): the owner connected his Lark app as
 // "work" and signed in to Lark as himself through it as "me", and switched
-// both on for chats. "me" acts as him, so only his own token and the main
-// Bot's pi on his own turn get it: a worker given it, a coordinator token,
-// another Bot's pi and a Routine's script of the main Bot never do, whatever
-// the switches say. The main Bot's pi gets it while the chat's last message
-// is the owner's, and loses it at the next call once someone else spoke.
-func TestTheOwnersOwnLarkSignInIsOnlyTheMainBotsOnHisTurn(t *testing.T) {
+// both on for chats. "me" acts as him, so only his own token and the pi of a
+// Bot that may use it, on his own turn, get it: a worker given it, a
+// coordinator token, a Routine's script of the main Bot and a Bot whose list
+// leaves it out never do, whatever the switches say. A Bot's pi gets it while
+// the chat's last message is the owner's, and loses it at the next call once
+// someone else spoke.
+func TestTheOwnersOwnLarkSignInIsABotsOnHisTurn(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -432,15 +433,37 @@ func TestTheOwnersOwnLarkSignInIsOnlyTheMainBotsOnHisTurn(t *testing.T) {
 	assert.Equal(t, []string{"work"}, labels(worker), "a worker never acts as the owner, even given it")
 	assert.Equal(t, []string{"work"}, labels(coordinator))
 
-	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap"})
+	botOn := func(name string, conns ...string) (string, string) {
+		t.Helper()
+
+		bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+			Name: name, Connections: orchestration.AllowList{Limited: true, Names: conns},
+		})
+		require.NoError(t, err)
+		chat, err := w.svc.CreateChat(ctx, bot.ID, "")
+		require.NoError(t, err)
+		key, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+		require.NoError(t, err)
+
+		return chat.ID, key
+	}
+
+	vmapChat, vmap := botOn("vmap", "lark:work", "lark:me")
+	_, err = w.svc.AddChatMessage(ctx, vmapChat, orchestration.ChatOwner, "what is new in the PMO group?")
 	require.NoError(t, err)
-	vmapChat, err := w.svc.CreateChat(ctx, vmapBot.ID, "")
+	assert.ElementsMatch(t, []string{"work", "me"}, labels(vmap),
+		"the owner asked a Bot given his sign-in: it acts as him, though it is not the main Bot")
+
+	_, err = w.svc.AddChatMessages(ctx, vmapChat, orchestration.NewChatMessage{
+		Role: orchestration.ChatOwner, Text: "[Linh]: and mine?", Sender: &orchestration.ChatSender{ID: "ou_linh"},
+	})
 	require.NoError(t, err)
-	_, err = w.svc.AddChatMessage(ctx, vmapChat.ID, orchestration.ChatOwner, "read my mail")
+	assert.Equal(t, []string{"work"}, labels(vmap), "Linh spoke last: the same Bot is refused the owner's sign-in")
+
+	reportChat, report := botOn("report", "lark:work")
+	_, err = w.svc.AddChatMessage(ctx, reportChat, orchestration.ChatOwner, "read my mail")
 	require.NoError(t, err)
-	vmap, err := w.svc.AddBotToken(ctx, "pi", vmapChat.ID, vmapBot.ID)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"work"}, labels(vmap), "another Bot never acts as the owner, even on his turn")
+	assert.Equal(t, []string{"work"}, labels(report), "a Bot whose list leaves it out never acts as the owner")
 
 	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
 		Bot: orchestration.DefaultBotID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",

@@ -871,7 +871,7 @@ test("the owner signs in to Lark as himself through his app", async ({ page }) =
   const mine = lark.getByLabel("Lark account me")
   await expect(mine).toContainText("Nguyen Van Owner")
   await expect(mine).toContainText("You, through work")
-  await expect(mine).toContainText("Only the main Bot, when you ask it yourself")
+  await expect(mine).toContainText("Only a Bot given it, when you ask it yourself")
   await expect(mine.getByRole("button", { name: "Change app" })).toHaveCount(0)
   await expect(mine.getByRole("button", { name: "Sign in again" })).toBeVisible()
   expect(await fits(page)).toBe(true)

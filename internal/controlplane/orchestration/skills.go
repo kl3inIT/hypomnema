@@ -353,8 +353,8 @@ func workerHas(ctx context.Context, q *store.Queries, run store.Run) (map[string
 
 // botHas is what a Bot has for a skill's requirements: the Integrations of
 // which it may use a Connection now (Bot.MayUse: switched on for chats and
-// on its list; the owner's own sign-in only for the main Bot), as the agent
-// API reads them at each call, and the phone while a node holds one.
+// on its list; the owner's own sign-in among them, though it is used only on
+// his turn), as the agent API reads them at each call, and the phone while a node holds one.
 func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, error) {
 	conns, err := q.ListConnections(ctx)
 	if err != nil {
@@ -364,7 +364,7 @@ func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, erro
 	has := map[string]bool{}
 
 	for _, row := range conns {
-		if c := connectionFromRow(row); b.MayUse(c) && (!c.User() || b.Main()) {
+		if c := connectionFromRow(row); b.MayUse(c) {
 			has[skillpack.Requirement(skillpack.RequiresIntegration, c.Integration)] = true
 		}
 	}
