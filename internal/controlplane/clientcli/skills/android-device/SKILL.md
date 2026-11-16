@@ -49,7 +49,9 @@ OpenMausBot's phone skill (`skills/phone-harness/SKILL.md`, Apache-2.0, notice i
 - `device_swipe` from one point to another (`"#N"` or `"x,y"`); a slow swipe (`duration_ms` of 500 or more)
   scrolls without flinging. To scroll a list down, swipe from its lower part to its upper part.
 - `device_type` types into the focused field, replacing its text, in any language (Vietnamese included). Tap the
-  field first. `into` names another field by a selector; `submit` presses Enter after.
+  field first. `into` names another field by a selector; `submit` presses Enter after. A focused field missing from
+  `device_layout` (a launcher's search box, say) gets only letters, digits, spaces and `_.,@-`, added after what it
+  holds; the answer says so.
 - `device_key`: `back`, `home`, `recents`, `enter`.
 - `device_launch` opens an installed app by its package name (`com.android.settings`, `com.android.chrome`). Apps
   are installed by the owner from Play; you do not install apps.

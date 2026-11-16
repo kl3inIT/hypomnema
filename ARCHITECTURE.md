@@ -568,14 +568,21 @@ sequenceDiagram
   - The tools (`internal/shared/devicetool`, run in `internal/node/device/tools.go`) are Android CLI's and adb's,
     as Google's android-cli skill drives a device (notice in `third_party/android-cli-plugin`; the syntax read
     from Android CLI 1.1.16919734's own help): `device_screen` is `adb exec-out screencap -p` (OpenMausBot),
-    written whole to a file and returned as a PNG image once its signature is checked; with `boxes: true` it is
+    written whole to a file; with `boxes: true` it is
     `android screen capture --annotate` instead, a PNG with numbered boxes kept as the agent's last screen with
-    boxes (Android CLI finds boxes only as it captures, so that is a capture of its own); `device_layout` is
+    boxes (Android CLI finds boxes only as it captures, so that is a capture of its own). Either is given to the
+    agent as a JPEG of the same pixels at quality 75, as mobile-mcp gives its agent a screenshot (not scaled: the
+    picture's pixels are a tap's coordinates); the answer crosses the control plane's public address, Tailscale
+    Funnel, at a few hundred KB/s, and the Home screen's PNG was 690 KB against 38 KB (issue #578); `device_layout` is
     `android layout --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with boxes
     with `android screen resolve`
     and tapped with `adb shell input tap x y`, or `x,y`, or an Android CLI selector (`android input tap`);
     `device_swipe` is `adb shell input swipe` between two such points; `device_type` is `android input text
-    [--submit] -- <text> <selector>`, the focused field by default, which types any language; `device_key` is
+    [--submit] -- <text> <selector>`, the focused field by default, which types any language; when Android CLI
+    answers `no_matches` for the focused field (one the view tree does not show, as the launcher's search while it
+    asks "Always show keyboard here?"), text of `[A-Za-z0-9 _.,@-]` is typed with `adb shell input text` (spaces
+    as `%s`, then `input keyevent 66` for submit), as Google's skill, Orca and OpenMausBot type, after what the
+    field holds (issue #578); `device_key` is
     `android input key` (back, home, recents, enter); `device_launch` is `adb shell monkey -p <package> -c
     android.intent.category.LAUNCHER 1` (Orca, OpenMausBot); `device_logcat` is `adb logcat -d -v threadtime -t
     N [*:<level>]` (Orca), with only the last lines holding a text when one is given. Android CLI runs with
@@ -583,7 +590,7 @@ sequenceDiagram
     started; a failure it prints as `Error:` with exit 0 is a failure.
   - The control plane passes a call on the socket of the node that holds the phone (`device_call`, with the
     agent's name, the tool and its arguments) and waits up to 8.5 minutes for the node's answer on
-    `POST /node/v1/device`, as a `files_request` is answered: an MCP result, a screen as base64 PNG, at most 16 MB.
+    `POST /node/v1/device`, as a `files_request` is answered: an MCP result, a screen as base64 JPEG, at most 16 MB.
     The node starts a stopped or failed phone first and waits for its boot; a phone not installed yet is installed
     in the background and the call says to come back. Each call puts the phone's idle stop off.
   - One holder at a time (`internal/controlplane/phone`, as OpenMausBot's phone proxy lets one turn hold the
