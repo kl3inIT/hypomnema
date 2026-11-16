@@ -297,7 +297,11 @@ func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, e
 		answer struct {
 			Models map[string]struct {
 				IsInternal bool `json:"isInternal"`
-				QuotaInfo  *struct {
+				// MaxTokens and MaxOutputTokens are the model's window and largest output, as omp reads them
+				// (packages/catalog/src/discovery/antigravity.ts, contextWindow and maxTokens).
+				MaxTokens       int64 `json:"maxTokens"`
+				MaxOutputTokens int64 `json:"maxOutputTokens"`
+				QuotaInfo       *struct {
 					RemainingFraction *float64 `json:"remainingFraction"`
 					ResetTime         string   `json:"resetTime"`
 				} `json:"quotaInfo"`
@@ -323,7 +327,9 @@ func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, e
 				continue
 			}
 
-			model := ServedModel{Name: name, Remaining: -1}
+			model := ServedModel{
+				Name: name, Remaining: -1, Window: max(info.MaxTokens, 0), Output: max(info.MaxOutputTokens, 0),
+			}
 
 			if q := info.QuotaInfo; q != nil {
 				if q.RemainingFraction != nil {

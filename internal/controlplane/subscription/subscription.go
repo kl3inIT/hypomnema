@@ -193,6 +193,9 @@ type Service struct {
 	// pins is the account each conversation is on (rank.go); pinsMu guards it.
 	pins   map[string]pin
 	pinsMu sync.Mutex
+	// served is the last reading of what each runtime's accounts are served with (served.go); servedMu guards it.
+	served   map[string]servedReading
+	servedMu sync.Mutex
 }
 
 const (
@@ -221,6 +224,7 @@ func New(
 	s := &Service{
 		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
 		rr: map[string]int{}, left: map[string]quotaReading{}, limits: map[string]limitsEntry{}, pins: map[string]pin{},
+		served: map[string]servedReading{},
 	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor
@@ -566,6 +570,9 @@ type ServedModel struct {
 	Remaining float64
 	// ResetsAt is when the quota is whole again; zero when not known.
 	ResetsAt time.Time
+	// Window and Output are the model's context window and largest output in tokens, as the vendor gives them;
+	// zero when it does not.
+	Window, Output int64
 }
 
 // ModelLister is a Vendor that can say which models it serves an account.

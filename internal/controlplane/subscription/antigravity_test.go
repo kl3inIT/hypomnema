@@ -49,9 +49,11 @@ type google struct {
 
 	issued     int
 	operations int
-	agents     []string
-	extra      []string
-	hosts      []string
+	// listed counts the calls to fetchAvailableModels.
+	listed int
+	agents []string
+	extra  []string
+	hosts  []string
 }
 
 func newGoogle(t *testing.T) *google {
@@ -86,9 +88,15 @@ func newGoogle(t *testing.T) *google {
 				return
 			}
 
+			g.mu.Lock()
+			g.listed++
+			g.mu.Unlock()
+
+			// Each model's window and largest output as zm's account was served them on 2026-11-16 (issue #587).
 			_, _ = io.WriteString(w, `{"models":{
-			  "gemini-3.8-flash-high":{"quotaInfo":{"remainingFraction":0.4,"resetTime":"2026-11-10T14:00:00Z"}},
-			  "claude-sonnet-5-5":{"quotaInfo":{"remainingFraction":1}},
+			  "gemini-3.8-flash-high":{"maxTokens":1048576,"maxOutputTokens":65536,
+			    "quotaInfo":{"remainingFraction":0.4,"resetTime":"2026-11-10T14:00:00Z"}},
+			  "claude-sonnet-5-5":{"maxTokens":250000,"maxOutputTokens":64000,"quotaInfo":{"remainingFraction":1}},
 			  "chat_internal_probe":{"isInternal":true},
 			  "gpt-oss-120b-medium":{}}}`)
 		})
@@ -428,10 +436,43 @@ func TestOwnerSeesTheModelsAnAccountIsServed(t *testing.T) {
 	models, err := w.subs.Models(t.Context(), a.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []subscription.ServedModel{
-		{Name: "claude-sonnet-5-5", Remaining: 1},
-		{Name: "gemini-3.8-flash-high", Remaining: 0.4, ResetsAt: time.Date(2026, 11, 10, 14, 0, 0, 0, time.UTC)},
+		{Name: "claude-sonnet-5-5", Remaining: 1, Window: 250000, Output: 64000},
+		{
+			Name: "gemini-3.8-flash-high", Remaining: 0.4, ResetsAt: time.Date(2026, 11, 10, 14, 0, 0, 0, time.UTC),
+			Window: 1048576, Output: 65536,
+		},
 		{Name: "gpt-oss-120b-medium", Remaining: -1},
 	}, models)
+}
+
+// Scenario: the gateway asks what Google serves an Antigravity model with (issue #587). It is the window and
+// largest output the account's list gives, read once and kept; a model given neither, or not served, is not known.
+func TestTheWindowsAnAntigravityAccountIsServedAreKept(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+
+	window, output, ok := w.subs.ServedLimits(t.Context(), "antigravity", "claude-sonnet-5-5")
+	assert.False(t, ok, "no account yet")
+	assert.Zero(t, window+output)
+
+	_, err := w.login()
+	require.NoError(t, err)
+
+	w.clock.advance(5 * time.Minute) // past the retry after the reading that had no account
+
+	window, output, ok = w.subs.ServedLimits(t.Context(), "antigravity", "claude-sonnet-5-5")
+	require.True(t, ok)
+	assert.Equal(t, [2]int64{250000, 64000}, [2]int64{window, output})
+
+	window, _, ok = w.subs.ServedLimits(t.Context(), "antigravity", "gemini-3.8-flash-high")
+	require.True(t, ok)
+	assert.Equal(t, int64(1048576), window)
+
+	_, _, ok = w.subs.ServedLimits(t.Context(), "antigravity", "gpt-oss-120b-medium")
+	assert.False(t, ok, "Google gave it neither")
+
+	w.google.set(func(g *google) { assert.Equal(t, 1, g.listed, "the reading is kept") })
 }
 
 // Scenario: two Antigravity accounts' tokens are due together. They are

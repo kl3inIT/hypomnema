@@ -114,3 +114,61 @@ func TestASubscriptionsModelHasNoAttributesToSet(t *testing.T) {
 	require.ErrorIs(t, err, modelgateway.ErrInvalid)
 	assert.ErrorContains(t, err, "is a subscription's")
 }
+
+// Scenario: what Google serves an Antigravity model with gives its window and largest output (issue #587), before
+// the copied table; a model Google says nothing of keeps the table's or models.dev's, a value the model sets wins,
+// and another kind of provider is not asked.
+func TestAnAntigravityModelHasTheWindowGoogleServesItWith(t *testing.T) {
+	t.Parallel()
+
+	var asked []string
+
+	g := newSubscriptionGateway(t).WithServedLimits(func(_ context.Context, kind, upstream string) (int64, int64, bool) {
+		asked = append(asked, kind+" "+upstream)
+
+		switch upstream {
+		case "gemini-3.8-flash-low":
+			return 1048576, 65536, true
+		case "claude-sonnet-4-6":
+			return 250000, 64000, true
+		}
+
+		return 0, 0, false
+	})
+	ctx := t.Context()
+
+	resolve := func(model modelgateway.Model) modelgateway.Resolved {
+		t.Helper()
+
+		got, err := g.Resolve(ctx, model)
+		require.NoError(t, err)
+
+		return got
+	}
+	target := func(provider, upstream string) modelgateway.Model {
+		return modelgateway.Model{Name: provider + "/" + upstream, Targets: []modelgateway.Target{
+			{Provider: provider, UpstreamModel: upstream},
+		}}
+	}
+
+	low := resolve(target("antigravity-subscription", "gemini-3.8-flash-low"))
+	require.NotNil(t, low.ContextWindow.Value, "known now, where the table has only -high")
+	assert.Equal(t, int64(1048576), *low.ContextWindow.Value)
+	assert.Equal(t, int64(65536), *low.MaxOutput.Value)
+	assert.Equal(t, modelgateway.SourceAntigravity, low.ContextWindow.Source)
+
+	sonnet := resolve(target("antigravity-subscription", "claude-sonnet-4-6"))
+	assert.Equal(t, int64(250000), *sonnet.ContextWindow.Value, "Google's, not the table's 200000")
+
+	gpt := resolve(target("antigravity-subscription", "gpt-oss-120b-medium"))
+	assert.Equal(t, int64(114000), *gpt.ContextWindow.Value, "Google said nothing: the table's")
+
+	window := int64(500000)
+	set := target("antigravity-subscription", "claude-sonnet-4-6")
+	set.Attributes.ContextWindow = &window
+	assert.Equal(t, window, *resolve(set).ContextWindow.Value, "a value the model sets wins")
+
+	asked = nil
+	resolve(target("claude-subscription", "claude-opus-5-5"))
+	assert.Empty(t, asked, "only Antigravity's models are asked of")
+}

@@ -101,7 +101,12 @@ func (o *owner) accounts(ctx context.Context, args []string) error {
 				reset = "resets " + m.ResetsAt.UTC().Format(time.RFC3339)
 			}
 
-			o.printf("%s\t%s\t%s\n", m.Name, left, reset)
+			limits := ""
+			if m.Window > 0 || m.Output > 0 {
+				limits = fmt.Sprintf("window %d, out %d", m.Window, m.Output)
+			}
+
+			o.printf("%s\t%s\t%s\t%s\n", m.Name, left, reset, limits)
 		}
 
 		return nil

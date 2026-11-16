@@ -51,7 +51,8 @@ const (
 	// SourceCodex is the window of a Codex subscription's model, from Codex's own list.
 	SourceCodex Source = "codex"
 	// SourceAntigravity is the window or largest output of an Antigravity
-	// subscription's model, from CLIProxyAPI's registry of them.
+	// subscription's model: what Google serves it with (issue #587), else
+	// CLIProxyAPI's registry of them.
 	SourceAntigravity Source = "antigravity"
 	SourceUnknown     Source = "unknown"
 )
@@ -149,7 +150,25 @@ func (s *Service) Resolve(ctx context.Context, m Model) (Resolved, error) {
 		}
 	}
 
-	return resolveAttributes(m.Name, m.Attributes, kind, upstream), nil
+	out := resolveAttributes(m.Name, m.Attributes, kind, upstream)
+
+	// What Google serves an Antigravity model with comes before the copied table, as omp takes maxTokens and
+	// maxOutputTokens from fetchAvailableModels (issue #587); a value the model sets still wins.
+	if s.served != nil && kind == "antigravity_subscription" {
+		if window, output, ok := s.served(ctx, kind, upstream); ok {
+			if window > 0 && m.Attributes.ContextWindow == nil {
+				out.ContextWindow = Value[int64]{
+					Value: &window, Source: SourceAntigravity, ModelsDev: out.ContextWindow.ModelsDev,
+				}
+			}
+
+			if output > 0 && m.Attributes.MaxOutput == nil {
+				out.MaxOutput = Value[int64]{Value: &output, Source: SourceAntigravity, ModelsDev: out.MaxOutput.ModelsDev}
+			}
+		}
+	}
+
+	return out, nil
 }
 
 func resolveAttributes(name string, set Attributes, kind, upstream string) Resolved {
