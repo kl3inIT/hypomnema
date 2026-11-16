@@ -124,8 +124,9 @@ settles, when the supervisor moves the queue into the chat in order and sends it
 wait for the turn. The owner may remove a queued message or send it now, which moves it into the chat and goes to
 pi at once as a `steer` (read after the running tool calls, before the next model call). The chat's stream sends the
 whole queue as a `queue` frame when it opens and whenever it changes. The supervisor makes a pass (wake the chats
-of their Runs' new events, deliver, stop idle pi) every 5 s and on each commit signal; a signal its own pass caused
-is dropped, as the scheduler's `Loop` does, and the next tick covers a commit made during the pass (issue #586).
+of their Runs' new events, deliver, stop idle pi) every 5 s and on each commit signal. A pass with nothing to do
+commits nothing, so it does not wake itself (issue #586). It keeps a signal that came during its pass, unlike the
+scheduler's `Loop`: a pass waits on pi, and an owner's message or pi's own rows committed meanwhile go at once.
 pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
 the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
 its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
