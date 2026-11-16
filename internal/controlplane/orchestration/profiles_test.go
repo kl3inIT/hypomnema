@@ -210,6 +210,40 @@ func TestAProviderKeepsItsProfilesWorking(t *testing.T) {
 	assert.Contains(t, models, Model{Provider: "router", Name: "m3", Kind: ProviderCodexSubscription})
 }
 
+// Scenario: the owner removes a provider (issue #610). One a bot, a profile version or a gateway model's target
+// still names is kept, with what uses it in the error; one nothing names goes with its models.
+func TestAProviderIsRemovedWhenNothingNamesIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	require.ErrorIs(t, w.s.DeleteProvider(ctx, "nobody"), ErrNotFound)
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: spare\nkind: openai_compatible\napi_key_ref: K\nmodels: [m1, m2]\n")
+	require.NoError(t, err)
+
+	// A profile that names it keeps it.
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: z\ndescription: d\nruntime: codex\nmodel: {provider: spare, name: m1}\n")
+	require.NoError(t, err)
+	err = w.s.DeleteProvider(ctx, "spare")
+	require.ErrorIs(t, err, ErrConflict)
+	assert.Contains(t, err.Error(), "profile version")
+
+	// Once nothing names it, it and its models go.
+	require.NoError(t, w.s.DeleteProfile(ctx, "z"))
+	require.NoError(t, w.s.DeleteProvider(ctx, "spare"))
+
+	_, err = w.s.GetProvider(ctx, "spare")
+	require.ErrorIs(t, err, ErrNotFound)
+
+	models, err := w.s.ListModels(ctx)
+	require.NoError(t, err)
+	for _, m := range models {
+		assert.NotEqual(t, "spare", m.Provider, "its models went too")
+	}
+}
+
 // A Task is checked against its profile when it is created; one that names
 // none runs as an implementer.
 func TestATaskIsCheckedAgainstItsProfile(t *testing.T) {

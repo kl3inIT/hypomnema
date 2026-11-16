@@ -162,6 +162,18 @@ func (q *Queries) DeleteProfileVersions(ctx context.Context, profile string) err
 	return err
 }
 
+const deleteProvider = `-- name: DeleteProvider :execrows
+DELETE FROM providers WHERE name = ?1
+`
+
+func (q *Queries) DeleteProvider(ctx context.Context, name string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteProvider, name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getProfile = `-- name: GetProfile :one
 SELECT name, current_version_id, created_at, updated_at, deleted_at FROM profiles WHERE name = ?1 AND deleted_at IS NULL
 `
@@ -557,6 +569,33 @@ func (q *Queries) ModelsNamed(ctx context.Context, name string) ([]ModelsNamedRo
 		return nil, err
 	}
 	return items, nil
+}
+
+const providerUses = `-- name: ProviderUses :one
+SELECT
+  (SELECT count(*) FROM bots WHERE bots.provider = ?1) AS bots,
+  (SELECT count(*) FROM chats WHERE chats.provider = ?1) AS chats,
+  (SELECT count(*) FROM profile_versions WHERE profile_versions.provider = ?1) AS versions,
+  (SELECT count(*) FROM gateway_model_targets WHERE gateway_model_targets.provider = ?1) AS targets
+`
+
+type ProviderUsesRow struct {
+	Bots     int64
+	Chats    int64
+	Versions int64
+	Targets  int64
+}
+
+func (q *Queries) ProviderUses(ctx context.Context, pname sql.NullString) (ProviderUsesRow, error) {
+	row := q.db.QueryRowContext(ctx, providerUses, pname)
+	var i ProviderUsesRow
+	err := row.Scan(
+		&i.Bots,
+		&i.Chats,
+		&i.Versions,
+		&i.Targets,
+	)
+	return i, err
 }
 
 const setProfileVersion = `-- name: SetProfileVersion :exec

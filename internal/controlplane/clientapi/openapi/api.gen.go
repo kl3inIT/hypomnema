@@ -6753,6 +6753,13 @@ type ClientInterface interface {
 	// Corresponds with GET /providers (the `ListProviders` operationId).
 	ListProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteProvider Remove a provider and its models; only the owner
+	//
+	// A provider that a bot, a chat, a profile version or a gateway model's target still names is kept, with what uses it in the error; the owner removes those first. Deleting a provider removes its models too.
+	//
+	// Corresponds with DELETE /providers/{name} (the `DeleteProvider` operationId).
+	DeleteProvider(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ApplyProviderWithBody Store a provider's YAML and the models it offers
 	//
 	// Takes any type of body and a specified content type.
@@ -10436,6 +10443,23 @@ func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors 
 // Corresponds with GET /providers (the `ListProviders` operationId).
 func (c *Client) ListProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListProvidersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteProvider Remove a provider and its models; only the owner
+//
+// A provider that a bot, a chat, a profile version or a gateway model's target still names is kept, with what uses it in the error; the owner removes those first. Deleting a provider removes its models too.
+//
+// Corresponds with DELETE /providers/{name} (the `DeleteProvider` operationId).
+func (c *Client) DeleteProvider(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteProviderRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -17999,6 +18023,40 @@ func NewListProvidersRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewDeleteProviderRequest constructs an http.Request for the DeleteProvider method
+func NewDeleteProviderRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/providers/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewApplyProviderRequest calls the generic ApplyProvider builder with application/json body
 func NewApplyProviderRequest(server string, name Name, body ApplyProviderJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -21728,6 +21786,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /providers (the `ListProviders` operationId).
 	ListProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProvidersResponse, error)
+
+	// DeleteProviderWithResponse Remove a provider and its models; only the owner
+	//
+	// A provider that a bot, a chat, a profile version or a gateway model's target still names is kept, with what uses it in the error; the owner removes those first. Deleting a provider removes its models too.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /providers/{name} (the `DeleteProvider` operationId).
+	DeleteProviderWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteProviderResponse, error)
 
 	// ApplyProviderWithBodyWithResponse Store a provider's YAML and the models it offers
 	//
@@ -28711,6 +28778,47 @@ func (r ListProvidersResponse) ContentType() string {
 	return ""
 }
 
+type DeleteProviderResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteProviderResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteProviderResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteProviderResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteProviderResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteProviderResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ApplyProviderResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -33761,6 +33869,21 @@ func (c *ClientWithResponses) ListProvidersWithResponse(ctx context.Context, req
 		return nil, err
 	}
 	return ParseListProvidersResponse(rsp)
+}
+
+// DeleteProviderWithResponse Remove a provider and its models; only the owner
+//
+// A provider that a bot, a chat, a profile version or a gateway model's target still names is kept, with what uses it in the error; the owner removes those first. Deleting a provider removes its models too.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /providers/{name} (the `DeleteProvider` operationId).
+func (c *ClientWithResponses) DeleteProviderWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteProviderResponse, error) {
+	rsp, err := c.DeleteProvider(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteProviderResponse(rsp)
 }
 
 // ApplyProviderWithBodyWithResponse Store a provider's YAML and the models it offers
@@ -39115,6 +39238,35 @@ func ParseListProvidersResponse(rsp *http.Response) (*ListProvidersResponse, err
 	return response, nil
 }
 
+// ParseDeleteProviderResponse parses an HTTP response from a DeleteProviderWithResponse call
+func ParseDeleteProviderResponse(rsp *http.Response) (*DeleteProviderResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteProviderResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseApplyProviderResponse parses an HTTP response from a ApplyProviderWithResponse call
 func ParseApplyProviderResponse(rsp *http.Response) (*ApplyProviderResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -41196,6 +41348,9 @@ type ServerInterface interface {
 	// ListProviders The sources of models, with the models each offers
 	// (GET /providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
+	// DeleteProvider Remove a provider and its models; only the owner
+	// (DELETE /providers/{name})
+	DeleteProvider(w http.ResponseWriter, r *http.Request, name Name)
 	// ApplyProvider Store a provider's YAML and the models it offers
 	// (PUT /providers/{name})
 	ApplyProvider(w http.ResponseWriter, r *http.Request, name Name)
@@ -45727,6 +45882,32 @@ func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteProvider operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProvider(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ApplyProvider operation middleware
 func (siw *ServerInterfaceWrapper) ApplyProvider(w http.ResponseWriter, r *http.Request) {
 
@@ -47470,6 +47651,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/owner-memory", wrapper.ChangeOwnerMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/owner-memory", wrapper.SetOwnerMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/providers", wrapper.ListProviders)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/providers/{name}", wrapper.DeleteProvider)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/providers/{name}", wrapper.ApplyProvider)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/models", wrapper.ListModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tools", wrapper.ListTools)
@@ -53006,6 +53188,39 @@ func (response ListProvidersdefaultJSONResponse) VisitListProvidersResponse(w ht
 	return err
 }
 
+type DeleteProviderRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type DeleteProviderResponseObject interface {
+	VisitDeleteProviderResponse(w http.ResponseWriter) error
+}
+
+type DeleteProvider204Response struct {
+}
+
+func (response DeleteProvider204Response) VisitDeleteProviderResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteProviderdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteProviderdefaultJSONResponse) VisitDeleteProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ApplyProviderRequestObject struct {
 	Name Name `json:"name"`
 	Body *ApplyProviderJSONRequestBody
@@ -55397,6 +55612,9 @@ type StrictServerInterface interface {
 	// ListProviders The sources of models, with the models each offers
 	// (GET /providers)
 	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
+	// DeleteProvider Remove a provider and its models; only the owner
+	// (DELETE /providers/{name})
+	DeleteProvider(ctx context.Context, request DeleteProviderRequestObject) (DeleteProviderResponseObject, error)
 	// ApplyProvider Store a provider's YAML and the models it offers
 	// (PUT /providers/{name})
 	ApplyProvider(ctx context.Context, request ApplyProviderRequestObject) (ApplyProviderResponseObject, error)
@@ -59514,6 +59732,32 @@ func (sh *strictHandler) ListProviders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteProvider operation middleware
+func (sh *strictHandler) DeleteProvider(w http.ResponseWriter, r *http.Request, name Name) {
+	var request DeleteProviderRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteProvider(ctx, request.(DeleteProviderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteProvider")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteProviderResponseObject); ok {
+		if err := validResponse.VisitDeleteProviderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ApplyProvider operation middleware
 func (sh *strictHandler) ApplyProvider(w http.ResponseWriter, r *http.Request, name Name) {
 	var request ApplyProviderRequestObject
@@ -61572,78 +61816,79 @@ var swaggerSpec = []string{
 	"HlMnrpVJ5TDW2pXj2tLNRNfCQzJzgXqoVoTOPg8ISYwt3pYOiE3GigG8D8hpNVPOyWsCgaYjMwYOQhtc",
 	"VFXVjNPC7oF5hL1TCZXi+ZzDijqHMfyr3HnPTVwmarKgOrAYlA2QHkDgNLbljnK3527MqxtuoTFJvDOk",
 	"T3ftXV3q/3vt/UjXXrnKA1vDM/xJbr8fi3P+z7n9JizRuQTHWOOYV7Lx8hsOsiDmt7kM/2d499PeiduT",
-	"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",
-	"zv/vAA==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
