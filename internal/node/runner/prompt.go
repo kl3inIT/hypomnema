@@ -15,19 +15,39 @@ import (
 const recoveryNote = "Your previous attempt at this task was interrupted and its outcome is unknown. " +
 	"Check the worktree, the branch and any pull request before redoing work."
 
-// rules are the worker's instructions for its tools (Orca's preamble forbids
-// AskUserQuestion and subagents and requires worker_done exactly once).
+// rules are the worker's instructions for its tools and its work, the same
+// for every worker (Orca's preamble forbids AskUserQuestion and subagents and
+// requires worker_done exactly once).
 const rules = "\nRules:\n" +
+	// Issue #672 planned a decision boundary in place of this line: what a worker decides itself and what needs
+	// `ask` (GPT-5.6 Sol's prompt guidance, "Require confirmation for external writes, destructive actions ... or a
+	// material expansion of scope"; OpenClaw's template "Do freely / Ask first", docs/reference/templates/AGENTS.md
+	// L19-23). Its list waits for the owner's yes; until then the line stays as it was.
 	"- When a decision is not yours to make, call the `ask` tool and wait for the answer. " +
 	"Never use AskUserQuestion; no one reads it.\n" +
+	// Issue #672: Orca's worker "needs no progress updates unless the task asks"
+	// (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts:71-73); omp's subagent, "No TODO
+	// tracking, no progress updates" (packages/coding-agent/src/prompts/system/subagent-system-prompt.md:90).
+	"- No one reads what you write before `finish`, so no progress messages are needed.\n" +
+	// Issue #672: finish the whole task, after Anthropic's Opus 5.5 page (its text for unattended runs) and Fable
+	// 5.2 page ("Finishing work"), omp's subagent ("While work remains ... continue with another tool call", and
+	// not to end "on a plan, a promise of further work, or a question", subagent-system-prompt.md:92,98) and Hermes's
+	// TASK_COMPLETION_GUIDANCE (agent/prompt_builder.py:383-392).
+	"- Finish the whole task. Errors, timeouts and failing tests are ordinary obstacles: find their cause and " +
+	"work through them. Do not end your turn on a plan, an offer to continue or a list of next steps; stop early " +
+	"only when nothing can move without the owner, and then use `ask` or a `gate`.\n" +
 	"- When the work is done, call the `finish` tool exactly once, then end your turn. A task ended without " +
 	"`finish` counts as failed.\n" +
 	// Issue #666: the shape of the report, after Orca's worker_done body, "what you did, what you found, what's
 	// left" (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts:96-103), and OpenAI's GPT-6
-	// guide's short handoff, "what changed, what was checked, and what still needs attention".
-	"- Keep the summary short: the answer first; then what you did, what you found and what is left; which checks " +
-	"you ran and which you skipped; then the evidence (paths with lines, commands with their output, the pull " +
-	"request as its URL).\n" +
+	// guide's short handoff, "what changed, what was checked, and what still needs attention". Issue #672: a
+	// failure said first, after Orca's "Use --outcome failed if the work is not done; never hide failure in prose"
+	// (same file, :98-100); written for a reader who saw none of the work, after Anthropic's Fable 5.2 page ("The
+	// person reading has not seen your tool calls, your reasoning or the files you opened").
+	"- Keep the summary short, and write it for someone who has seen none of your work: the answer first, and " +
+	"when the work is not done, say so in its first line; then what you did, what you found and what is left; " +
+	"which checks you ran and which you skipped; then the evidence (paths with lines, commands with their " +
+	"output, the pull request as its URL).\n" +
 	"- If the owner must decide before the work goes on (such as whether to merge), " +
 	"pass that question as `gate` to `finish` instead of waiting.\n" +
 	"- Do not start subagents, and do not work outside this directory.\n" +
@@ -40,38 +60,50 @@ const rules = "\nRules:\n" +
 	"and call `finish` with that evidence. When you are unsure, say so instead of guessing.\n"
 
 // Prompt is the worker's first turn, after Orca's dispatch preamble
-// (src/main/runtime/orchestration/preamble.ts L52-113): who it is, the task,
-// where to work, ask instead of AskUserQuestion, finish exactly once, no
-// subagents; then the recovery note, a follow-up and a resolved Gate.
+// (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts):
+// who it is and the rules, the same for every worker; the profile's
+// instruction, the accounts and phone of the Run and the memories; where to
+// work; the task; and last the recovery note, a follow-up and a resolved
+// Gate, the newest instruction.
+//
+// The order is issue #672's. Orca puts its rules first and `=== TASK ===` with
+// the spec last (:118-121); omp gives its subagent the rules in the system
+// prompt and only the assignment in the user message
+// (packages/coding-agent/src/prompts/system/subagent-user-prompt.md:1-3);
+// Anthropic's prompting guide puts long context first and the query at the
+// end, and OpenAI's caching guide stable instructions first and what varies
+// last. That the recovery note, a follow-up and a Gate come after the spec
+// follows Anthropic's Fable 5.2 page, which puts what changed in the newest
+// turn; the exact order is inferred.
 func Prompt(d statedb.Dispatch) string {
 	o := d.Offer
 
 	var b strings.Builder
 
 	b.WriteString("You are a worker dispatched by Hypomnema, a software factory. ")
-	b.WriteString("Carry out the task below on your own.\n\n")
-	fmt.Fprintf(&b, "Task (%s):\n%s\n\n", o.Profile, o.Spec)
-
-	if o.Repo != "" {
-		fmt.Fprintf(&b, "Work only in this directory, a git worktree of %s on branch %s, started from %s. ",
-			o.Repo, worktree.Branch(o.TaskID), o.Base)
-		// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
-		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
-			openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
-	} else {
-		b.WriteString("Work only in this directory.\n")
-	}
-
+	b.WriteString("Carry out the task at the end of this message on your own.\n")
 	b.WriteString(rules)
-	// The accounts the Run was given, and the command each is used with (issue #103); the phone (issue #417).
-	b.WriteString(agenttool.Brief(o.Uses, o.Device))
 
 	// The profile's instruction comes after the rules it may not override.
 	if s := strings.TrimSpace(o.Instruction); s != "" {
 		b.WriteString("\nFor this kind of task:\n" + s + "\n")
 	}
 
+	// The accounts the Run was given, and the command each is used with (issue #103); the phone (issue #417).
+	b.WriteString(agenttool.Brief(o.Uses, o.Device))
 	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.AgentKey != ""))
+
+	if o.Repo != "" {
+		fmt.Fprintf(&b, "\nWork only in this directory, a git worktree of %s on branch %s, started from %s. ",
+			o.Repo, worktree.Branch(o.TaskID), o.Base)
+		// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
+		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
+			openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
+	} else {
+		b.WriteString("\nWork only in this directory.\n")
+	}
+
+	fmt.Fprintf(&b, "\nTask (%s):\n%s\n", o.Profile, o.Spec)
 
 	if d.Accepted != nil && d.Accepted.Recovery {
 		b.WriteString("\n" + recoveryNote + "\n")
@@ -132,7 +164,10 @@ func gate(d statedb.Dispatch) string {
 		answer = strings.TrimSpace(q.Options[*a.Option].Label + " " + a.Text)
 	}
 
-	return fmt.Sprintf("DECISION GATE RESOLVED. You asked: %s\nThe answer: %s\nContinue from there.\n", q.Text, answer)
+	// A plain sentence rather than Orca's upper-case "DECISION GATE RESOLVED" (issue #672, after Anthropic's
+	// prompting guide on emphatic wording).
+	return fmt.Sprintf("The owner answered the question you asked at `finish`.\nYou asked: %s\nThe answer: %s\n"+
+		"Continue from there.\n", q.Text, answer)
 }
 
 // memoryGuide says what a worker keeps, after Coder's guidance for its

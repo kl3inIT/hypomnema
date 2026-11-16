@@ -49,7 +49,8 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	assert.Contains(t, p, "When it is false (the work is already there, the problem does not reproduce), "+
 		"change nothing and call `finish` with that evidence", "a task's premise is checked first (issue #513)")
 	assert.Contains(t, p, "outcome is unknown")
-	assert.Contains(t, p, "DECISION GATE RESOLVED. You asked: PR #7 is green. Merge it?\nThe answer: merge")
+	assert.Contains(t, p, "The owner answered the question you asked at `finish`.\n"+
+		"You asked: PR #7 is green. Merge it?\nThe answer: merge")
 	assert.NotContains(t, p, "For this kind of task", "no instruction, no section")
 
 	d.Offer.Profile, d.Offer.Instruction = "reviewer", "Report problems; change nothing.\n"
@@ -107,7 +108,7 @@ func TestPromptCarriesTheFollowUp(t *testing.T) {
 
 	d.Accepted.Gate = &nodeproto.Question{Text: "Add an e2e test too?", Answer: &nodeproto.Answer{Text: "yes"}}
 	p = Prompt(d)
-	assert.Greater(t, strings.Index(p, "DECISION GATE RESOLVED"), strings.Index(p, "more is asked of it now"),
+	assert.Greater(t, strings.Index(p, "The owner answered"), strings.Index(p, "more is asked of it now"),
 		"the answer to the newest question comes last")
 
 	d.Offer.Repo, d.Accepted.Gate = "", nil
@@ -121,6 +122,36 @@ func TestPromptCarriesTheFollowUp(t *testing.T) {
 func TestPromptAsksForTheReportShape(t *testing.T) {
 	t.Parallel()
 
-	assert.Contains(t, Prompt(offered()), "the answer first; then what you did, what you found and what is left; "+
-		"which checks you ran and which you skipped; then the evidence")
+	p := Prompt(offered())
+	assert.Contains(t, p, "write it for someone who has seen none of your work: the answer first, and when the "+
+		"work is not done, say so in its first line; then what you did, what you found and what is left; which "+
+		"checks you ran and which you skipped; then the evidence", "a failure is said first (issue #672)")
+	assert.Contains(t, p, "Do not end your turn on a plan, an offer to continue or a list of next steps",
+		"the worker finishes the whole task (issue #672)")
+	assert.Contains(t, p, "no progress messages are needed")
+}
+
+// Scenario: the order of the first turn (issue #672, after Orca's preamble,
+// whose rules come first and the task last). The rules, the profile's
+// instruction and the memories come before where to work; the spec follows;
+// a recovery note and a follow-up come after the spec.
+func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.Instruction, d.Offer.Memory = "Run the checks.", "Linh reviews Go."
+	d.Accepted = &nodeproto.Accepted{Epoch: 1, Recovery: true, FollowUp: "Add a test."}
+
+	p := Prompt(d)
+
+	order := []string{
+		"Rules:", "For this kind of task:", "Memory of your agent", "Work only in this directory",
+		"Task (implementer):\nadd the Google login button\n", "outcome is unknown", "more is asked of it now",
+	}
+	for i := 1; i < len(order); i++ {
+		assert.Greater(t, strings.Index(p, order[i]), strings.Index(p, order[i-1]),
+			"%q comes after %q", order[i], order[i-1])
+	}
 }
