@@ -20,7 +20,14 @@ var now = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
 func chartData(t *testing.T, s *supersettest.Superset, chart int) (superset.ChartData, error) {
 	t.Helper()
 
-	return superset.GetChartData(t.Context(), s.Signed(), strconv.Itoa(supersettest.Dashboard), strconv.Itoa(chart), now)
+	return filtered(t, s, chart, nil)
+}
+
+func filtered(t *testing.T, s *supersettest.Superset, chart int, filters superset.Filters) (superset.ChartData, error) {
+	t.Helper()
+
+	return superset.GetChartData(t.Context(), s.Signed(), strconv.Itoa(supersettest.Dashboard), strconv.Itoa(chart),
+		filters, now)
 }
 
 // Scenario: someone looks for the dashboard about usage, then reads what is
@@ -232,4 +239,158 @@ func TestAChartsRowsAsCSV(t *testing.T) {
 	assert.Equal(t, []string{
 		"name,count,active,note", `"Lan, Nguyen",12,true,`, `Minh,3.5,false,"[""a"",""b""]"`, "",
 	}, strings.Split(string(raw), "\n"))
+}
+
+// Scenario: someone reads the pie for another unit than the dashboard starts
+// with, as they would pick it in the filter bar. The value replaces the Unit
+// filter's default on the pie, the one chart in its scope; the rest of the
+// pie's query is its own. Cleared, the filter filters nothing, as clearing it
+// in the bar does. A chart the filter does not reach is refused, naming the
+// filters that do reach it, and a filter the dashboard does not have is
+// refused naming those it has: no query is sent to Superset either way.
+func TestASelectFilterValueReplacesItsDefaultOnlyOnChartsInItsScope(t *testing.T) {
+	t.Parallel()
+
+	s := supersettest.New(t)
+
+	_, err := filtered(t, s, supersettest.UnitShare, superset.Filters{"Unit": {"Support", "Sales Ops"}})
+	require.NoError(t, err)
+
+	query := s.LastQuery()
+	assert.Equal(t, []any{map[string]any{"col": "unit", "op": "IN", "val": []any{"Support", "Sales Ops"}}},
+		query["filters"], "the value replaces the default Sales")
+	assert.Equal(t, []any{"unit"}, query["columns"])
+	assert.Equal(t, []any{"count"}, query["metrics"])
+
+	_, err = filtered(t, s, supersettest.UnitShare, superset.Filters{"NATIVE_FILTER-unit": {"Support"}})
+	require.NoError(t, err)
+	assert.Equal(t, []any{map[string]any{"col": "unit", "op": "IN", "val": []any{"Support"}}},
+		s.LastQuery()["filters"], "a filter is named by its id too")
+
+	_, err = filtered(t, s, supersettest.UnitShare, superset.Filters{"Unit": {}})
+	require.NoError(t, err)
+	assert.Empty(t, s.LastQuery()["filters"], "a cleared filter filters nothing")
+
+	sent := len(s.Requests())
+
+	_, err = filtered(t, s, supersettest.Daily, superset.Filters{"Unit": {"Support"}})
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+	assert.Contains(t, err.Error(),
+		`filter "Unit" of dashboard 9 does not apply to chart 170; the filters that do: "Time"`)
+
+	_, err = filtered(t, s, supersettest.UnitShare, superset.Filters{"Source": {"Batch"}})
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+	assert.Contains(t, err.Error(), `dashboard 9 has no filter "Source"; its filters: "Unit", "Time"`)
+
+	for _, r := range s.Requests()[sent:] {
+		assert.NotEqual(t, "/api/v1/chart/data", r.Path, "a refused filter sends no query")
+	}
+}
+
+// Scenario: the line is read for last week instead of the last quarter. The
+// range replaces the default in the query's time range and in the chart's own
+// time filter. Cleared, or set to No filter, the dashboard sets no range, as
+// Superset's time filter sets none, and the chart's own filter of No filter
+// is left out. A time filter takes one range only.
+func TestATimeFilterValueSetsTheChartsRange(t *testing.T) {
+	t.Parallel()
+
+	s := supersettest.New(t)
+
+	_, err := filtered(t, s, supersettest.Daily, superset.Filters{"Time": {"Last week"}})
+	require.NoError(t, err)
+
+	query := s.LastQuery()
+	assert.Equal(t, "Last week", query["time_range"])
+	assert.Equal(t, []any{map[string]any{"col": "day", "op": "TEMPORAL_RANGE", "val": "Last week"}}, query["filters"])
+
+	for _, cleared := range [][]string{{}, {"No filter"}} {
+		_, err = filtered(t, s, supersettest.Daily, superset.Filters{"Time": cleared})
+		require.NoError(t, err)
+		assert.NotContains(t, s.LastQuery(), "time_range", "no range is set for %q", cleared)
+		assert.Empty(t, s.LastQuery()["filters"])
+	}
+
+	_, err = filtered(t, s, supersettest.Daily, superset.Filters{"Time": {"Last week", "Last month"}})
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+	assert.Contains(t, err.Error(), "takes one value")
+}
+
+// Scenario: a value is written with quotes and SQL in it. It is sent as the
+// IN filter's value, a datum Superset binds, and never reaches the query's
+// SQL clauses.
+func TestAFilterValueWithSQLIsSentAsAValueOnly(t *testing.T) {
+	t.Parallel()
+
+	s := supersettest.New(t)
+	value := `Sales') OR 1=1; DROP TABLE units; --`
+
+	_, err := filtered(t, s, supersettest.UnitShare, superset.Filters{"Unit": {value}})
+	require.NoError(t, err)
+
+	query := s.LastQuery()
+	assert.Equal(t, []any{map[string]any{"col": "unit", "op": "IN", "val": []any{value}}}, query["filters"])
+	assert.Equal(t, map[string]any{"where": "", "having": ""}, query["extras"], "no SQL clause is written")
+}
+
+// Scenario: someone asks which units the Unit filter offers, then those with
+// "sales" in them. The answer is the column's values on the filter's dataset
+// with their counts, the most frequent first, as Superset's filter bar lists
+// them; the search is sent as an ILIKE value. A filter that is not a select
+// has no list, and one the dashboard does not have is refused by name.
+func TestAFiltersValuesAreListedWithTheirCounts(t *testing.T) {
+	t.Parallel()
+
+	s := supersettest.New(t)
+	relay, dashboard := s.Signed(), strconv.Itoa(supersettest.Dashboard)
+
+	all, err := superset.FilterValues(t.Context(), relay, dashboard, "Unit", "")
+	require.NoError(t, err)
+	require.Len(t, all, len(supersettest.UnitValues))
+	assert.Equal(t, superset.FilterValue{Value: "Sales", Count: 40}, all[0])
+
+	query := s.LastQuery()
+	assert.Equal(t, []any{"unit"}, query["columns"])
+	assert.Empty(t, query["filters"])
+	assert.InDelta(t, 1000, query["row_limit"], 0)
+
+	count := map[string]any{
+		"expressionType": "SIMPLE", "aggregate": "COUNT", "column": map[string]any{"column_name": "unit"},
+		"label": "count",
+	}
+	assert.Equal(t, []any{count}, query["metrics"])
+	assert.Equal(t, []any{[]any{count, false}}, query["orderby"], "the most frequent first")
+
+	some, err := superset.FilterValues(t.Context(), relay, dashboard, "Unit", "sales")
+	require.NoError(t, err)
+	assert.Equal(t, []superset.FilterValue{
+		{Value: "Sales", Count: 40}, {Value: "Sales Ops", Count: 7},
+	}, some)
+	assert.Equal(t, []any{map[string]any{"col": "unit", "op": "ILIKE", "val": "%sales%"}}, s.LastQuery()["filters"])
+
+	_, err = superset.FilterValues(t.Context(), relay, dashboard, "Time", "")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+	assert.Contains(t, err.Error(), "only a select filter")
+
+	_, err = superset.FilterValues(t.Context(), relay, dashboard, "Source", "")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+	assert.Contains(t, err.Error(), `its filters: "Unit", "Time"`)
+}
+
+// Scenario: filter values are written as the CLI and the API take them:
+// name=value, repeated for several values, name= to clear. A value keeps an
+// "=" it holds; a filter both cleared and given values, or a line with no
+// name, is refused.
+func TestFilterValuesAreReadFromNameEqualsValue(t *testing.T) {
+	t.Parallel()
+
+	got, err := superset.ParseFilters([]string{"Unit=Sales", "Unit=Support", "Time=", "Note=a=b"})
+	require.NoError(t, err)
+	assert.Equal(t, superset.Filters{"Unit": {"Sales", "Support"}, "Time": {}, "Note": {"a=b"}}, got)
+	assert.Equal(t, []string{"Note=a=b", "Time=", "Unit=Sales", "Unit=Support"}, got.Strings())
+
+	for _, bad := range [][]string{{"Unit=Sales", "Unit="}, {"=Sales"}, {"Sales"}} {
+		_, err := superset.ParseFilters(bad)
+		require.ErrorIs(t, err, orchestration.ErrInvalid, "%q", bad)
+	}
 }

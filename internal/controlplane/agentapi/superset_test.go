@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -145,8 +146,7 @@ func (w *supersetWorld) supersetToolsOf(key string) []agenttool.BrowserTool {
 	var out []agenttool.BrowserTool
 
 	for _, tool := range w.tools(key) {
-		switch tool.Name {
-		case "superset_dashboards", "superset_dashboard", "superset_chart_data", "superset_api":
+		if strings.HasPrefix(tool.Name, "superset_") {
 			out = append(out, tool)
 		}
 	}
@@ -155,7 +155,7 @@ func (w *supersetWorld) supersetToolsOf(key string) []agenttool.BrowserTool {
 }
 
 // Scenario: the owner gives a Run his Superset account, superset:vmaps
-// (issue #536). Its worker, which has no client API, finds Superset's four
+// (issue #536). Its worker, which has no client API, finds Superset's five
 // tools on its one list, without an account to name since it has one, and
 // reads a dashboard and a chart's rows with them. A Bot's pi is offered none
 // until the owner switches the account on for chats, as its commands are
@@ -184,8 +184,9 @@ func TestAWorkerAndABotUseSupersetByItsToolsWhenGivenTheAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	tools := w.supersetToolsOf(worker)
-	assert.Equal(t, []string{"superset_dashboards", "superset_dashboard", "superset_chart_data", "superset_api"},
-		toolNames(tools))
+	assert.Equal(t, []string{
+		"superset_dashboards", "superset_dashboard", "superset_chart_data", "superset_filter_values", "superset_api",
+	}, toolNames(tools))
 	assert.NotContains(t, string(tools[0].InputSchema), "account", "one account: nothing to name")
 	assert.Empty(t, w.supersetToolsOf(other), "a Run not given the account")
 	assert.Empty(t, w.supersetToolsOf(pi), "not on for chats yet")
@@ -246,7 +247,7 @@ func TestAWorkerAndABotUseSupersetByItsToolsWhenGivenTheAccount(t *testing.T) {
 	_, err = w.svc.SetConnectionChats(ctx, integration.SupersetID, "vmaps", true)
 	require.NoError(t, err)
 
-	assert.Len(t, w.supersetToolsOf(pi), 4, "on for chats, the Bot's pi has them")
+	assert.Len(t, w.supersetToolsOf(pi), 5, "on for chats, the Bot's pi has them")
 
 	_, text, isError = w.use(pi, "superset_api", rename)
 	assert.True(t, isError)
@@ -282,7 +283,7 @@ func TestAWorkerWithTwoSupersetAccountsNamesOne(t *testing.T) {
 	worker := w.workerOf("n1", "", "superset:vmaps", "superset:sales")
 
 	tools := w.supersetToolsOf(worker)
-	require.Len(t, tools, 4)
+	require.Len(t, tools, 5)
 
 	var schema struct {
 		Properties map[string]struct {

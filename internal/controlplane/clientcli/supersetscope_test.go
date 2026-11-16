@@ -23,8 +23,10 @@ import (
 // own requests to the API are refused, naming its dashboards. Limited to
 // another dashboard, it no longer sees this one: the list leaves it out and a
 // read by number or slug is answered as a dashboard that does not exist,
-// before any chart's query runs, and the refusal is logged. The owner, the
-// coordinator token and a Bot without a scope read and relay as before.
+// before any chart's query runs, and the refusal is logged. Its dashboard's
+// charts are read with their filters set, and a filter's values listed, on
+// that dashboard only (issue #648). The owner, the coordinator token and a
+// Bot without a scope read and relay as before.
 func TestABotLimitedToDashboardsReadsOnlyThem(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	w := newSupersetWorld(t, 200*time.Millisecond)
 	w.connect(t)
@@ -74,6 +76,15 @@ func TestABotLimitedToDashboardsReadsOnlyThem(t *testing.T) { //nolint:parallelt
 	_, err = w.cmd(t, "superset", "chart", "9", "999")
 	require.ErrorContains(t, err, "dashboard 9 has no chart 999")
 
+	_, err = w.cmd(t, "superset", "chart", "9", strconv.Itoa(supersettest.UnitShare), "--filter", "Unit=Support")
+	require.NoError(t, err)
+	assert.Equal(t, []any{map[string]any{"col": "unit", "op": "IN", "val": []any{"Support"}}},
+		w.superset.LastQuery()["filters"], "a limited Bot sets its dashboard's filters")
+
+	values, err := w.cmd(t, "superset", "filter-values", "9", "Unit")
+	require.NoError(t, err)
+	assert.Contains(t, values, "40\tSales\n")
+
 	posts := w.sent(http.MethodPost)
 
 	_, err = w.cmdIn(t, `{"queries":[{"columns":["x"]}]}`, "superset", "api", "POST", "/api/v1/chart/data", "--data", "-")
@@ -105,6 +116,12 @@ func TestABotLimitedToDashboardsReadsOnlyThem(t *testing.T) { //nolint:parallelt
 
 	_, err = w.cmd(t, "superset", "chart", supersettest.DashboardSlug, strconv.Itoa(supersettest.ActivePeople))
 	require.ErrorContains(t, err, "not found")
+
+	_, err = w.cmd(t, "superset", "chart", "9", strconv.Itoa(supersettest.UnitShare), "--filter", "Unit=Support")
+	require.ErrorContains(t, err, "dashboard 9 not found")
+
+	_, err = w.cmd(t, "superset", "filter-values", "9", "Unit")
+	require.ErrorContains(t, err, "dashboard 9 not found")
 	assert.Equal(t, posts, w.sent(http.MethodPost), "no chart's query ran for a dashboard out of scope")
 
 	_, err = w.cmd(t, "superset", "api", "GET", "/api/v1/chart/166")

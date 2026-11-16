@@ -33,10 +33,11 @@ const (
 
 // Superset's tools (issue #536, step 3).
 const (
-	ToolSupersetDashboards = "superset_dashboards"
-	ToolSupersetDashboard  = "superset_dashboard"
-	ToolSupersetChartData  = "superset_chart_data"
-	ToolSupersetAPI        = "superset_api"
+	ToolSupersetDashboards   = "superset_dashboards"
+	ToolSupersetDashboard    = "superset_dashboard"
+	ToolSupersetChartData    = "superset_chart_data"
+	ToolSupersetFilterValues = "superset_filter_values"
+	ToolSupersetAPI          = "superset_api"
 )
 
 // WhatsApp's tools (issue #638): the owner's own WhatsApp, read by a Bot on his turn.
@@ -105,7 +106,8 @@ var ToolFamilies = []ToolFamily{
 		Tools: []string{ToolGenerateImage}},
 	{Name: "superset", Description: "Superset's dashboards, charts and data, with a Superset Connection",
 		Pattern: "superset_*",
-		Tools:   []string{ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData, ToolSupersetAPI}},
+		Tools: []string{ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData,
+			ToolSupersetFilterValues, ToolSupersetAPI}},
 	{Name: "whatsapp", Description: "The owner's own WhatsApp, read on his turn, with a WhatsApp Connection",
 		Pattern: "whatsapp_*",
 		Tools: []string{ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory,

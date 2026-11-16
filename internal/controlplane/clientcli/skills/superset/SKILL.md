@@ -36,7 +36,8 @@ request relayed as it is). They were written for Hypomnema and tried against Sup
 |---|---|
 | `superset_dashboards` (`search` may be left out) | One JSON object: `data`, each dashboard's `id`, `title`, `slug` and `changed_at`. At most a hundred, by title. |
 | `superset_dashboard` (`dashboard`) | The dashboard's `title`; its `charts`, each one's `id`, `name`, `kind` (`table`, `pie`, …), `dataset` and `read`; its `filters`, each one's `name`, `kind`, `column` and `default`, the value it has when the dashboard opens. `dashboard` is its number or its slug. |
-| `superset_chart_data` (`dashboard`, `chart`) | One JSON object: `columns` (the names), `rows` (each row's values in the order of `columns`), `row_count`, `sql` (the query Superset ran), `computed_at`, `cached`, `source`. With `format: "csv"`: the rows alone, with a header line. |
+| `superset_chart_data` (`dashboard`, `chart`, `filters`) | One JSON object: `columns` (the names), `rows` (each row's values in the order of `columns`), `row_count`, `sql` (the query Superset ran), `computed_at`, `cached`, `source`. With `format: "csv"`: the rows alone, with a header line. `filters` sets the dashboard's filters, below. |
+| `superset_filter_values` (`dashboard`, `filter`, `search`) | One JSON object: `data`, each `value` a select filter offers with its `count` of rows, the most frequent first, at most 1000. |
 | `superset_api` (`method`, `path`, `body`) | Superset's answer to one request: `status`, `content_type`, `body` (base64 when `base64` is true) and the `action` it was. An answer that is not a success is the tool's error. |
 
 Find the numbers first: `superset_dashboards` with a `search`, then `superset_dashboard`, then
@@ -45,8 +46,21 @@ Find the numbers first: `superset_dashboards` with a `search`, then `superset_da
 ## What a chart's data is
 
 - The rows are the ones the chart shows **when its dashboard opens**: the chart's own filters, order and row limit,
-  and the dashboard's filters at the values they start with. A value someone picked in a filter in their browser
-  is not applied.
+  and the dashboard's filters at the values they start with, but those you set with `filters`.
+
+## A filtered question: set the dashboard's filters
+
+For "last week", "batch imports only", "unit X", set the filter as someone would in the dashboard's filter bar:
+`filters` on `superset_chart_data`, `{"Unit": ["Sales", "Support"], "Time": ["Last week"]}`, each filter named as
+`superset_dashboard` lists it. Superset then computes the chart's figures with it.
+
+- A select filter takes the values `superset_filter_values` lists; a time filter one range (`Last week`,
+  `2026-11-01 : 2026-11-08`); an empty list clears a filter. A filter not named keeps its default.
+- A filter applies only to the charts it lists in `charts`; another chart refuses it, naming the filters it has.
+- **Never answer a filtered question by filtering, summing or averaging the rows of an unfiltered read.** A count
+  of distinct people, a median or a rate is right only when Superset computes it with the filter.
+- A Routine's script does the same with `hypomnema superset chart <dashboard> <chart> --filter "Unit=Sales"`,
+  a flag a value, and lists values with `hypomnema superset filter-values <dashboard> <filter>`.
 - **The figures are as of the call.** `computed_at` says when: the time Superset cached them when `cached` is
   true, the time of your call otherwise. Say that time when you report a figure; do not present it as live.
 - **The chart's row limit holds.** A list longer than the chart's limit is cut as it is on the dashboard. When
