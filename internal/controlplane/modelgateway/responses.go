@@ -271,7 +271,9 @@ func (s *Server) relayResponses(
 
 	var (
 		completed, clientGone bool
-		sent                  int
+		// answered is when the event that completes the answer was passed on (issue #635).
+		answered bool
+		sent     int
 	)
 
 	for scanner.Scan() {
@@ -298,6 +300,7 @@ func (s *Server) relayResponses(
 			break
 		}
 
+		answered = completed
 		sent += len(line)
 
 		// An empty line ends an event.
@@ -309,10 +312,12 @@ func (s *Server) relayResponses(
 	flush()
 
 	switch {
+	case answered:
+		// The whole answer was passed on. The Codex CLI returns as it reads response.completed and closes the
+		// connection (codex-rs/codex-api/src/sse/responses.rs), which is not a client gone (issue #635).
+		record.Outcome = OutcomeOK
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
-	case completed:
-		record.Outcome = OutcomeOK
 	default:
 		// The answer ended without the event that completes it: the backend
 		// said it failed, or went away. The client has what was sent.
