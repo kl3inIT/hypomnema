@@ -1470,6 +1470,10 @@ flowchart LR
       `hypomnema-node tool gws`, the launcher. On every call the launcher asks the control plane's agent API
       (`internal/controlplane/agentapi`: `GET /agent/v1/connections`) which accounts the agent may use and runs
       the real tool. `--account <label>` names one of several and never reaches the tool.
+      `hypomnema tool run <integration> [--account <label>] -- <command> [args...]` runs any command, such as
+      `curl`, the same way, through the Integration's proxy: what a pinned tool's own list does not cover, such as
+      Search Console, which gws lacks (issue [#617](https://github.com/kl3inIT/hypomnema/issues/617); treg's
+      `treg run` and `shell --proxy`, Onyx's egress proxy).
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -1481,8 +1485,9 @@ flowchart LR
       Connection: **allow** (reading, drafts, a new file), **ask** (what reaches other people or cannot be taken
       back; and any request that matches no action), or **never**. Only then is the account's token added. No
       token of a proxied Integration is handed to an agent. A request that the proxy and the service could read
-      differently is refused: another address, a path that climbs or hides a slash, a method override, a query
-      that does not parse strictly. What an agent may use is asked again for every request. Every request is
+      differently is refused: another address, a path that climbs or hides a slash (an encoded slash is allowed
+      on Search Console's host, whose paths carry a URL as one segment and whose every non-read asks; #617), a
+      method override, a query that does not parse strictly. What an agent may use is asked again for every request. Every request is
       logged with the agent, the Connection, the action and the verdict. A request is the action whose route
       names the most of its path. No launcher asks for a token any more; `POST /agent/v1/token` answers only an
       owner's token.

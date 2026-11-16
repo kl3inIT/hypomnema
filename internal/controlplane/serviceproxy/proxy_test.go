@@ -1012,6 +1012,30 @@ func TestSearchConsoleReadsRunAndASitemapAsks(t *testing.T) {
 	}
 }
 
+// Scenario (issue #617): through the tunnel, a Bot reads the sitemaps of a URL-prefix property of Search Console,
+// whose site is a URL escaped into one segment of the path. It reaches Google written as it was sent, slashes
+// still encoded; on Gmail's host the same encoding stays refused (TestARequestThatCouldBeReadTwoWaysIsRefused).
+func TestASearchConsoleSiteWithEncodedSlashesReachesGoogle(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	search := w.piTool("searchconsole.googleapis.com")
+
+	head := " HTTP/1.1\r\nHost: searchconsole.googleapis.com\r\nAuthorization: Bearer " + agenttool.Placeholder +
+		"\r\n\r\n"
+
+	got := search.raw("GET /webmasters/v3/sites/https%3A%2F%2Fbeyondpilot.ai%2F/sitemaps" + head)
+	require.Equal(t, http.StatusOK, got.Status, got.Body)
+
+	received := w.service.received()
+	require.Len(t, received, 1)
+	assert.Equal(t, "https://searchconsole.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fbeyondpilot.ai%2F/sitemaps",
+		received[0].URL)
+
+	climbs := search.raw("GET /webmasters/v3/sites/x%2F..%2F..%2Fsites" + head)
+	assert.Equal(t, http.StatusForbidden, climbs.Status, "a path that climbs is still refused")
+}
+
 // Scenario: pi works in Lark as the owner's app. Reading a chat runs on its
 // own, and so does a read lark-cli's own list does not name. Sending a
 // message, which that list does not name either, is a write of Messages and
