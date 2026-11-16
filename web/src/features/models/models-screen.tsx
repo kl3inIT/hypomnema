@@ -477,7 +477,7 @@ function LimitBars({ account }: { account: Account }) {
       {data.windows.map((window) => (
         <div
           key={window.name}
-          className="grid max-w-md grid-cols-1 items-center gap-x-2 gap-y-1 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:gap-y-0"
+          className="grid max-w-md grid-cols-1 items-center gap-x-2 gap-y-1 sm:grid-cols-[10.5rem_minmax(0,1fr)] sm:gap-y-0"
         >
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             {window.name.startsWith("week") ? (

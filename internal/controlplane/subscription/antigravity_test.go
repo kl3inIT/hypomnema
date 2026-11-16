@@ -92,6 +92,29 @@ func newGoogle(t *testing.T) *google {
 			  "chat_internal_probe":{"isInternal":true},
 			  "gpt-oss-120b-medium":{}}}`)
 		})
+		mux.HandleFunc("POST /"+host+"/v1internal:retrieveUserQuotaSummary", func(w http.ResponseWriter, r *http.Request) {
+			g.seen(r, host)
+
+			var in map[string]string
+			if json.NewDecoder(r.Body).Decode(&in) != nil || in["project"] != "bright-wave-1234" {
+				http.Error(w, `{"error":{"status":"INVALID_ARGUMENT"}}`, http.StatusBadRequest)
+
+				return
+			}
+
+			// The shape 9router-go reads (antigravity_quota.go, ParseWeeklyQuotaSummary): the Gemini group's five
+			// hours are used up, its week is not; the Claude & GPT group's session is disabled because its week
+			// is used up; a group of no known model and a bucket with no fraction are left out.
+			_, _ = io.WriteString(w, `{"quotaSummary":{"groups":[
+			  {"displayName":"Gemini Models","buckets":[
+			    {"bucketId":"gemini-5h","window":"5h","remainingFraction":0,"resetTime":"2026-11-10T11:00:00Z"},
+			    {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.75,"resetTime":"2026-11-14T00:00:00Z"}]},
+			  {"displayName":"Claude and GPT models","buckets":[
+			    {"bucketId":"claude-5h","window":"5h","disabled":true},
+			    {"bucketId":"claude-weekly","window":"weekly","remainingFraction":0,"resetTime":"2026-11-12T00:00:00Z"}]},
+			  {"displayName":"Images","buckets":[{"bucketId":"img-weekly","window":"weekly","remainingFraction":0.5}]},
+			  {"displayName":"Gemini 4 Argon","buckets":[{"bucketId":"argon-weekly","window":"weekly"}]}]}}`)
+		})
 		mux.HandleFunc("POST /"+host+"/v1internal:onboardUser", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
 			_, _ = io.WriteString(w, `{"name":"operations/onboard-1","done":false}`)
@@ -442,4 +465,40 @@ func TestAccountsAreRefreshedOneAfterAnother(t *testing.T) {
 	for _, a := range all {
 		assert.Equal(t, t0.Add(45*time.Minute+3599*time.Second), *a.AccessTokenExpiresAt, a.Label)
 	}
+}
+
+// Scenario: an Antigravity account says its limits as the groups its quota is counted in, a five-hour and a weekly
+// window each (issue #576); a model of a group with a used-up window cannot be served until that window resets, and
+// a model of a group with none used up, or of no known group, can.
+func TestAnAntigravityAccountSaysItsGroupsLimits(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+
+	a, err := w.login()
+	require.NoError(t, err)
+
+	limits, err := w.subs.Limits(t.Context(), a.ID, true)
+	require.NoError(t, err)
+
+	assert.Equal(t, []subscription.Window{
+		{Name: "5 hours (Gemini)", UsedPercent: 100, ResetsAt: time.Date(2026, 11, 10, 11, 0, 0, 0, time.UTC)},
+		{Name: "week (Gemini)", UsedPercent: 25, ResetsAt: time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)},
+		{Name: "5 hours (Claude & GPT)", UsedPercent: 100},
+		{Name: "week (Claude & GPT)", UsedPercent: 100, ResetsAt: time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)},
+	}, limits.Windows)
+
+	assert.Equal(t, time.Date(2026, 11, 10, 11, 0, 0, 0, time.UTC),
+		w.subs.UsedUpUntil(t.Context(), a.ID, "gemini-3-flash"), "the group's five hours")
+	assert.Equal(t, time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC),
+		w.subs.UsedUpUntil(t.Context(), a.ID, "claude-sonnet-4-6"), "its week; the session names no reset")
+	assert.Equal(t, time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC),
+		w.subs.UsedUpUntil(t.Context(), a.ID, "gpt-oss-120b-medium"), "GPT is in Claude's group")
+	assert.True(t, w.subs.UsedUpUntil(t.Context(), a.ID, "gemini-4-argon").IsZero(), "nothing known of Argon")
+	assert.True(t, w.subs.UsedUpUntil(t.Context(), a.ID, "other-model").IsZero(), "no group")
+
+	w.clock.advance(3 * time.Hour) // 12:00, past the five hours
+	_, err = w.subs.Limits(t.Context(), a.ID, true)
+	require.NoError(t, err)
+	assert.True(t, w.subs.UsedUpUntil(t.Context(), a.ID, "gemini-3-flash").IsZero(), "the five hours have reset")
 }

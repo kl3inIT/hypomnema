@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -228,6 +229,48 @@ func TestAModelWhoseQuotaIsUsedUpWaitsAndTheOthersDoNot(t *testing.T) {
 	status, _, body = withFallback.call(t, withFallback.key, askFlash+`}`)
 	assert.Equal(t, http.StatusOK, status)
 	assert.Equal(t, answer, body) //nolint:testifylint // byte for byte: the answer is passed on, not re-encoded
+}
+
+// groupUsedUp is an account whose limits say a group's window is used up until a time (issue #576).
+type groupUsedUp struct {
+	googleAccount
+
+	until time.Time
+	asked []string
+}
+
+func (a *groupUsedUp) UsedUpUntil(_ context.Context, _, model string) time.Time {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.asked = append(a.asked, model)
+
+	return a.until
+}
+
+// Scenario: Google answers a bare RESOURCE_EXHAUSTED with no wait, and the account's limits say the model's group
+// has used up a window that resets in three hours (issue #576). The model waits until then, not the short wait of a
+// rate limit, and is not sent to the backend again meanwhile.
+func TestAModelWhoseGroupIsUsedUpWaitsUntilTheWindowResets(t *testing.T) {
+	t.Parallel()
+
+	backend, requests := cloudCode(t, plain(http.StatusTooManyRequests,
+		`{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Resource has been exhausted (e.g. check quota)."}}`))
+	account := &groupUsedUp{until: time.Now().Add(3 * time.Hour)}
+	g := newAntigravityGateway(t, backend, account)
+
+	status, headers, body := g.call(t, g.key, askFlash+`}`)
+	assert.Equal(t, http.StatusTooManyRequests, status)
+	assert.Contains(t, body, "Resource has been exhausted")
+
+	wait, err := strconv.Atoi(headers.Get("Retry-After"))
+	require.NoError(t, err)
+	assert.Greater(t, wait, 3*3600-60, "until the window resets")
+	assert.Equal(t, []string{"gemini-3.8-flash-high"}, account.asked, "the model as Google names it")
+
+	status, _, _ = g.call(t, g.key, askFlash+`}`)
+	assert.Equal(t, http.StatusTooManyRequests, status)
+	assert.Equal(t, 1, requests.calls(), "a model that waits is not sent to the backend")
 }
 
 func containsModel(body, model string) bool {

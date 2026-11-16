@@ -139,6 +139,16 @@ const limits: Record<string, object> = {
     ],
     read_at: iso(now - 20_000),
   },
+  // An Antigravity account counts its quota per group of models, a five-hour and a weekly window each (issue #576).
+  acc_trial: {
+    windows: [
+      { name: "5 hours (Gemini)", used_percent: 100, resets_at: iso(now + 2 * 3600_000) },
+      { name: "week (Gemini)", used_percent: 40, resets_at: iso(now + 5 * 86_400_000) },
+      { name: "5 hours (Claude & GPT)", used_percent: 15, resets_at: iso(now + 4 * 3600_000) },
+      { name: "week (Claude & GPT)", used_percent: 62, resets_at: iso(now + 5 * 86_400_000) },
+    ],
+    read_at: iso(now - 20_000),
+  },
   acc_kept: {
     windows: [],
     unavailable: "failed",
@@ -436,6 +446,12 @@ test("the owner sees where models come from", async ({ page }) => {
   await expect(google).toContainText("Off")
   // An account named by its e-mail shows the e-mail once.
   await expect(google.getByText("owner@example.com")).toHaveCount(1)
+  // Its limits are its groups' windows, each name whole (issue #576).
+  const trial = google.getByLabel("Antigravity account owner@example.com")
+  await expect(trial.getByTestId("limits")).toContainText("5 hours (Claude & GPT)")
+  await expect(
+    trial.getByRole("meter", { name: "5 hours (Gemini) used by owner@example.com" }),
+  ).toHaveAttribute("aria-valuenow", "100")
   await expect(page.getByTestId("api-provider-card")).toContainText("vault:openrouter-key")
 
   expect(await fits(page)).toBe(true)
@@ -443,6 +459,9 @@ test("the owner sees where models come from", async ({ page }) => {
 
   await page.getByTestId("api-provider-card").scrollIntoViewIfNeeded()
   await shot(page, "models-api-providers")
+
+  await trial.scrollIntoViewIfNeeded()
+  await shot(page, "models-antigravity-limits")
 })
 
 // Scenario: the owner takes an account out of use and puts it back, turns a whole subscription off, and
