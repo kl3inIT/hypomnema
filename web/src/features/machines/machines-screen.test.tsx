@@ -31,7 +31,7 @@ const json = (body: unknown, status = 200) =>
 // "DELETE /nodes/n1"); it keeps the changing requests it got.
 function nodesServer(
   nodes: Node[],
-  answers: Record<string, () => Response> = {},
+  answers: Record<string, () => Response | Promise<Response>> = {},
   providers: MachineProvider[] = [],
 ) {
   const requests: { call: string; body: unknown }[] = []
@@ -327,6 +327,32 @@ test("a refused removal shows the server's message", async () => {
   expect(await within(confirm).findByRole("alert")).toHaveTextContent(
     "the node still runs 1 Dispatch",
   )
+})
+
+// Scenario: the owner confirms a removal with the keyboard while the server is slow. The button keeps focus and
+// shows that it waits, and pressing it again sends nothing (issue #582, Base UI Button "Loading states").
+test("a removal that waits keeps focus on its button and is sent once", async () => {
+  const user = userEvent.setup()
+  let answer = (_: Response) => {}
+  const requests = nodesServer([node("builder")], {
+    "DELETE /nodes/builder": () => new Promise<Response>((resolve) => (answer = resolve)),
+  })
+  await open()
+
+  await user.click(await screen.findByRole("button", { name: "Actions for builder" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Remove" }))
+  const confirm = await screen.findByRole("alertdialog")
+  const remove = within(confirm).getByRole("button", { name: "Remove" })
+  remove.focus()
+  await user.keyboard("{Enter}")
+
+  await vi.waitFor(() => expect(remove).toHaveAttribute("aria-disabled", "true"))
+  expect(remove).toHaveFocus()
+  expect(within(remove).getByRole("status")).toBeInTheDocument()
+  await user.keyboard("{Enter}")
+  expect(requests.map((r) => r.call)).toEqual(["DELETE /nodes/builder"])
+
+  answer(new Response(null, { status: 204 }))
 })
 
 // Scenario: no machine yet.

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { errorText } from "@/lib/server-error"
 import { memoryEntries, memoryUsed } from "@/features/bots/bots-state"
@@ -108,8 +109,13 @@ export function MemoryEditor({
               Discard changes
             </Button>
           )}
-          <Button type="submit" disabled={save.isPending || over}>
-            {save.isPending ? "Saving…" : "Save memory"}
+          <Button
+            type="submit"
+            focusableWhenDisabled={save.isPending}
+            disabled={save.isPending || over}
+          >
+            {save.isPending && <Spinner data-icon="inline-start" />}
+            Save memory
           </Button>
         </div>
       )}

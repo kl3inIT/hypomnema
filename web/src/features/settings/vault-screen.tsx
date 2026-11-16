@@ -630,7 +630,12 @@ function SecretDialog({
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={save.isPending}>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={save.isPending}
+            disabled={save.isPending}
+          >
             {save.isPending && <Spinner data-icon="inline-start" />}
             {action}
           </Button>

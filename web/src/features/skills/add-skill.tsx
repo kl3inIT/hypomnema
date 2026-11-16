@@ -175,7 +175,11 @@ export function AddSkill({
           <ErrorAlert error={add.error} />
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" type="button" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={!ready || add.isPending}>
+            <Button
+              type="submit"
+              focusableWhenDisabled={add.isPending}
+              disabled={!ready || add.isPending}
+            >
               {add.isPending && <Spinner data-icon="inline-start" />}
               {way === "upload" ? "Upload" : "Add"}
             </Button>

@@ -180,6 +180,7 @@ function CheckAgain({
         <Button
           variant="outline"
           size="sm"
+          focusableWhenDisabled={check.isPending}
           disabled={check.isPending}
           onClick={() =>
             check.mutate({ path: { integration: service.id, label: connection.label } })

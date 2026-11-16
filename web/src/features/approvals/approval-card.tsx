@@ -10,6 +10,7 @@ import {
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,16 +80,24 @@ function ApprovalCard({ approval }: { approval: Approval }) {
           <Button
             variant="outline"
             size="sm"
+            focusableWhenDisabled={decide.isPending}
             disabled={decide.isPending}
             onClick={() => answer("reject", "Declined")}
           >
+            {decide.isPending && decide.variables === "reject" && (
+              <Spinner data-icon="inline-start" />
+            )}
             Decline
           </Button>
           <Button
             size="sm"
+            focusableWhenDisabled={decide.isPending}
             disabled={decide.isPending}
             onClick={() => answer("approve", "Approved")}
           >
+            {decide.isPending && decide.variables === "approve" && (
+              <Spinner data-icon="inline-start" />
+            )}
             Approve
           </Button>
           {(session || approval.routine_id) && (

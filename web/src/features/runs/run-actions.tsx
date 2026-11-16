@@ -101,6 +101,7 @@ function Confirm({
           <AlertDialogCancel>Keep it open</AlertDialogCancel>
           <AlertDialogAction
             variant={destructive ? "destructive" : "default"}
+            focusableWhenDisabled={mutation.isPending}
             disabled={mutation.isPending}
             onClick={() => mutation.mutate(undefined, { onSuccess: () => setOpen(false) })}
           >

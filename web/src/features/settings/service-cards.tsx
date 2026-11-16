@@ -520,7 +520,12 @@ function ConnectAppDialog({
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={connect.isPending}>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={connect.isPending}
+            disabled={connect.isPending}
+          >
             {connect.isPending && <Spinner data-icon="inline-start" />}
             Connect
           </Button>
@@ -663,7 +668,12 @@ function ConnectAccountDialog({
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={connect.isPending}>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={connect.isPending}
+            disabled={connect.isPending}
+          >
             {connect.isPending && <Spinner data-icon="inline-start" />}
             Connect
           </Button>
@@ -857,7 +867,12 @@ function ConnectRoleDialog({
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={connect.isPending}>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={connect.isPending}
+            disabled={connect.isPending}
+          >
             {connect.isPending && <Spinner data-icon="inline-start" />}
             Connect
           </Button>
@@ -1078,7 +1093,12 @@ function UserSignInDialog({
             <Button onClick={again}>Start again</Button>
           ) : (
             !started && (
-              <Button type="submit" form={formId} disabled={begin.isPending}>
+              <Button
+                type="submit"
+                form={formId}
+                focusableWhenDisabled={begin.isPending}
+                disabled={begin.isPending}
+              >
                 {begin.isPending && <Spinner data-icon="inline-start" />}
                 Continue
               </Button>

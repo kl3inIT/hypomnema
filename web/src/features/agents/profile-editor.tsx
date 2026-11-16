@@ -14,6 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -190,14 +191,13 @@ export function ProfileEditor({
             Discard changes
           </Button>
         )}
-        <Button type="submit" disabled={apply.isPending || !dirty || wrong !== null}>
-          {stored
-            ? apply.isPending
-              ? "Saving…"
-              : "Save revision"
-            : apply.isPending
-              ? "Creating…"
-              : "Create profile"}
+        <Button
+          type="submit"
+          focusableWhenDisabled={apply.isPending}
+          disabled={apply.isPending || !dirty || wrong !== null}
+        >
+          {apply.isPending && <Spinner data-icon="inline-start" />}
+          {stored ? "Save revision" : "Create profile"}
         </Button>
       </div>
 

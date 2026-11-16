@@ -5,6 +5,7 @@ import type { ReactNode } from "react"
 import type { Routine } from "@/api/generated/types.gen"
 import { useBotName } from "@/features/bots/use-bots"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { cn } from "@/lib/utils"
@@ -279,9 +280,11 @@ function Grants({ routine }: { routine: Routine }) {
             <Button
               variant="outline"
               size="xs"
+              focusableWhenDisabled={revoke.isPending}
               disabled={revoke.isPending}
               onClick={() => revoke.mutate({ routine, grant: g })}
             >
+              {revoke.isPending && <Spinner data-icon="inline-start" />}
               Take back
             </Button>
           </li>

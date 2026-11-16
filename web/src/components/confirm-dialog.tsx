@@ -75,6 +75,7 @@ export function ConfirmDialog({
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
+            focusableWhenDisabled={remove.isPending}
             disabled={remove.isPending}
             onClick={() => remove.mutate()}
           >

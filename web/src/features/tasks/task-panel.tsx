@@ -15,6 +15,7 @@ import {
 import { cancelTask, forwardQuestion, reopenTask } from "@/api/generated/sdk.gen"
 import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { since, span } from "@/lib/time"
 
 import { RuntimeMark } from "@/components/icons/runtime-mark"
@@ -283,7 +284,13 @@ function PiQuestion({ card }: { card: Card }) {
         Asked pi · {since(card.piQuestion?.created_at ?? "")}
       </p>
       <p className="my-1.5 text-sm leading-relaxed whitespace-pre-wrap">{card.piQuestion?.text}</p>
-      <Button variant="outline" onClick={() => take.mutate()} disabled={take.isPending}>
+      <Button
+        variant="outline"
+        onClick={() => take.mutate()}
+        focusableWhenDisabled={take.isPending}
+        disabled={take.isPending}
+      >
+        {take.isPending && <Spinner data-icon="inline-start" />}
         Answer it myself
       </Button>
     </div>
@@ -317,12 +324,23 @@ function Actions({ card }: { card: Card }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {canReopen && (
-        <Button onClick={() => reopen.mutate()} disabled={reopen.isPending}>
+        <Button
+          onClick={() => reopen.mutate()}
+          focusableWhenDisabled={reopen.isPending}
+          disabled={reopen.isPending}
+        >
+          {reopen.isPending && <Spinner data-icon="inline-start" />}
           Start again
         </Button>
       )}
       {canCancel && (
-        <Button variant="destructive" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+        <Button
+          variant="destructive"
+          onClick={() => cancel.mutate()}
+          focusableWhenDisabled={cancel.isPending}
+          disabled={cancel.isPending}
+        >
+          {cancel.isPending && <Spinner data-icon="inline-start" />}
           Cancel Task
         </Button>
       )}

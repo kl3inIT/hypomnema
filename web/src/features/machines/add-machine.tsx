@@ -7,6 +7,7 @@ import { createNodeMutation } from "@/api/generated/@tanstack/react-query.gen"
 import type { CreatedNode, Node } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import {
   Dialog,
   DialogClose,
@@ -199,9 +200,11 @@ export function AddMachine() {
               <Button
                 type="submit"
                 form={formId}
+                focusableWhenDisabled={create.isPending}
                 disabled={create.isPending || name.trim() === "" || full}
               >
-                {submitText(provider !== undefined, create.isPending)}
+                {create.isPending && <Spinner data-icon="inline-start" />}
+                {provider !== undefined ? "Create" : "Add"}
               </Button>
             </DialogFooter>
           </>
@@ -209,12 +212,6 @@ export function AddMachine() {
       </DialogContent>
     </Dialog>
   )
-}
-
-function submitText(atProvider: boolean, pending: boolean) {
-  if (atProvider) return pending ? "Creating…" : "Create"
-
-  return pending ? "Adding…" : "Add"
 }
 
 // Choice is one answer to "Where": a radio named by its title and described by a line of detail.
