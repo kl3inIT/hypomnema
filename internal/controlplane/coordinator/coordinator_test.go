@@ -34,7 +34,9 @@ func TestMain(m *testing.M) {
 // one turn with a bash call and a reply that echoes the prompt's first line.
 // A prompt that says "crash" makes it exit mid-turn; one that says "fail"
 // ends in a failed model call; one that says "hang <how>" writes a little and
-// waits for an abort, then ends the turn as <how> says (stopped); one that
+// waits for an abort, then ends the turn as <how> says (stopped), keeping a
+// message steered meanwhile for the next prompt's answer, as pi keeps it
+// queued for the next run; one that
 // asks for the "token" is answered with the line before the commands, which
 // the launcher reads; one that asks "which model" is answered with the model
 // and thinking level of its flags, or of the set_model and
@@ -75,14 +77,9 @@ func fakePi() int {
 				emit(out, rec)
 			}
 
-			// What was steered in meanwhile is answered next, as pi goes on with its queue after an abort.
-			if steered != "" {
-				for _, rec := range turn("steered: " + steered) {
-					emit(out, rec)
-				}
-			}
-
-			hanging, steered = "", ""
+			// What was steered in meanwhile stays in pi's queue: an abort ends the run without going on to it, and
+			// the next run takes it in at its start (pi agent-session.ts _startRun, agent-loop.ts runLoop; #575).
+			hanging = ""
 
 			continue
 		}
@@ -165,6 +162,11 @@ func fakePi() int {
 
 		first, _, _ := strings.Cut(text, "\n")
 		answer := "echo: " + first
+
+		if steered != "" {
+			answer += " (steered: " + steered + ")"
+			steered = ""
+		}
 
 		if strings.Contains(text, "token") {
 			answer = "my token: " + token
@@ -1005,9 +1007,10 @@ func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
 	assert.Equal(t, "later", queue[0].Text)
 	assert.True(t, sup.Working(chat.ID))
 
+	// After the abort pi does not answer the steer on its own: it keeps it for the next run, which the queued
+	// message starts (#575).
 	require.NoError(t, sup.Abort(ctx, chat.ID))
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "steered: look here")
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: later")
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: later (steered: look here)")
 
 	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
 	require.NoError(t, err)
@@ -1023,7 +1026,7 @@ func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"owner: hang aborted", "owner: look here", "coordinator: half an answer", "system: Stopped",
-		"coordinator: steered: look here", "owner: later", "coordinator: echo: later",
+		"owner: later", "coordinator: echo: later (steered: look here)",
 	}, got)
 
 	queue, err = svc.ChatQueue(ctx, chat.ID)
