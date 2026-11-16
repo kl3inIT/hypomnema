@@ -596,7 +596,8 @@ func (s *Superset) chart(w http.ResponseWriter, r *http.Request, parts []string)
 }
 
 // chartData answers a query for a chart's data. The chart is the one the
-// query's form_data names; the columns are the query's own.
+// query's form_data names; the columns are the query's own. A query that
+// names no chart, on the Unit filter's dataset, is that filter's values.
 func (s *Superset) chartData(w http.ResponseWriter, body []byte) {
 	var asked struct {
 		Datasource struct {
@@ -611,8 +612,19 @@ func (s *Superset) chartData(w http.ResponseWriter, body []byte) {
 		Type   string `json:"result_type"`
 	}
 
+	decoded := json.Unmarshal(body, &asked) == nil
+
+	// A query with no chart is a filter's list of values, on the dataset the filter targets.
+	if decoded && asked.FormData.SliceID == 0 && asked.Datasource.ID == unitDataset &&
+		len(asked.Queries) == 1 && asked.Format == "json" && asked.Type == "full" {
+		s.queries = append(s.queries, asked.Queries[0])
+		s.answer(w, http.StatusOK, map[string]any{"result": []any{unitValues(asked.Queries[0])}})
+
+		return
+	}
+
 	c, known := (*chart)(nil), false
-	if json.Unmarshal(body, &asked) == nil {
+	if decoded {
 		c, known = s.charts[asked.FormData.SliceID]
 	}
 
@@ -642,6 +654,43 @@ func (s *Superset) chartData(w http.ResponseWriter, body []byte) {
 	}
 
 	s.answer(w, http.StatusOK, map[string]any{"result": []any{s.result(c, columns)}})
+}
+
+// unitDataset is the dataset the Unit filter targets.
+const unitDataset = 27
+
+// UnitValues are the values of the unit column, with how many rows have each,
+// the most frequent first.
+var UnitValues = []struct {
+	Unit  string
+	Count int
+}{{"Sales", 40}, {"Support", 25}, {"Sales Ops", 7}, {"O'Brien \"Ops\"", 2}}
+
+// unitValues answers a filter's list of values as Superset does: a row for
+// each value of the column, with its count, those that contain the ILIKE
+// filter's text when it has one.
+func unitValues(query map[string]any) map[string]any {
+	contains := ""
+
+	if filters, _ := query["filters"].([]any); len(filters) > 0 {
+		if f, ok := filters[0].(map[string]any); ok && f["op"] == "ILIKE" {
+			contains, _ = f["val"].(string)
+			contains = strings.ToLower(strings.Trim(contains, "%"))
+		}
+	}
+
+	data := []any{}
+
+	for _, v := range UnitValues {
+		if strings.Contains(strings.ToLower(v.Unit), contains) {
+			data = append(data, map[string]any{"unit": v.Unit, "count": v.Count})
+		}
+	}
+
+	return map[string]any{
+		"rowcount": len(data), "colnames": []string{"unit", "count"}, "data": data, "error": nil, "status": "success",
+		"query": fmt.Sprintf("SELECT unit, COUNT(unit) AS count FROM dataset_%d GROUP BY unit", unitDataset),
+	}
 }
 
 // result is a chart's rows as Superset answers them: one object a row. A

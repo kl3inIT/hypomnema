@@ -16,7 +16,8 @@ import (
 // Scope is the dashboards a caller may read of a Connection (issue #562): a
 // Bot the owner limited to some of them. Not Limited, it reads every
 // dashboard the account sees, as before. Limited, it reads only through the
-// three reads here, whose requests are built from the saved dashboard and
+// reads here (a chart read with its dashboard's filters set, and a filter's
+// values, issue #648), whose requests are built from the saved dashboard and
 // chart, never through a request it writes (Relay is refused): as
 // OpenMausBot refuses its generic proxy to a scoped bot
 // (packages/phone-protocol/src/connector-scopes.ts L37, L73) and Superset's
@@ -99,8 +100,8 @@ func (s Scope) RelayRefused(connection string) error {
 	}
 
 	return fmt.Errorf("%w: this bot reads %s only through its dashboards (%s): list them, read one, read a "+
-		"chart's data; it may not send its own requests%w", orchestration.ErrForbidden, connection, s.names(),
-		quiet{errOutOfScope})
+		"chart's data with its filters, list a filter's values; it may not send its own requests%w",
+		orchestration.ErrForbidden, connection, s.names(), quiet{errOutOfScope})
 }
 
 // ListDashboards lists the dashboards whose title contains search, only those
@@ -143,9 +144,10 @@ func (s Scope) Dashboard(ctx context.Context, relay Relay, ref string) (Dashboar
 // ChartData returns a chart's rows of a dashboard of the scope. The
 // dashboard is checked before any query runs: a slug is first asked for its
 // number. The chart must be one of the dashboard's (GetChartData).
-func (s Scope) ChartData(ctx context.Context, relay Relay, ref, chart string, now time.Time) (ChartData, error) {
+func (s Scope) ChartData(ctx context.Context, relay Relay, ref, chart string, filters Filters, now time.Time,
+) (ChartData, error) {
 	if !s.Limited {
-		return GetChartData(ctx, relay, ref, chart, now)
+		return GetChartData(ctx, relay, ref, chart, filters, now)
 	}
 
 	id, err := s.dashboardID(ctx, relay, ref)
@@ -153,7 +155,7 @@ func (s Scope) ChartData(ctx context.Context, relay Relay, ref, chart string, no
 		return ChartData{}, err
 	}
 
-	data, err := GetChartData(ctx, relay, strconv.FormatInt(id, 10), chart, now)
+	data, err := GetChartData(ctx, relay, strconv.FormatInt(id, 10), chart, filters, now)
 	if errors.Is(err, orchestration.ErrNotFound) && !errors.Is(err, errNoChart) {
 		return ChartData{}, dashboardNotFound(ref, false)
 	}

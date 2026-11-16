@@ -155,10 +155,11 @@ var policies = map[string]policy{
 
 	// Superset (issue #203). The owner, or a coordinator when the Connection is on for chats: the handler decides
 	// (superset.go). A request may wait for the owner's Approval, longer than the write timeout.
-	"ListSupersetDashboards": {long: true},
-	"GetSupersetDashboard":   {long: true},
-	"GetSupersetChartData":   {long: true},
-	"RelaySupersetRequest":   {long: true},
+	"ListSupersetDashboards":   {long: true},
+	"GetSupersetDashboard":     {long: true},
+	"GetSupersetChartData":     {long: true},
+	"ListSupersetFilterValues": {long: true},
+	"RelaySupersetRequest":     {long: true},
 
 	"ListApprovals":           {scope: scopeOwner},
 	"DecideApproval":          {scope: scopeOwner},

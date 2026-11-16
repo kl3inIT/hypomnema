@@ -268,9 +268,23 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("format", "json", "json, or csv for the rows alone with a header line")
 			fs.Bool("sql", false, "print only the SQL Superset ran")
+			fs.Var(&listFlag{}, "filter", "a value of one of the dashboard's filters, \"Name=value\", the filter "+
+				"named as the dashboard names it; give it once a value, \"Name=\" to clear the filter (default: "+
+				"each filter's value when the dashboard opens)")
 			supersetFlags(fs)
 		},
 		run: supersetChart,
+	},
+	{
+		name: "superset filter-values", args: "<dashboard> <filter>", min: 2, max: 2, long: true,
+		summary: "the values a select filter of a dashboard offers, the most frequent first, with how many rows " +
+			"have each",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("search", "", "only the values that contain this")
+			supersetFlags(fs)
+			jsonFlag(fs)
+		},
+		run: supersetFilterValues,
 	},
 	{
 		name: "superset api", args: "<METHOD> <path>", min: 2, max: 2, long: true,

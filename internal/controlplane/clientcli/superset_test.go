@@ -275,6 +275,23 @@ func TestReadingADashboardsChartsFromTheCLI(t *testing.T) {
 	_, err = w.cmd(t, "superset", "chart", "9", strconv.Itoa(supersettest.Flows))
 	require.ErrorContains(t, err, "not read yet: sankey_v2")
 
+	// The dashboard's filters set as its filter bar sets them (issue #648): a value a flag, sent as data.
+	_, err = w.cmd(t, "superset", "chart", "9", strconv.Itoa(supersettest.UnitShare),
+		"--filter", "Unit=Support", "--filter", "Unit=Sales Ops")
+	require.NoError(t, err)
+	assert.Equal(t, []any{map[string]any{"col": "unit", "op": "IN", "val": []any{"Support", "Sales Ops"}}},
+		w.superset.LastQuery()["filters"])
+
+	_, err = w.cmd(t, "superset", "chart", "9", strconv.Itoa(supersettest.Daily), "--filter", "Unit=Support")
+	require.ErrorContains(t, err, `the filters that do: "Time"`)
+
+	values, err := w.cmd(t, "superset", "filter-values", "9", "Unit", "--search", "sales")
+	require.NoError(t, err)
+	assert.Equal(t, "40\tSales\n7\tSales Ops\n", values)
+
+	_, err = w.cmd(t, "superset", "filter-values", "9", "Time")
+	require.ErrorContains(t, err, "only a select filter")
+
 	_, err = w.cmd(t, "superset", "chart", "9", "999")
 	require.ErrorContains(t, err, "dashboard 9 has no chart 999")
 
@@ -285,6 +302,8 @@ func TestReadingADashboardsChartsFromTheCLI(t *testing.T) {
 	assert.Contains(t, logs, "event=superset.read")
 	assert.Contains(t, logs, "connection=superset:vmaps action=superset.charts.read rows=160 dashboard=9 chart=164")
 	assert.Contains(t, logs, "rows=274 dashboard=9 chart=165")
+	assert.Contains(t, logs, `rows=5 dashboard=9 chart=169 filters="[Unit=Support Unit=Sales Ops]"`)
+	assert.Contains(t, logs, "action=superset.filters.read rows=2 dashboard=9 filter=Unit")
 	assert.Contains(t, logs, `agent="owner token `)
 	assert.Contains(t, logs, "action=superset.dashboards.read verdict=allowed")
 
