@@ -56,11 +56,18 @@ type Account interface {
 	// Media is a kept message's image or file, downloaded first when it is not kept yet (issue #634).
 	Media(ctx context.Context, chat, id string) (Media, error)
 	// Backfill asks the service for up to count messages of a chat older than the oldest kept, keeps them, and
-	// answers how many came (issue #634).
-	Backfill(ctx context.Context, chat string, count int) (int, error)
+	// answers how many were added and whether the start of the chat was reached (issues #634, #651).
+	Backfill(ctx context.Context, chat string, count int) (Backfilled, error)
 	// Send sends a message, or a file with its caption, in a chat as the account's owner, and keeps it (issue
 	// #645). Whether it may be sent is decided before.
 	Send(ctx context.Context, out Outgoing) (Message, error)
+}
+
+// Backfilled is what asking for older messages of a chat brought: how many were added to those kept, and whether
+// the service said the chat has none older (wacli's MessagesAdded and start_of_history_reached).
+type Backfilled struct {
+	Added    int
+	Complete bool
 }
 
 // Outgoing is a message to send: a text, or a file with Text as its caption, replying to ReplyTo when it is set.

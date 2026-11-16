@@ -95,6 +95,8 @@ var upgrades = []string{
 	ALTER TABLE wa_messages ADD COLUMN media_error TEXT NOT NULL DEFAULT '';
 	CREATE INDEX IF NOT EXISTS wa_messages_media_pending ON wa_messages (account, ts DESC)
 		WHERE direct_path <> '' AND local_path = '' AND media_error = '';`,
+	// 2: a file WhatsApp's servers no longer held was given up (#634); it is asked of the phone now (issue #651).
+	`UPDATE wa_messages SET media_error = '' WHERE media_error = 'WhatsApp no longer has it';`,
 }
 
 // mirror reads and writes the kept chats and messages.

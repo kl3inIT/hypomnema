@@ -5086,10 +5086,11 @@ export type BackfillMessagingChatError = BackfillMessagingChatErrors[keyof Backf
 
 export type BackfillMessagingChatResponses = {
   /**
-   * How many older messages the phone sent.
+   * How many older messages were added to those kept (the phone's answer may repeat some), and whether the phone said the chat has none older (issue #651).
    */
   200: {
-    received: number;
+    added: number;
+    complete: boolean;
   };
 };
 

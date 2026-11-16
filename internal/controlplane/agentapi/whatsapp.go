@@ -50,7 +50,7 @@ type Messaging interface {
 	Chats(ctx context.Context, integration, label string, limit int) ([]messaging.Chat, error)
 	Messages(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
 	Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error)
-	Backfill(ctx context.Context, integration, label, chat string, count int) (int, error)
+	Backfill(ctx context.Context, integration, label, chat string, count int) (messaging.Backfilled, error)
 	Send(ctx context.Context, integration, label string, out messaging.Outgoing) (messaging.Message, error)
 }
 
@@ -239,15 +239,22 @@ func (s *Server) whatsappCall(w http.ResponseWriter, r *http.Request, a agent, l
 	case agenttool.ToolWhatsAppSend:
 		s.whatsappSend(w, r, a, label, call.Arguments)
 	case agenttool.ToolWhatsAppHistory:
-		n, err := s.messaging.Backfill(ctx, whatsappID, label, strings.TrimSpace(in.Chat), in.Count)
+		got, err := s.messaging.Backfill(ctx, whatsappID, label, strings.TrimSpace(in.Chat), in.Count)
 		if err != nil {
 			s.answerErr(w, r, err)
 
 			return
 		}
 
-		answerTool(w, fmt.Sprintf("the phone sent %d older messages; read them with %s", n,
-			agenttool.ToolWhatsAppMessages), false)
+		text := fmt.Sprintf("%d older messages were added; read them with %s.", got.Added,
+			agenttool.ToolWhatsAppMessages)
+		if got.Complete {
+			text += " The phone says the chat has none older: this is its start."
+		} else if got.Added == 0 {
+			text += " Nothing older came: the owner's phone may hold no more of this chat."
+		}
+
+		answerTool(w, text, false)
 	}
 }
 

@@ -316,7 +316,7 @@ type Messaging interface {
 	Chats(ctx context.Context, integration, label string, limit int) ([]messaging.Chat, error)
 	Messages(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
 	Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error)
-	Backfill(ctx context.Context, integration, label, chat string, count int) (int, error)
+	Backfill(ctx context.Context, integration, label, chat string, count int) (messaging.Backfilled, error)
 }
 
 // WithMessaging sets the service that reads the messaging accounts' kept chats.
@@ -426,10 +426,10 @@ func (s *Server) BackfillMessagingChat(ctx context.Context, req openapi.Backfill
 		count = val(req.Body.Count)
 	}
 
-	n, err := s.messaging.Backfill(ctx, req.Integration, req.Label, req.Chat, count)
+	got, err := s.messaging.Backfill(ctx, req.Integration, req.Label, req.Chat, count)
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.BackfillMessagingChat200JSONResponse{Received: n}, nil
+	return openapi.BackfillMessagingChat200JSONResponse{Added: got.Added, Complete: got.Complete}, nil
 }

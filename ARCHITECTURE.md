@@ -1827,13 +1827,13 @@ flowchart LR
       media message keeps its download keys (the mirror's version 1, `wa_version`); four workers download each as
       it arrives, live or from history, and the kept ones without a file when the session connects (500 at a time,
       newest first), as wacli's `sync --download-media` and `media backfill`. whatsmeow checks the hashes, the
-      length must match, a file over 100 MiB is not downloaded, and one WhatsApp no longer has is marked. Files
+      length must match, a file over 100 MiB is not downloaded, and one WhatsApp's servers no longer hold (403, 404, 410) is asked of the phone, which uploads it again within 30 s or says it has it no more, as wacli's media retry (`retry.go`, [issue #651](https://github.com/kl3inIT/hypomnema/issues/651)); only a file neither has is marked. Files
       live in `whatsapp-media/<number>/<chat>/` beside `whatsapp.db`, private; disconnecting removes them.
       `GET …/messages/{chat}/{message}/media` answers one as an opaque download, downloaded first when it is not
       kept; a message says `media_kept`.
     - **Older messages of a chat** (issue #634; owner, 2026-11-16): `POST …/chats/{chat}/history` asks the phone
       for up to 500 (50 by default) before the oldest kept one and waits a minute for its on-demand history
-      sync, which is kept as any history; the answer says how many came, as wacli's `history backfill`. The phone
+      sync, which is kept as any history; the answer says how many were added (counted before and after: the phone may repeat kept ones) and whether the phone said the chat's start is reached, as wacli's `history backfill`. The phone
       must be online. wacli's retry of a direct chat under its other identity is left out.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),

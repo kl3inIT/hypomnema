@@ -291,8 +291,9 @@ func TestAMirrorOfTheFirstVersionIsUpgraded(t *testing.T) {
 	assert.False(t, msgs[0].MediaKept)
 }
 
-// Older messages of a chat (issue #634): a chat with nothing kept has no anchor to ask from, and the phone's
-// on-demand answer is kept and tells the waiting request how many came.
+// Older messages of a chat (issues #634, #651): a chat with nothing kept has no anchor to ask from; the phone's
+// on-demand answer is kept, tells the waiting request whether the chat's start was reached, and an answer that
+// repeats kept messages adds none.
 func TestThePhonesAnswerForOlderMessagesIsKept(t *testing.T) {
 	t.Parallel()
 
@@ -303,22 +304,32 @@ func TestThePhonesAnswerForOlderMessagesIsKept(t *testing.T) {
 	_, err := acc.Backfill(ctx, minh.String(), 0)
 	require.ErrorIs(t, err, errNoMessage, "nothing kept, nothing to ask from")
 
-	waiting := make(chan int, 1)
+	waiting := make(chan backfilled, 2)
 	acc.waiting[minh.String()] = waiting
 
-	acc.handle(&events.HistorySync{Data: &waHistorySync.HistorySync{
+	answer := &events.HistorySync{Data: &waHistorySync.HistorySync{
 		SyncType: waHistorySync.HistorySync_ON_DEMAND.Enum(),
 		Conversations: []*waHistorySync.Conversation{{
-			ID: proto.String(minh.String()),
+			ID:                       proto.String(minh.String()),
+			EndOfHistoryTransferType: waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY.Enum(),
 			Messages: []*waHistorySync.HistorySyncMsg{{Message: &waWeb.WebMessageInfo{
 				Key:              &waCommon.MessageKey{ID: proto.String("old1"), RemoteJID: proto.String(minh.String())},
 				MessageTimestamp: proto.Uint64(1700000000),
 				Message:          &waE2E.Message{Conversation: proto.String("Tin cũ")},
 			}}},
 		}},
-	}})
+	}}
 
-	assert.Equal(t, 1, <-waiting)
+	acc.handle(answer)
+	assert.True(t, (<-waiting).complete, "the phone said this is the start of the chat")
+
+	// The phone may answer with what is kept already (#651): the count Backfill answers from does not grow.
+	acc.handle(answer)
+	<-waiting
+
+	n, err := acc.mirror.count(ctx, acc.mirrorKey(), minh.String())
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
 
 	msgs, err := acc.Messages(ctx, messaging.Query{Chat: minh.String()})
 	require.NoError(t, err)
@@ -354,4 +365,30 @@ func TestAReplyQuotesTheMessageItAnswers(t *testing.T) {
 
 	_, err = acc.quote(ctx, group, "never-kept")
 	require.ErrorIs(t, err, errNoMessage)
+}
+
+// A file given up by the mirror's first version, which did not ask the phone, waits again for its download once
+// the mirror is upgraded (issue #651); one given up for its size stays given up.
+func TestAFileGivenUpBeforeIsAskedOfThePhone(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "whatsapp.db")
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: path})
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, schema+upgrades[0]+`
+		CREATE TABLE wa_version (version INTEGER NOT NULL); INSERT INTO wa_version VALUES (1);
+		INSERT INTO wa_messages (account, chat_jid, msg_id, ts, from_me, direct_path, media_error) VALUES
+			('84900000001', '120363@g.us', 'gone', 2, 0, '/v/gone', 'WhatsApp no longer has it'),
+			('84900000001', '120363@g.us', 'huge', 1, 0, '/v/huge', 'larger than 100 MiB');`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	svc, err := Open(ctx, path, slog.New(slog.DiscardHandler))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = svc.Close() })
+
+	pending, err := svc.mirror.pendingMedia(ctx, "84900000001", 10)
+	require.NoError(t, err)
+	assert.Equal(t, []mediaJob{{account: "84900000001", chat: "120363@g.us", id: "gone"}}, pending)
 }

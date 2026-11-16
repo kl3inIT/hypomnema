@@ -22,16 +22,19 @@ type mediaRow struct {
 	fileEncHash []byte
 	fileLength  int64
 	localPath   string
+	// sender and fromMe name the message to the phone when it is asked for the file again (issue #651).
+	sender string
+	fromMe bool
 }
 
 func (m *mirror) mediaOf(ctx context.Context, account, chat, id string) (mediaRow, error) {
 	var r mediaRow
 
 	err := m.db.QueryRowContext(ctx, `SELECT media_type, mime_type, filename, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, local_path
+			file_enc_sha256, file_length, local_path, sender_jid, from_me
 		FROM wa_messages WHERE account = ? AND chat_jid = ? AND msg_id = ?`, account, chat, id).
 		Scan(&r.mediaType, &r.mime, &r.fileName, &r.directPath, &r.mediaKey, &r.fileSHA256, &r.fileEncHash,
-			&r.fileLength, &r.localPath)
+			&r.fileLength, &r.localPath, &r.sender, &r.fromMe)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, fmt.Errorf("%w: no message %s is kept in %s", errNoMessage, id, chat)
 	}
@@ -104,6 +107,24 @@ func (m *mirror) quoted(ctx context.Context, account, chat, id string) (quotedRo
 	}
 
 	return q, err
+}
+
+// count is how many messages of a chat are kept.
+func (m *mirror) count(ctx context.Context, account, chat string) (int, error) {
+	var n int
+
+	err := m.db.QueryRowContext(ctx, `SELECT count(*) FROM wa_messages WHERE account = ? AND chat_jid = ?`, account,
+		chat).Scan(&n)
+
+	return n, err
+}
+
+// movedMedia records the new path of a file the phone uploaded again.
+func (m *mirror) movedMedia(ctx context.Context, account, chat, id, path string) error {
+	_, err := m.db.ExecContext(ctx, `UPDATE wa_messages SET direct_path = ? WHERE account = ? AND chat_jid = ?
+		AND msg_id = ?`, path, account, chat, id)
+
+	return err
 }
 
 // keptMedia records where a message's file was kept, or why it was not.
