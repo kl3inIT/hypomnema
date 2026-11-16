@@ -35,7 +35,7 @@ func TestTheCleanUpDeletesOldRequestsAndTheRevokedKeysNoneNames(t *testing.T) {
 	require.NoError(t, err)
 	recent, _, err := g.AddChatKey(ctx, "cht_recent", "bot_a", "")
 	require.NoError(t, err)
-	live, _, err := g.AddKey(ctx, "dongvl", nil)
+	live, _, err := g.AddKey(ctx, "dongvl", nil, nil)
 	require.NoError(t, err)
 
 	for _, k := range []modelgateway.Key{idle, oldOnly, recent} {

@@ -2424,7 +2424,7 @@ capabilities do not exist yet.
 - `POST /v1/search` `{query, max_results?, provider?}` answers `{provider, query, results: [{title, url, snippet,
   published_at?}], cached, errors?}` and `POST /v1/web/fetch` `{url}` answers `{url, title, content, truncated}`
   (issue #354, after OmniRoute's routes of the same names), with any key the gateway knows, whatever models it may
-  use. Each call is recorded on the key as model `web/search` or `web/fetch`, the provider that answered as its
+  use, unless the key is limited to other kinds (see the keys, below). Each call is recorded on the key as model `web/search` or `web/fetch`, the provider that answered as its
   provider, with no tokens, so it shows on the Usage page; a failure as an upstream error, every provider resting
   with status 429. The gateway's refusals are OpenAI's errors: 400 (no query, an unknown provider, a body that is
   not JSON), 403 `address_refused` (a page not on the public internet), 429 `search_rate_limited` with
@@ -2445,12 +2445,20 @@ capabilities do not exist yet.
 - `POST /v1/images/generations` and `POST /v1/images/edits` (issue #431, after OmniRoute's routes of the same names
   and CLIProxyAPI's) take OpenAI's image request, an edit as JSON or as a multipart form, and answer `{created, data:
   [{b64_json, revised_prompt?}], usage?}` (`url` as a data address when `response_format` is `url`), with any key the
-  gateway knows. What they do is "Images", below.
+  gateway knows that is not limited to other kinds. What they do is "Images", below.
+- A key may be limited to the kinds of request it makes besides chat (issue #664, after OmniRoute's
+  `allowed_endpoints` and LiteLLM's `allowed_routes`): `gateway_keys.endpoints` (migration 00099) is a JSON array of
+  `search` (`/v1/search`, `/v1/alpha/search`), `fetch` (`/v1/web/fetch`) and `images` (`/v1/images/*`), NULL being
+  every kind. Every key made before, and every key of a Dispatch or a chat, has NULL. A request of a kind the key
+  is not given is refused 403 `permission_error` `endpoint_not_allowed` before any provider is asked. Chat is
+  limited by the key's models alone.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
   creation and last use (the latest usage row); the keys of a Dispatch or a chat are only counted
-  (`live_worker_keys`). `POST /gateway/keys` `{name, models?}` answers the value once; `DELETE /gateway/keys/{id}`
+  (`live_worker_keys`), and each key's `endpoints` (every kind for a key not limited). `POST /gateway/keys`
+  `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
+  page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
   `GET /gateway/usage?period=24h|7d|30d&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day else,
@@ -3151,7 +3159,7 @@ The owner's commands:
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
-    table; `gateway keys add <name> [--models a,b]` prints a gateway key once, with `gateway keys list` and
+    table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images|none]` prints a gateway key once, with `gateway keys list` and
     `gateway keys revoke <id>`; `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
     `{find, with}`, applied in order, an empty `with` deleting the text), empty by default and applied to the

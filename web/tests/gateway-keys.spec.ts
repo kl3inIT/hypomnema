@@ -24,6 +24,7 @@ async function fakeServer(page: Page, start?: Key[]) {
       name: "opencode-laptop",
       prefix: "hyp_gateway_v1_Zx81Qa",
       models: ["*"],
+      endpoints: ["search", "fetch", "images"],
       created_at: iso(now - 9 * 86_400_000),
       last_used_at: iso(now - 40 * 60_000),
     },
@@ -32,6 +33,7 @@ async function fakeServer(page: Page, start?: Key[]) {
       name: "omp-desktop",
       prefix: "hyp_gateway_v1_Lm40Pr",
       models: ["gpt-5.5-codex", "claude-sonnet-5-5"],
+      endpoints: [],
       created_at: iso(now - 2 * 86_400_000),
     },
   ]
@@ -45,14 +47,21 @@ async function fakeServer(page: Page, start?: Key[]) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
     if (call === "POST /gateway/keys") {
-      const body = request.postDataJSON() as { name: string; models?: string[] }
-      calls.push(`${call} ${body.name} ${(body.models ?? []).join(",") || "every model"}`)
+      const body = request.postDataJSON() as {
+        name: string
+        models?: string[]
+        endpoints?: Key["endpoints"]
+      }
+      calls.push(
+        `${call} ${body.name} ${(body.models ?? []).join(",") || "every model"}; ${body.endpoints?.join(",") ?? "every kind"}`,
+      )
 
       const key: Key = {
         id: `gwk_${keys.length + 1}`,
         name: body.name,
         prefix: secret.slice(0, 21),
         models: body.models?.length ? body.models : ["*"],
+        endpoints: body.endpoints ?? ["search", "fetch", "images"],
         created_at: iso(now),
       }
       keys = [...keys, key]
@@ -108,7 +117,7 @@ const fits = (page: Page) =>
   page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 // Scenario: the owner opens the page. It gives the address a tool is pointed at, and the keys by name, start,
-// models and when each was last used, never a value; the keys of workers are only counted.
+// models, what else each may use and when each was last used, never a value; the keys of workers are only counted.
 test("the owner sees the gateway's address and keys", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/settings/gateway-keys")
@@ -117,12 +126,14 @@ test("the owner sees the gateway's address and keys", async ({ page }) => {
   const laptop = page.getByRole("row", { name: "opencode-laptop" })
   await expect(laptop).toContainText("hyp_gateway_v1_Zx81Qa…")
   await expect(laptop).toContainText("Every model")
+  await expect(laptop).toContainText("Making and editing images")
   await expect(laptop).toContainText("40m ago")
   const desktop = page.getByRole("row", { name: "omp-desktop" })
   // A model reads as its name, with its maker's mark.
   await expect(desktop).toContainText("Claude Sonnet 5.5")
   await expect(desktop).toContainText("GPT-5.5-Codex")
   await expect(desktop).toContainText("Never")
+  await expect(desktop).toContainText("Chat only")
   await expect(page.getByTestId("worker-keys")).toContainText("2 more keys")
   expect(await fits(page)).toBe(true)
   await shot(page, "gateway-keys")
@@ -131,6 +142,8 @@ test("the owner sees the gateway's address and keys", async ({ page }) => {
 // Scenario: the owner makes a key for one tool, limited to some models, and copies it; its value is shown once and
 // the list then shows it by its start. The models are grouped by the provider that serves them; a provider's box
 // takes all of its models, and the search narrows the list. A key with no model chosen is refused before it is sent.
+// Besides chat a key may search, read pages and make images, each ticked at first; one unticked is not given
+// (issue #664), and a key given every kind names none, so a kind added later is given too.
 test("the owner creates a key and sees it once", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/gateway-keys")
@@ -159,6 +172,12 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   await expect(dialog.getByRole("group", { name: "Antigravity" })).toBeVisible()
   await expect(dialog.getByRole("group", { name: "Claude subscription" })).toHaveCount(0)
   await dialog.getByLabel("Search models").fill("")
+  await expect(dialog.getByRole("checkbox", { name: /Web search/ })).toBeChecked()
+  await dialog.getByRole("checkbox", { name: /Making and editing images/ }).click()
+  await expect(
+    dialog.getByRole("checkbox", { name: /Making and editing images/ }),
+  ).not.toBeChecked()
+  await shot(page, "gateway-keys-create-endpoints")
   await dialog.getByRole("button", { name: "Create key" }).click()
 
   await expect(dialog).toContainText("cannot be shown again")
@@ -166,10 +185,13 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   await shot(page, "gateway-keys-created")
   await dialog.getByRole("button", { name: "Done" }).click()
 
-  await expect(page.getByRole("row", { name: "opencode-phone" })).toContainText("Claude Opus 5.5")
+  const phone = page.getByRole("row", { name: "opencode-phone" })
+  await expect(phone).toContainText("Claude Opus 5.5")
+  await expect(phone).toContainText("Reading a web page")
+  await expect(phone).not.toContainText("Making and editing images")
   await expect(page.getByText(secret)).toHaveCount(0)
   expect(calls).toContain(
-    "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex",
+    "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex; search,fetch",
   )
 })
 

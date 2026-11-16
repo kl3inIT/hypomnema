@@ -149,7 +149,7 @@ func newChatGateway(t *testing.T, cfg modelgateway.Config, providers ...*httptes
 	_, err = svc.ApplyModel(t.Context(), model)
 	require.NoError(t, err)
 
-	_, key, err := svc.AddKey(t.Context(), "pi", []string{"gpt"})
+	_, key, err := svc.AddKey(t.Context(), "pi", []string{"gpt"}, nil)
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
@@ -388,7 +388,7 @@ func TestTheGatewayRefusesWhatItCannotServe(t *testing.T) {
 	upstream, got := provider(t, plain(http.StatusOK, answer))
 	g := newChatGateway(t, modelgateway.Config{}, upstream)
 
-	_, other, err := g.svc.AddKey(t.Context(), "laptop", []string{"another-model"})
+	_, other, err := g.svc.AddKey(t.Context(), "laptop", []string{"another-model"}, nil)
 	require.NoError(t, err)
 
 	cases := map[string]struct {

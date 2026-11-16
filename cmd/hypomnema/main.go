@@ -34,7 +34,8 @@
 //	hypomnema secrets rewrap                   wrap every data key under the active root key
 //	hypomnema gateway models apply FILE        declare a model the gateway serves (a YAML document)
 //	hypomnema gateway models list | rm <name>
-//	hypomnema gateway keys add <name> [--models a,b]   make a gateway key; prints it once
+//	hypomnema gateway keys add <name> [--models a,b] [--endpoints search,fetch,images|none]
+//	                                           make a gateway key; prints it once
 //	hypomnema gateway keys list | revoke <key id>
 //	hypomnema gateway usage [--limit N]         the latest requests the gateway served
 //

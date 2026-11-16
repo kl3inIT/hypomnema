@@ -26,7 +26,7 @@ import (
 // or a login.
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
-	"gateway keys add <name> [--models a,b] | gateway keys list | gateway keys revoke <key id> | " +
+	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images|none] | gateway keys list | gateway keys revoke <key id> | " +
 	"gateway antigravity-rewrites list | gateway antigravity-rewrites set FILE | " +
 	"gateway usage [--limit N]"
 
@@ -330,6 +330,8 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 	fs.SetOutput(io.Discard)
 
 	models := fs.String("models", "", "the models the key may use, separated by commas (default: every model)")
+	endpoints := fs.String("endpoints", "*",
+		"what the key may use besides chat: search, fetch, images, separated by commas, or none (default: every kind)")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
@@ -340,12 +342,24 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 		allowed = strings.Split(*models, ",")
 	}
 
-	k, secret, err := o.gateway.AddKey(ctx, name, allowed)
+	var kinds []modelgateway.Endpoint
+
+	switch *endpoints {
+	case "*":
+	case "none":
+		kinds = []modelgateway.Endpoint{}
+	default:
+		for e := range strings.SplitSeq(*endpoints, ",") {
+			kinds = append(kinds, modelgateway.Endpoint(strings.TrimSpace(e)))
+		}
+	}
+
+	k, secret, err := o.gateway.AddKey(ctx, name, allowed, kinds)
 	if err != nil {
 		return err
 	}
 
-	o.printf("key %s (%s) for %s\n", k.Name, k.ID, keyModels(k))
+	o.printf("key %s (%s) for %s; %s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k))
 	o.printf("shown only now; give it to the client as its API key and keep it nowhere else:\n%s\n", secret)
 
 	return nil
@@ -363,7 +377,7 @@ func (o *owner) gatewayKeysList(ctx context.Context) error {
 			state = "revoked " + k.RevokedAt.Format(time.RFC3339)
 		}
 
-		o.printf("%s\t%s\t%s\t%s\n", k.ID, k.Name, state, keyModels(k))
+		o.printf("%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, state, keyModels(k), keyEndpoints(k))
 	}
 
 	return nil
@@ -375,6 +389,24 @@ func keyModels(k modelgateway.Key) string {
 	}
 
 	return strings.Join(k.Models, ", ")
+}
+
+// keyEndpoints says what a key may use besides chat.
+func keyEndpoints(k modelgateway.Key) string {
+	if k.Endpoints == nil {
+		return "search, fetch, images"
+	}
+
+	if len(k.Endpoints) == 0 {
+		return "no search, fetch or images"
+	}
+
+	out := make([]string, 0, len(k.Endpoints))
+	for _, e := range k.Endpoints {
+		out = append(out, string(e))
+	}
+
+	return strings.Join(out, ", ")
 }
 
 // gatewayUsageList prints the latest requests the gateway served.

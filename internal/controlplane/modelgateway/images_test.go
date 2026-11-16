@@ -109,7 +109,7 @@ func newImageGateway(t *testing.T, subs modelgateway.Subscriptions, codexURL, an
 		func(context.Context, string) (string, error) { return "", nil })
 
 	// A key that may use one chat model only: an image is any key's, as a web search.
-	_, key, err := svc.AddKey(t.Context(), "tool", []string{"gpt"})
+	_, key, err := svc.AddKey(t.Context(), "tool", []string{"gpt"}, nil)
 	require.NoError(t, err)
 
 	cfg := modelgateway.Config{Subscriptions: subs, CodexBaseURL: codexURL}

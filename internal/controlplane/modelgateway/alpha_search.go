@@ -62,7 +62,7 @@ type alphaSearchResponse struct {
 
 // alphaSearch answers POST /v1/alpha/search.
 func (s *Server) alphaSearch(w http.ResponseWriter, r *http.Request) {
-	k, ok := s.authenticate(w, r)
+	k, ok := s.authenticateFor(w, r, EndpointSearch)
 	if !ok {
 		return
 	}

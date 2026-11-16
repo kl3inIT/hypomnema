@@ -21,8 +21,9 @@ import (
 // body, or for an edit a multipart form with the files, answered
 // {created, data: [{b64_json, revised_prompt?}], size?, quality?,
 // output_format?}, the last three what the provider says it made (Codex's
-// backend does not always make what was asked: issue #453). Any key the gateway knows
-// may ask, whatever models it may use, as for a web search. A reference image
+// backend does not always make what was asked: issue #453). A key the gateway knows
+// may ask, whatever models it may use, unless it is limited to other kinds
+// (issue #664), as for a web search. A reference image
 // comes inline in either route: every spelling the references' clients send
 // (image, images[], image_url, input_references[] of omp and opencode; codex-rs
 // images[].image_url), never an address to fetch. Each request is one usage
@@ -221,7 +222,7 @@ type imageAnswer struct {
 
 // images answers either route: an edit may come as a form.
 func (s *Server) images(w http.ResponseWriter, r *http.Request, edit bool) {
-	k, ok := s.authenticate(w, r)
+	k, ok := s.authenticateFor(w, r, EndpointImages)
 	if !ok {
 		return
 	}

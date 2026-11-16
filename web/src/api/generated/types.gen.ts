@@ -1710,6 +1710,10 @@ export type GatewayKey = {
    * The model names it may use; `*` is every model.
    */
   models: Array<string>;
+  /**
+   * What it may use besides chat (issue
+   */
+  endpoints: Array<GatewayEndpoint>;
   created_at: string;
   /**
    * When the gateway last served a request with it; absent when never.
@@ -1734,7 +1738,16 @@ export type NewGatewayKey = {
    * The model names it may use; every model when left out or empty.
    */
   models?: Array<string>;
+  /**
+   * What it may use besides chat; every kind when left out, none when empty. A key that may use every kind should leave it out, so a kind added later is given too.
+   */
+  endpoints?: Array<GatewayEndpoint>;
 };
+
+/**
+ * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits.
+ */
+export type GatewayEndpoint = 'search' | 'fetch' | 'images';
 
 export type CreatedGatewayKey = {
   key: GatewayKey;

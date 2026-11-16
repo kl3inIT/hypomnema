@@ -17,7 +17,7 @@ import (
 )
 
 // The web's search and a page's reading (issue #354), served with any key the
-// gateway knows, as OmniRoute serves POST /v1/search and POST /v1/web/fetch
+// gateway knows that is not limited to other kinds (issue #664), as OmniRoute serves POST /v1/search and POST /v1/web/fetch
 // (open-sse/handlers/search.ts, src/app/api/v1/web/fetch/route.ts) and 9router
 // its /v1/search: the provider answers in one shape whatever it is. Each call
 // is recorded on the key that made it, as OmniRoute records a search's cost
@@ -130,7 +130,7 @@ type webFetchResponse struct {
 
 // webSearch answers POST /v1/search.
 func (s *Server) webSearch(w http.ResponseWriter, r *http.Request) {
-	k, ok := s.authenticate(w, r)
+	k, ok := s.authenticateFor(w, r, EndpointSearch)
 	if !ok {
 		return
 	}
@@ -182,7 +182,7 @@ func (s *Server) webSearch(w http.ResponseWriter, r *http.Request) {
 
 // webFetch answers POST /v1/web/fetch.
 func (s *Server) webFetch(w http.ResponseWriter, r *http.Request) {
-	k, ok := s.authenticate(w, r)
+	k, ok := s.authenticateFor(w, r, EndpointFetch)
 	if !ok {
 		return
 	}

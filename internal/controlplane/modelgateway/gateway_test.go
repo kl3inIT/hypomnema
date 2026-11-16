@@ -140,7 +140,7 @@ func TestAKeyAuthenticatesUntilItIsRevoked(t *testing.T) {
 
 	g := newGateway(t)
 
-	k, secret, err := g.AddKey(t.Context(), "laptop", []string{"gpt-sol"})
+	k, secret, err := g.AddKey(t.Context(), "laptop", []string{"gpt-sol"}, nil)
 	require.NoError(t, err)
 	assert.Regexp(t, `^hyp_gateway_v1_`, secret)
 	assert.True(t, k.Allows("gpt-sol"))
@@ -150,14 +150,14 @@ func TestAKeyAuthenticatesUntilItIsRevoked(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, k.ID, got.ID)
 
-	everything, _, err := g.AddKey(t.Context(), "pi", nil)
+	everything, _, err := g.AddKey(t.Context(), "pi", nil, nil)
 	require.NoError(t, err)
 	assert.True(t, everything.Allows("any-model"))
 
-	_, _, err = g.AddKey(t.Context(), "laptop", nil)
+	_, _, err = g.AddKey(t.Context(), "laptop", nil, nil)
 	require.ErrorIs(t, err, modelgateway.ErrConflict)
 
-	_, _, err = g.AddKey(t.Context(), "Lap Top", nil)
+	_, _, err = g.AddKey(t.Context(), "Lap Top", nil, nil)
 	require.ErrorIs(t, err, modelgateway.ErrInvalid)
 
 	ownerToken, err := bearertoken.Generate(bearertoken.Owner)
@@ -207,9 +207,9 @@ func TestListModelsOverHTTP(t *testing.T) {
 	_, err = g.ApplyModel(t.Context(), "name: small\ntargets: [{provider: router, model: small}]\n")
 	require.NoError(t, err)
 
-	_, limited, err := g.AddKey(t.Context(), "laptop", []string{"gpt-sol"})
+	_, limited, err := g.AddKey(t.Context(), "laptop", []string{"gpt-sol"}, nil)
 	require.NoError(t, err)
-	_, everything, err := g.AddKey(t.Context(), "pi", nil)
+	_, everything, err := g.AddKey(t.Context(), "pi", nil, nil)
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
@@ -275,7 +275,7 @@ func TestAChatsPiHasAKeyOfItsOwn(t *testing.T) {
 	g := newGateway(t)
 	ctx := t.Context()
 
-	_, owner, err := g.AddKey(ctx, "laptop", nil)
+	_, owner, err := g.AddKey(ctx, "laptop", nil, nil)
 	require.NoError(t, err)
 
 	worker, err := g.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
@@ -326,7 +326,7 @@ func TestADispatchHasAKeyOfItsOwn(t *testing.T) {
 	g := newGateway(t)
 	ctx := t.Context()
 
-	_, owner, err := g.AddKey(ctx, "pi", nil)
+	_, owner, err := g.AddKey(ctx, "pi", nil, nil)
 	require.NoError(t, err)
 
 	first, err := g.AddDispatchKey(ctx, "dsp_1", "gpt-sol")

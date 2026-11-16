@@ -5663,7 +5663,7 @@ components:
           description: When the access token ends, when that is known; it is renewed before then.
     GatewayKey:
       type: object
-      required: [id, name, prefix, models, created_at]
+      required: [id, name, prefix, models, endpoints, created_at]
       properties:
         id: { type: string }
         name: { type: string }
@@ -5674,6 +5674,10 @@ components:
           type: array
           items: { type: string }
           description: The model names it may use; `*` is every model.
+        endpoints:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayEndpoint" }
+          description: What it may use besides chat (issue #664); every kind for a key made without a limit.
         created_at: { type: string, format: date-time }
         last_used_at:
           type: string
@@ -5703,6 +5707,19 @@ components:
           maxItems: 200
           items: { type: string, minLength: 1, maxLength: 128 }
           description: The model names it may use; every model when left out or empty.
+        endpoints:
+          type: array
+          maxItems: 3
+          items: { $ref: "#/components/schemas/GatewayEndpoint" }
+          description: >-
+            What it may use besides chat; every kind when left out, none when empty. A key that may use every
+            kind should leave it out, so a kind added later is given too.
+    GatewayEndpoint:
+      type: string
+      enum: [search, fetch, images]
+      description: >-
+        A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images
+        is /v1/images/generations and /v1/images/edits.
     CreatedGatewayKey:
       type: object
       required: [key, secret]
