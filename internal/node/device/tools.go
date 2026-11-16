@@ -377,8 +377,10 @@ func (m *Manager) typeText(ctx context.Context, c devicetool.Call) nodeproto.Dev
 
 	if c.Submit {
 		out, err = m.adb(ctx, toolWithin, "-s", serial, "shell", "input", "keyevent", enterKeycode)
+		// Not an error: the text was typed, so the phone changed and other agents' screens are out of date (Call).
 		if why := failure(out, err); why != "" {
-			return failed("Typed, but Enter could not be pressed: " + why)
+			return text("Typed with adb into what has input focus, after what it held, but Enter could not be " +
+				"pressed: " + why)
 		}
 	}
 

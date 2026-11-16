@@ -105,7 +105,9 @@ func Tools() []Tool {
 				`"duration_ms":{"type":"integer","minimum":50,"maximum":5000,"default":300}}`,
 			[]string{"from", "to"}),
 		tool(Type, "Type text into a field of the app on the phone, replacing what it holds; any language. "+
-			"The field is the focused one unless an Android CLI selector names another: tap it first.",
+			"The field is the focused one unless an Android CLI selector names another: tap it first. A focused "+
+			"field missing from device_layout takes only letters, digits, spaces and _.,@-, added after what it "+
+			"holds, so check it before submitting.",
 			`{"text":{"type":"string"},"into":{"type":"string","description":"a selector; default focused=true"},`+
 				`"submit":{"type":"boolean","description":"press Enter after typing"}}`,
 			[]string{"text"}),
