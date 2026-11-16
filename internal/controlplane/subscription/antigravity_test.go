@@ -92,12 +92,15 @@ func newGoogle(t *testing.T) *google {
 			g.listed++
 			g.mu.Unlock()
 
-			// Each model's window and largest output as zm's account was served them on 2026-11-16 (issue #587).
+			// Each model's window and largest output as zm's account was served them on 2026-11-16 (issue #587). An
+			// internal, a disabled and a denied model (omp's list, issue #639) are not offered.
 			_, _ = io.WriteString(w, `{"models":{
 			  "gemini-3.8-flash-high":{"maxTokens":1048576,"maxOutputTokens":65536,
 			    "quotaInfo":{"remainingFraction":0.4,"resetTime":"2026-11-10T14:00:00Z"}},
 			  "claude-sonnet-5-5":{"maxTokens":250000,"maxOutputTokens":64000,"quotaInfo":{"remainingFraction":1}},
 			  "chat_internal_probe":{"isInternal":true},
+			  "gemini-4-argon-disabled":{"disabled":true},
+			  "gemini-2.5-pro":{},
 			  "gpt-oss-120b-medium":{}}}`)
 		})
 		mux.HandleFunc("POST /"+host+"/v1internal:retrieveUserQuotaSummary", func(w http.ResponseWriter, r *http.Request) {

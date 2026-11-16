@@ -361,3 +361,38 @@ func TestAProviderIsGivenTheModelsItsVendorServes(t *testing.T) {
 	_, err = w.s.AddProviderModels(ctx, "nobody", []string{"m"})
 	require.ErrorIs(t, err, ErrNotFound)
 }
+
+// Scenario (issue #639): Antigravity's roster no longer lists gemini-2.5-pro and now lists gemini-3.8-flash-high.
+// The provider's models become the roster: the kept ones in their order, the new one after, the dropped one gone.
+// A model a profile uses is not dropped: the change is refused and the provider stays as it was.
+func TestAProviderIsSetToItsVendorsRoster(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "",
+		"name: ag\nkind: antigravity_subscription\nmodels: [gemini-3-flash, gemini-2.5-pro, claude-sonnet-4-6]\n")
+	require.NoError(t, err)
+
+	added, removed, err := w.s.SetProviderModels(ctx, "ag",
+		[]string{"claude-sonnet-4-6", "gemini-3-flash", "gemini-3.8-flash-high"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gemini-3.8-flash-high"}, added)
+	assert.Equal(t, []string{"gemini-2.5-pro"}, removed)
+
+	p, err := w.s.GetProvider(ctx, "ag")
+	require.NoError(t, err)
+	assert.Contains(t, p.Source, "models: [gemini-3-flash, claude-sonnet-4-6, gemini-3.8-flash-high]")
+
+	_, _, err = w.s.ApplyProfile(ctx, "",
+		"name: z\ndescription: d\nruntime: claude\nmodel: {provider: ag, name: gemini-3-flash}\n")
+	require.NoError(t, err)
+
+	_, _, err = w.s.SetProviderModels(ctx, "ag", []string{"claude-sonnet-4-6"})
+	require.ErrorIs(t, err, ErrConflict, "a model a profile uses stays")
+
+	p, err = w.s.GetProvider(ctx, "ag")
+	require.NoError(t, err)
+	assert.Contains(t, p.Models, "gemini-3-flash")
+}

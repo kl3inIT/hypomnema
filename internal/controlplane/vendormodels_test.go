@@ -30,6 +30,12 @@ func (f *fakeProviders) ListProviders(context.Context) ([]orchestration.Provider
 	return f.list, nil
 }
 
+func (f *fakeProviders) SetProviderModels(_ context.Context, name string, models []string) ([]string, []string, error) {
+	f.asked["set "+name] = models
+
+	return models, []string{"gemini-old"}, nil
+}
+
 func (f *fakeProviders) AddProviderModels(_ context.Context, name string, models []string) ([]string, error) {
 	f.asked[name] = models
 	if name == f.fail {
@@ -39,9 +45,10 @@ func (f *fakeProviders) AddProviderModels(_ context.Context, name string, models
 	return models[:1], nil
 }
 
-// Scenario (issue #623): once an hour each subscription provider is given what its vendor serves. Codex and Claude
-// answer and their providers are given those names; Antigravity has no account logged in, so its provider is left
-// as it is, and so is a provider that is no subscription. One that cannot be written is logged, and the next goes on.
+// Scenario (issues #623, #639): once an hour each subscription provider is given what its vendor serves. Codex and
+// Claude only gain the names they serve; Antigravity's provider is set to its roster, as omp takes it, and the
+// models it no longer lists are logged as removed. A provider that is no subscription is left as it is. One that
+// cannot be written is logged, and the next goes on.
 func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 	providers := &fakeProviders{
 		list: []orchestration.Provider{
@@ -53,7 +60,9 @@ func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 		asked: map[string][]string{},
 		fail:  "claude-subscription",
 	}
-	served := fakeServed{"codex": {"gpt-6.1-terra"}, "claude": {"claude-opus-5-5"}}
+	served := fakeServed{
+		"codex": {"gpt-6.1-terra"}, "claude": {"claude-opus-5-5"}, "antigravity": {"gemini-3.8-flash-high"},
+	}
 
 	var logs bytes.Buffer
 
@@ -61,7 +70,9 @@ func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 
 	assert.Equal(t, map[string][]string{
 		"codex-subscription": {"gpt-6.1-terra"}, "claude-subscription": {"claude-opus-5-5"},
+		"set antigravity-subscription": {"gemini-3.8-flash-high"},
 	}, providers.asked)
+	assert.Contains(t, logs.String(), "provider=antigravity-subscription models=gemini-3.8-flash-high removed=gemini-old")
 	assert.Contains(t, logs.String(), "event=gateway.vendor_models_added provider=codex-subscription models=gpt-6.1-terra")
 	assert.Contains(t, logs.String(), "event=gateway.vendor_models_failed provider=claude-subscription")
 }

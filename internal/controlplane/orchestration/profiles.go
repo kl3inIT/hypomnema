@@ -834,6 +834,65 @@ func (s *Service) AddProviderModels(ctx context.Context, name string, models []s
 	return added, nil
 }
 
+// SetProviderModels makes a provider's models the ones its vendor serves, for a vendor whose list is authoritative:
+// omp drops an Antigravity model its roster no longer lists, which a request would get 404 for
+// (packages/catalog/src/discovery/antigravity.ts; issue #639). The models kept keep their order and the new ones
+// follow. A model a profile's current version uses is not removed: the change is refused as ApplyProvider refuses it.
+func (s *Service) SetProviderModels(
+	ctx context.Context, name string, models []string,
+) (added, removed []string, err error) {
+	p, err := s.GetProvider(ctx, name)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var in providerSource
+	if err := decodeStrict(p.Source, &in); err != nil {
+		return nil, nil, err
+	}
+
+	served := map[string]bool{}
+	for _, m := range models {
+		if m = strings.TrimSpace(m); m != "" {
+			served[m] = true
+		}
+	}
+
+	kept := make([]string, 0, len(models))
+
+	for _, m := range in.Models {
+		if served[m] {
+			kept = append(kept, m)
+		} else {
+			removed = append(removed, m)
+		}
+	}
+
+	for _, m := range models {
+		if m = strings.TrimSpace(m); m != "" && !slices.Contains(kept, m) {
+			kept = append(kept, m)
+			added = append(added, m)
+		}
+	}
+
+	if len(added) == 0 && len(removed) == 0 {
+		return nil, nil, nil
+	}
+
+	in.Models = kept
+
+	source, err := yaml.Marshal(in)
+	if err != nil {
+		return nil, nil, fmt.Errorf("writing provider %s: %w", name, err)
+	}
+
+	if _, err := s.ApplyProvider(ctx, name, string(source)); err != nil {
+		return nil, nil, err
+	}
+
+	return added, removed, nil
+}
+
 func validProvider(in providerSource) error {
 	kinds := []string{
 		ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription,

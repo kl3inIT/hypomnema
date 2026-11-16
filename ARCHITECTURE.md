@@ -2198,8 +2198,10 @@ capabilities do not exist yet.
   soon after the start and then every hour the control plane asks, with the first active account of each runtime,
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token) and Antigravity (`fetchAvailableModels`, without internal
-  or disabled ones), and adds the names the provider lacks through `ApplyProvider`; nothing is removed (issue
-  [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex, OpenClaw, omp and Hermes read them). The table
+  or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`). Codex's and Claude's providers
+  gain the names they lack and lose none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
+  OpenClaw and Hermes read them); Antigravity's is set to the roster, as omp takes it as authoritative, except a
+  model a profile's current version uses (issue [#639](https://github.com/kl3inIT/hypomnema/issues/639)). The table
   is left for a name made on purpose, such as one over several targets. The
   pickers group the models by subscription; the Models page lists them without the attribute editor, which only a
   table name has. Migration 00090 moved the Bots, chats and Profile versions on a provider of kind `model_gateway`
