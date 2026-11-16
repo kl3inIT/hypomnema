@@ -7,7 +7,9 @@
 // Bot's name and a Routine's id (deploy/coordinator/hypomnema-routine), as
 // pi is started for a chat. A prompt Routine is a new chat with the prompt
 // waiting in it: the coordinator's supervisor starts pi for it as for any
-// chat, and this package reads the chat to know how the run ended.
+// chat, and this package reads the chat to know how the run ended. A prompt
+// Routine with a script runs the script first, as a script Routine's, and
+// the chat is made only when the script says to wake the Bot (issue #656).
 //
 // Each rule names the code it follows; the comparison is in
 // docs/research/2026-11-12-work-on-a-schedule.md.
@@ -16,6 +18,7 @@ package routines
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -55,6 +58,8 @@ type Store interface {
 	RunRoutineNow(ctx context.Context, id string) (routinestore.StartedRun, error)
 	FinishRoutineRun(ctx context.Context, runID string, r routinestore.RunResult) (routinestore.Settled, error)
 	RoutineRunAnswers(ctx context.Context, runID string) (orchestration.RunAnswers, error)
+	WakeRoutineRun(ctx context.Context, runID, scriptOutput string) (routinestore.StartedRun, error)
+	GetChat(ctx context.Context, id string) (orchestration.Chat, error)
 	Undelivered(ctx context.Context, chatID string) ([]orchestration.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
 	TellChat(ctx context.Context, chatID, text, routineID, runID string) error
@@ -76,6 +81,9 @@ type Routines interface {
 type Coordinator interface {
 	Enabled() bool
 	Working(chatID string) bool
+	// Idle reports that the chat's pi runs and works on no turn: its last
+	// turn ended, as against pi having exited.
+	Idle(chatID string) bool
 	Abort(ctx context.Context, chatID string) error
 }
 
@@ -400,14 +408,15 @@ func (r *Runner) stop(ctx context.Context, run *routinestore.RoutineRun) {
 		slog.String("routine", run.RoutineID), slog.String("run", run.ID))
 }
 
-// begin does what a run that just started needs: a script is run; a prompt
-// waits in its chat for the supervisor, which the commit has woken.
+// begin does what a run that just started needs: a script is run, a prompt
+// Routine's check too; a prompt alone waits in its chat for the supervisor,
+// which the commit has woken.
 func (r *Runner) begin(ctx context.Context, s routinestore.StartedRun) {
 	r.cfg.Logger.InfoContext(ctx, "a routine's run started", slog.String("event", "routines.started"),
 		slog.String("routine", s.Routine.ID), slog.String("bot", s.Routine.Bot), slog.String("run", s.Run.ID),
 		slog.String("started_by", s.Run.StartedBy), slog.String("kind", string(s.Routine.Kind)))
 
-	if s.Routine.Kind != routinestore.RoutineScript {
+	if s.Routine.Script == "" {
 		return
 	}
 
@@ -431,10 +440,11 @@ func (r *Runner) begin(ctx context.Context, s routinestore.StartedRun) {
 	})
 }
 
-// runScript runs a script Routine's run once, from its first line to its
-// end. A request of the script that needs the owner waits inside the script,
-// in the call that made it (the service proxy holds it): the script is never
-// started again for an answer.
+// runScript runs a run's script once, from its first line to its end. A
+// request of the script that needs the owner waits inside the script, in the
+// call that made it (the service proxy holds it): the script is never
+// started again for an answer. A prompt Routine's script then says whether
+// its Bot is woken (wakes).
 func (r *Runner) runScript(ctx context.Context, s routinestore.StartedRun) {
 	// What ends the run is recorded whatever stopped the script.
 	record := context.WithoutCancel(ctx)
@@ -487,7 +497,59 @@ func (r *Runner) runScript(ctx context.Context, s routinestore.StartedRun) {
 		result.Error = fmt.Sprintf("the script exited with code %d", code)
 	}
 
-	r.finish(record, s.Run.ID, r.answered(record, s.Run.ID, result))
+	result = r.answered(record, s.Run.ID, result)
+
+	if s.Routine.Kind == routinestore.RoutinePrompt && result.State == routinestore.RunSucceeded && wakes(output) {
+		r.wake(record, s, output)
+
+		return
+	}
+
+	// A check that woke nobody ends here, succeeded, with what it printed kept on the run and told nowhere (finish).
+	r.finish(record, s.Run.ID, result)
+}
+
+// wakes reads whether a prompt Routine's script, which succeeded, wakes its
+// Bot: not when it printed nothing, nor when its last line that is not empty
+// is {"wakeAgent": false}; anything else wakes it (Hermes,
+// cron/scheduler_prompt.py L21-35 _parse_wake_gate, L342-343).
+func wakes(output string) bool {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+
+	if last == "" {
+		return false
+	}
+
+	var gate map[string]any
+	if json.Unmarshal([]byte(last), &gate) != nil {
+		return true
+	}
+
+	wake, said := gate["wakeAgent"]
+
+	return !said || wake != false
+}
+
+// wake opens the run's chat with the prompt and what the script printed:
+// from there the run is a prompt run, which Follow follows.
+func (r *Runner) wake(ctx context.Context, s routinestore.StartedRun, output string) {
+	woken, err := r.store.WakeRoutineRun(ctx, s.Run.ID, output)
+
+	switch {
+	case errors.Is(err, orchestration.ErrNotFound) || errors.Is(err, orchestration.ErrConflict):
+		// The Routine was removed, or the run ended, meanwhile.
+		return
+	case err != nil:
+		r.finish(ctx, s.Run.ID, routinestore.RunResult{
+			State: routinestore.RunFailed, Output: output, Error: "waking the bot failed: " + err.Error(),
+		})
+
+		return
+	}
+
+	r.cfg.Logger.InfoContext(ctx, "a routine's script woke its bot", slog.String("event", "routines.woke"),
+		slog.String("routine", s.Routine.ID), slog.String("run", s.Run.ID), slog.String("chat", woken.Run.ChatID))
 }
 
 // answered changes how a run ended by what the owner said to what it asked:
@@ -514,7 +576,8 @@ func (r *Runner) answered(ctx context.Context, runID string, result routinestore
 }
 
 // Follow looks at every live prompt run and ends those whose Bot has
-// answered and stopped working. A script's run ends when its script does.
+// answered and stopped working. A script's run ends when its script does,
+// and so does a prompt run's check, which has no chat yet.
 func (r *Runner) Follow(ctx context.Context) {
 	live, err := r.routines.LiveRoutineRuns(ctx)
 	if err != nil {
@@ -524,7 +587,7 @@ func (r *Runner) Follow(ctx context.Context) {
 	}
 
 	for _, l := range live {
-		if l.Routine.Kind != routinestore.RoutinePrompt {
+		if l.Routine.Kind != routinestore.RoutinePrompt || l.Run.ChatID == "" {
 			continue
 		}
 
@@ -552,8 +615,21 @@ func (r *Runner) followPrompt(ctx context.Context, l routinestore.StartedRun) er
 	}
 
 	// The limit is wall time from the run's start, the time it waits for the owner included (OpenClaw,
-	// src/cron/service/timeout-policy.ts L18-31, resolveCronJobTimeoutMs).
-	overdue := r.cfg.Now().Sub(l.Run.StartedAt) > l.Routine.Timeout
+	// src/cron/service/timeout-policy.ts L18-31, resolveCronJobTimeoutMs); from its chat's opening when a
+	// script woke the Bot, whose own limit was the script's.
+	since := l.Run.StartedAt
+
+	if l.Routine.Script != "" {
+		c, err := r.store.GetChat(ctx, chat)
+		if err != nil {
+			return err
+		}
+
+		since = c.CreatedAt
+	}
+
+	limit := routinestore.PromptTimeout
+	overdue := r.cfg.Now().Sub(since) > limit
 	late := routinestore.RunResult{State: routinestore.RunFailed, Passing: true}
 
 	if len(waiting) > 0 || r.cfg.Coordinator.Working(chat) {
@@ -562,7 +638,7 @@ func (r *Runner) followPrompt(ctx context.Context, l routinestore.StartedRun) er
 		}
 
 		err = r.cfg.Coordinator.Abort(ctx, chat)
-		late.Error = fmt.Sprintf("stopped after %s", l.Routine.Timeout)
+		late.Error = fmt.Sprintf("stopped after %s", limit)
 		r.finish(ctx, l.Run.ID, late)
 
 		return err
@@ -578,13 +654,17 @@ func (r *Runner) followPrompt(ctx context.Context, l routinestore.StartedRun) er
 		r.finish(ctx, l.Run.ID, r.answered(ctx, l.Run.ID, routinestore.RunResult{
 			State: routinestore.RunFailed, Output: answer, Error: failure, Passing: passes(failure),
 		}))
-	case answer != "":
+	case answer != "" || r.cfg.Coordinator.Idle(chat):
+		// pi that runs and works on nothing ended its turn, with words or without: a turn that did its work with
+		// tools and said nothing succeeded with an empty answer, which is told nowhere (issue #656; OpenClaw,
+		// src/cron/isolated-agent/run-finalize.ts L391-398; OpenMausBot, server/routines.ts L1255-1272).
 		r.finish(ctx, l.Run.ID, r.answered(ctx, l.Run.ID, routinestore.RunResult{
 			State: routinestore.RunSucceeded, Output: answer,
 		}))
 	case overdue:
-		// The Bot was given the prompt and said nothing: pi did not start, or ended without a word.
-		late.Error = fmt.Sprintf("the bot gave no answer in %s", l.Routine.Timeout)
+		// The Bot was given the prompt and said nothing, and its pi is gone: it did not start, or exited during
+		// its turn.
+		late.Error = fmt.Sprintf("the bot gave no answer in %s", limit)
 		r.finish(ctx, l.Run.ID, late)
 	}
 
@@ -640,7 +720,11 @@ func (r *Runner) finish(ctx context.Context, runID string, result routinestore.R
 
 	// A run's answer, or what a script printed, goes to the chat the Routine was made in unless the owner chose
 	// none (OpenClaw, src/cron/delivery-defaults.ts L155-189: agent, command and script jobs announce by default).
-	if out := strings.TrimSpace(run.Output); run.State == routinestore.RunSucceeded && routine.Announce && out != "" {
+	// A prompt run that has no chat is one whose check woke nobody: it is told nowhere (issue #656; Hermes,
+	// cron/scheduler.py L2279-2290, a silent success).
+	quiet := routine.Kind == routinestore.RoutinePrompt && run.ChatID == ""
+	if out := strings.TrimSpace(run.Output); run.State == routinestore.RunSucceeded && routine.Announce && out != "" &&
+		!quiet {
 		r.tell(ctx, routine.ChatID, fmt.Sprintf("Routine %q ran (%s):\n\n%s", routine.Name, run.ID, out),
 			routine.ID, run.ID)
 	}

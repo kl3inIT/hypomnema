@@ -117,6 +117,17 @@ func (s *Supervisor) Working(chatID string) bool {
 	return p != nil && p.isWorking()
 }
 
+// Idle reports that the chat's pi runs and works on no turn: its last turn
+// ended with agent_settled, as against pi having exited, whose proc is
+// exited until it is reaped and then gone (issue #656).
+func (s *Supervisor) Idle(chatID string) bool {
+	s.mu.Lock()
+	p := s.procs[chatID]
+	s.mu.Unlock()
+
+	return p != nil && !p.exited() && !p.isWorking() && !p.isCompacting()
+}
+
 // Stop ends the chat's pi, if one runs, and waits for it to exit (issue #484): the chat was deleted, and its files
 // go next, as t3code detaches a deleted thread's provider session before its files are cleaned up. pi's gateway key
 // and token end as it exits. A pi that works is asked to stop by its stdin closing, and killed after stopTimeout.

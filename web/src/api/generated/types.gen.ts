@@ -2311,7 +2311,7 @@ export type RoutineState = 'on' | 'paused';
 export type RoutineKind = 'prompt' | 'script';
 
 /**
- * Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model.
+ * Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
  */
 export type Routine = {
   id: string;
@@ -2326,7 +2326,7 @@ export type Routine = {
    */
   prompt?: string;
   /**
-   * The file a script Routine runs, under the Bot's routines directory.
+   * The file a script Routine runs, or a prompt Routine runs first as a check, under the Bot's routines directory.
    */
   script?: string;
   /**
@@ -2344,6 +2344,9 @@ export type Routine = {
    * One sentence that restates the schedule and the work.
    */
   sentence: string;
+  /**
+   * A script's limit; 3600 for a prompt Routine without one.
+   */
   timeout_seconds: number;
   state: RoutineState;
   paused_reason?: string;
@@ -2394,7 +2397,7 @@ export type RoutineSettings = {
   kind: RoutineKind;
   prompt?: string;
   /**
-   * A file name, never a path or a command line.
+   * A file name, never a path or a command line. With a prompt, the script runs first: when it prints nothing, or its last line is {"wakeAgent": false}, the run ends succeeded with no chat; otherwise the Bot is woken with what it printed before the prompt.
    */
   script?: string;
   script_text?: string;
@@ -2408,7 +2411,7 @@ export type RoutineSettings = {
    */
   timezone?: string;
   /**
-   * How long a script may run; 600 when absent. A prompt run works for at most an hour.
+   * How long a script, or a prompt's check, may run; 600 when absent. A prompt run works for at most an hour.
    */
   timeout_seconds?: number;
   summary?: string;

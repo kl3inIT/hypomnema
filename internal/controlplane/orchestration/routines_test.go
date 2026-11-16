@@ -97,7 +97,8 @@ var succeeded = runResult{State: routinestore.RunSucceeded}
 
 // What a Routine may be: a prompt or a script that is a file's name, every 5
 // to 1440 minutes or by a 5-field cron expression with its time zone. A
-// script's limit has no upper bound.
+// script's limit has no upper bound. A prompt Routine may have a script that
+// checks first, with a script's limit (issue #656).
 func TestWhatARoutineMayBe(t *testing.T) {
 	t.Parallel()
 
@@ -126,7 +127,9 @@ func TestWhatARoutineMayBe(t *testing.T) {
 		"a command line":            {func(n *routineSpec) { n.Script = "sh -c 'rm -rf /'" }, "never a path or a command line"},
 		"a path":                    {func(n *routineSpec) { n.Script = "../../.ssh/authorized_keys" }, "never a path"},
 		"a script with no text":     {func(n *routineSpec) { n.ScriptText = " \n" }, "needs the script's text"},
-		"a prompt and a script":     {func(n *routineSpec) { n.Prompt = "also this" }, "not both"},
+		"a script with a prompt":    {func(n *routineSpec) { n.Prompt = "also this" }, "runs its script alone"},
+		"a check with no text":      {func(n *routineSpec) { *n = daily("p"); n.Script = "check.sh" }, "the script's text"},
+		"a check that is a path":    {func(n *routineSpec) { *n = daily("p"); n.Script, n.ScriptText = "../c", "x" }, "never a path"},
 		"a limit below zero":        {func(n *routineSpec) { n.TimeoutSeconds = -1 }, "a number of seconds"},
 		"neither kind":              {func(n *routineSpec) { n.Kind = "command" }, "a prompt or a script"},
 		"a prompt with no prompt":   {func(n *routineSpec) { *n = daily("p"); n.Prompt = " " }, "needs its prompt"},
@@ -163,6 +166,15 @@ func TestWhatARoutineMayBe(t *testing.T) {
 	// t0 is Saturday 09:00 UTC, 16:00 in Ho Chi Minh City: the next weekday 07:00 there is Monday, 00:00 UTC.
 	assert.Equal(t, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), *made.NextRunAt)
 	assert.Equal(t, "every weekday at 7:00 Ho Chi Minh time", routinestore.ScheduleWords(made))
+
+	watch := daily("watch")
+	watch.Script, watch.ScriptText = "d9-check.sh", "#!/bin/sh\necho '{\"wakeAgent\": false}'\n"
+	checked := w.routine(watch)
+	assert.Equal(t, routinestore.RoutinePrompt, checked.Kind)
+	assert.Equal(t, "d9-check.sh", checked.Script)
+	assert.Equal(t, routinestore.ScriptTimeout, checked.Timeout, "a check's limit is a script's")
+	assert.Equal(t, "Every day, coordinator runs the script d9-check.sh and works on a prompt when it says so.",
+		routinestore.RoutineSentence(checked, "coordinator"))
 
 	err = w.s.DeleteBot(t.Context(), DefaultBotID)
 	require.ErrorIs(t, err, ErrConflict)

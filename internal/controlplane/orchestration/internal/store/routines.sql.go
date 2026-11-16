@@ -829,6 +829,25 @@ func (q *Queries) LiveRunOfRoutine(ctx context.Context, routineID string) (Routi
 	return i, err
 }
 
+const openRoutineRunChat = `-- name: OpenRoutineRunChat :execrows
+UPDATE routine_runs SET chat_id = ?1
+WHERE id = ?2 AND chat_id IS NULL AND state IN ('running', 'waiting')
+`
+
+type OpenRoutineRunChatParams struct {
+	ChatID sql.NullString
+	ID     string
+}
+
+// A prompt run whose script said to wake the Bot gets its chat then (issue #656), once, while it is live.
+func (q *Queries) OpenRoutineRunChat(ctx context.Context, arg OpenRoutineRunChatParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, openRoutineRunChat, arg.ChatID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const resumeRoutineRun = `-- name: ResumeRoutineRun :execrows
 UPDATE routine_runs SET state = 'running' WHERE id = ?1 AND state = 'waiting'
 `

@@ -101,11 +101,21 @@ function valuesOf(routine: Routine | undefined, bot: string): Values {
   }
 }
 
+// A prompt Routine's check script (issue #656) is set from the CLI or by its Bot; the form keeps it as it is.
+function checkOf(routine: Routine | undefined): Partial<RoutineSettings> {
+  if (routine?.kind !== "prompt" || !routine.script) return {}
+  return {
+    script: routine.script,
+    script_text: routine.script_text,
+    timeout_seconds: routine.timeout_seconds,
+  }
+}
+
 function settingsOf(v: Values, routine: Routine | undefined): RoutineSettings {
   return {
     kind: v.kind,
     ...(v.kind === "prompt"
-      ? { prompt: v.prompt.trim() }
+      ? { prompt: v.prompt.trim(), ...checkOf(routine) }
       : { script: v.script.trim(), script_text: v.scriptText, timeout_seconds: v.timeout }),
     ...scheduleOf(v.draft),
     summary: v.summary.trim() || undefined,

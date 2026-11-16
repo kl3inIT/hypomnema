@@ -170,3 +170,59 @@ func TestOnlyABotsPiSetsAndRunsItsRoutines(t *testing.T) {
 	assert.True(t, isError, text)
 	assert.Contains(t, text, "a routine's run cannot make or change routines")
 }
+
+// Scenario: a Bot's pi sets a prompt Routine with a script that checks first
+// (issue #656), giving both in one call: the Routine works on the prompt and
+// has the script, with a script's limit. Listed by name, it shows both. Set
+// again with a prompt alone, it drops the check: what runs is given whole.
+func TestABotsPiSetsAPromptRoutineWithACheck(t *testing.T) {
+	t.Parallel()
+
+	w, _, _ := gatewayWorld(t, false, map[string]string{})
+	ctx := t.Context()
+
+	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	check := "#!/bin/sh\nhypomnema superset dashboard 9 | ./routines/changed || echo '{\"wakeAgent\": false}'\n"
+	_, text, isError := w.use(pi, agenttool.ToolRoutines, routineArgs(t, map[string]any{
+		"action": "set", "name": "d9-watch", "every_minutes": 60, "prompt": "Adapt files/d9/bieu-do.json.",
+		"script": "routines/d9-check.sh", "script_text": check,
+	}))
+	require.False(t, isError, text)
+	assert.Contains(t, text, "runs the script d9-check.sh and works on a prompt when it says so")
+
+	all, err := w.svc.Routines().ListRoutines(ctx, routinestore.RoutineFilter{Bot: orchestration.DefaultBotID})
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+
+	watch := all[0]
+	assert.Equal(t, routinestore.RoutinePrompt, watch.Kind)
+	assert.Equal(t, "Adapt files/d9/bieu-do.json.", watch.Prompt)
+	assert.Equal(t, "d9-check.sh", watch.Script)
+	assert.Equal(t, check, watch.ScriptText)
+	assert.Equal(t, routinestore.ScriptTimeout, watch.Timeout, "the check's limit is a script's")
+
+	_, text, isError = w.use(pi, agenttool.ToolRoutines, routineArgs(t, map[string]any{
+		"action": "list", "name": "d9-watch",
+	}))
+	require.False(t, isError, text)
+	assert.Contains(t, text, "prompt:\nAdapt files/d9/bieu-do.json.")
+	assert.Contains(t, text, "checked first by the script d9-check.sh:\n"+check)
+
+	_, text, isError = w.use(pi, agenttool.ToolRoutines, routineArgs(t, map[string]any{
+		"action": "set", "name": "d9-watch", "prompt": "Adapt files/d9/bieu-do.json and check the copy.",
+	}))
+	require.False(t, isError, text)
+
+	plain, err := w.svc.Routines().GetRoutine(ctx, watch.ID)
+	require.NoError(t, err)
+	assert.Empty(t, plain.Script, "a prompt alone drops the check")
+	assert.Equal(t, routinestore.PromptTimeout, plain.Timeout)
+}

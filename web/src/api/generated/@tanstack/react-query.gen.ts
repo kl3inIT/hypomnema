@@ -2815,7 +2815,7 @@ export const undoRoutineMutation = (options?: Partial<Options<UndoRoutineData>>)
 };
 
 /**
- * What the launcher of a script Routine's run runs, given once a run
+ * What the launcher of a Routine's script runs, given once a run
  *
  * The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
  */
