@@ -63,8 +63,8 @@ func (o *ownWhatsApp) Media(context.Context, string, string, string, string) (me
 	return messaging.Media{}, orchestration.ErrNotFound
 }
 
-func (o *ownWhatsApp) Backfill(context.Context, string, string, string, int) (int, error) {
-	return 7, nil
+func (o *ownWhatsApp) Backfill(context.Context, string, string, string, int) (messaging.Backfilled, error) {
+	return messaging.Backfilled{Added: 7}, nil
 }
 
 // Scenario (issue #638): the owner linked his WhatsApp as "me" and gave it to a Bot. It is his own account, as his
@@ -111,7 +111,7 @@ func TestTheOwnersWhatsAppIsABotsOnHisTurn(t *testing.T) {
 
 	_, text, isError = w.use(pi, agenttool.ToolWhatsAppHistory, `{"chat":"120363@g.us"}`)
 	require.False(t, isError, text)
-	assert.Contains(t, text, "sent 7 older messages")
+	assert.Contains(t, text, "7 older messages were added")
 
 	_, err = w.svc.AddChatMessages(ctx, chat.ID, orchestration.NewChatMessage{
 		Role: orchestration.ChatOwner, Text: "[Linh]: show me his chats",

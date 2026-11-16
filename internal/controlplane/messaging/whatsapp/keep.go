@@ -77,7 +77,7 @@ func (a *account) keepHistory(e *events.HistorySync) {
 			}
 		}
 
-		a.answered(e.Data, a.toNumber(ctx, chat).String(), len(conv.GetMessages()))
+		a.answered(e.Data, a.toNumber(ctx, chat).String(), conv)
 	}
 }
 

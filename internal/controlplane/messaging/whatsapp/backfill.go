@@ -14,6 +14,8 @@ import (
 
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/types"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 )
 
 const (
@@ -24,8 +26,12 @@ const (
 	backfillWait = 60 * time.Second
 )
 
-// Backfill asks the phone for older messages of a chat and answers how many it sent.
-func (a *account) Backfill(ctx context.Context, chat string, count int) (int, error) {
+// backfilled is the phone's answer for a chat: whether it said the chat has no older messages.
+type backfilled struct{ complete bool }
+
+// Backfill asks the phone for older messages of a chat and answers how many were added, counted in the mirror
+// before and after as wacli counts MessagesAdded: the phone's answer may repeat messages already kept (issue #651).
+func (a *account) Backfill(ctx context.Context, chat string, count int) (messaging.Backfilled, error) {
 	switch {
 	case count <= 0:
 		count = defaultBackfill
@@ -35,12 +41,17 @@ func (a *account) Backfill(ctx context.Context, chat string, count int) (int, er
 
 	jid, err := types.ParseJID(chat)
 	if err != nil {
-		return 0, fmt.Errorf("whatsapp: chat %q: %w", chat, err)
+		return messaging.Backfilled{}, fmt.Errorf("whatsapp: chat %q: %w", chat, err)
 	}
 
 	anchor, err := a.mirror.oldest(ctx, a.mirrorKey(), chat)
 	if err != nil {
-		return 0, err
+		return messaging.Backfilled{}, err
+	}
+
+	before, err := a.mirror.count(ctx, a.mirrorKey(), chat)
+	if err != nil {
+		return messaging.Backfilled{}, err
 	}
 
 	info := &types.MessageInfo{
@@ -48,7 +59,7 @@ func (a *account) Backfill(ctx context.Context, chat string, count int) (int, er
 		ID:            anchor.id, Timestamp: anchor.at,
 	}
 
-	answered := make(chan int, 1)
+	answered := make(chan backfilled, 1)
 
 	a.waitMu.Lock()
 	a.waiting[chat] = answered
@@ -61,21 +72,31 @@ func (a *account) Backfill(ctx context.Context, chat string, count int) (int, er
 	}()
 
 	if _, err := a.client.SendPeerMessage(ctx, a.client.BuildHistorySyncRequest(info, count)); err != nil {
-		return 0, fmt.Errorf("whatsapp: asking the phone for older messages: %w", err)
+		return messaging.Backfilled{}, fmt.Errorf("whatsapp: asking the phone for older messages: %w", err)
 	}
+
+	var got backfilled
 
 	select {
-	case n := <-answered:
-		return n, nil
+	case got = <-answered:
 	case <-time.After(backfillWait):
-		return 0, errors.New("whatsapp: the phone did not answer in a minute; it must be online, with WhatsApp open")
+		return messaging.Backfilled{}, errors.New("whatsapp: the phone did not answer in a minute; it must be " +
+			"online, with WhatsApp open")
 	case <-ctx.Done():
-		return 0, ctx.Err()
+		return messaging.Backfilled{}, ctx.Err()
 	}
+
+	after, err := a.mirror.count(ctx, a.mirrorKey(), chat)
+	if err != nil {
+		return messaging.Backfilled{}, err
+	}
+
+	return messaging.Backfilled{Added: after - before, Complete: got.complete}, nil
 }
 
-// answered tells a waiting Backfill how many older messages of its chat an on-demand history sync brought.
-func (a *account) answered(sync *waHistorySync.HistorySync, chat string, n int) {
+// answered tells a waiting Backfill that an on-demand history sync of its chat was kept, and whether the phone
+// said the chat has no older messages (wacli: COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY).
+func (a *account) answered(sync *waHistorySync.HistorySync, chat string, conv *waHistorySync.Conversation) {
 	if sync.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND {
 		return
 	}
@@ -86,7 +107,8 @@ func (a *account) answered(sync *waHistorySync.HistorySync, chat string, n int) 
 
 	if ch != nil {
 		select {
-		case ch <- n:
+		case ch <- backfilled{complete: conv.GetEndOfHistoryTransferType() ==
+			waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY}:
 		default:
 		}
 	}

@@ -133,11 +133,15 @@ func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, 
 
 	data, err := a.client.DownloadMediaWithPath(ctx, row.directPath, row.fileEncHash, row.fileSHA256, row.mediaKey,
 		mediaKind(row.mediaType), "", false)
+	if err != nil && expired(err) {
+		// WhatsApp's servers no longer hold it: the phone is asked to upload it again (issue #651).
+		data, err = a.downloadAgain(ctx, job, row)
+	}
+
 	if err != nil {
-		// A file WhatsApp no longer has is said once; another failure is tried again at the next backfill.
-		if errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
-			errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410) {
-			_ = a.mirror.keptMedia(ctx, job.account, job.chat, job.id, "", "WhatsApp no longer has it")
+		// A file nobody has is said once; another failure is tried again at the next connection.
+		if errors.Is(err, errNotOnPhone) {
+			_ = a.mirror.keptMedia(ctx, job.account, job.chat, job.id, "", "neither WhatsApp nor the phone has it")
 		}
 
 		return out, fmt.Errorf("whatsapp: downloading the file of message %s: %w", job.id, err)
@@ -161,6 +165,21 @@ func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, 
 	out.Path = path
 
 	return out, nil
+}
+
+// downloadAgain downloads a file the phone uploaded again, from its new path, which is kept.
+func (a *account) downloadAgain(ctx context.Context, job mediaJob, row mediaRow) ([]byte, error) {
+	path, err := a.askPhone(ctx, job, row)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := a.mirror.movedMedia(ctx, job.account, job.chat, job.id, path); err != nil {
+		return nil, err
+	}
+
+	return a.client.DownloadMediaWithPath(ctx, path, row.fileEncHash, row.fileSHA256, row.mediaKey,
+		mediaKind(row.mediaType), "", false)
 }
 
 // mediaKind is whatsmeow's media type of a kept one: a sticker has an image's keys (whatsmeow download.go).

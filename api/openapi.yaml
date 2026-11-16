@@ -1102,14 +1102,17 @@ paths:
                 count: { type: integer, minimum: 1, maximum: 500 }
       responses:
         "200":
-          description: How many older messages the phone sent.
+          description: >-
+            How many older messages were added to those kept (the phone's answer may repeat some), and whether the
+            phone said the chat has none older (issue #651).
           content:
             application/json:
               schema:
                 type: object
-                required: [received]
+                required: [added, complete]
                 properties:
-                  received: { type: integer }
+                  added: { type: integer }
+                  complete: { type: boolean }
         default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}/check:
     parameters:

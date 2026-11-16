@@ -478,10 +478,11 @@ func (s *Service) Send(ctx context.Context, integration, label string, out messa
 }
 
 // Backfill asks for older messages of a chat of a Connection of kind device (issue #634).
-func (s *Service) Backfill(ctx context.Context, integration, label, chat string, count int) (int, error) {
+func (s *Service) Backfill(ctx context.Context, integration, label, chat string, count int,
+) (messaging.Backfilled, error) {
 	acc, err := s.heldAccount(ctx, integration, label)
 	if err != nil {
-		return 0, err
+		return messaging.Backfilled{}, err
 	}
 
 	return acc.Backfill(ctx, chat, count)
