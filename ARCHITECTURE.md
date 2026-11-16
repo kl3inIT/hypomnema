@@ -3662,14 +3662,14 @@ the internet, so that a machine created at a provider can install the node from 
   installs them on every node since #107). The earlier
   control plane on aioffice-app (`~ubuntu/hypomnema-cp`) was deleted on 2026-11-13.
 - Node zm, since 2026-11-15 (v0.9.50): on the control plane's own machine, user `dat`, from `~/.hypomnema-node`,
-  added with the default limit of 2 and then drained, so it shows on Machines with its stats and takes no work
+  added with the default limit of 2 and then drained, looking for a newer release every 60 minutes since 2026-11-16, so it shows on Machines with its stats and takes no work
   (owner, 2026-11-15: watch it, run workers when it is idle). `hypomnema nodes resume zm` lets it take work; its
   workers would then run as the user that holds the control plane's `env` and vault keys.
 - Node beyondpilot, since 2026-11-15 (v0.9.52): BeyondPilot's production EC2 (`BeyondPilotProductionApp/Server`,
   account `891762599330`, `ap-southeast-1`), which has no SSH port. Installed through Session Manager
   (`aws ssm send-command`, `AWS-RunShellScript`) with the steps of the first-boot script: the user `hypomnema`
   (in `docker`, and `NOPASSWD:ALL` in `/etc/sudoers.d/hypomnema`, owner, 2026-11-15: root is fine), git from dnf,
-  Node.js, Claude Code and Codex. Drained, so no Run places work there; agents reach it with `node_exec`. The node's
+  Node.js, Claude Code and Codex; it looks for a newer release every 60 minutes since 2026-11-16. Drained, so no Run places work there; agents reach it with `node_exec`. The node's
   token is in that command's parameters in the account's SSM command history.
 - Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
   control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
