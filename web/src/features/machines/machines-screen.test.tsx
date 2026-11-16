@@ -333,7 +333,7 @@ test("a refused removal shows the server's message", async () => {
 // shows that it waits, and pressing it again sends nothing (issue #582, Base UI Button "Loading states").
 test("a removal that waits keeps focus on its button and is sent once", async () => {
   const user = userEvent.setup()
-  let answer = (_: Response) => {}
+  let answer: (response: Response) => void = () => {}
   const requests = nodesServer([node("builder")], {
     "DELETE /nodes/builder": () => new Promise<Response>((resolve) => (answer = resolve)),
   })
