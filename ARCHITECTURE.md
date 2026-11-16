@@ -871,7 +871,7 @@ sequenceDiagram
     calls in chats", saved on change), in `PUT /bots/{name}` `tool_display` (left out, kept) and `hypomnema bots
     set --tool-display off|on|full`; a change from the coordinator's chat is undone with the rest of the Bot's
     settings.
-  - How many of a Bot's workers run at once (issue #660, migration 00099): `bots.max_dispatches`, 1 to 64, NULL for
+  - How many of a Bot's workers run at once (issue #660, migration 00100): `bots.max_dispatches`, 1 to 64, NULL for
     the default 4 (the scheduler, above). It is set on the Bot's page ("Workers at once", saved with its button), in
     `PUT /bots/{name}` `max_dispatches` (left out, kept; the Bot's answer has the number in force) and `hypomnema
     bots set --max-dispatches N`; a change from the coordinator's chat is undone with the rest of the Bot's
@@ -1404,7 +1404,7 @@ flowchart LR
   commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
   desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
   a question included, a gated one not:
-  - a Bot's (migration 00099, `bots.max_dispatches`, `BotDispatchesDefault` 4 when unset; from OpenMausBot's
+  - a Bot's (migration 00100, `bots.max_dispatches`, `BotDispatchesDefault` 4 when unset; from OpenMausBot's
     `threads.maxConcurrentPerBot`, `server/bot-thread-limits.ts`, the 4 the owner's, 2026-11-16): the Dispatches of
     the Runs it made, the Bot found as `runBotGives` finds it (the Run's `bot_id`, else, for a Run a coordinator made
     in a chat, that chat's Bot). The owner's Runs without a Bot count together as one more group with the default
@@ -1422,7 +1422,7 @@ flowchart LR
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
-  Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00099; from OpenMausBot's
+  Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
   cleared when its Dispatch is made: `bot_at_limit:<bot id>` (nothing after the colon for the owner's Runs),
