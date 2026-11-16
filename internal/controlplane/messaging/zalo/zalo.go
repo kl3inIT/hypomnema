@@ -99,7 +99,7 @@ func open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 
 	return &Service{
 		closeDB: db.Close, mirror: kept, log: logger, mediaDir: filepath.Join(filepath.Dir(path), "zalo-media"),
-		http: &http.Client{}, gap: pageGap,
+		http: newHTTP(), gap: pageGap,
 	}, nil
 }
 
@@ -248,6 +248,7 @@ func (s *Service) newAccount(cancel context.CancelFunc, who whoAmI, credentials 
 	return &account{
 		svc: s, uid: who.UID, name: who.Name, credentials: credentials, cancel: cancel,
 		state: messaging.State{Status: messaging.StatusConnecting}, jobs: make(chan mediaJob, mediaQueueSize),
+		past: make(chan struct{}, 1),
 	}
 }
 
@@ -263,8 +264,11 @@ type account struct {
 	// jobs are the files to download (media.go), by workers started once.
 	jobs      chan mediaJob
 	mediaOnce sync.Once
-	// pastMu keeps one walk of the past at a time (past.go).
-	pastMu sync.Mutex
+	// past admits one page of the past at a time (past.go), waited for with a context.
+	past chan struct{}
+	// filesMu: downloads hold it to read, Logout to write, so that it waits for them; forgotten is set by Logout.
+	filesMu   sync.RWMutex
+	forgotten bool
 	// naming says a naming of direct chats is running.
 	naming atomic.Bool
 
@@ -516,7 +520,7 @@ func (a *account) keep(ctx context.Context, raw json.RawMessage) {
 		return
 	}
 
-	if a.keepMessage(ctx, m) && !m.Group && m.FromMe {
+	if added, _ := a.keepMessage(ctx, m); added && !m.Group && m.FromMe {
 		if b := a.current(); b != nil && a.naming.CompareAndSwap(false, true) {
 			go func() {
 				defer a.naming.Store(false)
@@ -527,10 +531,11 @@ func (a *account) keep(ctx context.Context, raw json.RawMessage) {
 	}
 }
 
-// keepMessage keeps a message, live or from the past, and queues its file; it answers whether it was new.
-func (a *account) keepMessage(ctx context.Context, m incoming) bool {
+// keepMessage keeps a message, live or from the past, and queues its file; it answers whether it was new, and a
+// failure to store it apart from a message kept before.
+func (a *account) keepMessage(ctx context.Context, m incoming) (bool, error) {
 	if m.ID == "" || m.Chat == "" {
-		return false
+		return false, nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, keepTimeout)
@@ -558,14 +563,14 @@ func (a *account) keepMessage(ctx context.Context, m incoming) bool {
 	if err != nil {
 		a.svc.log.WarnContext(ctx, "zalo: a message could not be kept", slog.String("error", err.Error()))
 
-		return false
+		return false, err
 	}
 
 	if added && k.mediaURL != "" && k.mediaType != "sticker" {
 		a.queueMedia(mediaJob{account: a.uid, chat: k.chat, id: k.id})
 	}
 
-	return added
+	return added, nil
 }
 
 // Close stops the bridge and keeps the session, to be opened again.
@@ -586,6 +591,11 @@ func (a *account) Close() {
 func (a *account) Logout(ctx context.Context) error {
 	a.Close()
 	a.setState(messaging.State{Status: messaging.StatusLoggedOut})
+
+	// Downloads under way end first, and none starts after: no file outlives the link.
+	a.filesMu.Lock()
+	a.forgotten = true
+	a.filesMu.Unlock()
 
 	return errors.Join(a.svc.mirror.forget(ctx, a.uid), a.svc.forgetFiles(a.uid))
 }

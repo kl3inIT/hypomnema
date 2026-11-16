@@ -1907,11 +1907,13 @@ flowchart LR
       `zl_queue`, `zl_version` 1): each group with zca-js's `getCloudMessage`, 50 a page, back to when the owner
       joined; the direct chats with the listener's old-messages request (cmd 510), one queue for all of them, paged
       by the oldest `actionId` until a page brings nothing new. `POST …/chats/{chat}/history` reads more of a group
-      now, and walks the queue to its end for a direct chat. Direct chats are named after the person
+      now, and walks the queue to its end for a direct chat; each page is read alone, so such a request waits for one
+      page, not the whole walk. Direct chats are named after the person
       (`getUserInfo`), after the walk and when the owner writes first in a new one.
     - **Files**: a message's kind is read as the Hermes Zalo plugin and zaloclaw read it (image, video, audio,
       document, sticker, link, call); every image, video, voice note and file is downloaded at once, live or from
-      the past (Zalo's CDN links expire), by four workers, a plain GET of at most 100 MiB, into
+      the past (Zalo's CDN links expire), by four workers, a plain GET of at most 100 MiB that dials only public
+      addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its sender's), into
       `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404, 410) is said
       once. `…/media` answers one; disconnecting removes them. The Bot's tools and sending are step 3.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues

@@ -14,13 +14,17 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 )
 
@@ -36,8 +40,11 @@ const (
 // errNoMessage is a message not kept, or one with no file.
 var errNoMessage = errors.New("zalo: no such message")
 
-// mediaJob is one message whose file to download.
-type mediaJob struct{ account, chat, id string }
+// mediaJob is one message whose file to download; ts is its time, the cursor of the backlog.
+type mediaJob struct {
+	account, chat, id string
+	ts                int64
+}
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._@-]`)
 
@@ -77,31 +84,56 @@ func (a *account) queueMedia(job mediaJob) {
 	}
 }
 
-// backfillMedia queues the kept messages that have no file yet, the newest first.
+// backfillMedia queues every kept message that has no file yet, the newest first, a batch at a time.
 func (a *account) backfillMedia(ctx context.Context) {
-	jobs, err := a.svc.mirror.pendingMedia(ctx, a.uid, mediaBatch)
-	if err != nil {
-		a.svc.log.WarnContext(ctx, "zalo: the files to download could not be listed", slog.String("error", err.Error()))
+	var before int64
 
-		return
-	}
+	for {
+		jobs, err := a.svc.mirror.pendingMedia(ctx, a.uid, before, mediaBatch)
+		if err != nil {
+			a.svc.log.WarnContext(ctx, "zalo: the files to download could not be listed",
+				slog.String("error", err.Error()))
 
-	for _, j := range jobs {
-		select {
-		case a.jobs <- j:
-		case <-ctx.Done():
+			return
+		}
+
+		for _, j := range jobs {
+			select {
+			case a.jobs <- j:
+			case <-ctx.Done():
+				return
+			}
+
+			before = j.ts
+		}
+
+		if len(jobs) < mediaBatch {
 			return
 		}
 	}
 }
 
-// Media is a kept message's file, downloaded first when it is not kept yet.
+// Media is a kept message's file, downloaded first when it is not kept yet, within the time a download has.
 func (a *account) Media(ctx context.Context, chat, id string) (messaging.Media, error) {
+	ctx, cancel := context.WithTimeout(ctx, mediaTimeout)
+	defer cancel()
+
 	return a.download(ctx, mediaJob{account: a.uid, chat: chat, id: id})
 }
 
-// download keeps a message's file unless it is kept already, and answers it.
+// errLoggedOut is a download asked of an account whose link was ended.
+var errLoggedOut = errors.New("zalo: the account was disconnected")
+
+// download keeps a message's file unless it is kept already, and answers it. Logout waits for downloads under way
+// (filesMu) and none starts after it.
 func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, error) {
+	a.filesMu.RLock()
+	defer a.filesMu.RUnlock()
+
+	if a.forgotten {
+		return messaging.Media{}, errLoggedOut
+	}
+
 	row, err := a.svc.mirror.mediaOf(ctx, job.account, job.chat, job.id)
 	if err != nil {
 		return messaging.Media{}, err
@@ -143,6 +175,10 @@ func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, 
 		out.MimeType = contentType
 	}
 
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
+
 	path := filepath.Join(a.svc.mediaDir, unsafeName.ReplaceAllString(job.account, "_"),
 		unsafeName.ReplaceAllString(job.chat, "_"), unsafeName.ReplaceAllString(job.id, "_")+
 			extension(row.fileName, out.MimeType))
@@ -169,6 +205,10 @@ func (s *Service) fetch(ctx context.Context, url string) ([]byte, string, error)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err
+	}
+
+	if req.URL.Scheme != "https" && req.URL.Scheme != "http" {
+		return nil, "", errNotPublic
 	}
 
 	resp, err := s.http.Do(req)
@@ -210,24 +250,68 @@ func extension(fileName, mimeType string) string {
 	return ".bin"
 }
 
-// writePrivate writes a file only its user reads, whole or not at all.
+// writePrivate writes a file only its user reads, whole or not at all: each writer has a temporary file of its own,
+// so that two downloads of one message never publish a half-written file.
 func writePrivate(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("zalo: making the files' directory: %w", err)
 	}
 
-	tmp := path + ".part"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".part-*")
+	if err != nil {
 		return fmt.Errorf("zalo: writing a file: %w", err)
 	}
 
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+
+	if err != nil {
+		_ = os.Remove(tmp.Name())
 
 		return fmt.Errorf("zalo: keeping a file: %w", err)
 	}
 
 	return nil
+}
+
+// errNotPublic is a link to somewhere other than the public internet.
+var errNotPublic = errors.New("zalo: a file's link leads somewhere other than the public internet")
+
+// newHTTP is the client that downloads files: a message's link is the sender's to choose, so it dials only public
+// addresses, checked at each connection, redirects included (the browser's egress policy, egress.Public).
+func newHTTP() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			ap, err := netip.ParseAddrPort(address)
+			if err != nil || !egress.Public(ap.Addr()) {
+				return errNotPublic
+			}
+
+			return nil
+		},
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // The standard library's.
+	transport.Proxy = nil
+	transport.DialContext = dialer.DialContext
+
+	return &http.Client{
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || (req.URL.Scheme != "https" && req.URL.Scheme != "http") {
+				return errNotPublic
+			}
+
+			return nil
+		},
+	}
 }
 
 // forgetFiles removes an account's kept files, when its link is ended.

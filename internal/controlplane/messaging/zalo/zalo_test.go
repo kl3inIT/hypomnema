@@ -149,6 +149,8 @@ func fakeService(t *testing.T, script string) *Service {
 	t.Cleanup(cdn.Close)
 	t.Setenv(fakeMediaEnv, cdn.URL)
 
+	// The fake CDN listens on this machine, which the real client refuses (TestAFileLinkToThisMachineIsRefused).
+	svc.http = cdn.Client()
 	svc.gap = 0
 
 	svc.start = func(ctx context.Context) (*bridge, error) {
@@ -360,4 +362,44 @@ func TestLogoutForgetsTheSessionAndTheChats(t *testing.T) {
 	chats, err := svc.mirror.chats(ctx, "100", 0)
 	require.NoError(t, err)
 	assert.Empty(t, chats)
+}
+
+// A message's link is its sender's to choose: one to this machine, or to anything but http(s), is not fetched, so a
+// message cannot make the control plane read its own services (review of #671; the browser's egress policy).
+func TestAFileLinkToThisMachineIsRefused(t *testing.T) {
+	inside := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("secret"))
+	}))
+	t.Cleanup(inside.Close)
+
+	svc := &Service{http: newHTTP()}
+
+	_, _, err := svc.fetch(t.Context(), inside.URL)
+	require.ErrorIs(t, err, errNotPublic)
+
+	_, _, err = svc.fetch(t.Context(), "file:///etc/passwd")
+	require.ErrorIs(t, err, errNotPublic)
+}
+
+// The files left to download are listed a batch at a time, older than the last one listed, so that every one is
+// reached however many there are (review of #671).
+func TestTheFilesLeftAreListedBatchAfterBatch(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+
+	for i, id := range []string{"a", "b", "c"} {
+		_, err := svc.mirror.keep(ctx, kept{account: "100", chat: "g1", chatKind: "group", id: id,
+			at: time.UnixMilli(int64(1000 * (i + 1))), mediaType: "image", mediaURL: "https://f/" + id})
+		require.NoError(t, err)
+	}
+
+	first, err := svc.mirror.pendingMedia(ctx, "100", 0, 2)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	assert.Equal(t, []string{"c", "b"}, []string{first[0].id, first[1].id})
+
+	rest, err := svc.mirror.pendingMedia(ctx, "100", first[1].ts, 2)
+	require.NoError(t, err)
+	require.Len(t, rest, 1)
+	assert.Equal(t, "a", rest[0].id)
 }

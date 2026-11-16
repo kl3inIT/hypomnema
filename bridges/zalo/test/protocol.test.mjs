@@ -49,6 +49,8 @@ test("a message's content is read as its text and its file", () => {
   assert.deepEqual(media("share.file", { title: "bao-gia.pdf", href: "https://f/x", params: '{"fileSize":"2048"}' }),
     { text: "", media: { type: "document", url: "https://f/x", fileName: "bao-gia.pdf", size: 2048 } });
   assert.equal(media("chat.voice", { href: "https://f/v.m4a" }).media.type, "audio");
+  assert.deepEqual(media("share.file", { fileName: "note.mp3", fileUrl: "https://f/n.mp3", totalSize: 9 }).media,
+    { type: "audio", url: "https://f/n.mp3", fileName: "note.mp3", size: 9 });
   assert.deepEqual(media("chat.recommended", { title: "Xem bài này", href: "https://vnexpress.net/a" }),
     { text: "Xem bài này\nhttps://vnexpress.net/a", media: null });
   assert.deepEqual(media("chat.sticker", { id: 1 }).media, { type: "sticker", url: "", fileName: "", size: 0 });

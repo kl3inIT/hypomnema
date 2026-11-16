@@ -136,6 +136,11 @@ func classOf(address netip.Addr, own map[netip.Addr]bool) class {
 	return public
 }
 
+// Public says an address is one host on the public internet: not this machine, a private or link-local network, a
+// cloud metadata service or a reserved range. The control plane's downloads of what a message links to (Zalo's
+// files, issue #669) dial only such addresses.
+func Public(address netip.Addr) bool { return classOf(address, OwnAddresses()) == public }
+
 // OwnAddresses are the addresses this machine's interfaces hold now.
 func OwnAddresses() map[netip.Addr]bool {
 	own := map[netip.Addr]bool{}

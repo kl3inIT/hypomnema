@@ -162,12 +162,13 @@ func (m *mirror) keptMedia(ctx context.Context, account, chat, id, path, why, mi
 	return nil
 }
 
-// pendingMedia are kept messages whose file is not downloaded yet nor given up on, the newest first.
-func (m *mirror) pendingMedia(ctx context.Context, account string, limit int) ([]mediaJob, error) {
-	rows, err := m.db.QueryContext(ctx, `SELECT chat_id, msg_id FROM zl_messages
+// pendingMedia are kept messages whose file is not downloaded yet nor given up on, the newest first, older than
+// before (in milliseconds) unless it is 0.
+func (m *mirror) pendingMedia(ctx context.Context, account string, before int64, limit int) ([]mediaJob, error) {
+	rows, err := m.db.QueryContext(ctx, `SELECT chat_id, msg_id, ts FROM zl_messages
 		WHERE account = ? AND attachment_url <> '' AND local_path = '' AND media_error = ''
-			AND media_type IN ('image', 'video', 'audio', 'document')
-		ORDER BY ts DESC LIMIT ?`, account, limit)
+			AND media_type IN ('image', 'video', 'audio', 'document') AND (? = 0 OR ts < ?)
+		ORDER BY ts DESC LIMIT ?`, account, before, before, limit)
 	if err != nil {
 		return nil, fmt.Errorf("zalo: listing the files to download: %w", err)
 	}
@@ -177,7 +178,7 @@ func (m *mirror) pendingMedia(ctx context.Context, account string, limit int) ([
 
 	for rows.Next() {
 		j := mediaJob{account: account}
-		if err := rows.Scan(&j.chat, &j.id); err != nil {
+		if err := rows.Scan(&j.chat, &j.id, &j.ts); err != nil {
 			return nil, err
 		}
 

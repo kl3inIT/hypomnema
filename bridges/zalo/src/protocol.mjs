@@ -90,7 +90,7 @@ export function media(msgType, content) {
   }
   if (type === "chat.video.msg") return file("video", href, "", p.fileSize, title);
   if (type === "chat.voice" || /\.(m4a|aac|mp3|opus|ogg)(\?|$)/i.test(str(content.fileName) || href)) {
-    return file("audio", href, str(content.fileName), p.fileSize, "");
+    return file("audio", str(content.fileUrl) || href, str(content.fileName), content.totalSize ?? p.fileSize, "");
   }
   if (type === "share.file" || content.fileUrl) {
     return file("document", str(content.fileUrl) || href, str(content.fileName) || title, content.totalSize ?? p.fileSize, "");

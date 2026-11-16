@@ -67,9 +67,16 @@ function listen() {
     process.stdout.write(event("closed", closed(code, reason)) + "\n", () => process.exit(0));
   });
   api.listener.on("error", (err) => emit("error", { message: String(err?.message ?? err) }));
-  api.listener.start({ retryOnClose: true });
-
-  return {};
+  // Answered once the socket is open: a request sent on it before (the direct chats' past) would be lost, since
+  // zca-js sends it as it is (listen.ts, sendWs).
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("the listener did not connect in time")), listenWait);
+    api.listener.once("connected", () => {
+      clearTimeout(timer);
+      resolve({});
+    });
+    api.listener.start({ retryOnClose: true });
+  });
 }
 
 async function loginQR() {
@@ -137,6 +144,9 @@ function stop() {
 
   return {};
 }
+
+// listenWait bounds the wait for the listener's socket to open.
+const listenWait = 30_000;
 
 // oldWait bounds the wait for the listener's answer to an old-messages request (cmd 510), which comes as an event.
 const oldWait = 30_000;
