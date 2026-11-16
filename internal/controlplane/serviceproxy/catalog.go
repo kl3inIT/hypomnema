@@ -249,6 +249,8 @@ func CatalogOf(integration string) (Catalog, bool) {
 		return supersetCatalog(), true
 	case AWSID:
 		return awsCatalog, true
+	case WhatsAppID:
+		return whatsappCatalog(), true
 	}
 
 	return Catalog{}, false

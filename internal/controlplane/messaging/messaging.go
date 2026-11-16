@@ -58,6 +58,18 @@ type Account interface {
 	// Backfill asks the service for up to count messages of a chat older than the oldest kept, keeps them, and
 	// answers how many came (issue #634).
 	Backfill(ctx context.Context, chat string, count int) (int, error)
+	// Send sends a message, or a file with its caption, in a chat as the account's owner, and keeps it (issue
+	// #645). Whether it may be sent is decided before.
+	Send(ctx context.Context, out Outgoing) (Message, error)
+}
+
+// Outgoing is a message to send: a text, or a file with Text as its caption, replying to ReplyTo when it is set.
+type Outgoing struct {
+	Chat     string
+	Text     string
+	ReplyTo  string
+	File     []byte
+	FileName string
 }
 
 // Chat is one chat of the account, as kept.

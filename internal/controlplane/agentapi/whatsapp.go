@@ -2,7 +2,9 @@ package agentapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +17,9 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
 // WhatsApp's tools (issue #638, step 3 of #612): a Bot reads the owner's own WhatsApp, kept by the control plane
@@ -31,7 +35,7 @@ const whatsappID = "whatsapp"
 
 var whatsappTools = []string{
 	agenttool.ToolWhatsAppChats, agenttool.ToolWhatsAppMessages, agenttool.ToolWhatsAppMedia,
-	agenttool.ToolWhatsAppHistory,
+	agenttool.ToolWhatsAppHistory, agenttool.ToolWhatsAppSend,
 }
 
 const (
@@ -47,6 +51,20 @@ type Messaging interface {
 	Messages(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
 	Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error)
 	Backfill(ctx context.Context, integration, label, chat string, count int) (int, error)
+	Send(ctx context.Context, integration, label string, out messaging.Outgoing) (messaging.Message, error)
+}
+
+// Judge decides an act an agent asks for, as the service proxy decides a request (serviceproxy.Proxy.Judge): nil
+// when it may be done now.
+type Judge interface {
+	Judge(ctx context.Context, a serviceproxy.Act) error
+}
+
+// WithJudge lets whatsapp_send ask the owner (issue #645); without it nothing is sent.
+func (s *Server) WithJudge(j Judge) *Server {
+	s.judge = j
+
+	return s
 }
 
 // WithMessaging gives Bots WhatsApp's tools.
@@ -149,6 +167,19 @@ func (s *Server) whatsappToolList(ctx context.Context, a agent) []agenttool.Brow
 				"Then read them with whatsapp_messages.",
 			InputSchema: with(map[string]any{"chat": chat, "count": limit}, "chat"),
 		},
+		{
+			Name: agenttool.ToolWhatsAppSend,
+			Description: "Send a message in one of the owner's WhatsApp chats, as him: text, or a file of the folder " +
+				"you work in (path, at most 5 MB) with text as its caption, replying to reply_to when given. It " +
+				"waits for the owner's approval unless he set it to run; when it waits, tell him in one line and " +
+				"end your turn, then call it again unchanged once he answers. Send only what he asked for.",
+			InputSchema: with(map[string]any{
+				"chat":     chat,
+				"text":     map[string]any{"type": "string", "description": "The message, or the file's caption."},
+				"path":     map[string]any{"type": "string", "description": "A file in the folder you work in."},
+				"reply_to": map[string]any{"type": "string", "description": "The id of the message it answers."},
+			}, "chat"),
+		},
 	}
 }
 
@@ -205,6 +236,8 @@ func (s *Server) whatsappCall(w http.ResponseWriter, r *http.Request, a agent, l
 		s.answerJSON(w, r, map[string]any{"note": untrusted, "messages": msgs}, err)
 	case agenttool.ToolWhatsAppMedia:
 		s.whatsappMedia(w, r, label, in)
+	case agenttool.ToolWhatsAppSend:
+		s.whatsappSend(w, r, a, label, call.Arguments)
 	case agenttool.ToolWhatsAppHistory:
 		n, err := s.messaging.Backfill(ctx, whatsappID, label, strings.TrimSpace(in.Chat), in.Count)
 		if err != nil {
@@ -303,3 +336,112 @@ func pickWhatsAppAccount(labels []string, asked string) (string, string) {
 		return "", "name the account: " + strings.Join(labels, ", ")
 	}
 }
+
+// whatsappSend sends a message or a file as the owner once the control plane's decision lets it (issue #645): the
+// action whatsapp.send, which asks the owner until he sets another answer, as a Superset write does.
+func (s *Server) whatsappSend(w http.ResponseWriter, r *http.Request, a agent, label string, raw json.RawMessage) {
+	var in agenttool.WhatsAppSendCall
+	if json.Unmarshal(orEmpty(raw), &in) != nil {
+		answerTool(w, "whatsapp_send takes {chat, text, path, reply_to}", true)
+
+		return
+	}
+
+	in.Chat = strings.TrimSpace(in.Chat)
+
+	switch {
+	case in.Chat == "":
+		answerTool(w, "name the chat, by its id as whatsapp_chats lists it", true)
+
+		return
+	case in.Path != "" && len(in.File) == 0:
+		answerTool(w, "this machine's tools cannot send a file yet; send the text alone, or wait for its update", true)
+
+		return
+	case in.Text == "" && len(in.File) == 0:
+		answerTool(w, "give the text to send, or a file's path", true)
+
+		return
+	case len(in.File) > artifactpack.MaxTotal:
+		answerTool(w, "the file is larger than 5 MB", true)
+
+		return
+	}
+
+	if s.judge == nil {
+		answerTool(w, "sending is not set up on this control plane", true)
+
+		return
+	}
+
+	ctx := r.Context()
+
+	name := s.whatsappChatName(ctx, label, in.Chat)
+	fields := []orchestration.Field{{Label: "Chat", Value: name}}
+
+	if in.Text != "" {
+		fields = append(fields, orchestration.Field{Label: "Text", Value: in.Text})
+	}
+
+	if len(in.File) > 0 {
+		fields = append(fields, orchestration.Field{
+			Label: "File", Value: fmt.Sprintf("%s (%d bytes)", in.FileName, len(in.File)),
+		})
+	}
+
+	if in.ReplyTo != "" {
+		fields = append(fields, orchestration.Field{Label: "Replying to", Value: in.ReplyTo})
+	}
+
+	file := sha256.Sum256(in.File)
+	hash := sha256.Sum256([]byte(strings.Join([]string{
+		label, in.Chat, in.Text, in.ReplyTo, in.FileName, hex.EncodeToString(file[:]),
+	}, "\x00")))
+
+	err := s.judge.Judge(ctx, serviceproxy.Act{
+		Caller:      serviceproxy.Caller{Name: a.name, Coordinator: true, ChatID: a.chatID},
+		Integration: whatsappID, Label: label, ChatID: a.chatID, Action: "whatsapp.send",
+		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]),
+	})
+
+	var refused *serviceproxy.RefusedError
+
+	switch {
+	case errors.As(err, &refused):
+		answerTool(w, refused.Message, true)
+
+		return
+	case err != nil:
+		s.answerErr(w, r, err)
+
+		return
+	}
+
+	sent, err := s.messaging.Send(ctx, whatsappID, label, messaging.Outgoing{
+		Chat: in.Chat, Text: in.Text, ReplyTo: in.ReplyTo, File: in.File, FileName: in.FileName,
+	})
+	if err != nil {
+		s.answerErr(w, r, err)
+
+		return
+	}
+
+	answerTool(w, fmt.Sprintf("sent in %s as the owner: message %s", name, sent.ID), false)
+}
+
+// whatsappChatName is a chat's name and id as the owner reads them in an approval, or its id alone.
+func (s *Server) whatsappChatName(ctx context.Context, label, chat string) string {
+	chats, err := s.messaging.Chats(ctx, whatsappID, label, maxBackfillChats)
+	if err == nil {
+		for _, c := range chats {
+			if c.ID == chat && c.Name != "" {
+				return c.Name + " (" + chat + ")"
+			}
+		}
+	}
+
+	return chat
+}
+
+// maxBackfillChats is how many of the latest chats are looked through for a chat's name.
+const maxBackfillChats = 500

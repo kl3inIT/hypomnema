@@ -87,6 +87,25 @@ func (m *mirror) oldest(ctx context.Context, account, chat string) (anchor, erro
 	return a, err
 }
 
+// quotedRow is what a reply quotes of the message it answers.
+type quotedRow struct {
+	sender, text string
+	fromMe       bool
+}
+
+func (m *mirror) quoted(ctx context.Context, account, chat, id string) (quotedRow, error) {
+	var q quotedRow
+
+	err := m.db.QueryRowContext(ctx, `SELECT sender_jid, CASE WHEN text <> '' THEN text ELSE media_caption END, from_me
+		FROM wa_messages WHERE account = ? AND chat_jid = ? AND msg_id = ?`, account, chat, id).
+		Scan(&q.sender, &q.text, &q.fromMe)
+	if errors.Is(err, sql.ErrNoRows) {
+		return q, fmt.Errorf("%w: no message %s is kept in %s to reply to", errNoMessage, id, chat)
+	}
+
+	return q, err
+}
+
 // keptMedia records where a message's file was kept, or why it was not.
 func (m *mirror) keptMedia(ctx context.Context, account, chat, id, path, why string) error {
 	at := int64(0)

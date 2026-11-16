@@ -394,6 +394,11 @@ func (g *gone) Logout(ctx context.Context) error {
 		os.RemoveAll(filepath.Join(g.mediaDir, unsafeName.ReplaceAllString(g.account, "_"))))
 }
 
+// Send cannot send through a session the phone logged out.
+func (g *gone) Send(context.Context, messaging.Outgoing) (messaging.Message, error) {
+	return messaging.Message{}, errors.New("whatsapp: the session is logged out; link it again to send")
+}
+
 // Backfill cannot ask a phone that logged the device out.
 func (g *gone) Backfill(context.Context, string, int) (int, error) {
 	return 0, errors.New("whatsapp: the session is logged out; link it again to ask the phone for older messages")
