@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -111,9 +112,16 @@ var connectionLabelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
 // ValidConnectionLabel says whether a label is one the owner can give.
 func ValidConnectionLabel(label string) bool { return connectionLabelPattern.MatchString(label) }
 
-// User says the Connection is a person's own sign-in through an app (issue #468): it acts as the owner, so only
-// the owner's token and a Bot that may use it, on the owner's turn, may use it (issue #618).
-func (c Connection) User() bool { return c.AppLabel != "" }
+// User says the Connection is the owner's own account: a sign-in through an app (issue #468), or his own
+// messaging account linked as a device (issue #638). It acts as the owner, so only the owner's token and a Bot that
+// may use it, on the owner's turn, may use it (issue #618).
+func (c Connection) User() bool {
+	return c.AppLabel != "" || slices.Contains(ownAccountIntegrations, c.Integration)
+}
+
+// ownAccountIntegrations are the Integrations every Connection of which is the owner's own account: those of kind
+// device (integration.KindDevice), named here as scopedIntegration names Superset (botaccess.go).
+var ownAccountIntegrations = []string{"whatsapp"}
 
 // SetConnection records a Connection and the secret that holds its
 // credential, or changes the secret and account of an existing one. The

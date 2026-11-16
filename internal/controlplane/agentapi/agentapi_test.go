@@ -33,6 +33,8 @@ type world struct {
 	logs  *bytes.Buffer
 	// browser stands for the shared browser.
 	browser *sharedBrowser
+	// whatsapp stands for the owner's WhatsApp the control plane keeps.
+	whatsapp *ownWhatsApp
 }
 
 // newWorld is a control plane with two accounts of a service that does not go through the service proxy of the owner's: work,
@@ -45,7 +47,7 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { _ = db.Close() })
 
 	w := &world{t: t, svc: orchestration.New(db, platform.SystemClock{}, platform.NewID), logs: &bytes.Buffer{},
-		browser: &sharedBrowser{}}
+		browser: &sharedBrowser{}, whatsapp: &ownWhatsApp{}}
 
 	for _, label := range []string{"work", "personal"} {
 		_, err := w.svc.SaveServiceConnection(t.Context(), orchestration.Connection{
@@ -59,7 +61,7 @@ func newWorld(t *testing.T) *world {
 		w.asked = append(w.asked, integration+":"+label)
 
 		return agentapi.Token{AccessToken: "ya29.token-of-" + label, ExpiresAt: time.Unix(1_800_000_000, 0).UTC()}, nil
-	}, slog.New(slog.NewTextHandler(w.logs, nil))).WithBrowser(w.browser).Register(mux)
+	}, slog.New(slog.NewTextHandler(w.logs, nil))).WithBrowser(w.browser).WithMessaging(w.whatsapp).Register(mux)
 
 	w.srv = httptest.NewServer(mux)
 	t.Cleanup(w.srv.Close)

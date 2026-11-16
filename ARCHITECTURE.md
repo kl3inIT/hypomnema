@@ -92,7 +92,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_* on the owner's turn"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -1808,7 +1808,14 @@ flowchart LR
       `whatsapp.db`, keyed by the number, so a number linked again keeps its history; disconnecting removes it.
       The shape and the parsing follow wacli (`internal/store/schema.sql`, `internal/wa/messages.go`, MIT).
     - `GET /integrations/whatsapp/connections/{label}/chats` and `…/messages` (`chat`, `q` for a search, `before`,
-      `limit`) read the mirror, the latest first, for the owner only. Agents have no tool for it yet.
+      `limit`) read the mirror, the latest first, for the owner only.
+    - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
+      Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
+      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
+      its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
+      coordinator token and a Routine never. Built as Superset's tools (`agentapi/whatsapp.go`); each read says
+      the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
+      `whatsapp_*`.
     - **Every image and file is downloaded** ([issue #634](https://github.com/kl3inIT/hypomnema/issues/634)): a
       media message keeps its download keys (the mirror's version 1, `wa_version`); four workers download each as
       it arrives, live or from history, and the kept ones without a file when the session connects (500 at a time,
@@ -2777,7 +2784,7 @@ agent has `tools.allow` and `tools.deny` (`docs/gateway/config-tools/tool-policy
 and an Exclude list (`docs/tool-selection.md`).
 
 - An entry is a tool's name or a family, the start of a name and one `*` at the end (`agent_browser_*`,
-  `superset_*`, `device_*`, `web_*`, `node_*`; `*` alone is every tool), after OpenClaw's `*` wildcards and
+  `superset_*`, `whatsapp_*`, `device_*`, `web_*`, `node_*`; `*` alone is every tool), after OpenClaw's `*` wildcards and
   OpenMausBot's whole-server `mcp:mail:*`; a `*` elsewhere is refused. Each must name at least one of the control
   plane's tools and be named once, in one list, or the profile or Bot is refused (`400`), as an unknown skill is.
   `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).

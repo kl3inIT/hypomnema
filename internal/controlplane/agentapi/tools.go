@@ -26,6 +26,9 @@ import (
 //   - superset_dashboards, superset_dashboard, superset_chart_data,
 //     superset_api (superset.go): a worker given a Superset Connection by its
 //     Run, a Bot's pi one switched on for chats and on its Bot's list;
+//   - whatsapp_chats, whatsapp_messages, whatsapp_media, whatsapp_history
+//     (whatsapp.go, issue #638): a Bot's pi given the owner's WhatsApp, on
+//     his turn only; a worker never;
 //   - routines (routines.go): a Bot's pi only, its own Bot's; a worker never,
 //     as Hermes keeps cronjob_manage from its sub-agents;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
@@ -60,6 +63,7 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
+	out = append(out, s.whatsappToolList(ctx, a)...)
 
 	if s.hasNodeTools(a) {
 		out = append(out, nodeToolList()...)
@@ -146,6 +150,26 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.supersetCall(w, r, a, labels, asked)
+
+		return
+	}
+
+	if slices.Contains(whatsappTools, asked.Tool) {
+		// Read again at each call: the owner's turn may have ended since the list (issue #618).
+		labels, err := s.whatsappLabels(r.Context(), a)
+		if err != nil {
+			s.fail(w, r, err)
+
+			return
+		}
+
+		if len(labels) == 0 {
+			refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
+
+			return
+		}
+
+		s.whatsappCall(w, r, a, labels, asked)
 
 		return
 	}
