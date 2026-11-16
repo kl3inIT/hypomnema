@@ -380,6 +380,7 @@ type GatewayKey struct {
 	ChatID     sql.NullString
 	KeyPrefix  string
 	BotID      sql.NullString
+	Endpoints  sql.NullString
 }
 
 type GatewayModel struct {

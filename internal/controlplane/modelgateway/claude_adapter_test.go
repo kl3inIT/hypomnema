@@ -69,7 +69,7 @@ func newClaudeGateway(t *testing.T, backend *httptest.Server, subs modelgateway.
 		"name: sol\ntargets:\n  - {provider: claude-subscription, model: claude-sonnet-5-5}\n")
 	require.NoError(t, err, "the provider is built in: no one declared it")
 
-	_, key, err := svc.AddKey(t.Context(), "pi", []string{"sol"})
+	_, key, err := svc.AddKey(t.Context(), "pi", []string{"sol"}, nil)
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()

@@ -14,7 +14,8 @@ import (
 // as opencode or omp, gives the gateway. A key is shown once and kept as its
 // hash, with its start to tell keys apart, as Coder's AI Gateway keys are
 // (GatewayKeysPageView.tsx, CreateGatewayKeyDialog.tsx); it may be limited to
-// models, as LiteLLM, Bifrost and 9router limit theirs. The keys made for one
+// models, as LiteLLM, Bifrost and 9router limit theirs, and to the kinds it may
+// use besides chat (issue #664), as OmniRoute limits its endpoints. The keys made for one
 // Dispatch or one chat's pi are only counted.
 
 // ListGatewayKeys lists the keys the owner made that still work.
@@ -50,7 +51,15 @@ func (s *Server) CreateGatewayKey(ctx context.Context, req openapi.CreateGateway
 		return nil, fmt.Errorf("%w: this control plane runs no model gateway", orchestration.ErrUnavailable)
 	}
 
-	k, secret, err := s.gatewayKeys.AddKey(ctx, req.Body.Name, val(req.Body.Models))
+	var endpoints []modelgateway.Endpoint
+	if req.Body.Endpoints != nil {
+		endpoints = make([]modelgateway.Endpoint, 0, len(*req.Body.Endpoints))
+		for _, e := range *req.Body.Endpoints {
+			endpoints = append(endpoints, modelgateway.Endpoint(e))
+		}
+	}
+
+	k, secret, err := s.gatewayKeys.AddKey(ctx, req.Body.Name, val(req.Body.Models), endpoints)
 	if err != nil {
 		return nil, gatewayKeyError(err)
 	}
@@ -88,8 +97,17 @@ func (s *Server) RevokeGatewayKey(ctx context.Context, req openapi.RevokeGateway
 }
 
 func toGatewayKey(k modelgateway.Key) openapi.GatewayKey {
+	endpoints := []openapi.GatewayEndpoint{}
+
+	for _, e := range modelgateway.Endpoints {
+		if k.Reaches(e) {
+			endpoints = append(endpoints, openapi.GatewayEndpoint(e))
+		}
+	}
+
 	return openapi.GatewayKey{
-		Id: k.ID, Name: k.Name, Prefix: k.Prefix, Models: k.Models, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt,
+		Id: k.ID, Name: k.Name, Prefix: k.Prefix, Models: k.Models, Endpoints: endpoints, CreatedAt: k.CreatedAt,
+		LastUsedAt: k.LastUsedAt,
 	}
 }
 
