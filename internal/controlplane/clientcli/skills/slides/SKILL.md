@@ -1,6 +1,6 @@
 ---
 name: slides
-description: "Slides, presentations and decks: build an animated HTML slide deck from scratch or from a PowerPoint (.pptx) and show it as an artifact. Use when the user wants a presentation, a deck, slides for a talk or pitch, or a PPT/PPTX turned into slides. Not for dashboards or single web pages."
+description: "Builds an animated HTML slide deck, from scratch or from a PowerPoint (.pptx), and shows it as an artifact. Use when the owner wants a presentation, a deck, slides for a talk or pitch, or a PPT/PPTX turned into slides. Not for dashboards or single web pages."
 license: MIT
 ---
 

@@ -1,12 +1,9 @@
 ---
 name: google-workspace
 description: >-
-  Reads, searches and changes the owner's Gmail, Google Calendar and Google Drive with the gws command, which
-  Hypomnema installs and signs in. Use when the owner asks about their mail, calendar or files: what arrived today,
-  what needs an answer, today's or tomorrow's schedule, a morning brief, finding a message or a file, drafting or
-  sending a reply, creating an event, uploading a file; and a site's Google Search Console (with curl through
-  Hypomnema): why a page is not on Google, its sitemaps, its search performance. Not for a Google account Hypomnema
-  was not given.
+  Reads and changes the owner's Gmail, Google Calendar and Google Drive with the gws command, and a
+  site's Google Search Console. Use when the owner asks about their mail, calendar or files, such as a morning brief
+  or a reply to send, or why a page is not on Google. Not for a Google account Hypomnema was not given.
 metadata:
   hypomnema:
     requires:

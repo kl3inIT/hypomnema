@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: "PDF files: create, read, merge, fill."
+description: "Reads, creates, merges and fills PDF files. Use when the owner sends a PDF or asks for one."
 license: MIT
 ---
 
