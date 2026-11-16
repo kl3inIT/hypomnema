@@ -11,7 +11,7 @@ const vmap = { id: "bot_vmap", name: "vmap", max_dispatches: 4 } as Bot
 // Task with no reason says nothing, and a reason this page does not know is still shown.
 test("why a queued Task waits is said in one sentence", () => {
   expect(waitingText("bot_at_limit:bot_vmap", [vmap])).toBe(
-    "Waiting: vmap already runs 4 of 4 workers",
+    "Waiting: vmap is at its limit of 4 workers at once",
   )
   expect(waitingText("bot_at_limit:bot_gone", [vmap])).toBe(
     "Waiting: its Bot already runs as many workers as it may",

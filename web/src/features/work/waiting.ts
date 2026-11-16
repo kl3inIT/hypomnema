@@ -16,7 +16,7 @@ export function waitingText(reason: string | undefined, bots: Bot[] = []): strin
       if (!arg) return "Waiting: your Runs without a Bot already run as many workers as they may"
       const bot = bots.find((b) => b.id === arg)
       if (!bot) return `Waiting: its Bot already runs as many workers as it may`
-      return `Waiting: ${bot.name} already runs ${bot.max_dispatches} of ${bot.max_dispatches} workers`
+      return `Waiting: ${bot.name} is at its limit of ${bot.max_dispatches} workers at once`
     }
     case "nodes_full":
       return "Waiting: every machine that can run it is busy"
