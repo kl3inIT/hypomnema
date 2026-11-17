@@ -69,11 +69,14 @@ func (a *account) SyncFromPhone(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, phoneAskWait)
 	defer cancel()
 
+	// Set before asking: the phone's answer may come before the bridge's.
+	a.setSync(messaging.PhoneSync{Stage: messaging.SyncAsking})
+
 	if err := b.call(ctx, "phoneSync", map[string]any{"dir": dir}, nil); err != nil {
+		a.setSync(messaging.PhoneSync{Stage: messaging.SyncFailed, Reason: err.Error()})
+
 		return fmt.Errorf("zalo: asking the phone: %w", err)
 	}
-
-	a.setSync(messaging.PhoneSync{Stage: messaging.SyncAsking})
 
 	return nil
 }
@@ -135,6 +138,8 @@ func (a *account) importBackup(ctx context.Context, b *bridge, path string, key 
 	imp := &phoneImport{a: a, b: b, ids: map[string]string{}}
 
 	err := eachDatabase(ctx, path, key, filepath.Dir(path), imp.chat)
+	_ = os.Remove(path)
+
 	if err != nil {
 		a.svc.log.WarnContext(ctx, "zalo: the phone's backup could not be read", slog.String("account", a.uid),
 			slog.String("error", err.Error()))

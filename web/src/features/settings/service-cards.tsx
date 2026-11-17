@@ -99,6 +99,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
+import { errorText } from "@/lib/server-error"
 import { useRefreshServices } from "./use-integrations"
 
 // The services that sign in with an account (issue #103, step 4): Google is the first. A card a service, as the
@@ -550,7 +551,7 @@ function PhoneSyncButton({
 
   return (
     <>
-      {sync.error && <span className="text-xs text-destructive">{String(sync.error)}</span>}
+      {sync.error && <span className="text-xs text-destructive">{errorText(sync.error)}</span>}
       <Button
         variant="ghost"
         size="sm"

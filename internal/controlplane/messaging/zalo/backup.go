@@ -30,6 +30,8 @@ const (
 	zdbMaxFiles = 100000
 	// zdbMaxName bounds a file's name in the header (softtyos: 4096).
 	zdbMaxName = 4096
+	// xzTrailing is the xz reader's word for bytes after the one stream it read whole.
+	xzTrailing = "xz: unexpected data after stream"
 )
 
 var (
@@ -176,17 +178,36 @@ func eachDatabase(ctx context.Context, path string, key []byte, dir string,
 		return fmt.Errorf("zalo: the backup's XZ stream: %w", err)
 	}
 
-	for _, file := range files {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	src := ctxReader{ctx: ctx, r: unxz}
 
-		if err := oneDatabase(ctx, unxz, file, dir, fn); err != nil {
+	for _, file := range files {
+		if err := oneDatabase(ctx, src, file, dir, fn); err != nil {
 			return err
 		}
 	}
 
+	// The rest of the stream is read to its end, which checks its index and footer: a stream cut short or corrupt
+	// fails here. What follows the stream is the chunks' AES padding, which the reader reports once the stream was
+	// read whole (ulikunitz/xz reader.go, errUnexpectedData, unexported).
+	if _, err := io.Copy(io.Discard, src); err != nil && err.Error() != xzTrailing {
+		return fmt.Errorf("zalo: the backup's XZ stream: %w", err)
+	}
+
 	return nil
+}
+
+// ctxReader ends a read of a large database when the import is canceled.
+type ctxReader struct {
+	ctx context.Context //nolint:containedctx // Read has no context of its own.
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	return c.r.Read(p)
 }
 
 func oneDatabase(ctx context.Context, r io.Reader, file zdbFile, dir string,

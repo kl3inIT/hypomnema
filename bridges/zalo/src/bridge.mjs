@@ -21,6 +21,7 @@
 //   connected, message {...}, closed {code, reason, replaced}, error {message}. A closed listener has stopped
 //   retrying (zca-js src/apis/listen.ts): the bridge ends after it, for the control plane to start it again.
 
+import { rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 
 import { LoginQRCallbackEventType, Zalo } from "zca-js";
@@ -263,6 +264,8 @@ async function send(p) {
 
 // confirmWait is how long the phone has to answer a sync before it is withdrawn (softtyos's guide, §4: 60 s).
 const confirmWait = 60_000;
+// sendWait is how long a confirmed phone has to upload its backup (inference: softtyos and zlog set none).
+const sendWait = 30 * 60_000;
 
 // syncing is the sync under way: its keys, the folder its backup goes to, and the wait for the phone.
 let syncing = null;
@@ -284,7 +287,8 @@ async function phoneSync(p) {
     await pull(api, s.publicKey);
   } catch (err) {
     clearTimeout(s.timer);
-    syncing = null;
+    // A request that ran out meanwhile was replaced; the one after it is not cleared.
+    if (syncing === s) syncing = null;
     throw err;
   }
 
@@ -314,6 +318,12 @@ async function onSync({ act, data }) {
     clearTimeout(s.timer);
     if (data.user_action === 1) {
       s.confirmed = true;
+      // A phone that confirmed and then went away would hold the sync for ever.
+      s.timer = setTimeout(() => {
+        if (syncing !== s) return;
+        syncing = null;
+        emit("phone_sync", { stage: "failed", message: "the phone did not send its messages within 30 minutes" });
+      }, sendWait);
       emit("phone_sync", { stage: "confirmed" });
     } else {
       syncing = null;
@@ -333,8 +343,14 @@ async function onSync({ act, data }) {
   }
 
   const path = `${s.dir}/zalo-backup-${Date.now()}.db.crypt`;
-  await download(api, String(data.url), path);
-  const key = backupKey(s.privateKey, String(data.encrypted_key));
+  let key;
+  try {
+    await download(api, String(data.url), path);
+    key = backupKey(s.privateKey, String(data.encrypted_key));
+  } catch (err) {
+    await rm(path, { force: true }).catch(() => {});
+    throw err;
+  }
   emit("phone_sync", { stage: "ready", path, key: key.toString("base64"), size: Number(data.file_size) || 0 });
 }
 
