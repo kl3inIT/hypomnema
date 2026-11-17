@@ -1928,7 +1928,8 @@ flowchart LR
       that needs the most care governing a request with several. Reads run: the connected user, repositories,
       issues, pull requests with their files and reviews, Actions runs, jobs and logs, check runs and statuses,
       search, refs, contents, commits, releases, and the GraphQL queries `repository`, `repositoryOwner`, `node`,
-      `nodes`, `viewer`, `search`. Opening an issue, commenting, opening a pull request, writing a file and writing
+      `nodes`, `viewer`, `search`, and a query that asks only the schema (`__type`, `__schema`, `__typename`, which
+      `gh` sends to detect features; beside another field, that field's action names it). Opening an issue, commenting, opening a pull request, writing a file and writing
       a ref ask; anything else (merge, close, labels, a rerun, a mutation it does not name, a body that is not
       GraphQL) asks as `github.unlisted`. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
