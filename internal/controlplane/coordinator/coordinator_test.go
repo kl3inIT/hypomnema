@@ -32,8 +32,9 @@ func TestMain(m *testing.M) {
 
 // fakePi answers like pi in RPC mode: a response per command; for a prompt,
 // one turn with a bash call and a reply that echoes the prompt's first line.
-// A prompt that says "crash" makes it exit mid-turn; one that says "fail"
-// ends in a failed model call; one that says "hang <how>" writes a little and
+// A prompt that says "crash" makes it exit mid-turn, and one that says "die
+// mid-turn" exits after its turn started; one that says "fail" ends in a
+// failed model call; one that says "hang <how>" writes a little and
 // waits for an abort, then ends the turn as <how> says (stopped), keeping a
 // message steered meanwhile for the next prompt's answer, as pi keeps it
 // queued for the next run; one that
@@ -132,6 +133,12 @@ func fakePi() int {
 		small = strings.Contains(text, "too small")
 
 		if strings.Contains(text, "crash") {
+			return 3
+		}
+
+		if strings.Contains(text, "die mid-turn") {
+			emit(out, map[string]any{"type": "agent_start"})
+
 			return 3
 		}
 
@@ -331,11 +338,55 @@ func newSupervisorWith(t *testing.T, keys Keys) (*orchestration.Service, *Superv
 func newSupervisorConfig(t *testing.T, cfg Config) (*orchestration.Service, *Supervisor) {
 	t.Helper()
 
+	svc, _ := newStore(t)
+	sup, _ := runSupervisor(t, svc, cfg)
+
+	return svc, sup
+}
+
+// newStore is the service on a migrated database, for a test to prepare before a supervisor runs, and its clock,
+// the system's until the test sets it.
+func newStore(t *testing.T) (*orchestration.Service, *testClock) {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	clock := &testClock{}
+
+	return orchestration.New(db, clock, platform.NewID), clock
+}
+
+// testClock is the system's clock, or the time a test set.
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.now.IsZero() {
+		return time.Now()
+	}
+
+	return c.now
+}
+
+func (c *testClock) set(now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.now = now
+}
+
+// runSupervisor runs a supervisor of fake pi processes on svc until the test ends, or until the returned stop is
+// called, which waits for it to return.
+func runSupervisor(t *testing.T, svc *orchestration.Service, cfg Config) (*Supervisor, func()) {
+	t.Helper()
+
 	cfg.Command = []string{os.Args[0], "fake-pi"}
 	sup := New(svc, cfg)
 
@@ -344,15 +395,21 @@ func newSupervisorConfig(t *testing.T, cfg Config) (*orchestration.Service, *Sup
 
 	go func() { done <- sup.Run(ctx) }()
 
-	t.Cleanup(func() {
-		cancel()
+	var once sync.Once
 
-		if err := <-done; err != nil {
-			t.Error(err)
-		}
-	})
+	stop := func() {
+		once.Do(func() {
+			cancel()
 
-	return svc, sup
+			if err := <-done; err != nil {
+				t.Error(err)
+			}
+		})
+	}
+
+	t.Cleanup(stop)
+
+	return sup, stop
 }
 
 // waitFor polls the chat until a message from role contains want.

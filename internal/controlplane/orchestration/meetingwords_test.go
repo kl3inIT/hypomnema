@@ -19,7 +19,7 @@ func TestWordsFixedInOneMillisecondKeepTheOrderTheyWereFixed(t *testing.T) {
 	m := s.Meetings()
 
 	meeting, err := m.Create(ctx, meetingstore.NewMeeting{
-		ID: m.NewID(), FileName: "sync.mp3", Format: "summary", Size: 1,
+		ID: m.NewID(), FileName: "sync.mp3", Size: 1,
 	})
 	require.NoError(t, err)
 	require.NoError(t, m.SaveTranscript(ctx, meeting.ID, meetingstore.Heard{

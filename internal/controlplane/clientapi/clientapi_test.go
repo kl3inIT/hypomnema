@@ -34,6 +34,8 @@ type world struct {
 	// srv is the server under test, for a test that wires more into it.
 	srv *Server
 	url string
+	// mux is the client API's routes, for a test that serves them another way.
+	mux *http.ServeMux
 	// stop is the server's shutdown signal.
 	stop chan struct{}
 	// workers are the Dispatches a test drives, by the id of a question they asked.
@@ -69,7 +71,7 @@ func newWorld(t *testing.T) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, srv: srv, url: hs.URL, stop: stop, workers: map[string]*worker{}, pi: pi}
+	return &world{t: t, svc: svc, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
 }
 
 // token adds a token and returns a client that sends it.
@@ -587,6 +589,7 @@ func (w *world) askFromAWorker(c *openapi.ClientWithResponses, runID, text strin
 	require.NoError(w.t, err)
 	require.NoError(w.t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{
 		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
+		System: orchestration.SystemInfo{CPUs: 8, MemoryBytes: 16 << 30}, // its size, which every hello says (issue #731)
 	}))
 	// The starting profiles run under the Claude subscription, served under an account the control plane keeps.
 	_, err = w.svc.AddTokenAccount(ctx, "claude", "personal", func(id string) string { return "vault:" + id })
@@ -935,7 +938,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	created, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
-	assert.Equal(t, 7, created.JSON201.Version)
+	assert.Equal(t, 8, created.JSON201.Version)
 	assert.Equal(t, []string{"explorer"}, created.JSON201.Fallbacks)
 
 	same, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
@@ -1640,7 +1643,7 @@ func TestOnlyTheOwnerChangesNodes(t *testing.T) {
 	created, err := owner.CreateNodeWithResponse(ctx, openapi.NewNode{Name: "zm", MaxDispatches: &limit})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
-	assert.Equal(t, 3, created.JSON201.Node.MaxDispatches)
+	assert.Equal(t, ptr(3), created.JSON201.Node.MaxDispatches)
 
 	require.NotNil(t, created.JSON201.Token)
 

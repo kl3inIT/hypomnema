@@ -28,7 +28,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -176,11 +175,7 @@ func (rt *ACPRuntime) tools(dir string) []any {
 func (rt *ACPRuntime) env(key string) []string {
 	out := []string{keyVariable + "=" + key, "LANG=C.UTF-8"}
 
-	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP"} {
-		if v, ok := os.LookupEnv(name); ok {
-			out = append(out, name+"="+v)
-		}
-	}
+	out = append(out, runner.HostEnv()...)
 
 	return append(out, rt.Env...)
 }

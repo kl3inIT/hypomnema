@@ -8,19 +8,20 @@ import (
 )
 
 // The scenarios of scoring nodes by free capacity (issue #731): a new
-// Conversation goes to the node with the highest mean of its free shares of
-// slots, CPU and memory; stale stats rank last; a node low on memory takes
-// none.
+// Conversation goes to the node with the highest mean of its free share by
+// requests and its measured free CPU and memory; stale stats rank last; a
+// node low on memory takes none. The requests term has its own scenarios
+// (capacity_test.go).
 
 const gib = int64(1) << 30
 
-// measure says what the node is and what it measured now: its memory, and
-// the CPU and memory in use.
+// measure says what the node is and what it measured now: its memory, with 8
+// CPUs, and the CPU and memory in use.
 func (w *world) measure(n Node, memory int64, cpu float64, used int64) {
 	w.t.Helper()
 
 	require.NoError(w.t, w.s.NodeHello(w.t.Context(), n.ID, Hello{
-		WorktreeRoot: "/srv/wt", System: SystemInfo{MemoryBytes: memory},
+		WorktreeRoot: "/srv/wt", System: SystemInfo{CPUs: 8, MemoryBytes: memory},
 		Runtimes: []RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "1.0.0"}},
 	}))
 	require.NoError(w.t, w.s.NodeStats(w.t.Context(), n.ID, SystemStats{CPUPercent: cpu, MemoryUsedBytes: used}))
@@ -37,10 +38,11 @@ func newScoreWorld(t *testing.T) *world {
 	return w
 }
 
-// Scenario: zm on 2026-11-17. elitex (limit 1, about one core, 3.8 GiB,
-// 99.8% CPU) and stc-hy-app (limit 4, 31.4 GiB, 0.1% CPU). elitex has the
-// smaller id, and won the tie under the count of Dispatches; stc-hy-app has
-// more free capacity, when both are idle and when it already runs one.
+// Scenario: zm on 2026-11-17. elitex (cap 1, 3.8 GiB, 99.8% CPU) and
+// stc-hy-app (cap 4, 31.4 GiB, 0.1% CPU). elitex has the smaller id, and won
+// the tie under the count of Dispatches; stc-hy-app has more free capacity,
+// when both are idle and when it already runs one (and elitex no longer fits
+// a building worker at all: capacity_test.go).
 func TestPlacementZmCaseGoesToTheIdleBigNode(t *testing.T) {
 	t.Parallel()
 
@@ -59,10 +61,9 @@ func TestPlacementZmCaseGoesToTheIdleBigNode(t *testing.T) {
 	assert.Equal(t, map[string]string{"b": stc.ID}, w.placed(w.schedule().Created), "0 of 1 against 1 of 4")
 }
 
-// Scenario: nodes that differ only in what they measured or in their slots.
-// The idler CPU wins; with equal shares, more free slots by count, then the
-// smaller id.
-func TestPlacementOrdersByScoreThenFreeSlotsThenID(t *testing.T) {
+// Scenario: nodes that differ only in what they measured. The idler CPU wins;
+// with equal shares, the smaller id.
+func TestPlacementOrdersByScoreThenID(t *testing.T) {
 	t.Parallel()
 
 	t.Run("the idler CPU", func(t *testing.T) {
@@ -76,19 +77,6 @@ func TestPlacementOrdersByScoreThenFreeSlotsThenID(t *testing.T) {
 
 		w.tasks(specs(1)...)
 		assert.Equal(t, map[string]string{"a": idle.ID}, w.placed(w.schedule().Created))
-	})
-
-	t.Run("more free slots", func(t *testing.T) {
-		t.Parallel()
-
-		w := newScoreWorld(t)
-		small := w.addNode("node_small", 2, "claude")
-		big := w.addNode("node_big", 4, "claude")
-		w.measure(small, 16*gib, 10, 4*gib)
-		w.measure(big, 16*gib, 10, 4*gib)
-
-		w.tasks(specs(1)...)
-		assert.Equal(t, map[string]string{"a": big.ID}, w.placed(w.schedule().Created), "2 free against 4 free")
 	})
 
 	t.Run("the smaller id", func(t *testing.T) {

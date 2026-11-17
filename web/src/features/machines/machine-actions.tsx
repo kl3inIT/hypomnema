@@ -104,7 +104,7 @@ export function MachineActions({ node }: { node: Node }) {
               </Menu.Item>
               <Menu.Item className={itemClass} onClick={() => setLimiting(true)}>
                 <Gauge className="size-4" />
-                Change limit
+                Change cap
               </Menu.Item>
               {unreachable === undefined ? (
                 <Menu.Item
@@ -276,13 +276,14 @@ function RenameMachine({ node, onClose }: { node: Node; onClose: () => void }) {
   )
 }
 
-// LimitMachine is the dialog that changes how many Dispatches a machine runs at once (issue #660), as RenameMachine
-// changes its name and Add machine sets the number first; Coder's provisioner daemons per machine are a setting, not
-// fixed at install. The next Task placed goes by the new number; work already running goes on. A refusal shows
-// the server's message and keeps the dialog open.
+// LimitMachine is the dialog that sets or clears a machine's optional cap on the Dispatches it runs at once (issues
+// #660, #731), as RenameMachine changes its name and Add machine sets the number first; Nomad's node_max_allocs is
+// optional the same way. Empty is no cap: the requests of its work against its size decide, and 0 is sent. The next
+// Task placed goes by it; work already running goes on. A refusal shows the server's message and keeps the dialog
+// open.
 function LimitMachine({ node, onClose }: { node: Node; onClose: () => void }) {
   const refresh = useRefreshMachines()
-  const [max, setMax] = useState(String(node.max_dispatches))
+  const [max, setMax] = useState(node.max_dispatches ? String(node.max_dispatches) : "")
   const change = useMutation({
     ...updateNodeMutation(),
     onSuccess: async () => {
@@ -290,8 +291,8 @@ function LimitMachine({ node, onClose }: { node: Node; onClose: () => void }) {
       await refresh()
     },
   })
-  const n = Number(max)
-  const unchanged = !Number.isInteger(n) || n < 1 || n === node.max_dispatches
+  const n = max.trim() === "" ? 0 : Number(max)
+  const unchanged = !Number.isInteger(n) || n < 0 || n > 64 || n === (node.max_dispatches ?? 0)
 
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
@@ -306,23 +307,23 @@ function LimitMachine({ node, onClose }: { node: Node; onClose: () => void }) {
                 change.mutate({ path: { node_id: node.id }, body: { max_dispatches: n } })
             }}
           >
-            <Dialog.Title className="text-sm font-medium">Limit of {node.name}</Dialog.Title>
+            <Dialog.Title className="text-sm font-medium">Cap of {node.name}</Dialog.Title>
             <Field>
               <FieldLabel htmlFor="machine-limit">Max Dispatches</FieldLabel>
               <Input
                 id="machine-limit"
                 type="number"
-                required
                 min={1}
                 max={64}
                 step={1}
                 inputMode="numeric"
+                placeholder="No cap"
                 value={max}
                 onChange={(event) => setMax(event.target.value)}
               />
               <FieldDescription>
-                How many Dispatches it runs at once. The next Task placed goes by it; work already
-                running goes on.
+                The most Dispatches it runs at once, besides what fits its CPUs and memory. Leave
+                empty for no cap. The next Task placed goes by it; work already running goes on.
               </FieldDescription>
             </Field>
             {change.error && (

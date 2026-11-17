@@ -72,6 +72,8 @@ type Store interface {
 	ChangeBotMemory(ctx context.Context, id string, op orchestration.MemoryOp) (orchestration.Bot, error)
 	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
 	OwnerTurn(ctx context.Context, chatID string) (bool, error)
+	// ApprovedOnce says whether the owner approved a chat's request once and it has not run (issue #748).
+	ApprovedOnce(ctx context.Context, n orchestration.NewApproval) (bool, error)
 	// ShowArtifact and ArtifactMakerOfDispatch show an artifact for the show_artifact tool (issue #536), a
 	// worker's as its Run's chat's.
 	ShowArtifact(ctx context.Context, by orchestration.ArtifactMaker, in orchestration.ShowArtifact,
@@ -171,6 +173,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 type agent struct {
 	name string
 	may  func(c orchestration.Connection) bool
+	// offered is what the agent's tools are listed for, whoever's turn it is: a Bot's pi keeps the owner's own
+	// accounts' tools between his turns, and may decides each call (issue #748). nil is may.
+	offered func(c orchestration.Connection) bool
 	// dispatchID is set for a worker; coordinator and owner say which token
 	// it was otherwise.
 	dispatchID  string
@@ -268,6 +273,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
 			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
+			offered:     bot.MayUse,
 			botSwitches: bot.ToolSwitches(),
 			scope:       func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 		}, nil
@@ -346,12 +352,26 @@ func (s *Server) May(ctx context.Context, r *http.Request, integration, label st
 }
 
 func (s *Server) allowed(ctx context.Context, a agent, integration string) ([]orchestration.Connection, error) {
+	return s.connectionsBy(ctx, integration, a.may)
+}
+
+// offeredTo are the Connections an agent's tools are listed for, whoever's turn it is (issue #748).
+func (s *Server) offeredTo(ctx context.Context, a agent, integration string) ([]orchestration.Connection, error) {
+	if a.offered == nil {
+		return s.allowed(ctx, a, integration)
+	}
+
+	return s.connectionsBy(ctx, integration, a.offered)
+}
+
+func (s *Server) connectionsBy(ctx context.Context, integration string, keep func(orchestration.Connection) bool,
+) ([]orchestration.Connection, error) {
 	all, err := s.store.ConnectionsOf(ctx, integration)
 	if err != nil {
 		return nil, err
 	}
 
-	return slices.DeleteFunc(all, func(c orchestration.Connection) bool { return !a.may(c) }), nil
+	return slices.DeleteFunc(all, func(c orchestration.Connection) bool { return !keep(c) }), nil
 }
 
 // allowedOf is what an agent may use for a tool: the Connections of its Integration, or, for a tool of a kind of

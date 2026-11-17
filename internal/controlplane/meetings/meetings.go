@@ -1,10 +1,10 @@
 // Package meetings turns a recording the owner uploads into a transcript with speakers, notes, decisions and
 // actions (issue #721). It keeps the recording as a file, so that it plays back and a time seeks it, and works in
 // the background after the upload: the gateway's speech service hears it with speakers, then a gateway chat model
-// the owner picked writes the notes in the meeting's format. The rows are orchestration/meetingstore's.
+// the owner picked writes the notes, sectioned by the meeting's topics (issue #771). The rows are orchestration/meetingstore's.
 //
 // What it does is learned from the references the issue compares: an upload of at most 128 MB with a language and,
-// behind "More details", a title, the people and the notes format (Fireflies, Meetily, Nojoin); the words to hear
+// behind "More details", a title and the people (Fireflies, Meetily, Nojoin); the words to hear
 // right are one list given to every transcription (words.go, issue #747); the recording kept on the server and deleted with the meeting (Fireflies, Otter,
 // Nojoin, Hyprnote, OpenNoteTaker); the steps uploaded → transcribed → writing notes, and a failure that says why
 // and where to fix it (Nojoin backend/worker/tasks/pipeline.py stage texts, Meetily, MemoryOS); one model call for
@@ -108,21 +108,12 @@ type Upload struct {
 	Language  string
 	Title     string
 	People    []string
-	Format    string
 }
 
 var languagePattern = regexp.MustCompile(`^[a-z]{2}$`)
 
 // Upload keeps the recording and records the meeting; its work starts in the background.
 func (s *Service) Upload(ctx context.Context, u Upload) (meetingstore.Meeting, error) {
-	if u.Format == "" {
-		u.Format = DefaultFormat
-	}
-
-	if err := s.checkFormat(ctx, u.Format); err != nil {
-		return meetingstore.Meeting{}, err
-	}
-
 	u.Language = strings.ToLower(strings.TrimSpace(u.Language))
 	if u.Language != "" && !languagePattern.MatchString(u.Language) {
 		return meetingstore.Meeting{}, fmt.Errorf("%w: the language is a two-letter ISO 639-1 code, such as vi",
@@ -142,7 +133,7 @@ func (s *Service) Upload(ctx context.Context, u Upload) (meetingstore.Meeting, e
 	}
 
 	m, err := s.cfg.Store.Create(ctx, meetingstore.NewMeeting{
-		ID: id, Title: u.Title, Language: u.Language, People: u.People, Format: u.Format,
+		ID: id, Title: u.Title, Language: u.Language, People: u.People,
 		FileName: name, MediaType: MediaType(u.MediaType, sniffed), Size: size,
 	})
 	if err != nil {
@@ -274,13 +265,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// WriteAgain asks for the notes again, in format.
-func (s *Service) WriteAgain(ctx context.Context, id, format string) error {
-	if err := s.checkFormat(ctx, format); err != nil {
-		return err
-	}
-
-	return s.cfg.Store.WriteAgain(ctx, id, format)
+// WriteAgain asks for the notes again.
+func (s *Service) WriteAgain(ctx context.Context, id string) error {
+	return s.cfg.Store.WriteAgain(ctx, id)
 }
 
 // Detail is a meeting with its transcript, its items and the names offered for its voices.
@@ -530,18 +517,6 @@ func (s *Service) writeNotes(ctx context.Context, id string) {
 		return
 	}
 
-	format, ok, err := s.FormatOf(ctx, d.Meeting.Notes.Format)
-	if err != nil {
-		s.failed(ctx, "reading a notes format", id, err)
-
-		return
-	}
-
-	if !ok {
-		// The owner deleted the format the notes were asked in.
-		format, _ = builtin(DefaultFormat)
-	}
-
 	shown := map[string]string{}
 	for _, sp := range d.Meeting.Speakers {
 		shown[sp.Label] = sp.Shown()
@@ -556,7 +531,7 @@ func (s *Service) writeNotes(ctx context.Context, id string) {
 
 	body, err := request(set.NotesModel, subject{
 		Title: d.Meeting.Title, Titled: d.Meeting.Titled, When: d.Meeting.CreatedAt, People: d.Meeting.People,
-		Language: d.Meeting.Language, Format: format, Names: names,
+		Language: d.Meeting.Language, Names: names,
 	}, d.Lines, shown)
 	if err != nil {
 		s.failed(ctx, "asking for notes", id, err)
@@ -590,7 +565,7 @@ func (s *Service) writeNotes(ctx context.Context, id string) {
 		return
 	}
 
-	w := written(a, format, d.Lines, d.Meeting.Speakers, d.Meeting.Titled)
+	w := written(a, d.Lines, d.Meeting.Speakers, d.Meeting.Titled)
 	w.Model = set.NotesModel
 
 	if err := s.cfg.Store.SaveNotes(ctx, id, w); err != nil {

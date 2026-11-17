@@ -317,7 +317,15 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	mux.HandleFunc(sharesPath+"{token}/files/{rev}/{path...}", s.shareFiles)
 
 	contract := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit(r))
+		limit := bodyLimit(r)
+		if limit > maxBodyBytes {
+			// A file (a recording, a skill's archive, an artifact's files) takes longer to arrive than the server's
+			// read timeout, counted from the request's start, and its answer is written after it: both deadlines are
+			// moved before the contract's validator reads the body (issue #779).
+			uploadDeadline(w)
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		validate(api).ServeHTTP(w, r)
 	})
 
@@ -486,4 +494,17 @@ func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) o
 
 		return next(ctx, w, r.WithContext(ctx), request)
 	}
+}
+
+// uploadWithin bounds a file's upload: 128 MB at about 300 kbit/s. Go's server applies one read timeout to a whole
+// request, so a route that takes a file moves its own deadlines (http.ResponseController), as the streams lift their
+// write deadline. The body's size stays bounded by bodyLimit.
+const uploadWithin = time.Hour
+
+// uploadDeadline gives the request's body and its answer uploadWithin from now.
+func uploadDeadline(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	at := time.Now().Add(uploadWithin)
+	_ = rc.SetReadDeadline(at)
+	_ = rc.SetWriteDeadline(at)
 }

@@ -110,6 +110,17 @@ func Install(ctx context.Context, o Options, from string) error {
 		return err
 	}
 
+	// From here until the release's coordinator is set up, the control plane starts no pi and no new turn (issue
+	// #716), and the turns that run end first, within a bound. Workers are not waited for: a node reconnects and its
+	// worker goes on.
+	unmark, err := o.writeMarker(ctx)
+	if err != nil {
+		return err
+	}
+	defer unmark()
+
+	o.waitTurns(ctx)
+
 	if err := run(ctx, "systemctl", "stop", o.Unit); err != nil {
 		return err
 	}

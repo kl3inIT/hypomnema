@@ -13,17 +13,14 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
-import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 
-import { FormatItems } from "./format-items"
 import { PlayerProvider, TimeLink } from "./meeting-player"
 import { usePlayingAt } from "./player-context"
 import {
   clock,
-  formatName,
   percent,
   providerName,
   speakerTone,
@@ -39,14 +36,13 @@ import {
   recordingUrl,
   useMarkDone,
   useMeeting,
-  useMeetingSettings,
   useRefreshMeetings,
   useWriteNotes,
 } from "./use-meetings"
 
-// MeetingScreen is one meeting (issue #721): the player on top, then Summary and Transcript as tabs with the notes
-// format and "Write again" on the tab row, as Otter, Fireflies and Nojoin lay a meeting out (player, tabs) and
-// Granola, Fireflies and Otter offer a format and regenerate. While the recording is heard or written up, the steps
+// MeetingScreen is one meeting (issue #721): the player on top, then Summary and Transcript as tabs with "Write
+// again" on the tab row, as Otter, Fireflies and Nojoin lay a meeting out (player, tabs) and Granola, Fireflies and
+// Otter regenerate. While the recording is heard or written up, the steps
 // show where it stands (Nojoin's stage texts, Meetily, MemoryOS); a failure says why and where to fix it.
 export function MeetingScreen({ id }: { id: string }) {
   const meeting = useMeeting(id)
@@ -214,7 +210,7 @@ function Body({ detail }: { detail: MeetingDetail }) {
   )
 }
 
-// NotesBehind says the notes were written before a word was fixed and offers to write them again in their format;
+// NotesBehind says the notes were written before a word was fixed and offers to write them again;
 // the fix never rewrites them by itself, as MemoryOS keeps the minutes when a line is corrected.
 function NotesBehind({ meeting, onDone }: { meeting: Meeting; onDone: () => void }) {
   const write = useWriteNotes(meeting.id)
@@ -233,7 +229,7 @@ function NotesBehind({ meeting, onDone }: { meeting: Meeting; onDone: () => void
               disabled={write.isPending}
               onClick={() =>
                 write.mutate(
-                  { path: { meeting_id: meeting.id }, body: { format: meeting.notes.format } },
+                  { path: { meeting_id: meeting.id } },
                   {
                     onSuccess: () => {
                       toast.add({ title: "Writing the notes again", type: "success" })
@@ -256,36 +252,26 @@ function NotesBehind({ meeting, onDone }: { meeting: Meeting; onDone: () => void
   )
 }
 
-// WriteAgain is the notes format and the button that writes the notes again in it (Granola, Fireflies, Otter).
+// WriteAgain writes the notes again (Granola, Fireflies, Otter); they are sectioned by the meeting's topics (issue
+// #771), so there is nothing to pick.
 function WriteAgain({ meeting }: { meeting: Meeting }) {
-  const settings = useMeetingSettings()
   const write = useWriteNotes(meeting.id)
-  const [format, setFormat] = useState(meeting.notes.format)
-  const formats = settings.data?.formats ?? []
   const busy = meeting.notes.state === "writing" || write.isPending
 
   return (
     <div className="ms-auto flex items-center gap-2">
-      <Select value={format} onValueChange={(v) => v && setFormat(v)}>
-        <SelectTrigger size="sm" aria-label="Notes format">
-          <Sparkles className="size-3.5" aria-hidden />
-          <SelectValue>{(v: string) => formatName(formats, v)}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <FormatItems formats={formats} />
-        </SelectContent>
-      </Select>
       <Button
         size="sm"
         variant="outline"
         disabled={busy}
         onClick={() =>
           write.mutate(
-            { path: { meeting_id: meeting.id }, body: { format } },
+            { path: { meeting_id: meeting.id } },
             { onSuccess: () => toast.add({ title: "Writing the notes again", type: "success" }) },
           )
         }
       >
+        <Sparkles data-icon="inline-start" />
         Write again
       </Button>
       {write.error && <span className="sr-only">{String(write.error)}</span>}

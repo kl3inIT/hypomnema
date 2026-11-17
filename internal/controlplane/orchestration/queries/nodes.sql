@@ -41,8 +41,14 @@ SET cpu_percent = @cpu_percent, memory_used_bytes = @memory_used_bytes, disk_use
 WHERE id = @id AND status <> 'deleted';
 
 -- name: SetNodeMaxDispatches :execrows
--- A node's own limit, which the owner changes after the node was added (issue #660).
+-- A node's optional cap, NULL for none, which the owner changes after the node was added (issues #660, #731).
 UPDATE nodes SET updated_at = @now, max_dispatches = @max_dispatches WHERE id = @id AND status <> 'deleted';
+
+-- name: SetNodeReserved :execrows
+-- What the owner keeps back from a node's capacity (issue #731).
+UPDATE nodes SET updated_at = @now, reserved_cpu_millis = @reserved_cpu_millis,
+    reserved_memory_bytes = @reserved_memory_bytes
+WHERE id = @id AND status <> 'deleted';
 
 -- name: SetNodeStatus :execrows
 UPDATE nodes SET updated_at = @now, status = @status WHERE id = @id AND status <> 'deleted';
@@ -87,7 +93,10 @@ SELECT count(*) FROM dispatches WHERE node_id = @node_id AND status IN (sqlc.sli
 SELECT count(*) FROM dispatches WHERE status IN (sqlc.slice(statuses));
 
 -- name: CountActiveDispatchesPerNode :many
-SELECT node_id, count(*) AS n FROM dispatches WHERE status IN (sqlc.slice(statuses)) GROUP BY node_id;
+-- The unsettled Dispatches of each node, with the sum of their requests (issue #731).
+SELECT node_id, count(*) AS n, CAST(sum(cpu_millis) AS INTEGER) AS cpu_millis,
+       CAST(sum(memory_bytes) AS INTEGER) AS memory_bytes
+FROM dispatches WHERE status IN (sqlc.slice(statuses)) GROUP BY node_id;
 
 -- name: CountActiveDispatchesPerBot :many
 -- The unsettled Dispatches of each Bot's Runs (issue #660), the Bot found as runBotGives finds it: the Run's own,

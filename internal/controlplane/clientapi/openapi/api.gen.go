@@ -418,11 +418,13 @@ func (e ChatDeltaKind) Valid() bool {
 
 // Defines values for ChatKind.
 const (
-	ChatKindApproval ChatKind = "approval"
-	ChatKindArtifact ChatKind = "artifact"
-	ChatKindFailed   ChatKind = "failed"
-	ChatKindStopped  ChatKind = "stopped"
-	ChatKindWake     ChatKind = "wake"
+	ChatKindApproval  ChatKind = "approval"
+	ChatKindArtifact  ChatKind = "artifact"
+	ChatKindContinued ChatKind = "continued"
+	ChatKindCut       ChatKind = "cut"
+	ChatKindFailed    ChatKind = "failed"
+	ChatKindStopped   ChatKind = "stopped"
+	ChatKindWake      ChatKind = "wake"
 )
 
 // Valid indicates whether the value is a known member of the ChatKind enum.
@@ -431,6 +433,10 @@ func (e ChatKind) Valid() bool {
 	case ChatKindApproval:
 		return true
 	case ChatKindArtifact:
+		return true
+	case ChatKindContinued:
+		return true
+	case ChatKindCut:
 		return true
 	case ChatKindFailed:
 		return true
@@ -2497,14 +2503,14 @@ type Bot struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Effort      *string   `json:"effort,omitempty"`
 
+	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
+	GuaranteedDispatches int `json:"guaranteed_dispatches"`
+
 	// Id The Bot's id, which never changes; every record that names the Bot names this.
 	Id string `json:"id"`
 
 	// Main The main Bot: always there, never removed, a chat that names no Bot talks with it, and it alone changes Bots and profiles from its chat.
 	Main bool `json:"main"`
-
-	// MaxDispatches How many of the Bot's workers run at once, across every node (issue #660): the unsettled Dispatches of the Runs it made. 4 unless the Bot sets its own.
-	MaxDispatches int `json:"max_dispatches"`
 
 	// Memory What the Bot keeps across chats, one entry per line.
 	Memory string `json:"memory"`
@@ -2573,11 +2579,11 @@ type BotSettings struct {
 	Connections *AllowList `json:"connections,omitempty"`
 	Effort      *string    `json:"effort,omitempty"`
 
-	// MaxDispatches How many of the Bot's workers run at once; left out, the Bot keeps it, 4 for a new one.
-	MaxDispatches *int    `json:"max_dispatches,omitempty"`
-	Model         *string `json:"model,omitempty"`
-	Persona       *string `json:"persona,omitempty"`
-	Provider      *string `json:"provider,omitempty"`
+	// GuaranteedDispatches The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
+	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
+	Model                *string `json:"model,omitempty"`
+	Persona              *string `json:"persona,omitempty"`
+	Provider             *string `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of each Connection, as a whole: a Connection left out of the map is reached whole. Left out, the Bot keeps its scopes.
 	Scopes *map[string]ConnectionScope `json:"scopes,omitempty"`
@@ -2761,7 +2767,7 @@ type ChatGatewayKey struct {
 	Key string `json:"key"`
 }
 
-// ChatKind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates.
+// ChatKind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates; continued, the control plane restarted and woke the Bot to continue the turn the restart cut; cut, a restart cut the turn and it is not continued.
 type ChatKind string
 
 // ChatList defines model for ChatList.
@@ -2789,7 +2795,7 @@ type ChatMessage struct {
 	// EventSeq The event a wake-up reports.
 	EventSeq *int64 `json:"event_seq,omitempty"`
 
-	// Kind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates.
+	// Kind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates; continued, the control plane restarted and woke the Bot to continue the turn the restart cut; cut, a restart cut the turn and it is not continued.
 	Kind *ChatKind `json:"kind,omitempty"`
 
 	// Parts A reply's text and thinking, or a tool's result; absent for owner and system messages.
@@ -3763,34 +3769,6 @@ type MeetingDetail struct {
 	Suggestions []SpeakerSuggestion `json:"suggestions"`
 }
 
-// MeetingFormat defines model for MeetingFormat.
-type MeetingFormat struct {
-	// Builtin Shipped with the control plane; copied rather than changed.
-	Builtin  bool                   `json:"builtin"`
-	Id       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Sections []MeetingFormatSection `json:"sections"`
-}
-
-// MeetingFormatInput defines model for MeetingFormatInput.
-type MeetingFormatInput struct {
-	Name     string                      `json:"name"`
-	Sections []MeetingFormatSectionInput `json:"sections"`
-}
-
-// MeetingFormatSection defines model for MeetingFormatSection.
-type MeetingFormatSection struct {
-	About string `json:"about"`
-	Title string `json:"title"`
-}
-
-// MeetingFormatSectionInput defines model for MeetingFormatSectionInput.
-type MeetingFormatSectionInput struct {
-	// About A short instruction of what the section holds.
-	About *string `json:"about,omitempty"`
-	Title string  `json:"title"`
-}
-
 // MeetingItem defines model for MeetingItem.
 type MeetingItem struct {
 	Done bool `json:"done"`
@@ -3849,13 +3827,10 @@ type MeetingNotes struct {
 	// Failure Why writing them failed
 	Failure *string `json:"failure,omitempty"`
 
-	// Format The notes format's id.
-	Format string `json:"format"`
-
 	// Model The gateway model that wrote them.
 	Model *string `json:"model,omitempty"`
 
-	// Sections The format's sections, in its order.
+	// Sections A section per topic the meeting discussed, in the order they came up.
 	Sections []MeetingSection `json:"sections"`
 
 	// State Where its notes stand; waiting is for the transcript.
@@ -3875,8 +3850,6 @@ type MeetingSection struct {
 
 // MeetingSettings defines model for MeetingSettings.
 type MeetingSettings struct {
-	Formats []MeetingFormat `json:"formats"`
-
 	// NotesModel The gateway chat model that writes notes; empty for none.
 	NotesModel string `json:"notes_model"`
 }
@@ -4174,7 +4147,7 @@ type NewNode struct {
 	// Device With a provider, a machine that holds an Android emulator: at AWS a size with nested virtualization and at least 40 GiB of disk; its first boot installs what the emulator needs. Left out, a plain machine.
 	Device *NewNodeDevice `json:"device,omitempty"`
 
-	// MaxDispatches Dispatches the node runs at once; left out, the default.
+	// MaxDispatches The node's optional cap on the Dispatches it runs at once; left out, none: the requests of its Dispatches against its allocatable decide (issue #731).
 	MaxDispatches *int   `json:"max_dispatches,omitempty"`
 	Name          string `json:"name"`
 
@@ -4284,9 +4257,12 @@ type NewTokenAccountRuntime string
 // Node defines model for Node.
 type Node struct {
 	// Active Its Dispatches that have not settled.
-	Active    int       `json:"active"`
-	Connected bool      `json:"connected"`
-	CreatedAt time.Time `json:"created_at"`
+	Active int `json:"active"`
+
+	// Allocatable An amount of CPU and memory (issue
+	Allocatable Resources `json:"allocatable"`
+	Connected   bool      `json:"connected"`
+	CreatedAt   time.Time `json:"created_at"`
 
 	// Device The device the node said at its last connect that it holds, as its own configuration names it. Left out for a node that holds none.
 	Device *NodeDevice `json:"device,omitempty"`
@@ -4300,10 +4276,18 @@ type Node struct {
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 
 	// Machine Set for a node whose machine was created at a provider; left out for one the owner installed. Removing the node destroys the machine.
-	Machine       *NodeMachine `json:"machine,omitempty"`
-	MaxDispatches int          `json:"max_dispatches"`
-	Name          string       `json:"name"`
-	Runtimes      []Runtime    `json:"runtimes"`
+	Machine *NodeMachine `json:"machine,omitempty"`
+
+	// MaxDispatches The node's optional cap on the Dispatches it runs at once; left out for none, when the requests of its Dispatches against its allocatable decide (issue #731).
+	MaxDispatches *int   `json:"max_dispatches,omitempty"`
+	Name          string `json:"name"`
+
+	// Requested An amount of CPU and memory (issue
+	Requested Resources `json:"requested"`
+
+	// Reserved An amount of CPU and memory (issue
+	Reserved Resources `json:"reserved"`
+	Runtimes []Runtime `json:"runtimes"`
 
 	// Stats The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
 	Stats  *NodeStats `json:"stats,omitempty"`
@@ -4329,9 +4313,12 @@ type NodeStatus string
 
 // NodeChange What changes of a node; what is left out stays.
 type NodeChange struct {
-	// MaxDispatches Dispatches the node runs at once (issue #660). The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
+	// MaxDispatches The node's optional cap on the Dispatches it runs at once (issues #660, #731); 0 for none. The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
 	MaxDispatches *int    `json:"max_dispatches,omitempty"`
 	Name          *string `json:"name,omitempty"`
+
+	// Reserved An amount of CPU and memory (issue
+	Reserved *Resources `json:"reserved,omitempty"`
 }
 
 // NodeGPU One GPU's latest measurement, as Beszel's GPUData.
@@ -4443,7 +4430,10 @@ type Profile struct {
 
 	// AvailableAt With `accounts_cooling`, when the first account is free again.
 	AvailableAt *time.Time `json:"available_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+
+	// CpuRequestMillis What a worker of the profile asks of a node's CPU, in thousandths of a core, from its YAML's requests.cpu (issue #731); left out, the default for building work, 1000.
+	CpuRequestMillis *int64    `json:"cpu_request_millis,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 
 	// Description What the profile is for; empty for versions applied before descriptions.
 	Description string  `json:"description"`
@@ -4452,10 +4442,13 @@ type Profile struct {
 	// Fallbacks The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
 	Fallbacks   []string `json:"fallbacks"`
 	Instruction *string  `json:"instruction,omitempty"`
-	Model       *string  `json:"model,omitempty"`
-	Name        string   `json:"name"`
-	Provider    *string  `json:"provider,omitempty"`
-	Runtime     string   `json:"runtime"`
+
+	// MemoryRequestBytes What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
+	MemoryRequestBytes *int64  `json:"memory_request_bytes,omitempty"`
+	Model              *string `json:"model,omitempty"`
+	Name               string  `json:"name"`
+	Provider           *string `json:"provider,omitempty"`
+	Runtime            string  `json:"runtime"`
 
 	// Skills The skills its workers get beside those given to everyone.
 	Skills []string `json:"skills"`
@@ -4571,6 +4564,13 @@ type Repo struct {
 // RepoList defines model for RepoList.
 type RepoList struct {
 	Data []Repo `json:"data"`
+}
+
+// Resources An amount of CPU and memory (issue
+type Resources struct {
+	// CpuMillis CPU in thousandths of a core.
+	CpuMillis   int64 `json:"cpu_millis"`
+	MemoryBytes int64 `json:"memory_bytes"`
 }
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
@@ -5280,7 +5280,7 @@ type Task struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
@@ -5320,7 +5320,7 @@ type TaskDetail struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
@@ -5748,11 +5748,6 @@ type WorkspaceWrite struct {
 	Path         string  `json:"path"`
 }
 
-// WriteMeetingNotesRequest defines model for WriteMeetingNotesRequest.
-type WriteMeetingNotesRequest struct {
-	Format string `json:"format"`
-}
-
 // AccountID defines model for AccountID.
 type AccountID = string
 
@@ -6148,9 +6143,6 @@ type UploadMeetingParams struct {
 
 	// People Who was in the meeting; they help name the speakers.
 	People *[]string `form:"people,omitempty" json:"people,omitempty"`
-
-	// Format The notes format's id (GET /meeting-settings lists them); absent, general.
-	Format *string `form:"format,omitempty" json:"format,omitempty"`
 }
 
 // ListQuestionsParams defines parameters for ListQuestions.
@@ -6388,12 +6380,6 @@ type BeginIntegrationSignInJSONRequestBody = NewSignIn
 // CompleteIntegrationSignInJSONRequestBody defines body for CompleteIntegrationSignIn for application/json ContentType.
 type CompleteIntegrationSignInJSONRequestBody = SignInCallback
 
-// CreateMeetingFormatJSONRequestBody defines body for CreateMeetingFormat for application/json ContentType.
-type CreateMeetingFormatJSONRequestBody = MeetingFormatInput
-
-// UpdateMeetingFormatJSONRequestBody defines body for UpdateMeetingFormat for application/json ContentType.
-type UpdateMeetingFormatJSONRequestBody = MeetingFormatInput
-
 // SetMeetingSettingsJSONRequestBody defines body for SetMeetingSettings for application/json ContentType.
 type SetMeetingSettingsJSONRequestBody = MeetingSettingsUpdate
 
@@ -6408,9 +6394,6 @@ type UpdateMeetingItemJSONRequestBody = MeetingItemUpdate
 
 // SetMeetingLineSpeakerJSONRequestBody defines body for SetMeetingLineSpeaker for application/json ContentType.
 type SetMeetingLineSpeakerJSONRequestBody = SpeakerName
-
-// WriteMeetingNotesJSONRequestBody defines body for WriteMeetingNotes for application/json ContentType.
-type WriteMeetingNotesJSONRequestBody = WriteMeetingNotesRequest
 
 // NameMeetingSpeakerJSONRequestBody defines body for NameMeetingSpeaker for application/json ContentType.
 type NameMeetingSpeakerJSONRequestBody = SpeakerName
@@ -7910,46 +7893,7 @@ type ClientInterface interface {
 	// Corresponds with GET /meeting-actions (the `ListMeetingActions` operationId).
 	ListMeetingActions(ctx context.Context, params *ListMeetingActionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateMeetingFormatWithBody Make a notes format of the owner's; only the owner
-	//
-	// Takes any type of body and a specified content type.
-	//
-	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-	CreateMeetingFormatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateMeetingFormat Make a notes format of the owner's; only the owner
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-	CreateMeetingFormat(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
-	//
-	// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
-	//
-	// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
-	DeleteMeetingFormat(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateMeetingFormatWithBody Change a notes format of the owner's; only the owner
-	//
-	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-	//
-	// Takes any type of body and a specified content type.
-	//
-	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-	UpdateMeetingFormatWithBody(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
-	//
-	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-	UpdateMeetingFormat(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
+	// GetMeetingSettings The model that writes notes
 	//
 	// Corresponds with GET /meeting-settings (the `GetMeetingSettings` operationId).
 	GetMeetingSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -8002,7 +7946,7 @@ type ClientInterface interface {
 
 	// UploadMeetingWithBody Upload a meeting's recording, at most 128 MB; only the owner
 	//
-	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes, a section per topic. The meeting is answered at once, transcribing.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -8069,23 +8013,12 @@ type ClientInterface interface {
 	// Corresponds with PUT /meetings/{meeting_id}/lines/{n}/speaker (the `SetMeetingLineSpeaker` operationId).
 	SetMeetingLineSpeaker(ctx context.Context, meetingId MeetingID, n int, body SetMeetingLineSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// WriteMeetingNotesWithBody Write a meeting's notes again, in a format; only the owner
+	// WriteMeetingNotes Write a meeting's notes again; only the owner
 	//
 	// Refused (conflict) while they are being written or before the meeting is transcribed.
 	//
-	// Takes any type of body and a specified content type.
-	//
 	// Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-	WriteMeetingNotesWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// WriteMeetingNotes Write a meeting's notes again, in a format; only the owner
-	//
-	// Refused (conflict) while they are being written or before the meeting is transcribed.
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-	WriteMeetingNotes(ctx context.Context, meetingId MeetingID, body WriteMeetingNotesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	WriteMeetingNotes(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetMeetingRecording A meeting's recording, as uploaded
 	//
@@ -11977,96 +11910,7 @@ func (c *Client) ListMeetingActions(ctx context.Context, params *ListMeetingActi
 	return c.Client.Do(req)
 }
 
-// CreateMeetingFormatWithBody Make a notes format of the owner's; only the owner
-//
-// Takes any type of body and a specified content type.
-//
-// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-func (c *Client) CreateMeetingFormatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateMeetingFormatRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// CreateMeetingFormat Make a notes format of the owner's; only the owner
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-func (c *Client) CreateMeetingFormat(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateMeetingFormatRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
-//
-// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
-//
-// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
-func (c *Client) DeleteMeetingFormat(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteMeetingFormatRequest(c.Server, formatId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// UpdateMeetingFormatWithBody Change a notes format of the owner's; only the owner
-//
-// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-//
-// Takes any type of body and a specified content type.
-//
-// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-func (c *Client) UpdateMeetingFormatWithBody(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateMeetingFormatRequestWithBody(c.Server, formatId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// UpdateMeetingFormat Change a notes format of the owner's; only the owner
-//
-// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-func (c *Client) UpdateMeetingFormat(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateMeetingFormatRequest(c.Server, formatId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
+// GetMeetingSettings The model that writes notes
 //
 // Corresponds with GET /meeting-settings (the `GetMeetingSettings` operationId).
 func (c *Client) GetMeetingSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -12189,7 +12033,7 @@ func (c *Client) ListMeetings(ctx context.Context, params *ListMeetingsParams, r
 
 // UploadMeetingWithBody Upload a meeting's recording, at most 128 MB; only the owner
 //
-// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes, a section per topic. The meeting is answered at once, transcribing.
 //
 // Takes any type of body and a specified content type.
 //
@@ -12346,34 +12190,13 @@ func (c *Client) SetMeetingLineSpeaker(ctx context.Context, meetingId MeetingID,
 	return c.Client.Do(req)
 }
 
-// WriteMeetingNotesWithBody Write a meeting's notes again, in a format; only the owner
+// WriteMeetingNotes Write a meeting's notes again; only the owner
 //
 // Refused (conflict) while they are being written or before the meeting is transcribed.
 //
-// Takes any type of body and a specified content type.
-//
 // Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-func (c *Client) WriteMeetingNotesWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewWriteMeetingNotesRequestWithBody(c.Server, meetingId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// WriteMeetingNotes Write a meeting's notes again, in a format; only the owner
-//
-// Refused (conflict) while they are being written or before the meeting is transcribed.
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-func (c *Client) WriteMeetingNotes(ctx context.Context, meetingId MeetingID, body WriteMeetingNotesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewWriteMeetingNotesRequest(c.Server, meetingId, body)
+func (c *Client) WriteMeetingNotes(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewWriteMeetingNotesRequest(c.Server, meetingId)
 	if err != nil {
 		return nil, err
 	}
@@ -20717,127 +20540,6 @@ func NewListMeetingActionsRequest(server string, params *ListMeetingActionsParam
 	return req, nil
 }
 
-// NewCreateMeetingFormatRequest calls the generic CreateMeetingFormat builder with application/json body
-func NewCreateMeetingFormatRequest(server string, body CreateMeetingFormatJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateMeetingFormatRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateMeetingFormatRequestWithBody constructs an http.Request for the CreateMeetingFormat method, with any body, and a specified content type
-func NewCreateMeetingFormatRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/meeting-formats")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteMeetingFormatRequest constructs an http.Request for the DeleteMeetingFormat method
-func NewDeleteMeetingFormatRequest(server string, formatId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "format_id", formatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/meeting-formats/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewUpdateMeetingFormatRequest calls the generic UpdateMeetingFormat builder with application/json body
-func NewUpdateMeetingFormatRequest(server string, formatId string, body UpdateMeetingFormatJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewUpdateMeetingFormatRequestWithBody(server, formatId, "application/json", bodyReader)
-}
-
-// NewUpdateMeetingFormatRequestWithBody constructs an http.Request for the UpdateMeetingFormat method, with any body, and a specified content type
-func NewUpdateMeetingFormatRequestWithBody(server string, formatId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "format_id", formatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/meeting-formats/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewGetMeetingSettingsRequest constructs an http.Request for the GetMeetingSettings method
 func NewGetMeetingSettingsRequest(server string) (*http.Request, error) {
 	var err error
@@ -21122,18 +20824,6 @@ func NewUploadMeetingRequestWithBody(server string, params *UploadMeetingParams,
 
 		}
 
-		if params.Format != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "format", *params.Format, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
 		if encoded := queryValues.Encode(); encoded != "" {
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
@@ -21373,19 +21063,8 @@ func NewSetMeetingLineSpeakerRequestWithBody(server string, meetingId MeetingID,
 	return req, nil
 }
 
-// NewWriteMeetingNotesRequest calls the generic WriteMeetingNotes builder with application/json body
-func NewWriteMeetingNotesRequest(server string, meetingId MeetingID, body WriteMeetingNotesJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewWriteMeetingNotesRequestWithBody(server, meetingId, "application/json", bodyReader)
-}
-
-// NewWriteMeetingNotesRequestWithBody constructs an http.Request for the WriteMeetingNotes method, with any body, and a specified content type
-func NewWriteMeetingNotesRequestWithBody(server string, meetingId MeetingID, contentType string, body io.Reader) (*http.Request, error) {
+// NewWriteMeetingNotesRequest constructs an http.Request for the WriteMeetingNotes method
+func NewWriteMeetingNotesRequest(server string, meetingId MeetingID) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -21410,12 +21089,10 @@ func NewWriteMeetingNotesRequestWithBody(server string, meetingId MeetingID, con
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -26193,48 +25870,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /meeting-actions (the `ListMeetingActions` operationId).
 	ListMeetingActionsWithResponse(ctx context.Context, params *ListMeetingActionsParams, reqEditors ...RequestEditorFn) (*ListMeetingActionsResponse, error)
 
-	// CreateMeetingFormatWithBodyWithResponse Make a notes format of the owner's; only the owner
-	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-	CreateMeetingFormatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error)
-
-	// CreateMeetingFormatWithResponse Make a notes format of the owner's; only the owner
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-	CreateMeetingFormatWithResponse(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error)
-
-	// DeleteMeetingFormatWithResponse Delete a notes format of the owner's; only the owner
-	//
-	// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
-	//
-	// Returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
-	DeleteMeetingFormatWithResponse(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*DeleteMeetingFormatResponse, error)
-
-	// UpdateMeetingFormatWithBodyWithResponse Change a notes format of the owner's; only the owner
-	//
-	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-	UpdateMeetingFormatWithBodyWithResponse(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error)
-
-	// UpdateMeetingFormatWithResponse Change a notes format of the owner's; only the owner
-	//
-	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-	UpdateMeetingFormatWithResponse(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error)
-
-	// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats, built-in and the owner's
+	// GetMeetingSettingsWithResponse The model that writes notes
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -26293,7 +25929,7 @@ type ClientWithResponsesInterface interface {
 
 	// UploadMeetingWithBodyWithResponse Upload a meeting's recording, at most 128 MB; only the owner
 	//
-	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes, a section per topic. The meeting is answered at once, transcribing.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -26364,23 +26000,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /meetings/{meeting_id}/lines/{n}/speaker (the `SetMeetingLineSpeaker` operationId).
 	SetMeetingLineSpeakerWithResponse(ctx context.Context, meetingId MeetingID, n int, body SetMeetingLineSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMeetingLineSpeakerResponse, error)
 
-	// WriteMeetingNotesWithBodyWithResponse Write a meeting's notes again, in a format; only the owner
+	// WriteMeetingNotesWithResponse Write a meeting's notes again; only the owner
 	//
 	// Refused (conflict) while they are being written or before the meeting is transcribed.
 	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-	WriteMeetingNotesWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*WriteMeetingNotesResponse, error)
-
-	// WriteMeetingNotesWithResponse Write a meeting's notes again, in a format; only the owner
-	//
-	// Refused (conflict) while they are being written or before the meeting is transcribed.
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-	WriteMeetingNotesWithResponse(ctx context.Context, meetingId MeetingID, body WriteMeetingNotesJSONRequestBody, reqEditors ...RequestEditorFn) (*WriteMeetingNotesResponse, error)
+	WriteMeetingNotesWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*WriteMeetingNotesResponse, error)
 
 	// GetMeetingRecordingWithResponse A meeting's recording, as uploaded
 	//
@@ -33427,143 +33054,6 @@ func (r ListMeetingActionsResponse) ContentType() string {
 	return ""
 }
 
-type CreateMeetingFormatResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON201 the response for an HTTP 201 `application/json` response
-	JSON201 *MeetingFormat
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON201 returns the response for an HTTP 201 `application/json` response
-func (r CreateMeetingFormatResponse) GetJSON201() *MeetingFormat {
-	return r.JSON201
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r CreateMeetingFormatResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r CreateMeetingFormatResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateMeetingFormatResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateMeetingFormatResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateMeetingFormatResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DeleteMeetingFormatResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r DeleteMeetingFormatResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r DeleteMeetingFormatResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteMeetingFormatResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteMeetingFormatResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteMeetingFormatResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type UpdateMeetingFormatResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *MeetingFormat
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r UpdateMeetingFormatResponse) GetJSON200() *MeetingFormat {
-	return r.JSON200
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r UpdateMeetingFormatResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r UpdateMeetingFormatResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r UpdateMeetingFormatResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r UpdateMeetingFormatResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r UpdateMeetingFormatResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type GetMeetingSettingsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -40496,78 +39986,7 @@ func (c *ClientWithResponses) ListMeetingActionsWithResponse(ctx context.Context
 	return ParseListMeetingActionsResponse(rsp)
 }
 
-// CreateMeetingFormatWithBodyWithResponse Make a notes format of the owner's; only the owner
-//
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-func (c *ClientWithResponses) CreateMeetingFormatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error) {
-	rsp, err := c.CreateMeetingFormatWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateMeetingFormatResponse(rsp)
-}
-
-// CreateMeetingFormatWithResponse Make a notes format of the owner's; only the owner
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
-func (c *ClientWithResponses) CreateMeetingFormatWithResponse(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error) {
-	rsp, err := c.CreateMeetingFormat(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateMeetingFormatResponse(rsp)
-}
-
-// DeleteMeetingFormatWithResponse Delete a notes format of the owner's; only the owner
-//
-// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
-//
-// Returns a wrapper object for the known response body format(s).
-//
-// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
-func (c *ClientWithResponses) DeleteMeetingFormatWithResponse(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*DeleteMeetingFormatResponse, error) {
-	rsp, err := c.DeleteMeetingFormat(ctx, formatId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteMeetingFormatResponse(rsp)
-}
-
-// UpdateMeetingFormatWithBodyWithResponse Change a notes format of the owner's; only the owner
-//
-// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-//
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-func (c *ClientWithResponses) UpdateMeetingFormatWithBodyWithResponse(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error) {
-	rsp, err := c.UpdateMeetingFormatWithBody(ctx, formatId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateMeetingFormatResponse(rsp)
-}
-
-// UpdateMeetingFormatWithResponse Change a notes format of the owner's; only the owner
-//
-// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
-func (c *ClientWithResponses) UpdateMeetingFormatWithResponse(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error) {
-	rsp, err := c.UpdateMeetingFormat(ctx, formatId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseUpdateMeetingFormatResponse(rsp)
-}
-
-// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats, built-in and the owner's
+// GetMeetingSettingsWithResponse The model that writes notes
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -40668,7 +40087,7 @@ func (c *ClientWithResponses) ListMeetingsWithResponse(ctx context.Context, para
 
 // UploadMeetingWithBodyWithResponse Upload a meeting's recording, at most 128 MB; only the owner
 //
-// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes, a section per topic. The meeting is answered at once, transcribing.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -40793,30 +40212,15 @@ func (c *ClientWithResponses) SetMeetingLineSpeakerWithResponse(ctx context.Cont
 	return ParseSetMeetingLineSpeakerResponse(rsp)
 }
 
-// WriteMeetingNotesWithBodyWithResponse Write a meeting's notes again, in a format; only the owner
+// WriteMeetingNotesWithResponse Write a meeting's notes again; only the owner
 //
 // Refused (conflict) while they are being written or before the meeting is transcribed.
 //
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+// Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-func (c *ClientWithResponses) WriteMeetingNotesWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*WriteMeetingNotesResponse, error) {
-	rsp, err := c.WriteMeetingNotesWithBody(ctx, meetingId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseWriteMeetingNotesResponse(rsp)
-}
-
-// WriteMeetingNotesWithResponse Write a meeting's notes again, in a format; only the owner
-//
-// Refused (conflict) while they are being written or before the meeting is transcribed.
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /meetings/{meeting_id}/notes (the `WriteMeetingNotes` operationId).
-func (c *ClientWithResponses) WriteMeetingNotesWithResponse(ctx context.Context, meetingId MeetingID, body WriteMeetingNotesJSONRequestBody, reqEditors ...RequestEditorFn) (*WriteMeetingNotesResponse, error) {
-	rsp, err := c.WriteMeetingNotes(ctx, meetingId, body, reqEditors...)
+func (c *ClientWithResponses) WriteMeetingNotesWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*WriteMeetingNotesResponse, error) {
+	rsp, err := c.WriteMeetingNotes(ctx, meetingId, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -46544,101 +45948,6 @@ func ParseListMeetingActionsResponse(rsp *http.Response) (*ListMeetingActionsRes
 	return response, nil
 }
 
-// ParseCreateMeetingFormatResponse parses an HTTP response from a CreateMeetingFormatWithResponse call
-func ParseCreateMeetingFormatResponse(rsp *http.Response) (*CreateMeetingFormatResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateMeetingFormatResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest MeetingFormat
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteMeetingFormatResponse parses an HTTP response from a DeleteMeetingFormatWithResponse call
-func ParseDeleteMeetingFormatResponse(rsp *http.Response) (*DeleteMeetingFormatResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteMeetingFormatResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case rsp.StatusCode == 204:
-		break // No content-type
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseUpdateMeetingFormatResponse parses an HTTP response from a UpdateMeetingFormatWithResponse call
-func ParseUpdateMeetingFormatResponse(rsp *http.Response) (*UpdateMeetingFormatResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &UpdateMeetingFormatResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest MeetingFormat
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest Error
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseGetMeetingSettingsResponse parses an HTTP response from a GetMeetingSettingsWithResponse call
 func ParseGetMeetingSettingsResponse(rsp *http.Response) (*GetMeetingSettingsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -50042,16 +49351,7 @@ type ServerInterface interface {
 	// ListMeetingActions The actions of every meeting, the newest meeting first
 	// (GET /meeting-actions)
 	ListMeetingActions(w http.ResponseWriter, r *http.Request, params ListMeetingActionsParams)
-	// CreateMeetingFormat Make a notes format of the owner's; only the owner
-	// (POST /meeting-formats)
-	CreateMeetingFormat(w http.ResponseWriter, r *http.Request)
-	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
-	// (DELETE /meeting-formats/{format_id})
-	DeleteMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string)
-	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
-	// (PUT /meeting-formats/{format_id})
-	UpdateMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string)
-	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
+	// GetMeetingSettings The model that writes notes
 	// (GET /meeting-settings)
 	GetMeetingSettings(w http.ResponseWriter, r *http.Request)
 	// SetMeetingSettings Pick the model that writes notes; only the owner
@@ -50084,7 +49384,7 @@ type ServerInterface interface {
 	// SetMeetingLineSpeaker Say who spoke one line; only the owner
 	// (PUT /meetings/{meeting_id}/lines/{n}/speaker)
 	SetMeetingLineSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, n int)
-	// WriteMeetingNotes Write a meeting's notes again, in a format; only the owner
+	// WriteMeetingNotes Write a meeting's notes again; only the owner
 	// (POST /meetings/{meeting_id}/notes)
 	WriteMeetingNotes(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// GetMeetingRecording A meeting's recording, as uploaded
@@ -54885,72 +54185,6 @@ func (siw *ServerInterfaceWrapper) ListMeetingActions(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
-// CreateMeetingFormat operation middleware
-func (siw *ServerInterfaceWrapper) CreateMeetingFormat(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateMeetingFormat(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteMeetingFormat operation middleware
-func (siw *ServerInterfaceWrapper) DeleteMeetingFormat(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "format_id" -------------
-	var formatId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "format_id", r.PathValue("format_id"), &formatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteMeetingFormat(w, r, formatId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateMeetingFormat operation middleware
-func (siw *ServerInterfaceWrapper) UpdateMeetingFormat(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "format_id" -------------
-	var formatId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "format_id", r.PathValue("format_id"), &formatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateMeetingFormat(w, r, formatId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetMeetingSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetMeetingSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -55123,19 +54357,6 @@ func (siw *ServerInterfaceWrapper) UploadMeeting(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "people"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "people", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "format" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "format", r.URL.Query(), &params.Format, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "format"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format", Err: err})
 		}
 		return
 	}
@@ -57777,9 +56998,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-actions", wrapper.ListMeetingActions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-settings", wrapper.GetMeetingSettings)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-settings", wrapper.SetMeetingSettings)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meeting-formats", wrapper.CreateMeetingFormat)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/meeting-formats/{format_id}", wrapper.DeleteMeetingFormat)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-formats/{format_id}", wrapper.UpdateMeetingFormat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-words", wrapper.ListMeetingWords)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-words", wrapper.SetMeetingWords)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats", wrapper.ListChats)
@@ -63128,118 +62346,6 @@ func (response ListMeetingActionsdefaultJSONResponse) VisitListMeetingActionsRes
 	return err
 }
 
-type CreateMeetingFormatRequestObject struct {
-	Body *CreateMeetingFormatJSONRequestBody
-}
-
-type CreateMeetingFormatResponseObject interface {
-	VisitCreateMeetingFormatResponse(w http.ResponseWriter) error
-}
-
-type CreateMeetingFormat201JSONResponse MeetingFormat
-
-func (response CreateMeetingFormat201JSONResponse) VisitCreateMeetingFormatResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateMeetingFormatdefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response CreateMeetingFormatdefaultJSONResponse) VisitCreateMeetingFormatResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteMeetingFormatRequestObject struct {
-	FormatId string `json:"format_id"`
-}
-
-type DeleteMeetingFormatResponseObject interface {
-	VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error
-}
-
-type DeleteMeetingFormat204Response struct {
-}
-
-func (response DeleteMeetingFormat204Response) VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteMeetingFormatdefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response DeleteMeetingFormatdefaultJSONResponse) VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UpdateMeetingFormatRequestObject struct {
-	FormatId string `json:"format_id"`
-	Body     *UpdateMeetingFormatJSONRequestBody
-}
-
-type UpdateMeetingFormatResponseObject interface {
-	VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error
-}
-
-type UpdateMeetingFormat200JSONResponse MeetingFormat
-
-func (response UpdateMeetingFormat200JSONResponse) VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UpdateMeetingFormatdefaultJSONResponse struct {
-	Body       Error
-	StatusCode int
-}
-
-func (response UpdateMeetingFormatdefaultJSONResponse) VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type GetMeetingSettingsRequestObject struct {
 }
 
@@ -63669,7 +62775,6 @@ func (response SetMeetingLineSpeakerdefaultJSONResponse) VisitSetMeetingLineSpea
 
 type WriteMeetingNotesRequestObject struct {
 	MeetingId MeetingID `json:"meeting_id"`
-	Body      *WriteMeetingNotesJSONRequestBody
 }
 
 type WriteMeetingNotesResponseObject interface {
@@ -67219,16 +66324,7 @@ type StrictServerInterface interface {
 	// ListMeetingActions The actions of every meeting, the newest meeting first
 	// (GET /meeting-actions)
 	ListMeetingActions(ctx context.Context, request ListMeetingActionsRequestObject) (ListMeetingActionsResponseObject, error)
-	// CreateMeetingFormat Make a notes format of the owner's; only the owner
-	// (POST /meeting-formats)
-	CreateMeetingFormat(ctx context.Context, request CreateMeetingFormatRequestObject) (CreateMeetingFormatResponseObject, error)
-	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
-	// (DELETE /meeting-formats/{format_id})
-	DeleteMeetingFormat(ctx context.Context, request DeleteMeetingFormatRequestObject) (DeleteMeetingFormatResponseObject, error)
-	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
-	// (PUT /meeting-formats/{format_id})
-	UpdateMeetingFormat(ctx context.Context, request UpdateMeetingFormatRequestObject) (UpdateMeetingFormatResponseObject, error)
-	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
+	// GetMeetingSettings The model that writes notes
 	// (GET /meeting-settings)
 	GetMeetingSettings(ctx context.Context, request GetMeetingSettingsRequestObject) (GetMeetingSettingsResponseObject, error)
 	// SetMeetingSettings Pick the model that writes notes; only the owner
@@ -67261,7 +66357,7 @@ type StrictServerInterface interface {
 	// SetMeetingLineSpeaker Say who spoke one line; only the owner
 	// (PUT /meetings/{meeting_id}/lines/{n}/speaker)
 	SetMeetingLineSpeaker(ctx context.Context, request SetMeetingLineSpeakerRequestObject) (SetMeetingLineSpeakerResponseObject, error)
-	// WriteMeetingNotes Write a meeting's notes again, in a format; only the owner
+	// WriteMeetingNotes Write a meeting's notes again; only the owner
 	// (POST /meetings/{meeting_id}/notes)
 	WriteMeetingNotes(ctx context.Context, request WriteMeetingNotesRequestObject) (WriteMeetingNotesResponseObject, error)
 	// GetMeetingRecording A meeting's recording, as uploaded
@@ -71357,96 +70453,6 @@ func (sh *strictHandler) ListMeetingActions(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// CreateMeetingFormat operation middleware
-func (sh *strictHandler) CreateMeetingFormat(w http.ResponseWriter, r *http.Request) {
-	var request CreateMeetingFormatRequestObject
-
-	var body CreateMeetingFormatJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateMeetingFormat(ctx, request.(CreateMeetingFormatRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateMeetingFormat")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateMeetingFormatResponseObject); ok {
-		if err := validResponse.VisitCreateMeetingFormatResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteMeetingFormat operation middleware
-func (sh *strictHandler) DeleteMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string) {
-	var request DeleteMeetingFormatRequestObject
-
-	request.FormatId = formatId
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteMeetingFormat(ctx, request.(DeleteMeetingFormatRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteMeetingFormat")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteMeetingFormatResponseObject); ok {
-		if err := validResponse.VisitDeleteMeetingFormatResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// UpdateMeetingFormat operation middleware
-func (sh *strictHandler) UpdateMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string) {
-	var request UpdateMeetingFormatRequestObject
-
-	request.FormatId = formatId
-
-	var body UpdateMeetingFormatJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UpdateMeetingFormat(ctx, request.(UpdateMeetingFormatRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UpdateMeetingFormat")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UpdateMeetingFormatResponseObject); ok {
-		if err := validResponse.VisitUpdateMeetingFormatResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // GetMeetingSettings operation middleware
 func (sh *strictHandler) GetMeetingSettings(w http.ResponseWriter, r *http.Request) {
 	var request GetMeetingSettingsRequestObject
@@ -71769,13 +70775,6 @@ func (sh *strictHandler) WriteMeetingNotes(w http.ResponseWriter, r *http.Reques
 	var request WriteMeetingNotesRequestObject
 
 	request.MeetingId = meetingId
-
-	var body WriteMeetingNotesJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.WriteMeetingNotes(ctx, request.(WriteMeetingNotesRequestObject))

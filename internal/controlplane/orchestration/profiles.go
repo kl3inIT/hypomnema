@@ -205,6 +205,11 @@ type Profile struct {
 	// (issue #536; agenttool.ToolSwitches).
 	Tools    []string
 	ToolsOff []string
+	// CPURequestMillis and MemoryRequestBytes are what a worker of the profile
+	// asks of a node, from the YAML's requests (issue #731); 0 is the default
+	// for building work, DefaultCPURequestMillis or DefaultMemoryRequest.
+	CPURequestMillis   int64
+	MemoryRequestBytes int64
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
@@ -259,6 +264,8 @@ type profileSource struct {
 	SkillsOff   []string `yaml:"skills_off"`
 	Tools       []string `yaml:"tools"`
 	ToolsOff    []string `yaml:"tools_off"`
+	// Requests is what a worker asks of a node (issue #731; requests.go).
+	Requests *requestsSource `yaml:"requests"`
 }
 
 type providerSource struct {
@@ -315,6 +322,13 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
+	}
+
+	if in.Requests != nil {
+		var err error
+		if p.CPURequestMillis, p.MemoryRequestBytes, err = in.Requests.parse(); err != nil {
+			return Profile{}, false, err
+		}
 	}
 
 	if !namePattern.MatchString(p.Name) {
@@ -399,7 +413,8 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
 			Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
 			SkillsOff: strings.Join(p.SkillsOff, ","), Tools: strings.Join(p.Tools, ","),
-			ToolsOff: strings.Join(p.ToolsOff, ","), Now: now,
+			ToolsOff: strings.Join(p.ToolsOff, ","), CpuRequestMillis: positive(p.CPURequestMillis),
+			MemoryRequestBytes: positive(p.MemoryRequestBytes), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
 		}
@@ -738,8 +753,12 @@ func profileFromRow(v store.ProfileVersion) Profile {
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
 		Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills), SkillsOff: splitNames(v.SkillsOff),
 		Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff), CreatedAt: millis(v.CreatedAt),
+		CPURequestMillis: v.CpuRequestMillis.Int64, MemoryRequestBytes: v.MemoryRequestBytes.Int64,
 	}
 }
+
+// positive is a number stored as NULL when it is 0, left out.
+func positive(n int64) sql.NullInt64 { return sql.NullInt64{Int64: n, Valid: n > 0} }
 
 // splitNames reads names stored in order, separated by commas.
 func splitNames(stored string) []string {
@@ -1234,6 +1253,8 @@ type resolved struct {
 	fallbackUntil int64
 	// handoff says the backup takes over work another worker began.
 	handoff bool
+	// req is what a worker of the profile version asks of a node (issue #731).
+	req request
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -1313,6 +1334,6 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 	return resolved{
 		runtime: runtime, model: model,
 		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
-		accounts: accounts,
+		accounts: accounts, req: requestOf(v),
 	}, nil
 }

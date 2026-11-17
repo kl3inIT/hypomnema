@@ -135,7 +135,28 @@ the chat's watchers from memory only and are never stored. A reply that ends in 
 row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
 `server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
-`agent_settled`, where the mark clears. An owner message may carry files (issue #343): each is kept on the
+`agent_settled`, where the mark clears. A turn that a restart cuts continues by itself (issue #716, after Hermes's
+interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continue.py`): pi's `agent_start` marks the
+chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 112) and
+`agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
+with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
+clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
+and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
+`continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
+check the current state before redoing anything, then finish the task"; it is no turn input of its own, so a turn
+that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
+with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
+line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
+for the chat or holds the cut turns. The partial transcript stays as kept; both lines reach a Channel's chat as a
+message of their own. A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
+more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_guard.py`), nothing is continued, the
+marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
+turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
+(`selfupdate.Updating`, below) it starts no pi and gives an idle pi no new turn (compactions included); a running
+turn goes on, and what is written waits for the update to end. A pi start holds the supervisor's lock from its last look for
+the update until pi has its token, and the update is marked under that same lock (`BeginUpdate`, below): a start
+that looked before the update began finishes first, and none starts after. Whether the control plane stops is read from `Run`'s context, not the one pi
+reads with (a pi a compaction started reads with its own). An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
@@ -202,7 +223,7 @@ sequenceDiagram
     participant W as Worker
     participant G as Git host
     C->>CP: create a Run (repository, base branch), then Tasks with dependencies
-    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room under its own limit and 1 GiB of memory available,<br/>an account or a gateway model, while its Bot runs fewer workers than its limit (4 by default)
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room for its request (and under its cap, if set) and 1 GiB of memory available,<br/>an account or a gateway model; the Bot furthest below its guaranteed share goes first
     CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
     N->>CP: accept (new epoch, 90 s lease)
     N->>N: fetch the skills, add the Task's worktree, start the shim
@@ -724,7 +745,8 @@ sequenceDiagram
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
+  owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
+  (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -978,11 +1000,12 @@ sequenceDiagram
     calls in chats", saved on change), in `PUT /bots/{name}` `tool_display` (left out, kept) and `hypomnema bots
     set --tool-display off|on|full`; a change from the coordinator's chat is undone with the rest of the Bot's
     settings.
-  - How many of a Bot's workers run at once (issue #660, migration 00100): `bots.max_dispatches`, 1 to 64, NULL for
-    the default 4 (the scheduler, above). It is set on the Bot's page ("Workers at once", saved with its button), in
-    `PUT /bots/{name}` `max_dispatches` (left out, kept; the Bot's answer has the number in force) and `hypomnema
-    bots set --max-dispatches N`; a change from the coordinator's chat is undone with the rest of the Bot's
-    settings.
+  - A Bot's guaranteed share of the room (issue #731, migration 00114; its limit, `max_dispatches`, from issue #660
+    and migration 00100 until 2026-11-17): `bots.guaranteed_dispatches`, 1 to 64, NULL for the default 4 (the
+    scheduler, below). It is set on the Bot's page ("Guaranteed workers", saved with its button), in
+    `PUT /bots/{name}` `guaranteed_dispatches` (left out, kept; the Bot's answer has the number in force) and
+    `hypomnema bots set --guarantee N`; a change from the coordinator's chat is undone with the rest of the Bot's
+    settings (its setup-change record keeps the key `max_dispatches`).
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
     `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
     the owner replaces a whole memory.
@@ -1520,7 +1543,7 @@ flowchart LR
   on, keeps P0 for what breaks whatever the inputs, and calls a change `correct` when existing code and tests will
   not break and no finding is P0 or P1 (Codex's review rubric, omp's reviewer); the explorer checks callers, tries
   another search before saying something is not there, says how the pieces connect and runs no command that
-  changes state (omp's scout, gemini-cli's investigator). Both are told to change nothing;
+  changes state (omp's scout, gemini-cli's investigator). The reviewer and the explorer are told to change nothing;
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
@@ -1529,29 +1552,53 @@ flowchart LR
   first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
   and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
   `reviewer-codex.yaml` carries the same text, and a reviewer the owner applied gets it by applying that file again.
+  Migration 00115 (issue #718) makes the next version from that one (`pfv_seed8_reviewer`, where
+  `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
+  repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
+  this text.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
-  commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
-  desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
-  a question included, a gated one not:
-  - a Bot's (migration 00100, `bots.max_dispatches`, `BotDispatchesDefault` 4 when unset; from OpenMausBot's
-    `threads.maxConcurrentPerBot`, `server/bot-thread-limits.ts`, the 4 the owner's, 2026-11-16): the Dispatches of
-    the Runs it made, the Bot found as `runBotGives` finds it (the Run's `bot_id`, else, for a Run a coordinator made
-    in a chat, that chat's Bot). The owner's Runs without a Bot count together as one more group with the default
-    (inference: no reference has that case);
-  - a node's own `max_dispatches` (from Coder's provisioner daemons per machine, `provisionerd/provisionerd.go`: any
-    machine with room takes the next job). The owner changes it after the node was added: `PATCH /nodes/{node_id}`
-    `max_dispatches` (1 to 64), `hypomnema nodes set <node> --max N`, and Change limit in a machine's menu on the
-    Machines page; the next pass places by it, and Dispatches running over a lower number go on.
+  commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
+  requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
+  one, fit its **allocatable** in CPU and in memory both (Kubernetes' `NodeResourcesFit`, Nomad's `AllocsFit`):
+  - a node's capacity is what its hello says, `nodes.cpus` and `nodes.memory_bytes`; its allocatable is
+    `cpus × 1000 − reserved_cpu_millis` millicores and `memory_bytes − reserved_memory_bytes − 1 GiB`
+    (`NodeMemoryFloor`, folded in as the kubelet folds its eviction threshold), never below 0. The reserves are
+    the owner's, 0 by default (the kubelet's system-reserved, Nomad's client `reserved`): `PATCH /nodes/{node_id}`
+    `reserved`, `hypomnema nodes set <node> --reserve-cpu C --reserve-memory M` (a part left out keeps what the node
+  has, read in the write's transaction). A change of a node's name, cap and reserve (`UpdateNode`) is checked whole
+  before anything is written and written in one transaction. A node that never said its size
+    has no capacity and takes work only under a cap;
+  - a Dispatch's request is its profile version's `cpu_request_millis` and `memory_request_bytes` (the YAML's
+    `requests: {cpu: 500m, memory: 512Mi}`), each the default for building work when unset
+    (`DefaultCPURequestMillis` 1000, `DefaultMemoryRequest` 3 GiB, from the repository's checks measured on
+    stc-hy-app); migration 00114 gives the seeded `explorer` 0.5 core and 512 MiB. The request is copied onto the
+    Dispatch (`dispatches.cpu_millis`, `memory_bytes`), so editing a profile does not change what runs;
+  - `nodes.max_dispatches` is an optional cap, NULL for none (Nomad's `node_max_allocs`); migration 00114 cleared
+    every node's, and the owner sets one again with `PATCH /nodes/{node_id}` `max_dispatches` (0 clears it),
+    `hypomnema nodes set <node> --max N|none`, or Change cap in a machine's menu on the Machines page. The next pass
+    places by it, and Dispatches running over a smaller room go on.
 
-  The coordinator's `CreateDispatch` meets both and checks. Ready Tasks of open Runs go oldest Run first, then
-  by position, and the pass goes through every one of them; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
-  records the model, the effort and that version; its worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node, once that node is active, connected, not
-  unavailable and below its limit; a new one goes to the node of those with the most free capacity that has the
-  runtime and a worktree root (issue #731): its score is the mean of its free shares of slots (`1 - active/max_dispatches`),
-  CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated averages
-  free shares; the highest wins, ties go to more free slots by count, then the smaller id, and each Dispatch a pass
-  places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`), or never reported, count 0
-  for CPU and memory: the node ranks last but is not refused (Trimaran). A node whose fresh stats show less than
+  The Bots share the room. Each Bot's group (the Run's `bot_id`, else, for a Run a coordinator made in a chat, that
+  chat's Bot; the owner's Runs without a Bot are one more group, inference) has a **guaranteed share**,
+  `bots.guaranteed_dispatches` (`BotGuaranteeDefault` 4 when unset), counted in unsettled Dispatches. It is no cap:
+  a Bot may borrow any room that fits (Kueue's `nominalQuota` with no `borrowingLimit`; YARN's `capacity` under a
+  `maximum-capacity` of 100 %). A pass orders the groups with ready Tasks by used / guarantee, lowest first, places
+  one Task of the lowest (its oldest Run first, then by position) and orders them again; equal ratios go to the
+  older Run, then the group id (YARN's `PriorityUtilizationQueueOrderingPolicy`). A Task that fits nowhere does not
+  hold the room: the next Task, of its group or another, is tried (Kueue's `BestEffortFIFO`; the owner, 2026-11-17).
+  Nothing running is ever stopped or requeued to make room (Kueue's, YARN's and Nomad's preemption off by default).
+  The coordinator's `CreateDispatch` meets the same fit. The runtime, model and effort are the Task's own or its
+  profile's current version, and the Dispatch records the model, the effort, that version and the request; its
+  worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node,
+  once that node is active, connected, not unavailable and has room for its request; a new one goes to the node of
+  those with the most free capacity that has the runtime and a worktree root (issue #731): its score is the mean of
+  its free share by requests (the mean of `1 − requested/allocatable` over CPU and memory, the new Dispatch
+  counted), CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated
+  averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id,
+  and each Dispatch a pass places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`),
+  or never reported, or a node that never said its memory, count 0 for its measured CPU and memory shares, so only
+  its free share by requests scores it; it is not refused (Trimaran scores a node without metrics at the minimum),
+  and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
   1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
   continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
   gateway serves), in
@@ -1560,14 +1607,17 @@ flowchart LR
   Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
-  cleared when its Dispatch is made: `bot_at_limit:<bot id>` (nothing after the colon for the owner's Runs),
-  `nodes_full` (a node could run it but every such node is at its limit), `accounts_cooling`, `nodes_low_memory`
-  (a node could run it but every such node not at its limit has under 1 GiB available; escalated like `no_node`),
-  `no_node`, `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first three resolve by
-  themselves and are never escalated. The API's Task has it as `waiting_reason` while the Task is ready;
-  `hypomnema tasks show` and `runs show` print it as a sentence, and the web says it under a queued Task in a
-  chat's docked Run and on the Task's panel ("Waiting: vmap already runs 4 of 4 workers", "Waiting: every machine
-  that can run it is busy").
+  cleared when its Dispatch is made: `nodes_full` (a node could run it and would fit it empty, but every such node
+  is full now, by requests or by its cap), `accounts_cooling`, `nodes_low_memory` (a node could run it but every
+  such node with room has under 1 GiB available; escalated like `no_node`), `no_node_fits` (its request is larger
+  than the allocatable of every node that could run it, Kubernetes' `Unresolvable`; escalated like `no_node`),
+  `no_node`, `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first two
+  resolve by themselves and are never escalated (`bot_at_limit:<bot id>` went with the Bot limit, 2026-11-17). The
+  API's Task has it as `waiting_reason` while the Task is ready; `hypomnema tasks show` and `runs show` print it as
+  a sentence, and the web says it under a queued Task in a chat's docked Run and on the Task's panel ("Waiting:
+  every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
+  `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
+  the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
   A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
@@ -2130,9 +2180,14 @@ flowchart LR
       `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
-      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
-      its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
-      coordinator token and a Routine never. Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
+      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
+      type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
+      omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760)) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
+      owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
+      again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
+      his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
+      that approval, as OpenClaw runs an exec approved later and guards the final effect rather than the list
+      ([issue #748](https://github.com/kl3inIT/hypomnema/issues/748)). Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
     - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
@@ -3231,12 +3286,12 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
   `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
   the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
-  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, `state` waiting,
+  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, written `auto` since 00113, `state` waiting,
   writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
-  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there);
-  `meeting_formats` (the owner's notes formats: `id` `mtf_…`, `name`, `sections` as JSON `[{title, about}]`).
+  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771).
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3258,39 +3313,35 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
 - The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
   of Settings → Notes model and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
   `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the words sent to the
-  transcription as names to spell exactly (Hyprnote's preferred names, `preferred-names.ts`), the format's sections
-  (built in, `meetings/formats.go`: General, Team meeting, Client call from Meetily, Hyprnote's 17 default
-  templates and Meetily's Retrospective (start, stop, continue) and Psychiatric Session Note, MIT, cut to the
-  sections the summary, decisions and actions do not already hold; or one of the owner's, a format deleted since
-  falling back to General), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
+  transcription as names to spell exactly (Hyprnote's preferred names, `preferred-names.ts`), a section for each
+  main topic the meeting discussed, titled by its topic, with points on specific details (Hyprnote's Auto, its notes
+  when no template is picked, `crates/template-app/assets/enhance.format.md.jinja`; there are no formats to pick
+  since issue #771, the owner's choice), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
   is checked as MemoryOS's `MinutesChecks` (`meetings/checks.go`) before it is kept: an owner is one voice of the
   transcript or nobody (a group, several people or an unknown label is none); a quote is looked for on its line or
   up to two lines away, a shortened quote given the line's own words, and a quote nowhere near dropped; an action
-  said twice is kept once with what only the repeat said; a decision that restates an action on its line is
+  said twice is kept once with what only the repeat said; a section without a title or a point is dropped and one
+  whose title came already joins it; a decision that restates an action on its line is
   dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
   one the owner did not give.
 - Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
   has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
-  body; `file_name`, `media_type`, `language`, `title`, `people`, `format` in the query), `GET`
+  body; `file_name`, `media_type`, `language`, `title`, `people` in the query), `GET`
   and `DELETE /meetings/{id}` (a meeting with its lines, items and suggestions; deleting cancels its work and
-  removes the file), `POST /meetings/{id}/notes` `{format}` (write again, 202), `PATCH
+  removes the file), `POST /meetings/{id}/notes` (write again, 202), `PATCH
   /meetings/{id}/items/{item}` `{done}`, `GET /meeting-actions?who=&state=open|done|all` and `GET`/`PUT
-  /meeting-settings` `{notes_model}` (with the formats, each `builtin` or the owner's), `POST /meeting-formats`,
-  `PUT`/`DELETE /meeting-formats/{id}` `{name, sections}` (a built-in one is refused), `GET`/`PUT /meeting-words`
+  /meeting-settings` `{notes_model}`, `GET`/`PUT /meeting-words`
   (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
   /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
-  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix` and `meetings format
-  add|edit|rm`.
+  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix`.
 - On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
-  meetings filtered by who and state, and a Formats tab (as Hyprnote's templates are a page of its main sidebar):
-  the owner's formats with Edit and Delete, the built-in ones with Copy to edit, in an editor after Hyprnote's (a
-  section's menu inserts, moves or deletes it). Upload recording asks the file and language, and behind More details the
-  title, people and format (the owner's formats first); it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
+  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
-  failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
+  failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
   word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
   offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
@@ -3502,6 +3553,21 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `/var/lib/hypomnema-update`, requires the manifest's SHA-256 and the version the binary reports, and runs that
     binary's `update install`, so the steps are the release's own. The control plane's own binary belongs to its
     user and is never run as root.
+  - `update install` first waits, at most 5 minutes, until no Bot's turn runs (issue #716, as Hermes's update
+    drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
+    `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
+    TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
+    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    that wait until the release's coordinator is set up, `update install` names its process (pid and start time
+    from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
+    (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for
+    an update until pi has its token; when the control plane does not answer (one from before this, or one that is
+    down) the update writes the marker itself, and a pi that started meanwhile is stopped before it is given
+    anything, as Hermes's updater holds a live update
+    marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
+    starts no pi, so none starts while the old control plane stops nor in the new one before
+    `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
   - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
     binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
     migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for
@@ -3562,8 +3628,10 @@ The owner's commands:
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
   - `nodes rename <node> <new name>` gives a node another name (`PATCH /nodes/{node_id}`, owner only): its id, its
     tokens and what it runs stay, and the name of another node that is not removed is refused;
-  - `nodes set <node> --max N` changes how many Dispatches the node runs at once (`PATCH /nodes/{node_id}`
-    `max_dispatches`, owner only; issue #660);
+  - `nodes set <node> [--max N|none] [--reserve-cpu C] [--reserve-memory M]` sets or clears the node's optional cap
+    and what is kept back from its CPUs and memory (`PATCH /nodes/{node_id}` `max_dispatches` and `reserved`, owner
+    only; issues #660, #731); `nodes list` shows each node's running count of its cap and what is requested of its
+    allocatable;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
   - `machines providers add <name> --kind aws --key vault:<secret>|aws:<role> --region R --size S [--max N]
@@ -3788,7 +3856,7 @@ Node (`internal/node`):
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
     and `--effort` when set).
-  - The worker gets a clean environment: PATH, HOME and the locale, and runs only through the model gateway (issue
+  - The worker gets a clean environment: PATH (with `$HOME/.local/bin` first, below), HOME and the locale, and runs only through the model gateway (issue
     #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md),
     [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). It gets no subscription token: an offer that names an account fails to start, saying so.
     `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
@@ -3922,15 +3990,26 @@ Node (`internal/node`):
   t3code's `t3.json` do. The node runs it in a shell (bash, else sh) in a worktree it has just made, with
   `HYPOMNEMA_WORKTREE_PATH` set and git's prompts off, and starts the worker when it has ended (Orca's
   `wait-for-setup`, here always: nobody watches a headless worker that starts before its tools exist). It may run
-  120 seconds, then its process group is killed. A script that fails, runs out of time or cannot be read is written
+  five minutes (Orca's two, raised because this repository's script installs toolchains on a bare node: 90 s on
+  one, issue #718), then its process group is killed. A script that fails, runs out of time or cannot be read is written
   to the node's log with the end of its output, and the worker starts all the same, as in Orca. A worktree that is
   reused (a continued Conversation) is not set up again. The daemon starts an accepted worker, fetch and setup
   included, on a goroutine of its own, so the session keeps reading, beating and renewing leases while a script runs
   (issue #218; Omnara's `launchWorker`); it runs under the daemon's context, so a reconnect does not cut it short.
-  This repository's script (`deploy/worker/setup.sh`) puts
-  Go at the version `go.mod` names under `$HOME/.local/go` on a Linux machine that lacks it, checked against the
-  SHA-256 Go publishes. Not built: the script's failure in the transcript, asking the owner before a script runs
-  the first time (Orca), and putting what it installed on the worker's `PATH`.
+  It runs for every Dispatch with a repository, whatever its profile, reviewers included. This repository's script
+  (`deploy/worker/setup.sh`, issue #718) installs, for the node's user and without sudo, what a Linux machine lacks:
+  Go at the version `go.mod` names under `$HOME/.local/go`, checked against the SHA-256 Go publishes; the latest
+  Node 24 under `$HOME/.local/node`, checked against the release's `SHASUMS256.txt`; and pnpm at the version
+  `web/package.json` names, through Node's corepack (from the npm registry, checked against its SHA-512, where that
+  Node has none). It links their commands into `$HOME/.local/bin`, and a run that finds them in place ends in under
+  a second. It leaves out what needs sudo (gcc, make, Chromium's system
+  libraries) and Playwright's Chromium, which comes with the web client's packages (AGENTS.md says how).
+- The worker's `PATH` (`internal/node/runner/env.go`, issue #718): the node runs as a systemd user service, which
+  reads no shell profile, so its own `PATH` lacks `$HOME/.local/bin`. Every runtime (Claude Code, Codex, ACP)
+  gives its worker the node's `PATH` with that directory first when it exists, as Debian's `~/.profile` does for a
+  login shell and as Orca adds it for its agents, so what the setup installed wins over an older copy on the
+  machine; a Dispatch's Connections put their tools' directory before it. Not built: the script's failure in the
+  transcript, and asking the owner before a script runs the first time (Orca).
 
 ## Web client
 
@@ -4531,7 +4610,7 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, the formats, speaker suggestions
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores

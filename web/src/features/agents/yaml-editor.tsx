@@ -7,57 +7,7 @@ import { useEffect, useRef } from "react"
 
 import { appearance } from "@/lib/monaco-appearance"
 
-import { efforts, maxFallbacks, runtimes } from "./profiles-state"
-
-// The profile document, as the server reads it (orchestration/profiles.go, profileSource and ApplyProfile). The
-// editor checks against it while the owner types; the server checks the rest when it saves.
-const schemaUri = "https://hypomnema.local/schemas/profile.schema.json"
-const schema = {
-  $id: schemaUri,
-  title: "Hypomnema profile",
-  type: "object",
-  additionalProperties: false,
-  required: ["name", "description", "runtime"],
-  properties: {
-    name: {
-      type: "string",
-      pattern: "^[a-z][a-z0-9-]{0,62}$",
-      description: "What a Task names the agent by: lowercase letters, digits and dashes.",
-    },
-    description: {
-      type: "string",
-      minLength: 1,
-      maxLength: 500,
-      description: "What the agent is for. The coordinator chooses an agent for each Task by this.",
-    },
-    runtime: {
-      enum: [...runtimes],
-      description: "The CLI a worker of this agent is.",
-    },
-    model: {
-      type: "object",
-      additionalProperties: false,
-      description: "The model, or nothing for the runtime's default.",
-      properties: {
-        provider: { type: "string", description: "The provider that offers the model." },
-        name: { type: "string", description: "The model's name at that provider." },
-        effort: { enum: efforts.map((e) => e.value), description: "The reasoning effort." },
-      },
-    },
-    instruction: {
-      type: "string",
-      description: "Added after the rules every worker gets, which it may not override.",
-    },
-    fallbacks: {
-      type: "array",
-      maxItems: maxFallbacks,
-      uniqueItems: true,
-      items: { type: "string" },
-      description:
-        "Agents, in order, that take this one's Tasks while its accounts wait for a limit to reset.",
-    },
-  },
-}
+import { profileSchema as schema, profileSchemaUri as schemaUri } from "./profile-schema"
 
 let configured = false
 

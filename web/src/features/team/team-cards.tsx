@@ -136,7 +136,9 @@ export const MachineCard = memo(function MachineCard({
         </h3>
         {online ? (
           <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
-            {node.active} of {node.max_dispatches}
+            {node.max_dispatches
+              ? `${node.active} of ${node.max_dispatches}`
+              : `${node.active} running`}
           </span>
         ) : (
           <StateText node={node} />

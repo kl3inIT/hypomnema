@@ -16,7 +16,7 @@ import {
 import { useMemo } from "react"
 
 import "@/api/client"
-import { listBotsOptions, listProfilesOptions } from "@/api/generated/@tanstack/react-query.gen"
+import { listProfilesOptions } from "@/api/generated/@tanstack/react-query.gen"
 import type { RunDetail, TaskDetail } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -237,12 +237,10 @@ function TaskRow({
   now: number
 }) {
   const navigate = useNavigate()
-  const bots = useQuery({ ...listBotsOptions(), select: (page) => page.data })
   const state = taskState(task, asking)
   const Icon = icons[state.icon]
   const title = firstLine(task.spec, 120)
-  const waiting =
-    task.status === "ready" && !asking ? waitingText(task.waiting_reason, bots.data) : undefined
+  const waiting = task.status === "ready" && !asking ? waitingText(task.waiting_reason) : undefined
   const detail = liveLine(task, now) ?? waiting
 
   return (

@@ -426,18 +426,19 @@ func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 
 	home := t.TempDir()
 
-	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "")
+	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "", "/usr/bin")
 	require.NoError(t, err)
 	assert.Empty(t, env)
 
-	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"google:work"}, "")
+	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"google:work"}, "", "/usr/bin")
 	require.ErrorContains(t, err, "no key")
 
-	env, err = ForDispatch(home, "/opt/it's/hypomnema-node", "https://cp.example", []string{"google:work"}, "the-key")
+	env, err = ForDispatch(home, "/opt/it's/hypomnema-node", "https://cp.example", []string{"google:work"}, "the-key",
+		"/usr/bin")
 	require.NoError(t, err)
 
 	place := Place{Home: home}
-	assert.True(t, strings.HasPrefix(env[0], "PATH="+place.Bin()+string(os.PathListSeparator)), env[0])
+	assert.Equal(t, "PATH="+place.Bin()+string(os.PathListSeparator)+"/usr/bin", env[0], "before the worker's PATH")
 	assert.Contains(t, env, EnvURL+"=https://cp.example")
 	assert.Contains(t, env, EnvKey+"=the-key")
 	assert.Contains(t, env, EnvTools+"="+home)
@@ -477,7 +478,8 @@ func TestANodePreparesADispatchForSuperset(t *testing.T) {
 
 	home := t.TempDir()
 
-	_, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"superset:vmaps"}, "the-key")
+	_, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"superset:vmaps"}, "the-key",
+		"/usr/bin")
 	require.NoError(t, err)
 	assert.NoDirExists(t, Place{Home: home}.Bin(), "Superset has no command of its own")
 
@@ -496,7 +498,8 @@ func TestAWorkerKeepsItsOwnGhForAGitHostsConnection(t *testing.T) {
 
 	home := t.TempDir()
 
-	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"github.com:default"}, "")
+	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"github.com:default"}, "",
+		"/usr/bin")
 	require.NoError(t, err)
 	assert.Empty(t, env)
 	assert.NoFileExists(t, filepath.Join(Place{Home: home}.Bin(), "gh"))

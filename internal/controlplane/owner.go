@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,7 +115,8 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 	switch {
 	case len(args) >= 2 && args[0] == "add":
 		fs := flag.NewFlagSet("nodes add", flag.ContinueOnError)
-		limit := fs.Int("max", 0, "Dispatches the node runs at once (0: the default)")
+		limit := fs.Int("max", 0, "an optional cap on the Dispatches the node runs at once (0: none; its CPUs "+
+			"and memory decide)")
 
 		if err := fs.Parse(args[2:]); err != nil {
 			return fmt.Errorf("%w: %w", ErrUsage, err)
@@ -125,7 +127,7 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 			return err
 		}
 
-		o.printf("node %s (%s), up to %d Dispatches\n", n.Name, n.ID, n.MaxDispatches)
+		o.printf("node %s (%s), %s\n", n.Name, n.ID, nodeRoom(n))
 		o.printf("token, shown only now; put it in the node's configuration and nowhere else:\n%s\n", token)
 		o.printf("to install the node, run this on the machine and paste the token when asked:\n  %s\n",
 			installCommand(o.publicURL))
@@ -147,8 +149,8 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 				state = machineState(n.Machine)
 			}
 
-			o.printf("%s\t%s\t%s\t%s\t%d/%d\t%s\t%s\t%s\n", n.ID, n.Name, n.Status, state, n.Active,
-				n.MaxDispatches, runtimes(n.Runtimes), system(n.System), device(n))
+			o.printf("%s\t%s\t%s\t%s\t%d/%s\t%s\t%s\t%s\t%s\n", n.ID, n.Name, n.Status, state, n.Active,
+				nodeCap(n), requested(n), runtimes(n.Runtimes), system(n.System), device(n))
 		}
 
 		return nil
@@ -189,31 +191,98 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 
 		return nil
 	case len(args) >= 2 && args[0] == "set":
-		fs := flag.NewFlagSet("nodes set", flag.ContinueOnError)
-		limit := fs.Int("max", 0, "Dispatches the node runs at once")
-
-		if err := fs.Parse(args[2:]); err != nil || *limit == 0 {
-			return fmt.Errorf("%w: nodes set <node> --max N", ErrUsage)
-		}
-
-		n, err := o.node(ctx, args[1])
-		if err != nil {
-			return err
-		}
-
-		changed, err := o.svc.SetNodeLimit(ctx, n.ID, *limit)
-		if err != nil {
-			return err
-		}
-
-		o.printf("node %s (%s), up to %d Dispatches\n", changed.Name, changed.ID, changed.MaxDispatches)
-
-		return nil
+		return o.setNode(ctx, args[1], args[2:])
 	case len(args) >= 1 && args[0] == "token":
 		return o.nodeTokens(ctx, args[1:])
 	default:
 		return ErrUsage
 	}
+}
+
+// setNodeUsage is how `nodes set` is called (issue #731).
+const setNodeUsage = "nodes set <node> [--max N|none] [--reserve-cpu C] [--reserve-memory M]"
+
+// setNode changes a node's optional cap and what the owner keeps back from
+// its capacity (issue #731).
+func (o *owner) setNode(ctx context.Context, name string, args []string) error {
+	fs := flag.NewFlagSet("nodes set", flag.ContinueOnError)
+	limit := fs.String("max", "", "an optional cap on the Dispatches it runs at once, 1 to 64, or none")
+	cpu := fs.String("reserve-cpu", "", "CPU kept back for what else runs on it: cores (1) or millicores (500m)")
+	memory := fs.String("reserve-memory", "", "memory kept back for what else runs on it: bytes, or 2Gi, 512Mi")
+
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 || (*limit == "" && *cpu == "" && *memory == "") {
+		return fmt.Errorf("%w: %s", ErrUsage, setNodeUsage)
+	}
+
+	// Every part is read before anything is written: one that cannot be read
+	// changes nothing (PR #759).
+	var change orchestration.NodeChange
+
+	if *limit != "" {
+		limitN := 0
+		if *limit != "none" {
+			n, err := strconv.Atoi(*limit)
+			if err != nil || n < 1 {
+				return fmt.Errorf("%w: --max is 1 to 64, or none", ErrUsage)
+			}
+
+			limitN = n
+		}
+
+		change.MaxDispatches = &limitN
+	}
+
+	// A part left out keeps what the node has.
+	reserved, err := orchestration.ParseReserve(*cpu, *memory)
+	if err != nil {
+		return err
+	}
+
+	if *cpu != "" {
+		change.ReservedCPUMillis = &reserved.CPUMillis
+	}
+
+	if *memory != "" {
+		change.ReservedMemoryBytes = &reserved.MemoryBytes
+	}
+
+	n, err := o.node(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if n, err = o.svc.UpdateNode(ctx, n.ID, change); err != nil {
+		return err
+	}
+
+	o.printf("node %s (%s), %s\n", n.Name, n.ID, nodeRoom(n))
+
+	return nil
+}
+
+// nodeRoom says a node's cap, reserve and allocatable in one line.
+func nodeRoom(n orchestration.Node) string {
+	return fmt.Sprintf("cap %s, reserved %s, allocatable %s", nodeCap(n), resources(n.Reserved),
+		resources(n.Allocatable))
+}
+
+// nodeCap is a node's optional cap, "-" for none.
+func nodeCap(n orchestration.Node) string {
+	if n.MaxDispatches == 0 {
+		return "-"
+	}
+
+	return strconv.Itoa(n.MaxDispatches)
+}
+
+// requested is what a node's unsettled Dispatches ask for against its allocatable.
+func requested(n orchestration.Node) string {
+	return fmt.Sprintf("%s of %s", resources(n.Requested), resources(n.Allocatable))
+}
+
+// resources writes CPU in cores and memory in GiB.
+func resources(r orchestration.Resources) string {
+	return fmt.Sprintf("%.1f CPU %.1f GiB", float64(r.CPUMillis)/1000, float64(r.MemoryBytes)/(1<<30))
 }
 
 // nodeTokens adds, lists and revokes a node's tokens.
