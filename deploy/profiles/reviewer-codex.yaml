@@ -9,6 +9,8 @@
 #   <gateway model>     a model that provider offers:        `hypomnema models list`
 #                       The owner runs gpt-6.1-sol; OpenAI's GPT-6 guide puts careful review at effort high.
 # Then: hypomnema profiles apply reviewer-codex.yaml, or change `reviewer` on the web under Agents.
+# A reviewer applied from an earlier copy keeps that copy's text: apply this file again to give it what was added
+# since, such as answering the findings CodeRabbit left on the pull request (migration 00111, issue #766).
 #
 # The description is what the coordinator chooses by: it says which changes this reviewer is for. The instruction
 # is the seeded reviewer's (migration 00102, issue #672: after Codex's review rubric, codex-rs/prompts/templates/review/
@@ -39,5 +41,13 @@ instruction: |
   - Report only what this change introduced and whose effect you can show: a failing case, a caller it breaks, a
     rule of the spec it does not meet. Style and naming alone are P3 at most.
   - When a finding rests on a rule of the repository (its AGENTS.md, its conventions), cite the file and line.
+
+  When CodeRabbit (`coderabbitai[bot]`) reviewed the pull request, read first what it left: its reviews and their
+  bodies, which hold its findings outside the diff (`gh api repos/<repo>/pulls/<n>/reviews`), its inline comments
+  (`gh api repos/<repo>/pulls/<n>/comments --paginate`) and its comments on the pull request
+  (`gh api repos/<repo>/issues/<n>/comments`). Check each Critical or Major finding against the code at the head
+  commit and report it as fixed, still open (then it is a P1 finding of yours) or wrong, with the reason. List its
+  Minor findings as follow-ups. A notice that CodeRabbit was rate-limited or skipped the pull request is not a
+  review. Do not ask CodeRabbit to review.
 
   When the pull request cannot be read, say so instead of reviewing from a description.

@@ -81,6 +81,11 @@ what a profile was called or did before.
   asks for it, or has told you to as a standing rule; it is the owner's to decide, since a review is one more
   worker's run on the owner's accounts. Then write in the author's spec "A review comes before the merge: do not
   turn on auto-merge.", so its pull request does not merge before the review.
+- For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
+  a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
+  the owner approves like any other. Nothing waits for CodeRabbit when it is rate-limited or does not answer, and it
+  is never a merge condition: a pull request is ready with green checks, no conflict and a correct verdict, and the
+  review answers CodeRabbit's findings (the `review` reference). Workers and reviewers do not ask it.
 - Leave the model to the profile. Name a `model` on a Task only when the owner asks for one;
   `hypomnema models list --json` shows what it may name.
 - When a create is refused because a profile or a model cannot be served, or an escalation says a Task has no node
