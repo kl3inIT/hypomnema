@@ -47,7 +47,7 @@ func TestMigrationTellsTheSeededReviewerToRunTheChecks(t *testing.T) {
 	t.Parallel()
 
 	for _, owned := range []bool{false, true} {
-		_, db := migratedTo(t, 104)
+		_, db := migratedTo(t, 107)
 		ctx := t.Context()
 
 		want := "pfv_seed6_reviewer"
@@ -60,7 +60,7 @@ func TestMigrationTellsTheSeededReviewerToRunTheChecks(t *testing.T) {
 
 		p, err := provider(db)
 		require.NoError(t, err)
-		_, err = p.UpTo(ctx, 105)
+		_, err = p.UpTo(ctx, 108)
 		require.NoError(t, err)
 		assert.Equal(t, want, currentVersions(ctx, t, db)["reviewer"], "owned: %v", owned)
 
@@ -76,7 +76,7 @@ func TestMigrationTellsTheSeededReviewerToRunTheChecks(t *testing.T) {
 		assert.Contains(t, instruction, "say in the report which one and why")
 		assert.Equal(t, sourceDigest(source), digest, "what ApplyProfile writes for that YAML")
 
-		_, err = p.DownTo(ctx, 104)
+		_, err = p.DownTo(ctx, 107)
 		require.NoError(t, err)
 		assert.Equal(t, "pfv_seed5_reviewer", currentVersions(ctx, t, db)["reviewer"])
 	}

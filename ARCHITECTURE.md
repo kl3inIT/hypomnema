@@ -1460,7 +1460,7 @@ flowchart LR
   on, keeps P0 for what breaks whatever the inputs, and calls a change `correct` when existing code and tests will
   not break and no finding is P0 or P1 (Codex's review rubric, omp's reviewer); the explorer checks callers, tries
   another search before saying something is not there, says how the pieces connect and runs no command that
-  changes state (omp's scout, gemini-cli's investigator). Migration 00105 (issue #718), under the same conditions,
+  changes state (omp's scout, gemini-cli's investigator). Migration 00108 (issue #718), under the same conditions,
   tells the reviewer to check out the pull request and run the repository's checks for what it touched, and to
   say which it could not run and why; `reviewer-codex.yaml` carries the same text. The reviewer and the explorer
   are told to change nothing;

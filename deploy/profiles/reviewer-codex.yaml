@@ -12,7 +12,7 @@
 #
 # The description is what the coordinator chooses by: it says which changes this reviewer is for. The instruction
 # is the seeded reviewer's (migration 00102, issue #672: after Codex's review rubric, codex-rs/prompts/templates/review/
-# rubric.md, the review prompt of the vendor this reviewer runs on; migration 00105, issue #718: it runs the
+# rubric.md, the review prompt of the vendor this reviewer runs on; migration 00108, issue #718: it runs the
 # repository's checks and says which it could not run); change either as you see fit.
 name: reviewer
 description: >-
