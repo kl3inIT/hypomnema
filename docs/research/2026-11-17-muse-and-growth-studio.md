@@ -105,3 +105,11 @@ directly (AGPL makes copying postiz code unwise; treat it as docs), unless the t
   czg-muse2api, www-muse2api, lichao-muse2api}`;
   `.tmp/growth-refs/{last30days-skill, last30days-skill-cn, openmagpie, marketingskills, google-play-scraper,
   MoneyPrinterTurbo, OpenMontage, ShortGPT, postiz-app, postiz-agent}`
+
+## 7. Result of the manual test, and the decision (later on 2026-11-17)
+
+The owner signed in to muse.ai and asked about VMAP. Muse read the public posts of `facebook.com/groups/tasco.vmap`
+(Cộng đồng Bản đồ VMAP Việt Nam) and answered with dated facts, without the owner's Facebook being connected: so the
+agent does read public Facebook groups, which no API or repository above does. The owner approved the roadmap and step 1
+as an Integration (not a skill on the shared browser, whose session every agent would share): issues
+[#781](https://github.com/kl3inIT/hypomnema/issues/781) and [#782](https://github.com/kl3inIT/hypomnema/issues/782).
