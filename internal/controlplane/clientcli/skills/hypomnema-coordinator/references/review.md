@@ -4,6 +4,11 @@ How a pull request is reviewed by another worker. Whether to review is the owner
 
 1. Start from a Task that succeeded with a pull request in its evidence (`hypomnema tasks show <task_id> --json`).
    Look at its checks first, read-only (`gh pr checks <url>`): while they are red there is nothing to review yet.
+   For an important pull request you may first ask CodeRabbit to review it: `gh pr comment <url> --body
+   "@coderabbitai review"`, a write the owner approves like any other. Important means it adds a migration,
+   changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
+   does not answer, nothing waits for it: go on with the review. Workers and reviewers never ask it (owner,
+   2026-11-17, issue #766).
 2. Pick the reviewer from `hypomnema profiles list --json`: a profile whose description says it reviews, and says
    it is for this kind of change. The descriptions say which reviewer goes with which author, so that the worker
    that reviews is not the kind that wrote the change; go by them. When the only reviewer that can run is of the
@@ -15,10 +20,19 @@ How a pull request is reviewed by another worker. Whether to review is the owner
    In the first round its spec has the pull request's URL and the spec the change was made from, and nothing
    else: not the author's report and not its transcript, so the reviewer judges the change itself. How the
    reviewer reports is in its own profile.
+
+   A review first reads what CodeRabbit (`coderabbitai[bot]`) already left on the pull request: its reviews and
+   their bodies, which hold the findings outside the diff (`gh api repos/<repo>/pulls/<n>/reviews`), its inline
+   comments (`gh api repos/<repo>/pulls/<n>/comments --paginate`) and its comments on the pull request
+   (`gh api repos/<repo>/issues/<n>/comments`). It checks each Critical or Major finding against the code at the
+   head commit and reports it as fixed, still open (a P1 finding of its own, so the verdict is not correct) or
+   wrong, with the reason; Minor findings are listed as follow-ups. A notice that CodeRabbit was rate-limited or
+   skipped the pull request is not a review; with no CodeRabbit review the review goes on without it.
 4. Wait as for any Run. The review is the summary in `hypomnema tasks show <task_id> --json`: a verdict and
    findings with a priority each.
-5. A verdict of correct, with green checks: report the pull request as reviewed and ready for the owner. The owner
-   merges; you never do.
+5. A verdict of correct, with green checks and no conflict: report the pull request as reviewed and ready for the
+   owner. The owner merges; you never do. CodeRabbit is never a condition of its own: its findings count through
+   the verdict, as in step 3.
 6. Findings that make the change incorrect: report them to the owner as the reviewer gave them, and offer to send
    them to the worker that made the change. Once the owner agrees, send them as a follow-up on that Task, the
    findings pasted word for word:
