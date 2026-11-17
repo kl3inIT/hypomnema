@@ -2133,12 +2133,14 @@ flowchart LR
       GET or a HEAD reads, a DELETE deletes, anything else writes. **Merge and auto-merge are actions of their own**
       and ask: `gitlab.merge_requests.merge` is `PUT …/merge_requests/:iid/merge` or `POST
       …/merge_trains/merge_requests/:iid` (adding to a merge train merges); `gitlab.merge_requests.automerge` is either
-      with an auto-merge flag true in a JSON body (`auto_merge`, `merge_when_pipeline_succeeds`, a train's
-      `when_pipeline_succeeds`; none anything else, none in the query), and `POST …/cancel_auto_merge` or
-      `…/cancel_merge_when_pipeline_succeeds`; a body that cannot be read, a form or a flag in the query is a merge.
-      GitLab 17.10 reads only `merge_when_pipeline_succeeds` and merges at once without it, 17.11 and later either,
-      so an auto-merge is sent on with every flag of its pair set to true (`Catalog.Rewrite`), which every version
-      reads as auto-merge. A note on a merge request is a write of merge requests. A GraphQL query on `/api/graphql`
+      with its auto-merge flags (`auto_merge`, `merge_when_pipeline_succeeds`, a train's `when_pipeline_succeeds`)
+      only in a JSON body and each plainly true, and `POST …/cancel_auto_merge` or
+      `…/cancel_merge_when_pipeline_succeeds`. GitLab 17.10 reads only `merge_when_pipeline_succeeds` and merges at
+      once without it, 17.11 and later OR both, so such an auto-merge is sent on with every flag of its pair set to
+      true (`Catalog.Rewrite`), which every version reads as auto-merge. A merge whose flags are anywhere else or not
+      plainly false (in the query, in a form, a true beside a false, a value such as 1) may do either: it is named
+      auto-merge with merge beside it, so that the strictest of both answers governs, and is sent as it came; one
+      whose body cannot be read asks as `gitlab.unlisted` (fail closed). A note on a merge request is a write of merge requests. A GraphQL query on `/api/graphql`
       is `gitlab.graphql.read`; a mutation asks as unlisted, and so does a body GitLab could read otherwise than the
       proxy: not JSON, a parameter in the URL, a key other than `query`, `operationName` and `variables` (such as a
       multiplex in `_json`), or a key twice or by another case (`graphqlObject`, which GitHub's GraphQL reads with

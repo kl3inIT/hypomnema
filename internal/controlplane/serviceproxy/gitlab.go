@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -287,7 +288,17 @@ func (t gitlabTable) actionOf(method, path, query, contentType string, body []by
 		return unlisted(GitLabIntegration)
 	}
 
-	return t.action(gitlabActionID(method, segments, query, contentType, body))
+	ids := gitlabActionIDs(method, segments, query, contentType, body)
+	if len(ids) == 0 {
+		return unlisted(GitLabIntegration)
+	}
+
+	governing := t.action(ids[0])
+	for _, id := range ids[1:] {
+		governing.With = append(governing.With, t.action(id))
+	}
+
+	return governing
 }
 
 // gitlabSegments are the segments of a path under /api/v4/, each read as GitLab reads it, decoded: merg%65 is
@@ -409,20 +420,27 @@ func (r gitlabRoute) matches(segments []string) bool {
 	return true
 }
 
-// gitlabActionID is the id of a request's action, from its method and its path's segments (under /api/v4/).
-func gitlabActionID(method string, segments []string, query, contentType string, body []byte) string {
+// gitlabActionIDs are the ids of a request's actions, from its method and its path's segments (under /api/v4/):
+// the first names it, and a request that may do more than one thing names the others too (a merge that may also turn
+// auto-merge on), so that the strictest of the owner's answers governs it (Action.With). None is an unlisted request.
+func gitlabActionIDs(method string, segments []string, query, contentType string, body []byte) []string {
 	if flags := gitlabMergeFlags(method, segments); flags != nil {
-		if autoMerge(flags, query, contentType, body) {
-			return gitlabAutoMerge
+		switch mergeIntentOf(flags, query, contentType, body) {
+		case mergeNow:
+			return []string{gitlabMerge}
+		case mergeAuto:
+			return []string{gitlabAutoMerge}
+		case mergeEither:
+			return []string{gitlabAutoMerge, gitlabMerge}
+		default:
+			return nil
 		}
-
-		return gitlabMerge
 	}
 
 	if len(segments) == 5 && segments[0] == "projects" && segments[2] == "merge_requests" &&
 		method == http.MethodPost &&
 		(segments[4] == "cancel_auto_merge" || segments[4] == "cancel_merge_when_pipeline_succeeds") {
-		return gitlabAutoMerge
+		return []string{gitlabAutoMerge}
 	}
 
 	what := githubWrite
@@ -434,7 +452,7 @@ func gitlabActionID(method string, segments []string, query, contentType string,
 		what = githubDelete
 	}
 
-	return "gitlab." + gitlabServiceOf(segments).key + "." + what
+	return []string{"gitlab." + gitlabServiceOf(segments).key + "." + what}
 }
 
 // gitlabMergeFlags are the parameters that ask for auto-merge on a request that merges a merge request, and nil for
@@ -456,54 +474,108 @@ func gitlabMergeFlags(method string, segments []string) []string {
 	return nil
 }
 
-// autoMerge is whether a merge asks for auto-merge: one of its flags is true in a JSON body, none is anything else,
-// and none is in the query. A body that cannot be read, a form, a flag in the query or a value that is not plainly
-// true is a merge: of the two, the one that merges now.
+// mergeIntent is what a request that merges asks for, as far as the proxy can tell.
+type mergeIntent int
+
+const (
+	// mergeUnread is a request whose flags cannot be read for certain: it asks as unlisted.
+	mergeUnread mergeIntent = iota
+	// mergeNow names no auto-merge flag, or names each plainly false.
+	mergeNow
+	// mergeAuto names its flags only in a JSON body, each plainly true: it is sent on with all of them set.
+	mergeAuto
+	// mergeEither is any other request with a flag that is not plainly false (in the query, in a form, a flag true
+	// beside one false, a value such as 1): GitLab may turn auto-merge on, or merge at once, whichever its version
+	// reads. It needs both answers.
+	mergeEither
+)
+
+// mergeIntentOf reads the auto-merge flags of a request that merges, wherever GitLab may read them: the query, a
+// JSON body or a form body (Grape merges all three into params), and fails closed (review 2 of #777): a flag that is
+// not plainly false anywhere may turn auto-merge on, and a body that cannot be read is no request the proxy names.
 //
 // Which flag a GitLab reads depends on its version: 17.10 reads only merge_when_pipeline_succeeds and merges at
-// once, pipeline running or not, when it is absent (lib/api/merge_requests.rb at v17.10.0, lines 756-779), while
-// 17.11 and later read either (v18.5.0, line 767), as the merge trains' API reads when_pipeline_succeeds or
-// auto_merge. glab sends auto_merge alone (mr_merge.go, mergeOpts.AutoMerge). So a request named auto-merge is sent
-// on with every flag of its pair set to true (gitlabAutoMergeBody), which every version reads as auto-merge.
-func autoMerge(flags []string, query, contentType string, body []byte) bool {
+// once, pipeline running or not, when it is absent (lib/api/merge_requests.rb at v17.10.0, lines 756-781), while
+// 17.11 and later read either, ORed (v18.5.0, lines 767-792), as the merge trains' API reads when_pipeline_succeeds
+// or auto_merge. glab sends auto_merge alone in JSON (mr_merge.go, mergeOpts.AutoMerge). So a plain JSON auto-merge
+// is sent on with every flag of its pair set to true (gitlabAutoMergeBody), which every version reads as
+// auto-merge; any other form of it needs both the merge's and the auto-merge's answer.
+func mergeIntentOf(flags []string, query, contentType string, body []byte) mergeIntent {
 	q, err := url.ParseQuery(query)
-	if err != nil || slices.ContainsFunc(flags, q.Has) {
-		return false
+	if err != nil {
+		return mergeUnread
 	}
 
-	fields, ok := jsonObject(contentType, body)
-	if !ok {
-		return false
-	}
-
-	asked := false
-
+	var inQuery []string
 	for _, name := range flags {
-		raw, present := fields[name]
-		if !present {
-			continue
-		}
-
-		if !plainlyTrue(raw) {
-			return false
-		}
-
-		asked = true
+		inQuery = append(inQuery, q[name]...)
 	}
 
-	return asked
+	var (
+		inBody   []string
+		fromJSON = true
+	)
+
+	if len(bytes.TrimSpace(body)) > 0 {
+		media, _, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			return mergeUnread
+		}
+
+		switch media {
+		case "application/json":
+			fields, ok := jsonObject(contentType, body)
+			if !ok {
+				return mergeUnread
+			}
+
+			for _, name := range flags {
+				if raw, present := fields[name]; present {
+					inBody = append(inBody, jsonFlag(raw))
+				}
+			}
+		case "application/x-www-form-urlencoded":
+			form, err := url.ParseQuery(string(body))
+			if err != nil {
+				return mergeUnread
+			}
+
+			fromJSON = false
+
+			for _, name := range flags {
+				inBody = append(inBody, form[name]...)
+			}
+		default:
+			return mergeUnread
+		}
+	}
+
+	all := append(slices.Clone(inQuery), inBody...)
+	if !slices.ContainsFunc(all, func(v string) bool { return v != "false" }) {
+		return mergeNow
+	}
+
+	if fromJSON && len(inQuery) == 0 && !slices.ContainsFunc(inBody, func(v string) bool { return v != "true" }) {
+		return mergeAuto
+	}
+
+	return mergeEither
 }
 
-// plainlyTrue is whether a JSON value is true or "true".
-func plainlyTrue(raw json.RawMessage) bool {
+// jsonFlag is a JSON flag's value as a query would carry it: "true" and "false" for a boolean or a string of
+// either, and the raw JSON otherwise, which is neither.
+func jsonFlag(raw json.RawMessage) string {
 	var b bool
 	if json.Unmarshal(raw, &b) == nil {
-		return b
+		return strconv.FormatBool(b)
 	}
 
 	var s string
+	if json.Unmarshal(raw, &s) == nil && (s == "true" || s == "false") {
+		return s
+	}
 
-	return json.Unmarshal(raw, &s) == nil && s == "true"
+	return string(raw)
 }
 
 // jsonObject reads a JSON object body; an empty body is an empty object.
@@ -526,9 +598,10 @@ func jsonObject(contentType string, body []byte) (map[string]json.RawMessage, bo
 }
 
 // gitlabAutoMergeBody is the body an auto-merge is sent on with: every flag of its pair set to true, so that the
-// host reads it as auto-merge whatever its version (autoMerge). Any other request is sent as it came.
+// host reads it as auto-merge whatever its version (mergeIntentOf). Any other request is sent as it came.
 func gitlabAutoMergeBody(req *http.Request, body []byte, action Action) []byte {
-	if action.ID != gitlabAutoMerge {
+	// A request that needs the merge's answer too (mergeEither) is sent as it came: it was asked as what it is.
+	if action.ID != gitlabAutoMerge || len(action.With) > 0 {
 		return body
 	}
 
@@ -591,7 +664,7 @@ func GitLabActionIDs(operations []byte) (map[string]string, error) {
 	out := make(map[string]string, len(d.Operations))
 
 	for _, op := range d.Operations {
-		out[op.Method+" "+op.Route] = gitlabActionID(op.Method, gitlabSample(op.Route), "", "", nil)
+		out[op.Method+" "+op.Route] = gitlabActionIDs(op.Method, gitlabSample(op.Route), "", "", nil)[0]
 	}
 
 	return out, nil

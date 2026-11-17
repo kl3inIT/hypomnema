@@ -185,8 +185,9 @@ func TestGlabsMergeAndAutoMergeAreActionsOfTheirOwn(t *testing.T) {
 		form    = "application/x-www-form-urlencoded"
 	)
 
+	// with is the action a request names beside its own, when it may do both (review 2 of #777).
 	cases := []struct {
-		name, method, target, contentType, body, action string
+		name, method, target, contentType, body, action, with string
 	}{
 		{
 			name: "auto_merge true in JSON", method: http.MethodPut, target: mr + "/merge", contentType: json,
@@ -205,16 +206,18 @@ func TestGlabsMergeAndAutoMergeAreActionsOfTheirOwn(t *testing.T) {
 			action: "gitlab.merge_requests.automerge",
 		},
 		{
-			name:   "auto_merge in the query is a merge",
+			name:   "auto_merge in the query needs both answers",
 			method: http.MethodPut, target: mr + "/merge?auto_merge=true", contentType: "",
 			body:   "",
-			action: "gitlab.merge_requests.merge",
+			action: "gitlab.merge_requests.automerge",
+			with:   "gitlab.merge_requests.merge",
 		},
 		{
-			name:   "auto_merge in a form is a merge",
+			name:   "auto_merge in a form needs both answers",
 			method: http.MethodPut, target: mr + "/merge", contentType: form,
 			body:   "auto_merge=true",
-			action: "gitlab.merge_requests.merge",
+			action: "gitlab.merge_requests.automerge",
+			with:   "gitlab.merge_requests.merge",
 		},
 		{
 			name: "no flag is a merge", method: http.MethodPut, target: mr + "/merge", contentType: json,
@@ -232,27 +235,29 @@ func TestGlabsMergeAndAutoMergeAreActionsOfTheirOwn(t *testing.T) {
 			action: "gitlab.merge_requests.merge",
 		},
 		{
-			name:   "one flag true, the other false",
+			name:   "one flag true, the other false needs both answers",
 			method: http.MethodPut, target: mr + "/merge", contentType: json,
 			body:   `{"auto_merge":true,"merge_when_pipeline_succeeds":false}`,
-			action: "gitlab.merge_requests.merge",
+			action: "gitlab.merge_requests.automerge",
+			with:   "gitlab.merge_requests.merge",
 		},
 		{
-			name:   "auto_merge 1 is not plainly true",
+			name:   "auto_merge 1 is not plainly false",
 			method: http.MethodPut, target: mr + "/merge", contentType: json,
 			body:   `{"auto_merge":1}`,
-			action: "gitlab.merge_requests.merge",
+			action: "gitlab.merge_requests.automerge",
+			with:   "gitlab.merge_requests.merge",
 		},
 		{
-			name: "a body that cannot be read", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			name: "a body that cannot be read asks", method: http.MethodPut, target: mr + "/merge", contentType: json,
 			body:   `{"auto_merge":tru`,
-			action: "gitlab.merge_requests.merge",
+			action: "gitlab.unlisted",
 		},
 		{
-			name:   "a body of another type",
+			name:   "a body of another type asks",
 			method: http.MethodPut, target: mr + "/merge", contentType: "text/plain",
 			body:   "auto_merge=true",
-			action: "gitlab.merge_requests.merge",
+			action: "gitlab.unlisted",
 		},
 		{
 			name: "a segment read decoded", method: http.MethodPut, target: mr + "/merg%65", contentType: json,
@@ -297,10 +302,11 @@ func TestGlabsMergeAndAutoMergeAreActionsOfTheirOwn(t *testing.T) {
 			action: "gitlab.merge_requests.automerge",
 		},
 		{
-			name:   "merge train flag in the query is a merge",
+			name:   "merge train flag in the query needs both answers",
 			method: http.MethodPost, target: train + "?auto_merge=true", contentType: "",
 			body:   "",
-			action: "gitlab.merge_requests.merge",
+			action: "gitlab.merge_requests.automerge",
+			with:   "gitlab.merge_requests.merge",
 		},
 		{
 			name: "a note on a merge request", method: http.MethodPost, target: mr + "/notes", contentType: json,
@@ -454,7 +460,15 @@ func TestGlabsMergeAndAutoMergeAreActionsOfTheirOwn(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, c.action, gitlabOf(t, catalog, c.method, c.target, c.contentType, c.body).ID)
+			a := gitlabOf(t, catalog, c.method, c.target, c.contentType, c.body)
+			assert.Equal(t, c.action, a.ID)
+
+			with := make([]string, 0, len(a.With))
+			for _, w := range a.With {
+				with = append(with, w.ID)
+			}
+
+			assert.Equal(t, c.with, strings.Join(with, ","))
 		})
 	}
 }
@@ -692,4 +706,53 @@ func TestAMergeTrainAndAHiddenMutationAreNotWrites(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, (<-answered).Status)
 	assert.Len(t, w.service.received(), 1)
+}
+
+// Scenario (review 2 of #777): with merge allowed and auto-merge set to never, a merge that may turn auto-merge on is
+// refused however it carries the flag: in the query, in a form, in JSON beside a false one (GitLab 18.5 ORs them),
+// and one whose body cannot be read asks and is not run. Nothing reaches GitLab; a merge with no flag runs.
+func TestAnAutoMergeNeverRunsOnTheMergesAnswer(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 50*time.Millisecond)
+	ctx := t.Context()
+	glab := openGitLab(t, w)
+
+	require.NoError(t, w.svc.SetActionPolicy(ctx, gitlabHost, "default", "gitlab.merge_requests.merge",
+		orchestration.PolicyAllow))
+	require.NoError(t, w.svc.SetActionPolicy(ctx, gitlabHost, "default", "gitlab.merge_requests.automerge",
+		orchestration.PolicyNever))
+
+	const merge = "/api/v4/projects/1/merge_requests/7/merge"
+
+	for _, c := range []struct {
+		name, method, path, contentType, body string
+	}{
+		{name: "the flag in the query", method: http.MethodPut, path: merge + "?merge_when_pipeline_succeeds=true"},
+		{
+			name: "the flag in a form", method: http.MethodPut, path: merge, contentType: "application/x-www-form-urlencoded",
+			body: "merge_when_pipeline_succeeds=true",
+		},
+		{
+			name: "JSON with conflicting flags", method: http.MethodPut, path: merge, contentType: "application/json",
+			body: `{"auto_merge":true,"merge_when_pipeline_succeeds":false}`,
+		},
+		{
+			name: "a body that cannot be read", method: http.MethodPut, path: merge, contentType: "application/json",
+			body: `{"merge_when_pipeline_succeeds":tru`,
+		},
+		{
+			name: "a merge train's flag in the query", method: http.MethodPost,
+			path: "/api/v4/projects/1/merge_trains/merge_requests/7?auto_merge=1",
+		},
+	} {
+		got := glab.doGlab(c.method, c.path, c.contentType, []byte(c.body))
+
+		assert.Equal(t, http.StatusForbidden, got.Status, c.name)
+		assert.Empty(t, w.service.received(), "%s: nothing reaches GitLab", c.name)
+	}
+
+	plain := glab.doGlab(http.MethodPut, merge, "application/json", []byte(`{"squash":true}`))
+	require.Equal(t, http.StatusOK, plain.Status)
+	assert.Len(t, w.service.received(), 1, "a merge with no flag runs on the merge's answer")
 }
