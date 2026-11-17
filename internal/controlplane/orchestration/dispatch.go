@@ -74,17 +74,14 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
 	}
 
-	// The Bot's limit (issue #660): a Dispatch made by hand meets it as the scheduler's does.
-	group, limit, err := runGroup(ctx, q, task.RunID)
+	// The group the Dispatch counts in (issue #660); its guarantee orders the
+	// scheduler's pass and limits nothing (issue #731).
+	group, _, err := runGroup(ctx, q, task.RunID)
 	if err != nil {
 		return err
 	}
 
-	if p.groups[group] >= limit {
-		return fmt.Errorf("%w: %s runs %d of %d Dispatches", ErrUnavailable, groupName(group), p.groups[group], limit)
-	}
-
-	conv, node, recovery, err := s.conversationFor(ctx, q, now, task.ID, spec, p)
+	conv, node, recovery, err := s.conversationFor(ctx, q, now, task.ID, spec, p, r.req)
 	if err != nil {
 		return err
 	}
@@ -105,7 +102,7 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		Model: nullString(r.model), Effort: nullString(r.effort),
 		ProfileVersionID: nullString(r.versionID), FallbackFor: nullString(r.fallbackFor),
 		FallbackUntil: sql.NullInt64{Int64: r.fallbackUntil, Valid: r.fallbackFor != ""},
-		Handoff:       boolInt(r.handoff), Now: now,
+		Handoff:       boolInt(r.handoff), CpuMillis: r.req.cpuMillis, MemoryBytes: r.req.memoryBytes, Now: now,
 	}); err != nil {
 		return fmt.Errorf("inserting dispatch: %w", err)
 	}
@@ -114,7 +111,7 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return err
 	}
 
-	p.take(node, group)
+	p.take(node, group, r.req)
 
 	if task.WaitingReason.Valid {
 		if err := q.SetTaskWaitingReason(ctx, store.SetTaskWaitingReasonParams{ID: task.ID}); err != nil {
@@ -135,15 +132,6 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	return transitionTask(ctx, q, now, task.ID, TaskRunning, BlockedNone, "")
 }
 
-// groupName says whose Dispatches a group counts: a Bot's, or the owner's.
-func groupName(group string) string {
-	if group == "" {
-		return "the owner's Runs without a Bot"
-	}
-
-	return "bot " + group
-}
-
 // openConversation returns the Task's latest Conversation and whether it is open.
 func openConversation(ctx context.Context, q *store.Queries, taskID string) (store.Conversation, bool, error) {
 	latest, err := q.LatestConversationOfTask(ctx, taskID)
@@ -162,7 +150,7 @@ func openConversation(ctx context.Context, q *store.Queries, taskID string) (sto
 // and whether the worker must be told the previous attempt was interrupted.
 // The node and the account are checked against the placement snapshot.
 func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int64, taskID string,
-	spec DispatchSpec, p *placement,
+	spec DispatchSpec, p *placement, req request,
 ) (string, string, bool, error) {
 	latest, open, err := openConversation(ctx, q, taskID)
 	if err != nil {
@@ -180,6 +168,8 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 	if err != nil {
 		return "", "", false, err
 	}
+
+	host.req = req
 
 	if spec.Continue {
 		if !open {

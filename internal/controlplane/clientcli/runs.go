@@ -298,14 +298,10 @@ func waitingLine(code string) string {
 	kind, arg, _ := strings.Cut(code, ":")
 
 	switch kind {
-	case "bot_at_limit":
-		if arg == "" {
-			return "the owner's Runs without a Bot already run as many workers as their limit"
-		}
-
-		return "bot " + arg + " already runs as many workers as its limit"
 	case "nodes_full":
-		return "every node that can run it runs as many workers as its limit"
+		return "every node that can run it is full now"
+	case "no_node_fits":
+		return "it asks for more CPU or memory than any node that can run it has to give"
 	case "nodes_low_memory":
 		return "every node that can run it is low on memory"
 	case "accounts_cooling":

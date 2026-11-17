@@ -73,8 +73,9 @@ type botSettings struct {
 	ToolDisplay ToolDisplay `json:"tool_display,omitempty"`
 	// Scopes are left out when there are none, so a Bot's revision from before they were a setting stays the same.
 	Scopes map[string]ConnectionScope `json:"scopes,omitempty"`
-	// MaxDispatches is left out for the default, so a Bot's revision from before it was a setting stays the same.
-	MaxDispatches int `json:"max_dispatches,omitempty"`
+	// GuaranteedDispatches is left out for the default, so a Bot's revision from before it was a setting stays the
+	// same. It keeps the key it was recorded under while it was the Bot's limit (until 2026-11-17, issue #731).
+	GuaranteedDispatches int `json:"max_dispatches,omitempty"`
 }
 
 func settingsOfBot(b Bot) botSettings {
@@ -86,7 +87,7 @@ func settingsOfBot(b Bot) botSettings {
 	return botSettings{
 		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
-		ToolDisplay: display, Scopes: b.Scopes, MaxDispatches: b.MaxDispatches,
+		ToolDisplay: display, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
 	}
 }
 
@@ -101,7 +102,7 @@ func (b botSettings) bot(id string) Bot {
 	return Bot{
 		ID: id, Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
-		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes, MaxDispatches: b.MaxDispatches,
+		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
 	}
 }
 

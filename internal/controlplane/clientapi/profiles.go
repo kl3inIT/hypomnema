@@ -149,6 +149,7 @@ func toProfile(p orchestration.Profile) openapi.Profile {
 		Fallbacks: append([]string{}, p.Fallbacks...), Skills: append([]string{}, p.Skills...),
 		SkillsOff: append([]string{}, p.SkillsOff...), Tools: append([]string{}, p.Tools...),
 		ToolsOff: append([]string{}, p.ToolsOff...), CreatedAt: p.CreatedAt,
+		CpuRequestMillis: ptr(p.CPURequestMillis), MemoryRequestBytes: ptr(p.MemoryRequestBytes),
 	}
 
 	if a := p.Availability; a != nil {

@@ -127,14 +127,28 @@ func validGPUs(gpus []GPUStats) bool {
 	return true
 }
 
+// Resources is an amount of CPU, in thousandths of a core, and of memory, in bytes (issue #731).
+type Resources struct {
+	CPUMillis   int64
+	MemoryBytes int64
+}
+
 // Node is one machine that runs workers.
 type Node struct {
-	ID            string
-	Name          string
-	Status        NodeStatus
+	ID     string
+	Name   string
+	Status NodeStatus
+	// MaxDispatches is the node's optional cap on its unsettled Dispatches, 0
+	// for none: the requests against its allocatable decide (issue #731).
 	MaxDispatches int
-	WorktreeRoot  string
-	Runtimes      []RuntimeInfo
+	// Reserved is what the owner keeps back from its capacity; Allocatable
+	// what its Dispatches may ask for in all (placement.allocatable); and
+	// Requested what its unsettled Dispatches ask for.
+	Reserved     Resources
+	Allocatable  Resources
+	Requested    Resources
+	WorktreeRoot string
+	Runtimes     []RuntimeInfo
 	// GitHosts are the git hosts the node reached when it last tried; nil for
 	// a node that has not said, which is taken to reach every host.
 	GitHosts []string
@@ -211,12 +225,9 @@ const firstNodeTokenName = "first"
 // shown only here; only its hash is kept.
 func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (Node, string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || maxDispatches < 0 {
-		return Node{}, "", fmt.Errorf("%w: a node needs a name and a limit of zero (default) or more", ErrInvalid)
-	}
-
-	if maxDispatches == 0 {
-		maxDispatches = NodeDispatchesDefault
+	if name == "" || maxDispatches < 0 || maxDispatches > MaxDispatchesLimit {
+		return Node{}, "", fmt.Errorf("%w: a node needs a name, and a cap of 1 to %d or none (0)", ErrInvalid,
+			MaxDispatchesLimit)
 	}
 
 	token, err := newNodeToken()
@@ -228,7 +239,7 @@ func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertNode(ctx, store.InsertNodeParams{
-			ID: id, Name: name, MaxDispatches: int64(maxDispatches), Now: now,
+			ID: id, Name: name, MaxDispatches: storedLimit(maxDispatches), Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: inserting node %q: %w", ErrConflict, name, err)
 		}
@@ -288,24 +299,48 @@ func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
 	})
 }
 
-// SetNodeLimit changes how many Dispatches a node runs at once (issue #660),
-// as Coder's provisioner daemons are a setting, not fixed at install. The
-// next scheduling pass places by it; Dispatches it runs over a lower limit
-// go on.
+// SetNodeLimit sets or clears a node's optional cap on the Dispatches it runs
+// at once (issues #660, #731), 0 for none, as Nomad's node_max_allocs
+// (client/config/config.go:400-402). The next scheduling pass places by it;
+// Dispatches it runs over a lower cap go on.
 func (s *Service) SetNodeLimit(ctx context.Context, nodeID string, maxDispatches int) (Node, error) {
-	if maxDispatches < 1 || maxDispatches > MaxDispatchesLimit {
-		return Node{}, fmt.Errorf("%w: a node runs 1 to %d Dispatches at once", ErrInvalid, MaxDispatchesLimit)
+	if maxDispatches < 0 || maxDispatches > MaxDispatchesLimit {
+		return Node{}, fmt.Errorf("%w: a node's cap is 1 to %d Dispatches, or none (0)", ErrInvalid,
+			MaxDispatchesLimit)
 	}
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		n, err := q.SetNodeMaxDispatches(ctx, store.SetNodeMaxDispatchesParams{
-			Now: now, MaxDispatches: int64(maxDispatches), ID: nodeID,
+			Now: now, MaxDispatches: storedLimit(maxDispatches), ID: nodeID,
 		})
 
 		return oneRow(n, err, "node", nodeID)
 	})
 	if err != nil {
-		return Node{}, fmt.Errorf("changing a node's limit: %w", err)
+		return Node{}, fmt.Errorf("changing a node's cap: %w", err)
+	}
+
+	return s.GetNode(ctx, nodeID)
+}
+
+// SetNodeReserved sets what the owner keeps back from a node's capacity for
+// what else runs on it (issue #731), as the kubelet's system-reserved and
+// Nomad's client reserved; 0 by default. The next scheduling pass places by
+// it; Dispatches it runs over the smaller room go on.
+func (s *Service) SetNodeReserved(ctx context.Context, nodeID string, reserved Resources) (Node, error) {
+	if reserved.CPUMillis < 0 || reserved.MemoryBytes < 0 {
+		return Node{}, fmt.Errorf("%w: a node's reserve is 0 or more", ErrInvalid)
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetNodeReserved(ctx, store.SetNodeReservedParams{
+			Now: now, ReservedCpuMillis: reserved.CPUMillis, ReservedMemoryBytes: reserved.MemoryBytes, ID: nodeID,
+		})
+
+		return oneRow(n, err, "node", nodeID)
+	})
+	if err != nil {
+		return Node{}, fmt.Errorf("changing a node's reserve: %w", err)
 	}
 
 	return s.GetNode(ctx, nodeID)

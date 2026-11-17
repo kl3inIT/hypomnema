@@ -375,6 +375,7 @@ func startWorker(t *testing.T, w *world) *worker {
 	require.NoError(t, err)
 	require.NoError(t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{
 		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
+		System: orchestration.SystemInfo{CPUs: 8, MemoryBytes: 16 << 30}, // its size, which every hello says (issue #731)
 	}))
 
 	// The starting profiles run under the Claude subscription, which the gateway serves under an account the
@@ -1262,10 +1263,10 @@ func TestChatWithAChosenBot(t *testing.T) {
 	require.ErrorContains(t, err, "a chat's Bot is fixed when it is made")
 }
 
-// Scenario: the owner sets how many of a Bot's workers run at once (issue
-// #660). bots show prints it, a later change of another setting keeps it, and
-// a number out of range is refused.
-func TestBotsSetMaxDispatches(t *testing.T) {
+// Scenario: the owner sets a Bot's guaranteed share of the room (issue
+// #731; its limit before). bots show prints it, a later change of another
+// setting keeps it, and a number out of range is refused.
+func TestBotsSetGuarantee(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -1273,19 +1274,19 @@ func TestBotsSetMaxDispatches(t *testing.T) {
 
 	var vmap openapi.Bot
 	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap")
-	assert.Equal(t, orchestration.BotDispatchesDefault, vmap.MaxDispatches, "a new Bot has the default")
+	assert.Equal(t, orchestration.BotGuaranteeDefault, vmap.GuaranteedDispatches, "a new Bot has the default")
 
-	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap", "--max-dispatches", "2")
-	assert.Equal(t, 2, vmap.MaxDispatches)
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap", "--guarantee", "2")
+	assert.Equal(t, 2, vmap.GuaranteedDispatches)
 
 	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap", "--effort", "high")
-	assert.Equal(t, 2, vmap.MaxDispatches, "kept when another setting changes")
+	assert.Equal(t, 2, vmap.GuaranteedDispatches, "kept when another setting changes")
 
 	out, err := w.cmd(t, "bots", "show", "vmap")
 	require.NoError(t, err)
-	assert.Contains(t, out, "workers at once: 2")
+	assert.Contains(t, out, "guaranteed workers: 2")
 
-	_, err = w.cmd(t, "bots", "set", "vmap", "--max-dispatches", "65")
+	_, err = w.cmd(t, "bots", "set", "vmap", "--guarantee", "65")
 	require.Error(t, err)
 }
 

@@ -60,9 +60,9 @@ export type Column = {
 
 // hiddenColumns are hidden in the table until the owner shows them: with them the table is wider than a 1280 px
 // screen beside the sidebar (issue #242). Each is the one least needed to choose a machine or act on it: the load
-// average repeats what the CPU meter says, the agent's version and system matter only when updating, and where a
-// machine comes from is shown on its card.
-export const hiddenColumns = ["load", "agent", "source"] as const
+// average repeats what the CPU meter says, the agent's version and system matter only when updating, where a
+// machine comes from is shown on its card, and what its work requested (issue #731) on its card too.
+export const hiddenColumns = ["load", "agent", "source", "requested"] as const
 
 // shownColumns are the columns worth showing for these machines.
 export function shownColumns(nodes: Node[]) {
@@ -70,6 +70,9 @@ export function shownColumns(nodes: Node[]) {
 }
 
 const hasGpu = (node: Node) => (node.stats?.gpus?.length ?? 0) > 0
+
+// cores writes thousandths of a core as cores: 1500 is 1.5.
+const cores = (millis: number) => String(Math.round(millis / 100) / 10)
 
 const none = <span className="text-muted-foreground">—</span>
 
@@ -217,13 +220,30 @@ export const columns: Column[] = [
   {
     id: "dispatches",
     name: "Dispatches",
-    hint: "Work running on this machine now, of the most it takes at once.",
+    hint: "Work running on this machine now, of its cap when one is set.",
     Icon: ListChecks,
     cell: (node) => (
       <span className="whitespace-nowrap tabular-nums">
-        {node.active} of {node.max_dispatches}
+        {node.max_dispatches ? `${node.active} of ${node.max_dispatches}` : node.active}
       </span>
     ),
+  },
+  {
+    id: "requested",
+    name: "Requested",
+    hint:
+      "The memory and CPUs its running work asks for, of what work may ask for here: its size less what is " +
+      "kept back. A Task goes only where its request fits.",
+    Icon: MemoryStick,
+    cell: (node) =>
+      node.allocatable.memory_bytes > 0 ? (
+        <span className="whitespace-nowrap tabular-nums">
+          {usedOfTotal(node.requested.memory_bytes, node.allocatable.memory_bytes)} ·{" "}
+          {cores(node.requested.cpu_millis)} of {cores(node.allocatable.cpu_millis)} CPU
+        </span>
+      ) : (
+        none
+      ),
   },
   {
     id: "runtimes",

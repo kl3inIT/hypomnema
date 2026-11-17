@@ -4507,11 +4507,11 @@ components:
           type: string
           description: >-
             Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task
-            that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its
-            limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could
-            run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than
-            1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway,
-            no_node_reaches:<git host> and no_node_has_tool:<tool>.
+            that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what
+            it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could
+            run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory
+            available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and
+            no_node_has_tool:<tool>.
     TaskDetail:
       allOf:
         - $ref: "#/components/schemas/Task"
@@ -4783,14 +4783,30 @@ components:
         version: { type: string }
     Node:
       type: object
-      required: [id, name, status, max_dispatches, runtimes, connected, active, created_at]
+      required:
+        [id, name, status, reserved, allocatable, requested, runtimes, connected, active, created_at]
       properties:
         id: { type: string }
         name: { type: string }
         status:
           type: string
           enum: [active, drained]
-        max_dispatches: { type: integer }
+        max_dispatches:
+          type: integer
+          description: >-
+            The node's optional cap on the Dispatches it runs at once; left out for none, when the requests of its
+            Dispatches against its allocatable decide (issue #731).
+        reserved:
+          $ref: "#/components/schemas/Resources"
+          description: What the owner keeps back from the node's capacity for what else runs on it.
+        allocatable:
+          $ref: "#/components/schemas/Resources"
+          description: >-
+            What its Dispatches may ask for in all: its CPUs and memory less the reserve, and its memory less 1 GiB
+            more. Zero for a node that has not said its CPUs and memory.
+        requested:
+          $ref: "#/components/schemas/Resources"
+          description: What its Dispatches that have not settled ask for.
         worktree_root: { type: string }
         runtimes:
           type: array
@@ -4832,6 +4848,21 @@ components:
           type: integer
           description: Its Dispatches that have not settled.
         created_at: { type: string, format: date-time }
+    Resources:
+      type: object
+      additionalProperties: false
+      required: [cpu_millis, memory_bytes]
+      description: An amount of CPU and memory (issue #731).
+      properties:
+        cpu_millis:
+          type: integer
+          format: int64
+          minimum: 0
+          description: CPU in thousandths of a core.
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
     NodeChange:
       type: object
       additionalProperties: false
@@ -4840,11 +4871,16 @@ components:
         name: { type: string, minLength: 1, maxLength: 64 }
         max_dispatches:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 64
           description: >-
-            Dispatches the node runs at once (issue #660). The next scheduling pass places by it; Dispatches it
-            already runs over a lower number go on.
+            The node's optional cap on the Dispatches it runs at once (issues #660, #731); 0 for none. The next
+            scheduling pass places by it; Dispatches it already runs over a lower number go on.
+        reserved:
+          $ref: "#/components/schemas/Resources"
+          description: >-
+            What the owner keeps back from the node's capacity for what else runs on it (issue #731); both parts
+            are set together.
     NewTerminal:
       type: object
       additionalProperties: false
@@ -5469,7 +5505,9 @@ components:
           type: integer
           minimum: 1
           maximum: 64
-          description: Dispatches the node runs at once; left out, the default.
+          description: >-
+            The node's optional cap on the Dispatches it runs at once; left out, none: the requests of its
+            Dispatches against its allocatable decide (issue #731).
         provider:
           type: string
           minLength: 1
@@ -7123,7 +7161,7 @@ components:
       type: object
       required:
         [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
-         connections, workers, scopes, tool_display, max_dispatches, created_at, updated_at]
+         connections, workers, scopes, tool_display, guaranteed_dispatches, created_at, updated_at]
       properties:
         id:
           type: string
@@ -7190,11 +7228,13 @@ components:
             integration:label: of a Superset Connection, the dashboards it may
             read. A Connection not named here is reached whole.
         tool_display: { $ref: "#/components/schemas/ToolDisplay" }
-        max_dispatches:
+        guaranteed_dispatches:
           type: integer
           description: >-
-            How many of the Bot's workers run at once, across every node (issue #660): the unsettled Dispatches of
-            the Runs it made. 4 unless the Bot sets its own.
+            The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node
+            (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first
+            claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and
+            nothing running is stopped for it.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     ToolDisplay:
@@ -7517,11 +7557,11 @@ components:
         tool_display:
           $ref: "#/components/schemas/ToolDisplay"
           description: What the Bot's chats show of its tool calls; left out, the Bot keeps it, on for a new one.
-        max_dispatches:
+        guaranteed_dispatches:
           type: integer
           minimum: 1
           maximum: 64
-          description: How many of the Bot's workers run at once; left out, the Bot keeps it, 4 for a new one.
+          description: The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
     Memory:
       type: object
       additionalProperties: false
@@ -7577,6 +7617,18 @@ components:
         model: { type: string }
         effort: { type: string }
         instruction: { type: string }
+        cpu_request_millis:
+          type: integer
+          format: int64
+          description: >-
+            What a worker of the profile asks of a node's CPU, in thousandths of a core, from its YAML's
+            requests.cpu (issue #731); left out, the default for building work, 1000.
+        memory_request_bytes:
+          type: integer
+          format: int64
+          description: >-
+            What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the
+            default for building work, 3 GiB.
         skills:
           type: array
           items: { type: string }

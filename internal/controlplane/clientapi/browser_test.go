@@ -161,6 +161,7 @@ func TestATabNamesItsChat(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{
 		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
+		System: orchestration.SystemInfo{CPUs: 8, MemoryBytes: 16 << 30}, // its size, which every hello says (issue #731)
 	}))
 	// The starting profiles run under the Claude subscription, served under an account the control plane keeps.
 	_, err = w.svc.AddTokenAccount(ctx, "claude", "personal", func(id string) string { return "vault:" + id })
