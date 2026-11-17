@@ -20,6 +20,8 @@ export function waitingText(reason: string | undefined, bots: Bot[] = []): strin
     }
     case "nodes_full":
       return "Waiting: every machine that can run it is busy"
+    case "nodes_low_memory":
+      return "Waiting: every machine that can run it is low on memory"
     case "accounts_cooling":
       return "Waiting: every account of its agent waits for its limit to reset"
     case "no_node":

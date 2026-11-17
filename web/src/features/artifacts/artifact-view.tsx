@@ -7,8 +7,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { problemOf } from "@/lib/server-error"
 import { FileView, type PreviewReader } from "@/features/preview/preview-loader"
 
-import { downloadURL, useFrameFiles, usePageText } from "./artifact-state"
-import { frameDocument, frameSandbox } from "./frame-document"
+import { downloadURL, useFramePage, usePageText } from "./artifact-state"
+import { frameSandbox } from "./frame"
 
 // The viewers of an artifact (issues #402 and #422): a page in its locked frame, and any other file in the app's
 // file preview (features/preview, MemoryOS's, after Onyx's PreviewModal): a PDF drawn by pdf.js, an image, a
@@ -45,25 +45,21 @@ export function ArtifactView({
 
 type Props = { artifact: Artifact; revision: ArtifactRevision }
 
-// PageFrame is a page in its locked frame (issue #402, rows 8-10): srcdoc with the policy first, a sandbox that
-// runs its scripts and never makes it of this origin, and no referrer. A folder page's files load from the frame's
-// own address, which the policy names as its base.
-function PageFrame(props: Props) {
-  const { artifact, revision } = props
-  const text = usePageText(artifact.id, revision.revision)
-  const folder = revision.files.length > 1
-  const files = useFrameFiles(artifact.id, revision.revision, folder)
+// PageFrame is a page in its locked frame (issue #402, rows 8-10; issue #737): loaded from its frame's address,
+// whose answer carries the page's policy, in a sandbox that runs its scripts and never makes it of this origin, with
+// no referrer. A folder page's files load beside it by their relative paths.
+function PageFrame({ artifact, revision }: Props) {
+  const page = useFramePage(artifact.id, revision)
 
-  const error = text.error ?? files.error
-  if (error) return <Problem error={error} />
-  if (text.data === undefined || (folder && files.data === undefined)) return <Loading />
+  if (page.error) return <Problem error={page.error} />
+  if (page.src === undefined) return <Loading />
 
   return (
     <iframe
       title={revision.title}
       sandbox={frameSandbox}
       referrerPolicy="no-referrer"
-      srcDoc={frameDocument(text.data, folder ? files.data : undefined)}
+      src={page.src}
       // A page is drawn on its own light canvas, whatever the app's theme, as OpenMausBot's and Claude's are.
       style={{ colorScheme: "light", background: "white" }}
       className="min-h-0 w-full flex-1 border-0"

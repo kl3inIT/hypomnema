@@ -109,9 +109,10 @@ func TestOnlyABotShowsAnArtifactAndOnlyItsChatsPiReadsIt(t *testing.T) {
 }
 
 // Scenario: the web shows a folder page in a locked frame. A file is read as an opaque download, never a page of
-// this origin. The frame's files load from an address of their own, which needs no sign-in: each answer is the
-// file's type, sandboxed, readable from the frame's opaque origin and not cached; a path outside the revision,
-// an unknown address and a write get nothing. Only the owner opens a frame.
+// this origin. The page and its files load from an address of their own, which needs no sign-in: each answer is
+// the file's type, sandboxed, readable from the frame's opaque origin and not cached; the page itself carries its
+// policy, which names its own address and the CDNs, never the rest of this origin (issue #737). A path outside the
+// revision, an unknown address and a write get nothing. Only the owner opens a frame.
 func TestAFolderPagesFilesLoadFromItsFramesAddressOnly(t *testing.T) {
 	t.Parallel()
 
@@ -159,11 +160,15 @@ func TestAFolderPagesFilesLoadFromItsFramesAddressOnly(t *testing.T) {
 		text   string
 	}
 
-	get := func(method, url string) answer {
+	get := func(method, url string, host ...string) answer {
 		t.Helper()
 
 		req, err := http.NewRequestWithContext(ctx, method, w.url+url, nil)
 		require.NoError(t, err)
+
+		if len(host) > 0 {
+			req.Host = host[0]
+		}
 
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
@@ -186,7 +191,34 @@ func TestAFolderPagesFilesLoadFromItsFramesAddressOnly(t *testing.T) {
 	assert.Equal(t, "no-referrer", csv.header.Get("Referrer-Policy"))
 	assert.Equal(t, "private, no-store", csv.header.Get("Cache-Control"))
 
+	page := get(http.MethodGet, folder+"index.html", "hyp.example")
+	require.Equal(t, http.StatusOK, page.status, page.text)
+	assert.Equal(t, "text/html; charset=utf-8", page.header.Get("Content-Type"))
+	own := "http://hyp.example" + folder + " https://hyp.example" + folder
+	policy := page.header.Get("Content-Security-Policy")
+	assert.Equal(t, pagePolicy("hyp.example"+folder), policy)
+
+	for _, directive := range []string{
+		"sandbox allow-scripts allow-forms",
+		"default-src 'none'",
+		"script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com " +
+			"https://cdn.jsdelivr.net https://unpkg.com " + own,
+		"connect-src https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com " + own +
+			" https://extensions.duckdb.org",
+		"frame-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'self'",
+	} {
+		assert.Contains(t, strings.Split(policy, "; "), directive)
+	}
+
+	assert.Equal(t, strings.Count(policy, "hyp.example"), strings.Count(policy, "hyp.example"+folder),
+		"only its own address names this origin")
+	injected := get(http.MethodGet, folder+"index.html", "hyp.example;script-src")
+	assert.Equal(t, http.StatusBadRequest, injected.status)
+	assert.Equal(t, "Not a host a page can name.", injected.text)
+
 	assert.Equal(t, "text/javascript; charset=utf-8", get(http.MethodGet, folder+"app.js").header.Get("Content-Type"))
+	assert.Equal(t, "sandbox allow-scripts; default-src 'none'",
+		get(http.MethodGet, folder+"app.js").header.Get("Content-Security-Policy"))
 	assert.Equal(t, http.StatusNotFound, get(http.MethodGet, folder+"secret.json").status)
 	assert.NotEqual(t, http.StatusOK, get(http.MethodGet, folder+"../app.js").status)
 
