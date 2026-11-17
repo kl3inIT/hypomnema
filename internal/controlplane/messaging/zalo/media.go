@@ -6,9 +6,11 @@ package zalo
 // reads them (sidecar/media-contract.js, downloadMediaStreamed), and they expire, as zaloclaw notes
 // (channel/monitor.ts): so they are taken at once. An image over 20 MiB and another file over 50 MiB is not
 // downloaded, as zaloclaw caps them (channel/image-downloader.ts, file-downloader.ts; issue #743). The files live
-// beside zalo.db, private as it is.
+// beside zalo.db, private as it is. Zalo's phone sends many images as JPEG XL, which models cannot read: such a link is
+// fetched as its JPG copy, which the CDN always has, and a JPEG XL file kept before is fetched again (issue #761).
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -159,7 +162,7 @@ func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, 
 	out := messaging.Media{MimeType: row.mime, FileName: row.fileName}
 
 	if row.localPath != "" {
-		if _, err := os.Stat(row.localPath); err == nil {
+		if _, err := os.Stat(row.localPath); err == nil && !isJXL(row.localPath) {
 			out.Path = row.localPath
 
 			return out, nil
@@ -178,7 +181,7 @@ func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, 
 		return out, fmt.Errorf("zalo: the file of message %s is %s", job.id, why)
 	}
 
-	data, contentType, err := a.svc.fetch(ctx, row.url, limit)
+	data, contentType, err := a.svc.fetch(ctx, jpgURL(row.url), limit)
 	if err != nil {
 		var (
 			gone  goneError
@@ -214,6 +217,58 @@ func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, 
 	out.Path = path
 
 	return out, nil
+}
+
+// jpgURL is a Zalo JPEG XL image's link turned into its JPG copy's, as Zalo PC does where JPEG XL cannot be shown
+// (deplao-builder, src/utils/zalo/zaloImageUrl.ts toZaloJpgUrl): /jxl/ becomes /jpg/, .jxl .jpg, and jxlstatus is
+// dropped. An end-to-end encrypted link and any other link stay as they are.
+func jpgURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || strings.Contains(raw, "?e2esession") || !strings.Contains(u.Path, "/jxl/") ||
+		!strings.HasSuffix(strings.ToLower(u.Path), ".jxl") {
+		return raw
+	}
+
+	toJPG := func(p string) string {
+		p = strings.Replace(p, "/jxl/", "/jpg/", 1)
+
+		return p[:len(p)-len(".jxl")] + ".jpg"
+	}
+
+	u.Path = toJPG(u.Path)
+	if u.RawPath != "" {
+		u.RawPath = toJPG(u.RawPath)
+	}
+
+	if q := u.Query(); q.Has("jxlstatus") {
+		q.Del("jxlstatus")
+		u.RawQuery = q.Encode()
+	}
+
+	return u.String()
+}
+
+// jxlMagic are the two ways a JPEG XL file starts: a bare codestream, or the ISO box container.
+var jxlMagic = [][]byte{{0xFF, 0x0A}, {0, 0, 0, 0x0C, 'J', 'X', 'L', ' ', 0x0D, 0x0A, 0x87, 0x0A}}
+
+// isJXL is whether a kept file is a JPEG XL image, as Zalo's phone sends them.
+func isJXL(path string) bool {
+	f, err := os.Open(path) //nolint:gosec // A path this package wrote.
+	if err != nil {
+		return false
+	}
+	defer f.Close() //nolint:errcheck // Read-only.
+
+	head := make([]byte, 12)
+	n, _ := io.ReadFull(f, head)
+
+	for _, magic := range jxlMagic {
+		if bytes.HasPrefix(head[:n], magic) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // goneError is a file Zalo's CDN answers it no longer has (403, 404, 410).

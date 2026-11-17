@@ -594,6 +594,8 @@ type Tab struct {
 	ID    string
 	URL   string
 	Title string
+	// Favicon is its page's icon as a data: address, once it was read (favicon.go).
+	Favicon string
 	// Views is how many views of it are open.
 	Views int
 }
@@ -640,6 +642,7 @@ func (e *Engine) Tabs(ctx context.Context) ([]Tab, bool) {
 	for _, target := range chromeTabs(ctx, cdp) {
 		if i, ok := targets[target.ID]; ok {
 			tabs[i].URL, tabs[i].Title = target.URL, target.Title
+			tabs[i].Favicon = e.iconOf(ctx, cdp, target.ID, target.URL)
 		}
 	}
 

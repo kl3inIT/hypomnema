@@ -124,6 +124,13 @@ export function setDragged(next: Dragged | null) {
   tell()
 }
 
+// latestBench is the grid as kept now. A change made since the last render is in it, where the grid a render was
+// given is not: two panes that open a tab beside them in one update each build on the other's (issue #703), as
+// React's state updater functions build on the state queued before them.
+export function latestBench() {
+  return bench
+}
+
 // useBench is the grid and its panes, or null when there is no grid.
 export function useBench() {
   return useSyncExternalStore(subscribe, () => bench)

@@ -39,7 +39,9 @@ import { AgentAvatar } from "@/components/agent-avatar"
 import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBotName, useBots } from "@/features/bots/use-bots"
 import { chatTabs, ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
+import { BrowserStrip } from "@/features/browser/browser-strip"
 import { BrowserView } from "@/features/browser/browser-view"
+import { TabIcon } from "@/features/browser/tab-icon"
 import { ChatBody } from "@/features/chat/chat-body"
 import { hasPhone, useDevice } from "@/features/device/device-state"
 import { PhoneView } from "@/features/device/phone-view"
@@ -51,6 +53,8 @@ import { useChat } from "@/features/shell/chats"
 import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
+import { useFollowTabs } from "./follow-tabs"
+import { browserTab, paneStrip, pickFromStrip } from "./strip"
 import {
   closeTab,
   frontOf,
@@ -64,7 +68,7 @@ import {
 } from "./pane"
 import { setDragged, tabDrag } from "./use-grid"
 
-export type Beside = { open: (tab: PaneTab) => void; has: (key: string) => boolean }
+export type Beside = { open: (...tabs: PaneTab[]) => void; has: (key: string) => boolean }
 
 // PaneView is a pane (issue #235): a strip of its tabs, and the tab in front under it. "+" opens a new chat, the
 // owner's browser tab, the phone (issue #417), or a browser tab of a chat in the pane, its Bot's or a worker's (issue #557), as Orca's tab bar does
@@ -76,7 +80,9 @@ export type Beside = { open: (tab: PaneTab) => void; has: (key: string) => boole
 // side of a pane, as Orca's are. `start` and `end` are what the place showing the pane puts at the strip's ends:
 // the menu on a phone, a grid pane's buttons. Every tab can be closed, as in Orca; a chat's own page decides where
 // it goes when its chat's tab is (./solo-pane.tsx). The phone opens beside the chat, in the pane to its right or a
-// new one split off there, as Orca opens its emulator (issue #528, `openBeside` in ./moves.ts).
+// new one split off there, as Orca opens its emulator (issue #528, `openBeside` in ./moves.ts), and so does a browser
+// tab a chat's Bot or worker just opened, or one its card in the chat asks for (issue #703). A browser tab in front
+// has a strip of the browser's tabs over it (./browser-strip.tsx).
 export function PaneView({
   id,
   pane,
@@ -116,6 +122,19 @@ export function PaneView({
   const [closing, setClosing] = useState<string | null>(null)
   const frontKey = front === undefined ? "" : tabKey(front)
   const open = (tab: PaneTab) => onChange(openTab(pane, tab))
+  // Browser tabs of a chat open beside it, or in the pane on a phone (issue #703), all in one change, so that
+  // none undoes another; the last is in front.
+  const showTabs = (tabs: string[]) => {
+    const shown = tabs.map((tab) => browserTab(tab, browser.data?.tabs))
+    if (beside) beside.open(...shown)
+    else onChange(shown.reduce(openTab, pane))
+  }
+  const showTab = (tab: string) => showTabs([tab])
+  useFollowTabs(browser.data?.tabs, paneChats(pane), showTabs)
+  // The strip over a browser tab, and a click on it (./strip.ts).
+  const strip = paneStrip(pane, browser.data?.tabs)
+  const pickBrowser = (from: string, tab: string) =>
+    onChange(pickFromStrip(pane, from, tab, browser.data?.tabs))
   const newChat = (bot: string) => open({ kind: "draft", id: crypto.randomUUID().slice(0, 8), bot })
   // The Files panel shows the folders of the chat in front, or of the pane's first chat (issue #255).
   const filesOf =
@@ -205,7 +224,7 @@ export function PaneView({
                     closeLabel={`Close ${label(shown)}`}
                     {...common}
                   >
-                    <Globe className="size-3.5 shrink-0" aria-hidden />
+                    <TabIcon tab={shown} />
                     <span className="truncate">{label(shown)}</span>
                     {shown.id !== ownerTab && (
                       <span className="text-xs text-secondary-label">
@@ -314,11 +333,15 @@ export function PaneView({
             if (tab.kind === "browser") {
               return (
                 shown && (
-                  <BrowserView
-                    key={key}
-                    tab={tab.tab}
-                    label={`The page of ${label(known(tab.tab))}`}
-                  />
+                  <div key={key} className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <BrowserStrip
+                      tabs={strip}
+                      shown={tab.tab}
+                      botName={botName}
+                      onPick={(next) => pickBrowser(key, next)}
+                    />
+                    <BrowserView tab={tab.tab} label={`The page of ${label(known(tab.tab))}`} />
+                  </div>
                 )
               )
             }
@@ -369,6 +392,7 @@ export function PaneView({
                     }
                     // An artifact opens in the panel beside the chat, in the place of the Files panel (issue #402).
                     onOpenArtifact={(artifact) => onChange({ ...pane, artifact, files: false })}
+                    onOpenBrowserTab={showTab}
                   />
                 ) : (
                   <DraftChat

@@ -174,3 +174,15 @@ export function openBeside(bench: Bench, source: string, tab: PaneTab, fresh: st
     ? bench
     : { ...bench, panes: { ...bench.panes, [source]: openTab(here, tab) } }
 }
+
+// openAllBeside is the bench after several tabs are opened beside a pane at once (issue #703), one after the
+// other as `openBeside` opens one, so that none undoes another: the first may split off a pane to the right, and
+// the next open in it. The last is in front. `fresh` gives the id of a new pane.
+export function openAllBeside(
+  bench: Bench,
+  source: string,
+  tabs: readonly PaneTab[],
+  fresh: () => string,
+): Bench {
+  return tabs.reduce((next, tab) => openBeside(next, source, tab, fresh()), bench)
+}
