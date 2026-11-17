@@ -1,0 +1,22 @@
+knowledge-work-plugins
+Copyright Anthropic
+
+Used under the Apache License, Version 2.0 (the same text as
+internal/controlplane/clientcli/skills/pages/LICENSE, shipped in the skill's
+folder).
+Source: https://github.com/anthropics/knowledge-work-plugins at
+e91a134584eb798bac7fb0379358006a2b63b965, the data plugin (1.1.0):
+data/skills/data-visualization, data/skills/build-dashboard and
+data/skills/create-viz.
+
+What is adapted from it here (issue #729): choosing a chart by what it shows
+and when not to use a form, from data-visualization and create-viz, merged
+into internal/controlplane/clientcli/skills/pages/references/perception.md and
+the chart table of pages's SKILL.md; the design principles of
+data-visualization (title states the insight, sort by value, aspect ratio,
+consistent scales across panels, labelled axes, uncertainty) in the same
+file; the size guidelines and pre-aggregation of build-dashboard in the
+skill's Data and Before you hand it over sections. Changed: charts are inline
+SVG drawn by the page, not matplotlib, plotly or Chart.js; a dashboard is shown
+with the show_artifact tool, not saved and opened. Left out: the Python code,
+the Chart.js template and its CDN script, the slash-command workflows.
