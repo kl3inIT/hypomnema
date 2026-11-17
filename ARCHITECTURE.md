@@ -2082,7 +2082,11 @@ flowchart LR
       for another file (zaloclaw's caps, [issue #743](https://github.com/kl3inIT/hypomnema/issues/743)) that dials
       only public addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its
       sender's), into `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404,
-      410) or one over its cap is said once. `…/media` answers one; disconnecting removes them.
+      410) or one over its cap is said once. An image Zalo's phone sent as JPEG XL (`…/jxl/…/<id>.jxl`), which
+      models cannot read, is fetched as the JPG copy the CDN keeps (`/jpg/`, `.jpg`, without `jxlstatus`), as
+      deplao-builder and Zalo PC do, and one kept as JPEG XL before is fetched again when it is next opened
+      ([issue #761](https://github.com/kl3inIT/hypomnema/issues/761)). `…/media` answers one; disconnecting
+      removes them.
     - **A Bot reads and writes in it** ([issue #680](https://github.com/kl3inIT/hypomnema/issues/680), step 3):
       WhatsApp's tools became one family per service (`agentapi/messaging_tools.go`, `messagingServices`): a Bot
       given a Zalo Connection, on the owner's turn, has `zalo_chats`, `zalo_messages`, `zalo_media`,
