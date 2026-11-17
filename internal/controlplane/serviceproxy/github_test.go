@@ -95,6 +95,21 @@ func TestWhatGhAsksGitHubIsAnActionOfTheCatalog(t *testing.T) {
 		{`query { ...F } fragment F on Query { rateLimit { limit } }`, "github.unlisted"},
 		{`subscription { viewer { login } }`, "github.unlisted"},
 		{`query { repository(`, "github.unlisted"},
+		// gh's feature detection (#706): an alias at the root is matched by its field.
+		{`query SearchType_enumValues{SearchType: __type(name: "SearchType"){enumValues(includeDeprecated: true)` +
+			`{name}}}`, "github.schema.read"},
+		{`{ __schema { queryType { name } } }`, "github.schema.read"},
+		{`{ __typename }`, "github.schema.read"},
+		{`{ __typename viewer { login } }`, "github.user.read"},
+		{`{ t: __type(name: "Issue") { name } repository(owner: "o", name: "r") { id } }`,
+			"github.graphql.repo.read"},
+		{`query { __type(name: "Issue") { name } } mutation { addComment(input: {}) { clientMutationId } }`,
+			"github.comments.create"},
+		{`mutation { __typename addComment(input: {}) { clientMutationId } }`, "github.unlisted"},
+		{`query { __type(name: "Issue") { name } } mutation { mergePullRequest(input: {}) { clientMutationId } }`,
+			"github.unlisted"},
+		{`{ __type(name: "Enterprise") { name } enterprise(slug: "e") { id } }`, "github.unlisted"},
+		{`subscription { __typename }`, "github.unlisted"},
 	}
 
 	for _, c := range graphql {
@@ -129,7 +144,8 @@ func TestWhatGhAsksGitHubIsAnActionOfTheCatalog(t *testing.T) {
 
 // Scenario: a Bot's pi reads an issue with gh, given the git host's Connection github.com:default, the token
 // workers use. gh holds a placeholder; GitHub receives the host's token. A comment waits for the owner and reaches
-// GitHub only once he approves. A log's download carries no token.
+// GitHub only once he approves. gh's feature detection, a query of the schema, runs on its own (#706). A log's
+// download carries no token.
 func TestABotReadsGitHubWithTheHostsTokenAndACommentAsks(t *testing.T) {
 	t.Parallel()
 
@@ -152,8 +168,12 @@ func TestABotReadsGitHubWithTheHostsTokenAndACommentAsks(t *testing.T) {
 	read := gh.do(http.MethodGet, "/repos/o/r/actions/runs/1/jobs", "", nil)
 	require.Equal(t, http.StatusOK, read.Status)
 
+	schema := gh.do(http.MethodPost, "/graphql", "application/json", graphqlBody(t, `query SearchType_enumValues{`+
+		`SearchType: __type(name: "SearchType"){enumValues(includeDeprecated: true){name}}}`))
+	require.Equal(t, http.StatusOK, schema.Status, "gh's feature detection reads the schema (#706)")
+
 	received := w.service.received()
-	require.Len(t, received, 2)
+	require.Len(t, received, 3)
 	assert.Equal(t, "https://api.github.com/graphql", received[0].URL)
 	assert.Equal(t, "Bearer "+realToken, received[0].Authorization)
 	assert.Equal(t, "Bearer "+realToken, received[1].Authorization)
@@ -167,23 +187,23 @@ func TestABotReadsGitHubWithTheHostsTokenAndACommentAsks(t *testing.T) {
 	asked := w.pending()
 	assert.Equal(t, "github.comments.create", asked.Action)
 	assert.Equal(t, serviceproxy.GitHubID, asked.Integration)
-	assert.Len(t, w.service.received(), 2, "nothing is sent while the owner has not answered")
+	assert.Len(t, w.service.received(), 3, "nothing is sent while the owner has not answered")
 
 	_, err = w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeOnce)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, (<-answered).Status)
 
 	received = w.service.received()
-	require.Len(t, received, 3)
-	assert.True(t, bytes.Equal(comment, received[2].Body), "the request goes on as gh made it")
+	require.Len(t, received, 4)
+	assert.True(t, bytes.Equal(comment, received[3].Body), "the request goes on as gh made it")
 
 	logs, refused := w.openTo(serviceproxy.GitHubID, w.pi, "default", "productionresultssa6.blob.core.windows.net", w.chat)
 	require.Zero(t, refused)
 	require.Equal(t, http.StatusOK, logs.do(http.MethodGet, "/actions-results/10e8/logs.txt?sig=abc", "", nil).Status)
 
 	received = w.service.received()
-	require.Len(t, received, 4)
-	assert.Empty(t, received[3].Authorization, "a signed download carries no token")
+	require.Len(t, received, 5)
+	assert.Empty(t, received[4].Authorization, "a signed download carries no token")
 
 	_, refused = w.openTo(serviceproxy.GitHubID, w.pi, "default", "github.com", w.chat)
 	assert.Equal(t, http.StatusForbidden, refused, "only the API's hosts are reached")
