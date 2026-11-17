@@ -20,9 +20,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
+	"github.com/kl3inIT/hypomnema/api"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
@@ -380,10 +382,21 @@ func (s *Server) authenticate(ctx context.Context, r *http.Request) (orchestrati
 	return tok, "", err
 }
 
+// loadSpec reads the client API's contract, read from api/openapi.yaml as embedded
+// (issue #754).
+func loadSpec() (*openapi3.T, error) {
+	spec, err := openapi3.NewLoader().LoadFromData(api.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("reading api/openapi.yaml: %w", err)
+	}
+
+	return spec, nil
+}
+
 // requestValidator checks every request against the spec before it reaches a
 // handler; authentication is the strict middleware's.
 func requestValidator() (func(http.Handler) http.Handler, error) {
-	spec, err := openapi.GetSpec()
+	spec, err := loadSpec()
 	if err != nil {
 		return nil, fmt.Errorf("loading the embedded OpenAPI spec: %w", err)
 	}

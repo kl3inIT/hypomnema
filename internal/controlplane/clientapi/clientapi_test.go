@@ -126,7 +126,7 @@ func errorCode(t *testing.T, body []byte, status, want int) openapi.ErrorCode {
 func TestEveryOperationHasAPolicy(t *testing.T) {
 	t.Parallel()
 
-	spec, err := openapi.GetSpec()
+	spec, err := loadSpec()
 	require.NoError(t, err)
 
 	ops := map[string]bool{}
