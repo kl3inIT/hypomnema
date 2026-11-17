@@ -1,9 +1,13 @@
 package clientapi
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -190,4 +194,79 @@ func TestARecordingIsNeverServedAsAPage(t *testing.T) {
 
 	assert.Equal(t, "application/octet-stream", meetings.MediaType("audio/mpeg", "text/html; charset=utf-8"),
 		"a page named a sound is not one")
+}
+
+// sendSlowly sends a request as a browser does over a slow link: its head at once, then its body in pieces of four
+// bytes, a pause before each, and reads the answer.
+func sendSlowly(t *testing.T, addr, head string, body []byte, pause time.Duration) (*http.Response, error) {
+	t.Helper()
+
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", addr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if _, err := fmt.Fprintf(conn, "%sContent-Length: %d\r\n\r\n", head, len(body)); err != nil {
+		return nil, err
+	}
+
+	for len(body) > 0 {
+		time.Sleep(pause)
+
+		n := min(4, len(body))
+		if _, err := conn.Write(body[:n]); err != nil {
+			return nil, err
+		}
+
+		body = body[n:]
+	}
+
+	return http.ReadResponse(bufio.NewReader(conn), nil)
+}
+
+// Scenario (issue #779): the client API is served with read and write timeouts, as the control plane is, shortened
+// here; a recording whose body takes longer than both to arrive is still taken, as the owner's 6 MB recording over a
+// slow link must be. Another request keeps the server's timeouts.
+func TestARecordingSlowerThanTheServersTimeoutsIsTaken(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	work, err := meetings.New(meetings.Config{
+		Dir: filepath.Join(t.TempDir(), "meetings"), Store: w.svc.Meetings(), Speech: twoVoices{}, Models: noModel{},
+		Usage: noUsage{},
+	})
+	require.NoError(t, err)
+	w.srv.WithMeetings(work)
+
+	hs := httptest.NewUnstartedServer(w.mux)
+	hs.Config.ReadTimeout = 300 * time.Millisecond
+	hs.Config.WriteTimeout = 300 * time.Millisecond
+	hs.Start()
+	t.Cleanup(hs.Close)
+
+	_, secret, err := w.svc.AddToken(ctx, "web", bearertoken.Owner)
+	require.NoError(t, err)
+
+	addr := strings.TrimPrefix(hs.URL, "http://")
+	head := func(path, contentType string) string {
+		return "POST " + BasePath + path + " HTTP/1.1\r\nHost: " + addr + "\r\nAuthorization: Bearer " + secret +
+			"\r\nContent-Type: " + contentType + "\r\n"
+	}
+
+	// 16 bytes in four pieces, 200 ms apart: 800 ms, past both timeouts.
+	resp, err := sendSlowly(t, addr, head("/meetings?file_name=sync.mp3", "application/octet-stream"),
+		[]byte("ID3-0123456789ab"), 200*time.Millisecond)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode, string(body))
+
+	other, err := sendSlowly(t, addr, head("/runs", "application/json"),
+		[]byte(`{"objective":"x","repo":"a/b"}`), 200*time.Millisecond)
+	if err == nil {
+		defer func() { _ = other.Body.Close() }()
+		assert.NotEqual(t, http.StatusCreated, other.StatusCode, "another request keeps the server's timeouts")
+	}
 }
