@@ -566,7 +566,7 @@ func TestACommentGrantedWhileARequestIsDecidedDoesNotCarryItsMerge(t *testing.T)
 
 	go func() { merged <- gh.do(http.MethodPost, "/graphql", "application/json", both) }()
 
-	merge := w.pending()
+	merge := pendingMerge(t, w)
 	require.NoError(t, between.err)
 	assert.Equal(t, "github.pulls.merge", merge.Action, "the merge asks, though the comment was granted meanwhile")
 	assert.Empty(t, w.service.received(), "nothing is sent while the merge waits")
@@ -585,4 +585,26 @@ func TestACommentGrantedWhileARequestIsDecidedDoesNotCarryItsMerge(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, (<-merged).Status)
 	assert.Len(t, w.service.received(), 1, "approved, the merge runs with the comment")
+}
+
+// pendingMerge waits for the merge's approval. The comment's own approval is pending for a moment too, until the
+// owner approves it in grantBetween; it is not the one waited for.
+func pendingMerge(t *testing.T, w *world) orchestration.Approval {
+	t.Helper()
+
+	var found orchestration.Approval
+
+	require.Eventually(t, func() bool {
+		for _, a := range w.approvals(orchestration.ApprovalPending) {
+			if a.Action == "github.pulls.merge" {
+				found = a
+
+				return true
+			}
+		}
+
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the merge should wait for the owner")
+
+	return found
 }
