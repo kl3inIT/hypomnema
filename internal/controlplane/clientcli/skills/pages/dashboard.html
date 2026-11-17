@@ -794,7 +794,8 @@ function renderRegions(data, t) {
   const lead = (state.region && data.find((d) => d.region === state.region)) || data[0];
   if (lead && total) figure("figure-regions", lead.region, fmt.pct.format(lead.revenue / total));
   else figure("figure-regions", "—");
-  $("chart-regions").setAttribute("aria-label", `Bar chart of revenue by region. ${data.length ? data.map((d) => `${d.region} ${fmt.moneyShort.format(d.revenue)}`).join(", ") : EMPTY}.`);
+  // The selected region is told in words too: on the chart it is only the accent among grey bars.
+  $("chart-regions").setAttribute("aria-label", `Bar chart of revenue by region. ${data.length ? data.map((d) => `${d.region} ${fmt.moneyShort.format(d.revenue)}`).join(", ") : EMPTY}${state.region && data.length ? `; ${state.region} highlighted` : ""}.`);
   barChart("chart-regions", { bars: data.map((d) => ({ label: d.region, value: d.revenue, color: !state.region || d.region === state.region ? t.accent : t.deemph })),
     format: (v) => fmt.moneyShort.format(v), full: (v) => fmt.money.format(v), t });
   fillTable($("numbers-regions"), [{ label: "Region", value: (d) => d.region }, { label: "Revenue", num: true, value: (d) => fmt.money.format(d.revenue) },
