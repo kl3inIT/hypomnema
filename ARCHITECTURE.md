@@ -3470,8 +3470,13 @@ Node (`internal/node`):
     query and what varies last; that the recovery note, a follow-up and a Gate come after the spec is inferred from
     Anthropic's Fable 5.2 page):
     - the rules, the same for every worker:
-      - `ask` instead of guessing; no one reads the worker's messages before `finish`, so no progress messages
-        (Orca, omp); a decision boundary of what a worker decides itself waits for the owner (#672);
+      - one decision boundary, within what the task and the worker's instruction allow: it decides how to build
+        it, which tests to add, running the checks, committing and pushing its branch, and opening or updating the
+        Task's pull request; it asks first, with `ask`, before changing the scope, merging, deploying or changing a
+        server, deleting what its change did not make, or acting outside its directory and pull request (the
+        owner's list, 2026-11-17, issue #672; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do
+        freely / Ask first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
+        omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
         Anthropic's Opus 5.5 and Fable 5.2 pages, omp's subagent and Hermes's task-completion guidance);
