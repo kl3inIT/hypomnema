@@ -2,7 +2,18 @@ import { describe, expect, it } from "vitest"
 
 import type { Meeting } from "@/api/generated/types.gen"
 
-import { actionsText, byDay, clock, listOf, sameName, stageOf, stepsOf } from "./meetings-state"
+import {
+  actionsText,
+  addWords,
+  byDay,
+  clock,
+  formatName,
+  listOf,
+  ownWords,
+  sameName,
+  stageOf,
+  stepsOf,
+} from "./meetings-state"
 
 function meeting(over: Partial<Meeting> = {}): Meeting {
   return {
@@ -10,7 +21,6 @@ function meeting(over: Partial<Meeting> = {}): Meeting {
     title: "Weekly sync",
     titled: true,
     people: [],
-    terms: [],
     file_name: "sync.m4a",
     media_type: "audio/mp4",
     size: 10,
@@ -82,5 +92,28 @@ describe("meetings", () => {
     expect(clock(3_725_000)).toBe("1:02:05")
     expect(listOf("Laura,  Kai\nMinh,,")).toEqual(["Laura", "Kai", "Minh"])
     expect(sameName("  laura ", "Laura")).toBe(true)
+  })
+
+  // Issue #747: the owner's words are those of the list that are the owner's; typing several at once adds each
+  // once, in any case, and a word too long for the list is left out.
+  it("adds the words the owner types to the owner's list", () => {
+    const own = ownWords([
+      { word: "MapOps", from: "owner", sent: true },
+      { word: "Laura", from: "speaker", sent: true },
+      { word: "ĐKSD", from: "owner", sent: true },
+    ])
+    expect(own).toEqual(["MapOps", "ĐKSD"])
+    expect(addWords(own, ` mapops, Hypomnema,\nhypomnema, ${"x".repeat(101)}`)).toEqual([
+      "MapOps",
+      "ĐKSD",
+      "Hypomnema",
+    ])
+  })
+
+  // A format the owner deleted is said so where notes written in it are shown.
+  it("names a format, or says it was deleted", () => {
+    const formats = [{ id: "general", name: "General", sections: [], builtin: true }]
+    expect(formatName(formats, "general")).toBe("General")
+    expect(formatName(formats, "mtf_gone")).toBe("A deleted format")
   })
 })

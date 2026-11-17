@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { ChevronDown, Upload } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
@@ -31,13 +31,15 @@ import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
 import { TextField } from "@/components/text-field"
 
+import { FormatItems } from "./format-items"
 import { languages, listOf, maxRecording } from "./meetings-state"
 import { useMeetingSettings, useUploadMeeting } from "./use-meetings"
 
 // UploadMeeting is the "Upload recording" button and its dialog (issue #721): the file and its language, as
 // Fireflies, Meetily and Nojoin ask; then, behind one "More details" control as Nojoin and MemoryOS keep them, the
-// title (written from the meeting when empty), the people, the words to hear right (MemoryOS's terms, sent to the
-// provider) and the notes format (Otter, Hyprnote). The meeting's page opens once it is sent.
+// title (written from the meeting when empty), the people and the notes format (Otter, Hyprnote). The words to hear
+// right are not asked here: they are one list on Settings → Meetings, given to every recording (issue #747, as
+// Nojoin's glossary and OpenNoteTaker's key terms are set once). The meeting's page opens once it is sent.
 
 const schema = z.object({
   file: z
@@ -48,7 +50,6 @@ const schema = z.object({
   language: z.string(),
   title: z.string().max(200, "At most 200 characters."),
   people: z.string(),
-  terms: z.string(),
   format: z.string(),
 })
 
@@ -86,14 +87,12 @@ function Body({ onDone }: { onDone: () => void }) {
       language: "auto",
       title: "",
       people: "",
-      terms: "",
       format: "general",
     },
     validators: { onSubmit: schema },
     onSubmit: async ({ value }) => {
       const file = value.file as File
       const people = listOf(value.people)
-      const terms = listOf(value.terms)
       const made = await upload.mutateAsync({
         body: file,
         query: {
@@ -102,7 +101,6 @@ function Body({ onDone }: { onDone: () => void }) {
           ...(value.language !== "auto" ? { language: value.language } : {}),
           ...(value.title.trim() ? { title: value.title.trim() } : {}),
           ...(people.length ? { people } : {}),
-          ...(terms.length ? { terms } : {}),
           format: value.format,
         },
       })
@@ -209,16 +207,6 @@ function Body({ onDone }: { onDone: () => void }) {
                           />
                         )}
                       </form.Field>
-                      <form.Field name="terms">
-                        {(field) => (
-                          <TextField
-                            field={field}
-                            label="Words to hear right"
-                            placeholder="MapOps, Hypomnema"
-                            description="Names and jargon, separated by commas, given to the speech-to-text provider."
-                          />
-                        )}
-                      </form.Field>
                       <form.Field name="format">
                         {(field) => (
                           <Field>
@@ -235,11 +223,7 @@ function Body({ onDone }: { onDone: () => void }) {
                                 </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
-                                {formats.map((f) => (
-                                  <SelectItem key={f.id} value={f.id}>
-                                    {f.name}
-                                  </SelectItem>
-                                ))}
+                                <FormatItems formats={formats} />
                               </SelectContent>
                             </Select>
                             <FieldDescription>
@@ -256,6 +240,16 @@ function Body({ onDone }: { onDone: () => void }) {
                 </CollapsibleContent>
               </div>
             </Collapsible>
+            <p className="text-xs text-muted-foreground">
+              Names and jargon are heard right from your words on{" "}
+              <Link
+                to="/settings/meetings"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Settings → Meetings
+              </Link>
+              .
+            </p>
             <ErrorAlert error={upload.error} />
           </FieldGroup>
         </form>

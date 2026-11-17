@@ -62,10 +62,6 @@ const (
 	MaxTitle  = 200
 	MaxName   = 100
 	MaxPeople = 30
-	// MaxTerms bounds the words to hear right: MemoryOS bounds a meeting's terms by their JSON; Soniox takes a
-	// context of about 10,000 characters.
-	MaxTerms = 100
-	maxTerm  = 100
 )
 
 // Meeting is a meeting, with its notes' state and its voices.
@@ -76,7 +72,6 @@ type Meeting struct {
 	Titled    bool
 	Language  string
 	People    []string
-	Terms     []string
 	FileName  string
 	MediaType string
 	Size      int64
@@ -204,7 +199,6 @@ type NewMeeting struct {
 	Title     string
 	Language  string
 	People    []string
-	Terms     []string
 	Format    string
 	FileName  string
 	MediaType string
@@ -236,11 +230,6 @@ func (s *Store) Create(ctx context.Context, nm NewMeeting) (Meeting, error) {
 		return Meeting{}, err
 	}
 
-	terms, err := cleanList(nm.Terms, MaxTerms, maxTerm, "words to hear right")
-	if err != nil {
-		return Meeting{}, err
-	}
-
 	if nm.ID == "" || nm.Size <= 0 || nm.FileName == "" || nm.Format == "" {
 		return Meeting{}, fmt.Errorf("%w: a meeting needs its recording and a notes format", storeerr.ErrInvalid)
 	}
@@ -250,15 +239,10 @@ func (s *Store) Create(ctx context.Context, nm NewMeeting) (Meeting, error) {
 		return Meeting{}, fmt.Errorf("encoding the people: %w", err)
 	}
 
-	termsJSON, err := json.Marshal(terms)
-	if err != nil {
-		return Meeting{}, fmt.Errorf("encoding the words: %w", err)
-	}
-
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertMeeting(ctx, store.InsertMeetingParams{
 			ID: nm.ID, Title: title, Titled: flag(titled), Language: nm.Language, People: string(peopleJSON),
-			Terms: string(termsJSON), FileName: nm.FileName, MediaType: nm.MediaType, Size: nm.Size, Now: now,
+			FileName: nm.FileName, MediaType: nm.MediaType, Size: nm.Size, Now: now,
 		}); err != nil {
 			return fmt.Errorf("storing meeting %s: %w", nm.ID, err)
 		}
@@ -911,7 +895,7 @@ func nextPosition(speakers []Speaker) int {
 func meetingOf(r store.Meeting) Meeting {
 	return Meeting{
 		ID: r.ID, Title: r.Title, Titled: r.Titled == 1, Language: r.Language, People: list(r.People),
-		Terms: list(r.Terms), FileName: r.FileName, MediaType: r.MediaType, Size: r.Size,
+		FileName: r.FileName, MediaType: r.MediaType, Size: r.Size,
 		Duration: time.Duration(r.DurationMs) * time.Millisecond, State: r.State, Failure: r.Failure,
 		Attempts: int(r.Attempts), Provider: r.Provider, Model: r.Model, CreatedAt: storeutil.Millis(r.CreatedAt),
 		UpdatedAt: storeutil.Millis(r.UpdatedAt),
@@ -990,6 +974,19 @@ func checkText(v string, longest int, what string) error {
 
 	if strings.IndexFunc(v, unicode.IsControl) >= 0 {
 		return fmt.Errorf("%w: %s is one line", storeerr.ErrInvalid, what)
+	}
+
+	return nil
+}
+
+// checkParagraph is checkText for a text that may hold line breaks.
+func checkParagraph(v string, longest int, what string) error {
+	if utf8.RuneCountInString(v) > longest {
+		return fmt.Errorf("%w: %s is at most %d characters", storeerr.ErrInvalid, what, longest)
+	}
+
+	if strings.IndexFunc(v, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) >= 0 {
+		return fmt.Errorf("%w: %s holds a control character", storeerr.ErrInvalid, what)
 	}
 
 	return nil

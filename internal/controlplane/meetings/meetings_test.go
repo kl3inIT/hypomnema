@@ -142,6 +142,7 @@ const notes = `{
 }`
 
 type world struct {
+	orch   *orchestration.Service
 	svc    *meetings.Service
 	store  *meetingstore.Store
 	dir    string
@@ -166,7 +167,7 @@ func newWorld(t *testing.T) *world {
 	})
 
 	w := &world{
-		store: orch.Meetings(), dir: filepath.Join(t.TempDir(), "meetings"), soniox: &fakeSoniox{},
+		orch: orch, store: orch.Meetings(), dir: filepath.Join(t.TempDir(), "meetings"), soniox: &fakeSoniox{},
 		model: &fakeModel{answer: notes}, usage: &fakeUsage{},
 	}
 	srv := w.soniox.serve(t)
@@ -209,7 +210,8 @@ func (w *world) upload(t *testing.T, u meetings.Upload) meetingstore.Meeting {
 	return m
 }
 
-// An uploaded recording is kept and heard with two voices, in its language and with the words to hear right; the
+// An uploaded recording is kept and heard with two voices, in its language and with the owner's words to hear
+// right; the
 // notes model then writes the summary, the format's sections, a decision and the actions, checked: the action a
 // voice took on is that voice's, the one given to a group has nobody, and a quote nobody said is dropped. Both calls
 // are counted on the meetings' gateway key, and a voice that introduced itself is offered its name.
@@ -219,9 +221,9 @@ func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	m := w.upload(t, meetings.Upload{
-		Language: "vi", People: []string{"Lan", "Minh"}, Terms: []string{"MapOps", "ĐKSD"},
-	})
+	require.NoError(t, w.svc.SetWords(ctx, []string{"MapOps", "ĐKSD"}))
+
+	m := w.upload(t, meetings.Upload{Language: "vi", People: []string{"Lan", "Minh"}})
 	assert.Equal(t, meetingstore.Transcribing, m.State)
 	assert.Equal(t, "weekly-sync", m.Title, "the file's name until the notes write one")
 	assert.Equal(t, meetings.DefaultFormat, m.Notes.Format)
@@ -235,7 +237,8 @@ func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
 
 	assert.Equal(t, true, w.soniox.job["enable_speaker_diarization"])
 	assert.Equal(t, []any{"vi"}, w.soniox.job["language_hints"])
-	assert.Equal(t, map[string]any{"terms": []any{"MapOps", "ĐKSD"}}, w.soniox.job["context"])
+	assert.Equal(t, map[string]any{"terms": []any{"MapOps", "ĐKSD", "coordinator"}}, w.soniox.job["context"],
+		"the owner's words, then the Bot's name")
 
 	d, err := w.svc.Get(ctx, m.ID)
 	require.NoError(t, err)
@@ -392,7 +395,7 @@ func TestNotesAreWrittenAgainInAnotherFormat(t *testing.T) {
 	w.svc.Work(ctx)
 
 	require.Len(t, w.model.asked, 2)
-	assert.Contains(t, w.model.asked[1], "Yesterday")
+	assert.Contains(t, w.model.asked[1], "Yesterday's Accomplishments")
 	assert.Contains(t, w.model.asked[1], "Blockers")
 	assert.NotContains(t, w.model.asked[1], "a title for the meeting", "the owner titled it")
 
@@ -400,7 +403,8 @@ func TestNotesAreWrittenAgainInAnotherFormat(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "standup", d.Meeting.Notes.Format)
 	assert.Equal(t, "A stand-up.", d.Meeting.Notes.Summary)
-	assert.Equal(t, []string{"Yesterday", "Today", "Blockers"}, sectionTitles(d.Meeting.Notes.Sections))
+	assert.Equal(t, []string{"Yesterday's Accomplishments", "Today's Plan", "Blockers", "Team Updates"},
+		sectionTitles(d.Meeting.Notes.Sections))
 	assert.Empty(t, d.Items)
 }
 

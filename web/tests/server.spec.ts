@@ -81,3 +81,55 @@ test("the pages skill's dashboard draws itself", async ({ page }) => {
   await expect(frame.locator("#chart-regions svg rect")).toHaveCount(4)
   expect(refused).toEqual([])
 })
+
+// Scenario: the owner shares the folder page with Laura (issue #745). In a browser with no session, the link's page
+// shows it in the locked frame under the server's headers, its relative script and data loaded, never indexed or
+// kept; after the owner revokes the link, the open page says so by itself at its next check, with no reload.
+test("a view-only link shows the page without signing in until it is revoked", async ({
+  page,
+  browser,
+}) => {
+  const listed = await page.request.get("/api/v1/artifacts")
+  const { data } = (await listed.json()) as { data: { id: string; title: string }[] }
+  const id = data.find((a) => a.title === "Folder page")?.id
+  expect(id).toBeDefined()
+
+  const made = await page.request.post(`/api/v1/artifacts/${id}/shares`, {
+    data: { label: "Laura" },
+  })
+  expect(made.status()).toBe(201)
+  const share = (await made.json()) as { id: string; path: string }
+
+  const laura = await browser.newContext()
+  const viewer = await laura.newPage()
+  expect((await laura.cookies()).length).toBe(0)
+  await viewer.clock.install()
+
+  const refused: string[] = []
+  viewer.on("console", (m) => {
+    if (m.type() === "error" && /Content.Security.Policy/i.test(m.text())) refused.push(m.text())
+  })
+
+  const opened = await viewer.goto(share.path)
+  expect(opened?.headers()["x-robots-tag"]).toBe("noindex, nofollow")
+  expect(opened?.headers()["cache-control"]).toBe("private, no-store")
+
+  await expect(viewer.getByRole("heading", { name: "Folder page" })).toBeVisible()
+  const frame = viewer.frameLocator('iframe[title="Folder page"]')
+  await expect(frame.locator("#module")).toHaveText("module script ran")
+  await expect(frame.locator("#data")).toHaveText("data read from the folder")
+  expect(refused).toEqual([])
+
+  const iframe = viewer.locator('iframe[title="Folder page"]')
+  await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms")
+  expect(await iframe.evaluate((f: { contentDocument: unknown }) => f.contentDocument)).toBeNull()
+
+  const revoked = await page.request.delete(`/api/v1/artifact-shares/${share.id}`)
+  expect(revoked.status()).toBe(204)
+
+  await viewer.clock.fastForward(31_000)
+  await expect(viewer.getByText("This link was revoked, or never was.")).toBeVisible()
+  await expect(iframe).toHaveCount(0)
+
+  await laura.close()
+})

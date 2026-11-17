@@ -2,17 +2,24 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import "@/api/client"
 import {
+  createMeetingFormatMutation,
+  deleteMeetingFormatMutation,
+  fixMeetingWordMutation,
   getMeetingOptions,
   getMeetingQueryKey,
   getMeetingSettingsOptions,
   getMeetingSettingsQueryKey,
   listMeetingActionsOptions,
   listMeetingActionsQueryKey,
+  listMeetingWordsOptions,
+  listMeetingWordsQueryKey,
   listMeetingsOptions,
   listMeetingsQueryKey,
   nameMeetingSpeakerMutation,
   setMeetingLineSpeakerMutation,
   setMeetingSettingsMutation,
+  setMeetingWordsMutation,
+  updateMeetingFormatMutation,
   updateMeetingItemMutation,
   uploadMeetingMutation,
   writeMeetingNotesMutation,
@@ -132,6 +139,61 @@ export function useSetMeetingSettings() {
     ...setMeetingSettingsMutation(),
     onSuccess: (settings) => queryClient.setQueryData(getMeetingSettingsQueryKey(), settings),
   })
+}
+
+// useFixWord replaces a word heard wrong in a line or the whole meeting (issue #747); the right word joins the word
+// list, which is read again.
+export function useFixWord(id: string) {
+  const queryClient = useQueryClient()
+  const put = usePutMeeting(id)
+
+  return useMutation({
+    ...fixMeetingWordMutation(),
+    onSuccess: (fixed) =>
+      Promise.all([
+        put(fixed.detail),
+        queryClient.invalidateQueries({ queryKey: listMeetingWordsQueryKey() }),
+      ]),
+  })
+}
+
+// useMeetingWords reads the words to hear right: the owner's and the names found.
+export function useMeetingWords() {
+  return useQuery(listMeetingWordsOptions())
+}
+
+export function useSetMeetingWords() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    ...setMeetingWordsMutation(),
+    onSuccess: (words) => queryClient.setQueryData(listMeetingWordsQueryKey(), words),
+  })
+}
+
+// The owner's notes formats: made, changed and deleted, then the settings that list them are read again.
+function useRefreshSettings() {
+  const queryClient = useQueryClient()
+
+  return () => queryClient.invalidateQueries({ queryKey: getMeetingSettingsQueryKey() })
+}
+
+export function useCreateFormat() {
+  const refresh = useRefreshSettings()
+
+  return useMutation({ ...createMeetingFormatMutation(), onSuccess: () => refresh() })
+}
+
+export function useUpdateFormat() {
+  const refresh = useRefreshSettings()
+
+  return useMutation({ ...updateMeetingFormatMutation(), onSuccess: () => refresh() })
+}
+
+export function useDeleteFormat() {
+  const refresh = useRefreshSettings()
+
+  return useMutation({ ...deleteMeetingFormatMutation(), onSuccess: () => refresh() })
 }
 
 // recordingUrl is where the player reads a meeting's recording; the session's cookie signs the request in.

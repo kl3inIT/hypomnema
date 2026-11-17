@@ -19,18 +19,14 @@ function matches(model: PickModel, title: string, query: string) {
 // models\model-picker.tsx, provider-models-field.tsx): one group a provider under its name, a model's logo before a
 // name to read with its id quieter under it, a search, how many are chosen, "Select all shown" and "Clear". The
 // group's own box chooses all of a provider, as 9router's picker groups models by provider (ModelSelectModal.js).
-// With single, one model is chosen, as the model that writes a meeting's notes (issue #721): choosing another
-// replaces it, and there is no box for a whole provider and no "Select all shown".
 export function GatewayModelPicker({
   groups,
   chosen,
   onChange,
-  single,
 }: {
   groups: PickGroup[]
   chosen: string[]
   onChange: (chosen: string[]) => void
-  single?: boolean
 }) {
   const [query, setQuery] = useState("")
   const total = groups.reduce((n, g) => n + g.models.length, 0)
@@ -41,12 +37,6 @@ export function GatewayModelPicker({
   const has = new Set(chosen)
 
   function set(ids: string[], on: boolean) {
-    if (single) {
-      onChange(on ? ids.slice(0, 1) : [])
-
-      return
-    }
-
     const next = new Set(chosen)
     for (const id of ids) {
       if (on) next.add(id)
@@ -76,11 +66,9 @@ export function GatewayModelPicker({
         <span className="me-auto" data-testid="chosen-count">
           <span className="font-medium text-foreground">{chosen.length} selected</span> of {total}
         </span>
-        {!single && (
-          <Button type="button" variant="ghost" size="xs" onClick={() => set(shownIds, true)}>
-            Select all shown
-          </Button>
-        )}
+        <Button type="button" variant="ghost" size="xs" onClick={() => set(shownIds, true)}>
+          Select all shown
+        </Button>
         <Button type="button" variant="ghost" size="xs" onClick={() => onChange([])}>
           Clear
         </Button>
@@ -98,15 +86,13 @@ export function GatewayModelPicker({
             <fieldset key={group.provider} aria-label={group.title}>
               <div className="px-3 pt-2 pb-1">
                 <Field orientation="horizontal">
-                  {!single && (
-                    <Checkbox
-                      id={groupId}
-                      aria-label={`Every model of ${group.title}`}
-                      checked={on === ids.length}
-                      indeterminate={on > 0 && on < ids.length}
-                      onCheckedChange={(checked) => set(ids, checked)}
-                    />
-                  )}
+                  <Checkbox
+                    id={groupId}
+                    aria-label={`Every model of ${group.title}`}
+                    checked={on === ids.length}
+                    indeterminate={on > 0 && on < ids.length}
+                    onCheckedChange={(checked) => set(ids, checked)}
+                  />
                   <span className="flex flex-1 items-center gap-2 text-xs font-medium text-muted-foreground">
                     <ProviderMark kind={group.kind} className="size-4 shrink-0" />
                     {group.title}
