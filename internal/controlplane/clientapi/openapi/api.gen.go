@@ -418,11 +418,13 @@ func (e ChatDeltaKind) Valid() bool {
 
 // Defines values for ChatKind.
 const (
-	ChatKindApproval ChatKind = "approval"
-	ChatKindArtifact ChatKind = "artifact"
-	ChatKindFailed   ChatKind = "failed"
-	ChatKindStopped  ChatKind = "stopped"
-	ChatKindWake     ChatKind = "wake"
+	ChatKindApproval  ChatKind = "approval"
+	ChatKindArtifact  ChatKind = "artifact"
+	ChatKindContinued ChatKind = "continued"
+	ChatKindCut       ChatKind = "cut"
+	ChatKindFailed    ChatKind = "failed"
+	ChatKindStopped   ChatKind = "stopped"
+	ChatKindWake      ChatKind = "wake"
 )
 
 // Valid indicates whether the value is a known member of the ChatKind enum.
@@ -431,6 +433,10 @@ func (e ChatKind) Valid() bool {
 	case ChatKindApproval:
 		return true
 	case ChatKindArtifact:
+		return true
+	case ChatKindContinued:
+		return true
+	case ChatKindCut:
 		return true
 	case ChatKindFailed:
 		return true
@@ -2761,7 +2767,7 @@ type ChatGatewayKey struct {
 	Key string `json:"key"`
 }
 
-// ChatKind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates.
+// ChatKind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates; continued, the control plane restarted and woke the Bot to continue the turn the restart cut; cut, a restart cut the turn and it is not continued.
 type ChatKind string
 
 // ChatList defines model for ChatList.
@@ -2789,7 +2795,7 @@ type ChatMessage struct {
 	// EventSeq The event a wake-up reports.
 	EventSeq *int64 `json:"event_seq,omitempty"`
 
-	// Kind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates.
+	// Kind What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates; continued, the control plane restarted and woke the Bot to continue the turn the restart cut; cut, a restart cut the turn and it is not continued.
 	Kind *ChatKind `json:"kind,omitempty"`
 
 	// Parts A reply's text and thinking, or a tool's result; absent for owner and system messages.

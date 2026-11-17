@@ -135,7 +135,28 @@ the chat's watchers from memory only and are never stored. A reply that ends in 
 row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
 `server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
-`agent_settled`, where the mark clears. An owner message may carry files (issue #343): each is kept on the
+`agent_settled`, where the mark clears. A turn that a restart cuts continues by itself (issue #716, after Hermes's
+interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continue.py`): pi's `agent_start` marks the
+chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 112) and
+`agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
+with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
+clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
+and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
+`continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
+check the current state before redoing anything, then finish the task"; it is no turn input of its own, so a turn
+that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
+with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
+line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
+for the chat or holds the cut turns. The partial transcript stays as kept; both lines reach a Channel's chat as a
+message of their own. A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
+more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_guard.py`), nothing is continued, the
+marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
+turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
+(`selfupdate.Updating`, below) it starts no pi and gives an idle pi no new turn (compactions included); a running
+turn goes on, and what is written waits for the update to end. A pi start holds the supervisor's lock from its last look for
+the update until pi has its token, and the update is marked under that same lock (`BeginUpdate`, below): a start
+that looked before the update began finishes first, and none starts after. Whether the control plane stops is read from `Run`'s context, not the one pi
+reads with (a pi a compaction started reads with its own). An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
@@ -309,7 +330,7 @@ sequenceDiagram
     installed has none. `GET /nodes` shows it as `machine`.
   - Create: the region, the size and the public URL are checked first; then the node and its token are written in
     one transaction, refused at the provider's limit; then the provider is asked for one machine named after the
-    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git,
+    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git, gcc and make (`build-essential`), unzip,
     Node.js 22 from nodejs.org (one archive, checked against its published checksum) and the Claude Code and Codex
     CLIs, and runs the install script of `GET /install/node.sh` with the token. The
     node's hello makes the machine `ready`. A refused create leaves the node `provision_failed` with the reason;
@@ -724,7 +745,8 @@ sequenceDiagram
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
+  owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
+  (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -2078,8 +2100,12 @@ flowchart LR
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
-      its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
-      coordinator token and a Routine never. Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
+      its path) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
+      owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
+      again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
+      his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
+      that approval, as OpenClaw runs an exec approved later and guards the final effect rather than the list
+      ([issue #748](https://github.com/kl3inIT/hypomnema/issues/748)). Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
     - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
@@ -3445,6 +3471,21 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `/var/lib/hypomnema-update`, requires the manifest's SHA-256 and the version the binary reports, and runs that
     binary's `update install`, so the steps are the release's own. The control plane's own binary belongs to its
     user and is never run as root.
+  - `update install` first waits, at most 5 minutes, until no Bot's turn runs (issue #716, as Hermes's update
+    drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
+    `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
+    TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
+    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    that wait until the release's coordinator is set up, `update install` names its process (pid and start time
+    from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
+    (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for
+    an update until pi has its token; when the control plane does not answer (one from before this, or one that is
+    down) the update writes the marker itself, and a pi that started meanwhile is stopped before it is given
+    anything, as Hermes's updater holds a live update
+    marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
+    starts no pi, so none starts while the old control plane stops nor in the new one before
+    `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
   - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
     binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
     migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for

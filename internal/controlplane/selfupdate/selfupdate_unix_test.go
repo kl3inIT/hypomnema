@@ -6,14 +6,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -322,4 +325,229 @@ func TestInstallPutsTheOldControlPlaneBackWhenTheNewOneIsNotReady(t *testing.T) 
 
 	ran := cmds.lines()
 	assert.Equal(t, "systemctl start hypomnema-cp.service", ran[len(ran)-1])
+}
+
+// events is what a test's control plane was asked and what the update ran, in order.
+type events struct {
+	mu   sync.Mutex
+	list []string
+}
+
+func (e *events) add(s string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.list = append(e.list, s)
+}
+
+func (e *events) all() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	return append([]string(nil), e.list...)
+}
+
+// controlPlane answers the control socket in home's data folder as a control plane would (issue #716): the chats
+// whose turn runs are busy's answer to each question, by its number from 0.
+func controlPlane(t *testing.T, home string, log *events, busy func(n int) []string) {
+	t.Helper()
+
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", filepath.Join(home, "data", selfupdate.ControlSocket))
+	require.NoError(t, err)
+
+	var (
+		mu sync.Mutex
+		n  int
+	)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+selfupdate.PathTurns, func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		chats := busy(n)
+		n++
+		mu.Unlock()
+
+		log.add(fmt.Sprintf("turns: %v", chats))
+		_ = json.NewEncoder(w).Encode(selfupdate.Turns{Chats: chats})
+	})
+	// The control plane marks the update itself, as the real one does under its coordinator's lock.
+	mux.HandleFunc("POST "+selfupdate.PathUpdate, func(w http.ResponseWriter, r *http.Request) {
+		var b selfupdate.Begin
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil ||
+			selfupdate.WriteMarker(filepath.Join(home, "data"), b) != nil {
+			w.WriteHeader(http.StatusBadRequest)
+
+			return
+		}
+
+		log.add(fmt.Sprintf("update began: %v", b.PID == os.Getpid()))
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}
+
+	go func() { _ = srv.Serve(ln) }()
+
+	t.Cleanup(func() { _ = srv.Close() })
+}
+
+func installWaiting(t *testing.T, log *events) selfupdate.Options {
+	t.Helper()
+
+	o := installed(t)
+	o.Ready = ready(t, http.StatusNoContent)
+	o.TurnsEvery = 10 * time.Millisecond
+	o.Run = func(_ context.Context, name string, args ...string) error {
+		log.add(strings.TrimSpace(name + " " + strings.Join(args, " ")))
+
+		return nil
+	}
+
+	return o
+}
+
+// Scenario (issue #716): a Bot's turn runs when the update comes. The update asks the control plane until no turn
+// runs, and only then stops it.
+func TestInstallWaitsForBotsTurnsBeforeItStops(t *testing.T) {
+	t.Parallel()
+
+	log := &events{}
+	o := installWaiting(t, log)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	controlPlane(t, o.Home, log, func(n int) []string {
+		if n < 3 {
+			return []string{"cht_a"}
+		}
+
+		return nil
+	})
+
+	var out strings.Builder
+	o.Out = &out
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	got := log.all()
+	require.GreaterOrEqual(t, len(got), 6)
+	assert.Equal(t, []string{
+		"update began: true",
+		"turns: [cht_a]", "turns: [cht_a]", "turns: [cht_a]", "turns: []", "systemctl stop hypomnema-cp.service",
+	}, got[:6])
+	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns to end, in chats cht_a")
+}
+
+// Scenario: the turn does not end. The update waits as long as its bound, then stops the control plane anyway: the
+// turn is cut, and the control plane continues it when it starts.
+func TestInstallStopsWhenTheWaitForTurnsRunsOut(t *testing.T) {
+	t.Parallel()
+
+	log := &events{}
+	o := installWaiting(t, log)
+	o.TurnsWithin = 200 * time.Millisecond
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	controlPlane(t, o.Home, log, func(int) []string { return []string{"cht_a", "cht_b"} })
+
+	var out strings.Builder
+	o.Out = &out
+
+	started := time.Now()
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	waited := time.Since(started)
+	assert.GreaterOrEqual(t, waited, 200*time.Millisecond)
+	assert.Less(t, waited, 5*time.Second, "the wait is bounded")
+
+	got := log.all()
+	stop := slices.Index(got, "systemctl stop hypomnema-cp.service")
+	require.Positive(t, stop)
+
+	assert.Equal(t, "update began: true", got[0], "the control plane marks the update first")
+
+	for _, e := range got[1:stop] {
+		assert.Equal(t, "turns: [cht_a cht_b]", e)
+	}
+
+	assert.Contains(t, out.String(), "still run after 200ms, in chats cht_a, cht_b")
+}
+
+// Scenario: the control plane does not answer on its control socket, one from before it: the update does not wait.
+func TestInstallDoesNotWaitForAControlPlaneThatDoesNotSay(t *testing.T) {
+	t.Parallel()
+
+	log := &events{}
+	o := installWaiting(t, log)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	var out strings.Builder
+	o.Out = &out
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	assert.Equal(t, "systemctl stop hypomnema-cp.service", log.all()[0])
+	assert.Contains(t, out.String(), "not waiting for Bots' turns")
+	assert.Contains(t, out.String(), "the control plane did not mark the update", "the update marks itself then")
+}
+
+// Scenario (review of #725, finding 4): from before the update waits for Bots' turns until the release's coordinator
+// is set up, the control plane is told an update runs, so it starts no pi: the old one while it is stopped, the new
+// one before setup-coordinator.sh has put pi in place. After the update, nothing says so.
+func TestTheControlPlaneKnowsAnUpdateRunsUntilItsCoordinatorIsSetUp(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	o.Ready = ready(t, http.StatusNoContent)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	data := filepath.Join(o.Home, "data")
+	assert.False(t, selfupdate.Updating(data))
+
+	seen := &events{}
+
+	o.Run = func(_ context.Context, name string, _ ...string) error {
+		seen.add(fmt.Sprintf("%s %v", name, selfupdate.Updating(data)))
+
+		return nil
+	}
+
+	controlPlane(t, o.Home, &events{}, func(int) []string {
+		seen.add(fmt.Sprintf("turns %v", selfupdate.Updating(data)))
+
+		return nil
+	})
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	assert.Equal(t, []string{
+		"turns true", "systemctl true", "runuser true", "systemctl true", "sh true",
+	}, seen.all(), "while it waits, stops, migrates, starts and sets up the coordinator")
+	assert.False(t, selfupdate.Updating(data), "not after it")
+}
+
+// Scenario: an update was killed and left its marker; the process it names is gone, so no update runs.
+func TestAMarkerOfAnUpdateThatIsGoneIsNoUpdate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	marker := filepath.Join(dir, selfupdate.UpdatingFile)
+
+	write(t, marker, fmt.Sprintf("%d\n", os.Getpid()))
+	assert.True(t, selfupdate.Updating(dir), "a process that runs")
+
+	if _, err := os.Stat("/proc/self/stat"); err == nil {
+		write(t, marker, fmt.Sprintf("%d 1\n", os.Getpid()))
+		assert.False(t, selfupdate.Updating(dir), "a process of that id that started at another time")
+	}
+
+	write(t, marker, "2147483646 1\n")
+	assert.False(t, selfupdate.Updating(dir), "no such process")
+
+	write(t, marker, "nonsense")
+	assert.False(t, selfupdate.Updating(dir))
 }

@@ -27,8 +27,11 @@ import (
 // (whatsapp_*, zalo_*), listed only when the agent may use one of its Connections, with account only when it may
 // use several (OpenClaw's Feishu tools, extensions/feishu/src/tool-account.ts, tool-registration.ts). Every
 // service's tools run the same path; a service differs only in its words (messagingService). Such a Connection is
-// the owner's own account (orchestration.Connection.User), so only a Bot given it has the tools, and only on the
-// owner's turn (#618, botMay); a worker, a coordinator token and a Routine never. Message text is the owner's
+// the owner's own account (orchestration.Connection.User), so only a Bot given it has the tools; a worker, a
+// coordinator token and a Routine never. They run only on the owner's turn (#618, botMay), but stay listed between
+// his turns: pi lists an MCP server's tools again only when told they changed, so tools taken away on a wake-up never
+// came back on his next turn (#748). A call off his turn is refused, as OpenClaw guards the final effect rather than
+// the list (docs/plugins/tool-plugins.md), except a send he approved once, which runs on that approval. Message text is the owner's
 // correspondents' words: each answer says it is data, never instructions, as wacli's docs/integrations.md asks of
 // an assistant.
 
@@ -112,14 +115,14 @@ func (s *Server) WithMessaging(m Messaging) *Server {
 	return s
 }
 
-// messagingLabels are a service's Connections an agent uses with its tools: a Bot's pi only, and only those its
-// may allows now.
+// messagingLabels are a service's Connections an agent has the tools of: a Bot's pi only, and only those its Bot
+// was given, whoever's turn it is (onTurn says which it may use now).
 func (s *Server) messagingLabels(ctx context.Context, a agent, m messagingService) ([]string, error) {
 	if s.messaging == nil || a.chatID == "" || a.bot == "" {
 		return nil, nil
 	}
 
-	allowed, err := s.allowed(ctx, a, m.integration)
+	allowed, err := s.offeredTo(ctx, a, m.integration)
 	if err != nil {
 		return nil, err
 	}
@@ -256,6 +259,19 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 		return
 	}
 
+	onTurn, err := s.onTurn(r.Context(), a, m, label)
+	if err != nil {
+		s.answerErr(w, r, err)
+
+		return
+	}
+
+	if !onTurn && call.Tool != m.send {
+		answerTool(w, offTurn(call.Tool), true)
+
+		return
+	}
+
 	// A send waits for the owner's approval (the proxy's hold), older messages for the phone and a file for its
 	// download: longer than the server's write timeout, within their own bounds, as webCall does (issue #654).
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
@@ -286,7 +302,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 	case m.media:
 		s.messagingMedia(w, r, m, label, in)
 	case m.send:
-		s.messagingSend(w, r, a, m, label, call.Arguments)
+		s.messagingSend(w, r, a, m, label, call.Arguments, onTurn)
 	case m.history:
 		got, err := s.messaging.Backfill(ctx, m.integration, label, strings.TrimSpace(in.Chat), in.Count)
 		if err != nil {
@@ -349,6 +365,23 @@ func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, m messag
 	}, "isError": false})
 }
 
+// onTurn says whether the agent may use an account now: on the owner's own turn in its chat (botMay).
+func (s *Server) onTurn(ctx context.Context, a agent, m messagingService, label string) (bool, error) {
+	now, err := s.allowed(ctx, a, m.integration)
+	if err != nil {
+		return false, err
+	}
+
+	return slices.ContainsFunc(now, func(c orchestration.Connection) bool { return c.Label == label }), nil
+}
+
+// offTurn answers a call of an own-account tool off the owner's turn.
+func offTurn(tool string) string {
+	return tool + " acts in the owner's own account, so it runs only on his own request in this chat, and what this " +
+		"turn answers is not one (a wake-up, a Routine's run or someone else's message). It was not run. Say in one " +
+		"line what you would do and end your turn; a send he approved runs when called again unchanged."
+}
+
 // answerJSON answers a read as indented JSON, or its error.
 func (s *Server) answerJSON(w http.ResponseWriter, r *http.Request, v any, err error) {
 	if err != nil {
@@ -397,7 +430,7 @@ func pickMessagingAccount(m messagingService, labels []string, asked string) (st
 // messagingSend sends a message or a file as the owner once the control plane's decision lets it (issues #645,
 // #680): the action <service>.send, which asks the owner until he sets another answer, as a Superset write does.
 func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, m messagingService, label string,
-	raw json.RawMessage,
+	raw json.RawMessage, onTurn bool,
 ) {
 	var in agenttool.WhatsAppSendCall
 	if json.Unmarshal(orEmpty(raw), &in) != nil {
@@ -456,6 +489,25 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 	hash := sha256.Sum256([]byte(strings.Join([]string{
 		label, in.Chat, in.Text, in.ReplyTo, in.FileName, hex.EncodeToString(file[:]),
 	}, "\x00")))
+
+	if !onTurn {
+		// Off his turn only what he approved once runs, on that approval (issue #748).
+		approved, err := s.store.ApprovedOnce(ctx, orchestration.NewApproval{
+			Integration: m.integration, Label: label, Action: m.integration + ".send", ChatID: a.chatID,
+			MatchHash: hex.EncodeToString(hash[:]),
+		})
+		if err != nil {
+			s.answerErr(w, r, err)
+
+			return
+		}
+
+		if !approved {
+			answerTool(w, offTurn(m.send), true)
+
+			return
+		}
+	}
 
 	err := s.judge.Judge(ctx, serviceproxy.Act{
 		Caller:      serviceproxy.Caller{Name: a.name, Coordinator: true, ChatID: a.chatID},

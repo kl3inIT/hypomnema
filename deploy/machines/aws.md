@@ -84,7 +84,8 @@ hypomnema machines start build-1                     # turns it on; the node con
 hypomnema nodes rm build-1                           # destroys the instance, then forgets the node
 ```
 
-A new machine is Ubuntu 24.04 with a `hypomnema` user (no sudo), git, and the Claude Code and Codex CLIs. A Claude
+A new machine is Ubuntu 24.04 with a `hypomnema` user (no sudo), git, gcc, make, unzip and the Claude Code and
+Codex CLIs; a node you installed yourself needs `sudo apt-get install -y build-essential unzip` once. A Claude
 account the control plane keeps (`accounts add claude <label> --token`) and a git host's token reach it with each
 Dispatch, so nothing is set for them. The Codex CLI's login is **not** delivered: set it on the machine once, as on
 any node.

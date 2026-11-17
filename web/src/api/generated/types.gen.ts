@@ -3253,9 +3253,9 @@ export type ChatList = {
 export type ChatRole = 'owner' | 'coordinator' | 'tool' | 'system';
 
 /**
- * What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates.
+ * What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates; continued, the control plane restarted and woke the Bot to continue the turn the restart cut; cut, a restart cut the turn and it is not continued.
  */
-export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval' | 'artifact';
+export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval' | 'artifact' | 'continued' | 'cut';
 
 /**
  * One piece of a reply (text, thinking), of a tool pi ran (tool_result), or the result of a Routine's run told in the chat it was made in (routine_run: id is the run's).

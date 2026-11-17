@@ -33,6 +33,11 @@ type Options struct {
 	Ready string
 	// ReadyWithin is how long a started control plane has to become ready.
 	ReadyWithin time.Duration
+	// TurnsWithin is how long the update waits for Bots' turns before it stops the control plane anyway;
+	// DefaultTurnsWithin when zero (issue #716).
+	TurnsWithin time.Duration
+	// TurnsEvery is how often it asks; a second when zero.
+	TurnsEvery time.Duration
 
 	HTTP *http.Client
 	// Run runs a command, its output to Out; nil runs it.
@@ -49,6 +54,35 @@ const (
 	DefaultState      = "/var/lib/hypomnema-update"
 	DefaultReady      = "http://127.0.0.1:18990/readyz"
 )
+
+// DefaultTurnsWithin bounds the update's wait for Bots' turns (issue #716): a few minutes, as the owner asked
+// (2026-11-17), where Hermes waits up to its restart_after_turn_timeout before a restart interrupts what still runs.
+// A turn still running then is cut, and the control plane continues it when it starts again.
+const DefaultTurnsWithin = 5 * time.Minute
+
+// The control plane's control socket (issue #716): in its data folder, next to its database, it answers GET
+// PathTurns with Turns, the chats whose Bot's turn runs now.
+const (
+	ControlSocket = "control.sock"
+	PathTurns     = "/turns"
+	// UpdatingFile, in the same folder, names the process of a running update (marker_unix.go).
+	UpdatingFile = "updating"
+	// PathUpdate, POSTed a Begin, has the control plane write UpdatingFile itself, under the lock its pi starts take,
+	// so that no pi starts once the update has begun.
+	PathUpdate = "/update"
+)
+
+// Begin names the process of an update that begins: its id and its start time (marker_unix.go).
+type Begin struct {
+	PID   int    `json:"pid"`
+	Start string `json:"start"`
+}
+
+// Turns is the control socket's answer to GET PathTurns.
+type Turns struct {
+	// Chats are the chats whose Bot works on a turn.
+	Chats []string `json:"chats"`
+}
 
 // ErrBusy means another update holds the lock.
 var ErrBusy = errors.New("another update is running")
