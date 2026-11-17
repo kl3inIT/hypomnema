@@ -5,7 +5,8 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import type { Run, TaskDetail } from "@/api/generated/types.gen"
@@ -57,9 +58,17 @@ const task = (more: Partial<TaskDetail>): TaskDetail => ({
   ...more,
 })
 
+// show opens the panel on one Task and returns the cancels the server was sent.
 function show(t: TaskDetail) {
+  const canceled: string[] = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const path = new URL((input as Request).url).pathname.replace("/api/v1", "")
+    const request = input as Request
+    const path = new URL(request.url).pathname.replace("/api/v1", "")
+    if (request.method === "POST" && path.endsWith("/cancel")) {
+      canceled.push(path)
+
+      return json({ ...t, cancel_requested_at: new Date().toISOString() })
+    }
 
     return json(path === "/tasks" ? { data: [t], runs: [run], after: 0 } : { data: [] })
   })
@@ -76,6 +85,8 @@ function show(t: TaskDetail) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
+
+  return canceled
 }
 
 // Scenario: the owner stopped a Task (issue #687). Its panel no longer offers Cancel Task and says it is stopping,
@@ -92,4 +103,36 @@ test("a running Task not asked to stop offers Cancel Task", async () => {
 
   expect(await screen.findByRole("button", { name: "Cancel Task" })).toBeVisible()
   expect(screen.queryByText(/^Stopping/)).toBeNull()
+})
+
+// Scenario: the owner cancels a running Task from its panel (issue #695). He is asked first, as Stop on its row
+// asks; keeping it sends nothing, and confirming cancels the Task.
+test("Cancel Task asks first; keeping it cancels nothing, confirming cancels the Task", async () => {
+  const user = userEvent.setup()
+  const canceled = show(task({}))
+
+  await user.click(await screen.findByRole("button", { name: "Cancel Task" }))
+  let dialog = await screen.findByRole("alertdialog")
+  expect(dialog).toHaveTextContent('Cancel the Task "Add the /health handler"?')
+  expect(dialog).toHaveTextContent("Its worker is stopped and the Task is canceled.")
+  expect(canceled).toEqual([])
+
+  await user.click(within(dialog).getByRole("button", { name: "Keep it running" }))
+  await vi.waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+  expect(canceled).toEqual([])
+
+  await user.click(screen.getByRole("button", { name: "Cancel Task" }))
+  dialog = await screen.findByRole("alertdialog")
+  await user.click(within(dialog).getByRole("button", { name: "Cancel Task" }))
+  await vi.waitFor(() => expect(canceled).toEqual(["/tasks/tsk_1/cancel"]))
+})
+
+test("a Task not yet running's Cancel Task offers to keep it queued", async () => {
+  const user = userEvent.setup()
+  show(task({ status: "ready" }))
+
+  await user.click(await screen.findByRole("button", { name: "Cancel Task" }))
+  const dialog = await screen.findByRole("alertdialog")
+  expect(dialog).toHaveTextContent("The Task is canceled before a worker starts on it.")
+  expect(within(dialog).getByRole("button", { name: "Keep it queued" })).toBeVisible()
 })

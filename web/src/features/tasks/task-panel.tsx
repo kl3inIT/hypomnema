@@ -18,6 +18,7 @@ import { elapsed, since, span } from "@/lib/time"
 
 import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { PendingApprovals } from "@/features/approvals/approval-card"
+import { ConfirmAction } from "@/features/runs/run-actions"
 import { QuestionForm } from "@/features/questions/question-form"
 import { useRun, useTask, useWork } from "@/features/work/use-work"
 import { waitingText } from "@/features/work/waiting"
@@ -417,7 +418,8 @@ function Stopping({ since }: { since: string }) {
 }
 
 // Actions are what the owner can do to a Task in its state: start a failed or blocked one again, ask more of a
-// succeeded one (issue #666), or cancel one that has not ended; one asked to stop says so until it ends (issue #687).
+// succeeded one (issue #666), or cancel one that has not ended, asking first as the row's Stop does (issue #695);
+// one asked to stop says so until it ends (issue #687).
 function Actions({ card }: { card: Card }) {
   const refresh = useRefreshTasks()
   const { task } = card
@@ -433,7 +435,9 @@ function Actions({ card }: { card: Card }) {
       (task.status === "blocked" && task.blocked_reason === "needs_auth"))
   const canCancel =
     !["succeeded", "failed", "canceled"].includes(task.status) && !task.cancel_requested_at
-  const error = reopen.error ?? cancel.error
+  // The cancel's own error shows in its dialog, as the row's Stop shows it.
+  const error = reopen.error
+  const running = task.status === "running"
 
   const canFollowUp = card.run.status === "open" && task.status === "succeeded"
   const isStopping = stopping(task)
@@ -454,15 +458,19 @@ function Actions({ card }: { card: Card }) {
         </Button>
       )}
       {canCancel && (
-        <Button
-          variant="destructive"
-          onClick={() => cancel.mutate()}
-          focusableWhenDisabled={cancel.isPending}
-          disabled={cancel.isPending}
-        >
-          {cancel.isPending && <Spinner data-icon="inline-start" />}
-          Cancel Task
-        </Button>
+        <ConfirmAction
+          trigger={<Button variant="destructive">Cancel Task</Button>}
+          title={`Cancel the Task "${firstLine(task.spec, 80)}"?`}
+          consequence={
+            running
+              ? "Its worker is stopped and the Task is canceled. This cannot be undone."
+              : "The Task is canceled before a worker starts on it. This cannot be undone."
+          }
+          action="Cancel Task"
+          keep={running ? "Keep it running" : "Keep it queued"}
+          destructive
+          mutation={cancel}
+        />
       )}
       {isStopping && <Stopping since={task.cancel_requested_at ?? ""} />}
       {error && <span className="text-xs text-destructive">Not done: try again.</span>}
