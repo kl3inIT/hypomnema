@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import zlib from "node:zlib";
 
-import { backupKey, decode, frame, keys, noised, pull, syncEvents } from "../src/phonesync.mjs";
+import { backupKey, decode, download, frame, keys, noised, pull, step, syncEvents } from "../src/phonesync.mjs";
 
 // The phone encrypts the backup's key to the bridge's public key (RSA PKCS#1 v1.5); the AES key is the first 32
 // upper-case hex characters of what it decrypts to (softtyos deriveZdbAesKey).
@@ -84,4 +87,67 @@ test("the phone is asked at Zalo's file service, and ids are turned at its profi
 
   assert.deepEqual(await noised(api, ["7"], ["55"]), { fids: ["w7"], gids: ["55"] });
   assert.match(asked[1], /^https:\/\/profile\.example\/api\/znoise\?/);
+});
+
+// Zalo may gzip an event's payload, which zca-js's pako.inflate detects; inflating it as zlib only threw, and the
+// phone's answer was dropped (issue #715). Read as deplao-builder reads it.
+test("a gzipped event's payload is read", () => {
+  const body = { data: { controls: [
+    { content: { act_type: "syncmsgmb", act: "syncmsg_info", data: { public_key: "pk", url: "u" } } },
+  ] } };
+  const payload = { encrypt: 1, data: zlib.gzipSync(Buffer.from(JSON.stringify(body))).toString("base64") };
+
+  assert.deepEqual(syncEvents(decode(payload)), [{ act: "syncmsg_info", data: { public_key: "pk", url: "u" } }]);
+});
+
+// What each of the phone's events means (deplao-builder MobileSyncService.onSyncEvent): preparing and paused are
+// waits, not failures; error_code 0 is none.
+test("the phone's events are read as deplao-builder reads them", () => {
+  const cases = [
+    ["user_confirm", { user_action: 1 }, "wait"],
+    ["user_confirm", { user_action: 3 }, "wait"],
+    ["user_confirm", { user_action: 0 }, "refused"],
+    ["user_confirm", { user_action: 2 }, "failed"],
+    ["transfer_error", { status: 1, error_code: 0 }, "wait"],
+    ["transfer_error", { status: 2 }, "wait"],
+    ["transfer_error", { error_code: 0 }, "none"],
+    ["transfer_error", { error_code: -5, error_msg: "full" }, "failed"],
+    ["syncmsg_info", {}, "ready"],
+  ];
+  for (const [act, data, want] of cases) assert.equal(step(act, data).next, want, `${act} ${JSON.stringify(data)}`);
+});
+
+// zca-js's raw request adds no headers: the backup is asked for with Zalo Web's User-Agent and the session's
+// cookie for chat.zalo.me, then without the cookie after a 4xx, as deplao-builder does (issue #726).
+test("the backup is downloaded with the session's cookie, then without it after a 4xx", async () => {
+  const asked = [];
+  const api = {
+    custom(name, callback) {
+      api[name] = (props) =>
+        callback({
+          props,
+          ctx: {
+            userAgent: "UA",
+            cookie: { getCookieString: async (url) => (url === "https://chat.zalo.me/" ? "zpw_sek=s" : "") },
+          },
+          utils: {
+            request: async (url, options) => {
+              asked.push(options.headers);
+
+              return asked.length === 1
+                ? new Response(JSON.stringify({ error_message: "bad cookie" }), { status: 400 })
+                : new Response("backup bytes", { status: 200 });
+            },
+          },
+        });
+    },
+  };
+
+  const path = join(mkdtempSync(join(tmpdir(), "zalo-dl-")), "b.db.crypt");
+  await download(api, "https://f.zdn.vn/backup.db.crypt", path);
+
+  assert.equal(asked[0]["User-Agent"], "UA");
+  assert.equal(asked[0].Cookie, "zpw_sek=s");
+  assert.equal(asked[1].Cookie, undefined);
+  assert.equal(readFileSync(path, "utf8"), "backup bytes");
 });
