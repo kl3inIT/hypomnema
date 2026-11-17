@@ -1,6 +1,6 @@
 package agenttool
 
-// The arguments of audio_transcribe as the control plane takes them (issue
+// TranscribeCall is the arguments of audio_transcribe as the control plane takes them (issue
 // #723, decision 1.4): the tools server on the agent's machine reads the
 // recording the agent names and sends it whole, as it sends generate_image's
 // images (ImageCall).

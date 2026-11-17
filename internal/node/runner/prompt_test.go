@@ -253,7 +253,8 @@ func TestPromptCarriesTheToolsBlockBeforeTheTask(t *testing.T) {
 	p := Prompt(d)
 	block := agenttool.ToolGuide(d.Offer.Tools)
 
-	assert.Contains(t, p, "the paths and lines you read.\n\n"+block+"\nFor this kind of task:", "after the rules, before the instruction")
+	assert.Contains(t, p, "the paths and lines you read.\n\n"+block+"\nFor this kind of task:",
+		"after the rules, before the instruction")
 	assert.Less(t, strings.Index(p, block), strings.Index(p, "Task (implementer):"))
 
 	d.Offer.Tools = nil
