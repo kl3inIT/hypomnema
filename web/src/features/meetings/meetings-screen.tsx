@@ -1,11 +1,10 @@
 import { Link } from "@tanstack/react-router"
 import { tableFeatures, useTable, type ColumnDef } from "@tanstack/react-table"
-import { CalendarClock, ListChecks, Mic, Search, Settings, Upload, UsersRound } from "lucide-react"
+import { CalendarClock, ListChecks, Mic, Search, Upload, UsersRound } from "lucide-react"
 import { useDeferredValue, useState, type ReactNode } from "react"
 
 import type { Meeting } from "@/api/generated/types.gen"
 import { PageHeader, PageHeading } from "@/components/page-header"
-import { buttonVariants } from "@/components/ui/button"
 import {
   Empty,
   EmptyContent,
@@ -38,6 +37,7 @@ import {
   type Stage,
 } from "./meetings-state"
 import { UploadMeeting } from "./upload-meeting"
+import { FormatsTab } from "./formats-tab"
 import { useMeetingActions, useMeetings } from "./use-meetings"
 
 type Layout = "grid" | "table"
@@ -56,7 +56,8 @@ function readLayout(): Layout {
 // systems-table: cards with labelled rows, or a table, chosen with a segmented control), its cards' rows the first
 // prototype's (When, Speakers, Actions, From; owner, 2026-11-18), grouped by day as Granola, Otter, Hyprnote and
 // MemoryOS list them. A search finds titles and what was said. The Actions tab lists the actions of every meeting,
-// as Fireflies's Tasks, Otter and Nojoin do.
+// as Fireflies's Tasks, Otter and Nojoin do. The Formats tab holds the notes formats, as Hyprnote keeps its templates
+// a page of the main sidebar (issue #762).
 export function MeetingsScreen() {
   const [tab, setTab] = useState("meetings")
   const open = useMeetingActions("", "open").data?.data.length ?? 0
@@ -70,14 +71,6 @@ export function MeetingsScreen() {
           description="Recordings turned into transcripts, notes and actions."
           className="mb-4"
         >
-          <Link
-            to="/settings/meetings"
-            className={buttonVariants({ variant: "outline" })}
-            title="The model that writes notes, and the notes formats"
-          >
-            <Settings data-icon="inline-start" />
-            Settings
-          </Link>
           <UploadMeeting />
         </PageHeading>
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
@@ -86,12 +79,16 @@ export function MeetingsScreen() {
             <TabsTrigger value="actions">
               Actions{open > 0 && <span className="text-muted-foreground">· {open} open</span>}
             </TabsTrigger>
+            <TabsTrigger value="formats">Formats</TabsTrigger>
           </TabsList>
           <TabsContent value="meetings">
             <MeetingsTab />
           </TabsContent>
           <TabsContent value="actions">
             <ActionsTab />
+          </TabsContent>
+          <TabsContent value="formats">
+            <FormatsTab />
           </TabsContent>
         </Tabs>
       </div>
