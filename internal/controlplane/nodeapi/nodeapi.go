@@ -25,6 +25,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	shippedrelease "github.com/kl3inIT/hypomnema/internal/shared/release"
 )
 
@@ -307,6 +308,8 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		GitHosts:         s.gitHosts(r.Context()),
 		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch, req.DaemonVersion),
 		ReleaseURL:       s.releaseURL,
+		// The node looks for its release at once when this is newer than its own (issue #783).
+		ControlPlaneVersion: platform.Version,
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})
