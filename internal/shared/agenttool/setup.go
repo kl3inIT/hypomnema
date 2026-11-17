@@ -137,7 +137,7 @@ func Brief(uses []string, device string) string {
 		}
 
 		def, ok := Of(integration)
-		if !ok {
+		if !ok || def.BotsOnly {
 			continue
 		}
 
@@ -155,7 +155,12 @@ func Brief(uses []string, device string) string {
 // and adds nothing. home is the node's home, where its tools are installed;
 // exe the node's binary; key the Dispatch's own.
 func ForDispatch(home, exe, url string, uses []string, key string) ([]string, error) {
-	needs := IntegrationsOf(uses)
+	// A tool only for Bots is not a worker's: it reaches the same account with its own token (issue #685).
+	needs := slices.DeleteFunc(IntegrationsOf(uses), func(integration string) bool {
+		def, ok := Of(integration)
+
+		return ok && def.BotsOnly
+	})
 	if len(needs) == 0 {
 		return nil, nil
 	}

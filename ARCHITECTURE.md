@@ -1896,6 +1896,36 @@ flowchart LR
     - **On the web** the Integrations page has an AWS card: add a role (name, ARN, key name, and the access key
       the first time a key name is used), see each role's ARN, account and key and whether the last assume
       worked, "Use in chats", connect again, disconnect.
+  - **A Bot reads GitHub through the service proxy** ([issue #685](https://github.com/kl3inIT/hypomnema/issues/685);
+    design in [#659](https://github.com/kl3inIT/hypomnema/issues/659#issuecomment-6937471532), after Onyx's `gh`
+    behind its egress proxy). The Integration is `github.com`, whose Connections are the git host's: the token
+    workers are given per Dispatch, kept in the vault by `hosts token set` / `integrations connect github.com`. The
+    owner switches one on for chats (`integrations chats github.com:default on`; the client API's
+    `PATCH /integrations/{integration}/connections/{label}` sets it on a git host's Connection itself) and puts it
+    on a Bot's list (`bots set <bot> --connections …,github.com:default`). The proxy's `Token` opens it from the
+    git hosts' secrets (`connections.Of`); a git host's Connection has no access to read again after a 403.
+    - **Its tool is `gh` 2.103.3** (`agenttool.GitHubCLI`, `github.com/cli/cli`, pinned by the release's
+      checksums file) with a placeholder `GH_TOKEN`, `GH_HOST=github.com`, prompts and update notices off, and
+      `GITHUB_TOKEN` and the enterprise tokens taken away. It is `BotsOnly`: `hypomnema tool install`
+      (`setup-coordinator.sh`, which every update runs) installs it for the Bots, a node is never told to have it,
+      and a Dispatch given a `github.com` Connection gets no `gh` script before the worker's own `gh`, which keeps
+      its `GH_TOKEN` (#44). `hypomnema tool run github.com -- curl …` runs another command through the same
+      account.
+    - **Its catalog** (`serviceproxy/github.go`) is Onyx's GitHub list (`providers/github.py`, MIT; notice in
+      `third_party/onyx/NOTICE`): REST routes on `api.github.com`, and a POST to `/graphql` matched by each
+      operation's type and root field (gqlparser parses the query; fragments at the root are followed), the action
+      that needs the most care governing a request with several. Reads run: the connected user, repositories,
+      issues, pull requests with their files and reviews, Actions runs, jobs and logs, check runs and statuses,
+      search, refs, contents, commits, releases, and the GraphQL queries `repository`, `repositoryOwner`, `node`,
+      `nodes`, `viewer`, `search`. Opening an issue, commenting, opening a pull request, writing a file and writing
+      a ref ask; anything else (merge, close, labels, a rerun, a mutation it does not name, a body that is not
+      GraphQL) asks as `github.unlisted`. A log's download, which GitHub redirects to
+      `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
+      plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.
+    - **Its skill** is the store skill `github` (`clientcli/skills/github`, requiring `integration:github.com`; a
+      skill's integration requirement may be a host's name), from Onyx's and OpenClaw's github skills (MIT).
+    - Not built: GitHub Enterprise Server and GitLab hosts (the proxy picks a catalog by the Integration's name);
+      the web page's "Use in chats" switch for a git host's Connection.
   - WhatsApp is an Integration of kind `device` ([issue #615](https://github.com/kl3inIT/hypomnema/issues/615),
     step 1 of [#612](https://github.com/kl3inIT/hypomnema/issues/612); `internal/controlplane/integration/device.go`,
     `internal/controlplane/messaging`, `messaging/whatsapp`;
@@ -2181,6 +2211,8 @@ flowchart LR
     Dispatch ends, and in the worker's spec file until the worker starts, as the Claude token is. The worker
     itself can read it, as with the Claude token; there is no proxy on the node
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
+    A Bot given the same Connection reads GitHub through the service proxy instead (issue #685, under
+    Integrations).
   - A host without a token works as before: git and the host's tool use the node user's own logins.
   - A registered repository may carry an SSH address (`repos add|set --ssh-url`, `ssh_url` on `/repos/{name}`,
     `repos.ssh_url`; issue [#625](https://github.com/kl3inIT/hypomnema/issues/625)): its node then clones and

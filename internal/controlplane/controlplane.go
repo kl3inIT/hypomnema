@@ -318,6 +318,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// What each account can really do is read at its service and said action by action from the proxy's
 	// catalog (issue #567): on connect, on sign-in again, on the owner's check, and after a 403.
 	checkAccess := func(ctx context.Context, id, label string) error {
+		// A git host's Connection is a token the owner typed in: there is nothing to read at the service.
+		if !integrations.Has(id) {
+			return nil
+		}
+
 		held, err := integrations.Holdings(ctx, id, label)
 		if err != nil {
 			return err
@@ -406,6 +411,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	proxy, err := serviceproxy.New(serviceproxy.Config{
 		Agents: agents, Store: svc, Logger: logger,
 		Token: func(ctx context.Context, id, label string) (string, error) {
+			// A git host's Connection (github.com, issue #685) keeps its token with the git hosts.
+			if !integrations.Has(id) {
+				return tokens.Of(ctx, id, label)
+			}
+
 			token, err := integrations.Token(ctx, id, label)
 
 			return token.AccessToken, err

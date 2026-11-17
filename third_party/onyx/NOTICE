@@ -1,0 +1,28 @@
+Onyx
+Copyright (c) 2023-present DanswerAI, Inc.
+
+Used under the MIT License (the "MIT Expat" license of Onyx's LICENSE, which covers everything outside its "ee"
+directories). Source: https://github.com/onyx-dot-app/onyx at da837e69e63066ebfd514d5ba8d6098b9836ea4c.
+
+What is adapted from it here:
+
+- The GitHub catalog of the service proxy (internal/controlplane/serviceproxy/github.go, issue #685): the actions,
+  their ids, REST routes, GraphQL operations and default answers of backend/onyx/external_apps/providers/github.py,
+  and how a GraphQL body is read as operation types and root fields (external_apps/matching/graphql_parsing.py,
+  rules.py). Changed: reads of Actions runs, jobs and logs, check runs and statuses, pull requests' files and
+  reviews, tags and compares, and the GraphQL root fields node and nodes were added; a log's download host is
+  plumbing; a request with several operations is the action that needs the most care, and one with a field no
+  action names asks.
+- The github skill (internal/controlplane/clientcli/skills/github/SKILL.md), from
+  backend/onyx/skills/builtin/github/SKILL.md.template, with OpenClaw's (third_party/openclaw/NOTICE).
+
+The MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including without
+limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of
+the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

@@ -269,6 +269,20 @@ func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIn
 // Connection in chats.
 func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.PatchIntegrationConnectionRequestObject,
 ) (openapi.PatchIntegrationConnectionResponseObject, error) {
+	// A git host's Connection may be used in chats too: a Bot reads GitHub with it through the service proxy
+	// (issue #685). Its token lives with the git hosts, so the switch is set on the Connection itself.
+	if _, err := s.svc.GitHostOf(ctx, req.Integration); err == nil {
+		conn, err := s.svc.SetConnectionChats(ctx, req.Integration, req.Label, req.Body.Chats)
+		if err != nil {
+			return nil, err
+		}
+
+		return openapi.PatchIntegrationConnection200JSONResponse(toIntegrationConnection(integration.Connection{
+			Integration: conn.Integration, Label: conn.Label, Account: conn.Account, Chats: conn.Chats,
+			CreatedAt: conn.CreatedAt, UpdatedAt: conn.UpdatedAt,
+		})), nil
+	}
+
 	if s.integrations == nil {
 		return nil, errNoIntegrations
 	}

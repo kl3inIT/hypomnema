@@ -111,7 +111,8 @@ func toolsOf(uses []string) []string {
 
 	for _, use := range uses {
 		integration, _, _ := SplitUse(use)
-		if def, ok := agenttool.Of(integration); ok && !slices.Contains(out, def.Name) {
+		// A tool only for Bots is not asked of a node: a worker reaches that account with its own token (#685).
+		if def, ok := agenttool.Of(integration); ok && !def.BotsOnly && !slices.Contains(out, def.Name) {
 			out = append(out, def.Name)
 		}
 	}

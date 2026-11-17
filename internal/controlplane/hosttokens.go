@@ -151,6 +151,27 @@ func (c connections) Token(ctx context.Context, host, path string) (string, bool
 	return token, token != ""
 }
 
+// Of returns the token of a git host's Connection by its label, for the service proxy (issue #685): a Bot given
+// github.com:default reads GitHub with the token workers use. The proxy adds it to a request; no agent holds it.
+func (c connections) Of(ctx context.Context, host, label string) (string, error) {
+	conn, err := c.svc.ConnectionOf(ctx, host, label)
+	if err != nil {
+		return "", err
+	}
+
+	opened, err := c.vault.Open(ctx, conn.Secret)
+	if err != nil {
+		return "", vaultError(err)
+	}
+
+	token := opened.Payload[vault.KeyValue]
+	if token == "" {
+		return "", fmt.Errorf("%w: %s:%s has no token", orchestration.ErrNotFound, host, label)
+	}
+
+	return token, nil
+}
+
 // vaultError turns the vault's errors into the ones the APIs answer with,
 // without a secret's value: the vault's errors never carry one.
 func vaultError(err error) error {
