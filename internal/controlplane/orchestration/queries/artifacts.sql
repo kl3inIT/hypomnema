@@ -104,3 +104,13 @@ WHERE s.token = @token;
 
 -- name: CountArtifactShareView :exec
 UPDATE artifact_shares SET views = views + 1, last_viewed_at = @now WHERE id = @id;
+
+-- name: ListAllArtifactShares :many
+-- Every link, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
+SELECT s.id, s.artifact_id, s.token, s.label, s.created_at, s.views, s.last_viewed_at,
+       a.chat_id, a.bot_id, coalesce(b.name, '') AS bot_name, r.title, r.type
+FROM artifact_shares s
+JOIN artifacts a ON a.id = s.artifact_id
+JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
+LEFT JOIN bots b ON b.id = a.bot_id
+ORDER BY s.created_at DESC, s.id;
