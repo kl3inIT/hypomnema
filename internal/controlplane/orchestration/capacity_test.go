@@ -438,7 +438,9 @@ func TestEachProfileHasARequest(t *testing.T) {
 		"explorer":    {cpuMillis: 500, memoryBytes: 512 << 20},
 	} {
 		t.Run(profile, func(t *testing.T) {
-			v, err := q.CurrentProfileVersion(ctx, profile)
+			t.Parallel()
+
+			v, err := q.CurrentProfileVersion(t.Context(), profile)
 			require.NoError(t, err)
 			assert.Equal(t, want, requestOf(v))
 		})
@@ -461,7 +463,9 @@ func TestEachProfileHasARequest(t *testing.T) {
 
 	for _, bad := range []string{"{cpu: 0}", "{cpu: -1}", "{cpu: lots}", "{memory: 0}", "{memory: 3Qi}", "{cpu: 0m}"} {
 		t.Run(bad, func(t *testing.T) {
-			_, _, err := w.s.ApplyProfile(ctx, "", "name: bad\ndescription: d\nruntime: claude\n"+
+			t.Parallel()
+
+			_, _, err := w.s.ApplyProfile(t.Context(), "", "name: bad\ndescription: d\nruntime: claude\n"+
 				"model: {provider: claude-subscription}\nrequests: "+bad+"\n")
 			require.ErrorIs(t, err, ErrInvalid)
 		})
