@@ -74,14 +74,13 @@ export type Beside = { open: (tab: PaneTab) => void; has: (key: string) => boole
 // pane, with no header above it, as Orca's tab bar is; a chat's tab carries its Bot's avatar as Orca's terminal tab
 // carries its agent's icon (TerminalTabLeadingIcon.tsx). Every tab is dragged by itself to another pane, or to a
 // side of a pane, as Orca's are. `start` and `end` are what the place showing the pane puts at the strip's ends:
-// the menu on a phone, a grid pane's buttons. `kept` is a tab that cannot be closed: a chat on its own page. The
-// phone opens beside the chat, in the pane to its right or a new one split off there, as Orca opens its emulator
-// (issue #528, `openBeside` in ./moves.ts).
+// the menu on a phone, a grid pane's buttons. Every tab can be closed, as in Orca; a chat's own page decides where
+// it goes when its chat's tab is (./solo-pane.tsx). The phone opens beside the chat, in the pane to its right or a
+// new one split off there, as Orca opens its emulator (issue #528, `openBeside` in ./moves.ts).
 export function PaneView({
   id,
   pane,
   onChange,
-  kept,
   start,
   end,
   beside,
@@ -89,7 +88,6 @@ export function PaneView({
   id: string
   pane: Pane
   onChange: (next: Pane | null) => void
-  kept?: string
   start?: ReactNode
   end?: ReactNode
   // Where the place showing the pane opens a tab beside it, and whether a tab is open there already (issue #528);
@@ -134,12 +132,8 @@ export function PaneView({
         >
           {pane.tabs.map((tab) => {
             const key = tabKey(tab)
-            const close =
-              key === kept
-                ? undefined
-                : () =>
-                    // A file with text not saved asks first (Orca marks such a tab and asks on close).
-                    isUnsaved(key) ? setClosing(key) : onChange(closeTab(pane, key))
+            // A file with text not saved asks first (Orca marks such a tab and asks on close).
+            const close = () => (isUnsaved(key) ? setClosing(key) : onChange(closeTab(pane, key)))
             const common = {
               selected: key === frontKey,
               onPick: () => onChange({ ...pane, active: key }),
