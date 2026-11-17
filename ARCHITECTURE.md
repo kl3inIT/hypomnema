@@ -846,7 +846,12 @@ sequenceDiagram
     shape of a report on finished work: the answer first, then what was done, checked and left (Hermes). The
     Browser part (issue #704) says to read a page in the browser rather than its scripts, that the Bot's page is
     in its own tab, which the owner sees beside the chat in the web client and not in "My browser", that the owner
-    signs in there, and that no password is asked for or used in the chat.
+    signs in there, and that no password is asked for or used in the chat. The Research before a design part
+    (issue #719, the owner's rule of this repository's `AGENTS.md`, 2026-11-17) says that before the Bot answers
+    how others do something or proposes a design or a choice, it has a worker clone and read the code of three or
+    four mature projects (or reads them itself), compares them with the paths read, recommends one and marks what
+    no reference does as its inference; the coordinator guide's `investigate` reference has a research Task name
+    three or four references, never one.
   - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
     every chat with the Bot, whoever writes in it (one store per agent, as all three references have). The Bot
     changes it through `POST /bots/{bot_id}/memory`: add, replace or remove the one entry that has a text. The change reads
@@ -3683,6 +3688,9 @@ Node (`internal/node`):
         system it names before it is built on, with what was seen cited; a false premise ends the Task with
         `finish` and that evidence, and no change (issue #513, after OpenClaw's and Hermes's `AGENTS.md` and
         Coder's "state uncertainty instead of guessing");
+      - that a Task asking for research or a design reads the references' code, not only their documents, and
+        cites the paths and lines (issue #719, the owner's "Research before design" of this repository's
+        `AGENTS.md`, given to every repository on 2026-11-17);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
