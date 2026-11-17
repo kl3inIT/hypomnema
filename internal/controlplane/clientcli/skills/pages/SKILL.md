@@ -1,6 +1,6 @@
 ---
 name: pages
-description: "Builds a fast, good-looking page, a data dashboard or any other page (a landing page, a pricing page, a tool), and shows it to the owner in the chat as an artifact with the `show_artifact` tool. Use when the owner asks for a dashboard, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures."
+description: "Builds a fast, good-looking page, a data dashboard, a report with charts or any other page (a landing page, a pricing page, a tool), and shows it to the owner in the chat as an artifact with the `show_artifact` tool. Use when the owner asks for a dashboard, a report, charts or KPIs on a page, a page or mock-up to look at, or a data page to keep up to date, for example from a Superset dashboard's figures, and when he asks whether a dashboard looks right."
 ---
 
 # Data dashboards and pages
@@ -30,25 +30,29 @@ asked for; a list of people is personal data (the `superset` skill).
 
 ## Start from the template
 
-`dashboard.html` is beside this SKILL.md, in this skill's folder. It runs in the artifact's locked frame, at phone and
-desktop widths, in light and dark. Copy it into your directory as `index.html` and change only what the data needs:
+`dashboard.html` is beside this SKILL.md, in this skill's folder, with the design references in `references/`
+beside it. It runs in the artifact's locked frame, at phone and desktop widths, in light and dark. Copy it into your
+directory as `index.html` and change only what the data needs:
 
 1. `CONFIG`: `dataFile` (a folder page's data, `data.json`), `source`, `updated` (when the figures were read, the
-   `computed_at` of `superset_chart_data`, ISO time), `currency` (`VND`, `USD`, …).
+   `computed_at` of `superset_chart_data`, ISO time), `currency` (`VND`, `USD`, …), `sample` (`false` for real
+   data), `notes` (a report's notes, or empty).
 2. `prepare`: map your columns to the fields the page uses. The sample has `date`, `region`, `category`, `product`,
    `orders`, `units`, `revenue`, one row a month, region and product.
-3. `AGGREGATES` and the `render…` functions: your questions.
-4. Headings, notes and KPI labels in the HTML, in the owner's language.
+3. `AGGREGATES`, the `render…` functions and `check`: your questions, and the sums that must agree.
+4. Headings, labels and tooltips in the HTML and the script, in the owner's language.
 5. Replace the sample rows between the `embedded-data` tags with your data (or leave the tag empty in a folder page
    and write `data.json`).
 
-Keep the rest: the charts drawn as SVG by `lineChart` and `barChart`, the colour tokens, `Intl` formatting, loading and
-error states, aria labels and the "Show the numbers" tables. Cut cards rather than adding a fifth chart.
+Keep the rest: the colour tokens with their dark values, the KPI row and its deltas, the charts drawn as SVG by
+`lineChart` and `barChart`, `Intl` formatting, the one tooltip, the loading, empty and error states, aria labels and
+the "Show the numbers" tables. Cut cards rather than adding a fifth chart.
 
 **The locked frame.** The page runs sandboxed, in an origin of its own. Make it self-contained: inline `<style>` and
-`<script>`, the system font, images as `data:` URLs. Load nothing from the network: no CDN script or stylesheet, no
-web font, no `fetch` but a folder page's own files. There are no cookies and no `localStorage` or
-`sessionStorage`; keep state in variables. The page cannot call the chat or the control plane.
+`<script>`, the system font, images as `data:` URLs, charts as inline SVG or CSS. Load nothing from the network: no
+CDN script or stylesheet, no chart library, no web font, no `fetch` but a folder page's own files. There are no
+cookies and no `localStorage` or `sessionStorage`; keep state in variables. The page cannot call the chat or the
+control plane.
 
 ## Data
 
@@ -59,44 +63,114 @@ web font, no `fetch` but a folder page's own files. There are no cookies and no 
 - **Aggregate first.** Ship the smallest table that answers the questions: one row per day or month and dimension,
   not raw events. A chart's rows are already its aggregate; when they are not enough, ask for another chart rather
   than raw rows.
-- **Size.** One page is at most 256 KB including the template (about 30 KB), so embed at most about 200 KB of JSON. A
+- **Size.** One page is at most 256 KB including the template (about 35 KB), so embed at most about 200 KB of JSON. A
   folder holds 5 MB in all.
 - **Embedding.** The JSON goes inside `<script type="application/json">`: write `<\/` for any `</` in a value, so a
   value cannot close the tag.
 - **Types.** Dates as `YYYY-MM-DD` text or milliseconds. Numbers as plain numbers, not formatted text.
-- Check one or two numbers on the page against `superset_chart_data` before you show it.
 
-## Design
+## Build a dashboard
 
-**Charts**
-- One question per chart. Make the heading the question ("Which regions sell the most?") and the note under it the answer, computed from the data.
-- Pick the form by the job: compare categories with a bar (horizontal and sorted when labels are long); show change over time with a line; show part-to-whole with a stacked bar. A single number is a KPI tile, not a chart. Many categories belong in a table.
-- Never: 3D, two y-axes (use two charts, or index both series to 100), pies with more than 3 slices, rainbow colour scales, a number on every point.
-- Bars start at zero. Don't cut an axis to make a change look bigger.
-- Label directly: values at bar tips, series names at line ends. Use a legend only when direct labels collide.
-- Annotate the key point (the peak, a target, the change that matters) on the chart itself.
-- Emphasis beats colour: one accent for what matters, grey for the rest (the template greys every region but the selected one).
+Each step is done before the next starts. The references are files in `references/` beside this SKILL.md; read the
+one a step names when you reach it.
 
-**Colour**
-- One accent colour for the page. The template's 6 categorical colours (separate light and dark sets) were checked for colour-blind separation and at least 3:1 contrast; use them in order.
-- Give each category a fixed colour, so filtering never repaints the survivors. Fold anything past 6 into "Other".
-- Magnitude: one hue from light to dark. Above/below a baseline: two hues with a grey middle.
-- Green and red mean good and bad only, always with ▲ ▼ and words, never colour alone.
-- Text uses the ink colours, never a series colour.
+1. **Name the question.** Write the page's one question ("Are sales growing, and where?"), the 3–6 numbers that
+   answer it, the problems as rules with numbers ("a region down more than 10% on the period before"), and what the
+   owner would do about each. Work out the expected answers from the rows now, before any HTML (`references/qa.md`,
+   Known totals).
+2. **Pick a form for each number** (table below; `references/perception.md` for the encoding ladder, colour scales,
+   heatmaps and bullet graphs), with a one-line reason each.
+3. **Lay out the hierarchy**: header (title, "updated", filters) → KPI tiles → the main view → breakdowns → detail
+   tables → notes (a report only) → source line. Most important top-left; cards in one row hold similar amounts;
+   on a monitoring page the tiles and the main view fit above the fold (`references/layout.md`).
+4. **Set the tokens** before any component: every colour a CSS variable with a light and a dark value
+   (`references/tokens.md`; the template has them).
+5. **Build each component from its pattern** (`references/components.md`), with the code in
+   `references/snippets.md` where it fits: KPI and target tiles, delta, sparkline, ranked list, heatmap, bullet
+   graph, share bar, tooltip.
+6. **Design every state**: loading, filters applying (dimmed, never zeros), error (one page-level note), empty (`—`
+   and one short line, never an all-clear), tiny bases, sample data (a chip).
+7. **Run the QA pass** (`references/qa.md`): the numbers first, then the words audit and the salience test, then
+   screenshots at phone, beside-the-chat and full width, light and dark.
 
-**Layout and type**
-- Order: title and filters, then 3 to 5 KPI tiles, the main chart full width, 1 or 2 supporting charts, a detail table, and the source line.
-- Space on a 4, 8, 12, 16, 24, 32 px scale; align to the grid; hairline grid lines; let whitespace separate cards.
-- System font. Tabular numbers in tables and axes; KPI numbers stay proportional.
-- Format every number and date with `Intl`: compact for KPIs and axes (₫1.2B), full in tables and tooltips.
-- Say where the data came from, the dates it covers and when it was refreshed, at the bottom.
+**Choose a chart by the question** (more in `references/perception.md`):
 
-**Interaction and access**
-- One or two filters, in one row above everything; every KPI, chart and table follows them.
-- Tooltips add detail but never hold the only copy of a number: each chart has its table.
-- Each chart has an `aria-label` that states what it shows and the takeaway. Native `select` and `details` keep the keyboard working; keep visible focus and text contrast of at least 4.5:1.
-- It must work at 360 px wide: one column, nothing scrolls sideways except a wide table inside its own box.
-- Show a loading line at start, a plain error if the data fails, and dim (don't blank) the cards while filters apply.
+| The question | Form |
+|---|---|
+| How is it changing over time? | Line; area only for a running total |
+| Which is biggest? Rank them. | Horizontal bars, sorted, values at the tips |
+| What is it made of? | Stacked bar or a segmented share bar; a donut only for one overwhelming share |
+| How are values spread? | Histogram |
+| Do two measures move together? | Scatter plot |
+| One measure across two dimensions | Heatmap with classed tiers |
+| Are we on target? | Bullet graph or a target tile |
+| One number | KPI tile, not a chart |
+| Many categories, exact values | Table |
+
+Never: 3D, two y-axes (two charts, or index both series to 100), gauges and dials, pies with more than a few slices,
+rainbow scales, a number on every point.
+
+## Rules that apply everywhere
+
+- **First glance.** What a reader gets in 3 seconds without hovering is designed first: the answer, then what needs
+  attention.
+- **Colour follows meaning.** One hue for the page's main entity (the accent), grey for the rest: unselected bars,
+  previous periods, secondary series. A warm hue (`--warn`) or `--bad` only on a problem; intensity grows toward the
+  problem, never toward "good". The six series colours (separate light and dark sets) are for categories, in
+  order, each keeping its colour when filters change; fold anything past 6 into "Other". Green and red never carry
+  meaning alone: ▲ ▼ and a word with them. Text is ink, never a series colour.
+- **Context.** Every headline number answers "compared to what?" with one baseline: the previous period of the same
+  length, a target, a normal range or its history, in a symbol and one or two words ("▲ 12% vs prev 3 mo").
+- **Numbers.** Every number and date formatted with `Intl`; tabular figures, right-aligned in columns; as precise as
+  the decision needs (₫5.2B on a tile, exact in the tooltip and the table); compact on axes; `<0.1%` below 0.1%; `—`
+  for no data, never a fake 0.
+- **Filters.** One or two, in one row above everything; every tile, chart and table follows them.
+- **Comparison.** A previous period is a grey or dashed line; an unfinished period is dashed. A base under about 5
+  reads "was 1" in grey, never a red −100%. Deltas are coloured by meaning: a lower-is-better metric (cost,
+  complaints, churn) turns bad when it rises; a neutral one (spend, volume) stays grey.
+- **Say it once.** A number shown twice agrees, and is a claim in one place only.
+- **Attention lives on the data.** Flag the problem where it shows (a warm cell, a bad chip on a row), not in a
+  sentence elsewhere. The page cannot act; say the action in your chat reply.
+- **Axes.** Bars start at zero; about four round ticks; labels horizontal and short. Label directly (values at bar
+  tips, series names at line ends); a legend only when direct labels collide.
+- **Density.** 14 px base text, labels 12–13 px muted, KPI values 28–32 px, spacing on 4, 8, 12, 16, 24, 32 px, the
+  system font, hairline borders.
+- **Width grows with the screen**: more columns on a wide window, one column at 360 px with nothing scrolling
+  sideways but a wide table in its own box.
+- **Access.** Each chart has an `aria-label` with its takeaway and a table of its numbers; tooltips show on focus
+  too; visible focus; text contrast at least 4.5:1, marks 3:1.
+
+## Words
+
+The main view has no sentences: names, numbers, units, one- or two-word baselines ("vs Oct"), legend labels and
+chips. A chart's title is a label and a number ("Revenue · Peak ₫1.6B Aug 2026"); its interpretation goes in the
+tooltip and the `aria-label`. Sentences live in tooltips, empty states, the error note and, for a report read by
+managers, one notes section at the end of the page ("Nhận xét" for a Vietnamese reader): at most 3–5 short points,
+each about a number the page shows (owner, 2026-11-17). A dashboard looked at every day has no notes section.
+
+## Check the numbers
+
+Before you show a page, and after each change to its data:
+
+- Work out the expected totals from the rows you read, outside the page's code (a short script over `chart.json`),
+  and compare each tile, each chart's sum and peak, and each table's total and top row with them.
+- The template's `check()` compares the tiles with their charts and tables at every render and shows one error note
+  when they disagree; extend it for each component you add. `data-check="ok"` on `<html>` means they agree.
+- Check one or two numbers on the page against `superset_chart_data` itself.
+
+## Critique ("is this dashboard good?")
+
+Look at the page (a screenshot, or open it), then answer in this order:
+
+1. **Verdict** in one plain line ("Better, not good yet").
+2. **What works**: 2–4 specifics.
+3. **Issues ranked by harm**: honesty (numbers that disagree, misleading deltas or axes) → salience (does the eye
+   land on what needs action?) → hierarchy (what leads, what competes) → words (sentences that should be a shape or a
+   tooltip) → component smells (`references/qa.md`, Smell list) → polish. Each names the element, what the reader
+   sees, and the fix.
+4. Offer to fix them in one revision.
+
+Honesty problems come first: a pretty page with two answers to one question is not good.
 
 ## Where it shows
 
@@ -106,8 +180,11 @@ web font, no `fetch` but a folder page's own files. There are no cookies and no 
 
 ## Before you hand it over
 
-- Never chart more than about 10,000 marks; aggregate first.
+- Never chart more than about 10,000 marks: a line about 500 points a series, a bar chart about 50 categories, a
+  table 100–200 rows; aggregate or show the top N first.
 - Labels must not collide or clip at 360 px and at full width: keep labels short.
+- The numbers agree (above), the main view has no sentences, and the source line says where the data came from, the
+  dates it covers and when it was read.
 - Say in your reply what the page shows, as of when, and how it stays current (the Routine, if any).
 
 ## Make a page
@@ -125,3 +202,9 @@ and draw an icon as inline SVG.
 - It must work at 360 px wide: stack columns (a grid that becomes one column on a narrow screen), nothing scrolls sideways.
 - Real words, not lorem ipsum.
 - Keep it under 256 KB: embed data, not libraries.
+
+## Sources
+
+The artifact and Routine parts and the template are adapted from an open-source data-dashboards skill (Apache-2.0, `LICENSE`). The
+dashboard design (build steps, rules, critique, `references/`) is adapted from dashboard-design-skill by Otabek
+Abdiraimov (MIT, `references/LICENSE`); chart choice from Anthropic's data plugin (Apache-2.0, `LICENSE`).

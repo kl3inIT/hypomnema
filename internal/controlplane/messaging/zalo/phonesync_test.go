@@ -75,6 +75,11 @@ func writeBackup(path string, gap int, chats map[string][]backupRow) error {
 			return err
 		}
 
+		// The phone's databases are in WAL mode.
+		if _, err := conn.ExecContext(ctx, `PRAGMA journal_mode=WAL`); err != nil {
+			return err
+		}
+
 		if _, err := conn.ExecContext(ctx, `CREATE TABLE ChatContent (SenderId TEXT, CliMsgId INTEGER, GlbMsgId INTEGER,
 			MsgStatus INTEGER, MsgType INTEGER, TimeStamp INTEGER, TTL INTEGER, MsgContent TEXT, BinNet BLOB)`); err != nil {
 			return err

@@ -19,7 +19,8 @@ import (
 // (llms/soniox/audio_transcription/handler.py) run it:
 //
 //	POST   /v1/files                          the recording, multipart `file`
-//	POST   /v1/transcriptions                 {model, file_id, enable_speaker_diarization?, language_hints?}
+//	POST   /v1/transcriptions                 {model, file_id, enable_speaker_diarization?, language_hints?,
+//	                                           context: {terms}?}
 //	GET    /v1/transcriptions/{id}            each second until completed, or error, up to 30 minutes
 //	GET    /v1/transcriptions/{id}/transcript {text, tokens: [{text, start_ms, end_ms, speaker?, language?}]}
 //	DELETE /v1/transcriptions/{id}, /v1/files/{id}   always, best effort
@@ -87,6 +88,10 @@ func (s *Service) sonioxTranscribe(ctx context.Context, k Key, req TranscribeReq
 	} else {
 		// With no hint the language is found and told on each token (OmniRoute's job body).
 		job["enable_language_identification"] = true
+	}
+
+	if len(req.Terms) > 0 {
+		job["context"] = map[string]any{"terms": req.Terms}
 	}
 
 	created.ID = ""

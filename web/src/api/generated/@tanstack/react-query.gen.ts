@@ -3,8 +3,8 @@
 import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { abortChat, abortWorkspaceUpload, addAudioKey, addLarkChannelPerson, addSkill, addTokenAccount, addWebSearchKey, answerQuestion, applyProfile, applyProvider, backfillMessagingChat, beginAccountSignIn, beginIntegrationSignIn, beginWorkspaceUpload, cancelRun, cancelTask, changeAgentMemory, changeBotMemory, changeOwnerMemory, checkIntegrationConnection, commitWorkspaceUpload, compactChat, completeAccountSignIn, completeIntegrationSignIn, createBot, createChat, createGatewayKey, createNode, createRun, createSession, createTasks, decideApproval, deleteBot, deleteChat, deleteGitHost, deleteGitHostConnection, deleteGitHostToken, deleteIntegrationConnection, deleteLarkChannel, deleteProfile, deleteProvider, deleteRepo, deleteRoutine, deleteSecret, deleteSession, deleteSkill, deleteWorkspaceEntry, diffWorkspaceFile, disableAccount, drainNode, enableAccount, fetchWeb, finishRun, followUpTask, forwardQuestion, generateImages, getAccountLimits, getAgentMemory, getArtifact, getArtifactArchive, getAudio, getBot, getBrowser, getChat, getChatGatewayKey, getDevice, getGatewayUsage, getGitSshKey, getImages, getIntegrationSignIn, getLarkChannel, getMe, getOwnerMemory, getProfile, getQuestion, getRoutine, getRun, getSecretValue, getSkill, getSkillArchive, getSupersetChartData, getSupersetDashboard, getTask, getWebSearch, launchRoutineScript, listAccounts, listApprovals, listArtifacts, listBots, listBotSkills, listBuiltinSkills, listChatMessages, listChatQueue, listChats, listChatWorkspaces, listConnectionActions, listDispatchItems, listEvents, listGatewayKeys, listGatewayModels, listGatewayRequests, listGitHosts, listIntegrations, listLarkChannels, listMachineProviders, listMessagingChats, listMessagingMessages, listModels, listNodes, listProfiles, listProfileVersions, listProviders, listQuestions, listRepos, listRoutineRuns, listRoutines, listRuns, listSecrets, listSetupChanges, listSkillAudits, listSkillFiles, listSkills, listSupersetDashboards, listSupersetFilterValues, listTasks, listTools, listWorkspaceChanges, listWorkspaceDirectory, makeWorkspaceFolder, moveAccount, moveWorkspaceEntry, openArtifactFrame, openBrowserView, openDeviceView, openNodeTerminal, type Options, patchIntegrationConnection, pauseRoutine, previewRoutineSchedule, putBot, putGitHost, putGitHostConnection, putGitHostToken, putIntegrationClient, putIntegrationConnection, putLarkChannel, putRepo, putRoutine, putSecret, readArtifactFile, readArtifactSheets, readMessagingMedia, readWorkspaceFile, readWorkspaceRaw, readWorkspaceSheets, redeemAccountLimitReset, relaySupersetRequest, removeAccount, removeAudioKey, removeLarkChannelPerson, removeNode, removeQueuedChatMessage, removeWebSearchKey, renameBot, reopenTask, reorderBots, resumeNode, resumeRoutine, revokeGatewayKey, revokeRoutineGrant, runRoutine, searchSkills, searchWeb, sendChatMessage, sendQueuedChatMessage, sendWorkspaceUploadChunk, setAgentMemory, setAudioOrder, setAudioProvider, setBotMemory, setConnectionAction, setGatewayModelAttributes, setImageOrder, setImageProvider, setLarkChannelGroup, setOwnerMemory, setSkillEveryone, setWebSearchOrder, setWebSearchProvider, showArtifact, speakAudio, startNodeDevice, startNodeMachine, stopNodeDevice, stopNodeMachine, syncMessagingFromPhone, transcribeAudio, undoRoutine, undoSetupChange, updateChat, updateNode, uploadSkill, writeWorkspaceFile } from '../sdk.gen';
-import type { AbortChatData, AbortChatError, AbortChatResponse, AbortWorkspaceUploadData, AbortWorkspaceUploadError, AbortWorkspaceUploadResponse, AddAudioKeyData, AddAudioKeyError, AddAudioKeyResponse, AddLarkChannelPersonData, AddLarkChannelPersonError, AddLarkChannelPersonResponse, AddSkillData, AddSkillError, AddSkillResponse, AddTokenAccountData, AddTokenAccountError, AddTokenAccountResponse, AddWebSearchKeyData, AddWebSearchKeyError, AddWebSearchKeyResponse, AnswerQuestionData, AnswerQuestionError, AnswerQuestionResponse, ApplyProfileData, ApplyProfileError, ApplyProfileResponse, ApplyProviderData, ApplyProviderError, ApplyProviderResponse, BackfillMessagingChatData, BackfillMessagingChatError, BackfillMessagingChatResponse, BeginAccountSignInData, BeginAccountSignInError, BeginAccountSignInResponse, BeginIntegrationSignInData, BeginIntegrationSignInError, BeginIntegrationSignInResponse, BeginWorkspaceUploadData, BeginWorkspaceUploadError, BeginWorkspaceUploadResponse, CancelRunData, CancelRunError, CancelRunResponse, CancelTaskData, CancelTaskError, CancelTaskResponse, ChangeAgentMemoryData, ChangeAgentMemoryError, ChangeAgentMemoryResponse, ChangeBotMemoryData, ChangeBotMemoryError, ChangeBotMemoryResponse, ChangeOwnerMemoryData, ChangeOwnerMemoryError, ChangeOwnerMemoryResponse, CheckIntegrationConnectionData, CheckIntegrationConnectionError, CheckIntegrationConnectionResponse, CommitWorkspaceUploadData, CommitWorkspaceUploadError, CommitWorkspaceUploadResponse, CompactChatData, CompactChatError, CompleteAccountSignInData, CompleteAccountSignInError, CompleteAccountSignInResponse, CompleteIntegrationSignInData, CompleteIntegrationSignInError, CompleteIntegrationSignInResponse, CreateBotData, CreateBotError, CreateBotResponse, CreateChatData, CreateChatError, CreateChatResponse, CreateGatewayKeyData, CreateGatewayKeyError, CreateGatewayKeyResponse, CreateNodeData, CreateNodeError, CreateNodeResponse, CreateRunData, CreateRunError, CreateRunResponse, CreateSessionData, CreateSessionError, CreateSessionResponse, CreateTasksData, CreateTasksError, CreateTasksResponse, DecideApprovalData, DecideApprovalError, DecideApprovalResponse, DeleteBotData, DeleteBotError, DeleteBotResponse, DeleteChatData, DeleteChatError, DeleteChatResponse, DeleteGitHostConnectionData, DeleteGitHostConnectionError, DeleteGitHostConnectionResponse, DeleteGitHostData, DeleteGitHostError, DeleteGitHostResponse, DeleteGitHostTokenData, DeleteGitHostTokenError, DeleteGitHostTokenResponse, DeleteIntegrationConnectionData, DeleteIntegrationConnectionError, DeleteIntegrationConnectionResponse, DeleteLarkChannelData, DeleteLarkChannelError, DeleteLarkChannelResponse, DeleteProfileData, DeleteProfileError, DeleteProfileResponse, DeleteProviderData, DeleteProviderError, DeleteProviderResponse, DeleteRepoData, DeleteRepoError, DeleteRepoResponse, DeleteRoutineData, DeleteRoutineError, DeleteRoutineResponse, DeleteSecretData, DeleteSecretError, DeleteSecretResponse, DeleteSessionData, DeleteSessionError, DeleteSessionResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, DeleteWorkspaceEntryData, DeleteWorkspaceEntryError, DeleteWorkspaceEntryResponse, DiffWorkspaceFileData, DiffWorkspaceFileError, DiffWorkspaceFileResponse, DisableAccountData, DisableAccountError, DisableAccountResponse, DrainNodeData, DrainNodeError, DrainNodeResponse, EnableAccountData, EnableAccountError, EnableAccountResponse, FetchWebData, FetchWebError, FetchWebResponse, FinishRunData, FinishRunError, FinishRunResponse, FollowUpTaskData, FollowUpTaskError, FollowUpTaskResponse, ForwardQuestionData, ForwardQuestionError, ForwardQuestionResponse, GenerateImagesData, GenerateImagesError, GenerateImagesResponse, GetAccountLimitsData, GetAccountLimitsError, GetAccountLimitsResponse, GetAgentMemoryData, GetAgentMemoryError, GetAgentMemoryResponse, GetArtifactArchiveData, GetArtifactArchiveError, GetArtifactArchiveResponse, GetArtifactData, GetArtifactError, GetArtifactResponse, GetAudioData, GetAudioError, GetAudioResponse, GetBotData, GetBotError, GetBotResponse, GetBrowserData, GetBrowserError, GetBrowserResponse, GetChatData, GetChatError, GetChatGatewayKeyData, GetChatGatewayKeyError, GetChatGatewayKeyResponse, GetChatResponse, GetDeviceData, GetDeviceError, GetDeviceResponse, GetGatewayUsageData, GetGatewayUsageError, GetGatewayUsageResponse, GetGitSshKeyData, GetGitSshKeyError, GetGitSshKeyResponse, GetImagesData, GetImagesError, GetImagesResponse, GetIntegrationSignInData, GetIntegrationSignInError, GetIntegrationSignInResponse, GetLarkChannelData, GetLarkChannelError, GetLarkChannelResponse, GetMeData, GetMeError, GetMeResponse, GetOwnerMemoryData, GetOwnerMemoryError, GetOwnerMemoryResponse, GetProfileData, GetProfileError, GetProfileResponse, GetQuestionData, GetQuestionError, GetQuestionResponse, GetRoutineData, GetRoutineError, GetRoutineResponse, GetRunData, GetRunError, GetRunResponse, GetSecretValueData, GetSecretValueError, GetSecretValueResponse, GetSkillArchiveData, GetSkillArchiveError, GetSkillArchiveResponse, GetSkillData, GetSkillError, GetSkillResponse, GetSupersetChartDataData, GetSupersetChartDataError, GetSupersetChartDataResponse, GetSupersetDashboardData, GetSupersetDashboardError, GetSupersetDashboardResponse, GetTaskData, GetTaskError, GetTaskResponse, GetWebSearchData, GetWebSearchError, GetWebSearchResponse, LaunchRoutineScriptData, LaunchRoutineScriptError, LaunchRoutineScriptResponse, ListAccountsData, ListAccountsError, ListAccountsResponse, ListApprovalsData, ListApprovalsError, ListApprovalsResponse, ListArtifactsData, ListArtifactsError, ListArtifactsResponse, ListBotsData, ListBotsError, ListBotSkillsData, ListBotSkillsError, ListBotSkillsResponse, ListBotsResponse, ListBuiltinSkillsData, ListBuiltinSkillsError, ListBuiltinSkillsResponse, ListChatMessagesData, ListChatMessagesError, ListChatMessagesResponse, ListChatQueueData, ListChatQueueError, ListChatQueueResponse, ListChatsData, ListChatsError, ListChatsResponse, ListChatWorkspacesData, ListChatWorkspacesError, ListChatWorkspacesResponse, ListConnectionActionsData, ListConnectionActionsError, ListConnectionActionsResponse, ListDispatchItemsData, ListDispatchItemsError, ListDispatchItemsResponse, ListEventsData, ListEventsError, ListEventsResponse, ListGatewayKeysData, ListGatewayKeysError, ListGatewayKeysResponse, ListGatewayModelsData, ListGatewayModelsError, ListGatewayModelsResponse, ListGatewayRequestsData, ListGatewayRequestsError, ListGatewayRequestsResponse, ListGitHostsData, ListGitHostsError, ListGitHostsResponse, ListIntegrationsData, ListIntegrationsError, ListIntegrationsResponse, ListLarkChannelsData, ListLarkChannelsError, ListLarkChannelsResponse, ListMachineProvidersData, ListMachineProvidersError, ListMachineProvidersResponse, ListMessagingChatsData, ListMessagingChatsError, ListMessagingChatsResponse, ListMessagingMessagesData, ListMessagingMessagesError, ListMessagingMessagesResponse, ListModelsData, ListModelsError, ListModelsResponse, ListNodesData, ListNodesError, ListNodesResponse, ListProfilesData, ListProfilesError, ListProfilesResponse, ListProfileVersionsData, ListProfileVersionsError, ListProfileVersionsResponse, ListProvidersData, ListProvidersError, ListProvidersResponse, ListQuestionsData, ListQuestionsError, ListQuestionsResponse, ListReposData, ListReposError, ListReposResponse, ListRoutineRunsData, ListRoutineRunsError, ListRoutineRunsResponse, ListRoutinesData, ListRoutinesError, ListRoutinesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSecretsData, ListSecretsError, ListSecretsResponse, ListSetupChangesData, ListSetupChangesError, ListSetupChangesResponse, ListSkillAuditsData, ListSkillAuditsError, ListSkillAuditsResponse, ListSkillFilesData, ListSkillFilesError, ListSkillFilesResponse, ListSkillsData, ListSkillsError, ListSkillsResponse, ListSupersetDashboardsData, ListSupersetDashboardsError, ListSupersetDashboardsResponse, ListSupersetFilterValuesData, ListSupersetFilterValuesError, ListSupersetFilterValuesResponse, ListTasksData, ListTasksError, ListTasksResponse, ListToolsData, ListToolsError, ListToolsResponse, ListWorkspaceChangesData, ListWorkspaceChangesError, ListWorkspaceChangesResponse, ListWorkspaceDirectoryData, ListWorkspaceDirectoryError, ListWorkspaceDirectoryResponse, MakeWorkspaceFolderData, MakeWorkspaceFolderError, MakeWorkspaceFolderResponse, MoveAccountData, MoveAccountError, MoveAccountResponse, MoveWorkspaceEntryData, MoveWorkspaceEntryError, MoveWorkspaceEntryResponse, OpenArtifactFrameData, OpenArtifactFrameError, OpenArtifactFrameResponse, OpenBrowserViewData, OpenBrowserViewError, OpenBrowserViewResponse, OpenDeviceViewData, OpenDeviceViewError, OpenDeviceViewResponse, OpenNodeTerminalData, OpenNodeTerminalError, OpenNodeTerminalResponse, PatchIntegrationConnectionData, PatchIntegrationConnectionError, PatchIntegrationConnectionResponse, PauseRoutineData, PauseRoutineError, PauseRoutineResponse, PreviewRoutineScheduleData, PreviewRoutineScheduleError, PreviewRoutineScheduleResponse, PutBotData, PutBotError, PutBotResponse, PutGitHostConnectionData, PutGitHostConnectionError, PutGitHostConnectionResponse, PutGitHostData, PutGitHostError, PutGitHostResponse, PutGitHostTokenData, PutGitHostTokenError, PutGitHostTokenResponse, PutIntegrationClientData, PutIntegrationClientError, PutIntegrationClientResponse, PutIntegrationConnectionData, PutIntegrationConnectionError, PutIntegrationConnectionResponse, PutLarkChannelData, PutLarkChannelError, PutLarkChannelResponse, PutRepoData, PutRepoError, PutRepoResponse, PutRoutineData, PutRoutineError, PutRoutineResponse, PutSecretData, PutSecretError, PutSecretResponse, ReadArtifactFileData, ReadArtifactFileError, ReadArtifactFileResponse, ReadArtifactSheetsData, ReadArtifactSheetsError, ReadArtifactSheetsResponse, ReadMessagingMediaData, ReadMessagingMediaError, ReadMessagingMediaResponse, ReadWorkspaceFileData, ReadWorkspaceFileError, ReadWorkspaceFileResponse, ReadWorkspaceRawData, ReadWorkspaceRawError, ReadWorkspaceRawResponse, ReadWorkspaceSheetsData, ReadWorkspaceSheetsError, ReadWorkspaceSheetsResponse, RedeemAccountLimitResetData, RedeemAccountLimitResetError, RedeemAccountLimitResetResponse, RelaySupersetRequestData, RelaySupersetRequestError, RelaySupersetRequestResponse, RemoveAccountData, RemoveAccountError, RemoveAccountResponse, RemoveAudioKeyData, RemoveAudioKeyError, RemoveAudioKeyResponse, RemoveLarkChannelPersonData, RemoveLarkChannelPersonError, RemoveLarkChannelPersonResponse, RemoveNodeData, RemoveNodeError, RemoveNodeResponse, RemoveQueuedChatMessageData, RemoveQueuedChatMessageError, RemoveQueuedChatMessageResponse, RemoveWebSearchKeyData, RemoveWebSearchKeyError, RemoveWebSearchKeyResponse, RenameBotData, RenameBotError, RenameBotResponse, ReopenTaskData, ReopenTaskError, ReopenTaskResponse, ReorderBotsData, ReorderBotsError, ReorderBotsResponse, ResumeNodeData, ResumeNodeError, ResumeNodeResponse, ResumeRoutineData, ResumeRoutineError, ResumeRoutineResponse, RevokeGatewayKeyData, RevokeGatewayKeyError, RevokeGatewayKeyResponse, RevokeRoutineGrantData, RevokeRoutineGrantError, RevokeRoutineGrantResponse, RunRoutineData, RunRoutineError, RunRoutineResponse, SearchSkillsData, SearchSkillsError, SearchSkillsResponse, SearchWebData, SearchWebError, SearchWebResponse, SendChatMessageData, SendChatMessageError, SendChatMessageResponse, SendQueuedChatMessageData, SendQueuedChatMessageError, SendQueuedChatMessageResponse, SendWorkspaceUploadChunkData, SendWorkspaceUploadChunkError, SendWorkspaceUploadChunkResponse, SetAgentMemoryData, SetAgentMemoryError, SetAgentMemoryResponse, SetAudioOrderData, SetAudioOrderError, SetAudioOrderResponse, SetAudioProviderData, SetAudioProviderError, SetAudioProviderResponse, SetBotMemoryData, SetBotMemoryError, SetBotMemoryResponse, SetConnectionActionData, SetConnectionActionError, SetConnectionActionResponse, SetGatewayModelAttributesData, SetGatewayModelAttributesError, SetGatewayModelAttributesResponse, SetImageOrderData, SetImageOrderError, SetImageOrderResponse, SetImageProviderData, SetImageProviderError, SetImageProviderResponse, SetLarkChannelGroupData, SetLarkChannelGroupError, SetLarkChannelGroupResponse, SetOwnerMemoryData, SetOwnerMemoryError, SetOwnerMemoryResponse, SetSkillEveryoneData, SetSkillEveryoneError, SetSkillEveryoneResponse, SetWebSearchOrderData, SetWebSearchOrderError, SetWebSearchOrderResponse, SetWebSearchProviderData, SetWebSearchProviderError, SetWebSearchProviderResponse, ShowArtifactData, ShowArtifactError, ShowArtifactResponse, SpeakAudioData, SpeakAudioError, SpeakAudioResponse, StartNodeDeviceData, StartNodeDeviceError, StartNodeDeviceResponse, StartNodeMachineData, StartNodeMachineError, StartNodeMachineResponse, StopNodeDeviceData, StopNodeDeviceError, StopNodeDeviceResponse, StopNodeMachineData, StopNodeMachineError, StopNodeMachineResponse, SyncMessagingFromPhoneData, SyncMessagingFromPhoneError, TranscribeAudioData, TranscribeAudioError, TranscribeAudioResponse, UndoRoutineData, UndoRoutineError, UndoRoutineResponse, UndoSetupChangeData, UndoSetupChangeError, UndoSetupChangeResponse, UpdateChatData, UpdateChatError, UpdateChatResponse, UpdateNodeData, UpdateNodeError, UpdateNodeResponse, UploadSkillData, UploadSkillError, UploadSkillResponse, WriteWorkspaceFileData, WriteWorkspaceFileError, WriteWorkspaceFileResponse } from '../types.gen';
+import { abortChat, abortWorkspaceUpload, addAudioKey, addLarkChannelPerson, addSkill, addTokenAccount, addWebSearchKey, answerQuestion, applyProfile, applyProvider, backfillMessagingChat, beginAccountSignIn, beginIntegrationSignIn, beginWorkspaceUpload, cancelRun, cancelTask, changeAgentMemory, changeBotMemory, changeOwnerMemory, checkIntegrationConnection, commitWorkspaceUpload, compactChat, completeAccountSignIn, completeIntegrationSignIn, createBot, createChat, createGatewayKey, createNode, createRun, createSession, createTasks, decideApproval, deleteBot, deleteChat, deleteGitHost, deleteGitHostConnection, deleteGitHostToken, deleteIntegrationConnection, deleteLarkChannel, deleteMeeting, deleteProfile, deleteProvider, deleteRepo, deleteRoutine, deleteSecret, deleteSession, deleteSkill, deleteWorkspaceEntry, diffWorkspaceFile, disableAccount, drainNode, enableAccount, fetchWeb, finishRun, followUpTask, forwardQuestion, generateImages, getAccountLimits, getAgentMemory, getArtifact, getArtifactArchive, getAudio, getBot, getBrowser, getChat, getChatGatewayKey, getDevice, getGatewayUsage, getGitSshKey, getImages, getIntegrationSignIn, getLarkChannel, getMe, getMeeting, getMeetingRecording, getMeetingSettings, getOwnerMemory, getProfile, getQuestion, getRoutine, getRun, getSecretValue, getSkill, getSkillArchive, getSupersetChartData, getSupersetDashboard, getTask, getWebSearch, launchRoutineScript, listAccounts, listApprovals, listArtifacts, listBots, listBotSkills, listBuiltinSkills, listChatMessages, listChatQueue, listChats, listChatWorkspaces, listConnectionActions, listDispatchItems, listEvents, listGatewayKeys, listGatewayModels, listGatewayRequests, listGitHosts, listIntegrations, listLarkChannels, listMachineProviders, listMeetingActions, listMeetings, listMessagingChats, listMessagingMessages, listModels, listNodes, listProfiles, listProfileVersions, listProviders, listQuestions, listRepos, listRoutineRuns, listRoutines, listRuns, listSecrets, listSetupChanges, listSkillAudits, listSkillFiles, listSkills, listSupersetDashboards, listSupersetFilterValues, listTasks, listTools, listWorkspaceChanges, listWorkspaceDirectory, makeWorkspaceFolder, moveAccount, moveWorkspaceEntry, nameMeetingSpeaker, openArtifactFrame, openBrowserView, openDeviceView, openNodeTerminal, type Options, patchIntegrationConnection, pauseRoutine, previewRoutineSchedule, putBot, putGitHost, putGitHostConnection, putGitHostToken, putIntegrationClient, putIntegrationConnection, putLarkChannel, putRepo, putRoutine, putSecret, readArtifactFile, readArtifactSheets, readMessagingMedia, readWorkspaceFile, readWorkspaceRaw, readWorkspaceSheets, redeemAccountLimitReset, relaySupersetRequest, removeAccount, removeAudioKey, removeLarkChannelPerson, removeNode, removeQueuedChatMessage, removeWebSearchKey, renameBot, reopenTask, reorderBots, resumeNode, resumeRoutine, revokeGatewayKey, revokeRoutineGrant, runRoutine, searchSkills, searchWeb, sendChatMessage, sendQueuedChatMessage, sendWorkspaceUploadChunk, setAgentMemory, setAudioOrder, setAudioProvider, setBotMemory, setConnectionAction, setGatewayModelAttributes, setImageOrder, setImageProvider, setLarkChannelGroup, setMeetingLineSpeaker, setMeetingSettings, setOwnerMemory, setSkillEveryone, setWebSearchOrder, setWebSearchProvider, showArtifact, speakAudio, startNodeDevice, startNodeMachine, stopNodeDevice, stopNodeMachine, syncMessagingFromPhone, transcribeAudio, undoRoutine, undoSetupChange, updateChat, updateMeetingItem, updateNode, uploadMeeting, uploadSkill, writeMeetingNotes, writeWorkspaceFile } from '../sdk.gen';
+import type { AbortChatData, AbortChatError, AbortChatResponse, AbortWorkspaceUploadData, AbortWorkspaceUploadError, AbortWorkspaceUploadResponse, AddAudioKeyData, AddAudioKeyError, AddAudioKeyResponse, AddLarkChannelPersonData, AddLarkChannelPersonError, AddLarkChannelPersonResponse, AddSkillData, AddSkillError, AddSkillResponse, AddTokenAccountData, AddTokenAccountError, AddTokenAccountResponse, AddWebSearchKeyData, AddWebSearchKeyError, AddWebSearchKeyResponse, AnswerQuestionData, AnswerQuestionError, AnswerQuestionResponse, ApplyProfileData, ApplyProfileError, ApplyProfileResponse, ApplyProviderData, ApplyProviderError, ApplyProviderResponse, BackfillMessagingChatData, BackfillMessagingChatError, BackfillMessagingChatResponse, BeginAccountSignInData, BeginAccountSignInError, BeginAccountSignInResponse, BeginIntegrationSignInData, BeginIntegrationSignInError, BeginIntegrationSignInResponse, BeginWorkspaceUploadData, BeginWorkspaceUploadError, BeginWorkspaceUploadResponse, CancelRunData, CancelRunError, CancelRunResponse, CancelTaskData, CancelTaskError, CancelTaskResponse, ChangeAgentMemoryData, ChangeAgentMemoryError, ChangeAgentMemoryResponse, ChangeBotMemoryData, ChangeBotMemoryError, ChangeBotMemoryResponse, ChangeOwnerMemoryData, ChangeOwnerMemoryError, ChangeOwnerMemoryResponse, CheckIntegrationConnectionData, CheckIntegrationConnectionError, CheckIntegrationConnectionResponse, CommitWorkspaceUploadData, CommitWorkspaceUploadError, CommitWorkspaceUploadResponse, CompactChatData, CompactChatError, CompleteAccountSignInData, CompleteAccountSignInError, CompleteAccountSignInResponse, CompleteIntegrationSignInData, CompleteIntegrationSignInError, CompleteIntegrationSignInResponse, CreateBotData, CreateBotError, CreateBotResponse, CreateChatData, CreateChatError, CreateChatResponse, CreateGatewayKeyData, CreateGatewayKeyError, CreateGatewayKeyResponse, CreateNodeData, CreateNodeError, CreateNodeResponse, CreateRunData, CreateRunError, CreateRunResponse, CreateSessionData, CreateSessionError, CreateSessionResponse, CreateTasksData, CreateTasksError, CreateTasksResponse, DecideApprovalData, DecideApprovalError, DecideApprovalResponse, DeleteBotData, DeleteBotError, DeleteBotResponse, DeleteChatData, DeleteChatError, DeleteChatResponse, DeleteGitHostConnectionData, DeleteGitHostConnectionError, DeleteGitHostConnectionResponse, DeleteGitHostData, DeleteGitHostError, DeleteGitHostResponse, DeleteGitHostTokenData, DeleteGitHostTokenError, DeleteGitHostTokenResponse, DeleteIntegrationConnectionData, DeleteIntegrationConnectionError, DeleteIntegrationConnectionResponse, DeleteLarkChannelData, DeleteLarkChannelError, DeleteLarkChannelResponse, DeleteMeetingData, DeleteMeetingError, DeleteMeetingResponse, DeleteProfileData, DeleteProfileError, DeleteProfileResponse, DeleteProviderData, DeleteProviderError, DeleteProviderResponse, DeleteRepoData, DeleteRepoError, DeleteRepoResponse, DeleteRoutineData, DeleteRoutineError, DeleteRoutineResponse, DeleteSecretData, DeleteSecretError, DeleteSecretResponse, DeleteSessionData, DeleteSessionError, DeleteSessionResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, DeleteWorkspaceEntryData, DeleteWorkspaceEntryError, DeleteWorkspaceEntryResponse, DiffWorkspaceFileData, DiffWorkspaceFileError, DiffWorkspaceFileResponse, DisableAccountData, DisableAccountError, DisableAccountResponse, DrainNodeData, DrainNodeError, DrainNodeResponse, EnableAccountData, EnableAccountError, EnableAccountResponse, FetchWebData, FetchWebError, FetchWebResponse, FinishRunData, FinishRunError, FinishRunResponse, FollowUpTaskData, FollowUpTaskError, FollowUpTaskResponse, ForwardQuestionData, ForwardQuestionError, ForwardQuestionResponse, GenerateImagesData, GenerateImagesError, GenerateImagesResponse, GetAccountLimitsData, GetAccountLimitsError, GetAccountLimitsResponse, GetAgentMemoryData, GetAgentMemoryError, GetAgentMemoryResponse, GetArtifactArchiveData, GetArtifactArchiveError, GetArtifactArchiveResponse, GetArtifactData, GetArtifactError, GetArtifactResponse, GetAudioData, GetAudioError, GetAudioResponse, GetBotData, GetBotError, GetBotResponse, GetBrowserData, GetBrowserError, GetBrowserResponse, GetChatData, GetChatError, GetChatGatewayKeyData, GetChatGatewayKeyError, GetChatGatewayKeyResponse, GetChatResponse, GetDeviceData, GetDeviceError, GetDeviceResponse, GetGatewayUsageData, GetGatewayUsageError, GetGatewayUsageResponse, GetGitSshKeyData, GetGitSshKeyError, GetGitSshKeyResponse, GetImagesData, GetImagesError, GetImagesResponse, GetIntegrationSignInData, GetIntegrationSignInError, GetIntegrationSignInResponse, GetLarkChannelData, GetLarkChannelError, GetLarkChannelResponse, GetMeData, GetMeError, GetMeetingData, GetMeetingError, GetMeetingRecordingData, GetMeetingRecordingError, GetMeetingRecordingResponse, GetMeetingResponse, GetMeetingSettingsData, GetMeetingSettingsError, GetMeetingSettingsResponse, GetMeResponse, GetOwnerMemoryData, GetOwnerMemoryError, GetOwnerMemoryResponse, GetProfileData, GetProfileError, GetProfileResponse, GetQuestionData, GetQuestionError, GetQuestionResponse, GetRoutineData, GetRoutineError, GetRoutineResponse, GetRunData, GetRunError, GetRunResponse, GetSecretValueData, GetSecretValueError, GetSecretValueResponse, GetSkillArchiveData, GetSkillArchiveError, GetSkillArchiveResponse, GetSkillData, GetSkillError, GetSkillResponse, GetSupersetChartDataData, GetSupersetChartDataError, GetSupersetChartDataResponse, GetSupersetDashboardData, GetSupersetDashboardError, GetSupersetDashboardResponse, GetTaskData, GetTaskError, GetTaskResponse, GetWebSearchData, GetWebSearchError, GetWebSearchResponse, LaunchRoutineScriptData, LaunchRoutineScriptError, LaunchRoutineScriptResponse, ListAccountsData, ListAccountsError, ListAccountsResponse, ListApprovalsData, ListApprovalsError, ListApprovalsResponse, ListArtifactsData, ListArtifactsError, ListArtifactsResponse, ListBotsData, ListBotsError, ListBotSkillsData, ListBotSkillsError, ListBotSkillsResponse, ListBotsResponse, ListBuiltinSkillsData, ListBuiltinSkillsError, ListBuiltinSkillsResponse, ListChatMessagesData, ListChatMessagesError, ListChatMessagesResponse, ListChatQueueData, ListChatQueueError, ListChatQueueResponse, ListChatsData, ListChatsError, ListChatsResponse, ListChatWorkspacesData, ListChatWorkspacesError, ListChatWorkspacesResponse, ListConnectionActionsData, ListConnectionActionsError, ListConnectionActionsResponse, ListDispatchItemsData, ListDispatchItemsError, ListDispatchItemsResponse, ListEventsData, ListEventsError, ListEventsResponse, ListGatewayKeysData, ListGatewayKeysError, ListGatewayKeysResponse, ListGatewayModelsData, ListGatewayModelsError, ListGatewayModelsResponse, ListGatewayRequestsData, ListGatewayRequestsError, ListGatewayRequestsResponse, ListGitHostsData, ListGitHostsError, ListGitHostsResponse, ListIntegrationsData, ListIntegrationsError, ListIntegrationsResponse, ListLarkChannelsData, ListLarkChannelsError, ListLarkChannelsResponse, ListMachineProvidersData, ListMachineProvidersError, ListMachineProvidersResponse, ListMeetingActionsData, ListMeetingActionsError, ListMeetingActionsResponse, ListMeetingsData, ListMeetingsError, ListMeetingsResponse, ListMessagingChatsData, ListMessagingChatsError, ListMessagingChatsResponse, ListMessagingMessagesData, ListMessagingMessagesError, ListMessagingMessagesResponse, ListModelsData, ListModelsError, ListModelsResponse, ListNodesData, ListNodesError, ListNodesResponse, ListProfilesData, ListProfilesError, ListProfilesResponse, ListProfileVersionsData, ListProfileVersionsError, ListProfileVersionsResponse, ListProvidersData, ListProvidersError, ListProvidersResponse, ListQuestionsData, ListQuestionsError, ListQuestionsResponse, ListReposData, ListReposError, ListReposResponse, ListRoutineRunsData, ListRoutineRunsError, ListRoutineRunsResponse, ListRoutinesData, ListRoutinesError, ListRoutinesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSecretsData, ListSecretsError, ListSecretsResponse, ListSetupChangesData, ListSetupChangesError, ListSetupChangesResponse, ListSkillAuditsData, ListSkillAuditsError, ListSkillAuditsResponse, ListSkillFilesData, ListSkillFilesError, ListSkillFilesResponse, ListSkillsData, ListSkillsError, ListSkillsResponse, ListSupersetDashboardsData, ListSupersetDashboardsError, ListSupersetDashboardsResponse, ListSupersetFilterValuesData, ListSupersetFilterValuesError, ListSupersetFilterValuesResponse, ListTasksData, ListTasksError, ListTasksResponse, ListToolsData, ListToolsError, ListToolsResponse, ListWorkspaceChangesData, ListWorkspaceChangesError, ListWorkspaceChangesResponse, ListWorkspaceDirectoryData, ListWorkspaceDirectoryError, ListWorkspaceDirectoryResponse, MakeWorkspaceFolderData, MakeWorkspaceFolderError, MakeWorkspaceFolderResponse, MoveAccountData, MoveAccountError, MoveAccountResponse, MoveWorkspaceEntryData, MoveWorkspaceEntryError, MoveWorkspaceEntryResponse, NameMeetingSpeakerData, NameMeetingSpeakerError, NameMeetingSpeakerResponse, OpenArtifactFrameData, OpenArtifactFrameError, OpenArtifactFrameResponse, OpenBrowserViewData, OpenBrowserViewError, OpenBrowserViewResponse, OpenDeviceViewData, OpenDeviceViewError, OpenDeviceViewResponse, OpenNodeTerminalData, OpenNodeTerminalError, OpenNodeTerminalResponse, PatchIntegrationConnectionData, PatchIntegrationConnectionError, PatchIntegrationConnectionResponse, PauseRoutineData, PauseRoutineError, PauseRoutineResponse, PreviewRoutineScheduleData, PreviewRoutineScheduleError, PreviewRoutineScheduleResponse, PutBotData, PutBotError, PutBotResponse, PutGitHostConnectionData, PutGitHostConnectionError, PutGitHostConnectionResponse, PutGitHostData, PutGitHostError, PutGitHostResponse, PutGitHostTokenData, PutGitHostTokenError, PutGitHostTokenResponse, PutIntegrationClientData, PutIntegrationClientError, PutIntegrationClientResponse, PutIntegrationConnectionData, PutIntegrationConnectionError, PutIntegrationConnectionResponse, PutLarkChannelData, PutLarkChannelError, PutLarkChannelResponse, PutRepoData, PutRepoError, PutRepoResponse, PutRoutineData, PutRoutineError, PutRoutineResponse, PutSecretData, PutSecretError, PutSecretResponse, ReadArtifactFileData, ReadArtifactFileError, ReadArtifactFileResponse, ReadArtifactSheetsData, ReadArtifactSheetsError, ReadArtifactSheetsResponse, ReadMessagingMediaData, ReadMessagingMediaError, ReadMessagingMediaResponse, ReadWorkspaceFileData, ReadWorkspaceFileError, ReadWorkspaceFileResponse, ReadWorkspaceRawData, ReadWorkspaceRawError, ReadWorkspaceRawResponse, ReadWorkspaceSheetsData, ReadWorkspaceSheetsError, ReadWorkspaceSheetsResponse, RedeemAccountLimitResetData, RedeemAccountLimitResetError, RedeemAccountLimitResetResponse, RelaySupersetRequestData, RelaySupersetRequestError, RelaySupersetRequestResponse, RemoveAccountData, RemoveAccountError, RemoveAccountResponse, RemoveAudioKeyData, RemoveAudioKeyError, RemoveAudioKeyResponse, RemoveLarkChannelPersonData, RemoveLarkChannelPersonError, RemoveLarkChannelPersonResponse, RemoveNodeData, RemoveNodeError, RemoveNodeResponse, RemoveQueuedChatMessageData, RemoveQueuedChatMessageError, RemoveQueuedChatMessageResponse, RemoveWebSearchKeyData, RemoveWebSearchKeyError, RemoveWebSearchKeyResponse, RenameBotData, RenameBotError, RenameBotResponse, ReopenTaskData, ReopenTaskError, ReopenTaskResponse, ReorderBotsData, ReorderBotsError, ReorderBotsResponse, ResumeNodeData, ResumeNodeError, ResumeNodeResponse, ResumeRoutineData, ResumeRoutineError, ResumeRoutineResponse, RevokeGatewayKeyData, RevokeGatewayKeyError, RevokeGatewayKeyResponse, RevokeRoutineGrantData, RevokeRoutineGrantError, RevokeRoutineGrantResponse, RunRoutineData, RunRoutineError, RunRoutineResponse, SearchSkillsData, SearchSkillsError, SearchSkillsResponse, SearchWebData, SearchWebError, SearchWebResponse, SendChatMessageData, SendChatMessageError, SendChatMessageResponse, SendQueuedChatMessageData, SendQueuedChatMessageError, SendQueuedChatMessageResponse, SendWorkspaceUploadChunkData, SendWorkspaceUploadChunkError, SendWorkspaceUploadChunkResponse, SetAgentMemoryData, SetAgentMemoryError, SetAgentMemoryResponse, SetAudioOrderData, SetAudioOrderError, SetAudioOrderResponse, SetAudioProviderData, SetAudioProviderError, SetAudioProviderResponse, SetBotMemoryData, SetBotMemoryError, SetBotMemoryResponse, SetConnectionActionData, SetConnectionActionError, SetConnectionActionResponse, SetGatewayModelAttributesData, SetGatewayModelAttributesError, SetGatewayModelAttributesResponse, SetImageOrderData, SetImageOrderError, SetImageOrderResponse, SetImageProviderData, SetImageProviderError, SetImageProviderResponse, SetLarkChannelGroupData, SetLarkChannelGroupError, SetLarkChannelGroupResponse, SetMeetingLineSpeakerData, SetMeetingLineSpeakerError, SetMeetingLineSpeakerResponse, SetMeetingSettingsData, SetMeetingSettingsError, SetMeetingSettingsResponse, SetOwnerMemoryData, SetOwnerMemoryError, SetOwnerMemoryResponse, SetSkillEveryoneData, SetSkillEveryoneError, SetSkillEveryoneResponse, SetWebSearchOrderData, SetWebSearchOrderError, SetWebSearchOrderResponse, SetWebSearchProviderData, SetWebSearchProviderError, SetWebSearchProviderResponse, ShowArtifactData, ShowArtifactError, ShowArtifactResponse, SpeakAudioData, SpeakAudioError, SpeakAudioResponse, StartNodeDeviceData, StartNodeDeviceError, StartNodeDeviceResponse, StartNodeMachineData, StartNodeMachineError, StartNodeMachineResponse, StopNodeDeviceData, StopNodeDeviceError, StopNodeDeviceResponse, StopNodeMachineData, StopNodeMachineError, StopNodeMachineResponse, SyncMessagingFromPhoneData, SyncMessagingFromPhoneError, TranscribeAudioData, TranscribeAudioError, TranscribeAudioResponse, UndoRoutineData, UndoRoutineError, UndoRoutineResponse, UndoSetupChangeData, UndoSetupChangeError, UndoSetupChangeResponse, UpdateChatData, UpdateChatError, UpdateChatResponse, UpdateMeetingItemData, UpdateMeetingItemError, UpdateMeetingItemResponse, UpdateNodeData, UpdateNodeError, UpdateNodeResponse, UploadMeetingData, UploadMeetingError, UploadMeetingResponse, UploadSkillData, UploadSkillError, UploadSkillResponse, WriteMeetingNotesData, WriteMeetingNotesError, WriteMeetingNotesResponse, WriteWorkspaceFileData, WriteWorkspaceFileError, WriteWorkspaceFileResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
   Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -3509,6 +3509,227 @@ export const speakAudioMutation = (options?: Partial<Options<SpeakAudioData>>): 
   const mutationOptions: UseMutationOptions<SpeakAudioResponse, SpeakAudioError, Options<SpeakAudioData>> = {
     mutationFn: async (fnOptions) => {
       const { data } = await speakAudio({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      });
+      return data;
+    }
+  };
+  return mutationOptions;
+};
+
+export const listMeetingsQueryKey = (options?: Options<ListMeetingsData>) => createQueryKey('listMeetings', options);
+
+/**
+ * The meetings, the newest first
+ *
+ * With q, those whose title or transcript holds it.
+ */
+export const listMeetingsOptions = (options?: Options<ListMeetingsData>) => queryOptions<ListMeetingsResponse, ListMeetingsError, ListMeetingsResponse, ReturnType<typeof listMeetingsQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await listMeetings({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: listMeetingsQueryKey(options)
+});
+
+/**
+ * Upload a meeting's recording, at most 128 MB; only the owner
+ *
+ * The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+ */
+export const uploadMeetingMutation = (options?: Partial<Options<UploadMeetingData>>): UseMutationOptions<UploadMeetingResponse, UploadMeetingError, Options<UploadMeetingData>> => {
+  const mutationOptions: UseMutationOptions<UploadMeetingResponse, UploadMeetingError, Options<UploadMeetingData>> = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await uploadMeeting({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      });
+      return data;
+    }
+  };
+  return mutationOptions;
+};
+
+/**
+ * Delete a meeting with its recording, transcript and notes; only the owner
+ */
+export const deleteMeetingMutation = (options?: Partial<Options<DeleteMeetingData>>): UseMutationOptions<DeleteMeetingResponse, DeleteMeetingError, Options<DeleteMeetingData>> => {
+  const mutationOptions: UseMutationOptions<DeleteMeetingResponse, DeleteMeetingError, Options<DeleteMeetingData>> = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await deleteMeeting({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      });
+      return data;
+    }
+  };
+  return mutationOptions;
+};
+
+export const getMeetingQueryKey = (options: Options<GetMeetingData>) => createQueryKey('getMeeting', options);
+
+/**
+ * A meeting with its transcript, notes, decisions and actions
+ */
+export const getMeetingOptions = (options: Options<GetMeetingData>) => queryOptions<GetMeetingResponse, GetMeetingError, GetMeetingResponse, ReturnType<typeof getMeetingQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await getMeeting({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: getMeetingQueryKey(options)
+});
+
+export const getMeetingRecordingQueryKey = (options: Options<GetMeetingRecordingData>) => createQueryKey('getMeetingRecording', options);
+
+/**
+ * A meeting's recording, as uploaded
+ *
+ * A Range request is answered 206 with that part, so that a player seeks.
+ */
+export const getMeetingRecordingOptions = (options: Options<GetMeetingRecordingData>) => queryOptions<GetMeetingRecordingResponse, GetMeetingRecordingError, GetMeetingRecordingResponse, ReturnType<typeof getMeetingRecordingQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await getMeetingRecording({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: getMeetingRecordingQueryKey(options)
+});
+
+/**
+ * Write a meeting's notes again, in a format; only the owner
+ *
+ * Refused (conflict) while they are being written or before the meeting is transcribed.
+ */
+export const writeMeetingNotesMutation = (options?: Partial<Options<WriteMeetingNotesData>>): UseMutationOptions<WriteMeetingNotesResponse, WriteMeetingNotesError, Options<WriteMeetingNotesData>> => {
+  const mutationOptions: UseMutationOptions<WriteMeetingNotesResponse, WriteMeetingNotesError, Options<WriteMeetingNotesData>> = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await writeMeetingNotes({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      });
+      return data;
+    }
+  };
+  return mutationOptions;
+};
+
+/**
+ * Name a voice for the whole meeting; only the owner
+ *
+ * A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+ */
+export const nameMeetingSpeakerMutation = (options?: Partial<Options<NameMeetingSpeakerData>>): UseMutationOptions<NameMeetingSpeakerResponse, NameMeetingSpeakerError, Options<NameMeetingSpeakerData>> => {
+  const mutationOptions: UseMutationOptions<NameMeetingSpeakerResponse, NameMeetingSpeakerError, Options<NameMeetingSpeakerData>> = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await nameMeetingSpeaker({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      });
+      return data;
+    }
+  };
+  return mutationOptions;
+};
+
+/**
+ * Say who spoke one line; only the owner
+ *
+ * The line is given to the voice of the meeting with that name, or to a new voice made for it.
+ */
+export const setMeetingLineSpeakerMutation = (options?: Partial<Options<SetMeetingLineSpeakerData>>): UseMutationOptions<SetMeetingLineSpeakerResponse, SetMeetingLineSpeakerError, Options<SetMeetingLineSpeakerData>> => {
+  const mutationOptions: UseMutationOptions<SetMeetingLineSpeakerResponse, SetMeetingLineSpeakerError, Options<SetMeetingLineSpeakerData>> = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await setMeetingLineSpeaker({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      });
+      return data;
+    }
+  };
+  return mutationOptions;
+};
+
+/**
+ * Mark an action done or not done; only the owner
+ */
+export const updateMeetingItemMutation = (options?: Partial<Options<UpdateMeetingItemData>>): UseMutationOptions<UpdateMeetingItemResponse, UpdateMeetingItemError, Options<UpdateMeetingItemData>> => {
+  const mutationOptions: UseMutationOptions<UpdateMeetingItemResponse, UpdateMeetingItemError, Options<UpdateMeetingItemData>> = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await updateMeetingItem({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      });
+      return data;
+    }
+  };
+  return mutationOptions;
+};
+
+export const listMeetingActionsQueryKey = (options?: Options<ListMeetingActionsData>) => createQueryKey('listMeetingActions', options);
+
+/**
+ * The actions of every meeting, the newest meeting first
+ */
+export const listMeetingActionsOptions = (options?: Options<ListMeetingActionsData>) => queryOptions<ListMeetingActionsResponse, ListMeetingActionsError, ListMeetingActionsResponse, ReturnType<typeof listMeetingActionsQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await listMeetingActions({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: listMeetingActionsQueryKey(options)
+});
+
+export const getMeetingSettingsQueryKey = (options?: Options<GetMeetingSettingsData>) => createQueryKey('getMeetingSettings', options);
+
+/**
+ * The model that writes notes, and the notes formats
+ */
+export const getMeetingSettingsOptions = (options?: Options<GetMeetingSettingsData>) => queryOptions<GetMeetingSettingsResponse, GetMeetingSettingsError, GetMeetingSettingsResponse, ReturnType<typeof getMeetingSettingsQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await getMeetingSettings({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: getMeetingSettingsQueryKey(options)
+});
+
+/**
+ * Pick the model that writes notes; only the owner
+ */
+export const setMeetingSettingsMutation = (options?: Partial<Options<SetMeetingSettingsData>>): UseMutationOptions<SetMeetingSettingsResponse, SetMeetingSettingsError, Options<SetMeetingSettingsData>> => {
+  const mutationOptions: UseMutationOptions<SetMeetingSettingsResponse, SetMeetingSettingsError, Options<SetMeetingSettingsData>> = {
+    mutationFn: async (fnOptions) => {
+      const { data } = await setMeetingSettings({
         ...options,
         ...fnOptions,
         throwOnError: true

@@ -17,7 +17,7 @@ CREATE TABLE questions_new (
     -- JSON list of {label, allows_text}; empty means a free-text answer.
     options       TEXT    NOT NULL,
     status        TEXT    NOT NULL CHECK (status IN ('open', 'answered', 'canceled')),
-    -- superseded: a follow-up replaced the open Gate (00104).
+    -- superseded: a follow-up replaced the open Gate (00105).
     cancel_reason TEXT    CHECK (cancel_reason IN ('dispatch_ended', 'task_canceled', 'superseded')),
     -- JSON {option, text}.
     answer        TEXT,
