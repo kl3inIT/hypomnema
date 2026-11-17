@@ -1524,7 +1524,11 @@ flowchart LR
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
-  `reviewer` itself run on Codex with the seeded reviewer's instruction.
+  `reviewer` itself run on Codex with the seeded reviewer's instruction. Migration 00111 (issue #766; owner,
+  2026-11-17) makes a new version of the seeded reviewer, where `pfv_seed5_reviewer` is still current, that reads
+  first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
+  and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
+  `reviewer-codex.yaml` carries the same text, and a reviewer the owner applied gets it by applying that file again.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
   desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
@@ -3594,7 +3598,11 @@ The owner's commands:
   to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
-  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; a review first reads
+  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
+  so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
+  permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
+  nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
