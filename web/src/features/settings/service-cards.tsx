@@ -360,113 +360,115 @@ function AccountItem({
           </span>
         </ItemDescription>
       </ItemContent>
-      <ItemActions className="flex-wrap">
-        <ChatsSwitch service={service} connection={connection} />
-        {device && phoneSyncs.has(service.id) && connection.session?.state === "connected" && (
-          <PhoneSyncButton service={service} connection={connection} />
-        )}
-        {app && (
-          <ConnectAppDialog
-            service={service}
-            connection={connection}
+      <ItemActions>
+        <div className="flex flex-wrap items-center gap-2">
+          <ChatsSwitch service={service} connection={connection} />
+          {device && phoneSyncs.has(service.id) && connection.session?.state === "connected" && (
+            <PhoneSyncButton service={service} connection={connection} />
+          )}
+          {app && (
+            <ConnectAppDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Change app
+                </Button>
+              }
+            />
+          )}
+          {account && (
+            <ConnectAccountDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Connect again
+                </Button>
+              }
+            />
+          )}
+          {role && (
+            <ConnectRoleDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Connect again
+                </Button>
+              }
+            />
+          )}
+          {device && (
+            <LinkDeviceDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Link again
+                </Button>
+              }
+            />
+          )}
+          {user && (
+            <UserSignInDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Sign in again
+                </Button>
+              }
+            />
+          )}
+          {!app && !account && !role && !device && !user && (
+            <SignInDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Sign in again
+                </Button>
+              }
+            />
+          )}
+          <ConfirmDialog
             trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Change app
+              <Button variant="ghost" size="sm" aria-label={`Disconnect ${connection.label}`}>
+                Disconnect
               </Button>
             }
-          />
-        )}
-        {account && (
-          <ConnectAccountDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Connect again
-              </Button>
+            title={`Disconnect ${connection.label} (${connection.account})?`}
+            consequence={
+              user
+                ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; no Bot acts as you any more. If ${service.name} cannot be reached, remove the app's access in your own account.`
+                : device
+                  ? (forgetHow[service.id] ??
+                    `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`)
+                  : role
+                    ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
+                    : account
+                      ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
+                      : app
+                        ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
+                        : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
             }
-          />
-        )}
-        {role && (
-          <ConnectRoleDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Connect again
-              </Button>
+            action="Disconnect"
+            run={() =>
+              deleteIntegrationConnection({
+                path: { integration: service.id, label: connection.label },
+              })
             }
+            onDone={refresh}
+            done={`${connection.label} was disconnected`}
           />
-        )}
-        {device && (
-          <LinkDeviceDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Link again
-              </Button>
-            }
-          />
-        )}
-        {user && (
-          <UserSignInDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Sign in again
-              </Button>
-            }
-          />
-        )}
-        {!app && !account && !role && !device && !user && (
-          <SignInDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Sign in again
-              </Button>
-            }
-          />
-        )}
-        <ConfirmDialog
-          trigger={
-            <Button variant="ghost" size="sm" aria-label={`Disconnect ${connection.label}`}>
-              Disconnect
-            </Button>
-          }
-          title={`Disconnect ${connection.label} (${connection.account})?`}
-          consequence={
-            user
-              ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; no Bot acts as you any more. If ${service.name} cannot be reached, remove the app's access in your own account.`
-              : device
-                ? (forgetHow[service.id] ??
-                  `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`)
-                : role
-                  ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
-                  : account
-                    ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
-                    : app
-                      ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
-                      : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
-          }
-          action="Disconnect"
-          run={() =>
-            deleteIntegrationConnection({
-              path: { integration: service.id, label: connection.label },
-            })
-          }
-          onDone={refresh}
-          done={`${connection.label} was disconnected`}
-        />
+        </div>
       </ItemActions>
     </Item>
   )
