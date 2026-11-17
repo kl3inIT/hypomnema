@@ -68,39 +68,56 @@ func (a *account) Send(ctx context.Context, out messaging.Outgoing) (messaging.M
 	ctx, cancel := context.WithTimeout(ctx, sendWait)
 	defer cancel()
 
+	// The file and the text are two messages, each with its id (bridge.mjs, send).
 	var sent struct {
-		ID string `json:"id"`
+		FileID string `json:"fileId"`
+		TextID string `json:"textId"`
+		Error  string `json:"error"`
 	}
 	if err := b.call(ctx, "send", params, &sent); err != nil {
 		return messaging.Message{}, fmt.Errorf("zalo: sending in %s: %w", out.Chat, err)
 	}
 
-	if sent.ID == "" {
+	now := time.Now().UnixMilli()
+	group := kind == "group"
+
+	if sent.FileID != "" {
+		a.keepSent(ctx, incoming{ID: sent.FileID, Chat: out.Chat, Group: group, From: a.uid, FromMe: true, At: now,
+			Kind: "share.file", Media: &mediaOf{Type: "document", FileName: out.FileName, Size: int64(len(out.File))}})
+	}
+
+	if sent.TextID != "" {
+		a.keepSent(ctx, incoming{ID: sent.TextID, Chat: out.Chat, Group: group, From: a.uid, FromMe: true, At: now,
+			Kind: "webchat", Text: out.Text, QuoteID: out.ReplyTo})
+	}
+
+	if sent.Error != "" {
+		// The file went; the text did not. Said so, that the file is not sent again.
+		return messaging.Message{}, fmt.Errorf("zalo: the file was sent in %s (message %s), but not the text: %s",
+			out.Chat, sent.FileID, sent.Error)
+	}
+
+	id := sent.TextID
+	if id == "" {
+		id = sent.FileID
+	}
+
+	if id == "" {
 		return messaging.Message{}, errors.New("zalo: Zalo took the message but gave no id")
 	}
 
-	m := incoming{
-		ID: sent.ID, Chat: out.Chat, Group: kind == "group", From: a.uid, FromMe: true,
-		At: time.Now().UnixMilli(), Text: out.Text, QuoteID: out.ReplyTo,
-	}
-	if len(out.File) > 0 {
-		m.Kind = "share.file"
-		m.Media = &struct {
-			Type     string `json:"type"`
-			URL      string `json:"url"`
-			FileName string `json:"fileName"`
-			Size     int64  `json:"size"`
-		}{Type: "document", FileName: out.FileName, Size: int64(len(out.File))}
-	}
+	return messaging.Message{
+		ID: id, Chat: out.Chat, At: time.UnixMilli(now).UTC(), FromMe: true, Text: out.Text,
+		QuotedID: out.ReplyTo, FileName: out.FileName,
+	}, nil
+}
 
+// keepSent keeps a message sent as the owner's. The listener brings it back with Zalo's own fields, which fill in
+// what this one lacks (mirror.keep).
+func (a *account) keepSent(ctx context.Context, m incoming) {
 	if _, err := a.keepMessage(ctx, m); err != nil {
 		a.svc.log.WarnContext(ctx, "zalo: a message sent could not be kept")
 	}
-
-	return messaging.Message{
-		ID: sent.ID, Chat: out.Chat, At: time.UnixMilli(m.At).UTC(), FromMe: true, Text: out.Text,
-		QuotedID: out.ReplyTo, FileName: out.FileName,
-	}, nil
 }
 
 // outgoing writes a file to send in a folder of its own beside zalo.db, private, under its own name, which Zalo

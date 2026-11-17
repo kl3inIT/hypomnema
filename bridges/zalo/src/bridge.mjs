@@ -211,12 +211,24 @@ async function users(p) {
   return ids.map((id) => ({ id, name: str(profiles[id]?.displayName) || str(profiles[id]?.zaloName) }));
 }
 
-// send sends as the owner with zca-js's sendMessage (src/apis/sendMessage.ts): the text, the file by its path as
-// the Hermes Zalo plugin sends one (sidecar/server.js), and the quote of the message it answers.
+// send sends as the owner with zca-js's sendMessage (src/apis/sendMessage.ts). zca-js sends a text and a file as
+// two messages, the text first; so the file goes first, alone, by its path as the Hermes Zalo plugin sends one
+// (sidecar/server.js), then the text, and each answers its own id. A text that fails after its file went is said:
+// {fileId, error}, so that the file is not sent again.
 async function send(p) {
-  const content = { msg: str(p.text) };
-  if (p.path) content.attachments = [String(p.path)];
+  const thread = String(p.chat);
+  const type = p.group ? ThreadType.Group : ThreadType.User;
+  const out = { fileId: "", textId: "" };
 
+  if (p.path) {
+    const r = await api.sendMessage({ msg: "", attachments: [String(p.path)] }, thread, type);
+    out.fileId = idOf(r?.attachment?.[0]?.msgId ?? r?.message?.msgId);
+  }
+
+  const text = str(p.text);
+  if (text === "") return out;
+
+  const content = { msg: text };
   const q = p.quote;
   if (q) {
     content.quote = {
@@ -231,11 +243,18 @@ async function send(p) {
     };
   }
 
-  const r = await api.sendMessage(content, String(p.chat), p.group ? ThreadType.Group : ThreadType.User);
-  const id = r?.message?.msgId ?? r?.attachment?.[0]?.msgId;
+  try {
+    const r = await api.sendMessage(content, thread, type);
+    out.textId = idOf(r?.message?.msgId);
+  } catch (err) {
+    if (!out.fileId) throw err;
+    out.error = String(err?.message ?? err);
+  }
 
-  return { id: id == null ? "" : String(id) };
+  return out;
 }
+
+const idOf = (v) => (v == null ? "" : String(v));
 
 const str = (v) => (typeof v === "string" ? v : "");
 

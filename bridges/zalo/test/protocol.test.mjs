@@ -74,5 +74,12 @@ test("an image's size is read from its header", () => {
 
   const gif = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x20, 0x00, 0x10, 0x00, 0x00]);
   assert.deepEqual(imageSize(gif), { width: 32, height: 16 });
+  const webp = Buffer.alloc(32);
+  webp.write("RIFF", 0, "ascii");
+  webp.write("WEBP", 8, "ascii");
+  webp.write("VP8X", 12, "ascii");
+  webp.writeUIntLE(799, 24, 3);
+  webp.writeUIntLE(599, 27, 3);
+  assert.deepEqual(imageSize(webp), { width: 800, height: 600 });
   assert.equal(imageSize(Buffer.from("not an image")), null);
 });
