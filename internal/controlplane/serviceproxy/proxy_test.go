@@ -1216,6 +1216,23 @@ func TestLarkReadsThatAreNotGETsAreQueries(t *testing.T) {
 		"POST /open-apis/task/v2/tasklists/search",
 		"POST /open-apis/task/v2/tasks/search",
 		"POST /open-apis/vc/v1/meetings/search",
+		// Read by the commands' helpers and Execute since #742, each from a command lark-cli marks as a read: chat
+		// details for +messages-search and the feed commands (shortcuts/im/helpers.go queryChatBatch), a chat's
+		// search and its mute status, a person's and a bot's search (contact +search-user, +search-bot), free/busy
+		// for +freebusy, +room-find and +suggestion, an export for drive +export and whiteboard +export and +query,
+		// and a meeting bot's screenshot for vc +meeting-screenshot.
+		"POST /open-apis/im/v1/chats/batch_query",
+		"POST /open-apis/im/v1/chat_p2p/batch_query",
+		"POST /open-apis/im/v1/chat_user_setting/batch_get_mute_status",
+		"POST /open-apis/im/v2/chats/search",
+		"POST /open-apis/contact/v3/users/search",
+		"POST /open-apis/bot/v4/bot/search",
+		"POST /open-apis/calendar/v4/freebusy/batch",
+		"POST /open-apis/calendar/v4/freebusy/room_find",
+		"POST /open-apis/calendar/v4/freebusy/suggestion",
+		"POST /open-apis/drive/v1/export_tasks",
+		"POST /open-apis/board/v1/whiteboards/{token}/export",
+		"POST /open-apis/vc/v1/bots/screenshot",
 	}
 
 	var reads []string
