@@ -111,8 +111,12 @@ func (s *signedIn) BeginInBrowser(_ context.Context, runtime string) (*subscript
 // vendor accepts one; a sign-in with a code needs nothing pasted.
 func (s *signedIn) Complete(ctx context.Context, a *subscription.Attempt, pasted, label string,
 ) (subscription.Account, error) {
-	if a.Paste && !strings.Contains(pasted, "code=") {
-		return subscription.Account{}, fmt.Errorf("%w: the address has no code", subscription.ErrLoginFailed)
+	switch {
+	case a.Paste && strings.Contains(pasted, "error="):
+		return subscription.Account{}, fmt.Errorf("%w: the vendor refused", subscription.ErrLoginFailed)
+	case a.Paste && !strings.Contains(pasted, "code="):
+		return subscription.Account{}, fmt.Errorf("%w: %w: the address has no code", subscription.ErrLoginFailed,
+			subscription.ErrBadPaste)
 	}
 
 	if label == "" {
@@ -397,6 +401,15 @@ func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
 
 	begun, err = owner.BeginAccountSignInWithResponse(ctx, claude)
 	require.NoError(t, err)
+
+	// A paste that cannot be read reached no vendor: the sign-in stays open and the corrected paste completes it
+	// (issue #749).
+	unread := "localhost:54545/callback"
+	typo, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id,
+		openapi.AccountSignInCallback{Callback: &unread})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, typo.StatusCode(), string(typo.Body))
+	assert.Contains(t, string(typo.Body), "send it again")
 
 	done, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id,
 		openapi.AccountSignInCallback{Callback: &right})

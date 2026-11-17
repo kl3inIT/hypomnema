@@ -244,7 +244,7 @@ func CallbackCode(pasted, state string) (string, error) {
 
 	u, err := url.Parse(pasted)
 	if err != nil {
-		return "", errors.New("what was pasted is not an address")
+		return "", pasteError("what was pasted is not an address")
 	}
 
 	q := u.Query()
@@ -253,9 +253,9 @@ func CallbackCode(pasted, state string) (string, error) {
 	case q.Get("error") != "":
 		return "", fmt.Errorf("the vendor refused the login: %s", clip(q.Get("error")+" "+q.Get("error_description")))
 	case q.Get("code") == "":
-		return "", errors.New("the pasted address has no code; copy the whole address the browser ended on")
+		return "", pasteError("the pasted address has no code; copy the whole address the browser ended on")
 	case q.Get("state") != state:
-		return "", errors.New("the pasted address belongs to another login; start again and use the new link")
+		return "", pasteError("the pasted address belongs to another login; start again and use the new link")
 	}
 
 	return q.Get("code"), nil
