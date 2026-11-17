@@ -4031,6 +4031,61 @@ type ModelList struct {
 	Data []Model `json:"data"`
 }
 
+// Muse defines model for Muse.
+type Muse struct {
+	// Accounts The Muse accounts in the owner's order.
+	Accounts []MuseAccount `json:"accounts"`
+
+	// ToolsOn Whether workers and Bots' pi get muse_ask, muse_chats and muse_messages.
+	ToolsOn bool `json:"tools_on"`
+}
+
+// MuseAccount defines model for MuseAccount.
+type MuseAccount struct {
+	// Cause The cause observed
+	Cause     *string    `json:"cause,omitempty"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	Id        string     `json:"id"`
+	Label     string     `json:"label"`
+
+	// On The owner's switch for the account.
+	On       bool `json:"on"`
+	Position int  `json:"position"`
+
+	// Resting Out of quota; used again once Settings → Usage shows room.
+	Resting bool `json:"resting"`
+
+	// State What the pool last saw: signed_in, needs_sign_in, refused, workspace_not_ready or page_not_ready. refused: muse.ai answered 403 (region, network or access), tried again later. workspace_not_ready: its Muse session is not assigned or its machine not running.
+	State string `json:"state"`
+
+	// Usage Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
+	Usage       string     `json:"usage"`
+	UsageReadAt *time.Time `json:"usage_read_at,omitempty"`
+}
+
+// MuseSignIn defines model for MuseSignIn.
+type MuseSignIn struct {
+	Account *MuseAccount `json:"account,omitempty"`
+	Done    bool         `json:"done"`
+
+	// Waiting What is waited for.
+	Waiting *string `json:"waiting,omitempty"`
+}
+
+// MuseSignInCheck defines model for MuseSignInCheck.
+type MuseSignInCheck struct {
+	// Account The account to sign in again; a new account when left out.
+	Account *string `json:"account,omitempty"`
+
+	// Label A new account's name.
+	Label *string `json:"label,omitempty"`
+}
+
+// MuseSwitch defines model for MuseSwitch.
+type MuseSwitch struct {
+	On bool `json:"on"`
+}
+
 // NewAccountConnection An account of a service at an address of its own (address, username, password), an app of a service (app_id, app_secret), or a role of an AWS account (role_arn, key, and access_key_id with secret_access_key when the key is new or replaced).
 type NewAccountConnection struct {
 	AccessKeyId *string `json:"access_key_id,omitempty"`
@@ -6335,6 +6390,18 @@ type CreateGatewayKeyJSONRequestBody = NewGatewayKey
 // SetGatewayModelAttributesJSONRequestBody defines body for SetGatewayModelAttributes for application/json ContentType.
 type SetGatewayModelAttributesJSONRequestBody = GatewayModelSettings
 
+// SetMuseAccountJSONRequestBody defines body for SetMuseAccount for application/json ContentType.
+type SetMuseAccountJSONRequestBody = MuseSwitch
+
+// MoveMuseAccountJSONRequestBody defines body for MoveMuseAccount for application/json ContentType.
+type MoveMuseAccountJSONRequestBody = AccountMove
+
+// CheckMuseSignInJSONRequestBody defines body for CheckMuseSignIn for application/json ContentType.
+type CheckMuseSignInJSONRequestBody = MuseSignInCheck
+
+// SetMuseToolsJSONRequestBody defines body for SetMuseTools for application/json ContentType.
+type SetMuseToolsJSONRequestBody = MuseSwitch
+
 // SetWebSearchOrderJSONRequestBody defines body for SetWebSearchOrder for application/json ContentType.
 type SetWebSearchOrderJSONRequestBody = WebSearchOrder
 
@@ -7467,6 +7534,85 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /gateway/models/{model}/attributes (the `SetGatewayModelAttributes` operationId).
 	SetGatewayModelAttributes(ctx context.Context, model string, body SetGatewayModelAttributesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMuse The Muse accounts in the owner's order, each with its state and usage, and the Muse tools' switch; only the owner
+	//
+	// Meta's Muse, asked by agents through a pool of the owner's Muse accounts (issue #782). A new thread takes the first account that is on, signed in and not resting; a thread stays with its account. An account out of quota rests until Muse's Settings → Usage shows room.
+	//
+	// Corresponds with GET /gateway/muse (the `GetMuse` operationId).
+	GetMuse(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveMuseAccount Remove a Muse account and its cookies; only the owner
+	//
+	// Its questions stay in muse.db; its threads can no longer be continued.
+	//
+	// Corresponds with DELETE /gateway/muse/accounts/{account_id} (the `RemoveMuseAccount` operationId).
+	RemoveMuseAccount(ctx context.Context, accountId AccountID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMuseAccountWithBody Put a Muse account in use or out of it; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+	SetMuseAccountWithBody(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMuseAccount Put a Muse account in use or out of it; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+	SetMuseAccount(ctx context.Context, accountId AccountID, body SetMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveMuseAccountWithBody Move a Muse account one place up or down the owner's order; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+	MoveMuseAccountWithBody(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveMuseAccount Move a Muse account one place up or down the owner's order; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+	MoveMuseAccount(ctx context.Context, accountId AccountID, body MoveMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartMuseSignIn Open muse.ai in the owner's tab of the shared browser, for a sign-in; only the owner
+	//
+	// Corresponds with POST /gateway/muse/sign-in (the `StartMuseSignIn` operationId).
+	StartMuseSignIn(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CheckMuseSignInWithBody Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+	//
+	// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+	CheckMuseSignInWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CheckMuseSignIn Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+	//
+	// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+	CheckMuseSignIn(ctx context.Context, body CheckMuseSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMuseToolsWithBody Switch the Muse tools of workers and Bots on or off; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+	SetMuseToolsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+	SetMuseTools(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
 	//
@@ -10925,6 +11071,195 @@ func (c *Client) SetGatewayModelAttributesWithBody(ctx context.Context, model st
 // Corresponds with PUT /gateway/models/{model}/attributes (the `SetGatewayModelAttributes` operationId).
 func (c *Client) SetGatewayModelAttributes(ctx context.Context, model string, body SetGatewayModelAttributesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetGatewayModelAttributesRequest(c.Server, model, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetMuse The Muse accounts in the owner's order, each with its state and usage, and the Muse tools' switch; only the owner
+//
+// Meta's Muse, asked by agents through a pool of the owner's Muse accounts (issue #782). A new thread takes the first account that is on, signed in and not resting; a thread stays with its account. An account out of quota rests until Muse's Settings → Usage shows room.
+//
+// Corresponds with GET /gateway/muse (the `GetMuse` operationId).
+func (c *Client) GetMuse(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetMuseRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveMuseAccount Remove a Muse account and its cookies; only the owner
+//
+// Its questions stay in muse.db; its threads can no longer be continued.
+//
+// Corresponds with DELETE /gateway/muse/accounts/{account_id} (the `RemoveMuseAccount` operationId).
+func (c *Client) RemoveMuseAccount(ctx context.Context, accountId AccountID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveMuseAccountRequest(c.Server, accountId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMuseAccountWithBody Put a Muse account in use or out of it; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+func (c *Client) SetMuseAccountWithBody(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMuseAccountRequestWithBody(c.Server, accountId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMuseAccount Put a Muse account in use or out of it; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+func (c *Client) SetMuseAccount(ctx context.Context, accountId AccountID, body SetMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMuseAccountRequest(c.Server, accountId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveMuseAccountWithBody Move a Muse account one place up or down the owner's order; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+func (c *Client) MoveMuseAccountWithBody(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveMuseAccountRequestWithBody(c.Server, accountId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveMuseAccount Move a Muse account one place up or down the owner's order; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+func (c *Client) MoveMuseAccount(ctx context.Context, accountId AccountID, body MoveMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveMuseAccountRequest(c.Server, accountId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartMuseSignIn Open muse.ai in the owner's tab of the shared browser, for a sign-in; only the owner
+//
+// Corresponds with POST /gateway/muse/sign-in (the `StartMuseSignIn` operationId).
+func (c *Client) StartMuseSignIn(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartMuseSignInRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CheckMuseSignInWithBody Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+//
+// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+func (c *Client) CheckMuseSignInWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckMuseSignInRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CheckMuseSignIn Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+//
+// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+func (c *Client) CheckMuseSignIn(ctx context.Context, body CheckMuseSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCheckMuseSignInRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMuseToolsWithBody Switch the Muse tools of workers and Bots on or off; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+func (c *Client) SetMuseToolsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMuseToolsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+func (c *Client) SetMuseTools(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMuseToolsRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -18433,6 +18768,268 @@ func NewSetGatewayModelAttributesRequestWithBody(server string, model string, co
 	return req, nil
 }
 
+// NewGetMuseRequest constructs an http.Request for the GetMuse method
+func NewGetMuseRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/muse")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRemoveMuseAccountRequest constructs an http.Request for the RemoveMuseAccount method
+func NewRemoveMuseAccountRequest(server string, accountId AccountID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "account_id", accountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/muse/accounts/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetMuseAccountRequest calls the generic SetMuseAccount builder with application/json body
+func NewSetMuseAccountRequest(server string, accountId AccountID, body SetMuseAccountJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetMuseAccountRequestWithBody(server, accountId, "application/json", bodyReader)
+}
+
+// NewSetMuseAccountRequestWithBody constructs an http.Request for the SetMuseAccount method, with any body, and a specified content type
+func NewSetMuseAccountRequestWithBody(server string, accountId AccountID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "account_id", accountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/muse/accounts/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewMoveMuseAccountRequest calls the generic MoveMuseAccount builder with application/json body
+func NewMoveMuseAccountRequest(server string, accountId AccountID, body MoveMuseAccountJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewMoveMuseAccountRequestWithBody(server, accountId, "application/json", bodyReader)
+}
+
+// NewMoveMuseAccountRequestWithBody constructs an http.Request for the MoveMuseAccount method, with any body, and a specified content type
+func NewMoveMuseAccountRequestWithBody(server string, accountId AccountID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "account_id", accountId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/muse/accounts/%s/move", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewStartMuseSignInRequest constructs an http.Request for the StartMuseSignIn method
+func NewStartMuseSignInRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/muse/sign-in")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCheckMuseSignInRequest calls the generic CheckMuseSignIn builder with application/json body
+func NewCheckMuseSignInRequest(server string, body CheckMuseSignInJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCheckMuseSignInRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCheckMuseSignInRequestWithBody constructs an http.Request for the CheckMuseSignIn method, with any body, and a specified content type
+func NewCheckMuseSignInRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/muse/sign-in/check")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSetMuseToolsRequest calls the generic SetMuseTools builder with application/json body
+func NewSetMuseToolsRequest(server string, body SetMuseToolsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetMuseToolsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSetMuseToolsRequestWithBody constructs an http.Request for the SetMuseTools method, with any body, and a specified content type
+func NewSetMuseToolsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/muse/tools")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetGatewayUsageRequest constructs an http.Request for the GetGatewayUsage method
 func NewGetGatewayUsageRequest(server string, params *GetGatewayUsageParams) (*http.Request, error) {
 	var err error
@@ -25395,6 +25992,91 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /gateway/models/{model}/attributes (the `SetGatewayModelAttributes` operationId).
 	SetGatewayModelAttributesWithResponse(ctx context.Context, model string, body SetGatewayModelAttributesJSONRequestBody, reqEditors ...RequestEditorFn) (*SetGatewayModelAttributesResponse, error)
 
+	// GetMuseWithResponse The Muse accounts in the owner's order, each with its state and usage, and the Muse tools' switch; only the owner
+	//
+	// Meta's Muse, asked by agents through a pool of the owner's Muse accounts (issue #782). A new thread takes the first account that is on, signed in and not resting; a thread stays with its account. An account out of quota rests until Muse's Settings → Usage shows room.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/muse (the `GetMuse` operationId).
+	GetMuseWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMuseResponse, error)
+
+	// RemoveMuseAccountWithResponse Remove a Muse account and its cookies; only the owner
+	//
+	// Its questions stay in muse.db; its threads can no longer be continued.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /gateway/muse/accounts/{account_id} (the `RemoveMuseAccount` operationId).
+	RemoveMuseAccountWithResponse(ctx context.Context, accountId AccountID, reqEditors ...RequestEditorFn) (*RemoveMuseAccountResponse, error)
+
+	// SetMuseAccountWithBodyWithResponse Put a Muse account in use or out of it; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+	SetMuseAccountWithBodyWithResponse(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMuseAccountResponse, error)
+
+	// SetMuseAccountWithResponse Put a Muse account in use or out of it; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+	SetMuseAccountWithResponse(ctx context.Context, accountId AccountID, body SetMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMuseAccountResponse, error)
+
+	// MoveMuseAccountWithBodyWithResponse Move a Muse account one place up or down the owner's order; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+	MoveMuseAccountWithBodyWithResponse(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveMuseAccountResponse, error)
+
+	// MoveMuseAccountWithResponse Move a Muse account one place up or down the owner's order; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+	MoveMuseAccountWithResponse(ctx context.Context, accountId AccountID, body MoveMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveMuseAccountResponse, error)
+
+	// StartMuseSignInWithResponse Open muse.ai in the owner's tab of the shared browser, for a sign-in; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/muse/sign-in (the `StartMuseSignIn` operationId).
+	StartMuseSignInWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*StartMuseSignInResponse, error)
+
+	// CheckMuseSignInWithBodyWithResponse Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+	//
+	// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+	CheckMuseSignInWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckMuseSignInResponse, error)
+
+	// CheckMuseSignInWithResponse Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+	//
+	// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+	CheckMuseSignInWithResponse(ctx context.Context, body CheckMuseSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckMuseSignInResponse, error)
+
+	// SetMuseToolsWithBodyWithResponse Switch the Muse tools of workers and Bots on or off; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+	SetMuseToolsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMuseToolsResponse, error)
+
+	// SetMuseToolsWithResponse Switch the Muse tools of workers and Bots on or off; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+	SetMuseToolsWithResponse(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMuseToolsResponse, error)
+
 	// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -31143,6 +31825,335 @@ func (r SetGatewayModelAttributesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetGatewayModelAttributesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetMuseResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Muse
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetMuseResponse) GetJSON200() *Muse {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetMuseResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetMuseResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetMuseResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetMuseResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetMuseResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveMuseAccountResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Muse
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RemoveMuseAccountResponse) GetJSON200() *Muse {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RemoveMuseAccountResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveMuseAccountResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveMuseAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveMuseAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveMuseAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetMuseAccountResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Muse
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetMuseAccountResponse) GetJSON200() *Muse {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetMuseAccountResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetMuseAccountResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetMuseAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetMuseAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetMuseAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MoveMuseAccountResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Muse
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MoveMuseAccountResponse) GetJSON200() *Muse {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r MoveMuseAccountResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r MoveMuseAccountResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MoveMuseAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MoveMuseAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MoveMuseAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartMuseSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StartMuseSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StartMuseSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartMuseSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartMuseSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartMuseSignInResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CheckMuseSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MuseSignIn
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CheckMuseSignInResponse) GetJSON200() *MuseSignIn {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CheckMuseSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CheckMuseSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CheckMuseSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CheckMuseSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CheckMuseSignInResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetMuseToolsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Muse
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetMuseToolsResponse) GetJSON200() *Muse {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetMuseToolsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetMuseToolsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetMuseToolsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetMuseToolsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetMuseToolsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -39181,6 +40192,157 @@ func (c *ClientWithResponses) SetGatewayModelAttributesWithResponse(ctx context.
 	return ParseSetGatewayModelAttributesResponse(rsp)
 }
 
+// GetMuseWithResponse The Muse accounts in the owner's order, each with its state and usage, and the Muse tools' switch; only the owner
+//
+// Meta's Muse, asked by agents through a pool of the owner's Muse accounts (issue #782). A new thread takes the first account that is on, signed in and not resting; a thread stays with its account. An account out of quota rests until Muse's Settings → Usage shows room.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/muse (the `GetMuse` operationId).
+func (c *ClientWithResponses) GetMuseWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMuseResponse, error) {
+	rsp, err := c.GetMuse(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetMuseResponse(rsp)
+}
+
+// RemoveMuseAccountWithResponse Remove a Muse account and its cookies; only the owner
+//
+// Its questions stay in muse.db; its threads can no longer be continued.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /gateway/muse/accounts/{account_id} (the `RemoveMuseAccount` operationId).
+func (c *ClientWithResponses) RemoveMuseAccountWithResponse(ctx context.Context, accountId AccountID, reqEditors ...RequestEditorFn) (*RemoveMuseAccountResponse, error) {
+	rsp, err := c.RemoveMuseAccount(ctx, accountId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveMuseAccountResponse(rsp)
+}
+
+// SetMuseAccountWithBodyWithResponse Put a Muse account in use or out of it; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+func (c *ClientWithResponses) SetMuseAccountWithBodyWithResponse(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMuseAccountResponse, error) {
+	rsp, err := c.SetMuseAccountWithBody(ctx, accountId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMuseAccountResponse(rsp)
+}
+
+// SetMuseAccountWithResponse Put a Muse account in use or out of it; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/muse/accounts/{account_id} (the `SetMuseAccount` operationId).
+func (c *ClientWithResponses) SetMuseAccountWithResponse(ctx context.Context, accountId AccountID, body SetMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMuseAccountResponse, error) {
+	rsp, err := c.SetMuseAccount(ctx, accountId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMuseAccountResponse(rsp)
+}
+
+// MoveMuseAccountWithBodyWithResponse Move a Muse account one place up or down the owner's order; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+func (c *ClientWithResponses) MoveMuseAccountWithBodyWithResponse(ctx context.Context, accountId AccountID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveMuseAccountResponse, error) {
+	rsp, err := c.MoveMuseAccountWithBody(ctx, accountId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveMuseAccountResponse(rsp)
+}
+
+// MoveMuseAccountWithResponse Move a Muse account one place up or down the owner's order; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/muse/accounts/{account_id}/move (the `MoveMuseAccount` operationId).
+func (c *ClientWithResponses) MoveMuseAccountWithResponse(ctx context.Context, accountId AccountID, body MoveMuseAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveMuseAccountResponse, error) {
+	rsp, err := c.MoveMuseAccount(ctx, accountId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveMuseAccountResponse(rsp)
+}
+
+// StartMuseSignInWithResponse Open muse.ai in the owner's tab of the shared browser, for a sign-in; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/muse/sign-in (the `StartMuseSignIn` operationId).
+func (c *ClientWithResponses) StartMuseSignInWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*StartMuseSignInResponse, error) {
+	rsp, err := c.StartMuseSignIn(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartMuseSignInResponse(rsp)
+}
+
+// CheckMuseSignInWithBodyWithResponse Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+//
+// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+func (c *ClientWithResponses) CheckMuseSignInWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CheckMuseSignInResponse, error) {
+	rsp, err := c.CheckMuseSignInWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckMuseSignInResponse(rsp)
+}
+
+// CheckMuseSignInWithResponse Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+//
+// Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile. Meta's own cookies stay there.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /gateway/muse/sign-in/check (the `CheckMuseSignIn` operationId).
+func (c *ClientWithResponses) CheckMuseSignInWithResponse(ctx context.Context, body CheckMuseSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckMuseSignInResponse, error) {
+	rsp, err := c.CheckMuseSignIn(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCheckMuseSignInResponse(rsp)
+}
+
+// SetMuseToolsWithBodyWithResponse Switch the Muse tools of workers and Bots on or off; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+func (c *ClientWithResponses) SetMuseToolsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMuseToolsResponse, error) {
+	rsp, err := c.SetMuseToolsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMuseToolsResponse(rsp)
+}
+
+// SetMuseToolsWithResponse Switch the Muse tools of workers and Bots on or off; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
+func (c *ClientWithResponses) SetMuseToolsWithResponse(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMuseToolsResponse, error) {
+	rsp, err := c.SetMuseTools(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMuseToolsResponse(rsp)
+}
+
 // GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
@@ -44637,6 +45799,233 @@ func ParseSetGatewayModelAttributesResponse(rsp *http.Response) (*SetGatewayMode
 	return response, nil
 }
 
+// ParseGetMuseResponse parses an HTTP response from a GetMuseWithResponse call
+func ParseGetMuseResponse(rsp *http.Response) (*GetMuseResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetMuseResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Muse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveMuseAccountResponse parses an HTTP response from a RemoveMuseAccountWithResponse call
+func ParseRemoveMuseAccountResponse(rsp *http.Response) (*RemoveMuseAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveMuseAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Muse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetMuseAccountResponse parses an HTTP response from a SetMuseAccountWithResponse call
+func ParseSetMuseAccountResponse(rsp *http.Response) (*SetMuseAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetMuseAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Muse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMoveMuseAccountResponse parses an HTTP response from a MoveMuseAccountWithResponse call
+func ParseMoveMuseAccountResponse(rsp *http.Response) (*MoveMuseAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MoveMuseAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Muse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartMuseSignInResponse parses an HTTP response from a StartMuseSignInWithResponse call
+func ParseStartMuseSignInResponse(rsp *http.Response) (*StartMuseSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartMuseSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCheckMuseSignInResponse parses an HTTP response from a CheckMuseSignInWithResponse call
+func ParseCheckMuseSignInResponse(rsp *http.Response) (*CheckMuseSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CheckMuseSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MuseSignIn
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetMuseToolsResponse parses an HTTP response from a SetMuseToolsWithResponse call
+func ParseSetMuseToolsResponse(rsp *http.Response) (*SetMuseToolsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetMuseToolsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Muse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetGatewayUsageResponse parses an HTTP response from a GetGatewayUsageWithResponse call
 func ParseGetGatewayUsageResponse(rsp *http.Response) (*GetGatewayUsageResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -49231,6 +50620,27 @@ type ServerInterface interface {
 	// SetGatewayModelAttributes Set a gateway model's attributes in its YAML; one left out comes from models.dev; only the owner
 	// (PUT /gateway/models/{model}/attributes)
 	SetGatewayModelAttributes(w http.ResponseWriter, r *http.Request, model string)
+	// GetMuse The Muse accounts in the owner's order, each with its state and usage, and the Muse tools' switch; only the owner
+	// (GET /gateway/muse)
+	GetMuse(w http.ResponseWriter, r *http.Request)
+	// RemoveMuseAccount Remove a Muse account and its cookies; only the owner
+	// (DELETE /gateway/muse/accounts/{account_id})
+	RemoveMuseAccount(w http.ResponseWriter, r *http.Request, accountId AccountID)
+	// SetMuseAccount Put a Muse account in use or out of it; only the owner
+	// (PUT /gateway/muse/accounts/{account_id})
+	SetMuseAccount(w http.ResponseWriter, r *http.Request, accountId AccountID)
+	// MoveMuseAccount Move a Muse account one place up or down the owner's order; only the owner
+	// (POST /gateway/muse/accounts/{account_id}/move)
+	MoveMuseAccount(w http.ResponseWriter, r *http.Request, accountId AccountID)
+	// StartMuseSignIn Open muse.ai in the owner's tab of the shared browser, for a sign-in; only the owner
+	// (POST /gateway/muse/sign-in)
+	StartMuseSignIn(w http.ResponseWriter, r *http.Request)
+	// CheckMuseSignIn Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+	// (POST /gateway/muse/sign-in/check)
+	CheckMuseSignIn(w http.ResponseWriter, r *http.Request)
+	// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
+	// (PUT /gateway/muse/tools)
+	SetMuseTools(w http.ResponseWriter, r *http.Request)
 	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
 	// (GET /gateway/usage)
 	GetGatewayUsage(w http.ResponseWriter, r *http.Request, params GetGatewayUsageParams)
@@ -52626,6 +54036,140 @@ func (siw *ServerInterfaceWrapper) SetGatewayModelAttributes(w http.ResponseWrit
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetGatewayModelAttributes(w, r, model)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMuse operation middleware
+func (siw *ServerInterfaceWrapper) GetMuse(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMuse(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMuseAccount operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMuseAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "account_id" -------------
+	var accountId AccountID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "account_id", r.PathValue("account_id"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "account_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMuseAccount(w, r, accountId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetMuseAccount operation middleware
+func (siw *ServerInterfaceWrapper) SetMuseAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "account_id" -------------
+	var accountId AccountID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "account_id", r.PathValue("account_id"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "account_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetMuseAccount(w, r, accountId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveMuseAccount operation middleware
+func (siw *ServerInterfaceWrapper) MoveMuseAccount(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "account_id" -------------
+	var accountId AccountID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "account_id", r.PathValue("account_id"), &accountId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "account_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveMuseAccount(w, r, accountId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartMuseSignIn operation middleware
+func (siw *ServerInterfaceWrapper) StartMuseSignIn(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartMuseSignIn(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CheckMuseSignIn operation middleware
+func (siw *ServerInterfaceWrapper) CheckMuseSignIn(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckMuseSignIn(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetMuseTools operation middleware
+func (siw *ServerInterfaceWrapper) SetMuseTools(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetMuseTools(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -56911,6 +58455,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/images", wrapper.GetImages)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/images/providers/{provider}", wrapper.SetImageProvider)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/images/order", wrapper.SetImageOrder)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/muse", wrapper.GetMuse)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/muse/tools", wrapper.SetMuseTools)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/muse/sign-in", wrapper.StartMuseSignIn)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/muse/sign-in/check", wrapper.CheckMuseSignIn)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/muse/accounts/{account_id}", wrapper.RemoveMuseAccount)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/muse/accounts/{account_id}", wrapper.SetMuseAccount)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/muse/accounts/{account_id}/move", wrapper.MoveMuseAccount)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/audio", wrapper.GetAudio)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/providers/{provider}", wrapper.SetAudioProvider)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/audio/providers/{provider}/keys", wrapper.AddAudioKey)
@@ -60719,6 +62270,273 @@ type SetGatewayModelAttributesdefaultJSONResponse struct {
 }
 
 func (response SetGatewayModelAttributesdefaultJSONResponse) VisitSetGatewayModelAttributesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMuseRequestObject struct {
+}
+
+type GetMuseResponseObject interface {
+	VisitGetMuseResponse(w http.ResponseWriter) error
+}
+
+type GetMuse200JSONResponse Muse
+
+func (response GetMuse200JSONResponse) VisitGetMuseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMusedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetMusedefaultJSONResponse) VisitGetMuseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMuseAccountRequestObject struct {
+	AccountId AccountID `json:"account_id"`
+}
+
+type RemoveMuseAccountResponseObject interface {
+	VisitRemoveMuseAccountResponse(w http.ResponseWriter) error
+}
+
+type RemoveMuseAccount200JSONResponse Muse
+
+func (response RemoveMuseAccount200JSONResponse) VisitRemoveMuseAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMuseAccountdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RemoveMuseAccountdefaultJSONResponse) VisitRemoveMuseAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMuseAccountRequestObject struct {
+	AccountId AccountID `json:"account_id"`
+	Body      *SetMuseAccountJSONRequestBody
+}
+
+type SetMuseAccountResponseObject interface {
+	VisitSetMuseAccountResponse(w http.ResponseWriter) error
+}
+
+type SetMuseAccount200JSONResponse Muse
+
+func (response SetMuseAccount200JSONResponse) VisitSetMuseAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMuseAccountdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetMuseAccountdefaultJSONResponse) VisitSetMuseAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveMuseAccountRequestObject struct {
+	AccountId AccountID `json:"account_id"`
+	Body      *MoveMuseAccountJSONRequestBody
+}
+
+type MoveMuseAccountResponseObject interface {
+	VisitMoveMuseAccountResponse(w http.ResponseWriter) error
+}
+
+type MoveMuseAccount200JSONResponse Muse
+
+func (response MoveMuseAccount200JSONResponse) VisitMoveMuseAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveMuseAccountdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response MoveMuseAccountdefaultJSONResponse) VisitMoveMuseAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMuseSignInRequestObject struct {
+}
+
+type StartMuseSignInResponseObject interface {
+	VisitStartMuseSignInResponse(w http.ResponseWriter) error
+}
+
+type StartMuseSignIn204Response struct {
+}
+
+func (response StartMuseSignIn204Response) VisitStartMuseSignInResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type StartMuseSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartMuseSignIndefaultJSONResponse) VisitStartMuseSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMuseSignInRequestObject struct {
+	Body *CheckMuseSignInJSONRequestBody
+}
+
+type CheckMuseSignInResponseObject interface {
+	VisitCheckMuseSignInResponse(w http.ResponseWriter) error
+}
+
+type CheckMuseSignIn200JSONResponse MuseSignIn
+
+func (response CheckMuseSignIn200JSONResponse) VisitCheckMuseSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckMuseSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CheckMuseSignIndefaultJSONResponse) VisitCheckMuseSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMuseToolsRequestObject struct {
+	Body *SetMuseToolsJSONRequestBody
+}
+
+type SetMuseToolsResponseObject interface {
+	VisitSetMuseToolsResponse(w http.ResponseWriter) error
+}
+
+type SetMuseTools200JSONResponse Muse
+
+func (response SetMuseTools200JSONResponse) VisitSetMuseToolsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMuseToolsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetMuseToolsdefaultJSONResponse) VisitSetMuseToolsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -66204,6 +68022,27 @@ type StrictServerInterface interface {
 	// SetGatewayModelAttributes Set a gateway model's attributes in its YAML; one left out comes from models.dev; only the owner
 	// (PUT /gateway/models/{model}/attributes)
 	SetGatewayModelAttributes(ctx context.Context, request SetGatewayModelAttributesRequestObject) (SetGatewayModelAttributesResponseObject, error)
+	// GetMuse The Muse accounts in the owner's order, each with its state and usage, and the Muse tools' switch; only the owner
+	// (GET /gateway/muse)
+	GetMuse(ctx context.Context, request GetMuseRequestObject) (GetMuseResponseObject, error)
+	// RemoveMuseAccount Remove a Muse account and its cookies; only the owner
+	// (DELETE /gateway/muse/accounts/{account_id})
+	RemoveMuseAccount(ctx context.Context, request RemoveMuseAccountRequestObject) (RemoveMuseAccountResponseObject, error)
+	// SetMuseAccount Put a Muse account in use or out of it; only the owner
+	// (PUT /gateway/muse/accounts/{account_id})
+	SetMuseAccount(ctx context.Context, request SetMuseAccountRequestObject) (SetMuseAccountResponseObject, error)
+	// MoveMuseAccount Move a Muse account one place up or down the owner's order; only the owner
+	// (POST /gateway/muse/accounts/{account_id}/move)
+	MoveMuseAccount(ctx context.Context, request MoveMuseAccountRequestObject) (MoveMuseAccountResponseObject, error)
+	// StartMuseSignIn Open muse.ai in the owner's tab of the shared browser, for a sign-in; only the owner
+	// (POST /gateway/muse/sign-in)
+	StartMuseSignIn(ctx context.Context, request StartMuseSignInRequestObject) (StartMuseSignInResponseObject, error)
+	// CheckMuseSignIn Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+	// (POST /gateway/muse/sign-in/check)
+	CheckMuseSignIn(ctx context.Context, request CheckMuseSignInRequestObject) (CheckMuseSignInResponseObject, error)
+	// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
+	// (PUT /gateway/muse/tools)
+	SetMuseTools(ctx context.Context, request SetMuseToolsRequestObject) (SetMuseToolsResponseObject, error)
 	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
 	// (GET /gateway/usage)
 	GetGatewayUsage(ctx context.Context, request GetGatewayUsageRequestObject) (GetGatewayUsageResponseObject, error)
@@ -69279,6 +71118,208 @@ func (sh *strictHandler) SetGatewayModelAttributes(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetGatewayModelAttributesResponseObject); ok {
 		if err := validResponse.VisitSetGatewayModelAttributesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMuse operation middleware
+func (sh *strictHandler) GetMuse(w http.ResponseWriter, r *http.Request) {
+	var request GetMuseRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMuse(ctx, request.(GetMuseRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMuse")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMuseResponseObject); ok {
+		if err := validResponse.VisitGetMuseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMuseAccount operation middleware
+func (sh *strictHandler) RemoveMuseAccount(w http.ResponseWriter, r *http.Request, accountId AccountID) {
+	var request RemoveMuseAccountRequestObject
+
+	request.AccountId = accountId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMuseAccount(ctx, request.(RemoveMuseAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMuseAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMuseAccountResponseObject); ok {
+		if err := validResponse.VisitRemoveMuseAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetMuseAccount operation middleware
+func (sh *strictHandler) SetMuseAccount(w http.ResponseWriter, r *http.Request, accountId AccountID) {
+	var request SetMuseAccountRequestObject
+
+	request.AccountId = accountId
+
+	var body SetMuseAccountJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetMuseAccount(ctx, request.(SetMuseAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetMuseAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetMuseAccountResponseObject); ok {
+		if err := validResponse.VisitSetMuseAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveMuseAccount operation middleware
+func (sh *strictHandler) MoveMuseAccount(w http.ResponseWriter, r *http.Request, accountId AccountID) {
+	var request MoveMuseAccountRequestObject
+
+	request.AccountId = accountId
+
+	var body MoveMuseAccountJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveMuseAccount(ctx, request.(MoveMuseAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveMuseAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MoveMuseAccountResponseObject); ok {
+		if err := validResponse.VisitMoveMuseAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartMuseSignIn operation middleware
+func (sh *strictHandler) StartMuseSignIn(w http.ResponseWriter, r *http.Request) {
+	var request StartMuseSignInRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartMuseSignIn(ctx, request.(StartMuseSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartMuseSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartMuseSignInResponseObject); ok {
+		if err := validResponse.VisitStartMuseSignInResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CheckMuseSignIn operation middleware
+func (sh *strictHandler) CheckMuseSignIn(w http.ResponseWriter, r *http.Request) {
+	var request CheckMuseSignInRequestObject
+
+	var body CheckMuseSignInJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CheckMuseSignIn(ctx, request.(CheckMuseSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CheckMuseSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CheckMuseSignInResponseObject); ok {
+		if err := validResponse.VisitCheckMuseSignInResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetMuseTools operation middleware
+func (sh *strictHandler) SetMuseTools(w http.ResponseWriter, r *http.Request) {
+	var request SetMuseToolsRequestObject
+
+	var body SetMuseToolsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetMuseTools(ctx, request.(SetMuseToolsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetMuseTools")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetMuseToolsResponseObject); ok {
+		if err := validResponse.VisitSetMuseToolsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

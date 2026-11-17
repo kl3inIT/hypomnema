@@ -12,6 +12,7 @@ import {
   FolderGit2,
   Globe,
   ImageIcon,
+  Telescope,
   KeyRound,
   KeySquare,
   MessagesSquare,
@@ -36,6 +37,7 @@ type Section = {
     | "/settings/models"
     | "/settings/web-search"
     | "/settings/images"
+    | "/settings/muse"
     | "/settings/audio"
     | "/settings/dictionary"
     | "/settings/notes-model"
@@ -69,6 +71,7 @@ const groups: { heading: string; sections: Section[] }[] = [
       { to: "/settings/models", label: "Models", icon: Box },
       { to: "/settings/web-search", label: "Web search", icon: Globe },
       { to: "/settings/images", label: "Images", icon: ImageIcon },
+      { to: "/settings/muse", label: "Muse", icon: Telescope },
       { to: "/settings/audio", label: "Audio", icon: AudioLines },
       { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
       { to: "/settings/usage", label: "Usage", icon: ChartColumn },

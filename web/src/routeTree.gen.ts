@@ -34,6 +34,7 @@ import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gatew
 import { Route as SettingsImagesRouteImport } from './routes/settings.images'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
+import { Route as SettingsMuseRouteImport } from './routes/settings.muse'
 import { Route as SettingsNotesModelRouteImport } from './routes/settings.notes-model'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
@@ -168,6 +169,11 @@ const SettingsModelsRoute = SettingsModelsRouteImport.update({
   path: '/settings/models',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsMuseRoute = SettingsMuseRouteImport.update({
+  id: '/settings/muse',
+  path: '/settings/muse',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsNotesModelRoute = SettingsNotesModelRouteImport.update({
   id: '/settings/notes-model',
   path: '/settings/notes-model',
@@ -232,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -267,6 +274,7 @@ export interface FileRoutesByTo {
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -303,6 +311,7 @@ export interface FileRoutesById {
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -340,6 +349,7 @@ export interface FileRouteTypes {
     | '/settings/images'
     | '/settings/integrations'
     | '/settings/models'
+    | '/settings/muse'
     | '/settings/notes-model'
     | '/settings/repositories'
     | '/settings/usage'
@@ -375,6 +385,7 @@ export interface FileRouteTypes {
     | '/settings/images'
     | '/settings/integrations'
     | '/settings/models'
+    | '/settings/muse'
     | '/settings/notes-model'
     | '/settings/repositories'
     | '/settings/usage'
@@ -410,6 +421,7 @@ export interface FileRouteTypes {
     | '/settings/images'
     | '/settings/integrations'
     | '/settings/models'
+    | '/settings/muse'
     | '/settings/notes-model'
     | '/settings/repositories'
     | '/settings/usage'
@@ -446,6 +458,7 @@ export interface RootRouteChildren {
   SettingsImagesRoute: typeof SettingsImagesRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
+  SettingsMuseRoute: typeof SettingsMuseRoute
   SettingsNotesModelRoute: typeof SettingsNotesModelRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsUsageRoute: typeof SettingsUsageRoute
@@ -636,6 +649,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsModelsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/muse': {
+      id: '/settings/muse'
+      path: '/settings/muse'
+      fullPath: '/settings/muse'
+      preLoaderRoute: typeof SettingsMuseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/notes-model': {
       id: '/settings/notes-model'
       path: '/settings/notes-model'
@@ -718,6 +738,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsImagesRoute: SettingsImagesRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
+  SettingsMuseRoute: SettingsMuseRoute,
   SettingsNotesModelRoute: SettingsNotesModelRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsUsageRoute: SettingsUsageRoute,

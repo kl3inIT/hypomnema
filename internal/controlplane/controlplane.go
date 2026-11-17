@@ -562,6 +562,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	api.WithPhone(ownersPhone{sharedPhone})
 
+	if musePool != nil {
+		api.WithMuse(musePool)
+	}
+
 	if err := api.Register(mux); err != nil {
 		return err
 	}

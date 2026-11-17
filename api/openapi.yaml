@@ -2017,6 +2017,112 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Images" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/muse:
+    get:
+      operationId: GetMuse
+      summary: The Muse accounts in the owner's order, each with its state and usage, and the Muse tools' switch; only the owner
+      description: >-
+        Meta's Muse, asked by agents through a pool of the owner's Muse accounts (issue #782). A new thread takes the
+        first account that is on, signed in and not resting; a thread stays with its account. An account out of
+        quota rests until Muse's Settings → Usage shows room.
+      responses:
+        "200":
+          description: The pool.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Muse" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/muse/tools:
+    put:
+      operationId: SetMuseTools
+      summary: Switch the Muse tools of workers and Bots on or off; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MuseSwitch" }
+      responses:
+        "200":
+          description: The pool after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Muse" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/muse/sign-in:
+    post:
+      operationId: StartMuseSignIn
+      summary: Open muse.ai in the owner's tab of the shared browser, for a sign-in; only the owner
+      responses:
+        "204":
+          description: muse.ai is open in the owner's tab.
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/muse/sign-in/check:
+    post:
+      operationId: CheckMuseSignIn
+      summary: Look for a finished sign-in in the owner's tab; once there, keep it as an account; only the owner
+      description: >-
+        Once muse.ai's /api/auth/check takes the shared profile's muse.ai cookies, they are kept in the vault as the
+        account's (a new one named `label`, or `account` signed in again) and cleared from the shared profile.
+        Meta's own cookies stay there.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MuseSignInCheck" }
+      responses:
+        "200":
+          description: How the sign-in stands.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MuseSignIn" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/muse/accounts/{account_id}:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    put:
+      operationId: SetMuseAccount
+      summary: Put a Muse account in use or out of it; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MuseSwitch" }
+      responses:
+        "200":
+          description: The pool after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Muse" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: RemoveMuseAccount
+      summary: Remove a Muse account and its cookies; only the owner
+      description: Its questions stay in muse.db; its threads can no longer be continued.
+      responses:
+        "200":
+          description: The pool after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Muse" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/muse/accounts/{account_id}/move:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    post:
+      operationId: MoveMuseAccount
+      summary: Move a Muse account one place up or down the owner's order; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccountMove" }
+      responses:
+        "200":
+          description: The pool after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Muse" }
+        default: { $ref: "#/components/responses/Error" }
   /gateway/audio:
     get:
       operationId: GetAudio
@@ -5289,6 +5395,56 @@ components:
         quality: { type: string, maxLength: 20 }
         background: { type: string, maxLength: 20 }
         image_size: { type: string, maxLength: 4, description: "Antigravity's output size: 1K, 2K or 4K." }
+    Muse:
+      type: object
+      required: [tools_on, accounts]
+      properties:
+        tools_on:
+          type: boolean
+          description: Whether workers and Bots' pi get muse_ask, muse_chats and muse_messages.
+        accounts:
+          type: array
+          description: The Muse accounts in the owner's order.
+          items: { $ref: "#/components/schemas/MuseAccount" }
+    MuseAccount:
+      type: object
+      required: [id, label, position, "on", state, resting, usage]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        position: { type: integer }
+        "on": { type: boolean, description: The owner's switch for the account. }
+        state:
+          type: string
+          description: >-
+            What the pool last saw: signed_in, needs_sign_in, refused, workspace_not_ready or page_not_ready. refused: muse.ai answered 403 (region, network or access), tried again later.
+            workspace_not_ready: its Muse session is not assigned or its machine not running.
+        cause: { type: string, description: The cause observed, as it was seen. }
+        resting: { type: boolean, description: Out of quota; used again once Settings → Usage shows room. }
+        usage:
+          type: string
+          description: Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
+        usage_read_at: { type: string, format: date-time }
+        checked_at: { type: string, format: date-time }
+    MuseSwitch:
+      type: object
+      additionalProperties: false
+      required: ["on"]
+      properties:
+        "on": { type: boolean }
+    MuseSignInCheck:
+      type: object
+      additionalProperties: false
+      properties:
+        account: { type: string, description: The account to sign in again; a new account when left out. }
+        label: { type: string, maxLength: 80, description: A new account's name. }
+    MuseSignIn:
+      type: object
+      required: [done]
+      properties:
+        done: { type: boolean }
+        waiting: { type: string, description: What is waited for. }
+        account: { $ref: "#/components/schemas/MuseAccount" }
     ImageAnswer:
       type: object
       required: [provider, model, created, images]

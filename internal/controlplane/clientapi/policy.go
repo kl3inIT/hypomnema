@@ -268,6 +268,14 @@ var policies = map[string]policy{
 	"GetImages":        {},
 	"SetImageProvider": {scope: scopeOwner},
 	"SetImageOrder":    {scope: scopeOwner},
+	// Muse (issue #782): only the owner sees and changes the pool; agents ask it through their tools.
+	"GetMuse":           {scope: scopeOwner},
+	"SetMuseTools":      {scope: scopeOwner},
+	"StartMuseSignIn":   {scope: scopeOwner},
+	"CheckMuseSignIn":   {scope: scopeOwner},
+	"SetMuseAccount":    {scope: scopeOwner},
+	"RemoveMuseAccount": {scope: scopeOwner},
+	"MoveMuseAccount":   {scope: scopeOwner},
 	// Audio (issue #694): any token hears or makes speech, a Bot's above all; a Soniox transcription waits for its
 	// job. Every token reads the providers, as it reads the image providers; only the owner changes them.
 	"TranscribeAudio":  {long: true},
