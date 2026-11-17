@@ -17,6 +17,10 @@ const verbs: Record<string, { verb: string; keys: string[] }> = {
   grep: { verb: "Searched for", keys: ["pattern"] },
   find: { verb: "Searched for", keys: ["pattern"] },
   ls: { verb: "Listed files in", keys: ["path"] },
+  // The Muse tools (issue #782).
+  muse_ask: { verb: "Ask Muse ·", keys: ["prompt"] },
+  muse_chats: { verb: "Muse threads ·", keys: ["query"] },
+  muse_messages: { verb: "Muse thread ·", keys: ["thread", "query"] },
 }
 
 // toolPhrase is the row's words: the verb and its target from the arguments, or the tool's name alone.

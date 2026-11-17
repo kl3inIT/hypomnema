@@ -1,0 +1,7 @@
+muse2api (czg86389-hub)
+https://github.com/czg86389-hub/muse2api (revision 19db32a)
+Copyright (c) 2026 MUSE2API Authors
+
+Used under the MIT License (LICENSE, beside this file): internal/controlplane/muse/scripts.go adapts its
+composer scripts (engine.py:1076-1195: the Send button found inside the composer, the textarea's native value
+setter with input and change events, Input.insertText as the fallback) and its ready checks (:718-739).

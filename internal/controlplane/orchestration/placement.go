@@ -620,6 +620,12 @@ func clamp01(x float64) float64 { return min(max(x, 0), 1) }
 // it never leaves the control plane (issue #381).
 const TokenRuntime = "claude"
 
+// MuseRuntime is the runtime of a Muse account (issue #782): one of the
+// owner's muse.ai accounts, whose credential is its cookie jar in the vault.
+// No worker runs under it; the Muse pool (internal/controlplane/muse) asks
+// muse.ai with it.
+const MuseRuntime = "muse"
+
 // runsOnNode reports whether a worker on a node can run under an account:
 // one whose CLI was logged in on that node. An account whose secret the
 // control plane keeps is the gateway's to serve.

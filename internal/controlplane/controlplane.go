@@ -389,6 +389,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		agents.WithBrowser(shared)
 	}
 
+	// The owner's Muse accounts, a pool any agent asks (issue #782), in the shared browser's Chrome.
+	musePool := openMuse(ctx, cfg, svc, secrets, shared, logger)
+	if musePool != nil {
+		defer musePool.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
+
+		agents.WithMuse(musePool)
+	}
+
 	// The web's search and pages (issue #354). A page is read only where the shared browser may go: the same
 	// rules, the owner's list of private destinations and the control plane's own port.
 	webSearch := websearch.New(websearch.Config{
@@ -553,6 +561,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	api.WithPhone(ownersPhone{sharedPhone})
+
+	if musePool != nil {
+		api.WithMuse(musePool)
+	}
 
 	if err := api.Register(mux); err != nil {
 		return err

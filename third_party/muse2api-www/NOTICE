@@ -1,0 +1,9 @@
+muse2api (www222fff)
+https://github.com/www222fff/muse2api (revision 3a20b5e)
+Copyright (c) 2026 www222fff
+
+Used under the MIT License (LICENSE, beside this file): internal/controlplane/muse/scripts.go adapts its page
+scripts (src/muse2api/drivers/browser/dom.py: PAGE_STATE, SOFT_NEW_THREAD, FRESH_THREAD, CHAT_STATE, the
+Settings → Usage entry and dialog) and internal/controlplane/muse/usage.go its parse of the Usage text
+(dom.py:190-277, parse_usage_text); the quota, login and stall hints (dom.py:22-24) and the cookies a session
+needs (upstream/muse.py:27-31).

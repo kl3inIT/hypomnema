@@ -176,6 +176,13 @@ func (f *fakeChrome) serve(t *testing.T) string {
 					write(ev)
 				}
 
+				// A result that starts with "!" is an error, its message the rest.
+				if message, failed := strings.CutPrefix(result, "!"); failed {
+					write(`{"id":` + jsonInt(m.ID) + `,"error":{"message":` + quote(message) + `}}`)
+
+					return
+				}
+
 				write(`{"id":` + jsonInt(m.ID) + `,"result":` + result + `}`)
 			}()
 		}

@@ -119,6 +119,8 @@ type Server struct {
 	web       Web
 	images    Images
 	runtimeOf RuntimeOf
+	// muse is the Muse pool's tools (muse.go), given as the web's are.
+	muse Muse
 	// device is the phone a node holds (issue #417); nil when the control plane gave none.
 	device Device
 	// exec runs agents' commands on the nodes' machines (issue #543, nodes.go); nil when the control plane gave none.

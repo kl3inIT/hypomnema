@@ -93,7 +93,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>muse_ask, muse_chats, muse_messages,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -539,6 +539,18 @@ sequenceDiagram
     chat is named whichever agent opened it: a worker's is its Run's chat, when the Run has one; a Bot's pi's
     (`b-<chat>`) is that chat, with the chat's Bot (`bot_id`); the owner's own tab, a coordinator token's and a
     worker's of a Run with no chat belong to none.
+  - Browser contexts of the control plane's own (issue #782, `browser/contexts.go`): `Engine.Page(key, cookies)`
+    makes, once per key, a browser context in the running Chrome (`Target.createBrowserContext`,
+    `disposeOnDetach: false`, as www222fff/muse2api's driver), sets its cookies (`Storage.setCookies`) and a tab
+    in it (`Target.createTarget` with the context, attached flat on a DevTools connection of the engine's own), and
+    gives its steps: navigate, evaluate (awaiting a promise, by value), insert text, click, Enter, and the
+    context's cookies. Every step enters and leaves the owner's hold as an agent's call does: while he holds the
+    browser none runs, and one running when he takes it answers `ErrHeld`, its result dropped. A tab that went
+    away is made again in its context; a Chrome started again has none of the contexts, and the next `Page` makes
+    a new one from the cookies given (`ErrPageGone` meanwhile). `DisposeContext` closes one. The owner's own path
+    runs while he holds the browser, as his input does: `OpenOwnerTab` loads an address in his tab,
+    `ProfileCookies` reads the shared profile's cookies of a domain and `ClearProfileCookies` removes them (set
+    again expired). The Muse pool is their one caller; no agent reaches a context, and none is listed as a tab.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
     `GET /api/v1/browser`, read again every five seconds, whose `chat_id` is a chat of the pane, its Bot's and its
@@ -3241,6 +3253,69 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
+Muse (`internal/controlplane/muse`, `agentapi/muse.go`, `clientapi/muse.go`; issue #782, step 1 of #781,
+[research](docs/research/2026-11-17-muse-and-growth-studio.md)): Meta's Muse answers agents' research questions
+through a pool of the owner's Muse accounts, driven in the shared browser's Chrome as the three references drive
+muse.ai (duclm1x1/Muse-Chat-MCP 6c00e8c, czg86389-hub/muse2api 19db32a, www222fff/muse2api 3a20b5e; MIT, kept
+under `third_party/`). There is no official API for the Muse agent. The selectors are the references'; they were
+not checked against the live site in the change that wrote them.
+- An account is a gateway Account of runtime `muse` (`orchestration.MuseRuntime`), placed after the others of its
+  runtime and taken in the owner's order; no worker runs under it and the Models page does not list it. Its
+  credential is its muse.ai cookie jar (`hatch_sess`, `hatch_native_auth_device` required, `hatch_gw`, `hatch_vml`
+  kept when there), JSON in a vault secret's `generic.value` named as a pasted token's (`account-<id>`). Its tab
+  is a browser context of its own (the browser's, above), made from that jar; after every use, a failed one
+  too, the context's muse.ai cookies are saved back with `vault.RotateAt`, which refuses to write over a newer
+  version (a sign-in made meanwhile): nothing is saved after the owner's interruption.
+- One Muse tab at a time: a question, a sign-in capture, a Usage read and a cookie save each hold the pool's one
+  turn, so two accounts' questions do not run at once either.
+- Sign-in: the Muse page opens muse.ai in the owner's tab (`POST /gateway/muse/sign-in`) and shows it with its
+  control button; the dialog polls `POST /gateway/muse/sign-in/check` every two seconds. Once the shared profile
+  holds muse.ai's two required cookies and muse.ai's `POST /api/auth/check`, asked by the control plane with them,
+  answers `ok` with a `viewer_id` (Muse-Chat-MCP's `login()`), they are kept as a new account (named, or "Muse"
+  and the end of its id) or as the account signed in again (its old context closed), and cleared from the shared
+  profile. Meta's own cookies stay there. The capture runs while the owner holds the browser.
+- States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
+  refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
+  not `assigned`, or its machine not `RUNNING`); page not ready (no ready composer within 30 s); resting (out of
+  quota). Each question first asks `/api/auth/check` and `/api/session` from the account's page.
+- Pool: a thread is kept with its account in `muse.db` for good; continuing it uses that account, and when it is
+  off, resting or removed the call says so instead of moving the thread. A new thread takes the first account in
+  order that is on and not resting or needing a sign-in; one that fails its check before anything was sent is
+  recorded and the next is tried. Quota: a quota hint counts only inside a finished answer; the account then
+  rests, and Settings → Usage is read (the dock's Settings, its Settings item, the dialog's text, parsed as www's
+  `parse_usage_text`). A resting account is taken back only when a Usage read shows room, read at most every six
+  hours; the reset is kept as Muse writes it ("resets Sep 30") or "unknown", never made a time. Usage is read
+  again after an answer once six hours old.
+- A question (`driver.go`): a new thread through the page's router (`window.next.router.push('/thread/new')`, a
+  navigation when it did not land within 30 s), ready when the path is `/thread/new`, the thread empty, the page
+  `complete`, the composer enabled, the shell `hydrated` and no "Connecting..."; or the thread's address. The
+  answers shown are the baseline. The composer is clicked, its value set through the native setter with `input`
+  and `change` (`Input.insertText` when that took nothing), and Send clicked inside the composer (Enter when it is
+  not there within 3 s); sent when the composer empties or Stop shows; Send once more at 25 s; failed at 60 s. The
+  wait counts only what follows the baseline: busy while Stop shows, done when not busy and unchanged for 1.2 s;
+  no first output in 75 s, a stall note for 45 s or "Delivery not confirmed" for 30 s is "sent, result unknown";
+  Muse's error notice ends it with its text; a total deadline of 300 s (30 to 360 s per call, within the caller's)
+  and the caller's cancelling end it. A permission card (`[data-hatch-composer-approval-stack]`,
+  `hatch-inline-approval-card`) stops it with the card's text: Hypomnema never clicks one; the owner answers it in
+  his own Muse. A tab or Chrome gone after the send is "sent, result unknown" and the context is dropped. The
+  answer is read from `[data-message-item][data-message-role="assistant"]`, the agent bubble as fallback (logged),
+  with its links and media; the thread from `/thread/<uuid>`. An answer with no link is marked unverified.
+- `muse.db` beside the control plane's database (tables `mu_*`, FTS5 over prompt and answer) keeps each question
+  with its account, thread, the agent that asked, its answer, links, outcome (`answered`, `interrupted`,
+  `unknown`, `asks_permission`, `error`) and time, each account's state, rest and usage, each thread's account,
+  and the tools' switch. An interrupted question is kept without anything it read. Files: an `https` address is
+  fetched by the control plane (public addresses only, muse.ai's cookies to muse.ai only), at most 20 MiB an image
+  and 50 MiB another; a `blob:` address is read in the page up to 10 MiB; under `muse-media/<account>/<thread>/`,
+  `0600`; a file not kept says why once and is not fetched again.
+- The owner's API (all owner-only): `GET /gateway/muse`, `PUT /gateway/muse/tools` `{on}`, `POST
+  /gateway/muse/sign-in`, `POST /gateway/muse/sign-in/check` `{account?, label?}`, `PUT|DELETE
+  /gateway/muse/accounts/{id}`, `POST /gateway/muse/accounts/{id}/move`. The CLI: `hypomnema muse accounts`, `muse
+  tools on|off`, `muse account set <id> on|off`. The web: Settings → Gateway → Muse lists the accounts with their
+  state, cause and usage, order, switch, Sign in again and Remove, the risk line, Add account and the tools'
+  switch. A control plane with the browser off or no vault key has no Muse, and says so.
+- Not built: Muse's images and videos as tools (#781, step 3), a history screen for `muse.db`, watching an account's
+  tab live, Muse Spark through `api.meta.ai`.
+
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `controlplane/audio.go`; issue #694,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
@@ -3391,6 +3466,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
 | `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
+| `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | no |
 | `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
@@ -4582,11 +4658,12 @@ the internet, so that a machine created at a provider can install the node from 
 ```
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
-internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's tools and the gateway's (web, images)
+internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's tools and the gateway's (web, images, Muse)
 internal/shared/artifactpack  an Artifact's files: the rules an agent's file or folder is read by, its tar, its type from bytes and name, its limits
 internal/controlplane/spreadsheet  an xlsx workbook read into CSV text a sheet for the web's preview, within its limits
 internal/controlplane/bearertoken  client token format: making, checking and hashing
-internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views
+internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views, browser contexts of the control plane's own (Muse's)
+internal/controlplane/muse  the Muse pool: the owner's Muse accounts, the driver of muse.ai in their browser contexts, muse.db and muse-media
 internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
 internal/controlplane/clientcli  the commands that call the client API, and the skills this binary ships (skills/)

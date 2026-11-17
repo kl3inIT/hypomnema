@@ -1,0 +1,7 @@
+Muse-Chat-MCP
+https://github.com/duclm1x1/Muse-Chat-MCP (revision 6c00e8c)
+Copyright (c) 2026 duclm1x1
+
+Used under the MIT License (LICENSE, beside this file): internal/controlplane/muse/scripts.go adapts its
+muse.ai selectors (muse-driver.mjs:32-45), its sign-in probe of /api/auth/check (:162-185), its wait for a
+finished answer (:403-420) and its read of a message's text, links and media (:539-555).

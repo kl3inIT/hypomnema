@@ -132,6 +132,8 @@ type Engine struct {
 	control *ownerhold.Hold
 	// icons are the icons of the sites the tabs show (favicon.go), with a lock of their own.
 	icons favicons
+	// isolated are the browser contexts of the control plane's own (contexts.go), with a lock of their own.
+	isolated contexts
 
 	// The gate's port and Chrome's DevTools port, which the gate asks about
 	// from its own goroutines.
@@ -783,6 +785,13 @@ func (e *Engine) Close(ctx context.Context) {
 	if e.binary != "" && e.cdp != "" {
 		e.stop(ctx)
 	}
+
+	e.isolated.mu.Lock()
+	for key, iso := range e.isolated.all {
+		iso.conn.close()
+		delete(e.isolated.all, key)
+	}
+	e.isolated.mu.Unlock()
 
 	if e.gate != nil {
 		e.gate.Close()

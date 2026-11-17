@@ -806,6 +806,19 @@ var commands = []command{
 		flags:   jsonFlag, run: imageOrder,
 	},
 	{
+		name:    "muse accounts",
+		summary: "the owner's Muse accounts in order, each with its state and usage, and the tools' switch (owner)",
+		flags:   jsonFlag, run: museAccounts,
+	},
+	{
+		name: "muse tools", args: "on|off", min: 1, max: 1,
+		summary: "switch the Muse tools of workers and Bots on or off (owner)", flags: jsonFlag, run: museTools,
+	},
+	{
+		name: "muse account set", args: "<account> on|off", min: 2, max: 2,
+		summary: "put a Muse account in use or out of it (owner)", flags: jsonFlag, run: museAccountSet,
+	},
+	{
 		name: "audio transcribe", args: "<file>", min: 1, max: 1, long: true,
 		summary: "turn a recording into text through the owner's audio providers, with who spoke when if asked",
 		flags:   audioTranscribeFlags, run: audioTranscribe,
