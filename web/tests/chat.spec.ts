@@ -309,6 +309,16 @@ async function fakeServer(
 
       return runPath[2] ? route.fulfill({ status: 204 }) : json(found)
     }
+    // Stopping a Task marks it asked to stop, as POST /tasks/{id}/cancel does while its worker stops.
+    const canceling = /^\/tasks\/([^/]+)\/cancel$/.exec(path)
+    if (canceling) {
+      const found = work.runs
+        .flatMap((r) => r.tasks as Record<string, unknown>[])
+        .find((t) => t.id === canceling[1])
+      if (found) found.cancel_requested_at = new Date().toISOString()
+
+      return json(found ?? {})
+    }
     if (path === "/questions" && url.searchParams.get("chat_id") === chat.id)
       return json({ data: work.questions })
     const answering = /^\/questions\/([^/]+)\/answer$/.exec(path)
@@ -617,7 +627,7 @@ test("a docked Run opens to its Tasks", async ({ page }) => {
     name: "Run Add a /health page to the control plane",
   })
   const rows = first.getByRole("list", { name: "Tasks" })
-  await expect(rows.getByRole("button")).toHaveText([
+  await expect(rows.getByRole("button", { name: /^Open Task/ })).toHaveText([
     /Add the \/health handler and its test\s*Done/,
     /Deploy the control plane to zm\s*Failed/,
     /Add Google login to the web client\s*Working/,
@@ -627,6 +637,58 @@ test("a docked Run opens to its Tasks", async ({ page }) => {
 
   await rows.getByRole("button", { name: /^Open Task Deploy the control plane to zm/ }).click()
   await expect(page).toHaveURL(/[?&]task=tsk_2/)
+})
+
+// Scenario: a worker of the chat's Run is at work (issue #687). Its row says how long it runs and what it does,
+// as does the strip's head. The owner stops it from its row: asked first, the row then says it is stopping.
+test("a running Task's row says what it does, and Stop stops it", async ({ page }) => {
+  const calls = await fakeServer(
+    page,
+    (text) => ({ status: 201, body: message(2, { role: "owner", text }) }),
+    {
+      runs: [
+        openRun("run_1", run.objective, [
+          task("tsk_1", 1, "Add the /health handler and its test", "succeeded"),
+          {
+            ...task("tsk_3", 2, "Add Google login to the web client", "running"),
+            latest_dispatch: {
+              id: "dsp_3",
+              task_id: "tsk_3",
+              node_id: "n1",
+              status: "running",
+              epoch: 1,
+              created_at: new Date(Date.now() - 200_000).toISOString(),
+              updated_at: new Date().toISOString(),
+              started_at: new Date(Date.now() - 200_000).toISOString(),
+              progress_at: new Date().toISOString(),
+              activity: "Bash: go test ./internal/auth/...",
+            },
+          },
+        ]),
+      ],
+      questions: [],
+    },
+  )
+  await open(page)
+  await write(page, state(false))
+
+  const docked = page.getByRole("list", { name: "Runs of this chat" })
+  await expect(
+    docked.getByRole("button", { name: /^Add a \/health page to the control plane: Working/ }),
+  ).toContainText("Bash: go test ./internal/auth/...")
+  const row = docked.getByRole("button", { name: /^Open Task Add Google login/ })
+  await expect(row).toContainText(/Running 3m \d\ds · Bash: go test \.\/internal\/auth\/\.\.\./)
+
+  await docked.getByRole("button", { name: "Stop Task Add Google login to the web client" }).click()
+  const ask = page.getByRole("alertdialog")
+  await expect(ask).toContainText('Stop the Task "Add Google login to the web client"?')
+  await ask.getByRole("button", { name: "Stop Task" }).click()
+
+  await expect.poll(() => calls).toContain("POST /tasks/tsk_3/cancel")
+  await expect(row).toContainText(/Stopping · \d+s/)
+  await expect(
+    docked.getByRole("button", { name: "Stop Task Add Google login to the web client" }),
+  ).toHaveCount(0)
 })
 
 // Scenario: every Task of the chat's Run has ended. The owner presses Finish Run, is asked first, and the Run

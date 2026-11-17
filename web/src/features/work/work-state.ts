@@ -103,6 +103,12 @@ export function needsYou(cards: Card[]) {
   return cards.filter((c) => c.column === "you").length
 }
 
+// stopping says whether the owner asked a Task to stop and it has not ended yet: its worker is being stopped, as
+// t3code says "Stopping" until the provider stops (ThreadActivityBanners.tsx, runStopNowItem; issue #687).
+export function stopping(task: TaskDetail): boolean {
+  return !!task.cancel_requested_at && !["succeeded", "failed", "canceled"].includes(task.status)
+}
+
 // pullRequest is the pull request a Task's latest Dispatch reported, as its number when the link has one. A worker
 // writes the evidence, so only an http(s) link is kept: anything else (javascript:, data:) is never made a link.
 export function pullRequest(task: TaskDetail): { url: string; label: string } | undefined {

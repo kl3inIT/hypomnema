@@ -1,9 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
   Ban,
+  Circle,
   CircleCheck,
+  CircleDot,
   CirclePause,
   CircleX,
+  ExternalLink,
   MessageCircleQuestion,
   TriangleAlert,
   type LucideIcon,
@@ -15,7 +18,9 @@ import type { ChatWake } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useRun, useWork } from "@/features/work/use-work"
+import { useNow } from "@/hooks/use-now"
 import { firstLine } from "@/lib/text"
+import { elapsed } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { useDock } from "./dock-context"
@@ -28,9 +33,13 @@ import { wakeLine, type WakeIcon, type WakeLink, type WakeNames, type WakeTone }
 // Lovecast Inc., https://github.com/stablyai/orca; native-chat/tools/tasks/NativeChatTaskList.tsx), whose status
 // is in words beside the icon. Changed: the Task opens its panel over the chat, and the Run opens its strip docked
 // above the composer (issue #314), or its own chat when it is another chat's (issue #327); the line is not read
-// again live, as neither reference does on such a line.
+// again live, as neither reference does on such a line, but for a Task's end: it carries the first line of the
+// Task's result and its pull request, and a Task that runs again shows how it stands now, as t3code's subagent
+// notice (chat/V2LifecycleRow.tsx, SubagentNotificationLink; issue #687).
 
 const icons: Record<WakeIcon, LucideIcon> = {
+  working: CircleDot,
+  queued: Circle,
   done: CircleCheck,
   failed: CircleX,
   blocked: CirclePause,
@@ -40,15 +49,16 @@ const icons: Record<WakeIcon, LucideIcon> = {
 }
 
 const tones: Record<WakeTone, string> = {
+  running: "text-running",
   done: "text-done",
   failed: "text-failed",
   "needs-you": "text-needs-you",
   quiet: "text-muted-foreground",
 }
 
-export function WakeCard({ wake }: { wake: ChatWake }) {
+export function WakeCard({ wake, at }: { wake: ChatWake; at?: string }) {
   const names = useWakeNames()
-  const line = wakeLine(wake, names)
+  const line = wakeLine(wake, names, at)
   const Icon = icons[line.icon]
   const tone = tones[line.tone]
   // The last words take the colon that leads into the detail.
@@ -74,6 +84,7 @@ export function WakeCard({ wake }: { wake: ChatWake }) {
         {line.after && (
           <span className={cn("font-medium", tone)}>
             {line.after}
+            {line.since && <Since from={line.since} />}
             {colon}
           </span>
         )}
@@ -83,12 +94,31 @@ export function WakeCard({ wake }: { wake: ChatWake }) {
           </span>
         )}
         {line.action && <WakeChip link={line.action} />}
+        {line.pr && (
+          <a
+            href={line.pr.url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Open ${line.pr.label}`}
+            className={cn(buttonVariants({ variant: "outline", size: "chip" }), "text-done")}
+          >
+            {line.pr.label}
+            <ExternalLink aria-hidden />
+          </a>
+        )}
       </p>
       <div aria-hidden="true" className="min-w-4 flex-1">
         <Separator />
       </div>
     </div>
   )
+}
+
+// Since is how long a Task that runs again has run, ticking on the page.
+function Since({ from }: { from: string }) {
+  const now = useNow()
+
+  return <span className="tabular-nums"> {elapsed(from, now)}</span>
 }
 
 // WakeChip opens the work a line names: a Task in its panel over the chat (the page keeps it in its URL, as the
@@ -172,13 +202,18 @@ function RunChatChip({ runId, label }: { runId: string; label: string }) {
 }
 
 // useWakeNames names a wake-up's ids from the work the app already reads: a Task's first line and its agent, a
-// Run's objective, an open question's text.
+// Run's objective, an open question's text. The Task itself is the one the chat's dock read with its Run, else the
+// board's.
 function useWakeNames(): WakeNames {
   const { cards } = useWork()
+  const dock = useDock()
 
   return useMemo(() => {
     const tasks = new Map(
-      cards.map((c) => [c.task.id, { title: firstLine(c.task.spec, 80), agent: c.task.profile }]),
+      cards.map((c) => [
+        c.task.id,
+        { title: firstLine(c.task.spec, 80), agent: c.task.profile, now: c.task },
+      ]),
     )
     const runs = new Map(cards.map((c) => [c.run.id, c.run.objective]))
     const questions = new Map(
@@ -188,9 +223,14 @@ function useWakeNames(): WakeNames {
     )
 
     return {
-      task: (id) => tasks.get(id),
+      task: (id) => {
+        const docked = dock.task(id)
+        if (!docked) return tasks.get(id)
+
+        return { title: firstLine(docked.spec, 80), agent: docked.profile, now: docked }
+      },
       run: (id) => runs.get(id),
       question: (id) => questions.get(id),
     }
-  }, [cards])
+  }, [cards, dock])
 }

@@ -1,41 +1,37 @@
 import { Dialog } from "@base-ui/react/dialog"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ArrowDown, ExternalLink, X } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import "@/api/client"
-import {
-  getRunQueryKey,
-  getTaskQueryKey,
-  listBotsOptions,
-  listQuestionsQueryKey,
-  listTasksQueryKey,
-} from "@/api/generated/@tanstack/react-query.gen"
-import { cancelTask, followUpTask, forwardQuestion, reopenTask } from "@/api/generated/sdk.gen"
+import { listBotsOptions } from "@/api/generated/@tanstack/react-query.gen"
+import { followUpTask, forwardQuestion, reopenTask } from "@/api/generated/sdk.gen"
 import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
+import { useNow } from "@/hooks/use-now"
 import { errorText, problemOf } from "@/lib/server-error"
-import { since, span } from "@/lib/time"
+import { elapsed, since, span } from "@/lib/time"
 
 import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { QuestionForm } from "@/features/questions/question-form"
 import { useRun, useTask, useWork } from "@/features/work/use-work"
 import { waitingText } from "@/features/work/waiting"
-import { callsOf } from "@/lib/query-keys"
 import {
   boardCards,
   evidenceLink,
   pullRequest,
   repoLabel,
+  stopping,
   type Card,
 } from "@/features/work/work-state"
 import { firstLine } from "@/lib/text"
 
+import { useCancelTask, useRefreshTasks } from "./task-actions"
 import { Transcript } from "./transcript"
 
 // TaskPanel opens one Task over the page it came from, as Omnigent opens a session over its canvas
@@ -282,7 +278,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 // (skill-guides/orchestration.md). The server refuses it when the worker's conversation was closed, and its
 // message says to start a new Task instead.
 function FollowUp({ taskId }: { taskId: string }) {
-  const refresh = useRefresh()
+  const refresh = useRefreshTasks()
   const [open, setOpen] = useState(false)
   const [note, setNote] = useState("")
   const box = useRef<HTMLTextAreaElement>(null)
@@ -377,24 +373,10 @@ function followUpRefusal(error: unknown, taskId: string): ReactNode {
   return errorText(error)
 }
 
-// taskReads matches what the owner's act on a Task changes: the Tasks, the questions, each Run and each Task.
-const taskReads = callsOf(
-  listTasksQueryKey(),
-  listQuestionsQueryKey(),
-  getRunQueryKey({ path: { run_id: "" } }),
-  getTaskQueryKey({ path: { task_id: "" } }),
-)
-
-function useRefresh() {
-  const queryClient = useQueryClient()
-
-  return () => void queryClient.invalidateQueries({ predicate: taskReads })
-}
-
 // PiQuestion shows a question the worker put to pi. pi answers it; the owner can take it over, which hands it to the
 // owner (POST /questions/{id}/forward), as a coordinator passes a question on.
 function PiQuestion({ card }: { card: Card }) {
-  const refresh = useRefresh()
+  const refresh = useRefreshTasks()
   const take = useMutation({
     mutationFn: () => forwardQuestion({ path: { question_id: card.piQuestion?.id ?? "" } }),
     onSuccess: refresh,
@@ -419,19 +401,29 @@ function PiQuestion({ card }: { card: Card }) {
   )
 }
 
+// Stopping says the worker is being stopped, with how long since the owner asked, where Cancel Task was, as t3code
+// says "Stopping" with a timer until its provider stops (ThreadActivityBanners.tsx, runStopNowItem).
+function Stopping({ since }: { since: string }) {
+  const now = useNow()
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <Spinner aria-hidden />
+      <span className="tabular-nums">Stopping · {elapsed(since, now)}</span>
+    </span>
+  )
+}
+
 // Actions are what the owner can do to a Task in its state: start a failed or blocked one again, ask more of a
-// succeeded one (issue #666), or cancel one that has not ended.
+// succeeded one (issue #666), or cancel one that has not ended; one asked to stop says so until it ends (issue #687).
 function Actions({ card }: { card: Card }) {
-  const refresh = useRefresh()
+  const refresh = useRefreshTasks()
   const { task } = card
   const reopen = useMutation({
     mutationFn: () => reopenTask({ path: { task_id: task.id } }),
     onSuccess: refresh,
   })
-  const cancel = useMutation({
-    mutationFn: () => cancelTask({ path: { task_id: task.id } }),
-    onSuccess: refresh,
-  })
+  const cancel = useCancelTask(task.id)
 
   const canReopen =
     card.run.status === "open" &&
@@ -442,8 +434,9 @@ function Actions({ card }: { card: Card }) {
   const error = reopen.error ?? cancel.error
 
   const canFollowUp = card.run.status === "open" && task.status === "succeeded"
+  const isStopping = stopping(task)
 
-  if (!canReopen && !canCancel && !canFollowUp) return null
+  if (!canReopen && !canCancel && !canFollowUp && !isStopping) return null
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -469,6 +462,7 @@ function Actions({ card }: { card: Card }) {
           Cancel Task
         </Button>
       )}
+      {isStopping && <Stopping since={task.cancel_requested_at ?? ""} />}
       {error && <span className="text-xs text-destructive">Not done: try again.</span>}
     </div>
   )

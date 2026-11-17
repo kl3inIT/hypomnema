@@ -130,8 +130,8 @@ export type ChatItem =
   | { kind: "owner"; key: string; message: ChatMessage }
   | { kind: "notice"; key: string; message: ChatMessage }
   | { kind: "stopped"; key: string; message: ChatMessage }
-  // A wake-up with the event it reports, drawn as a card (issue #303).
-  | { kind: "wake"; key: string; wake: ChatWake }
+  // A wake-up with the event it reports, drawn as a card (issue #303), and when it came (issue #687).
+  | { kind: "wake"; key: string; wake: ChatWake; at: string }
   // An artifact the Bot showed, as it is now (issue #402).
   | { kind: "artifact"; key: string; artifact: ArtifactCard }
   // An Approval the owner answered, where he answered it (issue #465).
@@ -227,7 +227,7 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
         if (m.kind === "stopped") {
           items.push({ kind: "stopped", key, message: m })
         } else if (m.kind === "wake" && m.wake) {
-          items.push({ kind: "wake", key, wake: m.wake })
+          items.push({ kind: "wake", key, wake: m.wake, at: m.created_at })
         } else if (m.kind === "artifact" && m.artifact) {
           items.push({ kind: "artifact", key, artifact: m.artifact })
         } else if (m.kind === "approval" && m.approval) {

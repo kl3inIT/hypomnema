@@ -75,6 +75,7 @@ export function useDockedWork(chatId: string, wakes: number, waiting: number): D
   }, [wakes, chatId, queryClient])
 
   const fetched = details.flatMap((d) => (d.data ? [d.data] : []))
+  const tasks = new Map(fetched.flatMap((r) => r.tasks.map((t) => [t.id, t] as const)))
   const { runs, foreign } = docked(fetched, chatId, pinned)
   const asked = (questions.data ?? []).filter(
     (q) => q.status === "open" && q.addressed_to === "owner",
@@ -113,6 +114,7 @@ export function useDockedWork(chatId: string, wakes: number, waiting: number): D
         setOpen(runId, true)
         setFocus({ runId })
       },
+      task: (taskId) => tasks.get(taskId),
     },
   }
 }
