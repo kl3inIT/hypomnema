@@ -472,6 +472,7 @@ func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, 
 		ID: id, Profile: r.Name, Version: current.Version + 1, Source: before.Source, Digest: before.Digest,
 		Description: before.Description, Runtime: before.Runtime, Provider: before.Provider, Model: before.Model,
 		Effort: before.Effort, Instruction: before.Instruction, Fallbacks: before.Fallbacks, Skills: before.Skills,
-		SkillsOff: before.SkillsOff, Tools: before.Tools, ToolsOff: before.ToolsOff, Now: now,
+		SkillsOff: before.SkillsOff, Tools: before.Tools, ToolsOff: before.ToolsOff,
+		CpuRequestMillis: before.CpuRequestMillis, MemoryRequestBytes: before.MemoryRequestBytes, Now: now,
 	})
 }

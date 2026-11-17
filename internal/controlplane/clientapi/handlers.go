@@ -516,28 +516,15 @@ func (s *Server) UpdateNode(ctx context.Context, req openapi.UpdateNodeRequestOb
 		return nil, fmt.Errorf("%w: name a node's new name, cap or reserve", orchestration.ErrInvalid)
 	}
 
-	var (
-		n   orchestration.Node
-		err error
-	)
-
-	if req.Body.Name != nil {
-		if n, err = s.svc.RenameNode(ctx, req.NodeId, *req.Body.Name); err != nil {
-			return nil, err
-		}
-	}
-
-	if req.Body.MaxDispatches != nil {
-		if n, err = s.svc.SetNodeLimit(ctx, req.NodeId, *req.Body.MaxDispatches); err != nil {
-			return nil, err
-		}
-	}
-
+	// One change, checked whole before anything is written (PR #759).
+	change := orchestration.NodeChange{Name: req.Body.Name, MaxDispatches: req.Body.MaxDispatches}
 	if r := req.Body.Reserved; r != nil {
-		reserved := orchestration.Resources{CPUMillis: r.CpuMillis, MemoryBytes: r.MemoryBytes}
-		if n, err = s.svc.SetNodeReserved(ctx, req.NodeId, reserved); err != nil {
-			return nil, err
-		}
+		change.ReservedCPUMillis, change.ReservedMemoryBytes = &r.CpuMillis, &r.MemoryBytes
+	}
+
+	n, err := s.svc.UpdateNode(ctx, req.NodeId, change)
+	if err != nil {
+		return nil, err
 	}
 
 	return openapi.UpdateNode200JSONResponse(toNode(n)), nil

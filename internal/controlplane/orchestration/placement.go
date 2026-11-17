@@ -215,9 +215,19 @@ func (n *nodeLoad) allocatable() request {
 	}
 
 	return request{
-		cpuMillis:   max(n.row.Cpus.Int64*1000-n.row.ReservedCpuMillis, 0),
-		memoryBytes: max(n.row.MemoryBytes.Int64-n.row.ReservedMemoryBytes-NodeMemoryFloor, 0),
+		cpuMillis:   less(n.row.Cpus.Int64*1000, n.row.ReservedCpuMillis),
+		memoryBytes: less(less(n.row.MemoryBytes.Int64, n.row.ReservedMemoryBytes), NodeMemoryFloor),
 	}
+}
+
+// less is have - take, never below 0. Both are 0 or more, so it cannot
+// overflow, however large a reserve the owner set (PR #759).
+func less(have, take int64) int64 {
+	if take >= have {
+		return 0
+	}
+
+	return have - take
 }
 
 // fits reports whether one more Dispatch of the request fits the node now:
@@ -558,10 +568,10 @@ func (n *nodeLoad) memoryLeft() int64 {
 }
 
 // measured is the sum of a node's free CPU and memory shares, each 0 to 1. A
-// node without fresh stats, or that never said its memory, counts 0 for both:
-// it ranks below any node that reports room and is still used when it is the
-// only one, as Trimaran scores a node without metrics at the minimum
-// (targetloadpacking.go:107-117).
+// node without fresh stats, or that never said its memory, counts 0 for both,
+// as Trimaran scores a node without metrics at the minimum
+// (targetloadpacking.go:107-117); its free share by requests still counts, so
+// it may outrank a node with fresh stats whose requests leave less room.
 func (p *placement) measured(n *nodeLoad) float64 {
 	total := n.row.MemoryBytes.Int64
 	if !p.freshStats(n) || !n.row.MemoryBytes.Valid || total <= 0 || !n.row.MemoryUsedBytes.Valid {

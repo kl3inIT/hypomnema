@@ -83,22 +83,23 @@ type queue struct {
 	tasks     []queued
 }
 
-// queued is a ready Task and its place in the pass's list, which is oldest
-// Run first: a smaller place is an older Run.
+// queued is a ready Task and when its Run was created; a group's queue keeps
+// the pass's order, oldest Run first.
 type queued struct {
-	id    string
-	place int
+	id         string
+	runCreated int64
 }
 
 // groupQueues splits the ready Tasks, oldest Run first, into their groups' queues.
 func groupQueues(ctx context.Context, q *store.Queries, ids []string) ([]*queue, error) {
 	var (
-		out    []*queue
-		byRun  = map[string]*queue{}
-		byName = map[string]*queue{}
+		out     []*queue
+		byRun   = map[string]*queue{}
+		created = map[string]int64{}
+		byName  = map[string]*queue{}
 	)
 
-	for i, id := range ids {
+	for _, id := range ids {
 		task, err := q.GetTask(ctx, id)
 		if err != nil {
 			return nil, notFound(err, "task", id)
@@ -106,6 +107,13 @@ func groupQueues(ctx context.Context, q *store.Queries, ids []string) ([]*queue,
 
 		g, ok := byRun[task.RunID]
 		if !ok {
+			run, err := q.GetRun(ctx, task.RunID)
+			if err != nil {
+				return nil, notFound(err, "run", task.RunID)
+			}
+
+			created[task.RunID] = run.CreatedAt
+
 			group, guarantee, err := runGroup(ctx, q, task.RunID)
 			if err != nil {
 				return nil, err
@@ -120,7 +128,7 @@ func groupQueues(ctx context.Context, q *store.Queries, ids []string) ([]*queue,
 			byRun[task.RunID] = g
 		}
 
-		g.tasks = append(g.tasks, queued{id: id, place: i})
+		g.tasks = append(g.tasks, queued{id: id, runCreated: created[task.RunID]})
 	}
 
 	return out, nil
@@ -163,8 +171,10 @@ func before(a, b *queue, used map[string]int) bool {
 		return l < r
 	}
 
-	if a.tasks[0].place != b.tasks[0].place {
-		return a.tasks[0].place < b.tasks[0].place
+	// Two Tasks are never at one place in the pass's list, so the place cannot
+	// say which Run is older: when the Runs were created can tie (PR #759).
+	if a.tasks[0].runCreated != b.tasks[0].runCreated {
+		return a.tasks[0].runCreated < b.tasks[0].runCreated
 	}
 
 	return a.group < b.group

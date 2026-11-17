@@ -292,6 +292,17 @@ func TestOnlyTheOwnerChangesANodesLimit(t *testing.T) {
 	empty, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, empty.StatusCode())
+
+	// A change with a part that is refused, a blank name, writes none of its parts (PR #759).
+	half, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{
+		Name: ptr("   "), MaxDispatches: ptr(2), Reserved: &openapi.Resources{CpuMillis: 2000},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, half.StatusCode())
+
+	kept, err := w.svc.GetNode(ctx, n.ID)
+	require.NoError(t, err)
+	assert.Equal(t, [3]any{"stc-hy-app", 0, int64(500)}, [3]any{kept.Name, kept.MaxDispatches, kept.Reserved.CPUMillis})
 }
 
 // Scenario: the Machines page reads a node whose machine has a GPU. The

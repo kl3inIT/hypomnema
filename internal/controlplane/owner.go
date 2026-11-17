@@ -214,42 +214,45 @@ func (o *owner) setNode(ctx context.Context, name string, args []string) error {
 		return fmt.Errorf("%w: %s", ErrUsage, setNodeUsage)
 	}
 
+	// Every part is read before anything is written: one that cannot be read
+	// changes nothing (PR #759).
+	var change orchestration.NodeChange
+
+	if *limit != "" {
+		limitN := 0
+		if *limit != "none" {
+			n, err := strconv.Atoi(*limit)
+			if err != nil || n < 1 {
+				return fmt.Errorf("%w: --max is 1 to 64, or none", ErrUsage)
+			}
+
+			limitN = n
+		}
+
+		change.MaxDispatches = &limitN
+	}
+
+	// A part left out keeps what the node has.
+	reserved, err := orchestration.ParseReserve(*cpu, *memory)
+	if err != nil {
+		return err
+	}
+
+	if *cpu != "" {
+		change.ReservedCPUMillis = &reserved.CPUMillis
+	}
+
+	if *memory != "" {
+		change.ReservedMemoryBytes = &reserved.MemoryBytes
+	}
+
 	n, err := o.node(ctx, name)
 	if err != nil {
 		return err
 	}
 
-	if *limit != "" {
-		limitN := 0
-		if *limit != "none" {
-			if limitN, err = strconv.Atoi(*limit); err != nil || limitN < 1 {
-				return fmt.Errorf("%w: --max is 1 to 64, or none", ErrUsage)
-			}
-		}
-
-		if n, err = o.svc.SetNodeLimit(ctx, n.ID, limitN); err != nil {
-			return err
-		}
-	}
-
-	if *cpu != "" || *memory != "" {
-		// A part left out keeps what the node has.
-		reserved, err := orchestration.ParseReserve(*cpu, *memory)
-		if err != nil {
-			return err
-		}
-
-		if *cpu == "" {
-			reserved.CPUMillis = n.Reserved.CPUMillis
-		}
-
-		if *memory == "" {
-			reserved.MemoryBytes = n.Reserved.MemoryBytes
-		}
-
-		if n, err = o.svc.SetNodeReserved(ctx, n.ID, reserved); err != nil {
-			return err
-		}
+	if n, err = o.svc.UpdateNode(ctx, n.ID, change); err != nil {
+		return err
 	}
 
 	o.printf("node %s (%s), %s\n", n.Name, n.ID, nodeRoom(n))

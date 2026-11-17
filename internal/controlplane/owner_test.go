@@ -60,6 +60,21 @@ func TestOwnerSetsUpANodeAndAnAccount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "cap 5,")
 
+	// A part that cannot be read changes nothing, not even the parts before it (PR #759).
+	_, err = command(t, cfg, "nodes", "set", "zm", "--max", "none", "--reserve-memory", "invalid")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+
+	_, err = command(t, cfg, "nodes", "set", "zm", "--max", "none", "--reserve-cpu", "1", "--reserve-memory", "-1")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+
+	out, err = command(t, cfg, "nodes", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "\tzm\tactive\toffline\t0/5\t", "the cap is still 5")
+
+	out, err = command(t, cfg, "nodes", "set", "zm", "--reserve-memory", "1Gi")
+	require.NoError(t, err)
+	assert.Contains(t, out, "cap 5, reserved 0.0 CPU 1.0 GiB", "the cap and the CPU left out are kept")
+
 	out, err = command(t, cfg, "nodes", "set", "zm", "--max", "none", "--reserve-cpu", "500m",
 		"--reserve-memory", "2Gi")
 	require.NoError(t, err)

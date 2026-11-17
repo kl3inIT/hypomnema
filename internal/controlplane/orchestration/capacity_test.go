@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"database/sql"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -241,6 +242,57 @@ func TestAReserveShrinksAllocatable(t *testing.T) {
 	assert.Equal(t, Resources{}, w.nodeNow(n.ID).Allocatable, "never below 0")
 }
 
+// Scenario: the owner keeps back more than any node has (PR #759). capacity
+// - reserve - NodeMemoryFloor would wrap around int64 and leave a large
+// allocatable; it is 0 instead, and no building worker is placed there.
+func TestAHugeReserveLeavesNoRoom(t *testing.T) {
+	t.Parallel()
+
+	w := newScoreWorld(t)
+	n := w.sized("node_huge_reserve", 8, 512<<20)
+
+	got, err := w.s.SetNodeReserved(t.Context(), n.ID, Resources{CPUMillis: math.MaxInt64, MemoryBytes: math.MaxInt64})
+	require.NoError(t, err)
+	assert.Equal(t, Resources{}, got.Allocatable)
+
+	w.tasks(specs(1)...)
+	assert.Empty(t, w.schedule().Created)
+}
+
+// Scenario: one part of a node's reserve is changed alone (PR #759). The
+// other part keeps what the node has when the change is written, even when
+// it changed after the caller read the node; a change with a part that is
+// refused writes none of its parts.
+func TestAReservePartLeftOutIsKept(t *testing.T) {
+	t.Parallel()
+
+	w := newScoreWorld(t)
+	ctx := t.Context()
+	n := w.sized("node_partial", 8, 8*gib)
+
+	_, err := w.s.SetNodeReserved(ctx, n.ID, Resources{CPUMillis: 500, MemoryBytes: 2 * gib})
+	require.NoError(t, err)
+
+	read := w.nodeNow(n.ID)
+
+	cpu := int64(1000)
+	_, err = w.s.UpdateNode(ctx, n.ID, NodeChange{ReservedCPUMillis: &cpu})
+	require.NoError(t, err, "another change, after the node was read")
+
+	memory := 4 * gib
+	got, err := w.s.UpdateNode(ctx, read.ID, NodeChange{ReservedMemoryBytes: &memory})
+	require.NoError(t, err)
+	assert.Equal(t, Resources{CPUMillis: 1000, MemoryBytes: 4 * gib}, got.Reserved)
+
+	limit, name, negative := 3, "renamed", int64(-1)
+	_, err = w.s.UpdateNode(ctx, n.ID, NodeChange{Name: &name, MaxDispatches: &limit, ReservedCPUMillis: &negative})
+	require.ErrorIs(t, err, ErrInvalid)
+
+	after := w.nodeNow(n.ID)
+	assert.Equal(t, [3]any{read.Name, 0, Resources{CPUMillis: 1000, MemoryBytes: 4 * gib}},
+		[3]any{after.Name, after.MaxDispatches, after.Reserved}, "nothing was written")
+}
+
 // Scenario: a Dispatch keeps the request its profile had when it was made.
 // The profile asks for more while it runs; the node still counts the old
 // request, and the next Dispatch asks the new one.
@@ -385,9 +437,11 @@ func TestEachProfileHasARequest(t *testing.T) {
 		"reviewer":    {cpuMillis: 1000, memoryBytes: 3 << 30},
 		"explorer":    {cpuMillis: 500, memoryBytes: 512 << 20},
 	} {
-		v, err := q.CurrentProfileVersion(ctx, profile)
-		require.NoError(t, err)
-		assert.Equal(t, want, requestOf(v), profile)
+		t.Run(profile, func(t *testing.T) {
+			v, err := q.CurrentProfileVersion(ctx, profile)
+			require.NoError(t, err)
+			assert.Equal(t, want, requestOf(v))
+		})
 	}
 
 	explorer, err := w.s.GetProfile(ctx, "explorer")
@@ -406,9 +460,11 @@ func TestEachProfileHasARequest(t *testing.T) {
 		"the CPU left out is the default")
 
 	for _, bad := range []string{"{cpu: 0}", "{cpu: -1}", "{cpu: lots}", "{memory: 0}", "{memory: 3Qi}", "{cpu: 0m}"} {
-		_, _, err := w.s.ApplyProfile(ctx, "", "name: bad\ndescription: d\nruntime: claude\n"+
-			"model: {provider: claude-subscription}\nrequests: "+bad+"\n")
-		require.ErrorIs(t, err, ErrInvalid, bad)
+		t.Run(bad, func(t *testing.T) {
+			_, _, err := w.s.ApplyProfile(ctx, "", "name: bad\ndescription: d\nruntime: claude\n"+
+				"model: {provider: claude-subscription}\nrequests: "+bad+"\n")
+			require.ErrorIs(t, err, ErrInvalid)
+		})
 	}
 }
 
@@ -510,18 +566,60 @@ func TestATaskThatFitsNowhereDoesNotBlockOthers(t *testing.T) {
 func TestGroupsAreOrderedByUsedOverGuarantee(t *testing.T) {
 	t.Parallel()
 
-	a := &queue{group: "bot_a", guarantee: 4, tasks: []queued{{id: "a1", place: 5}}}
-	b := &queue{group: "bot_b", guarantee: 1, tasks: []queued{{id: "b1", place: 0}}}
+	a := &queue{group: "bot_a", guarantee: 4, tasks: []queued{{id: "a1", runCreated: 5}}}
+	b := &queue{group: "bot_b", guarantee: 1, tasks: []queued{{id: "b1", runCreated: 0}}}
 	assert.Same(t, a, nextQueue([]*queue{b, a}, map[string]int{"bot_a": 2, "bot_b": 1}), "1/2 before 1/1")
 
 	assert.Same(t, b, nextQueue([]*queue{a, b}, map[string]int{"bot_a": 4, "bot_b": 1}), "equal: the older Run")
 
-	c := &queue{group: "bot_c", guarantee: 1, tasks: []queued{{id: "c1", place: 0}}}
+	c := &queue{group: "bot_c", guarantee: 1, tasks: []queued{{id: "c1", runCreated: 0}}}
 	assert.Same(t, b, nextQueue([]*queue{c, b}, map[string]int{}), "equal and as old: the smaller id")
 
 	empty := &queue{group: "", guarantee: 4}
 	assert.Same(t, c, nextQueue([]*queue{empty, c}, map[string]int{"bot_c": 9}), "nothing ready is skipped")
 	assert.Nil(t, nextQueue([]*queue{empty}, nil))
+}
+
+// Scenario: two Bots, each 0 of 1, have Runs created at the same moment, and
+// there is room for one building worker (PR #759). The pass's list is ordered
+// by when the Run was created and then by the Run's id, so the Run's place in
+// it must not decide: the Bot with the smaller id goes first, whatever the
+// Runs' ids.
+func TestRunsOfTheSameAgeGoToTheSmallerGroupID(t *testing.T) {
+	t.Parallel()
+
+	w := newScoreWorld(t)
+	ctx := t.Context()
+	w.sized("node_one", 8, 4*gib)
+
+	x, err := w.s.PutBot(ctx, Bot{Name: "x", GuaranteedDispatches: 1})
+	require.NoError(t, err)
+	y, err := w.s.PutBot(ctx, Bot{Name: "y", GuaranteedDispatches: 1})
+	require.NoError(t, err)
+
+	first, second := botRun(w, x, "x", 1)[0], botRun(w, y, "y", 1)[0]
+	runOf := func(id string) Run {
+		r, err := w.s.GetRun(ctx, id)
+		require.NoError(t, err)
+
+		return r
+	}
+	require.Equal(t, runOf(first.RunID).CreatedAt, runOf(second.RunID).CreatedAt)
+
+	// The Run with the smaller id, first in the list, is the Bot with the larger id.
+	early, late := first, second
+	if early.RunID > late.RunID {
+		early, late = late, early
+	}
+
+	small, large := min(x.ID, y.ID), max(x.ID, y.ID)
+	_, err = w.db.ExecContext(ctx, "UPDATE runs SET bot_id = CASE id WHEN ? THEN ? ELSE ? END WHERE id IN (?, ?)",
+		early.RunID, large, small, early.RunID, late.RunID)
+	require.NoError(t, err)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	assert.Equal(t, late.ID, w.dispatchOf(created[0]).TaskID, "the smaller Bot id, not the smaller Run id")
 }
 
 // Scenario: a Bot's guarantee is a setting of 1 to MaxDispatchesLimit, kept
@@ -553,17 +651,25 @@ func TestRequestsAreReadAsQuantities(t *testing.T) {
 	t.Parallel()
 
 	for in, want := range map[string]int64{"500m": 500, "0.5": 500, "1": 1000, "2.25": 2250, "24": 24000} {
-		got, err := parseCPU(in)
-		require.NoError(t, err, in)
-		assert.Equal(t, want, got, in)
+		t.Run("cpu "+in, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseCPU(in)
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
 	}
 
 	for in, want := range map[string]int64{
 		"512Mi": 512 << 20, "3Gi": 3 << 30, "1.5Gi": 3 << 29, "1G": 1e9, "100k": 1e5, "4096": 4096,
 	} {
-		got, err := parseMemory(in)
-		require.NoError(t, err, in)
-		assert.Equal(t, want, got, in)
+		t.Run("memory "+in, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseMemory(in)
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
 	}
 
 	r, err := ParseReserve("0", "")

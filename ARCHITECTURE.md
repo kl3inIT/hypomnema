@@ -1524,7 +1524,9 @@ flowchart LR
     `cpus × 1000 − reserved_cpu_millis` millicores and `memory_bytes − reserved_memory_bytes − 1 GiB`
     (`NodeMemoryFloor`, folded in as the kubelet folds its eviction threshold), never below 0. The reserves are
     the owner's, 0 by default (the kubelet's system-reserved, Nomad's client `reserved`): `PATCH /nodes/{node_id}`
-    `reserved`, `hypomnema nodes set <node> --reserve-cpu C --reserve-memory M`. A node that never said its size
+    `reserved`, `hypomnema nodes set <node> --reserve-cpu C --reserve-memory M` (a part left out keeps what the node
+  has, read in the write's transaction). A change of a node's name, cap and reserve (`UpdateNode`) is checked whole
+  before anything is written and written in one transaction. A node that never said its size
     has no capacity and takes work only under a cap;
   - a Dispatch's request is its profile version's `cpu_request_millis` and `memory_request_bytes` (the YAML's
     `requests: {cpu: 500m, memory: 512Mi}`), each the default for building work when unset
@@ -1554,8 +1556,9 @@ flowchart LR
   counted), CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated
   averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id,
   and each Dispatch a pass places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`),
-  or never reported, or a node that never said its memory, count 0 for CPU and memory: the node ranks last but is
-  not refused (Trimaran). A node whose fresh stats show less than
+  or never reported, or a node that never said its memory, count 0 for its measured CPU and memory shares, so only
+  its free share by requests scores it; it is not refused (Trimaran scores a node without metrics at the minimum),
+  and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
   1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
   continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
   gateway serves), in
