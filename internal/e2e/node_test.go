@@ -536,7 +536,8 @@ func TestDaemonStopsOnARefusedToken(t *testing.T) {
 // Scenario: the control plane tells a node where its releases are. After
 // its hello the node knows the place a newer version of itself comes from,
 // which is the control plane's own setting and not something the node was
-// installed with.
+// installed with, and the control plane's own version, which its update loop
+// hears at once (issue #783).
 func TestHelloTellsTheNodeWhereItsReleasesAre(t *testing.T) {
 	t.Parallel()
 
@@ -562,6 +563,7 @@ func TestHelloTellsTheNodeWhereItsReleasesAre(t *testing.T) {
 	d := daemon.New(daemon.Config{URL: srv.URL, Token: token, WorktreeRoot: "/srv/wt", Version: "test"},
 		state, newFakeRunner(), slog.New(slog.DiscardHandler))
 	assert.Empty(t, d.ReleaseURL())
+	assert.Empty(t, d.ControlPlaneVersion())
 
 	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
 	done := make(chan error, 1)
@@ -576,6 +578,12 @@ func TestHelloTellsTheNodeWhereItsReleasesAre(t *testing.T) {
 		}
 	})
 
-	require.Eventually(t, func() bool { return d.ReleaseURL() == "https://releases.example/node" },
-		wait, 20*time.Millisecond)
+	select {
+	case <-d.Hellos():
+	case <-time.After(wait):
+		t.Fatal("the node's hello was not signaled")
+	}
+
+	assert.Equal(t, "https://releases.example/node", d.ReleaseURL())
+	assert.Equal(t, platform.Version, d.ControlPlaneVersion())
 }

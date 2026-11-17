@@ -513,3 +513,51 @@ func TestTheOwnersOwnLarkSignInIsABotsOnHisTurn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"work"}, labels(pi), "switched off for chats, not even the main Bot gets it")
 }
+
+// Scenario: glab is for every GitLab host (issue #740). Asked for the accounts of gitlab, the agent API lists those
+// the agent may use on every host whose kind is gitlab, gitlab.com and a server the owner declared, each with its
+// host, and none of a host of another kind. A GitLab host goes through the service proxy: its token is handed to no
+// agent.
+func TestGlabIsToldTheAccountsOfEveryGitLabHost(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.svc.AddGitHost(ctx, "git.example.com", "gitlab")
+	require.NoError(t, err)
+	_, err = w.svc.AddGitHost(ctx, "ghe.example.com", "github")
+	require.NoError(t, err)
+
+	for _, host := range []string{"git.example.com", "gitlab.com", "ghe.example.com"} {
+		_, err := w.svc.SetConnection(ctx, host, "default", "", "conn-"+host)
+		require.NoError(t, err)
+		_, err = w.svc.SetConnectionChats(ctx, host, "default", true)
+		require.NoError(t, err)
+	}
+
+	_, err = w.svc.SetConnection(ctx, "gitlab.com", "other", "", "conn-gitlab-other")
+	require.NoError(t, err)
+
+	_, pi, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	status, body := w.call(http.MethodGet, agenttool.PathConnections+"?integration=gitlab", pi, nil)
+	require.Equal(t, http.StatusOK, status)
+
+	var list agenttool.ConnectionList
+	require.NoError(t, json.Unmarshal(body, &list))
+
+	var accounts []string
+	for _, c := range list.Data {
+		accounts = append(accounts, c.Host+":"+c.Label)
+	}
+
+	assert.ElementsMatch(t, []string{"git.example.com:default", "gitlab.com:default"}, accounts,
+		"gitlab.com:other is not on for chats, and ghe.example.com is GitHub")
+
+	status, _ = w.call(http.MethodPost, agenttool.PathToken, pi,
+		agenttool.TokenRequest{Integration: "git.example.com", Label: "default"})
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Empty(t, w.asked, "no token of a GitLab host is fetched for an agent")
+}

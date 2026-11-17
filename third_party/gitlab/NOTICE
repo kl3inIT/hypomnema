@@ -1,0 +1,24 @@
+GitLab's Go client (client-go) and command-line tool (glab)
+
+client-go, https://gitlab.com/gitlab-org/api/client-go
+Copyright 2021, Sander van Harmelen, and its contributors
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Read as the Go module gitlab.com/gitlab-org/api/client-go/v3 at v3.46.1
+(f5a1d82ee0ae2c59db6b358e6d3a430eabe726e5), the version glab 1.130.0
+requires.
+
+What is taken from it here: the HTTP method and the route template of each
+request the client makes, the routes it registers with route("…") and names
+in withPath, with withMethod beside them
+(internal/controlplane/serviceproxy/gitlab_operations.json, written by
+internal/controlplane/serviceproxy/catalogsgen from the module
+catalog_sources.json pins). Nothing else of the client is kept. The catalog
+of actions made from that list is Hypomnema's own
+(internal/controlplane/serviceproxy/gitlab.go).
+
+glab, https://gitlab.com/gitlab-org/cli
+Copyright (c) 2022-present GitLab Inc. (MIT License)
+Its release files are fetched by the machines that run Bots at the version
+and SHA-256 internal/shared/agenttool/catalog.go pins, never redistributed;
+of its source only its go.mod is read, for the client-go version it requires.

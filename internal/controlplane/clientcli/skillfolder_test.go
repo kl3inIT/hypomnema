@@ -495,7 +495,7 @@ func TestTheStoreSkillsAreTheShippedFolders(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{
-		"pdf", "slides", "pages", "google-workspace", "lark", "aws", "superset", "android-device", "github",
+		"pdf", "slides", "pages", "google-workspace", "lark", "aws", "superset", "android-device", "github", "gitlab",
 	}, names)
 
 	// A guide goes only to an agent that may use its Integration, or while a node holds the phone (issue #536).
@@ -503,7 +503,7 @@ func TestTheStoreSkillsAreTheShippedFolders(t *testing.T) {
 		"pdf": nil, "slides": nil, "pages": nil,
 		"google-workspace": {"integration:google"}, "lark": {"integration:lark"}, "aws": {"integration:aws"},
 		"superset": {"integration:superset"}, "android-device": {"device:android"},
-		"github": {"integration:github.com"},
+		"github": {"integration:github.com"}, "gitlab": {"integration:gitlab"},
 	}, requires)
 
 	for _, sk := range skills {

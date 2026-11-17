@@ -369,9 +369,15 @@ sequenceDiagram
     on it once; a git host's token reaches it with each Dispatch, and a Claude Code worker on it runs through the
     model gateway.
 - A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
-  the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
-  node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
-  one to two days (`update_every_minutes` in its configuration sets another), and when the release is newer it
+  the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default), and
+  its own version (issue #783, [research](docs/research/2026-11-17-node-update-interval.md), after Tailscale's
+  `ClientVersion` and Coder's version header). A node of a released version that systemd runs looks there 30 s
+  after it starts, then at a random interval of one to two days (`update_every_minutes` in its configuration sets
+  another), and at once after a hello whose control plane runs a newer release than the node: the control plane
+  restarts when it updates itself, so its nodes say hello again and take the release within minutes. While the
+  control plane stays newer, the node looks again every 10 minutes; a hello naming the release it already looked
+  for, as at each reconnect of a failing link, waits for that, and only a newer one looks at once. When the
+  release is newer it
   downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
   script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
   It does not end while a terminal is open, nor while a start of its phone is asked or under way, which it looks at
@@ -867,7 +873,13 @@ sequenceDiagram
     five unknown tokens within an hour is locked as a wrong password locks it (`session.go`'s limiter, its own
     instance; LibreChat limits its share route per address), for the link and its files alike, 429 with
     Retry-After. CLI: `artifact share <id> --label L` prints the link, `artifact shares <id>` lists them with their
-    views, `artifact unshare <share_id>`.
+    views, `artifact unshare <share_id>`. Every link in one place (issue #765): `GET /artifact-shares` (owner
+    only) lists them newest first with the artifact's newest title and type, its Bot's id and name and its chat,
+    as open-webui's `GET /chats/shared` and LibreChat's `GET /share` list theirs; the web's Settings › Connections ›
+    Shared links (`web/src/features/artifacts/shared-links-screen.tsx`) shows them in the Gateway keys page's table
+    (search by artifact or label, columns that sort, newest first), each with Copy (open-webui) and a menu: Open the
+    link (Grafana, Metabase), Open the artifact, Open its chat (LibreChat), Revoke link…, asked first (LibreChat,
+    Grafana, Metabase). Links are made only from an artifact's Share menu.
   - Not built: JSX pages, pinning to a board, the page calling back into the chat, the dashboard skill (row 13); a
     pptx or an old .doc is a download. For a view-only link: a separate origin for shared pages (OpenMausBot's
     `*.mausbot.page`; the opaque-origin sandbox keeps the page from the app's session), a password, expiry or
@@ -2107,8 +2119,63 @@ flowchart LR
       catalog is regenerated.
     - **Its skill** is the store skill `github` (`clientcli/skills/github`, requiring `integration:github.com`; a
       skill's integration requirement may be a host's name), from Onyx's and OpenClaw's github skills (MIT).
-    - Not built: GitHub Enterprise Server and GitLab hosts (the proxy picks a catalog by the Integration's name);
-      the web page's "Use in chats" switch for a git host's Connection.
+    - Not built: GitHub Enterprise Server (a host of kind github other than github.com has no catalog); the web
+      page's "Use in chats" switch for a git host's Connection.
+  - **A Bot reads a GitLab host through the service proxy** ([issue #740](https://github.com/kl3inIT/hypomnema/issues/740),
+    step 2 of [#713](https://github.com/kl3inIT/hypomnema/issues/713); what
+    [#705](https://github.com/kl3inIT/hypomnema/issues/705) asked). A GitLab host is gitlab.com or a server the owner
+    declared with `hosts add <host> --kind gitlab`; each is an Integration of its own, named by its host, whose
+    Connections are the host's (`integrations connect <host>`, `integrations chats <host>:default on`,
+    `bots set <bot> --connections …,<host>:default`). `serviceproxy.CatalogIn` gives a host whose kind is gitlab
+    (`orchestration`'s `KindOfHost`) GitLab's catalog, which reaches that host only; the tunnel, the agent API's
+    refusal to hand a proxied token to an agent and the client API's `…/actions` use it. The token is opened as
+    github.com's is (`connections.Of`) and sent as `Authorization: Bearer`; what a tool sends as a credential
+    (`Authorization`, glab's `Private-Token`, `Job-Token`) is never passed on.
+    - **Its tool is `glab` 1.130.0** (`agenttool.GitLabCLI`, `gitlab.com/gitlab-org/cli`, pinned by the release's
+      `checksums.txt`), `BotsOnly` as gh is. It is for every GitLab host (`HostKind`): its launcher asks the agent API
+      for the accounts of `gitlab`, which lists those the agent may use on every host of that kind, each with its
+      host, and runs glab for the one named (`--account <host>:<label>`, or a label only one host has, or the only
+      one) with `GITLAB_HOST` set to that host, a placeholder `GITLAB_TOKEN`, update checks, telemetry and prompts
+      off, and `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `CI_JOB_TOKEN`, `GLAB_PROXY` (which glab prefers to the
+      bridge's `HTTPS_PROXY`) and the other names of a host taken away; its
+      stream is opened for that host's Connection. `hypomnema tool run gitlab --account <host>:<label> -- curl …`
+      runs another command the same way. A Bot given a Connection of a GitLab host has the requirement
+      `integration:gitlab` (as well as its host's), so it gets the store skill `gitlab` (`clientcli/skills/gitlab`).
+      Large clones stay a worker's job over SSH.
+    - **Its catalog** (`serviceproxy/gitlab.go`) is generated from the route table of client-go
+      (`gitlab.com/gitlab-org/api/client-go`, Apache-2.0; notice in `third_party/gitlab/NOTICE`), the client glab
+      is built on, at the version glab requires (v3.46.1 for glab 1.130.0, not the newer one the design read on
+      trunk): `gitlab_operations.json` holds each method and route the client calls (1132: the routes it registers
+      with `route("…")`, named by `withPath` beside `withMethod`, GET when none, options gathered in a slice, and the
+      few requests it builds with `NewRequest`, from a path a helper returns too, with the method set after, as the
+      generic package's upload). GitLab's own OpenAPI is not used: it lacks notes, discussions,
+      labels and `/user`. A request is listed when its method and its path under `/api/v4/`, each segment decoded,
+      match a route; anything else asks as `gitlab.unlisted`. Its action is a service, then read, write or delete,
+      the service read off the request's own path (the resource after `projects/:id`, `groups/:id` or `users/:id`,
+      else the first segment): Repositories, Issues, Merge requests, CI/CD, Releases and packages, Search, Security,
+      Groups and members, Account, Administration and Everything else, each `gitlab.<service>.read|write|delete`; a
+      GET or a HEAD reads, a DELETE deletes, anything else writes. **Merge and auto-merge are actions of their own**
+      and ask: `gitlab.merge_requests.merge` is `PUT …/merge_requests/:iid/merge` or `POST
+      …/merge_trains/merge_requests/:iid` (adding to a merge train merges); `gitlab.merge_requests.automerge` is either
+      with its auto-merge flags (`auto_merge`, `merge_when_pipeline_succeeds`, a train's `when_pipeline_succeeds`)
+      only in a JSON body and each plainly true, and `POST …/cancel_auto_merge` or
+      `…/cancel_merge_when_pipeline_succeeds`. GitLab 17.10 reads only `merge_when_pipeline_succeeds` and merges at
+      once without it, 17.11 and later OR both, so such an auto-merge is sent on with every flag of its pair set to
+      true (`Catalog.Rewrite`), which every version reads as auto-merge. A merge whose flags are anywhere else or not
+      plainly false (in the query, in a form, a true beside a false, a value such as 1) may do either: it is named
+      auto-merge with merge beside it, so that the strictest of both answers governs, and is sent as it came; one
+      whose body cannot be read asks as `gitlab.unlisted` (fail closed). A note on a merge request is a write of merge requests. A GraphQL query on `/api/graphql`
+      is `gitlab.graphql.read`; a mutation asks as unlisted, and so does a body GitLab could read otherwise than the
+      proxy: not JSON, a parameter in the URL, a key other than `query`, `operationName` and `variables` (such as a
+      multiplex in `_json`), or a key twice or by another case (`graphqlObject`, which GitHub's GraphQL reads with
+      too). A project's path is one segment with its slashes encoded (`group%2Fproject`), allowed on the host
+      (`SlashInSegment`).
+    - **Regenerating it**: `make catalogs-generate SERVICE=gitlab` fetches glab's `go.mod` and client-go's module
+      from the Go module proxy at what `catalog_sources.json` pins (URL, revision, SHA-256, version), fails when
+      glab requires another client-go than the one pinned, writes the file and prints the routes registered that no
+      call names and the operations added, removed or moved. `make verify` runs only the offline tests: every
+      operation is a named action (a GET or a HEAD a read, nothing else), every resource is in a service, and the
+      file's glab version is `agenttool.GitLabCLI`'s.
   - WhatsApp is an Integration of kind `device` ([issue #615](https://github.com/kl3inIT/hypomnema/issues/615),
     step 1 of [#612](https://github.com/kl3inIT/hypomnema/issues/612); `internal/controlplane/integration/device.go`,
     `internal/controlplane/messaging`, `messaging/whatsapp`;

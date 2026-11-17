@@ -246,3 +246,71 @@ func TestUnknownTokensAreLimitedPerAddress(t *testing.T) {
 	_, later := w.shared(token, "198.51.100.7")
 	assert.Equal(t, http.StatusOK, later.status)
 }
+
+// Scenario: the owner looks for every link in one place (issue #765). Links to dashboards in two chats are listed
+// newest first, each with its artifact's newest title and type, its Bot and its chat; a revoked link leaves the
+// list; a Bot's token cannot list them.
+func TestEveryLinkIsListedWithWhatItShows(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, pi, chatID, a := sharedPage(t, w)
+
+	other, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	otherChat := other.ID
+	shownB := w.show(w.piToken("pi-coordinator", other.ID, other.Bot), "Staff", "",
+		artifactpack.File{Path: "index.html", Data: []byte("staff")})
+	require.Equal(t, http.StatusCreated, shownB.StatusCode(), string(shownB.Body))
+	b := shownB.JSON201
+
+	laura, err := owner.CreateArtifactShareWithResponse(ctx, a.Id, openapi.NewArtifactShare{Label: "Laura"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, laura.StatusCode(), string(laura.Body))
+
+	huy, err := owner.CreateArtifactShareWithResponse(ctx, b.Id, openapi.NewArtifactShare{Label: "Huy"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, huy.StatusCode(), string(huy.Body))
+
+	revised := w.show(pi, "Sales, November", a.Id, artifactpack.File{Path: "index.html", Data: []byte("v2")})
+	require.Equal(t, http.StatusCreated, revised.StatusCode(), string(revised.Body))
+
+	listed, err := owner.ListSharesWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
+
+	links := listed.JSON200.Data
+	require.Len(t, links, 2)
+	assert.False(t, links[0].CreatedAt.Before(links[1].CreatedAt), "newest first")
+
+	byLabel := map[string]openapi.SharedLink{}
+	for _, l := range links {
+		byLabel[l.Label] = l
+	}
+
+	got := byLabel["Laura"]
+	assert.Equal(t, laura.JSON201.Id, got.Id)
+	assert.Equal(t, a.Id, got.ArtifactId)
+	assert.Equal(t, "Sales, November", got.Title, "the newest revision's title")
+	assert.Equal(t, openapi.ArtifactHTML, got.Type)
+	assert.Equal(t, chatID, got.ChatId)
+	assert.Equal(t, a.Bot, got.Bot)
+	assert.NotEmpty(t, got.BotName, "the Bot's name to read")
+	assert.Equal(t, "/s/"+laura.JSON201.Token, got.Path)
+	assert.Equal(t, otherChat, byLabel["Huy"].ChatId)
+
+	byBot, err := pi.ListSharesWithResponse(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, byBot.StatusCode())
+
+	revoked, err := owner.DeleteArtifactShareWithResponse(ctx, huy.JSON201.Id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, revoked.StatusCode())
+
+	after, err := owner.ListSharesWithResponse(ctx)
+	require.NoError(t, err)
+	require.Len(t, after.JSON200.Data, 1)
+	assert.Equal(t, "Laura", after.JSON200.Data[0].Label)
+}

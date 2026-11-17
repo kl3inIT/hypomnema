@@ -59,6 +59,12 @@ type Def struct {
 	// Dispatch's own token (gh, issue #685), so a node is never told to have it and a worker is not given its
 	// script, which would stand before the worker's own gh.
 	BotsOnly bool
+	// HostKind is the kind of git host the tool is for (githost's gitlab, issue #740), when it is for every host of
+	// that kind rather than for one Integration: each host is an Integration of its own, named by the host, and
+	// Integration names the kind. An account is a host's Connection, host:label; HostEnv is the variable the tool
+	// reads the host it acts on from.
+	HostKind string
+	HostEnv  string
 }
 
 // Release is one system's release file of a tool.
@@ -84,7 +90,9 @@ func (d Def) For(os, arch string) (nodeproto.Tool, bool) {
 }
 
 // Catalog is every tool, one an Integration.
-func Catalog() []Def { return []Def{GoogleWorkspaceCLI(), LarkCLI(), AWSCLI(), GitHubCLI()} }
+func Catalog() []Def {
+	return []Def{GoogleWorkspaceCLI(), LarkCLI(), AWSCLI(), GitHubCLI(), GitLabCLI()}
+}
 
 // Of returns the tool of an Integration.
 func Of(integration string) (Def, bool) {
@@ -308,6 +316,48 @@ func GitHubCLI() Def {
 				URL:    release + "arm64.tar.gz",
 				SHA256: "ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63",
 				Binary: "gh_" + version + "_linux_arm64/bin/gh",
+			},
+		},
+	}
+}
+
+// GitLabCLI is GitLab's own command-line tool (gitlab.com/gitlab-org/cli, MIT), for a Bot given a Connection of a
+// GitLab host, gitlab.com or a company's server (issue #740), as t3code drives glab for GitLab. It reads a ready
+// token from GITLAB_TOKEN before any login it keeps, and the host it acts on from GITLAB_HOST, which is set to the
+// account's host: glab sends an environment's token only to that host (internal/config/schema.go, "token"). Its
+// proxy is HTTPS_PROXY and, being Go, it trusts what SSL_CERT_FILE names. Update checks, prompts and its telemetry,
+// which would reach the host as usage_data/track_event (cmd/glab/telemetry.go), are off. GITLAB_ACCESS_TOKEN,
+// OAUTH_TOKEN, a CI job's token and the other names of the host are taken away, so that the placeholder is the only
+// credential it has and the account's host the only one; so is GLAB_PROXY, which glab prefers to HTTPS_PROXY
+// (internal/config/schema.go, internal/api/transport_cache.go) and which would take it past the bridge. The checksums are those of the release's checksums.txt
+// (.goreleaser.yml, checksum), read on 2026-11-17 and matched against the files. A worker keeps its own glab with
+// its Dispatch's GITLAB_TOKEN (#44).
+func GitLabCLI() Def {
+	const (
+		version = "1.130.0"
+		release = "https://gitlab.com/gitlab-org/cli/-/releases/v" + version + "/downloads/glab_" + version + "_linux_"
+	)
+
+	return Def{
+		Integration: "gitlab", Name: "glab", Version: version,
+		HostKind: "gitlab", HostEnv: "GITLAB_HOST",
+		TokenEnv: "GITLAB_TOKEN",
+		Env:      []string{"GLAB_CHECK_UPDATE=false", "GLAB_SEND_TELEMETRY=false", "GLAB_NO_PROMPT=true"},
+		Unset: []string{
+			"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_HOST", "GITLAB_URI",
+			"GL_HOST", "GITLAB_REPO", "GLAB_PROXY",
+		},
+		BotsOnly: true,
+		Releases: map[string]Release{
+			"linux/amd64": {
+				URL:    release + "amd64.tar.gz",
+				SHA256: "ce06313b2075af25180cd195ab3496d42bc5857c85a1c12ba996838dfe9d822c",
+				Binary: "bin/glab",
+			},
+			"linux/arm64": {
+				URL:    release + "arm64.tar.gz",
+				SHA256: "062d53acb0f2cbcc79a014600df1aa0fb440bb3a08a5d4900d3b49b553b22767",
+				Binary: "bin/glab",
 			},
 		},
 	}

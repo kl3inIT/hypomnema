@@ -37,6 +37,7 @@ import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsMuseRouteImport } from './routes/settings.muse'
 import { Route as SettingsNotesModelRouteImport } from './routes/settings.notes-model'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
+import { Route as SettingsSharedLinksRouteImport } from './routes/settings.shared-links'
 import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
 import { Route as SettingsWebSearchRouteImport } from './routes/settings.web-search'
@@ -184,6 +185,11 @@ const SettingsRepositoriesRoute = SettingsRepositoriesRouteImport.update({
   path: '/settings/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsSharedLinksRoute = SettingsSharedLinksRouteImport.update({
+  id: '/settings/shared-links',
+  path: '/settings/shared-links',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsUsageRoute = SettingsUsageRouteImport.update({
   id: '/settings/usage',
   path: '/settings/usage',
@@ -241,6 +247,7 @@ export interface FileRoutesByFullPath {
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
@@ -277,6 +284,7 @@ export interface FileRoutesByTo {
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
@@ -314,6 +322,7 @@ export interface FileRoutesById {
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/settings/web-search': typeof SettingsWebSearchRoute
@@ -352,6 +361,7 @@ export interface FileRouteTypes {
     | '/settings/muse'
     | '/settings/notes-model'
     | '/settings/repositories'
+    | '/settings/shared-links'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
@@ -388,6 +398,7 @@ export interface FileRouteTypes {
     | '/settings/muse'
     | '/settings/notes-model'
     | '/settings/repositories'
+    | '/settings/shared-links'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
@@ -424,6 +435,7 @@ export interface FileRouteTypes {
     | '/settings/muse'
     | '/settings/notes-model'
     | '/settings/repositories'
+    | '/settings/shared-links'
     | '/settings/usage'
     | '/settings/vault'
     | '/settings/web-search'
@@ -461,6 +473,7 @@ export interface RootRouteChildren {
   SettingsMuseRoute: typeof SettingsMuseRoute
   SettingsNotesModelRoute: typeof SettingsNotesModelRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
+  SettingsSharedLinksRoute: typeof SettingsSharedLinksRoute
   SettingsUsageRoute: typeof SettingsUsageRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
   SettingsWebSearchRoute: typeof SettingsWebSearchRoute
@@ -670,6 +683,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/shared-links': {
+      id: '/settings/shared-links'
+      path: '/settings/shared-links'
+      fullPath: '/settings/shared-links'
+      preLoaderRoute: typeof SettingsSharedLinksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/usage': {
       id: '/settings/usage'
       path: '/settings/usage'
@@ -741,6 +761,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsMuseRoute: SettingsMuseRoute,
   SettingsNotesModelRoute: SettingsNotesModelRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
+  SettingsSharedLinksRoute: SettingsSharedLinksRoute,
   SettingsUsageRoute: SettingsUsageRoute,
   SettingsVaultRoute: SettingsVaultRoute,
   SettingsWebSearchRoute: SettingsWebSearchRoute,

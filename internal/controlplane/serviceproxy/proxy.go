@@ -90,6 +90,8 @@ type Store interface {
 	ActionPolicies(ctx context.Context, integration, label string) (map[string]string, error)
 	// ConnectionOf gives a Connection with what its account can do (issue #567).
 	ConnectionOf(ctx context.Context, integration, label string) (orchestration.Connection, error)
+	// HostKinds says the kind of a git host, whose catalog is its kind's (GitLab's, issue #740).
+	HostKinds
 }
 
 // Recheck reads again what a Connection's account can do and keeps it (issue #567): the control plane's own
@@ -219,7 +221,7 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 
 	s.host = host
 
-	catalog, ok := CatalogOf(s.integration)
+	catalog, ok := CatalogIn(r.Context(), p.cfg.Store, s.integration)
 	if !ok || !catalog.Has(host) {
 		// Deny by default: only the hosts of an Integration's actions are reached.
 		refuse(w, http.StatusForbidden, fmt.Sprintf("%s is not a host of the %s integration", host, s.integration))
@@ -762,6 +764,10 @@ func (p *Proxy) Decide(ctx context.Context, id string, approve bool, scope orche
 // service's answer back.
 func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, body []byte, action Action, s session,
 ) error {
+	if s.catalog.Rewrite != nil {
+		body = s.catalog.Rewrite(req, body, action)
+	}
+
 	// The address is built from its parts: the host is the tunnel's, one of the Integration's own, whatever
 	// the request named; only the path and the query are the tool's, and malformed has checked them.
 	target := url.URL{
@@ -775,9 +781,11 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 
 	upstream.Header = req.Header.Clone()
 	upstream.Host = s.host
-	// What the tool sent as a credential is never passed on: it holds a placeholder.
-	upstream.Header.Del("Authorization")
-	upstream.Header.Del("Proxy-Authorization")
+	// What the tool sent as a credential is never passed on: it holds a placeholder. glab sends its token as
+	// Private-Token, and a CI job's as Job-Token (client-go gitlab.go AccessTokenHeaderName, JobTokenHeaderName).
+	for _, name := range credentialHeaders {
+		upstream.Header.Del(name)
+	}
 
 	for _, name := range overrideHeaders {
 		upstream.Header.Del(name)
@@ -835,6 +843,9 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 
 	return resp.Write(out)
 }
+
+// credentialHeaders are the headers a tool sends a credential in: the proxy adds the Connection's own.
+var credentialHeaders = []string{"Authorization", "Proxy-Authorization", "Private-Token", "Job-Token"}
 
 // overrides are the headers and parameters by which a service is asked to
 // treat a request as another method than the one it was sent with. Google's

@@ -183,6 +183,9 @@ type Connection struct {
 	// Cannot are the actions the account cannot do at the service, as last read (issue #567): a request for one
 	// is refused before it is sent.
 	Cannot []Cannot `json:"cannot,omitempty"`
+	// Host is the git host the account is on, for a tool of a kind of host (Def.HostKind, issue #740): the
+	// Integration the account is of.
+	Host string `json:"host,omitempty"`
 }
 
 // Cannot is one action an account cannot do, and why.
@@ -385,20 +388,32 @@ func (l Launcher) launch(ctx context.Context, def Def, label string, cmd *exec.C
 		return err
 	}
 
-	label, err = pick(def, list, label)
-	if err != nil {
+	integration := def.Integration
+
+	if def.HostKind != "" {
+		// A tool for every host of a kind acts on the host of the account it acts as: that host is the Integration.
+		if integration, label, err = pickOnHost(def, list, label); err != nil {
+			return err
+		}
+
+		list = list.on(integration)
+	} else if label, err = pick(def, list, label); err != nil {
 		return err
 	}
 
-	if line := list.cannotLine(def.Integration, label); line != "" && l.Stderr != nil {
+	if line := list.cannotLine(integration, label); line != "" && l.Stderr != nil {
 		_, _ = fmt.Fprintln(l.Stderr, line)
 	}
 
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = l.Stdin, l.Stdout, l.Stderr
 	cmd.Env = append(without(os.Environ(), append([]string{EnvKey}, def.Unset...)...), def.Env...)
 
+	if def.HostEnv != "" {
+		cmd.Env = append(cmd.Env, def.HostEnv+"="+integration)
+	}
+
 	// The tool holds no token: its requests go through the control plane's proxy, which adds it.
-	env, refused, stop, err := l.bridge(fetchCtx, def, label, list.isUser(label))
+	env, refused, stop, err := l.bridge(fetchCtx, def, integration, label, list.isUser(label))
 	if err != nil {
 		return err
 	}
@@ -496,6 +511,51 @@ func pick(def Def, list ConnectionList, named string) (string, error) {
 		return "", fmt.Errorf("this agent may use several %s accounts: %s. Name one with %s <label>", def.Integration,
 			strings.Join(labels, ", "), accountFlag)
 	}
+}
+
+// pickOnHost is the account a run of a tool for a kind of host acts as, and its host: the one named, host:label or
+// a label only one host has, or the only one the agent was given. With none, or several and none named, there is
+// no answer: nothing is guessed.
+func pickOnHost(def Def, list ConnectionList, named string) (host, label string, err error) {
+	var found []Connection
+
+	for _, c := range list.Data {
+		if named == "" || named == c.Label || named == c.Host+":"+c.Label {
+			found = append(found, c)
+		}
+	}
+
+	switch {
+	case len(found) == 1:
+		return found[0].Host, found[0].Label, nil
+	case named != "" && len(found) == 0:
+		return "", "", fmt.Errorf("this agent was not given %s on a %s host", named, def.HostKind)
+	case len(found) == 0:
+		return "", "", fmt.Errorf("this agent was given no account of a %s host. The owner connects one with "+
+			"`hypomnema integrations connect <host>` and allows it for chats (`integrations chats <host>:<label> on`)",
+			def.HostKind)
+	}
+
+	accounts := make([]string, 0, len(found))
+	for _, c := range found {
+		accounts = append(accounts, c.Host+":"+c.Label)
+	}
+
+	return "", "", fmt.Errorf("this agent may use several %s accounts: %s. Name one with %s <host>:<label>",
+		def.HostKind, strings.Join(accounts, ", "), accountFlag)
+}
+
+// on is the list's accounts on one host.
+func (l ConnectionList) on(host string) ConnectionList {
+	out := ConnectionList{}
+
+	for _, c := range l.Data {
+		if c.Host == host {
+			out.Data = append(out.Data, c)
+		}
+	}
+
+	return out
 }
 
 // call sends one request to the agent API. Its errors hold the server's own

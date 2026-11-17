@@ -17,6 +17,8 @@ import (
 
 // The node updates itself as Nezha's agent does (cmd/agent/main.go, doSelfUpdate and its loop in run): only a
 // released version, at start and then at a random interval of one to two days, to a version newer than its own,
+// and at once when its control plane says at a hello that it runs a newer release, as Tailscale's control says
+// ClientVersion and Coder's server its build version (issue #783, docs/research/2026-11-17-node-update-interval.md),
 // and after replacing its binary it ends with a failure so that its service manager starts the new one. The
 // agent's own configuration turns it off (Nezha: disable_auto_update) or sets the interval (self_update_period).
 //
@@ -103,65 +105,102 @@ func (u Updater) Update(ctx context.Context, releaseURL string) (string, error) 
 	return m.Version, nil
 }
 
-// UpdateLoop checks for a newer release at start and then at each interval,
-// and returns ErrUpdated once the binary was replaced. releaseURL gives the
-// release the control plane named, "" until it has; busy says the node must
-// not end now. every is the interval; zero is Nezha's random one to two days.
+// ControlPlane is what the control plane said at its last hello: where the node's releases are, its own version,
+// and a signal after each hello. The node's daemon is one.
+type ControlPlane interface {
+	// ReleaseURL is "" until the first hello.
+	ReleaseURL() string
+	// ControlPlaneVersion is "" until the first hello.
+	ControlPlaneVersion() string
+	// Hellos receives after each hello.
+	Hellos() <-chan struct{}
+}
+
+// UpdateLoop checks for a newer release at start, at each interval, and at once after a hello whose control plane
+// is newer than this binary (issue #783), and returns ErrUpdated once the binary was replaced. busy says the node
+// must not end now. every is the interval; zero is Nezha's random one to two days.
 func (u Updater) UpdateLoop(
-	ctx context.Context, releaseURL func() string, busy func() bool, every time.Duration, logger *slog.Logger,
+	ctx context.Context, cp ControlPlane, busy func() bool, every time.Duration, logger *slog.Logger,
 ) error {
-	// The first check waits for the node's first hello, which names the release.
-	return u.updateLoop(ctx, releaseURL, busy, 30*time.Second, every, logger)
+	// The first check waits for the node's first hello, which names the release. soon is the wait when there is
+	// nothing to check against yet, the node is busy, or the control plane runs a newer release than the node
+	// found; recheck the wait, after the binary was replaced, for what keeps the node busy.
+	w := loopWaits{first: 30 * time.Second, every: every, soon: 10 * time.Minute, recheck: 5 * time.Second}
+	if every > 0 {
+		w.soon = min(w.soon, every)
+		w.recheck = min(w.recheck, every)
+	}
+
+	return u.updateLoop(ctx, cp, busy, w, logger)
+}
+
+// loopWaits are the update loop's waits; every zero is a random one to two days.
+type loopWaits struct {
+	first, every, soon, recheck time.Duration
+}
+
+// behind says whether the control plane said a version newer than this binary's: the release it runs is one the
+// node has not taken yet.
+func (u Updater) behind(cp ControlPlane) bool {
+	return releases.Newer(cp.ControlPlaneVersion(), u.Version)
+}
+
+// newerThanLookedFor says whether the release said is newer than the one the last check was made under; any is
+// newer before the first check.
+func newerThanLookedFor(said, lookedFor string) bool {
+	return lookedFor == "" || releases.Newer(said, lookedFor)
+}
+
+// nextUpdateCheck is the wait to the next check: every, or a random one to two days when it is zero.
+func nextUpdateCheck(every time.Duration) time.Duration {
+	if every > 0 {
+		return every
+	}
+
+	return updateEveryMin + rand.N(updateEveryMax-updateEveryMin) //nolint:gosec // G404: spreading checks, not a secret
 }
 
 func (u Updater) updateLoop(
-	ctx context.Context, releaseURL func() string, busy func() bool, first, every time.Duration, logger *slog.Logger,
+	ctx context.Context, cp ControlPlane, busy func() bool, w loopWaits, logger *slog.Logger,
 ) error {
-	// soon is the wait when there is nothing to check against yet or the node is busy.
-	soon := 10 * time.Minute
-	if every > 0 && every < soon {
-		soon = every
-	}
+	timer := time.NewTimer(w.first)
+	defer timer.Stop()
 
-	// recheck is the wait, after the binary was replaced, for what keeps the node busy.
-	recheck := 5 * time.Second
-	if every > 0 && every < recheck {
-		recheck = every
-	}
-
-	wait := first
+	// lookedFor is the control plane's release the last check was made under, "" before one. A node reconnects
+	// within 30 s while its link fails, and each reconnect is a hello: a hello naming the same release leaves the
+	// wait to the timer, so the release is read at most once per wait however often the node reconnects.
+	lookedFor := ""
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(wait):
+		case <-timer.C:
+		case <-cp.Hellos():
+			// A hello whose control plane is not newer than the node, or not newer than the release the node last
+			// looked for, leaves the timer as it was.
+			if !u.behind(cp) || !newerThanLookedFor(cp.ControlPlaneVersion(), lookedFor) {
+				continue
+			}
+
+			logger.InfoContext(ctx, "the control plane runs a newer release; the node looks for it",
+				slog.String("event", "node.update_told"), slog.String("version", u.Version),
+				slog.String("control_plane_version", cp.ControlPlaneVersion()))
 		}
 
-		wait = every
-		if wait <= 0 {
-			wait = updateEveryMin + rand.N(updateEveryMax-updateEveryMin) //nolint:gosec // G404: spreading checks, not a secret
+		if said := cp.ControlPlaneVersion(); releases.IsRelease(said) {
+			lookedFor = said
 		}
 
-		url := releaseURL()
-		if url == "" || busy() {
-			wait = soon
-
-			continue
-		}
-
-		version, err := u.Update(ctx, url)
+		version, err := u.check(ctx, cp, busy, logger)
 		if err != nil {
-			logger.WarnContext(ctx, "the node did not update itself",
-				slog.String("event", "node.update_failed"), slog.String("error", err.Error()))
-
-			continue
+			return err
 		}
 
 		if version != "" {
 			// What became busy during the download is waited for too: the new binary is in place, and the node
 			// ends once it is free (issue #545).
-			if err := waitFree(ctx, busy, recheck); err != nil {
+			if err := waitFree(ctx, busy, w.recheck); err != nil {
 				return err
 			}
 
@@ -170,7 +209,37 @@ func (u Updater) updateLoop(
 
 			return ErrUpdated
 		}
+
+		wait := nextUpdateCheck(w.every)
+		if cp.ReleaseURL() == "" || busy() || u.behind(cp) {
+			wait = w.soon
+		}
+
+		timer.Reset(wait)
 	}
+}
+
+// check looks for a newer release once, unless there is nowhere to look yet or the node is busy, and returns the
+// version it put in place, "" when none. A failed check is logged and is not an error.
+func (u Updater) check(ctx context.Context, cp ControlPlane, busy func() bool, logger *slog.Logger) (string, error) {
+	url := cp.ReleaseURL()
+	if url == "" || busy() {
+		return "", nil
+	}
+
+	version, err := u.Update(ctx, url)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
+		logger.WarnContext(ctx, "the node did not update itself",
+			slog.String("event", "node.update_failed"), slog.String("error", err.Error()))
+
+		return "", nil
+	}
+
+	return version, nil
 }
 
 // waitFree returns once busy says the node may end, looking every interval.

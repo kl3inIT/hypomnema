@@ -15,6 +15,7 @@ import {
   Telescope,
   KeyRound,
   KeySquare,
+  Link2,
   MessagesSquare,
   Plug,
   Sparkles,
@@ -46,6 +47,7 @@ type Section = {
     | "/settings/repositories"
     | "/settings/integrations"
     | "/settings/channels"
+    | "/settings/shared-links"
     | "/settings/vault"
     | "/settings/skills"
     | "/settings/about-you"
@@ -58,7 +60,8 @@ type Section = {
 // Gateway" and Coder's "AI Gateway keys": called "Models" until the owner renamed it, so that no item reads like its
 // group (issue #293, 2026-11-13), and its web search (issue #354), images (issue #431) and audio (issue #694), as
 // OmniRoute and 9router keep their search and media providers beside their models; not "Agents", which the app's sidebar already has (2026-11-12). "Connections" holds
-// what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets. The group "Agents" holds what is given to the agents' CLIs:
+// what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets, and the
+// view-only links to artifacts (issue #765), as LibreChat, Open WebUI and Metabase keep theirs in settings. The group "Agents" holds what is given to the agents' CLIs:
 // their skills (issue #21; prototype the owner accepted, 2026-11-12), and the memory about the owner every agent
 // gets, as OpenClaw keeps Memory beside Skills in its group of agents; and the repositories agents work in, as
 // t3code's Settings lists its Projects (apps/web/src/components/settings/settingsSearch.ts) and Orca's its
@@ -97,6 +100,7 @@ const groups: { heading: string; sections: Section[] }[] = [
     sections: [
       { to: "/settings/integrations", label: "Integrations", icon: Plug },
       { to: "/settings/channels", label: "Channels", icon: MessagesSquare },
+      { to: "/settings/shared-links", label: "Shared links", icon: Link2 },
       { to: "/settings/vault", label: "Vault", icon: KeyRound },
     ],
   },

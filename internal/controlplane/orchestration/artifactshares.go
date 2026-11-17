@@ -112,6 +112,41 @@ func (s *Service) ListArtifactShares(ctx context.Context, artifactID string) ([]
 	return out, nil
 }
 
+// SharedLink is a link with what it shows: its artifact's newest title and type, its Bot and its chat.
+type SharedLink struct {
+	ArtifactShare
+
+	Title string
+	Type  artifactpack.Type
+	Bot   string
+	// BotName is the Bot's name as the owner reads it; empty when the Bot is gone.
+	BotName string
+	ChatID  string
+}
+
+// ListSharedLinks returns every link, newest first (issue #765): the owner's one place to see what is shared and
+// with whom, as Open WebUI's and LibreChat's shared-links lists and Grafana's public dashboards list are.
+func (s *Service) ListSharedLinks(ctx context.Context) ([]SharedLink, error) {
+	rows, err := s.read().ListAllArtifactShares(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the links: %w", err)
+	}
+
+	out := make([]SharedLink, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SharedLink{
+			ArtifactShare: ArtifactShare{
+				ID: r.ID, ArtifactID: r.ArtifactID, Token: r.Token, Label: r.Label, CreatedAt: millis(r.CreatedAt),
+				Views: r.Views, LastViewedAt: optionalTime(r.LastViewedAt),
+			},
+			Title: r.Title, Type: artifactpack.Type(r.Type), Bot: r.BotID, BotName: r.BotName,
+			ChatID: r.ChatID,
+		})
+	}
+
+	return out, nil
+}
+
 // DeleteArtifactShare revokes a link: the next request by its token finds nothing.
 func (s *Service) DeleteArtifactShare(ctx context.Context, id string) error {
 	return s.write(ctx, func(q *store.Queries, _ int64) error {

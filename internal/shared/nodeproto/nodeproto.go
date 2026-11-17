@@ -505,6 +505,10 @@ type HelloResponse struct {
 	// ReleaseURL is where the node's releases are: the manifests and binaries
 	// the install script downloads. A node that updates itself looks there.
 	ReleaseURL string `json:"release_url,omitempty"`
+	// ControlPlaneVersion is the control plane's own version. It updates itself
+	// to each release within minutes, so a node older than it looks for its
+	// release at once (issue #783, after Tailscale's ClientVersion).
+	ControlPlaneVersion string `json:"control_plane_version,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.
