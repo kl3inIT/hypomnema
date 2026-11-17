@@ -1737,6 +1737,30 @@ flowchart LR
       logged with the agent, the Connection, the action and the verdict. A request is the action whose route
       names the most of its path. No launcher asks for a token any more; `POST /agent/v1/token` answers only an
       owner's token.
+    - **Google's catalog is generated from Discovery** ([issue #741](https://github.com/kl3inIT/hypomnema/issues/741),
+      step 3 of [#713](https://github.com/kl3inIT/hypomnema/issues/713); `serviceproxy/google.go`).
+      `google_methods.json` keeps, of the Discovery documents of the 17 APIs gws 0.22.5 names (`services.rs`: Gmail,
+      Calendar, Drive, Docs, Sheets, Slides, Tasks, People, Chat, Classroom, Forms, Keep, Meet, Admin reports,
+      Workspace events, Model Armor, Apps Script) and of Search Console, each method's API, id, HTTP method, host,
+      `flatPath` and media upload paths: 501 methods. A request is the method whose path, read decoded segment by
+      segment (`{name}` one segment, `{name}:verb` a custom verb), names the most of it; two that name as much
+      would both go with it (`Action.With`). Each API is a service with a read, a write and a delete (Sheets stays
+      with Docs as "Docs and Sheets", `docs.*`): a GET reads, a DELETE deletes, anything else writes, except the
+      POSTs that only read (`calendar.freebusy.query`, `webmasters.searchanalytics.query`,
+      `searchconsole.urlInspection.index.inspect`, `…mobileFriendlyTest.run`, `chat.spaces.messages.search`,
+      `drive.files.download`); scopes do not decide. The hand-written ids are kept by method id (`gmail.send`,
+      `.trash`, `.label`, `.draft`, `drive.share`, `.edit`, `.upload`, `searchconsole.sitemap`, `.site`), and their
+      GET routes stay for a method newer than the pinned document. Reads run; the rest asks; a path no method has
+      asks as `google.unlisted` (a batch request too). Discovery documents are plumbing on every API's host. Model
+      Armor's regional hosts (`modelarmor.<region>.rep.googleapis.com`, as gws reaches them) are reached as the
+      one its document names. The access check (`googleAccess`) knows only the five services the sign-in asks for;
+      the other services' actions are unknown.
+    - **Regenerating it**: `make catalogs-generate SERVICE=google` fetches gws's source at its tag and each
+      Discovery document where gws fetches it, checks the SHA-256 of the document's canonical JSON (Google serves
+      its keys in another order each time) and its revision, fails on an API gws names with no pinned document,
+      and prints what moved. `make verify` runs the offline tests: every method and upload path is one listed
+      action, a GET or a listed POST a read and nothing else, and the file's gws version is
+      `agenttool.GoogleWorkspaceCLI`'s.
     - **Lark goes through it too** (issue #175). Its catalog is lark-cli's own (`lark_methods.json`, from
       lark-cli 1.0.100, MIT): each method's path with the risk lark-cli gives it, from its service catalog and
       from its shortcut commands, where Base, Docs, Whiteboard and Search are (issue #236). A service (messages,

@@ -34,5 +34,160 @@
       "revision": "f5a1d82ee0ae2c59db6b358e6d3a430eabe726e5",
       "sha256": "6c07a3a2997211ee777be77416d92e68bbc5e3ea96be7aa13dfced23f9d2801a"
     }
+  },
+  "google": {
+    "cli": {
+      "name": "gws",
+      "version": "0.22.5",
+      "url": "https://github.com/googleworkspace/cli/archive/refs/tags/v0.22.5.tar.gz",
+      "revision": "705fb0ecac6f4249679958f6325b809b63fdde17",
+      "sha256": "1e55ec8c6ee87fac7d422975604a2d546c35f6d687a1cfaba7c7cc0d3c05663f"
+    },
+    "discovery": [
+      {
+        "api": "gmail",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
+        "revision": "20261109",
+        "fetched": "2026-11-18",
+        "sha256": "eb2787ac58640df8ef6ff3e0d67bf2edff1a0172378f3baeb68e0c0dd86e02bc"
+      },
+      {
+        "api": "calendar",
+        "version": "v3",
+        "url": "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
+        "revision": "20261113",
+        "fetched": "2026-11-18",
+        "sha256": "d53bb288c1c8e3179dfe1eb6571e2f6d033cb44e1fc828cf6962cc1823a7256d"
+      },
+      {
+        "api": "drive",
+        "version": "v3",
+        "url": "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+        "revision": "20261109",
+        "fetched": "2026-11-18",
+        "sha256": "1a9265ef29248e346932d95e5f3fa2c8f992b1a124e1aa55b1e3d8ba50a98da4"
+      },
+      {
+        "api": "docs",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/docs/v1/rest",
+        "revision": "20261111",
+        "fetched": "2026-11-18",
+        "sha256": "84927907f7a87ec181cca5e3bed121f85f4754460d0261541e23073f1d8c7851"
+      },
+      {
+        "api": "sheets",
+        "version": "v4",
+        "url": "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+        "revision": "20261111",
+        "fetched": "2026-11-18",
+        "sha256": "4e96c586967657ede19713a07da8ab35ff480c6184af104f3e4515155b211178"
+      },
+      {
+        "api": "searchconsole",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/searchconsole/v1/rest",
+        "revision": "20261116",
+        "fetched": "2026-11-18",
+        "sha256": "2d7982654fed548972d112d8b176c65110f117b4ecb8a50bd202012f03a4ceff"
+      },
+      {
+        "api": "slides",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/slides/v1/rest",
+        "revision": "20261111",
+        "fetched": "2026-11-18",
+        "sha256": "621d968dc8cf462901a0bf4d5f28e0785af28acf8fb235a42856af5728dc2958"
+      },
+      {
+        "api": "tasks",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest",
+        "revision": "20261114",
+        "fetched": "2026-11-18",
+        "sha256": "8328c9d44becd3e3a3fa4d829a4680079f7037079f6520621425f422367fbc17"
+      },
+      {
+        "api": "people",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/people/v1/rest",
+        "revision": "20261115",
+        "fetched": "2026-11-18",
+        "sha256": "2b9a67e3849358fda335fd7e2837d855ba7300cdd330fe09627ea6f22573c65a"
+      },
+      {
+        "api": "chat",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/chat/v1/rest",
+        "revision": "20261113",
+        "fetched": "2026-11-18",
+        "sha256": "d39a411614d0d40a467665f633ba04998187877e53b043b344772a2ca991f8cd"
+      },
+      {
+        "api": "classroom",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/classroom/v1/rest",
+        "revision": "20261115",
+        "fetched": "2026-11-18",
+        "sha256": "2cfd095cd35cbbc51b6f685534e336405f2381ef769acf542f8dba716947f3bd"
+      },
+      {
+        "api": "forms",
+        "version": "v1",
+        "url": "https://forms.googleapis.com/$discovery/rest?version=v1",
+        "revision": "20261111",
+        "fetched": "2026-11-18",
+        "sha256": "447180d94b0351b2d6154a51bb31404ca25e27dfe3da6a12daf7708be37ecb1f"
+      },
+      {
+        "api": "keep",
+        "version": "v1",
+        "url": "https://keep.googleapis.com/$discovery/rest?version=v1",
+        "revision": "20261111",
+        "fetched": "2026-11-18",
+        "sha256": "e0d97812c84ffca7407a05304e6124917aff3245d6b3797294aefaa2b94ac3f9"
+      },
+      {
+        "api": "meet",
+        "version": "v2",
+        "url": "https://meet.googleapis.com/$discovery/rest?version=v2",
+        "revision": "20261112",
+        "fetched": "2026-11-18",
+        "sha256": "85beae2c29fdf209cb02a7c93fd07e8141ab0b407e5376e84f564e8b8b28cc10"
+      },
+      {
+        "api": "admin",
+        "version": "reports_v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/admin/reports_v1/rest",
+        "revision": "20261111",
+        "fetched": "2026-11-18",
+        "sha256": "e1350cd669842cfcbac0a5424c136d9fed263bcec36e2929cef0d99aa9f094b5"
+      },
+      {
+        "api": "workspaceevents",
+        "version": "v1",
+        "url": "https://workspaceevents.googleapis.com/$discovery/rest?version=v1",
+        "revision": "20261110",
+        "fetched": "2026-11-18",
+        "sha256": "a6c083b44dc66d83910d3931734eb9e2d6fe7871c097a8a2a8ecf17e037c8599"
+      },
+      {
+        "api": "modelarmor",
+        "version": "v1",
+        "url": "https://modelarmor.googleapis.com/$discovery/rest?version=v1",
+        "revision": "20261111",
+        "fetched": "2026-11-18",
+        "sha256": "e217fd6e14303baf7596f888cc588cd5f28fc2881b82a5107c9701dc4f73b343"
+      },
+      {
+        "api": "script",
+        "version": "v1",
+        "url": "https://www.googleapis.com/discovery/v1/apis/script/v1/rest",
+        "revision": "20261106",
+        "fetched": "2026-11-18",
+        "sha256": "10510cc9c52ddf4d4a2c51f03fa7d173d9665648369343786d450a2b1ad623df"
+      }
+    ]
   }
 }
