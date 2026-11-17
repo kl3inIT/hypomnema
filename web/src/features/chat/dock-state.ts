@@ -1,5 +1,7 @@
 import type { ChatMessage, Question, RunDetail, TaskDetail } from "@/api/generated/types.gen"
 import { allEnded } from "@/features/runs/use-run-actions"
+import { stopping } from "@/features/work/work-state"
+import { elapsed } from "@/lib/time"
 
 // What the chat docks above its composer (issue #314): its open Runs, each a strip that opens to its Tasks, after
 // Orca's task list docked above the composer (MIT, Copyright (c) 2026 Lovecast Inc., https://github.com/stablyai/orca;
@@ -19,11 +21,13 @@ export type DockIcon =
   | "blocked"
   | "canceled"
   | "question"
+  | "stopping"
 
 export type DockState = { word: string; tone: DockTone; icon: DockIcon }
 
 // taskState says one Task's status in words: an open question to the owner first, as the Team page's Needs you does.
 export function taskState(task: TaskDetail, asking = false): DockState {
+  if (stopping(task)) return { word: "Stopping", tone: "quiet", icon: "stopping" }
   if (asking) return { word: "Waiting for you", tone: "needs-you", icon: "question" }
 
   switch (task.status) {
@@ -64,6 +68,55 @@ export function runState(run: RunDetail, asking: ReadonlySet<string>): DockState
   if (!allEnded(run.tasks)) return { word: "Queued", tone: "quiet", icon: "queued" }
 
   return { word: "Ready to finish", tone: "done", icon: "done" }
+}
+
+// canStop says whether a Task's row offers Stop: one running or queued whose stop was not asked for yet.
+export function canStop(task: TaskDetail): boolean {
+  return ["pending", "ready", "running"].includes(task.status) && !task.cancel_requested_at
+}
+
+// liveLine is what a Task's row says under its title while it runs or stops, with a clock that ticks on the page:
+// "Running 3m 12s · <the worker's newest activity>" or "Stopping · 4s", after t3code's running subagent row
+// (V2LifecycleRow.tsx, its progress line and elapsed time) and its "Stopping" with a timer
+// (ThreadActivityBanners.tsx). The activity is the Run's last read, up to 10 s old.
+export function liveLine(task: TaskDetail, now: number): string | undefined {
+  if (stopping(task)) return `Stopping · ${elapsed(task.cancel_requested_at ?? "", now)}`
+  if (task.status !== "running") return undefined
+
+  // A worker not started yet has nothing to add to the row's "Working".
+  const dispatch = task.latest_dispatch
+  const activity = oneLine(dispatch?.activity)
+  if (!dispatch?.started_at) return activity || undefined
+
+  const running = `Running ${elapsed(dispatch.started_at, now)}`
+
+  return activity ? `${running} · ${activity}` : running
+}
+
+// newestActivity is what the strip's head says of a Run at work: the newest activity of its running Tasks, with the
+// Task's number when more than one runs, as t3code's running-work line names the newest one's label
+// (ThreadActivityBanners.tsx, backgroundWorkNowItem).
+export function newestActivity(run: RunDetail): string | undefined {
+  const running = run.tasks.filter((t) => t.status === "running" && !stopping(t))
+  const newest = running
+    .filter((t) => oneLine(t.latest_dispatch?.activity))
+    .toSorted((a, b) => at(b) - at(a))[0]
+  const activity = oneLine(newest?.latest_dispatch?.activity)
+  if (!newest || !activity) return undefined
+
+  return running.length > 1 ? `Task ${newest.position}: ${activity}` : activity
+}
+
+// at is when a Task's worker last moved: its last progress, else when its Dispatch last changed.
+function at(task: TaskDetail): number {
+  const d = task.latest_dispatch
+
+  return Date.parse(d?.progress_at ?? d?.updated_at ?? "") || 0
+}
+
+// oneLine folds a worker's activity onto one line, as t3code folds a subagent's progress.
+function oneLine(text: string | undefined): string {
+  return text?.replace(/\s+/gu, " ").trim() ?? ""
 }
 
 // progress is "n of m Tasks done", counting the Tasks that succeeded.

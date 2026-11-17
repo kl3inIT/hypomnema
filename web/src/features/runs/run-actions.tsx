@@ -1,3 +1,4 @@
+import type { UseMutationResult } from "@tanstack/react-query"
 import { useState } from "react"
 
 import type { RunDetail } from "@/api/generated/types.gen"
@@ -31,7 +32,7 @@ export function RunActions({ run, size = "default" }: { run: RunDetail; size?: "
 
   return (
     <div className="flex items-center gap-1.5">
-      <Confirm
+      <ConfirmAction
         trigger={
           <Button
             variant="outline"
@@ -47,7 +48,7 @@ export function RunActions({ run, size = "default" }: { run: RunDetail; size?: "
         action="Finish Run"
         mutation={finish}
       />
-      <Confirm
+      <ConfirmAction
         trigger={
           <Button variant="destructive" size={size}>
             Cancel Run
@@ -63,13 +64,20 @@ export function RunActions({ run, size = "default" }: { run: RunDetail; size?: "
   )
 }
 
-type Mutation = ReturnType<typeof useRunActions>["finish"]
+type Mutation = Pick<
+  UseMutationResult<unknown, Error, void>,
+  "error" | "isPending" | "mutate" | "reset"
+>
 
-function Confirm({
+// ConfirmAction asks before an action that ends something, with its consequence in words, and says the server's
+// words when it refuses: a Run's Finish and Cancel here, a Task's Stop in the chat's dock (issue #687). keep is the
+// button that leaves things as they are.
+export function ConfirmAction({
   trigger,
   title,
   consequence,
   action,
+  keep = "Keep it open",
   destructive,
   mutation,
 }: {
@@ -77,6 +85,7 @@ function Confirm({
   title: string
   consequence: string
   action: string
+  keep?: string
   destructive?: boolean
   mutation: Mutation
 }) {
@@ -98,7 +107,7 @@ function Confirm({
         </AlertDialogHeader>
         <ErrorAlert error={mutation.error} />
         <AlertDialogFooter>
-          <AlertDialogCancel>Keep it open</AlertDialogCancel>
+          <AlertDialogCancel>{keep}</AlertDialogCancel>
           <AlertDialogAction
             variant={destructive ? "destructive" : "default"}
             focusableWhenDisabled={mutation.isPending}

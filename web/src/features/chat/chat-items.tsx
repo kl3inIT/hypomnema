@@ -57,7 +57,7 @@ export function ChatItemView({
     case "stopped":
       return <Stopped />
     case "wake":
-      return <WakeCard wake={item.wake} />
+      return <WakeCard wake={item.wake} at={item.at} />
     case "artifact":
       return <ArtifactCard card={item.artifact} />
     case "approval":

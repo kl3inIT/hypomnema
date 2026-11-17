@@ -4,7 +4,10 @@ import type { ChatMessage, Question, RunDetail, TaskDetail } from "@/api/generat
 
 import {
   askingTasks,
+  canStop,
   docked,
+  liveLine,
+  newestActivity,
   progress,
   runState,
   startOpen,
@@ -67,6 +70,59 @@ describe("a docked Run", () => {
     expect(taskState(task("a", "blocked", { blocked_reason: "dependency_failed" })).tone).toBe(
       "quiet",
     )
+  })
+})
+
+describe("a docked Task at work", () => {
+  const now = Date.parse("2026-11-17T10:03:12Z")
+  const working = (id: string, position: number, activity: string, progressAt: string) =>
+    task(id, "running", {
+      position,
+      latest_dispatch: {
+        id: `dsp_${id}`,
+        task_id: id,
+        node_id: "n1",
+        status: "running",
+        epoch: 1,
+        created_at: "2026-11-17T10:00:00Z",
+        updated_at: progressAt,
+        started_at: "2026-11-17T10:00:00Z",
+        progress_at: progressAt,
+        activity,
+      },
+    })
+
+  // Scenario: the owner follows a Run from its chat (issue #687). A running Task's row says how long its worker
+  // has run, by the page's clock, and the newest thing it did, folded onto one line; the strip's head says the
+  // newest activity of its running Tasks, naming the Task when more than one runs.
+  test("says how long it runs and what its worker does", () => {
+    const a = working("a", 1, "Bash: go test\n  ./...", "2026-11-17T10:03:00Z")
+    expect(liveLine(a, now)).toBe("Running 3m 12s · Bash: go test ./...")
+    expect(liveLine(task("q", "ready"), now)).toBeUndefined()
+    expect(newestActivity(run("r", [a, task("q", "ready")]))).toBe("Bash: go test ./...")
+
+    const b = working("b", 2, "Edit: web/src/app.tsx", "2026-11-17T10:03:10Z")
+    expect(newestActivity(run("r", [a, b]))).toBe("Task 2: Edit: web/src/app.tsx")
+    expect(newestActivity(run("r", [task("q", "ready")]))).toBeUndefined()
+  })
+
+  // Scenario: the owner stops a Task from its row. Stop is offered on a running or queued Task only; once asked,
+  // the row says "Stopping" with how long since, until the Task ends, and offers Stop no more.
+  test("offers Stop, then says it is stopping until it ends", () => {
+    expect(canStop(task("a", "running"))).toBe(true)
+    expect(canStop(task("a", "ready"))).toBe(true)
+    expect(canStop(task("a", "blocked"))).toBe(false)
+    expect(canStop(task("a", "succeeded"))).toBe(false)
+
+    const asked = { cancel_requested_at: "2026-11-17T10:03:08Z" }
+    const stopping = working("a", 1, "Bash: go test", "2026-11-17T10:03:00Z")
+    Object.assign(stopping, asked)
+    expect(canStop(stopping)).toBe(false)
+    expect(taskState(stopping)).toMatchObject({ word: "Stopping", icon: "stopping" })
+    expect(liveLine(stopping, now)).toBe("Stopping · 4s")
+    expect(newestActivity(run("r", [stopping]))).toBeUndefined()
+    expect(taskState(task("a", "canceled", asked)).word).toBe("Canceled")
+    expect(liveLine(task("a", "canceled", asked), now)).toBeUndefined()
   })
 })
 

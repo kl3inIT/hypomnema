@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router"
 import { ArrowRight, ChevronRight, UsersRound } from "lucide-react"
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useMemo, type ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import { useMachines } from "@/features/machines/use-machines"
 import { PageHeader, PageHeading } from "@/components/page-header"
 import { useChats } from "@/features/shell/chats"
 import { useWork } from "@/features/work/use-work"
+import { useNow } from "@/hooks/use-now"
 import { elapsed, since } from "@/lib/time"
 
 import { TeamCanvas } from "./team-canvas"
@@ -141,19 +142,6 @@ export function TeamScreen({
       )}
     </main>
   )
-}
-
-// useNow ticks every second, for the durations the page shows.
-function useNow() {
-  const [now, setNow] = useState(() => Date.now())
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-
-    return () => window.clearInterval(timer)
-  }, [])
-
-  return now
 }
 
 // Handoffs is OpenMausBot's "Who hands work to whom": the questions to the owner, then a row a Bot and agent pair.
