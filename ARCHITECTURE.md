@@ -3500,9 +3500,16 @@ The owner's commands:
   issue #536 reaches every agent kind through the skills store (above), naming the Superset tools:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
   `third_party/openmausbot/NOTICE`), for dashboards and any other page an agent shows with the `show_artifact`
-  tool.
-  Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
-  the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
+  tool. Since issue #729 it also teaches how a dashboard should look and how to check its numbers: the build steps,
+  rules and critique order of dashboard-design-skill at `463b8fd` (MIT, its `LICENSE` in `references/`, the notice
+  in `third_party/dashboard-design-skill/NOTICE`) and chart choice from Anthropic's knowledge-work-plugins `data`
+  plugin at `e91a134` (Apache-2.0, `third_party/knowledge-work-plugins/NOTICE`), with their references
+  (`perception`, `layout`, `tokens`, `components`, `snippets`, `qa`) cut to a plain HTML page in `references/`
+  beside `SKILL.md`. The main view has no sentences; a report may end with one notes section (owner, 2026-11-17).
+  Its `dashboard.html` template is self-contained: its colours are tokens with light and dark values, it has a KPI
+  row with deltas against the period before, one tooltip, loading, empty and error states, and a `check()` that
+  compares the tiles with the sums of their charts and tables and sets `data-check` on `<html>`; its charts are SVG
+  its own script draws, its sums are computed in the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
   beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
   artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
   OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
