@@ -21,10 +21,12 @@ import (
 type proc struct {
 	s      *Supervisor
 	chatID string
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	done   chan struct{}
-	mu     sync.Mutex
+	// token names this pi process on the chat's turn mark (cutturns.go), so that it clears only its own.
+	token string
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	done  chan struct{}
+	mu    sync.Mutex
 	// keys are the model gateway's key this pi asks for and its token; each
 	// is empty when the supervisor makes none. The key is made again for
 	// another model when the chat's choice changes (model.go).
@@ -94,7 +96,8 @@ func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string
 	}
 
 	p := &proc{
-		s: s, chatID: chatID, cmd: cmd, stdin: stdin, done: make(chan struct{}), lastActive: time.Now(),
+		s: s, chatID: chatID, token: fmt.Sprintf("%d-%d", cmd.Process.Pid, time.Now().UnixNano()), cmd: cmd,
+		stdin: stdin, done: make(chan struct{}), lastActive: time.Now(),
 		keys: key, waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
 	}
 
@@ -220,6 +223,7 @@ func (p *proc) read(ctx context.Context, stdout io.Reader) {
 		// Exited before not working, so that a pi that exited during a turn never reads as Idle.
 		close(p.done)
 		p.setWorking(false)
+		p.s.exitedMidTurn(ctx, p)
 		p.s.revoke(ctx, p.chatID, p.gatewayKey())
 		p.s.cfg.Logger.InfoContext(ctx, "pi exited", slog.String("event", "coordinator.exited"),
 			slog.String("chat_id", p.chatID), slog.String("stderr", p.stderrTail()))

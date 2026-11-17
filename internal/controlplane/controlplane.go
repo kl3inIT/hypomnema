@@ -38,6 +38,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/selfupdate"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
@@ -476,6 +477,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sup := coordinator.New(svc, coordinator.Config{
 		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
+		Updating: func() bool { return selfupdate.Updating(filepath.Dir(cfg.Database.Path)) },
 	})
 
 	// Every worker's and every Bot's pi's web tools and generate_image (issues #354, #492), each call recorded on
@@ -685,9 +687,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		shared.Run(ctx)
 	}()
 
+	// `hypomnema update` asks which Bots' turns run before it stops the control plane (issue #716).
+	controlDone := make(chan struct{})
+
+	go func() {
+		defer close(controlDone)
+
+		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, sup.BeginUpdate, logger)
+	}()
+
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
+	<-controlDone
 	<-pprofDone
 	<-browserDone
 	<-meetingsDone
