@@ -130,6 +130,8 @@ type Engine struct {
 	sessions map[string]*session
 	// control says who drives the browser: the agents, or the owner.
 	control *ownerhold.Hold
+	// icons are the icons of the sites the tabs show (favicon.go), with a lock of their own.
+	icons favicons
 
 	// The gate's port and Chrome's DevTools port, which the gate asks about
 	// from its own goroutines.

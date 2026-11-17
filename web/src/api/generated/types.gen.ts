@@ -946,6 +946,10 @@ export type BrowserTab = {
   url: string;
   title: string;
   /**
+   * Its page's icon, as a data: address of an image, once the control plane has read it from the page. Absent until then, and for a page that names none it can give.
+   */
+  favicon?: string;
+  /**
    * How many views of it are open.
    */
   views: number;

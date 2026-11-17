@@ -5394,6 +5394,11 @@ components:
           description: The Bot whose pi opened the tab, for a Bot's tab in a chat.
         url: { type: string }
         title: { type: string }
+        favicon:
+          type: string
+          description: >-
+            Its page's icon, as a data: address of an image, once the control plane has read it from the page.
+            Absent until then, and for a page that names none it can give.
         views: { type: integer, description: How many views of it are open. }
     BrowserViewTicket:
       type: object

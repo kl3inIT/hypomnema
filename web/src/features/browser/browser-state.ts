@@ -59,3 +59,60 @@ export function tabName(tab: BrowserTab) {
 
   return tab.url && tab.url !== "about:blank" ? tab.url : "New tab"
 }
+
+// freshTabs are the tabs of these chats that are new since the list seen before (issue #703): those not in it.
+// Nothing is new while no list was seen yet, so that a page opened, or reloaded, leaves the tabs already there as
+// they are. A tab the owner closed in the pane stays in the list and is not new again; a tab its agent closed and
+// opened again is. As OpenClaw's browser panel follows the newest tab of its session once
+// (ui/src/components/browser/browser-panel-presentation.ts, followPreferredTab).
+export function freshTabs(
+  seen: ReadonlySet<string> | null,
+  tabs: BrowserTab[] | undefined,
+  chats: ReadonlySet<string>,
+): BrowserTab[] {
+  if (seen === null) return []
+
+  return chatTabs(tabs, chats).filter((t) => !seen.has(t.id))
+}
+
+// stripTabs are the tabs a browser pane's strip lists (issue #703), as OpenClaw's PanelTabStrip lists the tabs of
+// its panel (ui/src/components/browser/browser-panel-render.tsx): the owner's own tab, always, and then the tabs of
+// the pane's chats and of the chats whose tab is open in the pane, so that a pane beside a chat lists its tabs.
+// `open` are the browser tabs open in the pane.
+export function stripTabs(
+  tabs: BrowserTab[] | undefined,
+  chats: readonly string[],
+  open: readonly string[],
+): BrowserTab[] {
+  const list = tabs ?? []
+  const of = new Set(chats)
+  for (const id of open) {
+    const chat = list.find((t) => t.id === id)?.chat_id
+    if (chat !== undefined) of.add(chat)
+  }
+
+  const owner = list.find((t) => t.id === ownerTab) ?? {
+    id: ownerTab,
+    kind: "owner" as const,
+    url: "",
+    title: "",
+    views: 0,
+  }
+
+  return [owner, ...chatTabs(list, of)]
+}
+
+// browserOpen is the tool a Bot opens a page with; its call shows as a card in the chat (issue #703).
+export const browserOpen = "agent_browser_open"
+
+// browserOpenUrl is the address a call of agent_browser_open was given, or empty.
+export function browserOpenUrl(args?: Record<string, unknown>): string {
+  const url = args?.url
+
+  return typeof url === "string" ? url.trim() : ""
+}
+
+// chatBotTab is the tab a chat's Bot opens pages in (issue #557): the coordinator's tab of that chat.
+export function chatBotTab(tabs: BrowserTab[] | undefined, chat: string): BrowserTab | undefined {
+  return (tabs ?? []).find((t) => t.kind === "coordinator" && t.chat_id === chat)
+}

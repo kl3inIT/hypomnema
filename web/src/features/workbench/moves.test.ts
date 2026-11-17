@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest"
 
 import type { GridLayout } from "./grid-layout"
-import { alone, closeHome, dropTab, openBeside, rightOf, withoutPane, type Bench } from "./moves"
+import {
+  alone,
+  closeHome,
+  dropTab,
+  openAllBeside,
+  openBeside,
+  rightOf,
+  withoutPane,
+  type Bench,
+} from "./moves"
 import { closeTab, openTab, paneOf, replaceTab, type PaneTab } from "./pane"
 
 const chat = (id: string): PaneTab => ({ kind: "chat", chat: id })
@@ -151,6 +160,21 @@ describe("a tab opened beside a pane", () => {
 
     expect(next.layout).toEqual(bench.layout)
     expect(next.panes.p2).toEqual({ tabs: [chat("c"), phone], active: "phone" })
+  })
+})
+
+describe("several tabs opened beside a pane at once", () => {
+  it("opens them all in the one pane split off to the right, the last in front", () => {
+    const bot: PaneTab = { kind: "browser", tab: "b-a" }
+    const worker: PaneTab = { kind: "browser", tab: "d-1" }
+    const ids = ["p3", "p4"]
+    const next = openAllBeside({ layout: "p1", panes: { p1 } }, "p1", [bot, worker], () =>
+      ids.shift()!,
+    )
+
+    expect(next.layout).toEqual({ axis: "columns", children: ["p1", "p3"] })
+    expect(next.panes.p3).toEqual({ tabs: [bot, worker], active: "browser:d-1" })
+    expect(next.panes.p1).toBe(p1)
   })
 })
 

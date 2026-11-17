@@ -2625,7 +2625,10 @@ type BrowserTab struct {
 
 	// DispatchId The worker's Dispatch.
 	DispatchId *string `json:"dispatch_id,omitempty"`
-	Id         string  `json:"id"`
+
+	// Favicon Its page's icon, as a data: address of an image, once the control plane has read it from the page. Absent until then, and for a page that names none it can give.
+	Favicon *string `json:"favicon,omitempty"`
+	Id      string  `json:"id"`
 
 	// Kind Whose tab it is: a worker's (a Dispatch), the coordinator's, one opened with the owner's own token, or the owner's own tab in the web client.
 	Kind   BrowserTabKind `json:"kind"`

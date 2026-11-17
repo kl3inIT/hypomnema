@@ -14,6 +14,9 @@ const chat = {
   updated_at: "2026-11-09T10:00:00Z",
 }
 
+// Another chat, whose Bot's tab is b-cht_9.
+const other = { ...chat, id: "cht_9", title: "slow setup" }
+
 const tabs = [
   {
     id: "owner",
@@ -92,7 +95,11 @@ async function frame(page: Page) {
 // and sends one frame; asked for control it gives it. As the control plane, it keeps the owner's hold until the
 // owner hands it back, not when a view closes (issue #603). It keeps the tabs tickets were asked for, the
 // WebSockets it was given and what the page sent.
-async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boolean } = {}) {
+async function fakeServer(
+  page: Page,
+  options: { noBrowser?: boolean; held?: boolean; tabs?: typeof tabs; messages?: object[] } = {},
+) {
+  let listed = options.tabs ?? tabs
   const asked: string[] = []
   const sockets: WebSocketRoute[] = []
   const sent: Record<string, unknown>[] = []
@@ -122,13 +129,21 @@ async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boo
           return json({ code: "unavailable", message: "this control plane has no browser" }, 503)
         }
 
-        return json({ installed: true, running: true, held, tabs })
+        return json({ installed: true, running: true, held, tabs: listed })
       case "GET /bots":
         return json({ data: [{ id: "coordinator", name: "Atlas", main: true }] })
       case "GET /chats":
         return json({ data: [chat] })
       case "GET /chats/cht_1":
         return json(chat)
+      case "GET /chats/cht_9":
+        return json(other)
+      case "GET /chats/cht_9/stream":
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: `id: 1\nevent: message\ndata: ${JSON.stringify({ seq: 1, chat_id: other.id, role: "owner", text: "speed up the setup", created_at: other.created_at })}\n\n`,
+        })
       case "GET /chats/cht_1/stream": {
         const said = {
           seq: 1,
@@ -138,10 +153,18 @@ async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boo
           created_at: chat.created_at,
         }
 
+        const all = [said, ...(options.messages ?? [])]
+
         return route.fulfill({
           status: 200,
           contentType: "text/event-stream",
-          body: `id: 1\nevent: message\ndata: ${JSON.stringify(said)}\n\n`,
+          body: all
+            .map((m, i) => {
+              const kept = { seq: i + 1, chat_id: chat.id, created_at: chat.created_at, ...m }
+
+              return `id: ${i + 1}\nevent: message\ndata: ${JSON.stringify(kept)}\n\n`
+            })
+            .join(""),
         })
       }
       case "GET /events/stream":
@@ -174,10 +197,23 @@ async function fakeServer(page: Page, options: { noBrowser?: boolean; held?: boo
     ws.send(picture)
   })
 
-  return { asked, sockets, sent, of: (type: string) => sent.filter((m) => m.type === type) }
+  return {
+    asked,
+    sockets,
+    sent,
+    of: (type: string) => sent.filter((m) => m.type === type),
+    // setTabs changes the tabs the browser lists from its next read on.
+    setTabs: (next: typeof tabs) => {
+      listed = next
+    },
+  }
 }
 
 const picture = (page: Page) => page.locator("canvas")
+// paneTab is a tab of a pane's own strip; strip is the strip of the browser's tabs over a browser tab (issue #703).
+const paneTab = (page: Page, name: string | RegExp) =>
+  page.getByRole("tablist", { name: "Tabs of this pane" }).getByRole("tab", { name })
+const strip = (page: Page) => page.getByRole("tablist", { name: "Tabs of the browser" })
 const address = (page: Page) => page.getByRole("textbox", { name: "Address" })
 const painted = (page: Page) =>
   expect.poll(() => page.evaluate<number>("document.querySelector('canvas').width")).toBe(1280)
@@ -197,16 +233,10 @@ test("the owner opens the browser beside a chat, takes control, and uses the pag
   const server = await fakeServer(page)
   await page.goto("/chats/cht_1")
   await expect(page.getByText("add a health page")).toBeVisible()
-  await expect(page.getByRole("tab", { name: "health page" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  await expect(paneTab(page, "health page")).toHaveAttribute("aria-selected", "true")
   await expect(page.getByRole("link", { name: "Browser" })).toHaveCount(0)
   // The chat's own tab is the top of the page, with its Bot's avatar: there is no header above it.
-  await expect(page.getByRole("tab", { name: "health page" })).toHaveAttribute(
-    "title",
-    "Chat with Atlas",
-  )
+  await expect(paneTab(page, "health page")).toHaveAttribute("title", "Chat with Atlas")
   await expect(page.getByRole("banner")).toHaveCount(0)
 
   // Only this chat's tabs are offered, its Bot's and its worker's.
@@ -220,10 +250,7 @@ test("the owner opens the browser beside a chat, takes control, and uses the pag
   await shot(page, "pane-open-new")
   await page.getByRole("menuitem", { name: "My browser" }).click()
 
-  await expect(page.getByRole("tab", { name: "My browser" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  await expect(paneTab(page, "My browser")).toHaveAttribute("aria-selected", "true")
   await painted(page)
   expect(server.asked).toEqual(["owner"])
   await expect.poll(() => server.of("ack")).toHaveLength(1)
@@ -277,18 +304,15 @@ test("the owner opens the browser beside a chat, takes control, and uses the pag
   expect(server.of("releaseControl")).toHaveLength(1)
 
   // The chat is a tab away and is as it was; the browser's own tab is gone to, not opened twice.
-  await page.getByRole("tab", { name: "health page" }).click()
+  await paneTab(page, "health page").click()
   await expect(page.getByText("add a health page")).toBeVisible()
   await page.getByRole("button", { name: "Open new" }).click()
   await page.getByRole("menuitem", { name: "Go to my browser" }).click()
-  await expect(page.getByRole("tab", { name: "My browser" })).toHaveCount(1)
+  await expect(paneTab(page, "My browser")).toHaveCount(1)
 
   await page.getByRole("button", { name: "Close My browser" }).click()
-  await expect(page.getByRole("tab", { name: "My browser" })).toHaveCount(0)
-  await expect(page.getByRole("tab", { name: "health page" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  await expect(paneTab(page, "My browser")).toHaveCount(0)
+  await expect(paneTab(page, "health page")).toHaveAttribute("aria-selected", "true")
 })
 
 // Scenario: the owner looks at what a worker of this chat is doing, and the worker's tab closes. A tab that is
@@ -302,10 +326,7 @@ test("a worker's browser tab is watched beside its chat, and a tab that closed s
   await open(page, "Example Domain")
   await expect.poll(() => server.asked).toEqual(["d-dsp_1"])
   await expect(address(page)).toHaveValue("https://example.com/")
-  await expect(page.getByRole("tab", { name: /Example Domain/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  await expect(paneTab(page, /Example Domain/)).toHaveAttribute("aria-selected", "true")
   await shot(page, "pane-browser-worker")
 
   await server.sockets[0].close({ code: 4404, reason: "no such tab" })
@@ -317,10 +338,7 @@ test("a worker's browser tab is watched beside its chat, and a tab that closed s
   await expect.poll(() => server.asked).toEqual(["d-dsp_1", "d-dsp_1"])
 
   await page.reload()
-  await expect(page.getByRole("tab", { name: /Example Domain/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  await expect(paneTab(page, /Example Domain/)).toHaveAttribute("aria-selected", "true")
 })
 
 // Scenario: the chat's Bot browses (issue #557). Its tab is offered in its chat's pane as the Bot's, and opens in
@@ -333,7 +351,7 @@ test("a Bot's browser tab is watched beside its chat, as the Bot's", async ({ pa
   await expect.poll(() => server.asked).toEqual(["b-cht_1"])
   await painted(page)
   await expect(address(page)).toHaveValue("https://maps.example/search")
-  const shown = page.getByRole("tab", { name: /Maps search/ })
+  const shown = paneTab(page, /Maps search/)
   await expect(shown).toHaveAttribute("aria-selected", "true")
   await expect(shown).toHaveAttribute("title", "Atlas's tab, in this chat.")
   await expect(shown).toContainText("Atlas")
@@ -345,10 +363,7 @@ test("a Bot's browser tab is watched beside its chat, as the Bot's", async ({ pa
 
   // Its worker's tab opens beside it in the same pane.
   await open(page, "Example Domain")
-  await expect(page.getByRole("tab", { name: /Example Domain/ })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  )
+  await expect(paneTab(page, /Example Domain/)).toHaveAttribute("aria-selected", "true")
   await expect(page.getByRole("menu")).toHaveCount(0)
   await shot(page, "pane-browser-bot-and-worker")
 })
@@ -382,13 +397,13 @@ test("switching to another tab of the pane keeps the owner's hold on the browser
   await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
   await expect(page.getByText("You hold the browser.")).toBeVisible({ timeout: 10_000 })
 
-  await page.getByRole("tab", { name: "health page" }).click()
+  await paneTab(page, "health page").click()
   await expect(page.getByText("add a health page")).toBeVisible()
   await expect.poll(() => closed).toBe(1)
   expect(server.of("releaseControl")).toHaveLength(0)
   await expect(page.getByText("You hold the browser.")).toBeVisible()
 
-  await page.getByRole("tab", { name: "My browser" }).click()
+  await paneTab(page, "My browser").click()
   await expect.poll(() => server.sockets).toHaveLength(2)
   await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
   await expect(page.getByText("You hold the browser.")).toBeVisible()
@@ -413,4 +428,190 @@ test("the sidebar says that the owner holds the browser", async ({ page }, info)
 
   await expect(page.getByText("You hold the browser.")).toBeVisible()
   await shot(page, "sidebar-browser-held")
+})
+
+// shots takes a picture in the light theme and one in the dark, as the theme menu sets them.
+async function shots(page: Page, name: string) {
+  const theme = (value: string) =>
+    page.evaluate(`(() => {
+      localStorage.setItem("theme", "${value}")
+      window.dispatchEvent(new StorageEvent("storage", { key: "theme", newValue: "${value}", storageArea: localStorage }))
+    })()`)
+  await theme("light")
+  await shot(page, name)
+  await theme("dark")
+  await shot(page, `${name}-dark`)
+}
+
+// Scenario: the owner asked the chat's Bot to open a page to sign in to (issue #703). The Bot's new tab shows
+// beside the chat by itself, once: on a desktop in a pane to its right, on a phone as a tab of the pane. A strip
+// over it lists the browser's tabs of the chat, each with whose it is, and switches between them. Closed, the tab
+// stays closed.
+test("a tab the chat's Bot opens shows beside the chat once, with the browser's tabs over it", async ({
+  page,
+}, info) => {
+  const phone = info.project.name === "phone"
+  const server = await fakeServer(page, { tabs: tabs.filter((t) => t.id !== "b-cht_1") })
+  await page.goto("/chats/cht_1")
+  await expect(page.getByText("add a health page")).toBeVisible()
+  // The tabs there when the page opened stay where they are.
+  await page.waitForTimeout(500)
+  expect(server.asked).toEqual([])
+
+  server.setTabs(tabs)
+  const shown = paneTab(page, /Maps search/)
+  await expect(shown).toHaveAttribute("aria-selected", "true", { timeout: 10_000 })
+  await expect.poll(() => server.asked).toEqual(["b-cht_1"])
+  await painted(page)
+  if (phone) {
+    // A phone has no room beside: the tab is the pane's, the chat a tab away.
+    await expect(paneTab(page, "health page")).toHaveAttribute("aria-selected", "false")
+  } else {
+    // The chat stays in front in its pane, the Bot's tab in a pane to its right.
+    await expect(page).toHaveURL(/\/grid$/)
+    await expect(paneTab(page, "health page")).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByText("add a health page")).toBeVisible()
+  }
+
+  // The strip lists the owner's tab, and the chat's Bot's and worker's tabs; not another chat's.
+  await expect(strip(page).getByRole("tab")).toHaveText([
+    /^My browser\s*you$/,
+    /^Example Domain\s*worker$/,
+    /^Maps search\s*Atlas$/,
+  ])
+  await expect(strip(page).getByRole("tab", { name: /Maps search/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  await shots(page, "browser-beside-chat")
+
+  // A click on the strip shows the worker's tab in the place of the Bot's.
+  await strip(page)
+    .getByRole("tab", { name: /Example Domain/ })
+    .click()
+  await expect.poll(() => server.asked).toEqual(["b-cht_1", "d-dsp_1"])
+  await expect(address(page)).toHaveValue("https://example.com/")
+  await expect(paneTab(page, /Example Domain/)).toHaveAttribute("aria-selected", "true")
+  await expect(paneTab(page, /Maps search/)).toHaveCount(0)
+  await shots(page, "browser-strip-switched")
+
+  // The owner's own tab, picked on the strip, takes the place too; the strip still lists the chat's tabs, and
+  // the Bot's is picked again from it.
+  await strip(page)
+    .getByRole("tab", { name: /My browser/ })
+    .click()
+  await expect(paneTab(page, "My browser")).toHaveAttribute("aria-selected", "true")
+  await expect(strip(page).getByRole("tab")).toHaveText([
+    /^My browser\s*you$/,
+    /^Example Domain\s*worker$/,
+    /^Maps search\s*Atlas$/,
+  ])
+  await strip(page)
+    .getByRole("tab", { name: /Example Domain/ })
+    .click()
+  await expect(paneTab(page, /Example Domain/)).toHaveAttribute("aria-selected", "true")
+
+  // Closed, it is not opened again while the browser keeps the tab.
+  await page.getByRole("button", { name: "Close Example Domain" }).click()
+  await page.waitForTimeout(6_000)
+  await expect(paneTab(page, /Example Domain|Maps search/)).toHaveCount(0)
+})
+
+// Scenario: the chat's Bot and its worker each open a tab between two reads of the browser's list (issue #703).
+// Both show beside the chat, or in its pane on a phone, once: neither is dropped, neither opens again.
+test("the tabs a Bot and its worker open at once both show beside the chat", async ({
+  page,
+}, info) => {
+  const phone = info.project.name === "phone"
+  const server = await fakeServer(page, {
+    tabs: tabs.filter((t) => t.id !== "b-cht_1" && t.id !== "d-dsp_1"),
+  })
+  await page.goto("/chats/cht_1")
+  await expect(page.getByText("add a health page")).toBeVisible()
+  await page.waitForTimeout(500)
+
+  server.setTabs(tabs)
+  await expect(paneTab(page, /Example Domain/)).toHaveCount(1, { timeout: 10_000 })
+  await expect(paneTab(page, /Maps search/)).toHaveCount(1)
+  if (!phone) await expect(page).toHaveURL(/\/grid$/)
+
+  // A later read of the list keeps both, and opens neither again.
+  await page.waitForTimeout(6_000)
+  await expect(paneTab(page, /Example Domain/)).toHaveCount(1)
+  await expect(paneTab(page, /Maps search/)).toHaveCount(1)
+})
+
+// Scenario: two chats are on the grid, one above the other, and both their Bots open a tab at once (issue #703).
+// Each tab shows beside its own chat: the one opened first is not lost to the second.
+test("the tabs two chats of the grid open at once both show beside their chats", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "phone", "a phone shows one chat: there is no grid")
+  const server = await fakeServer(page, {
+    tabs: tabs.filter((t) => t.id !== "b-cht_1" && t.id !== "b-cht_9"),
+  })
+  await page.addInitScript({
+    content: `localStorage.setItem("hypomnema.grid", ${JSON.stringify(
+      JSON.stringify({ axis: "rows", children: ["p1", "p2"] }),
+    )})
+    localStorage.setItem("hypomnema.panes", ${JSON.stringify(
+      JSON.stringify({
+        p1: { tabs: [{ kind: "chat", chat: "cht_1" }], active: "chat:cht_1" },
+        p2: { tabs: [{ kind: "chat", chat: "cht_9" }], active: "chat:cht_9" },
+      }),
+    )})`,
+  })
+  await page.goto("/grid")
+  await expect(page.getByText("add a health page")).toBeVisible()
+  await expect(page.getByText("speed up the setup")).toBeVisible()
+  await page.waitForTimeout(500)
+
+  server.setTabs(tabs)
+  await expect(paneTab(page, /Maps search/)).toHaveAttribute("aria-selected", "true", {
+    timeout: 10_000,
+  })
+  await expect(paneTab(page, /Another chat's Bot's page/)).toHaveAttribute("aria-selected", "true")
+  // A later read of the tabs keeps them both.
+  await page.waitForTimeout(6_000)
+  await expect(paneTab(page, /Maps search/)).toHaveCount(1)
+  await expect(paneTab(page, /Another chat's Bot's page/)).toHaveCount(1)
+  await expect(page.getByRole("main", { name: "Grid of chats" }).getByRole("region")).toHaveCount(4)
+})
+
+// Scenario: the Bot opened a page with agent_browser_open (issue #703). The call shows in the chat as a card with
+// the page's title and address; "Open the tab" opens the Bot's tab beside the chat, or in the pane on a phone.
+test("the Bot's call that opened a page is a card in the chat that opens its tab", async ({
+  page,
+}, info) => {
+  const phone = info.project.name === "phone"
+  const server = await fakeServer(page, {
+    messages: [
+      {
+        role: "tool",
+        text: "pi ran agent_browser_open",
+        parts: [
+          {
+            type: "tool_result",
+            id: "t1",
+            name: "agent_browser_open",
+            args: { url: "https://maps.example/search", headed: true },
+            output: "https://maps.example/search",
+            duration_ms: 1200,
+          },
+        ],
+      },
+      { role: "coordinator", text: "The page is open: sign in there, then tell me." },
+    ],
+  })
+  await page.goto("/chats/cht_1")
+
+  const card = page.getByRole("region", { name: "Browser tab: Maps search" })
+  await expect(card).toBeVisible()
+  await expect(card).toContainText("https://maps.example/search")
+  await shots(page, "browser-open-card")
+
+  await card.getByRole("button", { name: "Open the tab" }).click()
+  await expect(paneTab(page, /Maps search/)).toHaveAttribute("aria-selected", "true")
+  await expect.poll(() => server.asked).toEqual(["b-cht_1"])
+  if (!phone) await expect(page).toHaveURL(/\/grid$/)
 })
