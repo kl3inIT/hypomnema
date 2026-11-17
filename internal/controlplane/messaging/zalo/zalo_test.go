@@ -447,10 +447,10 @@ func TestAFileLinkToThisMachineIsRefused(t *testing.T) {
 
 	svc := &Service{http: newHTTP()}
 
-	_, _, err := svc.fetch(t.Context(), inside.URL)
+	_, _, err := svc.fetch(t.Context(), inside.URL, maxFileBytes)
 	require.ErrorIs(t, err, errNotPublic)
 
-	_, _, err = svc.fetch(t.Context(), "file:///etc/passwd")
+	_, _, err = svc.fetch(t.Context(), "file:///etc/passwd", maxFileBytes)
 	require.ErrorIs(t, err, errNotPublic)
 }
 
@@ -560,4 +560,35 @@ func TestAMessageKeptBeforeTheListenerIsFilledInByIt(t *testing.T) {
 	row, err := svc.mirror.mediaOf(ctx, "100", "g1", "f1")
 	require.NoError(t, err)
 	assert.Equal(t, "https://f/q.pdf", row.url, "the listener's link filled in")
+}
+
+// An image over 20 MiB is not downloaded and says why, once; a document of the same size is, under its 50 MiB cap
+// (zaloclaw's caps, issue #743).
+func TestAFileIsCappedByItsType(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	acc := svc.newAccount(func() {}, whoAmI{UID: "100"}, nil)
+
+	size := int64(25 << 20)
+	for _, m := range []incoming{
+		{ID: "big-image", Chat: "u9", From: "u9", At: 1, Kind: "chat.photo",
+			Media: &mediaOf{Type: "image", URL: os.Getenv(fakeMediaEnv) + "/i.jpg", Size: size}},
+		{ID: "big-doc", Chat: "u9", From: "u9", At: 2, Kind: "share.file",
+			Media: &mediaOf{Type: "document", URL: os.Getenv(fakeMediaEnv) + "/d.pdf", FileName: "d.pdf", Size: size}},
+	} {
+		_, err := acc.keepMessage(ctx, m)
+		require.NoError(t, err)
+	}
+
+	_, err := acc.download(ctx, mediaJob{account: "100", chat: "u9", id: "big-image"})
+	require.ErrorContains(t, err, "larger than 20 MiB")
+
+	var why string
+	require.NoError(t, svc.mirror.db.QueryRowContext(ctx,
+		`SELECT media_error FROM zl_messages WHERE account = '100' AND msg_id = 'big-image'`).Scan(&why))
+	assert.Equal(t, "larger than 20 MiB", why, "said once, not tried again")
+
+	doc, err := acc.download(ctx, mediaJob{account: "100", chat: "u9", id: "big-doc"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, doc.Path)
 }
