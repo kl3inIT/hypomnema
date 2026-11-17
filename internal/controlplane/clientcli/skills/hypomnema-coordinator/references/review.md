@@ -1,6 +1,8 @@
 # Review
 
-How a pull request is reviewed by another worker. Whether to review is the owner's to say; this is how.
+How a pull request is reviewed by another worker. Whether to review is the owner's to say; this is how. The
+author's spec says "A review comes before the merge: do not turn on auto-merge.", so its worker leaves the pull
+request open for the review.
 
 1. Start from a Task that succeeded with a pull request in its evidence (`hypomnema tasks show <task_id> --json`).
    Look at its checks first, read-only (`gh pr checks <url>`): while they are red there is nothing to review yet.
@@ -30,9 +32,14 @@ How a pull request is reviewed by another worker. Whether to review is the owner
    skipped the pull request is not a review; with no CodeRabbit review the review goes on without it.
 4. Wait as for any Run. The review is the summary in `hypomnema tasks show <task_id> --json`: a verdict and
    findings with a priority each.
-5. A verdict of correct, with green checks and no conflict: report the pull request as reviewed and ready for the
-   owner. The owner merges; you never do. CodeRabbit is never a condition of its own: its findings count through
-   the verdict, as in step 3.
+5. A verdict of correct, with green checks: send the author a follow-up that the review passed and asks it to turn
+   on auto-merge, as its rules say for its repository:
+   ```text
+   hypomnema tasks follow-up <task_id> --note-file <file> --json
+   ```
+   Report the pull request as reviewed, then report what the author says: merged, auto-merge on, or what the
+   repository lacks for it, which the owner settles. You never merge nor turn on auto-merge yourself.
+   CodeRabbit is never a condition of its own: its findings count through the verdict, as in step 3.
 6. Findings that make the change incorrect: report them to the owner as the reviewer gave them, and offer to send
    them to the worker that made the change. Once the owner agrees, send them as a follow-up on that Task, the
    findings pasted word for word:

@@ -21,7 +21,8 @@ account and does not count. The Task's `result` names the attempts and the last 
 `blocked_reason` says what it waits for:
 
 - `gate`: a decision the worker asked of the owner. The Task continues when the owner answers; tell the owner it
-  waits.
+  waits. When the owner, or a review, gives the worker more to do meanwhile, send it as a follow-up (`hypomnema
+  tasks follow-up`): it replaces the gate.
 - `needs_auth`: an account on a node needs a login. Tell the owner; once the owner has logged in, run
   `hypomnema tasks reopen <task_id> --json`.
 - `dependency_failed`: a Task it depends on failed or was canceled. Resolve that Task first; when you replace it, the

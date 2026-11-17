@@ -159,8 +159,9 @@ ON CONFLICT (id) DO UPDATE SET notes_model = excluded.notes_model, updated_at = 
 UPDATE meeting_lines SET text = @text WHERE meeting_id = @meeting_id AND n = @n;
 
 -- name: ListMeetingWords :many
--- The owner's words to hear right, in the order they were added (issue #747).
-SELECT word FROM meeting_words ORDER BY created_at, word;
+-- The owner's words to hear right, in the order they were added (issue #747); rowid orders the words added in one
+-- millisecond, as SQLite gives a new row the largest rowid yet plus one (issue #758).
+SELECT word FROM meeting_words ORDER BY created_at, rowid;
 
 -- name: InsertMeetingWord :exec
 INSERT OR IGNORE INTO meeting_words (word, created_at) VALUES (@word, @now);

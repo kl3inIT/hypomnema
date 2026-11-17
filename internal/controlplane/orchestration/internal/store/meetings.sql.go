@@ -652,10 +652,11 @@ func (q *Queries) ListMeetingSpeakers(ctx context.Context, meetingID string) ([]
 }
 
 const listMeetingWords = `-- name: ListMeetingWords :many
-SELECT word FROM meeting_words ORDER BY created_at, word
+SELECT word FROM meeting_words ORDER BY created_at, rowid
 `
 
-// The owner's words to hear right, in the order they were added (issue #747).
+// The owner's words to hear right, in the order they were added (issue #747); rowid orders the words added in one
+// millisecond, as SQLite gives a new row the largest rowid yet plus one (issue #758).
 func (q *Queries) ListMeetingWords(ctx context.Context) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, listMeetingWords)
 	if err != nil {

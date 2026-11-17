@@ -54,6 +54,10 @@ type Action struct {
 	// Operations are the GraphQL operations that are the action, for an Integration whose API is GraphQL too
 	// (GitHub's, issue #685).
 	Operations []Operation
+	// With are the other actions one request names beside this one: a GraphQL request with several root fields
+	// (issue #739). Of them all, the one the owner's answers make the strictest governs the request (Onyx's
+	// AllMatchedActions, sorted by policy severity).
+	With []Action
 }
 
 // Default is the answer an action has until the owner gives another. Reading
