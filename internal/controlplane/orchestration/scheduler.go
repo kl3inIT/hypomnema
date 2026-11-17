@@ -5,21 +5,22 @@ import (
 	"database/sql"
 	"fmt"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
 // The scheduler (issue #19, PR 5): every ScheduleEvery, and whenever a commit
-// signals, one pass goes through every ready Task, oldest Run first, and gives
-// each a Dispatch when its Bot is under its limit and a node has room (Orca
-// coordinator.ts tick; Coder admits inside the acquisition transaction). There
-// is no limit across every node (issue #660): each Bot has its own, as
-// OpenMausBot's threads.maxConcurrentPerBot (server/bot-thread-limits.ts), and
-// each node its own, as Coder's provisioner daemons (provisionerd.go). A Task
-// left ready is told why it waits (tasks.waiting_reason), as OpenMausBot's
-// queued reason (server/host/queued-reason.ts).
+// signals, one pass goes through every ready Task and gives each a Dispatch
+// when a node has room for its request (Orca coordinator.ts tick; Coder admits
+// inside the acquisition transaction). Room is computed, the requests of a
+// node's Dispatches against its allocatable (issue #731); the Bots share it.
+// Each Bot has a guaranteed share, which orders who goes first as room frees,
+// and may borrow any room that fits beyond it (Kueue's nominalQuota with no
+// borrowingLimit, YARN's capacity under a maximum-capacity of 100 %). Nothing
+// running is ever stopped to make room. A Task left ready is told why it waits
+// (tasks.waiting_reason), as OpenMausBot's queued reason
+// (server/host/queued-reason.ts).
 
 // ServiceOption configures a Service.
 type ServiceOption func(*Service)
@@ -45,8 +46,16 @@ func (s *Service) Schedule(ctx context.Context) (Scheduled, error) {
 			return fmt.Errorf("listing ready tasks: %w", err)
 		}
 
-		for _, taskID := range ids {
-			if err := s.scheduleTask(ctx, q, now, p, taskID, &out); err != nil {
+		queues, err := groupQueues(ctx, q, ids)
+		if err != nil {
+			return err
+		}
+
+		for g := nextQueue(queues, p.groups); g != nil; g = nextQueue(queues, p.groups) {
+			task := g.tasks[0]
+			g.tasks = g.tasks[1:]
+
+			if err := s.scheduleTask(ctx, q, now, p, task.id, &out); err != nil {
 				return err
 			}
 		}
@@ -66,22 +75,118 @@ func (s *Service) Schedule(ctx context.Context) (Scheduled, error) {
 	return out, nil
 }
 
+// queue is one group's ready Tasks in a pass (issue #731): a Bot's, or ""
+// the owner's Runs without a Bot, oldest Run first, then by position.
+type queue struct {
+	group     string
+	guarantee int
+	tasks     []queued
+}
+
+// queued is a ready Task and when its Run was created; a group's queue keeps
+// the pass's order, oldest Run first.
+type queued struct {
+	id         string
+	runCreated int64
+}
+
+// groupQueues splits the ready Tasks, oldest Run first, into their groups' queues.
+func groupQueues(ctx context.Context, q *store.Queries, ids []string) ([]*queue, error) {
+	var (
+		out     []*queue
+		byRun   = map[string]*queue{}
+		created = map[string]int64{}
+		byName  = map[string]*queue{}
+	)
+
+	for _, id := range ids {
+		task, err := q.GetTask(ctx, id)
+		if err != nil {
+			return nil, notFound(err, "task", id)
+		}
+
+		g, ok := byRun[task.RunID]
+		if !ok {
+			run, err := q.GetRun(ctx, task.RunID)
+			if err != nil {
+				return nil, notFound(err, "run", task.RunID)
+			}
+
+			created[task.RunID] = run.CreatedAt
+
+			group, guarantee, err := runGroup(ctx, q, task.RunID)
+			if err != nil {
+				return nil, err
+			}
+
+			if g, ok = byName[group]; !ok {
+				g = &queue{group: group, guarantee: guarantee}
+				byName[group] = g
+				out = append(out, g)
+			}
+
+			byRun[task.RunID] = g
+		}
+
+		g.tasks = append(g.tasks, queued{id: id, runCreated: created[task.RunID]})
+	}
+
+	return out, nil
+}
+
+// nextQueue is the group whose next Task is tried: of the groups with a Task
+// not yet tried this pass, the one with the lowest used / guarantee, where
+// used counts its unsettled Dispatches with those placed in this pass; equal
+// ratios go to the group whose next Task's Run is older, then to the smaller
+// group id. nil when every Task was tried. From YARN's
+// PriorityUtilizationQueueOrderingPolicy, lowest used capacity relative to
+// the guarantee first (PriorityUtilizationQueueOrderingPolicy.java:69-74),
+// sorted again for each container (:251-259) and a queue with nothing pending
+// skipped (AbstractLeafQueue.java:1199-1212); Kueue's classic order puts work
+// under its nominal quota first, then FIFO (scheduler.go:1322-1345).
+//
+// A Task that fits nowhere does not hold the room: it waits, and the next
+// Task, of its group or another, is tried, as Kueue's default BestEffortFIFO
+// (clusterqueue_types.go:98-110; the owner's answer, 2026-11-17).
+func nextQueue(queues []*queue, used map[string]int) *queue {
+	var best *queue
+
+	for _, g := range queues {
+		if len(g.tasks) == 0 {
+			continue
+		}
+
+		if best == nil || before(g, best, used) {
+			best = g
+		}
+	}
+
+	return best
+}
+
+// before reports whether group a goes before group b: its used / guarantee
+// compared exactly, as fractions, then the older Run, then the smaller id.
+func before(a, b *queue, used map[string]int) bool {
+	if l, r := used[a.group]*b.guarantee, used[b.group]*a.guarantee; l != r {
+		return l < r
+	}
+
+	// Two Tasks are never at one place in the pass's list, so the place cannot
+	// say which Run is older: when the Runs were created can tie (PR #759).
+	if a.tasks[0].runCreated != b.tasks[0].runCreated {
+		return a.tasks[0].runCreated < b.tasks[0].runCreated
+	}
+
+	return a.group < b.group
+}
+
+// scheduleTask gives a ready Task a Dispatch, or records why it waits.
 func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64, p *placement, taskID string,
 	out *Scheduled,
 ) error {
 	task, err := q.GetTask(ctx, taskID)
 	if err != nil {
 		return notFound(err, "task", taskID)
-	}
-
-	group, limit, err := runGroup(ctx, q, task.RunID)
-	if err != nil {
-		return err
-	}
-
-	// A Bot at its limit waits for one of its own Dispatches to settle; the other Bots' Tasks go on.
-	if p.groups[group] >= limit {
-		return s.wait(ctx, q, now, task, ReasonBotAtLimit+group, out)
 	}
 
 	r, err := resolve(ctx, q, task)
@@ -94,7 +199,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
-	spec, reason, err := placeTask(ctx, q, p, task, r, host)
+	spec, reason, err := placeTask(ctx, q, p, task, r, host.asking(r))
 	if err != nil {
 		return err
 	}
@@ -211,9 +316,9 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 			return nil, r, err
 		}
 
-		spec, _ := placeNew(p, task, b, host)
+		spec, _ := placeNew(p, task, b, host.asking(b))
 		if started {
-			spec = placeHandoff(p, conv, b, host)
+			spec = placeHandoff(p, conv, b, host.asking(b))
 		}
 
 		if spec != nil {
@@ -269,9 +374,9 @@ func runBot(ctx context.Context, q *store.Queries, runID string) (string, Bot, b
 }
 
 // runGroup is the group a Run's Dispatches count in (issue #660), its Bot's
-// id or "" for the owner's Runs without a Bot, and the group's limit: the
-// Bot's own, else BotDispatchesDefault. CountActiveDispatchesPerBot groups
-// the same way.
+// id or "" for the owner's Runs without a Bot, and the group's guarantee
+// (issue #731): the Bot's own, else BotGuaranteeDefault.
+// CountActiveDispatchesPerBot groups the same way.
 func runGroup(ctx context.Context, q *store.Queries, runID string) (string, int, error) {
 	id, bot, found, err := runBot(ctx, q, runID)
 	if err != nil {
@@ -279,10 +384,10 @@ func runGroup(ctx context.Context, q *store.Queries, runID string) (string, int,
 	}
 
 	if !found {
-		return id, BotDispatchesDefault, nil
+		return id, BotGuaranteeDefault, nil
 	}
 
-	return id, bot.DispatchLimit(), nil
+	return id, bot.Guarantee(), nil
 }
 
 // placeHandoff is where a backup takes over a Conversation's work: on its
@@ -366,8 +471,13 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNeedsGateway, nil
 		}
 
+		// It runs on its own node, where its worktree is, and its request must fit there (issue #731).
 		if p.atLimit(conv.NodeID, conv.Runtime, host) {
 			return nil, ReasonNodesFull, nil
+		}
+
+		if p.tooSmall(conv.NodeID, conv.Runtime, host) {
+			return nil, ReasonNoNodeFits, nil
 		}
 
 		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
@@ -414,6 +524,10 @@ func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchS
 
 		if runtime != "" && p.anyLowMemory(runtime, host) {
 			return nil, ReasonNodesLowMemory
+		}
+
+		if runtime != "" && p.anyTooSmall(runtime, host) {
+			return nil, ReasonNoNodeFits
 		}
 
 		return nil, ReasonNoNode
@@ -475,11 +589,10 @@ func (s *Service) wait(ctx context.Context, q *store.Queries, now int64, task st
 }
 
 // resolvesByItself reports whether a wait ends without anyone acting: a
-// cooling account, a Bot at its limit, every fitting node at its own. Such a
-// wait is not escalated.
+// cooling account, or every node that could run it full now. Such a wait is
+// not escalated.
 func resolvesByItself(reason string) bool {
-	return reason == "" || reason == ReasonAccountsCooling || reason == ReasonNodesFull ||
-		strings.HasPrefix(reason, ReasonBotAtLimit)
+	return reason == "" || reason == ReasonAccountsCooling || reason == ReasonNodesFull
 }
 
 // unplaceable escalates a Task that has waited UnplaceableAfter for a node or

@@ -297,6 +297,33 @@ function Builder({
         <FieldDescription>The CLI a worker of this agent is, on a machine.</FieldDescription>
       </Field>
 
+      <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-3">
+          <Field>
+            <FieldLabel htmlFor="profile-cpu">CPU request</FieldLabel>
+            <Input
+              id="profile-cpu"
+              placeholder="1"
+              value={draft.cpu}
+              onChange={(event) => set({ cpu: event.target.value })}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="profile-memory">Memory request</FieldLabel>
+            <Input
+              id="profile-memory"
+              placeholder="3Gi"
+              value={draft.memory}
+              onChange={(event) => set({ memory: event.target.value })}
+            />
+          </Field>
+        </div>
+        <FieldDescription>
+          What a worker asks of a machine: a Task goes only where it fits. Cores (0.5) or millicores
+          (500m); memory as 512Mi or 3Gi. Empty is 1 core and 3Gi, sized for building.
+        </FieldDescription>
+      </div>
+
       <ModelField
         id="profile-model"
         model={draft.model}

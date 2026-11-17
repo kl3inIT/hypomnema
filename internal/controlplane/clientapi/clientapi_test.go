@@ -589,6 +589,7 @@ func (w *world) askFromAWorker(c *openapi.ClientWithResponses, runID, text strin
 	require.NoError(w.t, err)
 	require.NoError(w.t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{
 		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
+		System: orchestration.SystemInfo{CPUs: 8, MemoryBytes: 16 << 30}, // its size, which every hello says (issue #731)
 	}))
 	// The starting profiles run under the Claude subscription, served under an account the control plane keeps.
 	_, err = w.svc.AddTokenAccount(ctx, "claude", "personal", func(id string) string { return "vault:" + id })
@@ -1642,7 +1643,7 @@ func TestOnlyTheOwnerChangesNodes(t *testing.T) {
 	created, err := owner.CreateNodeWithResponse(ctx, openapi.NewNode{Name: "zm", MaxDispatches: &limit})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
-	assert.Equal(t, 3, created.JSON201.Node.MaxDispatches)
+	assert.Equal(t, ptr(3), created.JSON201.Node.MaxDispatches)
 
 	require.NotNil(t, created.JSON201.Token)
 

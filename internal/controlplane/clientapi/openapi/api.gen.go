@@ -2503,14 +2503,14 @@ type Bot struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Effort      *string   `json:"effort,omitempty"`
 
+	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
+	GuaranteedDispatches int `json:"guaranteed_dispatches"`
+
 	// Id The Bot's id, which never changes; every record that names the Bot names this.
 	Id string `json:"id"`
 
 	// Main The main Bot: always there, never removed, a chat that names no Bot talks with it, and it alone changes Bots and profiles from its chat.
 	Main bool `json:"main"`
-
-	// MaxDispatches How many of the Bot's workers run at once, across every node (issue #660): the unsettled Dispatches of the Runs it made. 4 unless the Bot sets its own.
-	MaxDispatches int `json:"max_dispatches"`
 
 	// Memory What the Bot keeps across chats, one entry per line.
 	Memory string `json:"memory"`
@@ -2579,11 +2579,11 @@ type BotSettings struct {
 	Connections *AllowList `json:"connections,omitempty"`
 	Effort      *string    `json:"effort,omitempty"`
 
-	// MaxDispatches How many of the Bot's workers run at once; left out, the Bot keeps it, 4 for a new one.
-	MaxDispatches *int    `json:"max_dispatches,omitempty"`
-	Model         *string `json:"model,omitempty"`
-	Persona       *string `json:"persona,omitempty"`
-	Provider      *string `json:"provider,omitempty"`
+	// GuaranteedDispatches The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
+	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
+	Model                *string `json:"model,omitempty"`
+	Persona              *string `json:"persona,omitempty"`
+	Provider             *string `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of each Connection, as a whole: a Connection left out of the map is reached whole. Left out, the Bot keeps its scopes.
 	Scopes *map[string]ConnectionScope `json:"scopes,omitempty"`
@@ -4147,7 +4147,7 @@ type NewNode struct {
 	// Device With a provider, a machine that holds an Android emulator: at AWS a size with nested virtualization and at least 40 GiB of disk; its first boot installs what the emulator needs. Left out, a plain machine.
 	Device *NewNodeDevice `json:"device,omitempty"`
 
-	// MaxDispatches Dispatches the node runs at once; left out, the default.
+	// MaxDispatches The node's optional cap on the Dispatches it runs at once; left out, none: the requests of its Dispatches against its allocatable decide (issue #731).
 	MaxDispatches *int   `json:"max_dispatches,omitempty"`
 	Name          string `json:"name"`
 
@@ -4257,9 +4257,12 @@ type NewTokenAccountRuntime string
 // Node defines model for Node.
 type Node struct {
 	// Active Its Dispatches that have not settled.
-	Active    int       `json:"active"`
-	Connected bool      `json:"connected"`
-	CreatedAt time.Time `json:"created_at"`
+	Active int `json:"active"`
+
+	// Allocatable An amount of CPU and memory (issue
+	Allocatable Resources `json:"allocatable"`
+	Connected   bool      `json:"connected"`
+	CreatedAt   time.Time `json:"created_at"`
 
 	// Device The device the node said at its last connect that it holds, as its own configuration names it. Left out for a node that holds none.
 	Device *NodeDevice `json:"device,omitempty"`
@@ -4273,10 +4276,18 @@ type Node struct {
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 
 	// Machine Set for a node whose machine was created at a provider; left out for one the owner installed. Removing the node destroys the machine.
-	Machine       *NodeMachine `json:"machine,omitempty"`
-	MaxDispatches int          `json:"max_dispatches"`
-	Name          string       `json:"name"`
-	Runtimes      []Runtime    `json:"runtimes"`
+	Machine *NodeMachine `json:"machine,omitempty"`
+
+	// MaxDispatches The node's optional cap on the Dispatches it runs at once; left out for none, when the requests of its Dispatches against its allocatable decide (issue #731).
+	MaxDispatches *int   `json:"max_dispatches,omitempty"`
+	Name          string `json:"name"`
+
+	// Requested An amount of CPU and memory (issue
+	Requested Resources `json:"requested"`
+
+	// Reserved An amount of CPU and memory (issue
+	Reserved Resources `json:"reserved"`
+	Runtimes []Runtime `json:"runtimes"`
 
 	// Stats The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
 	Stats  *NodeStats `json:"stats,omitempty"`
@@ -4302,9 +4313,12 @@ type NodeStatus string
 
 // NodeChange What changes of a node; what is left out stays.
 type NodeChange struct {
-	// MaxDispatches Dispatches the node runs at once (issue #660). The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
+	// MaxDispatches The node's optional cap on the Dispatches it runs at once (issues #660, #731); 0 for none. The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
 	MaxDispatches *int    `json:"max_dispatches,omitempty"`
 	Name          *string `json:"name,omitempty"`
+
+	// Reserved An amount of CPU and memory (issue
+	Reserved *Resources `json:"reserved,omitempty"`
 }
 
 // NodeGPU One GPU's latest measurement, as Beszel's GPUData.
@@ -4416,7 +4430,10 @@ type Profile struct {
 
 	// AvailableAt With `accounts_cooling`, when the first account is free again.
 	AvailableAt *time.Time `json:"available_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+
+	// CpuRequestMillis What a worker of the profile asks of a node's CPU, in thousandths of a core, from its YAML's requests.cpu (issue #731); left out, the default for building work, 1000.
+	CpuRequestMillis *int64    `json:"cpu_request_millis,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 
 	// Description What the profile is for; empty for versions applied before descriptions.
 	Description string  `json:"description"`
@@ -4425,10 +4442,13 @@ type Profile struct {
 	// Fallbacks The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
 	Fallbacks   []string `json:"fallbacks"`
 	Instruction *string  `json:"instruction,omitempty"`
-	Model       *string  `json:"model,omitempty"`
-	Name        string   `json:"name"`
-	Provider    *string  `json:"provider,omitempty"`
-	Runtime     string   `json:"runtime"`
+
+	// MemoryRequestBytes What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
+	MemoryRequestBytes *int64  `json:"memory_request_bytes,omitempty"`
+	Model              *string `json:"model,omitempty"`
+	Name               string  `json:"name"`
+	Provider           *string `json:"provider,omitempty"`
+	Runtime            string  `json:"runtime"`
 
 	// Skills The skills its workers get beside those given to everyone.
 	Skills []string `json:"skills"`
@@ -4544,6 +4564,13 @@ type Repo struct {
 // RepoList defines model for RepoList.
 type RepoList struct {
 	Data []Repo `json:"data"`
+}
+
+// Resources An amount of CPU and memory (issue
+type Resources struct {
+	// CpuMillis CPU in thousandths of a core.
+	CpuMillis   int64 `json:"cpu_millis"`
+	MemoryBytes int64 `json:"memory_bytes"`
 }
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
@@ -5253,7 +5280,7 @@ type Task struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
@@ -5293,7 +5320,7 @@ type TaskDetail struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 

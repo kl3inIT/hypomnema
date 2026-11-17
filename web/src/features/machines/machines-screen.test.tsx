@@ -243,6 +243,7 @@ test("the table hides its low-value columns until the owner shows them", async (
     load: false,
     agent: true,
     source: false,
+    requested: false,
     cpu: false,
   })
 })
@@ -682,9 +683,10 @@ test("a machine is renamed from its menu", async () => {
   ])
 })
 
-// Scenario: the owner changes how many Dispatches a machine runs at once from its menu (issue #660). The dialog
-// starts from the machine's number and cannot send it unchanged; a new number is sent and the dialog closes.
-test("a machine's limit is changed from its menu", async () => {
+// Scenario: the owner changes a machine's optional cap from its menu (issues #660, #731). The dialog starts from the
+// machine's number and cannot send it unchanged; a new number is sent and the dialog closes; emptied, it sends 0,
+// no cap.
+test("a machine's cap is changed from its menu", async () => {
   const user = userEvent.setup()
   const requests = nodesServer([node("stc-hy-app")], {
     "PATCH /nodes/stc-hy-app": () => json(node("stc-hy-app", { max_dispatches: 6 })),
@@ -692,7 +694,7 @@ test("a machine's limit is changed from its menu", async () => {
   await open()
 
   await user.click(await screen.findByRole("button", { name: "Actions for stc-hy-app" }))
-  await user.click(await screen.findByRole("menuitem", { name: "Change limit" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Change cap" }))
 
   const dialog = await screen.findByRole("dialog")
   const input = within(dialog).getByLabelText(/Max Dispatches/)
@@ -705,6 +707,14 @@ test("a machine's limit is changed from its menu", async () => {
 
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   expect(requests).toEqual([{ call: "PATCH /nodes/stc-hy-app", body: { max_dispatches: 6 } }])
+
+  await user.click(await screen.findByRole("button", { name: "Actions for stc-hy-app" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Change cap" }))
+  await user.clear(within(await screen.findByRole("dialog")).getByLabelText(/Max Dispatches/))
+  await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save" }))
+
+  await vi.waitFor(() => expect(requests).toHaveLength(2))
+  expect(requests[1]).toEqual({ call: "PATCH /nodes/stc-hy-app", body: { max_dispatches: 0 } })
 })
 
 const GiB = 2 ** 30

@@ -223,7 +223,7 @@ sequenceDiagram
     participant W as Worker
     participant G as Git host
     C->>CP: create a Run (repository, base branch), then Tasks with dependencies
-    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room under its own limit and 1 GiB of memory available,<br/>an account or a gateway model, while its Bot runs fewer workers than its limit (4 by default)
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room for its request (and under its cap, if set) and 1 GiB of memory available,<br/>an account or a gateway model; the Bot furthest below its guaranteed share goes first
     CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
     N->>CP: accept (new epoch, 90 s lease)
     N->>N: fetch the skills, add the Task's worktree, start the shim
@@ -1000,11 +1000,12 @@ sequenceDiagram
     calls in chats", saved on change), in `PUT /bots/{name}` `tool_display` (left out, kept) and `hypomnema bots
     set --tool-display off|on|full`; a change from the coordinator's chat is undone with the rest of the Bot's
     settings.
-  - How many of a Bot's workers run at once (issue #660, migration 00100): `bots.max_dispatches`, 1 to 64, NULL for
-    the default 4 (the scheduler, above). It is set on the Bot's page ("Workers at once", saved with its button), in
-    `PUT /bots/{name}` `max_dispatches` (left out, kept; the Bot's answer has the number in force) and `hypomnema
-    bots set --max-dispatches N`; a change from the coordinator's chat is undone with the rest of the Bot's
-    settings.
+  - A Bot's guaranteed share of the room (issue #731, migration 00114; its limit, `max_dispatches`, from issue #660
+    and migration 00100 until 2026-11-17): `bots.guaranteed_dispatches`, 1 to 64, NULL for the default 4 (the
+    scheduler, below). It is set on the Bot's page ("Guaranteed workers", saved with its button), in
+    `PUT /bots/{name}` `guaranteed_dispatches` (left out, kept; the Bot's answer has the number in force) and
+    `hypomnema bots set --guarantee N`; a change from the coordinator's chat is undone with the rest of the Bot's
+    settings (its setup-change record keeps the key `max_dispatches`).
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
     `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
     the owner replaces a whole memory.
@@ -1552,28 +1553,48 @@ flowchart LR
   and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
   `reviewer-codex.yaml` carries the same text, and a reviewer the owner applied gets it by applying that file again.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
-  commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
-  desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
-  a question included, a gated one not:
-  - a Bot's (migration 00100, `bots.max_dispatches`, `BotDispatchesDefault` 4 when unset; from OpenMausBot's
-    `threads.maxConcurrentPerBot`, `server/bot-thread-limits.ts`, the 4 the owner's, 2026-11-16): the Dispatches of
-    the Runs it made, the Bot found as `runBotGives` finds it (the Run's `bot_id`, else, for a Run a coordinator made
-    in a chat, that chat's Bot). The owner's Runs without a Bot count together as one more group with the default
-    (inference: no reference has that case);
-  - a node's own `max_dispatches` (from Coder's provisioner daemons per machine, `provisionerd/provisionerd.go`: any
-    machine with room takes the next job). The owner changes it after the node was added: `PATCH /nodes/{node_id}`
-    `max_dispatches` (1 to 64), `hypomnema nodes set <node> --max N`, and Change limit in a machine's menu on the
-    Machines page; the next pass places by it, and Dispatches running over a lower number go on.
+  commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
+  requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
+  one, fit its **allocatable** in CPU and in memory both (Kubernetes' `NodeResourcesFit`, Nomad's `AllocsFit`):
+  - a node's capacity is what its hello says, `nodes.cpus` and `nodes.memory_bytes`; its allocatable is
+    `cpus × 1000 − reserved_cpu_millis` millicores and `memory_bytes − reserved_memory_bytes − 1 GiB`
+    (`NodeMemoryFloor`, folded in as the kubelet folds its eviction threshold), never below 0. The reserves are
+    the owner's, 0 by default (the kubelet's system-reserved, Nomad's client `reserved`): `PATCH /nodes/{node_id}`
+    `reserved`, `hypomnema nodes set <node> --reserve-cpu C --reserve-memory M` (a part left out keeps what the node
+  has, read in the write's transaction). A change of a node's name, cap and reserve (`UpdateNode`) is checked whole
+  before anything is written and written in one transaction. A node that never said its size
+    has no capacity and takes work only under a cap;
+  - a Dispatch's request is its profile version's `cpu_request_millis` and `memory_request_bytes` (the YAML's
+    `requests: {cpu: 500m, memory: 512Mi}`), each the default for building work when unset
+    (`DefaultCPURequestMillis` 1000, `DefaultMemoryRequest` 3 GiB, from the repository's checks measured on
+    stc-hy-app); migration 00114 gives the seeded `explorer` 0.5 core and 512 MiB. The request is copied onto the
+    Dispatch (`dispatches.cpu_millis`, `memory_bytes`), so editing a profile does not change what runs;
+  - `nodes.max_dispatches` is an optional cap, NULL for none (Nomad's `node_max_allocs`); migration 00114 cleared
+    every node's, and the owner sets one again with `PATCH /nodes/{node_id}` `max_dispatches` (0 clears it),
+    `hypomnema nodes set <node> --max N|none`, or Change cap in a machine's menu on the Machines page. The next pass
+    places by it, and Dispatches running over a smaller room go on.
 
-  The coordinator's `CreateDispatch` meets both and checks. Ready Tasks of open Runs go oldest Run first, then
-  by position, and the pass goes through every one of them; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
-  records the model, the effort and that version; its worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node, once that node is active, connected, not
-  unavailable and below its limit; a new one goes to the node of those with the most free capacity that has the
-  runtime and a worktree root (issue #731): its score is the mean of its free shares of slots (`1 - active/max_dispatches`),
-  CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated averages
-  free shares; the highest wins, ties go to more free slots by count, then the smaller id, and each Dispatch a pass
-  places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`), or never reported, count 0
-  for CPU and memory: the node ranks last but is not refused (Trimaran). A node whose fresh stats show less than
+  The Bots share the room. Each Bot's group (the Run's `bot_id`, else, for a Run a coordinator made in a chat, that
+  chat's Bot; the owner's Runs without a Bot are one more group, inference) has a **guaranteed share**,
+  `bots.guaranteed_dispatches` (`BotGuaranteeDefault` 4 when unset), counted in unsettled Dispatches. It is no cap:
+  a Bot may borrow any room that fits (Kueue's `nominalQuota` with no `borrowingLimit`; YARN's `capacity` under a
+  `maximum-capacity` of 100 %). A pass orders the groups with ready Tasks by used / guarantee, lowest first, places
+  one Task of the lowest (its oldest Run first, then by position) and orders them again; equal ratios go to the
+  older Run, then the group id (YARN's `PriorityUtilizationQueueOrderingPolicy`). A Task that fits nowhere does not
+  hold the room: the next Task, of its group or another, is tried (Kueue's `BestEffortFIFO`; the owner, 2026-11-17).
+  Nothing running is ever stopped or requeued to make room (Kueue's, YARN's and Nomad's preemption off by default).
+  The coordinator's `CreateDispatch` meets the same fit. The runtime, model and effort are the Task's own or its
+  profile's current version, and the Dispatch records the model, the effort, that version and the request; its
+  worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node,
+  once that node is active, connected, not unavailable and has room for its request; a new one goes to the node of
+  those with the most free capacity that has the runtime and a worktree root (issue #731): its score is the mean of
+  its free share by requests (the mean of `1 − requested/allocatable` over CPU and memory, the new Dispatch
+  counted), CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated
+  averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id,
+  and each Dispatch a pass places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`),
+  or never reported, or a node that never said its memory, count 0 for its measured CPU and memory shares, so only
+  its free share by requests scores it; it is not refused (Trimaran scores a node without metrics at the minimum),
+  and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
   1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
   continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
   gateway serves), in
@@ -1582,14 +1603,17 @@ flowchart LR
   Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
-  cleared when its Dispatch is made: `bot_at_limit:<bot id>` (nothing after the colon for the owner's Runs),
-  `nodes_full` (a node could run it but every such node is at its limit), `accounts_cooling`, `nodes_low_memory`
-  (a node could run it but every such node not at its limit has under 1 GiB available; escalated like `no_node`),
-  `no_node`, `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first three resolve by
-  themselves and are never escalated. The API's Task has it as `waiting_reason` while the Task is ready;
-  `hypomnema tasks show` and `runs show` print it as a sentence, and the web says it under a queued Task in a
-  chat's docked Run and on the Task's panel ("Waiting: vmap already runs 4 of 4 workers", "Waiting: every machine
-  that can run it is busy").
+  cleared when its Dispatch is made: `nodes_full` (a node could run it and would fit it empty, but every such node
+  is full now, by requests or by its cap), `accounts_cooling`, `nodes_low_memory` (a node could run it but every
+  such node with room has under 1 GiB available; escalated like `no_node`), `no_node_fits` (its request is larger
+  than the allocatable of every node that could run it, Kubernetes' `Unresolvable`; escalated like `no_node`),
+  `no_node`, `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first two
+  resolve by themselves and are never escalated (`bot_at_limit:<bot id>` went with the Bot limit, 2026-11-17). The
+  API's Task has it as `waiting_reason` while the Task is ready; `hypomnema tasks show` and `runs show` print it as
+  a sentence, and the web says it under a queued Task in a chat's docked Run and on the Task's panel ("Waiting:
+  every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
+  `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
+  the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
   A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
@@ -2099,8 +2123,9 @@ flowchart LR
       `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
-      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
-      its path) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
+      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
+      type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
+      omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760)) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
       owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
       again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
       his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
@@ -3546,8 +3571,10 @@ The owner's commands:
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
   - `nodes rename <node> <new name>` gives a node another name (`PATCH /nodes/{node_id}`, owner only): its id, its
     tokens and what it runs stay, and the name of another node that is not removed is refused;
-  - `nodes set <node> --max N` changes how many Dispatches the node runs at once (`PATCH /nodes/{node_id}`
-    `max_dispatches`, owner only; issue #660);
+  - `nodes set <node> [--max N|none] [--reserve-cpu C] [--reserve-memory M]` sets or clears the node's optional cap
+    and what is kept back from its CPUs and memory (`PATCH /nodes/{node_id}` `max_dispatches` and `reserved`, owner
+    only; issues #660, #731); `nodes list` shows each node's running count of its cap and what is requested of its
+    allocatable;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
   - `machines providers add <name> --kind aws --key vault:<secret>|aws:<role> --region R --size S [--max N]

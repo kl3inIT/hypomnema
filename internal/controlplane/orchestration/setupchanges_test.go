@@ -429,3 +429,39 @@ func TestChangesInOneMillisecondKeepTheOrderTheyWereMade(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "You answer about maps.", vmap.Persona, "the later change is undone")
 }
+
+// Scenario: a profile that asks for its own CPU and memory is changed from a
+// chat and the change undone (PR #759). What it was comes back with its
+// requests, not the defaults.
+func TestUndoingAProfileChangeKeepsItsRequests(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	const heavy = "name: heavy\ndescription: d\nruntime: claude\nmodel: {provider: claude-subscription}\n"
+
+	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "", heavy+"requests: {cpu: 1.5, memory: 6Gi}\n")
+	require.NoError(t, err)
+
+	_, _, err = w.s.ApplyProfileFromChat(ctx, chat.ID, "", heavy)
+	require.NoError(t, err)
+
+	changed, err := w.s.GetProfile(ctx, "heavy")
+	require.NoError(t, err)
+	require.Equal(t, [2]int64{0, 0}, [2]int64{changed.CPURequestMillis, changed.MemoryRequestBytes})
+
+	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, changes, 2)
+
+	_, err = w.s.UndoSetupChange(ctx, changes[1].ID)
+	require.NoError(t, err)
+
+	restored, err := w.s.GetProfile(ctx, "heavy")
+	require.NoError(t, err)
+	assert.Equal(t, [2]int64{1500, 6 << 30}, [2]int64{restored.CPURequestMillis, restored.MemoryRequestBytes})
+}
