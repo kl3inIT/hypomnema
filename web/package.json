@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "doctor": "react-doctor . --no-telemetry --no-supply-chain --verbose --yes",
     "check": "pnpm lint && pnpm knip && pnpm format:check && pnpm typecheck && pnpm test:unit",
-    "generate:api": "openapi-ts"
+    "generate:api": "openapi-ts",
+    "icons": "node scripts/render-icons.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

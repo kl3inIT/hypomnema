@@ -3286,6 +3286,243 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AudioSpeech" }
         default: { $ref: "#/components/responses/Error" }
+  /meetings:
+    get:
+      operationId: ListMeetings
+      summary: The meetings, the newest first
+      description: With q, those whose title or transcript holds it.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: The meetings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: UploadMeeting
+      summary: Upload a meeting's recording, at most 128 MB; only the owner
+      description: >-
+        The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the
+        background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings
+        then writes the notes in the format asked. The meeting is answered at once, transcribing.
+      parameters:
+        - name: file_name
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+        - name: media_type
+          in: query
+          description: The recording's type, such as audio/mpeg; absent, it is told from its bytes.
+          schema: { type: string, maxLength: 100 }
+        - name: language
+          in: query
+          description: An ISO 639-1 code, such as vi; absent, the provider finds it.
+          schema: { type: string, pattern: "^[a-z]{2}$" }
+        - name: title
+          in: query
+          description: Absent, the notes write one.
+          schema: { type: string, maxLength: 200 }
+        - name: people
+          in: query
+          description: Who was in the meeting; they help name the speakers.
+          schema: { type: array, maxItems: 30, items: { type: string, maxLength: 100 } }
+        - name: terms
+          in: query
+          description: Words to hear right, such as names and jargon, given to the speech-to-text provider.
+          schema: { type: array, maxItems: 100, items: { type: string, maxLength: 100 } }
+        - name: format
+          in: query
+          description: The notes format's id (GET /meeting-settings lists them); absent, general.
+          schema: { type: string, maxLength: 40 }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: The meeting, transcribing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meeting" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+    get:
+      operationId: GetMeeting
+      summary: A meeting with its transcript, notes, decisions and actions
+      responses:
+        "200":
+          description: The meeting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingDetail" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteMeeting
+      summary: Delete a meeting with its recording, transcript and notes; only the owner
+      responses:
+        "204": { description: The meeting is deleted. }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/recording:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+    get:
+      operationId: GetMeetingRecording
+      summary: A meeting's recording, as uploaded
+      description: A Range request is answered 206 with that part, so that a player seeks.
+      responses:
+        "200":
+          description: The recording, with its type as uploaded.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/notes:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+    post:
+      operationId: WriteMeetingNotes
+      summary: Write a meeting's notes again, in a format; only the owner
+      description: Refused (conflict) while they are being written or before the meeting is transcribed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WriteMeetingNotesRequest" }
+      responses:
+        "202":
+          description: The meeting, its notes being written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meeting" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/speakers/{label}:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+      - name: label
+        in: path
+        required: true
+        description: The voice's label.
+        schema: { type: string, minLength: 1, maxLength: 32 }
+    put:
+      operationId: NameMeetingSpeaker
+      summary: Name a voice for the whole meeting; only the owner
+      description: >-
+        A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An
+        empty name gives the voice back its number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpeakerName" }
+      responses:
+        "200":
+          description: The meeting as it is now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/lines/{n}/speaker:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+      - name: n
+        in: path
+        required: true
+        description: The line's number.
+        schema: { type: integer, minimum: 1 }
+    put:
+      operationId: SetMeetingLineSpeaker
+      summary: Say who spoke one line; only the owner
+      description: The line is given to the voice of the meeting with that name, or to a new voice made for it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpeakerName" }
+      responses:
+        "200":
+          description: The meeting as it is now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/items/{item_id}:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+      - name: item_id
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    patch:
+      operationId: UpdateMeetingItem
+      summary: Mark an action done or not done; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingItemUpdate" }
+      responses:
+        "200":
+          description: The action.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingItem" }
+        default: { $ref: "#/components/responses/Error" }
+  /meeting-actions:
+    get:
+      operationId: ListMeetingActions
+      summary: The actions of every meeting, the newest meeting first
+      parameters:
+        - name: who
+          in: query
+          description: Only this person's, by the name shown.
+          schema: { type: string, maxLength: 100 }
+        - name: state
+          in: query
+          description: Open, done, or all (the default).
+          schema: { type: string, enum: [open, done, all] }
+      responses:
+        "200":
+          description: The actions, and everyone who has one.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingActionList" }
+        default: { $ref: "#/components/responses/Error" }
+  /meeting-settings:
+    get:
+      operationId: GetMeetingSettings
+      summary: The model that writes notes, and the notes formats
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingSettings" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: SetMeetingSettings
+      summary: Pick the model that writes notes; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingSettingsUpdate" }
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingSettings" }
+        default: { $ref: "#/components/responses/Error" }
   /chats:
     get:
       operationId: ListChats
@@ -3805,6 +4042,11 @@ components:
       type: http
       scheme: bearer
   parameters:
+    MeetingID:
+      name: meeting_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^mtg_[a-z0-9]{1,40}$" }
     AccountID:
       name: account_id
       in: path
@@ -7814,3 +8056,201 @@ components:
         has_more:
           type: boolean
           description: With before, whether older messages are left; always false with after.
+    MeetingState:
+      type: string
+      description: Where the meeting's transcription stands.
+      enum: [transcribing, transcribed, failed]
+    MeetingNotesState:
+      type: string
+      description: Where its notes stand; waiting is for the transcript.
+      enum: [waiting, writing, ready, failed]
+    MeetingSection:
+      type: object
+      required: [title, points]
+      properties:
+        title: { type: string }
+        points: { type: array, items: { type: string } }
+    MeetingNotes:
+      type: object
+      required: [format, state, summary, sections]
+      properties:
+        format: { type: string, description: The notes format's id. }
+        state: { $ref: "#/components/schemas/MeetingNotesState" }
+        failure: { type: string, description: Why writing them failed, and where to fix it. }
+        model: { type: string, description: The gateway model that wrote them. }
+        summary: { type: string }
+        sections:
+          type: array
+          description: The format's sections, in its order.
+          items: { $ref: "#/components/schemas/MeetingSection" }
+        written_at: { type: string, format: date-time }
+    MeetingSpeaker:
+      type: object
+      required: [label, name, named, talk_ms, share]
+      properties:
+        label: { type: string, description: The voice's label, the provider's or m1, m2… for one the owner made. }
+        name: { type: string, description: The name shown, Speaker N until the owner names it. }
+        named: { type: boolean }
+        talk_ms: { type: integer, format: int64, description: How long its lines last. }
+        share: { type: number, description: Its share of the meeting's talk, 0 to 1. }
+    Meeting:
+      type: object
+      required:
+        - id
+        - title
+        - titled
+        - people
+        - terms
+        - file_name
+        - media_type
+        - size
+        - duration_ms
+        - state
+        - created_at
+        - notes
+        - speakers
+        - actions
+        - open_actions
+      properties:
+        id: { type: string }
+        title: { type: string }
+        titled: { type: boolean, description: The owner gave the title; otherwise the notes wrote it. }
+        language: { type: string }
+        people: { type: array, items: { type: string } }
+        terms: { type: array, items: { type: string } }
+        file_name: { type: string }
+        media_type: { type: string }
+        size: { type: integer, format: int64 }
+        duration_ms: { type: integer, format: int64 }
+        state: { $ref: "#/components/schemas/MeetingState" }
+        failure: { type: string, description: Why hearing it failed, and where to fix it. }
+        provider: { type: string, description: The speech-to-text provider that heard it. }
+        model: { type: string }
+        created_at: { type: string, format: date-time }
+        notes: { $ref: "#/components/schemas/MeetingNotes" }
+        speakers: { type: array, items: { $ref: "#/components/schemas/MeetingSpeaker" } }
+        actions: { type: integer }
+        open_actions: { type: integer }
+    MeetingList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Meeting" }
+    MeetingLine:
+      type: object
+      required: [n, start_ms, end_ms, speaker, heard, text]
+      properties:
+        n: { type: integer }
+        start_ms: { type: integer, format: int64 }
+        end_ms: { type: integer, format: int64 }
+        speaker: { type: string, description: The label of the voice it is shown as. }
+        heard: { type: string, description: The label the provider heard it as. }
+        text: { type: string }
+    MeetingItemKind:
+      type: string
+      enum: [decision, action]
+    MeetingItem:
+      type: object
+      required: [id, kind, text, done]
+      properties:
+        id: { type: string }
+        kind: { $ref: "#/components/schemas/MeetingItemKind" }
+        text: { type: string }
+        owner: { type: string, description: Who does an action, as shown. }
+        owner_speaker: { type: string, description: The label of the voice that does it, when it is one. }
+        due: { type: string, description: The deadline in the words the meeting used. }
+        done: { type: boolean }
+        quote: { type: string, description: The sentence it rests on. }
+        line: { type: integer, description: The line it rests on. }
+        start_ms: { type: integer, format: int64, description: When that line was said. }
+    SpeakerSuggestion:
+      type: object
+      required: [label, name, line]
+      properties:
+        label: { type: string }
+        name: { type: string, description: The name the voice called itself. }
+        line: { type: integer, description: The line it said it in. }
+    MeetingDetail:
+      type: object
+      required: [meeting, lines, items, suggestions]
+      properties:
+        meeting: { $ref: "#/components/schemas/Meeting" }
+        lines: { type: array, items: { $ref: "#/components/schemas/MeetingLine" } }
+        items:
+          type: array
+          description: The decisions, then the actions, each in the notes' order.
+          items: { $ref: "#/components/schemas/MeetingItem" }
+        suggestions:
+          type: array
+          description: Names offered for unnamed voices, from the lines they introduced themselves in.
+          items: { $ref: "#/components/schemas/SpeakerSuggestion" }
+    WriteMeetingNotesRequest:
+      type: object
+      required: [format]
+      additionalProperties: false
+      properties:
+        format: { type: string, minLength: 1, maxLength: 40 }
+    SpeakerName:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 100 }
+    MeetingItemUpdate:
+      type: object
+      required: [done]
+      additionalProperties: false
+      properties:
+        done: { type: boolean }
+    MeetingAction:
+      type: object
+      required: [id, meeting_id, meeting_title, meeting_at, text, done]
+      properties:
+        id: { type: string }
+        meeting_id: { type: string }
+        meeting_title: { type: string }
+        meeting_at: { type: string, format: date-time }
+        text: { type: string }
+        who: { type: string, description: Who does it, as shown; absent for nobody named. }
+        due: { type: string }
+        done: { type: boolean }
+        quote: { type: string }
+        start_ms: { type: integer, format: int64 }
+    MeetingActionList:
+      type: object
+      required: [data, people]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/MeetingAction" }
+        people:
+          type: array
+          description: Everyone who has an action, open or done, by the name shown.
+          items: { type: string }
+    MeetingFormatSection:
+      type: object
+      required: [title, about]
+      properties:
+        title: { type: string }
+        about: { type: string }
+    MeetingFormat:
+      type: object
+      required: [id, name, sections]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        sections: { type: array, items: { $ref: "#/components/schemas/MeetingFormatSection" } }
+    MeetingSettings:
+      type: object
+      required: [notes_model, formats]
+      properties:
+        notes_model: { type: string, description: The gateway chat model that writes notes; empty for none. }
+        formats: { type: array, items: { $ref: "#/components/schemas/MeetingFormat" } }
+    MeetingSettingsUpdate:
+      type: object
+      required: [notes_model]
+      additionalProperties: false
+      properties:
+        notes_model: { type: string, maxLength: 100 }

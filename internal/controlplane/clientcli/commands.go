@@ -826,6 +826,95 @@ var commands = []command{
 		flags:   jsonFlag, run: audioKeysRemove,
 	},
 	{
+		name: "meetings list", summary: "the meetings, the newest first, with where each stands",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("q", "", "only those whose title or transcript holds this")
+			fs.Int("limit", 0, "how many (default 200)")
+			jsonFlag(fs)
+		},
+		run: meetingsList,
+	},
+	{
+		name: "meetings show", args: "<meeting_id>", min: 1, max: 1,
+		summary: "a meeting: where it stands, its speakers, notes, decisions and actions",
+		flags: func(fs *flag.FlagSet) {
+			fs.Bool("transcript", false, "print its transcript too")
+			jsonFlag(fs)
+		},
+		run: meetingsShow,
+	},
+	{
+		name: "meetings upload", args: "<file>", min: 1, max: 1, long: true,
+		summary: "upload a meeting's recording (at most 128 MB); it is heard and written up in the background (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("language", "", "the meeting's language, an ISO-639-1 code such as vi (default: found)")
+			fs.String("title", "", "the meeting's title (default: written from the meeting)")
+			fs.String("people", "", "who was there, separated by commas; they help name the speakers")
+			fs.String("words", "", "words to hear right, such as names and jargon, separated by commas")
+			fs.String("format", "", "the notes format, as `meetings settings` lists them (default: general)")
+			jsonFlag(fs)
+		},
+		run: meetingsUpload,
+	},
+	{
+		name: "meetings rm", args: "<meeting_id>", min: 1, max: 1,
+		summary: "delete a meeting with its recording, transcript and notes (owner)", flags: jsonFlag,
+		run: meetingsRemove,
+	},
+	{
+		name: "meetings notes", args: "<meeting_id>", min: 1, max: 1,
+		summary: "write a meeting's notes again in a format (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("format", "", "the notes format, as `meetings settings` lists them (required)")
+			jsonFlag(fs)
+		},
+		run: meetingsNotes,
+	},
+	{
+		name: "meetings speaker", args: "<meeting_id> <label> <name>", min: 3, max: 3,
+		summary: "name a voice for the whole meeting; another voice's name merges the two, \"\" unnames it (owner)",
+		flags:   jsonFlag, run: meetingsSpeaker,
+	},
+	{
+		name: "meetings line", args: "<meeting_id> <n> <name>", min: 3, max: 3,
+		summary: "say who spoke one line of a meeting (owner)", flags: jsonFlag, run: meetingsLine,
+	},
+	{
+		name: "meetings done", args: "<meeting_id> <action_id>", min: 2, max: 2,
+		summary: "mark an action of a meeting done (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.Bool("undo", false, "mark it not done")
+			jsonFlag(fs)
+		},
+		run: meetingsDone,
+	},
+	{
+		name: "meetings actions", summary: "the actions of every meeting, the newest meeting first",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("who", "", "only this person's, by the name shown")
+			fs.String("state", "", "open, done or all (default all)")
+			jsonFlag(fs)
+		},
+		run: meetingsActions,
+	},
+	{
+		name: "meetings recording", args: "<meeting_id>", min: 1, max: 1, long: true,
+		summary: "save a meeting's recording",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("out", "", "the file to write (default its own name)")
+			jsonFlag(fs)
+		},
+		run: meetingsRecording,
+	},
+	{
+		name: "meetings settings", summary: "the model that writes notes and the notes formats; --notes-model sets it",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("notes-model", "", "the gateway chat model that writes notes; \"\" for none (owner)")
+			jsonFlag(fs)
+		},
+		run: meetingsSettings,
+	},
+	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
 		flags: jsonFlag, run: skillsList,
 	},

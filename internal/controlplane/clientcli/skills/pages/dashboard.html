@@ -6,11 +6,12 @@
 <title>Sales dashboard</title>
 <link rel="icon" href="data:,">
 <style>
+/* Tokens: every colour once, with its dark value (references/tokens.md). The charts read them through theme(). */
 :root {
   color-scheme: light;
-  --page: #f5f6f8; --surface: #ffffff; --border: #e3e5ea; --grid: #eceef1; --axis: #c9cdd4;
+  --page: #f5f6f8; --surface: #ffffff; --soft: #eff1f4; --border: #e3e5ea; --grid: #eceef1; --axis: #c9cdd4;
   --ink: #16181d; --ink-2: #4b5260; --muted: #646b78; --deemph: #c4c9d1;
-  --good: #1a7f37; --bad: #c62a2f; --accent: #0b6bcb;
+  --accent: #0b6bcb; --good: #1a7f37; --bad: #c62a2f; --warn: #9a6700; --tip: #1f2530;
   --series-1: #0b6bcb; --series-2: #c76a00; --series-3: #00866b; --series-4: #d1452b; --series-5: #8a5cc7; --series-6: #c2407e;
   --font: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --radius: 12px;
@@ -18,28 +19,32 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --page: #0f1115; --surface: #17191e; --border: #2a2e36; --grid: #23272e; --axis: #3a3f48;
+    --page: #0f1115; --surface: #17191e; --soft: #1f2228; --border: #2a2e36; --grid: #23272e; --axis: #3a3f48;
     --ink: #eceef2; --ink-2: #b4bac5; --muted: #8e96a3; --deemph: #3d434d;
-    --good: #3fb950; --bad: #f47067; --accent: #3a8ae8;
+    --accent: #3a8ae8; --good: #3fb950; --bad: #f47067; --warn: #e3a21a; --tip: #2a3548;
     --series-1: #3a8ae8; --series-2: #c97a00; --series-3: #109c7c; --series-4: #e0573a; --series-5: #9b78e0; --series-6: #d4568f;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #0f1115; --surface: #17191e; --border: #2a2e36; --grid: #23272e; --axis: #3a3f48;
+  --page: #0f1115; --surface: #17191e; --soft: #1f2228; --border: #2a2e36; --grid: #23272e; --axis: #3a3f48;
   --ink: #eceef2; --ink-2: #b4bac5; --muted: #8e96a3; --deemph: #3d434d;
-  --good: #3fb950; --bad: #f47067; --accent: #3a8ae8;
+  --accent: #3a8ae8; --good: #3fb950; --bad: #f47067; --warn: #e3a21a; --tip: #2a3548;
   --series-1: #3a8ae8; --series-2: #c97a00; --series-3: #109c7c; --series-4: #e0573a; --series-5: #9b78e0; --series-6: #d4568f;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { background: var(--page); color: var(--ink); font: 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
 .dash { max-width: 1200px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s6); display: grid; gap: var(--s4); }
+@media (min-width: 1800px) { .dash { max-width: 1640px; } }
 .head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--s3) var(--s5); }
+.title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
 h1 { font-size: 22px; line-height: 1.2; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
-h2 { font-size: 15px; line-height: 1.3; font-weight: 600; margin: 0; }
-.sub, .note { margin: var(--s1) 0 0; color: var(--ink-2); }
-.note { font-size: 13px; }
+h2 { font-size: 13px; line-height: 1.3; font-weight: 500; color: var(--ink-2); margin: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--ink-2); border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+.chip[hidden] { display: none; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+.chip.is-sample { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
 .filters { display: flex; flex-wrap: wrap; gap: var(--s3); }
 .filters label { display: grid; gap: 2px; font-size: 12px; font-weight: 550; color: var(--ink-2); }
 .select { position: relative; }
@@ -49,25 +54,32 @@ select:hover { border-color: var(--axis); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .status { display: flex; align-items: center; gap: var(--s2); padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); color: var(--ink-2); }
 .status[hidden] { display: none; }
-.status.is-error { color: var(--bad); border-color: currentColor; }
+.status.is-error { color: var(--bad); border-color: currentColor; background: color-mix(in srgb, var(--bad) 6%, var(--surface)); }
 .spinner { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid var(--grid); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 .is-error .spinner { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--s3); margin: 0; padding: 0; list-style: none; }
+@media (max-width: 400px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .kpi, .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); transition: opacity .2s; }
-.kpi { padding: var(--s4); }
-.kpi-label { margin: 0; font-size: 12px; font-weight: 550; color: var(--ink-2); }
-.kpi-value { margin: 6px 0 2px; font-size: 28px; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; }
+.kpi { padding: var(--s4); min-width: 0; }
+.kpi-label { margin: 0; font-size: 13px; color: var(--ink-2); }
+.kpi-value { margin: 6px 0 4px; font-size: 30px; line-height: 1.1; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 400px) { .kpi-value { font-size: 24px; } }
 .kpi-delta { margin: 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 17px; }
-.kpi-delta .up { color: var(--good); font-weight: 600; }
-.kpi-delta .down { color: var(--bad); font-weight: 600; }
+.up { color: var(--good); font-weight: 600; }
+.down { color: var(--bad); font-weight: 600; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
 @media (min-width: 760px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.card { margin: 0; padding: var(--s4); min-width: 0; }
+.card { margin: 0; padding: var(--s4) var(--s4) var(--s3); min-width: 0; }
 .wide { grid-column: 1 / -1; }
-.chart { height: 260px; margin-top: var(--s3); }
+.figure { margin: 2px 0 0; font-size: 20px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.figure small { font-size: 13px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
+.chart { height: 260px; margin-top: var(--s3); touch-action: pan-y; border-radius: 8px; }
 .chart svg { display: block; width: 100%; height: 100%; overflow: visible; font-variant-numeric: tabular-nums; }
 .is-updating .kpi, .is-updating .card { opacity: .55; }
+/* Loading: skeleton blocks the size of the final content. */
+.is-loading .kpi-value, .is-loading .figure { color: transparent; background: var(--soft); border-radius: 6px; width: 60%; }
+.is-loading .chart { background: var(--soft); }
 details { margin-top: var(--s2); font-size: 13px; }
 summary { width: fit-content; cursor: pointer; color: var(--ink-2); border-radius: 6px; }
 .table-wrap { overflow-x: auto; margin-top: var(--s3); }
@@ -76,20 +88,29 @@ caption { text-align: left; }
 th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .num { text-align: right; }
-.share { display: inline-block; width: 64px; height: 6px; margin-left: var(--s2); vertical-align: middle; border-radius: 3px; background: var(--grid); overflow: hidden; }
-.share > span { display: block; height: 100%; width: var(--w, 0); background: var(--accent); border-radius: 3px; }
+.share { display: inline-block; width: 64px; height: 3px; margin-left: var(--s2); vertical-align: middle; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.share > span { display: block; height: 100%; width: var(--w, 0); background: var(--accent); opacity: .75; border-radius: 3px; }
+.notes h2 { font-size: 15px; font-weight: 600; color: var(--ink); }
+.notes ul { margin: var(--s2) 0 var(--s1); padding-left: 20px; display: grid; gap: var(--s1); color: var(--ink-2); }
+.notes[hidden] { display: none; }
 .foot { margin: 0; font-size: 12px; color: var(--muted); }
+.tip { position: fixed; z-index: 10; left: 0; top: 0; max-width: 260px; padding: 6px 10px; border-radius: 8px; background: var(--tip); color: #fff; font-size: 12px; line-height: 1.4; white-space: pre-line; pointer-events: none; opacity: 0; transition: opacity .1s; }
+.tip.show { opacity: 1; }
 @media (max-width: 520px) { .optional, .share { display: none; } }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } * { transition: none !important; } }
 </style>
 </head>
 <body>
-<main class="dash" id="dash" aria-busy="true">
+<!-- One question: is revenue growing, and where? Tiles first, then the trend, the breakdowns, the detail table.
+     The main view has no sentences: labels, numbers and one- or two-word baselines. Explanations are tooltips
+     (data-tip) and aria labels; a report's notes go in the Notes section at the end (CONFIG.notes). -->
+<main class="dash is-loading" id="dash" aria-busy="true">
   <header class="head">
-    <div>
+    <div class="title">
       <h1>Sales</h1>
-      <p class="sub">Revenue, orders and best sellers</p>
+      <span class="chip" id="updated" hidden><span class="dot" aria-hidden="true"></span><span id="updated-text"></span></span>
+      <span class="chip is-sample" id="sample" hidden>Sample data</span>
     </div>
     <div class="filters" role="group" aria-label="Filters">
       <label>Region <span class="select"><select id="filter-region"><option value="">All regions</option></select></span></label>
@@ -100,41 +121,46 @@ th { font-size: 12px; font-weight: 600; color: var(--ink-2); }
   <div class="status" id="status" role="status"><span class="spinner" aria-hidden="true"></span><span id="status-text">Loading the data…</span></div>
 
   <ul class="kpis" aria-label="Key figures">
-    <li class="kpi"><p class="kpi-label">Revenue</p><p class="kpi-value" id="kpi-revenue">–</p><p class="kpi-delta" id="delta-revenue"></p></li>
-    <li class="kpi"><p class="kpi-label">Orders</p><p class="kpi-value" id="kpi-orders">–</p><p class="kpi-delta" id="delta-orders"></p></li>
-    <li class="kpi"><p class="kpi-label">Average order</p><p class="kpi-value" id="kpi-average">–</p><p class="kpi-delta" id="delta-average"></p></li>
-    <li class="kpi"><p class="kpi-label">Units sold</p><p class="kpi-value" id="kpi-units">–</p><p class="kpi-delta" id="delta-units"></p></li>
+    <li class="kpi" tabindex="0" data-tip="Revenue in the selected period and region"><p class="kpi-label">Revenue</p><p class="kpi-value" id="kpi-revenue">—</p><p class="kpi-delta" id="delta-revenue"></p></li>
+    <li class="kpi" tabindex="0" data-tip="Orders in the selected period and region"><p class="kpi-label">Orders</p><p class="kpi-value" id="kpi-orders">—</p><p class="kpi-delta" id="delta-orders"></p></li>
+    <li class="kpi" tabindex="0" data-tip="Revenue divided by orders"><p class="kpi-label">Average order</p><p class="kpi-value" id="kpi-average">—</p><p class="kpi-delta" id="delta-average"></p></li>
+    <li class="kpi" tabindex="0" data-tip="Units in the selected period and region"><p class="kpi-label">Units sold</p><p class="kpi-value" id="kpi-units">—</p><p class="kpi-delta" id="delta-units"></p></li>
   </ul>
 
   <section class="grid" aria-label="Charts">
     <figure class="card wide">
-      <h2>How is revenue trending?</h2>
-      <p class="note" id="note-trend">Revenue by month</p>
+      <h2>Revenue by month</h2>
+      <p class="figure" id="figure-trend">—</p>
       <div class="chart" id="chart-trend" role="img" aria-label="Revenue by month"></div>
       <details><summary>Show the numbers</summary><div class="table-wrap"><table id="numbers-trend"></table></div></details>
     </figure>
     <figure class="card">
-      <h2>Which regions sell the most?</h2>
-      <p class="note" id="note-regions">Revenue by region</p>
+      <h2>Revenue by region</h2>
+      <p class="figure" id="figure-regions">—</p>
       <div class="chart" id="chart-regions" role="img" aria-label="Revenue by region"></div>
       <details><summary>Show the numbers</summary><div class="table-wrap"><table id="numbers-regions"></table></div></details>
     </figure>
     <figure class="card">
-      <h2>Which categories are growing?</h2>
-      <p class="note" id="note-mix">Revenue by category and month</p>
+      <h2>Revenue by category</h2>
+      <p class="figure" id="figure-mix">—</p>
       <div class="chart" id="chart-mix" role="img" aria-label="Revenue by category and month"></div>
       <details><summary>Show the numbers</summary><div class="table-wrap"><table id="numbers-mix"></table></div></details>
     </figure>
   </section>
 
   <section class="card">
-    <h2>Best-selling products</h2>
-    <p class="note">Top 10 by revenue in the selected period</p>
+    <h2>Top 10 products</h2>
     <div class="table-wrap"><table id="table-top"></table></div>
+  </section>
+
+  <section class="card notes" id="notes" hidden aria-labelledby="notes-title">
+    <h2 id="notes-title">Notes</h2>
+    <ul id="notes-list"></ul>
   </section>
 
   <p class="foot" id="foot"></p>
 </main>
+<div class="tip" id="tip" role="tooltip"></div>
 
 <!-- The data: what `superset_chart_data` answered (its "columns" and "rows"), or an array of
      objects, as JSON. A page shown as one HTML file must stay under 256 KB in all. A folder page may
@@ -433,18 +459,22 @@ th { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 <script type="module">
 const CONFIG = {
   dataFile: "data.json",
-  source: "Orders by month, region and product (sample data)",
+  source: "Orders by month, region and product",
   updated: "2026-11-01T09:00:00Z",
   currency: "VND",
+  sample: true, // false for real data: the "Sample data" chip goes away
+  notes: [], // a report's notes, 3–5 short points about numbers on the page; empty for a dashboard
 };
-const PERIODS = [{ months: 3, label: "Last 3 months" }, { months: 6, label: "Last 6 months" }, { months: 12, label: "Last 12 months" }, { months: 0, label: "All time" }];
-const state = { region: "", months: 12 };
+const PERIODS = [{ months: 3, label: "Last 3 months", short: "prev 3 mo" }, { months: 6, label: "Last 6 months", short: "prev 6 mo" },
+  { months: 12, label: "Last 12 months", short: "prev 12 mo" }, { months: 0, label: "All time", short: "" }];
+const EMPTY = "No orders in this selection";
+// The default period is one the data covers twice, so every tile has its delta against the period before.
+const state = { region: "", months: 6 };
 
 const $ = (id) => document.getElementById(id);
 const fmt = {
   money: new Intl.NumberFormat(undefined, { style: "currency", currency: CONFIG.currency, maximumFractionDigits: 0 }),
   moneyShort: new Intl.NumberFormat(undefined, { style: "currency", currency: CONFIG.currency, notation: "compact", maximumFractionDigits: 1 }),
-  money2: new Intl.NumberFormat(undefined, { style: "currency", currency: CONFIG.currency, maximumFractionDigits: 2 }),
   int: new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }),
   short: new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }),
   pct: new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 }),
@@ -453,6 +483,8 @@ const fmt = {
   stamp: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }),
 };
 const monthLabel = (ym) => fmt.month.format(new Date(`${ym}-01T00:00:00Z`));
+/** No data is "—", never a fake 0. */
+const orDash = (v, f) => (v == null || !Number.isFinite(v) ? "—" : f(v));
 
 async function fetchData() {
   const embedded = $("embedded-data").textContent.trim();
@@ -513,18 +545,34 @@ function group(data, keys, values) {
   return [...out.values()];
 }
 const byMonth = (data) => data.map((r) => ({ ...r, month: r.date.slice(0, 7) }));
+const sum = (data, field) => data.reduce((total, d) => total + d[field], 0);
 
 const AGGREGATES = {
-  totals: (data) => group(data, [], ["revenue", "orders", "units"])[0] ?? { revenue: 0, orders: 0, units: 0 },
+  totals: (data) => (data.length ? group(data, [], ["revenue", "orders", "units"])[0] : null),
   trend: (data) => group(byMonth(data), ["month"], ["revenue"]).sort((a, b) => a.month.localeCompare(b.month)),
   regions: (data) => group(data, ["region"], ["revenue"]).sort((a, b) => b.revenue - a.revenue),
   mix: (data) => group(byMonth(data), ["month", "category"], ["revenue"]).sort((a, b) => a.month.localeCompare(b.month)),
   top: (data) => {
     const all = group(data, ["product", "category"], ["units", "revenue"]);
-    const total = all.reduce((sum, d) => sum + d.revenue, 0);
+    const total = sum(all, "revenue");
     return all.sort((a, b) => b.revenue - a.revenue).slice(0, 10).map((d) => ({ ...d, share: total ? d.revenue / total : 0 }));
   },
 };
+
+/**
+ * The numbers agree (references/qa.md, Known totals): each component is summed on its own and compared with the
+ * tiles. Extend it for each component you add. A mismatch shows one error note; agreement sets data-check="ok".
+ */
+function check(view) {
+  const total = view.totals?.revenue ?? 0, close = (a, b) => Math.abs(a - b) <= Math.max(1, Math.abs(b) * 1e-9);
+  const problems = [];
+  if (!close(sum(view.trend, "revenue"), total)) problems.push("the monthly revenue does not add up to the Revenue tile");
+  if (!close(sum(view.mix, "revenue"), total)) problems.push("the category revenue does not add up to the Revenue tile");
+  const regionTotal = state.region ? view.regions.find((d) => d.region === state.region)?.revenue ?? 0 : sum(view.regions, "revenue");
+  if (!close(regionTotal, total)) problems.push("the region revenue does not match the Revenue tile");
+  if (view.top.reduce((s, d) => s + d.share, 0) > 1 + 1e-9) problems.push("the product shares add up to more than 100%");
+  return problems;
+}
 
 /** The CSS colour tokens as the browser resolved them, for the charts: light and dark are defined once, in the CSS. */
 function theme() {
@@ -576,14 +624,19 @@ function canvas(id) {
   box.replaceChildren(svg);
   return { svg, width, height };
 }
+/** The empty state of a chart: its frame stays, with one short line. */
+function emptyChart(svg, width, height, t) {
+  text(svg, width / 2, height / 2, EMPTY, { "text-anchor": "middle", fill: t.muted, "font-size": 13 });
+}
 
 /**
  * A line chart. `series` is [{ name, color, values }]; `labels` the x values; `format` a value's short text.
  * `area` fills under a single line; `peak` marks the highest point; `endLabels` names each line at its end.
- * Hovering a month shows its values; each chart also has its table.
+ * Hovering a month shows its values in the tooltip; each chart also has its table.
  */
 function lineChart(id, { labels, series, format, full, t, area = false, peak = false, endLabels = false }) {
   const { svg, width, height } = canvas(id);
+  if (!labels.length || !series.length) return emptyChart(svg, width, height, t);
   const max = Math.max(0, ...series.flatMap((s) => s.values));
   const steps = ticks(max), top = steps.at(-1);
   const left = Math.max(...steps.map((v) => textWidth(format(v), 11, t))) + 8;
@@ -623,14 +676,13 @@ function lineChart(id, { labels, series, format, full, t, area = false, peak = f
     for (const e of ends) text(svg, box.right + 6, e.y + 4, e.s.name, { fill: t.ink2, "font-size": 12 });
   }
 
-  // One band a month: hovering it shows a guide line and the month's values as the browser's tooltip.
+  // One band a month, the whole plot height: hovering it shows a guide line and the month's values in the tooltip.
   const band = labels.length > 1 ? (box.right - box.left) / (labels.length - 1) : box.right - box.left;
   const guide = svgEl("line", { y1: box.top, y2: box.bottom, stroke: t.axis, "stroke-width": 1, visibility: "hidden" }, svg);
   labels.forEach((label, i) => {
-    const hit = svgEl("rect", { x: x(i) - band / 2, y: box.top, width: band, height: box.bottom - box.top, fill: "transparent" }, svg);
-    const rows = [...series].sort((a, b) => b.values[i] - a.values[i]).map((s) => `${full(s.values[i])} ${s.name}`);
-    svgEl("title", {}, hit).textContent = `${label}\n${rows.join("\n")}`;
-    hit.addEventListener("pointerenter", (event) => { if (event.pointerType !== "mouse") return; guide.setAttribute("x1", x(i)); guide.setAttribute("x2", x(i)); guide.setAttribute("visibility", "visible"); });
+    const rows = [...series].sort((a, b) => b.values[i] - a.values[i]).map((s) => `${full(s.values[i])}${series.length > 1 ? ` ${s.name}` : ""}`);
+    const hit = svgEl("rect", { x: x(i) - band / 2, y: box.top, width: band, height: box.bottom - box.top, fill: "transparent", "data-tip": `${rows.join("\n")}\n${label}` }, svg);
+    hit.addEventListener("pointerenter", () => { guide.setAttribute("x1", x(i)); guide.setAttribute("x2", x(i)); guide.setAttribute("visibility", "visible"); });
     hit.addEventListener("pointerleave", () => guide.setAttribute("visibility", "hidden"));
   });
 }
@@ -638,6 +690,7 @@ function lineChart(id, { labels, series, format, full, t, area = false, peak = f
 /** Horizontal bars from zero, largest at the top, each with its value at its tip. `bars` is [{ label, value, color }]. */
 function barChart(id, { bars, format, full, t }) {
   const { svg, width, height } = canvas(id);
+  if (!bars.length) return emptyChart(svg, width, height, t);
   const max = Math.max(0, ...bars.map((b) => b.value)) || 1;
   const left = Math.max(0, ...bars.map((b) => textWidth(b.label, 12, t))) + 10;
   const right = Math.max(0, ...bars.map((b) => textWidth(format(b.value), 12, t))) + 10;
@@ -646,8 +699,7 @@ function barChart(id, { bars, format, full, t }) {
   bars.forEach((b, i) => {
     const mid = slot * i + slot / 2;
     text(svg, left - 10, mid + 4, b.label, { "text-anchor": "end", fill: t.ink2, "font-size": 12 });
-    const bar = svgEl("rect", { x: left, y: mid - thick / 2, width: Math.max(length(b.value), 1), height: thick, rx: 4, fill: b.color }, svg);
-    svgEl("title", {}, bar).textContent = `${b.label}: ${full(b.value)}`;
+    svgEl("rect", { x: left, y: mid - thick / 2, width: Math.max(length(b.value), 1), height: thick, rx: 4, fill: b.color, "data-tip": `${full(b.value)}\n${b.label}` }, svg);
     text(svg, left + length(b.value) + 6, mid + 4, format(b.value), { fill: t.ink2, "font-size": 12 });
   });
 }
@@ -678,52 +730,76 @@ function fillTable(table, columns, data, caption) {
   table.replaceChildren(...(caption ? [Object.assign(document.createElement("caption"), { className: "sr", textContent: caption })] : []), ...parts);
 }
 
-function renderDelta(id, now, before, label) {
-  const el = $(id);
+/**
+ * The change against the previous period, with a one- or two-word baseline. A base under `min` says what it was
+ * instead of a percentage; `invert` is for a lower-is-better measure (cost, complaints).
+ */
+function renderDelta(id, now, before, { format = (v) => fmt.int.format(v), min = 5, invert = false } = {}) {
+  const el = $(id), vs = PERIODS.find((p) => p.months === state.months)?.short ?? "";
   el.replaceChildren();
+  el.removeAttribute("title");
   if (!before || !Number.isFinite(now) || !Number.isFinite(before)) return;
-  const change = (now - before) / before;
-  const up = change >= 0;
-  const mark = Object.assign(document.createElement("span"), { className: up ? "up" : "down", textContent: `${up ? "▲" : "▼"} ${fmt.pct.format(Math.abs(change))}` });
-  el.append(Object.assign(document.createElement("span"), { className: "sr", textContent: up ? "Up " : "Down " }), mark, ` vs previous ${label}`);
+  el.title = `Period before: ${format(before)}`;
+  if (before < min) { el.textContent = `was ${format(before)}`; return; }
+  const change = (now - before) / before, r = Math.round(change * 1000);
+  if (r === 0) { el.textContent = `±0% vs ${vs}`; return; }
+  const up = change > 0, good = invert ? !up : up;
+  const mark = Object.assign(document.createElement("span"), { className: good ? "up" : "down",
+    textContent: Math.abs(change) > 9.99 ? (up ? "10×+" : "−99%") : `${up ? "▲" : "▼"} ${fmt.pct.format(Math.abs(change))}` });
+  el.append(Object.assign(document.createElement("span"), { className: "sr", textContent: up ? "Up " : "Down " }), mark, ` vs ${vs}`);
 }
 
 function renderKpis(now, before) {
   const average = (row) => (row && row.orders ? row.revenue / row.orders : NaN);
-  $("kpi-revenue").textContent = fmt.moneyShort.format(now.revenue ?? 0);
-  $("kpi-orders").textContent = fmt.int.format(now.orders ?? 0);
-  $("kpi-average").textContent = now.orders ? fmt.money.format(average(now)) : "–";
-  $("kpi-units").textContent = fmt.short.format(now.units ?? 0);
-  const label = `${state.months} months`;
-  renderDelta("delta-revenue", now.revenue, before?.revenue, label);
-  renderDelta("delta-orders", now.orders, before?.orders, label);
-  renderDelta("delta-average", average(now), average(before), label);
-  renderDelta("delta-units", now.units, before?.units, label);
+  // The tile shows a compact number; its tooltip says what it is and the exact value.
+  const show = (id, value, short, exact) => {
+    const tile = $(id).closest(".kpi");
+    tile.dataset.about ??= tile.dataset.tip;
+    $(id).textContent = orDash(value, short);
+    tile.dataset.tip = Number.isFinite(value) ? `${exact(value)}\n${tile.dataset.about}` : tile.dataset.about;
+  };
+  show("kpi-revenue", now?.revenue, (v) => fmt.moneyShort.format(v), (v) => fmt.money.format(v));
+  show("kpi-orders", now?.orders, (v) => fmt.int.format(v), (v) => fmt.int.format(v));
+  show("kpi-average", average(now), (v) => fmt.money.format(v), (v) => fmt.money.format(v));
+  show("kpi-units", now?.units, (v) => fmt.short.format(v), (v) => fmt.int.format(v));
+  renderDelta("delta-revenue", now?.revenue, before?.revenue, { format: (v) => fmt.moneyShort.format(v) });
+  renderDelta("delta-orders", now?.orders, before?.orders);
+  renderDelta("delta-average", average(now), average(before), { format: (v) => fmt.money.format(v) });
+  renderDelta("delta-units", now?.units, before?.units, { format: (v) => fmt.short.format(v) });
+}
+
+/** A card's figure: the takeaway as a number, with a muted second part. */
+function figure(id, value, small) {
+  const el = $(id);
+  el.replaceChildren(value);
+  if (small) el.append(" ", Object.assign(document.createElement("small"), { textContent: small }));
 }
 
 function renderTrend(data, t) {
   const months = data.map((d) => monthLabel(d.month)), values = data.map((d) => d.revenue);
   const peak = values.indexOf(Math.max(...values)), last = values.length - 1;
-  const note = !data.length ? "No orders in this selection"
+  if (!data.length) figure("figure-trend", "—");
+  else figure("figure-trend", `Peak ${fmt.moneyShort.format(values[peak])}`, months[peak]);
+  const summary = !data.length ? EMPTY
     : peak === last ? `${months[last]} is the best month yet: ${fmt.moneyShort.format(values[last])}`
     : `Peak ${fmt.moneyShort.format(values[peak])} in ${months[peak]}; latest ${fmt.moneyShort.format(values[last])} in ${months[last]}`;
-  $("note-trend").textContent = note;
-  $("chart-trend").setAttribute("aria-label", `Line chart of revenue by month. ${note}.`);
-  lineChart("chart-trend", { labels: months, series: [{ name: "revenue", color: t.accent, values }], format: (v) => fmt.moneyShort.format(v),
+  $("chart-trend").setAttribute("aria-label", `Line chart of revenue by month. ${summary}.`);
+  lineChart("chart-trend", { labels: months, series: data.length ? [{ name: "Revenue", color: t.accent, values }] : [], format: (v) => fmt.moneyShort.format(v),
     full: (v) => fmt.money.format(v), t, area: true, peak: true });
   fillTable($("numbers-trend"), [{ label: "Month", value: (d) => monthLabel(d.month) }, { label: "Revenue", num: true, value: (d) => fmt.money.format(d.revenue) }], data, "Revenue by month");
 }
 
 function renderRegions(data, t) {
-  const total = data.reduce((sum, d) => sum + d.revenue, 0);
-  const lead = data[0];
-  const note = lead ? `${lead.region} leads with ${fmt.pct.format(lead.revenue / total)} of revenue${state.region ? `; ${state.region} highlighted` : ""}` : "No orders in this selection";
-  $("note-regions").textContent = note;
-  $("chart-regions").setAttribute("aria-label", `Bar chart of revenue by region. ${data.map((d) => `${d.region} ${fmt.moneyShort.format(d.revenue)}`).join(", ")}.`);
+  const total = sum(data, "revenue");
+  const lead = (state.region && data.find((d) => d.region === state.region)) || data[0];
+  if (lead && total) figure("figure-regions", lead.region, fmt.pct.format(lead.revenue / total));
+  else figure("figure-regions", "—");
+  // The selected region is told in words too: on the chart it is only the accent among grey bars.
+  $("chart-regions").setAttribute("aria-label", `Bar chart of revenue by region. ${data.length ? data.map((d) => `${d.region} ${fmt.moneyShort.format(d.revenue)}`).join(", ") : EMPTY}${state.region && data.length ? `; ${state.region} highlighted` : ""}.`);
   barChart("chart-regions", { bars: data.map((d) => ({ label: d.region, value: d.revenue, color: !state.region || d.region === state.region ? t.accent : t.deemph })),
     format: (v) => fmt.moneyShort.format(v), full: (v) => fmt.money.format(v), t });
   fillTable($("numbers-regions"), [{ label: "Region", value: (d) => d.region }, { label: "Revenue", num: true, value: (d) => fmt.money.format(d.revenue) },
-    { label: "Share", num: true, value: (d) => fmt.pct.format(d.revenue / total) }], data, "Revenue by region");
+    { label: "Share", num: true, value: (d) => fmt.pct.format(total ? d.revenue / total : 0) }], data, "Revenue by region");
 }
 
 let CATEGORIES = [];
@@ -735,9 +811,11 @@ function renderMix(data, t) {
     const first = byKey.get(`${months[0]}|${c}`) ?? 0, last = byKey.get(`${months.at(-1)}|${c}`) ?? 0;
     return { c, change: first ? (last - first) / first : 0 };
   }).sort((a, b) => b.change - a.change)[0];
-  const note = growth && months.length > 1 ? `${growth.c} grew most: ${growth.change >= 0 ? "up" : "down"} ${fmt.pct.format(Math.abs(growth.change))} from ${monthLabel(months[0])} to ${monthLabel(months.at(-1))}` : "Revenue by category and month";
-  $("note-mix").textContent = note;
-  $("chart-mix").setAttribute("aria-label", `Line chart of revenue by category and month, one line each for ${present.join(", ")}. ${note}.`);
+  const span = months.length > 1 ? `${monthLabel(months[0])} – ${monthLabel(months.at(-1))}` : "";
+  if (growth && months.length > 1) figure("figure-mix", `${growth.c} ${growth.change >= 0 ? "▲" : "▼"} ${fmt.pct.format(Math.abs(growth.change))}`, span);
+  else figure("figure-mix", "—");
+  const summary = growth && months.length > 1 ? `${growth.c} grew most: ${growth.change >= 0 ? "up" : "down"} ${fmt.pct.format(Math.abs(growth.change))} from ${monthLabel(months[0])} to ${monthLabel(months.at(-1))}` : EMPTY;
+  $("chart-mix").setAttribute("aria-label", `Line chart of revenue by category and month, one line each for ${present.join(", ") || "no category"}. ${summary}.`);
   lineChart("chart-mix", { labels: months.map(monthLabel), format: (v) => fmt.moneyShort.format(v), full: (v) => fmt.money.format(v), t, endLabels: true,
     series: present.map((c) => ({ name: c, color: t.series[CATEGORIES.indexOf(c) % t.series.length], values: months.map((m) => byKey.get(`${m}|${c}`) ?? 0) })) });
   fillTable($("numbers-mix"), [{ label: "Month", value: (m) => monthLabel(m) },
@@ -761,7 +839,7 @@ function renderTop(data) {
     { label: "Product", value: (d) => d.product }, { label: "Category", optional: true, value: (d) => d.category },
     { label: "Units", num: true, optional: true, value: (d) => fmt.int.format(d.units) }, { label: "Revenue", num: true, value: (d) => fmt.money.format(d.revenue) },
     { label: "Share", num: true, value: (d) => shareCell(d.share) },
-  ], data, "Best-selling products");
+  ], data, "Top 10 products by revenue");
 }
 
 let latest = null, range = null;
@@ -789,29 +867,57 @@ function refresh() {
     totals: AGGREGATES.totals(rows),
     previous: hasFullPreviousPeriod() ? AGGREGATES.totals(select({ shift: 1 })) : null,
     trend: AGGREGATES.trend(rows),
-    regions: AGGREGATES.regions(select({ region: "" })),
+    // Every region stays on the chart, the selected one in the accent and the others grey.
+    regions: rows.length ? AGGREGATES.regions(select({ region: "" })) : [],
     mix: AGGREGATES.mix(rows),
     top: AGGREGATES.top(rows),
   };
   render();
+  const problems = check(latest);
+  document.documentElement.dataset.check = problems.length ? "fail" : "ok";
+  if (problems.length) showNote(`The numbers disagree: ${problems.join("; ")}.`, "check");
+  else if ($("status").dataset.kind === "check") $("status").hidden = true;
   requestAnimationFrame(() => $("dash").classList.remove("is-updating"));
 }
 
-function showError(error) {
-  console.error(error);
+/** One page-level note, shown even while the last numbers stay on screen. */
+function showNote(message, kind) {
   const status = $("status");
   status.hidden = false;
+  status.dataset.kind = kind;
   status.classList.add("is-error");
   status.setAttribute("role", "alert");
-  $("status-text").textContent = `The dashboard couldn't load: ${error?.message ?? error}`;
+  $("status-text").textContent = message;
+  $("dash").classList.remove("is-loading");
   $("dash").setAttribute("aria-busy", "false");
+}
+function showError(error) {
+  console.error(error);
+  showNote(`The dashboard couldn't load: ${error?.message ?? error}`, "error");
+}
+
+/** One tooltip for the whole page: any element with data-tip, on hover and on keyboard focus. */
+function tooltips() {
+  const tip = $("tip");
+  const show = (el) => {
+    tip.textContent = el.dataset.tip;
+    tip.classList.add("show");
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+    tip.style.top = `${r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8}px`;
+  };
+  const hide = () => tip.classList.remove("show");
+  for (const type of ["pointerover", "focusin"]) document.addEventListener(type, (e) => { const el = e.target.closest?.("[data-tip]"); el ? show(el) : hide(); });
+  document.addEventListener("scroll", hide, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
 }
 
 async function start() {
+  tooltips();
   DATA = records(await fetchData()).map(prepare).filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date));
   if (!DATA.length) throw new Error("the data has no rows with a date.");
   const days = DATA.map((r) => r.date).sort();
-  range = { first: days[0], last: days.at(-1), n: DATA.reduce((sum, r) => sum + r.orders, 0) };
+  range = { first: days[0], last: days.at(-1), n: DATA.reduce((total, r) => total + r.orders, 0) };
   CATEGORIES = [...new Set(DATA.map((r) => r.category))].sort();
   const regionSelect = $("filter-region"), periodSelect = $("filter-period");
   for (const region of [...new Set(DATA.map((r) => r.region))].sort()) regionSelect.append(new Option(region, region));
@@ -819,11 +925,20 @@ async function start() {
   regionSelect.addEventListener("change", () => { state.region = regionSelect.value; try { refresh(); } catch (error) { showError(error); } });
   periodSelect.addEventListener("change", () => { state.months = Number(periodSelect.value); try { refresh(); } catch (error) { showError(error); } });
 
-  const updated = CONFIG.updated ? ` · Updated ${fmt.stamp.format(new Date(CONFIG.updated))}` : "";
-  $("foot").textContent = `Source: ${CONFIG.source} · ${fmt.int.format(range.n)} orders from ${fmt.day.format(new Date(`${range.first}T00:00:00Z`))} to ${fmt.day.format(new Date(`${range.last}T00:00:00Z`))}${updated}`;
+  if (CONFIG.updated) {
+    $("updated-text").textContent = `Updated ${fmt.stamp.format(new Date(CONFIG.updated))}`;
+    $("updated").hidden = false;
+  }
+  $("sample").hidden = !CONFIG.sample;
+  $("foot").textContent = `Source: ${CONFIG.source} · ${fmt.int.format(range.n)} orders, ${fmt.day.format(new Date(`${range.first}T00:00:00Z`))} – ${fmt.day.format(new Date(`${range.last}T00:00:00Z`))}`;
+  if (CONFIG.notes.length) {
+    $("notes-list").replaceChildren(...CONFIG.notes.map((note) => Object.assign(document.createElement("li"), { textContent: note })));
+    $("notes").hidden = false;
+  }
 
+  $("dash").classList.remove("is-loading");
+  if (!$("status").classList.contains("is-error")) $("status").hidden = true;
   refresh();
-  $("status").hidden = true;
   $("dash").setAttribute("aria-busy", "false");
   let frame = 0;
   new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(render); }).observe($("dash"));

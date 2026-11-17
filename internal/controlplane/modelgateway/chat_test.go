@@ -104,9 +104,10 @@ func plain(status int, body string) http.HandlerFunc {
 }
 
 type chatGateway struct {
-	svc *modelgateway.Service
-	mux *http.ServeMux
-	key string
+	svc    *modelgateway.Service
+	server *modelgateway.Server
+	mux    *http.ServeMux
+	key    string
 }
 
 // newChatGateway returns a gateway that serves the model `gpt` from the
@@ -153,9 +154,10 @@ func newChatGateway(t *testing.T, cfg modelgateway.Config, providers ...*httptes
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
-	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"), cfg).Register(mux)
+	server := modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"), cfg)
+	server.Register(mux)
 
-	return chatGateway{svc: svc, mux: mux, key: key}
+	return chatGateway{svc: svc, server: server, mux: mux, key: key}
 }
 
 // call sends a chat request with the gateway's key and returns the status,

@@ -481,6 +481,77 @@ type MachineProvider struct {
 	UpdatedAt   int64
 }
 
+type Meeting struct {
+	ID         string
+	Title      string
+	Titled     int64
+	Language   string
+	People     string
+	Terms      string
+	FileName   string
+	MediaType  string
+	Size       int64
+	DurationMs int64
+	State      string
+	Failure    string
+	Attempts   int64
+	Provider   string
+	Model      string
+	CreatedAt  int64
+	UpdatedAt  int64
+}
+
+type MeetingItem struct {
+	ID           string
+	MeetingID    string
+	Kind         string
+	Position     int64
+	Text         string
+	Owner        sql.NullString
+	OwnerSpeaker sql.NullString
+	Due          sql.NullString
+	Done         int64
+	Quote        sql.NullString
+	Line         sql.NullInt64
+	StartMs      sql.NullInt64
+}
+
+type MeetingLine struct {
+	MeetingID string
+	N         int64
+	StartMs   int64
+	EndMs     int64
+	Speaker   string
+	Heard     string
+	Text      string
+}
+
+type MeetingNote struct {
+	MeetingID string
+	Format    string
+	State     string
+	Failure   string
+	Attempts  int64
+	Model     string
+	Summary   string
+	Sections  string
+	WrittenAt sql.NullInt64
+	UpdatedAt int64
+}
+
+type MeetingSetting struct {
+	ID         int64
+	NotesModel string
+	UpdatedAt  int64
+}
+
+type MeetingSpeaker struct {
+	MeetingID string
+	Label     string
+	Position  int64
+	Name      sql.NullString
+}
+
 type Memory struct {
 	Kind      string
 	Name      string
