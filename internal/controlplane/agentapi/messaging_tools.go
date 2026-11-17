@@ -358,11 +358,34 @@ func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, m messag
 		return
 	}
 
+	// The type is read from the bytes, not the message's word for it, and an image a model cannot view is not
+	// given as one: a model refuses the whole request over it, and the image stays in the chat's history, so
+	// every later turn fails too (issue #760). OpenClaw does the same (src/agents/tool-images.ts,
+	// sanitizeContentBlocksImages: the type inferred from the bytes, an unusable image omitted with a line).
+	mimeType := viewable(data)
+	if mimeType == "" {
+		answerTool(w, about+"\nomitted image: its bytes are not a JPEG, PNG, GIF or WebP image, which is all a "+
+			"model can view; read it from its path with a command if you need it", false)
+
+		return
+	}
+
 	w.Header().Set("Cache-Control", "no-store")
 	answer(w, map[string]any{"content": []map[string]string{
 		{"type": "text", "text": about},
-		{"type": "image", "data": base64.StdEncoding.EncodeToString(data), "mimeType": media.MimeType},
+		{"type": "image", "data": base64.StdEncoding.EncodeToString(data), "mimeType": mimeType},
 	}, "isError": false})
+}
+
+// viewable is an image's type as its bytes say, when it is one a model views (Claude's and OpenAI's: JPEG, PNG,
+// GIF, WebP), else "".
+func viewable(data []byte) string {
+	switch t := http.DetectContentType(data); t {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+		return t
+	}
+
+	return ""
 }
 
 // onTurn says whether the agent may use an account now: on the owner's own turn in its chat (botMay).

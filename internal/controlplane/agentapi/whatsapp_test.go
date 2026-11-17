@@ -2,6 +2,10 @@ package agentapi_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,6 +24,8 @@ import (
 type ownWhatsApp struct {
 	asked []string
 	sent  []messaging.Outgoing
+	// files are the kept files by message id.
+	files map[string]messaging.Media
 }
 
 func (o *ownWhatsApp) Send(_ context.Context, _, _ string, out messaging.Outgoing) (messaging.Message, error) {
@@ -62,7 +68,11 @@ func (o *ownWhatsApp) Messages(_ context.Context, integration, label string, q m
 	}}, nil
 }
 
-func (o *ownWhatsApp) Media(context.Context, string, string, string, string) (messaging.Media, error) {
+func (o *ownWhatsApp) Media(_ context.Context, _, _, _, id string) (messaging.Media, error) {
+	if m, ok := o.files[id]; ok {
+		return m, nil
+	}
+
 	return messaging.Media{}, orchestration.ErrNotFound
 }
 
@@ -356,4 +366,75 @@ func TestASendApprovedAfterItsTurnEndedIsSentOnce(t *testing.T) {
 
 	_, text, isError = w.use(pi, agenttool.ToolWhatsAppMessages, `{"chat":"120363@g.us"}`)
 	require.False(t, isError, text)
+}
+
+// Scenario (issue #760): an image is given to the model by what its bytes are, not by what its message says, and one
+// a model cannot view is not given at all. Zalo once kept JPEG XL photos as image/jpeg: the model refused the
+// request, the image stayed in the chat's history, and every later turn failed. A PNG called a JPEG goes as a PNG;
+// a JPEG XL called a JPEG comes back as its path, with a line saying why.
+func TestAnImageIsGivenByItsBytesAndOneAModelCannotViewIsNot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	dir := t.TempDir()
+	write := func(name string, data []byte) string {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+
+		return path
+	}
+
+	png := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 24)...)
+	w.whatsapp.files = map[string]messaging.Media{
+		"png": {Path: write("a.jfif", png), MimeType: "image/jpeg"},
+		"jxl": {Path: write("b.jfif", []byte{0xFF, 0x0A, 0xFA, 0x4F, 1, 2, 3}), MimeType: "image/jpeg"},
+	}
+
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Account: "+84 900 000 001", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "whatsapp", "me", true)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, orchestration.DefaultBotID, "")
+	require.NoError(t, err)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what are these photos?")
+	require.NoError(t, err)
+
+	open := func(id string) (images []string, text string) {
+		status, body := w.call(http.MethodPost, agenttool.PathToolsCall, pi, agenttool.BrowserCall{
+			Tool: agenttool.ToolWhatsAppMedia, Arguments: json.RawMessage(`{"chat":"120363@g.us","message":"` + id + `"}`),
+		})
+		require.Equal(t, http.StatusOK, status, string(body))
+
+		var result struct {
+			Content []struct{ Type, Text, MimeType string } `json:"content"`
+		}
+		require.NoError(t, json.Unmarshal(body, &result))
+
+		for _, c := range result.Content {
+			if c.Type == "image" {
+				images = append(images, c.MimeType)
+			}
+
+			text += c.Text
+		}
+
+		return images, text
+	}
+
+	images, _ := open("png")
+	assert.Equal(t, []string{"image/png"}, images, "given as what its bytes are")
+
+	images, text := open("jxl")
+	assert.Empty(t, images, "a model cannot view it")
+	assert.Contains(t, text, "omitted image")
+	assert.Contains(t, text, "b.jfif", "its path, to read it otherwise")
 }
