@@ -1460,7 +1460,7 @@ flowchart LR
   on, keeps P0 for what breaks whatever the inputs, and calls a change `correct` when existing code and tests will
   not break and no finding is P0 or P1 (Codex's review rubric, omp's reviewer); the explorer checks callers, tries
   another search before saying something is not there, says how the pieces connect and runs no command that
-  changes state (omp's scout, gemini-cli's investigator). Migration 00104 (issue #718), under the same conditions,
+  changes state (omp's scout, gemini-cli's investigator). Migration 00105 (issue #718), under the same conditions,
   tells the reviewer to check out the pull request and run the repository's checks for what it touched, and to
   say which it could not run and why; `reviewer-codex.yaml` carries the same text. The reviewer and the explorer
   are told to change nothing;
@@ -3732,8 +3732,9 @@ Node (`internal/node`):
   (`deploy/worker/setup.sh`, issue #718) installs, for the node's user and without sudo, what a Linux machine lacks:
   Go at the version `go.mod` names under `$HOME/.local/go`, checked against the SHA-256 Go publishes; the latest
   Node 24 under `$HOME/.local/node`, checked against the release's `SHASUMS256.txt`; and pnpm at the version
-  `web/package.json` names, through Node's corepack. It links their commands into `$HOME/.local/bin`, and a run
-  that finds them in place ends in under a second. It leaves out what needs sudo (gcc, make, Chromium's system
+  `web/package.json` names, through Node's corepack (from the npm registry, checked against its SHA-512, where that
+  Node has none). It links their commands into `$HOME/.local/bin`, and a run that finds them in place ends in under
+  a second. It leaves out what needs sudo (gcc, make, Chromium's system
   libraries) and Playwright's Chromium, which comes with the web client's packages (AGENTS.md says how).
 - The worker's `PATH` (`internal/node/runner/env.go`, issue #718): the node runs as a systemd user service, which
   reads no shell profile, so its own `PATH` lacks `$HOME/.local/bin`. Every runtime (Claude Code, Codex, ACP)

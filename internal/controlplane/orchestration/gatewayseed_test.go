@@ -103,7 +103,7 @@ func migratedTo(t *testing.T, version int64) (*Service, *sql.DB) {
 }
 
 // Scenario: a fresh install (issues #462, #549). Migrated to the top, its
-// starting profiles name the Claude subscription, in the versions 00102 and 00104 made,
+// starting profiles name the Claude subscription, in the versions 00102 and 00105 made,
 // and the gateway's table holds no seeded model nor the provider
 // model-gateway; so a Task that names no profile is placed as a Claude Code
 // worker through the gateway under the subscription's model, with no profile

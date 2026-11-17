@@ -7,7 +7,8 @@
 #   generators come through `go tool`, so nothing else is installed for them.
 # - Node 24, the latest 24.x from nodejs.org, checked against the release's SHASUMS256.txt (nodejs.org's "verifying
 #   binaries"), under $HOME/.local/node.
-# - pnpm at the version web/package.json names (packageManager), through Node's corepack.
+# - pnpm at the version web/package.json names (packageManager), through Node's corepack; where that Node has no
+#   corepack, corepack from the npm registry, checked against its SHA-512, under $HOME/.local/corepack.
 #
 # Their commands are linked into $HOME/.local/bin, which the node puts first on the worker's PATH, as a login shell's
 # ~/.profile does on Debian and Ubuntu (internal/node/runner/env.go). A tool already on the PATH at the right version
@@ -106,6 +107,33 @@ fi
 pnpm_want=$(sed -n 's/.*"packageManager": *"pnpm@\([^"+]*\).*/\1/p' web/package.json)
 if [ "$(pnpm --version 2>/dev/null)" != "$pnpm_want" ]; then
 	export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+	# A Node 24 that was already there may come without corepack: a distribution's package can leave it out, and
+	# Node 25 no longer bundles it (yarnpkg.com/corepack). It is then taken from the npm registry, the package
+	# `npm install -g corepack` installs, checked against the integrity (SHA-512) the registry gives, under
+	# $HOME/.local/corepack.
+	corepack_dest="$prefix/corepack"
+	if command -v corepack >/dev/null 2>&1; then
+		:
+	elif [ -f "$corepack_dest/dist/corepack.js" ]; then
+		ln -sfn "$corepack_dest/dist/corepack.js" "$bin/corepack"
+	else
+		fetch -o "$tmp/corepack.json" https://registry.npmjs.org/corepack/latest
+		set -- $(node -e 'const m = require(process.argv[1]); console.log(m.dist.tarball, m.dist.integrity)' \
+			"$tmp/corepack.json")
+		fetch -o "$tmp/corepack.tgz" "$1"
+		node -e '
+			const [file, want] = process.argv.slice(1);
+			const [algo, sum] = want.split("-");
+			const got = require("crypto").createHash(algo).update(require("fs").readFileSync(file)).digest("base64");
+			if (algo !== "sha512" || got !== sum) { console.error("corepack: integrity mismatch"); process.exit(1); }
+		' "$tmp/corepack.tgz" "$2"
+		mkdir "$tmp/corepack"
+		tar -xzf "$tmp/corepack.tgz" -C "$tmp/corepack"
+		chmod +x "$tmp/corepack/package/dist/"*.js
+		place "$tmp/corepack/package" "$corepack_dest"
+		ln -sfn "$corepack_dest/dist/corepack.js" "$bin/corepack"
+		echo "corepack $(corepack --version)"
+	fi
 	corepack enable --install-directory "$bin" pnpm
 	corepack install --global "pnpm@$pnpm_want" >/dev/null
 	echo "pnpm $(pnpm --version)"
