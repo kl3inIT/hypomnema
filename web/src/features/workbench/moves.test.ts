@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { GridLayout } from "./grid-layout"
-import { alone, dropTab, openBeside, rightOf, withoutPane, type Bench } from "./moves"
+import { alone, closeHome, dropTab, openBeside, rightOf, withoutPane, type Bench } from "./moves"
 import { closeTab, openTab, paneOf, replaceTab, type PaneTab } from "./pane"
 
 const chat = (id: string): PaneTab => ({ kind: "chat", chat: id })
@@ -163,5 +163,58 @@ describe("a new chat", () => {
       tabs: [chat("a"), chat("n")],
       active: "chat:n",
     })
+  })
+})
+
+describe("closing a chat's own tab on its page", () => {
+  const phone: PaneTab = { kind: "phone" }
+
+  it("goes to the chat that comes in front, carrying the pane's other tabs", () => {
+    const pane = { tabs: [chat("a"), chat("b"), browser], active: "chat:a" }
+
+    expect(closeHome(pane, "chat:a", true)).toEqual({
+      to: "chat",
+      chat: "b",
+      pane: { tabs: [chat("b"), browser], active: "chat:b" },
+    })
+  })
+
+  it("keeps a browser tab in front and goes to the pane's first chat", () => {
+    const pane = { tabs: [chat("b"), chat("a"), browser], active: "chat:a" }
+
+    expect(closeHome(pane, "chat:a", true)).toEqual({
+      to: "chat",
+      chat: "b",
+      pane: { tabs: [chat("b"), browser], active: "browser:owner" },
+    })
+  })
+
+  it("keeps the tab in front when the chat's tab was behind it", () => {
+    const pane = { tabs: [chat("a"), chat("b")], active: "chat:b" }
+
+    expect(closeHome(pane, "chat:a", true)).toEqual({
+      to: "chat",
+      chat: "b",
+      pane: { tabs: [chat("b")], active: "chat:b" },
+    })
+  })
+
+  it("goes to the grid as one pane when no chat is left", () => {
+    const pane = { tabs: [chat("a"), browser, phone], active: "chat:a" }
+
+    expect(closeHome(pane, "chat:a", true)).toEqual({
+      to: "grid",
+      pane: { tabs: [browser, phone], active: "browser:owner" },
+    })
+  })
+
+  it("goes to a new chat when no chat is left and there is no grid", () => {
+    expect(closeHome({ tabs: [chat("a"), browser], active: "chat:a" }, "chat:a", false)).toEqual({
+      to: "new",
+    })
+  })
+
+  it("goes to a new chat when it was the last tab", () => {
+    expect(closeHome(paneOf(chat("a")), "chat:a", true)).toEqual({ to: "new" })
   })
 })

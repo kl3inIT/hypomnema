@@ -2,14 +2,15 @@ import { useNavigate } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 
 import { GridDrop } from "./grid-drop"
-import { dropTab, openBeside, type Bench, type Dragged } from "./moves"
+import { closeHome, dropTab, openBeside, type Bench, type Dragged } from "./moves"
 import { hasTab, openTab, paneOf, tabKey, type Pane, type PaneTab } from "./pane"
 import { PaneView } from "./pane-view"
 import { newPaneId, setBench, setPane, soloId, useGridOffered, usePane } from "./use-grid"
 
-// SoloPane is the pane of a chat's own page (issue #235). The chat's tab is always there; what else was opened in
-// it is kept in this browser. A tab dropped on a side of it makes a grid of two panes, this one and the tab's; one
-// dropped in its middle joins it.
+// SoloPane is the pane of a chat's own page (issue #235). The chat's tab is there whenever the page is shown; what
+// else was opened in it is kept in this browser. Closing the chat's tab leaves the page for where the rest of the
+// pane goes (`closeHome` in ./moves.ts), as Orca closes any tab. A tab dropped on a side of it makes a grid of two
+// panes, this one and the tab's; one dropped in its middle joins it.
 export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
   const id = soloId(chat)
   const navigate = useNavigate()
@@ -34,8 +35,32 @@ export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
       <PaneView
         id={id}
         pane={pane}
-        onChange={(next) => setPane(id, next ?? paneOf(home))}
-        kept={tabKey(home)}
+        onChange={(next) => {
+          if (next !== null && hasTab(next, tabKey(home))) {
+            setPane(id, next)
+
+            return
+          }
+
+          // The chat's own tab was closed: the page goes where the rest of its pane is (issue #681).
+          const away = closeHome(pane, tabKey(home), offered)
+          setPane(id, null)
+          switch (away.to) {
+            case "new":
+              void navigate({ to: "/" })
+              break
+            case "chat":
+              setPane(soloId(away.chat), away.pane)
+              void navigate({ to: "/chats/$chatId", params: { chatId: away.chat } })
+              break
+            case "grid": {
+              const as = newPaneId()
+              setBench({ layout: as, panes: { [as]: away.pane } })
+              void navigate({ to: "/grid" })
+              break
+            }
+          }
+        }}
         start={start}
         // A tab opened beside the chat makes a grid of two, as a tab dropped on its side does (issue #528).
         beside={

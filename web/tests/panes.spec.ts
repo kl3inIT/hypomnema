@@ -119,12 +119,21 @@ test("a new chat is opened from + as a tab beside the chat", async ({ page }) =>
   await expect(page).toHaveURL(/\/chats\/cht_1$/)
   await expect(page.getByRole("tab")).toHaveText(["health page", "a login button"])
 
-  // The chat of the page is always its first tab; another closes.
-  await expect(page.getByRole("button", { name: "Close health page" })).toHaveCount(0)
+  // Every tab closes, the page's own chat too, as in Orca (issue #681): the page is then the chat left, with the
+  // pane's other tabs, and with no tab left it is a new chat.
   await page.reload()
   await expect(page.getByRole("tab")).toHaveText(["health page", "a login button"])
+  await shot(page, "pane-chat-tab-closes")
+  await page.getByRole("button", { name: "Close health page" }).click()
+  await expect(page).toHaveURL(/\/chats\/cht_2$/)
+  await expect(page.getByRole("tab")).toHaveText(["a login button"])
+  await expect(page.getByRole("tab", { name: "a login button" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  await shot(page, "pane-chat-tab-closed")
   await page.getByRole("button", { name: "Close a login button" }).click()
-  await expect(page.getByRole("tab")).toHaveText(["health page"])
+  await expect(page).toHaveURL(/\/$/)
 })
 
 // With several Bots, "+" asks which the new chat talks with.

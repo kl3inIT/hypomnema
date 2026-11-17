@@ -3690,7 +3690,10 @@ Node (`internal/node`):
     again, and a phone or browser watched in one stays connected (issue #597). The grid is at `/grid`, with a
     "Grid" row in the sidebar while there is one; a pane can fill the screen for a while, or leave the grid, and a grid down to one
     pane with a chat is that chat's page again, with the pane's tabs. A chat's own page (`/chats/:id`) is a pane
-    whose chat tab cannot be closed; a tab dropped on its side makes a grid. The grid and the panes are kept in
+    whose tabs all close, as Orca's do (issue #681): when the chat's own tab is closed its neighbour comes in front
+    and the pane goes where a grid of one pane goes, to the page of its chat in front or its first chat, else to
+    the grid as one pane (to a new chat on a phone), and with no tab left to a new chat; a tab dropped on its side
+    makes a grid. The grid and the panes are kept in
     the browser (`localStorage`, `hypomnema.grid`, `hypomnema.panes`, as Omnigent keeps a session's workspace
     tabs) and followed across its windows. A phone, or a screen with a coarse pointer, has no grid. Not built
     yet: a browser tab's size following its pane (step 3).

@@ -104,6 +104,26 @@ export function alone(bench: Bench): string | null {
   return front?.kind === "chat" ? front.chat : (paneChats(pane)[0] ?? null)
 }
 
+// Where a chat's own page goes when its own tab is closed: the pane is kept without it, its neighbour in front, as
+// Orca's closeUnifiedTab leaves the next tab active (src/renderer/src/store/slices/tabs/tabs-close-actions.ts,
+// pickNeighbor in tab-selection-history.ts, MIT). The pane goes where a grid of one pane goes: to the page of its
+// chat in front, or its first chat; with no chat, to the grid as one pane where there is a grid, or else, as with
+// no tab left, to a new chat.
+export type Away =
+  | { to: "new" }
+  | { to: "chat"; chat: string; pane: Pane }
+  | { to: "grid"; pane: Pane }
+
+export function closeHome(pane: Pane, key: string, grid: boolean): Away {
+  const next = closeTab(pane, key)
+  if (next === null) return { to: "new" }
+
+  const chat = alone({ layout: "home", panes: { home: next } })
+  if (chat !== null) return { to: "chat", chat, pane: next }
+
+  return grid ? { to: "grid", pane: next } : { to: "new" }
+}
+
 // rightOf is the pane to the right of a pane: the first pane of the other side of the nearest split into columns
 // whose left side holds it. null when none is to its right. As Orca's findReusableRightSplitGroupId
 // (src/renderer/src/lib/simulator/tabs/emulator-right-split-target.ts, MIT): the closest pane on the right is taken.
