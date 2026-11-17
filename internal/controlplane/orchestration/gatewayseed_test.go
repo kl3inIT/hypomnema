@@ -103,7 +103,7 @@ func migratedTo(t *testing.T, version int64) (*Service, *sql.DB) {
 }
 
 // Scenario: a fresh install (issues #462, #549). Migrated to the top, its
-// starting profiles name the Claude subscription, in the versions 00102 and 00108 made,
+// starting profiles name the Claude subscription, in the versions 00102, 00111 and 00115 made,
 // and the gateway's table holds no seeded model nor the provider
 // model-gateway; so a Task that names no profile is placed as a Claude Code
 // worker through the gateway under the subscription's model, with no profile
@@ -120,7 +120,7 @@ func TestAFreshInstallRunsClaudeCodeThroughTheGateway(t *testing.T) {
 	assert.Empty(t, gatewayModelsOf(ctx, t, w.db), "the subscription's models need no row")
 
 	assert.Equal(t, map[string]string{
-		"implementer": "pfv_seed4_implementer", "reviewer": "pfv_seed6_reviewer", "explorer": "pfv_seed5_explorer",
+		"implementer": "pfv_seed4_implementer", "reviewer": "pfv_seed8_reviewer", "explorer": "pfv_seed5_explorer",
 	}, currentVersions(ctx, t, w.db))
 
 	reviewer, err := w.s.GetProfile(ctx, "reviewer")

@@ -202,7 +202,7 @@ func meetingsUpload(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	params := &openapi.UploadMeetingParams{
 		FileName: filepath.Base(path), Language: optional(fs, "language"), Title: optional(fs, "title"),
-		People: commaList(str(fs, "people")), Terms: commaList(str(fs, "words")), Format: optional(fs, "format"),
+		People: commaList(str(fs, "people")),
 	}
 
 	if kind := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); kind != "" {
@@ -259,12 +259,7 @@ func meetingsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 func meetingsNotes(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	id := fs.Arg(0)
 
-	format := str(fs, "format")
-	if format == "" {
-		return fmt.Errorf("%w: meetings notes <meeting_id> --format <format>", ErrUsage)
-	}
-
-	resp, err := e.api.WriteMeetingNotesWithResponse(ctx, id, openapi.WriteMeetingNotesRequest{Format: format})
+	resp, err := e.api.WriteMeetingNotesWithResponse(ctx, id)
 	if err != nil {
 		return fmt.Errorf("writing the notes of %s: %w", id, err)
 	}
@@ -273,7 +268,7 @@ func meetingsNotes(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("writing the notes of "+id, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON202, func() { e.printf("Writing the notes of %s again as %s.\n", id, format) })
+	return e.print(fs, resp.JSON202, func() { e.printf("Writing the notes of %s again.\n", id) })
 }
 
 func meetingsSpeaker(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -459,16 +454,117 @@ func meetingsSettings(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			model = "none picked"
 		}
 
-		e.printf("Notes model: %s\nFormats:\n", model)
+		e.printf("Notes model: %s\n", model)
+	})
+}
 
-		for _, f := range out.Formats {
-			titles := make([]string, 0, len(f.Sections))
-			for _, s := range f.Sections {
-				titles = append(titles, s.Title)
+// The words to hear right (issue #747), as Settings → Dictionary has them.
+
+func meetingsWords(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	add, remove := commaList(str(fs, "add")), commaList(str(fs, "remove"))
+
+	read, err := e.api.ListMeetingWordsWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the words to hear right: %w", err)
+	}
+
+	if read.JSON200 == nil {
+		return apiError("reading the words to hear right", read.StatusCode(), read.JSONDefault)
+	}
+
+	out := read.JSON200
+
+	if add != nil || remove != nil {
+		own := []string{}
+
+		for _, w := range out.Data {
+			if w.From == openapi.MeetingWordSourceOwner && !holds(remove, w.Word) {
+				own = append(own, w.Word)
+			}
+		}
+
+		if add != nil {
+			for _, w := range *add {
+				if !holds(&own, w) {
+					own = append(own, w)
+				}
+			}
+		}
+
+		set, err := e.api.SetMeetingWordsWithResponse(ctx, openapi.MeetingWordsUpdate{Words: own})
+		if err != nil {
+			return fmt.Errorf("setting the words to hear right: %w", err)
+		}
+
+		if set.JSON200 == nil {
+			return apiError("setting the words to hear right", set.StatusCode(), set.JSONDefault)
+		}
+
+		out = set.JSON200
+	}
+
+	return e.print(fs, out, func() {
+		if len(out.Data) == 0 {
+			e.printf("No words yet.\n")
+
+			return
+		}
+
+		for _, w := range out.Data {
+			sent := ""
+			if !w.Sent {
+				sent = " (not sent: past the first " + strconv.Itoa(out.MaxSent) + ")"
 			}
 
-			e.printf("  %-12s %s: %s\n", f.Id, f.Name, strings.Join(titles, ", "))
+			e.printf("%-12s %s%s\n", w.From, w.Word, sent)
 		}
+	})
+}
+
+// holds says whether a list holds a word, in any case.
+func holds(list *[]string, word string) bool {
+	if list == nil {
+		return false
+	}
+
+	for _, w := range *list {
+		if strings.EqualFold(strings.TrimSpace(w), strings.TrimSpace(word)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func meetingsFix(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	body := openapi.MeetingWordFix{From: fs.Arg(1), To: fs.Arg(2)}
+	if n := number(fs, "line"); n > 0 {
+		body.Line = &n
+	}
+
+	resp, err := e.api.FixMeetingWordWithResponse(ctx, id, body)
+	if err != nil {
+		return fmt.Errorf("fixing a word of %s: %w", id, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("fixing a word of "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	fixed := resp.JSON200
+
+	return e.print(fs, fixed, func() {
+		e.printf("Replaced %d times.\n", fixed.Replaced)
+
+		if fixed.Learned {
+			e.printf("%q is in your words to hear right.\n", fs.Arg(2))
+		} else {
+			e.printf("%q is not in your words to hear right: the list is full or the words too long.\n", fs.Arg(2))
+		}
+
+		e.printf("The notes are as they were; `hypomnema meetings notes %s` writes them again.\n", id)
 	})
 }
 

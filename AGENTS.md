@@ -75,6 +75,9 @@
   comment on that issue.
 - Run `make verify` before pushing. A pull request that adds a migration merges main and runs
   `make migration-check` again right before it is merged: another may have taken its number meanwhile (#334).
+- A merge conflict in generated code (`internal/controlplane/clientapi/openapi/api.gen.go`,
+  `web/src/api/generated/*.gen.ts`) is never edited by hand: resolve `api/openapi.yaml` first, take either side of
+  the generated files, then run `make openapi-generate`, `make web-api-generate` and `make openapi-check` (#754).
 - The checks need Go at the version `go.mod` names (the linters and generators come through `go tool`), and the
   web client's need Node 24 and pnpm (`web/package.json`). On a node, the repository's setup script
   (`deploy/worker/setup.sh`) has installed what was missing for the worker's user, without sudo, and linked it into

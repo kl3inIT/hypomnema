@@ -24,15 +24,17 @@ import { Route as BotsIdRouteImport } from './routes/bots.$id'
 import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as MeetingsMeetingIdRouteImport } from './routes/meetings_.$meetingId'
+import { Route as STokenRouteImport } from './routes/s.$token'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
 import { Route as SettingsAudioRouteImport } from './routes/settings.audio'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
+import { Route as SettingsDictionaryRouteImport } from './routes/settings.dictionary'
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsImagesRouteImport } from './routes/settings.images'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
-import { Route as SettingsMeetingsRouteImport } from './routes/settings.meetings'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
+import { Route as SettingsNotesModelRouteImport } from './routes/settings.notes-model'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
@@ -116,6 +118,11 @@ const MeetingsMeetingIdRoute = MeetingsMeetingIdRouteImport.update({
   path: '/meetings/$meetingId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const STokenRoute = STokenRouteImport.update({
+  id: '/s/$token',
+  path: '/s/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
@@ -136,6 +143,11 @@ const SettingsChannelsRoute = SettingsChannelsRouteImport.update({
   path: '/settings/channels',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsDictionaryRoute = SettingsDictionaryRouteImport.update({
+  id: '/settings/dictionary',
+  path: '/settings/dictionary',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsGatewayKeysRoute = SettingsGatewayKeysRouteImport.update({
   id: '/settings/gateway-keys',
   path: '/settings/gateway-keys',
@@ -151,14 +163,14 @@ const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   path: '/settings/integrations',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SettingsMeetingsRoute = SettingsMeetingsRouteImport.update({
-  id: '/settings/meetings',
-  path: '/settings/meetings',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsModelsRoute = SettingsModelsRouteImport.update({
   id: '/settings/models',
   path: '/settings/models',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsNotesModelRoute = SettingsNotesModelRouteImport.update({
+  id: '/settings/notes-model',
+  path: '/settings/notes-model',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRepositoriesRoute = SettingsRepositoriesRouteImport.update({
@@ -211,14 +223,16 @@ export interface FileRoutesByFullPath {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
+  '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
-  '/settings/meetings': typeof SettingsMeetingsRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
@@ -244,14 +258,16 @@ export interface FileRoutesByTo {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
+  '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
-  '/settings/meetings': typeof SettingsMeetingsRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
@@ -278,14 +294,16 @@ export interface FileRoutesById {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings_/$meetingId': typeof MeetingsMeetingIdRoute
+  '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
-  '/settings/meetings': typeof SettingsMeetingsRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/settings/notes-model': typeof SettingsNotesModelRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
@@ -313,14 +331,16 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings/$meetingId'
+    | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
+    | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
-    | '/settings/meetings'
     | '/settings/models'
+    | '/settings/notes-model'
     | '/settings/repositories'
     | '/settings/usage'
     | '/settings/vault'
@@ -346,14 +366,16 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings/$meetingId'
+    | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
+    | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
-    | '/settings/meetings'
     | '/settings/models'
+    | '/settings/notes-model'
     | '/settings/repositories'
     | '/settings/usage'
     | '/settings/vault'
@@ -379,14 +401,16 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings_/$meetingId'
+    | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
+    | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
-    | '/settings/meetings'
     | '/settings/models'
+    | '/settings/notes-model'
     | '/settings/repositories'
     | '/settings/usage'
     | '/settings/vault'
@@ -413,14 +437,16 @@ export interface RootRouteChildren {
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   MeetingsMeetingIdRoute: typeof MeetingsMeetingIdRoute
+  STokenRoute: typeof STokenRoute
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
   SettingsAudioRoute: typeof SettingsAudioRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
+  SettingsDictionaryRoute: typeof SettingsDictionaryRoute
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsImagesRoute: typeof SettingsImagesRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
-  SettingsMeetingsRoute: typeof SettingsMeetingsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
+  SettingsNotesModelRoute: typeof SettingsNotesModelRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsUsageRoute: typeof SettingsUsageRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
@@ -540,6 +566,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MeetingsMeetingIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/s/$token': {
+      id: '/s/$token'
+      path: '/s/$token'
+      fullPath: '/s/$token'
+      preLoaderRoute: typeof STokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/': {
       id: '/settings/'
       path: '/settings'
@@ -568,6 +601,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsChannelsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/dictionary': {
+      id: '/settings/dictionary'
+      path: '/settings/dictionary'
+      fullPath: '/settings/dictionary'
+      preLoaderRoute: typeof SettingsDictionaryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/gateway-keys': {
       id: '/settings/gateway-keys'
       path: '/settings/gateway-keys'
@@ -589,18 +629,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/settings/meetings': {
-      id: '/settings/meetings'
-      path: '/settings/meetings'
-      fullPath: '/settings/meetings'
-      preLoaderRoute: typeof SettingsMeetingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings/models': {
       id: '/settings/models'
       path: '/settings/models'
       fullPath: '/settings/models'
       preLoaderRoute: typeof SettingsModelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/notes-model': {
+      id: '/settings/notes-model'
+      path: '/settings/notes-model'
+      fullPath: '/settings/notes-model'
+      preLoaderRoute: typeof SettingsNotesModelRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/repositories': {
@@ -669,14 +709,16 @@ const rootRouteChildren: RootRouteChildren = {
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   MeetingsMeetingIdRoute: MeetingsMeetingIdRoute,
+  STokenRoute: STokenRoute,
   SettingsAboutYouRoute: SettingsAboutYouRoute,
   SettingsAudioRoute: SettingsAudioRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
+  SettingsDictionaryRoute: SettingsDictionaryRoute,
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsImagesRoute: SettingsImagesRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
-  SettingsMeetingsRoute: SettingsMeetingsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
+  SettingsNotesModelRoute: SettingsNotesModelRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsUsageRoute: SettingsUsageRoute,
   SettingsVaultRoute: SettingsVaultRoute,

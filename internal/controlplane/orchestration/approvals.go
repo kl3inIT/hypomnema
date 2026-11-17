@@ -149,32 +149,8 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 			return err
 		}
 
-		if routineID != "" {
-			always, err := routinestore.GrantedTx(ctx, q, routineID, n.Integration, n.Label, n.Action)
-			if err != nil {
-				return err
-			}
-
-			if always {
-				granted = true
-
-				return nil
-			}
-		}
-
-		if runID != "" || n.ChatID != "" {
-			sessions, err := q.CountSessionApprovals(ctx, store.CountSessionApprovalsParams{
-				Integration: n.Integration, Label: n.Label, Action: n.Action, RunID: runID, ChatID: n.ChatID,
-			})
-			if err != nil {
-				return fmt.Errorf("reading the approvals of the session: %w", err)
-			}
-
-			if sessions > 0 {
-				granted = true
-
-				return nil
-			}
+		if granted, err = standingGrant(ctx, q, n, runID, routineID); err != nil || granted {
+			return err
 		}
 
 		same, err := q.ListApprovalsByMatch(ctx, store.ListApprovalsByMatchParams{
@@ -292,6 +268,48 @@ func (s *Service) ExpireApproval(ctx context.Context, id string) (Approval, erro
 	}
 
 	return out, nil
+}
+
+// StandingGrant reports whether the owner allowed an action for the rest of the Run or chat that asks, or for its
+// Routine, without recording anything: of a request that names several actions, each needs its own answer, and one
+// action's grant never carries another (review of #746).
+func (s *Service) StandingGrant(ctx context.Context, n NewApproval) (bool, error) {
+	q := s.read()
+
+	_, runID, err := runOfDispatch(ctx, q, n.DispatchID)
+	if err != nil {
+		return false, err
+	}
+
+	routineID, _, err := routinestore.RunOfAskerTx(ctx, q, n.RunKey, n.ChatID)
+	if err != nil {
+		return false, err
+	}
+
+	return standingGrant(ctx, q, n, runID, routineID)
+}
+
+// standingGrant is whether an action is allowed for the asker's Routine, or for the rest of its Run or chat.
+func standingGrant(ctx context.Context, q *store.Queries, n NewApproval, runID, routineID string) (bool, error) {
+	if routineID != "" {
+		always, err := routinestore.GrantedTx(ctx, q, routineID, n.Integration, n.Label, n.Action)
+		if err != nil || always {
+			return always, err
+		}
+	}
+
+	if runID == "" && n.ChatID == "" {
+		return false, nil
+	}
+
+	sessions, err := q.CountSessionApprovals(ctx, store.CountSessionApprovalsParams{
+		Integration: n.Integration, Label: n.Label, Action: n.Action, RunID: runID, ChatID: n.ChatID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading the approvals of the session: %w", err)
+	}
+
+	return sessions > 0, nil
 }
 
 // runOfDispatch returns a Dispatch's Task and Run; both empty for no
@@ -476,6 +494,32 @@ func approvalNotice(a Approval) string {
 		return fmt.Sprintf("Approved: %q (%s), this once. Run the same command again, unchanged: it will pass once.",
 			a.Title, a.ID)
 	}
+}
+
+// ApprovedOnce says whether the owner approved this very request of a chat, once, and it has not run yet (issue
+// #748): an act he approved after its turn ended runs on that approval alone, as OpenClaw runs an exec approved
+// later by the approval's authority (src/agents/bash-tools.exec-approval-followup.ts). It only reads: AskApproval
+// uses the approval when the request runs.
+func (s *Service) ApprovedOnce(ctx context.Context, n NewApproval) (bool, error) {
+	if n.ChatID == "" || n.MatchHash == "" {
+		return false, nil
+	}
+
+	same, err := s.read().ListApprovalsByMatch(ctx, store.ListApprovalsByMatchParams{
+		MatchHash: n.MatchHash, Integration: n.Integration, Label: n.Label, Action: n.Action,
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading the approvals of the same request: %w", err)
+	}
+
+	for _, row := range same {
+		if row.ChatID.String == n.ChatID && !row.RunID.Valid && !row.RoutineRunID.Valid &&
+			row.Status == string(ApprovalApproved) && row.Scope.String == string(ScopeOnce) && !row.UsedAt.Valid {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // UseApproval marks an approval for one request as run. It reports whether

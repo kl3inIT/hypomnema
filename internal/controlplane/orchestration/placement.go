@@ -18,7 +18,8 @@ type placement struct {
 	nodes map[string]*nodeLoad
 	order []*nodeLoad
 	// groups counts the unsettled Dispatches of each Bot's Runs, "" the
-	// owner's Runs without a Bot (issue #660; runGroup).
+	// owner's Runs without a Bot (issue #660; runGroup): the used side of
+	// each group's used / guarantee, which orders the groups (issue #731).
 	groups   map[string]int
 	accounts []store.Account
 	cooling  map[[2]string]int64
@@ -36,6 +37,35 @@ type nodeLoad struct {
 	// tools is what the node has of the tools it was told to have; nil when it has not said.
 	tools  []NodeTool
 	active int
+	// requested is the sum of the requests of its unsettled Dispatches (issue #731).
+	requested request
+}
+
+// request is what a Dispatch asks of a node: CPU in thousandths of a core,
+// and memory in bytes (issue #731), as a Kubernetes container's requests
+// (helper/resource_fit.go:159-178) and a Nomad task's resources.
+type request struct {
+	cpuMillis, memoryBytes int64
+}
+
+func (r request) plus(o request) request {
+	return request{cpuMillis: r.cpuMillis + o.cpuMillis, memoryBytes: r.memoryBytes + o.memoryBytes}
+}
+
+// requestOf is a profile version's request, each part the default for
+// building work when the profile asks for nothing.
+func requestOf(v store.ProfileVersion) request {
+	r := request{cpuMillis: DefaultCPURequestMillis, memoryBytes: DefaultMemoryRequest}
+
+	if v.CpuRequestMillis.Valid {
+		r.cpuMillis = v.CpuRequestMillis.Int64
+	}
+
+	if v.MemoryRequestBytes.Valid {
+		r.memoryBytes = v.MemoryRequestBytes.Int64
+	}
+
+	return r
 }
 
 func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement, error) {
@@ -101,6 +131,7 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 	for _, l := range loads {
 		if n, ok := p.nodes[l.NodeID]; ok {
 			n.active = int(l.N)
+			n.requested = request{cpuMillis: l.CpuMillis, memoryBytes: l.MemoryBytes}
 		}
 	}
 
@@ -154,11 +185,98 @@ func (p *placement) checkNode(id, runtime string, w where) error {
 		return fmt.Errorf("%w: node %s does not reach %s", ErrUnavailable, id, host)
 	case n.lacks(w.tools) != "":
 		return fmt.Errorf("%w: node %s has no %s", ErrUnavailable, id, n.lacks(w.tools))
-	case n.active >= int(n.row.MaxDispatches):
-		return fmt.Errorf("%w: node %s runs %d of %d", ErrUnavailable, id, n.active, n.row.MaxDispatches)
+	case !n.fits(w.req):
+		return fmt.Errorf("%w: node %s has no room: %s", ErrUnavailable, id, n.room(w.req))
 	}
 
 	return nil
+}
+
+// capped reports whether the owner set the node's optional cap.
+func (n *nodeLoad) capped() bool { return n.row.MaxDispatches.Valid }
+
+// sized reports whether the node said its capacity, its CPUs and its memory,
+// in its hello. A node that did not has no capacity: it takes work only under
+// its cap (issue #731; inferred: no reference schedules on a node of unknown
+// capacity).
+func (n *nodeLoad) sized() bool {
+	return n.row.Cpus.Valid && n.row.Cpus.Int64 > 0 && n.row.MemoryBytes.Valid && n.row.MemoryBytes.Int64 > 0
+}
+
+// allocatable is what the node's Dispatches may ask for in all: its capacity
+// less what the owner reserved, and its memory less NodeMemoryFloor too,
+// never below 0. From the kubelet's allocatable = capacity - system-reserved -
+// kube-reserved - hard eviction (cm/node_container_manager_linux.go:292-313,
+// nodestatus/setters.go:310-320) and Nomad's client reserved
+// (nomad/structs/funcs.go:192-198).
+func (n *nodeLoad) allocatable() request {
+	if !n.sized() {
+		return request{}
+	}
+
+	return request{
+		cpuMillis:   less(n.row.Cpus.Int64*1000, n.row.ReservedCpuMillis),
+		memoryBytes: less(less(n.row.MemoryBytes.Int64, n.row.ReservedMemoryBytes), NodeMemoryFloor),
+	}
+}
+
+// less is have - take, never below 0. Both are 0 or more, so it cannot
+// overflow, however large a reserve the owner set (PR #759).
+func less(have, take int64) int64 {
+	if take >= have {
+		return 0
+	}
+
+	return have - take
+}
+
+// fits reports whether one more Dispatch of the request fits the node now:
+// under its cap when one is set, and with the requests of its unsettled
+// Dispatches plus this one within its allocatable CPU and memory both. From
+// Kubernetes FitsRequest, "Too many pods" then "Insufficient cpu/memory"
+// (helper/resource_fit.go:136-178), and Nomad's AllocsFit, node_max_allocs
+// then resources (nomad/structs/funcs.go:145-149, 192-198); both fit on
+// declared requests, never on measured use.
+func (n *nodeLoad) fits(r request) bool {
+	if n.capped() && int64(n.active) >= n.row.MaxDispatches.Int64 {
+		return false
+	}
+
+	if !n.sized() {
+		return n.capped()
+	}
+
+	alloc, used := n.allocatable(), n.requested.plus(r)
+
+	return used.cpuMillis <= alloc.cpuMillis && used.memoryBytes <= alloc.memoryBytes
+}
+
+// fitsEmpty reports whether the request would fit the node with nothing on
+// it: when it does not, waiting frees nothing (Kubernetes marks such a pod
+// Unresolvable, helper/resource_fit.go:166, 176).
+func (n *nodeLoad) fitsEmpty(r request) bool {
+	if !n.sized() {
+		return n.capped()
+	}
+
+	alloc := n.allocatable()
+
+	return r.cpuMillis <= alloc.cpuMillis && r.memoryBytes <= alloc.memoryBytes
+}
+
+// room says why a request does not fit the node, for an error.
+func (n *nodeLoad) room(r request) string {
+	switch {
+	case n.capped() && int64(n.active) >= n.row.MaxDispatches.Int64:
+		return fmt.Sprintf("it runs %d of its cap of %d", n.active, n.row.MaxDispatches.Int64)
+	case !n.sized():
+		return "it has not said its CPUs and memory, and has no cap"
+	}
+
+	alloc, used := n.allocatable(), n.requested.plus(r)
+
+	return fmt.Sprintf("%d of %d CPU millicores and %d of %d memory bytes would be requested", used.cpuMillis,
+		alloc.cpuMillis, used.memoryBytes, alloc.memoryBytes)
 }
 
 // checkAccount says why an account cannot take a Dispatch of the runtime now.
@@ -266,20 +384,43 @@ func (p *placement) checkAccountKnown(runtime, id string) bool {
 	})
 }
 
+// could reports whether a node runs workers of the runtime and suits the
+// Run's work, whatever room it has.
+func (p *placement) could(n *nodeLoad, runtime string, w where) bool {
+	return p.serves(n, runtime) == nil && n.reaches(w.host) && n.lacks(w.tools) == ""
+}
+
 // atLimit reports whether a node could take a Dispatch of the runtime, on the
-// git host, but for its own limit (issue #660).
+// git host, but is full now: the request would fit it empty, but not with what
+// it runs, or it runs as many as its cap (issues #660, #731).
 func (p *placement) atLimit(id, runtime string, w where) bool {
 	n, ok := p.nodes[id]
 
-	return ok && n.active >= int(n.row.MaxDispatches) && p.serves(n, runtime) == nil && n.reaches(w.host) &&
-		n.lacks(w.tools) == ""
+	return ok && p.could(n, runtime, w) && !n.fits(w.req) && n.fitsEmpty(w.req)
+}
+
+// tooSmall reports whether a node could take a Dispatch of the runtime, on
+// the git host, but for a request larger than its allocatable: waiting frees
+// nothing there (issue #731).
+func (p *placement) tooSmall(id, runtime string, w where) bool {
+	n, ok := p.nodes[id]
+
+	return ok && p.could(n, runtime, w) && !n.fitsEmpty(w.req)
 }
 
 // anyAtLimit reports whether a node with a worktree root could take a new
-// Conversation of the runtime but for its own limit.
+// Conversation of the runtime but is full now.
 func (p *placement) anyAtLimit(runtime string, w where) bool {
 	return slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
 		return n.row.WorktreeRoot.String != "" && p.atLimit(n.row.ID, runtime, w)
+	})
+}
+
+// anyTooSmall reports whether a node with a worktree root could take a new
+// Conversation of the runtime but for its size.
+func (p *placement) anyTooSmall(runtime string, w where) bool {
+	return slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
+		return n.row.WorktreeRoot.String != "" && p.tooSmall(n.row.ID, runtime, w)
 	})
 }
 
@@ -289,10 +430,19 @@ func (p *placement) nodeReady(id, runtime string, w where) bool {
 }
 
 // where is what a Run's work needs of the node it goes to: a route to its
-// git host, and the tools its Connections are called with.
+// git host, the tools its Connections are called with, and the request of
+// the Dispatch (issue #731).
 type where struct {
 	host  string
 	tools []string
+	req   request
+}
+
+// asking is where with the request of the resolved profile.
+func (w where) asking(r resolved) where {
+	w.req = r.req
+
+	return w
 }
 
 // lacks names the first of the tools the node has not installed, "" when it
@@ -343,24 +493,126 @@ func (p *placement) accountUsable(runtime, id string) (usable, cooling bool) {
 	return err == nil, errors.Is(err, ErrCoolingDown)
 }
 
-// pickNode is the least loaded node that can take a new Conversation of the
-// runtime on the git host, ties by id (inferred: Coder does no balancing, Orca
-// takes the first free terminal; no reference places work by git host).
+// pickNode is the node with the most free capacity that can take a new
+// Conversation of the runtime on the git host (issue #731): it filters, then
+// scores, as Kubernetes filters with NodeResourcesFit before scoring
+// (helper/resource_fit.go:136-145) and Nomad ranks only Ready() nodes
+// (structs.go:2168-2170). The filter is checkNode, the fit by requests among
+// it; a node low on memory is skipped (lowMemory). The highest score wins
+// (better).
 func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 	var best *nodeLoad
 
 	for _, n := range p.order {
-		if !p.nodeReady(n.row.ID, runtime, host) || !n.row.WorktreeRoot.Valid || n.row.WorktreeRoot.String == "" {
+		if !p.nodeReady(n.row.ID, runtime, host) || !n.row.WorktreeRoot.Valid || n.row.WorktreeRoot.String == "" ||
+			p.lowMemory(n) {
 			continue
 		}
 
-		if best == nil || n.active < best.active || (n.active == best.active && n.row.ID < best.row.ID) {
+		if best == nil || p.better(n, best, host.req) {
 			best = n
 		}
 	}
 
 	return best
 }
+
+// better reports whether node a goes before node b for a Dispatch of the
+// request: a higher score, then more allocatable memory left by requests, then
+// the smaller id.
+//
+// A node's score is its free capacity, 0 to 1: the mean of its free share by
+// requests and its measured free CPU and memory shares. From Kubernetes
+// LeastAllocated, each resource's (allocatable - requested) / allocatable
+// averaged with weights, CPU and memory weight 1 (least_allocated.go:30-62,
+// resource_allocation.go:200-210, apis/config/v1/defaults.go:34-35), and
+// Nomad's spread over free CPU and memory shares (structs/funcs.go:234-250);
+// measured CPU as Trimaran's TargetLoadPacking reads it
+// (targetloadpacking.go:131-144). The tie-break ranks by absolute free room,
+// as Jenkins Least Load ranks by idle executors (LeastLoadBalancer.java:443-470),
+// then by id, as Orca's relay does (assignment-store.ts:8164), to keep
+// placement reproducible.
+func (p *placement) better(a, b *nodeLoad, r request) bool {
+	// The sum of the three shares orders as their mean does. Each sum is
+	// computed the same way, so equal nodes tie exactly.
+	if sa, sb := a.free(r)+p.measured(a), b.free(r)+p.measured(b); sa != sb {
+		return sa > sb
+	}
+
+	if la, lb := a.memoryLeft(), b.memoryLeft(); la != lb {
+		return la > lb
+	}
+
+	return a.row.ID < b.row.ID
+}
+
+// free is the node's free share by requests, 0 to 1, with one more Dispatch
+// of the request on it: the mean of 1 - requested/allocatable over CPU and
+// memory. A node that did not say its size counts 0, as Trimaran scores a
+// node without metrics at the minimum (targetloadpacking.go:107-117).
+func (n *nodeLoad) free(r request) float64 {
+	alloc := n.allocatable()
+	if alloc.cpuMillis <= 0 || alloc.memoryBytes <= 0 {
+		return 0
+	}
+
+	used := n.requested.plus(r)
+
+	return (clamp01(1-float64(used.cpuMillis)/float64(alloc.cpuMillis)) +
+		clamp01(1-float64(used.memoryBytes)/float64(alloc.memoryBytes))) / 2
+}
+
+// memoryLeft is the allocatable memory its unsettled Dispatches do not ask for, in bytes.
+func (n *nodeLoad) memoryLeft() int64 {
+	return max(n.allocatable().memoryBytes-n.requested.memoryBytes, 0)
+}
+
+// measured is the sum of a node's free CPU and memory shares, each 0 to 1. A
+// node without fresh stats, or that never said its memory, counts 0 for both,
+// as Trimaran scores a node without metrics at the minimum
+// (targetloadpacking.go:107-117); its free share by requests still counts, so
+// it may outrank a node with fresh stats whose requests leave less room.
+func (p *placement) measured(n *nodeLoad) float64 {
+	total := n.row.MemoryBytes.Int64
+	if !p.freshStats(n) || !n.row.MemoryBytes.Valid || total <= 0 || !n.row.MemoryUsedBytes.Valid {
+		return 0
+	}
+
+	sum := clamp01(1 - float64(n.row.MemoryUsedBytes.Int64)/float64(total))
+
+	if n.row.CpuPercent.Valid {
+		sum += clamp01(1 - n.row.CpuPercent.Float64/100)
+	}
+
+	return sum
+}
+
+// freshStats reports whether the node's last measurement is younger than
+// NodeOfflineAfter, three heartbeats.
+func (p *placement) freshStats(n *nodeLoad) bool {
+	return n.row.StatsAt.Valid && p.now-n.row.StatsAt.Int64 < NodeOfflineAfter.Milliseconds()
+}
+
+// lowMemory reports whether a node's fresh stats say it has less than
+// NodeMemoryFloor available: it takes no new Conversation, as a kubelet under
+// MemoryPressure is tainted NoSchedule for new pods only
+// (kubelet/eviction/defaults_linux.go:22-27, node_lifecycle_controller.go:95-96).
+// A Conversation that continues keeps its node. A node without fresh stats or
+// without its memory size is not refused.
+func (p *placement) lowMemory(n *nodeLoad) bool {
+	return p.freshStats(n) && n.row.MemoryBytes.Valid && n.row.MemoryBytes.Int64 > 0 &&
+		n.row.MemoryUsedBytes.Valid && n.row.MemoryBytes.Int64-n.row.MemoryUsedBytes.Int64 < NodeMemoryFloor
+}
+
+// anyLowMemory reports whether a node with a worktree root could take a new
+// Conversation of the runtime but for its memory.
+func (p *placement) anyLowMemory(runtime string, w where) bool {
+	return slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
+		return n.row.WorktreeRoot.String != "" && p.nodeReady(n.row.ID, runtime, w) && p.lowMemory(n)
+	})
+}
+
+func clamp01(x float64) float64 { return min(max(x, 0), 1) }
 
 // TokenRuntime is the runtime whose account can be a token the owner pastes:
 // Claude Code's `claude setup-token`, long-lived and with no refresh to share
@@ -410,12 +662,13 @@ func (p *placement) pickAccount(runtime string) (id string, cooling bool) {
 	return "", cooling
 }
 
-// take counts a new Dispatch on a node and in its Bot's group.
-func (p *placement) take(nodeID, group string) {
+// take counts a new Dispatch of the request on a node and in its Bot's group.
+func (p *placement) take(nodeID, group string, r request) {
 	p.groups[group]++
 
 	if n, ok := p.nodes[nodeID]; ok {
 		n.active++
+		n.requested = n.requested.plus(r)
 	}
 }
 
@@ -433,9 +686,14 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 		}
 	}
 
+	alloc := n.allocatable()
+
 	return Node{
 		Stats: stats, Machine: machineOut(n.row),
-		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
+		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches.Int64),
+		Reserved:     Resources{CPUMillis: n.row.ReservedCpuMillis, MemoryBytes: n.row.ReservedMemoryBytes},
+		Allocatable:  Resources{CPUMillis: alloc.cpuMillis, MemoryBytes: alloc.memoryBytes},
+		Requested:    Resources{CPUMillis: n.requested.cpuMillis, MemoryBytes: n.requested.memoryBytes},
 		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes), GitHosts: n.gitHosts(),
 		Tools: n.tools,
 		System: SystemInfo{

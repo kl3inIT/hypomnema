@@ -1,11 +1,10 @@
 import { Link } from "@tanstack/react-router"
 import { tableFeatures, useTable, type ColumnDef } from "@tanstack/react-table"
-import { CalendarClock, ListChecks, Mic, Search, Settings, Upload, UsersRound } from "lucide-react"
+import { CalendarClock, ListChecks, Mic, Search, Upload, UsersRound } from "lucide-react"
 import { useDeferredValue, useState, type ReactNode } from "react"
 
 import type { Meeting } from "@/api/generated/types.gen"
 import { PageHeader, PageHeading } from "@/components/page-header"
-import { buttonVariants } from "@/components/ui/button"
 import {
   Empty,
   EmptyContent,
@@ -70,14 +69,6 @@ export function MeetingsScreen() {
           description="Recordings turned into transcripts, notes and actions."
           className="mb-4"
         >
-          <Link
-            to="/settings/meetings"
-            className={buttonVariants({ variant: "outline" })}
-            title="The model that writes notes, and the notes formats"
-          >
-            <Settings data-icon="inline-start" />
-            Settings
-          </Link>
           <UploadMeeting />
         </PageHeading>
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>

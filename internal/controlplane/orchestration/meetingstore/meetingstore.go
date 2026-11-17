@@ -62,10 +62,6 @@ const (
 	MaxTitle  = 200
 	MaxName   = 100
 	MaxPeople = 30
-	// MaxTerms bounds the words to hear right: MemoryOS bounds a meeting's terms by their JSON; Soniox takes a
-	// context of about 10,000 characters.
-	MaxTerms = 100
-	maxTerm  = 100
 )
 
 // Meeting is a meeting, with its notes' state and its voices.
@@ -76,7 +72,6 @@ type Meeting struct {
 	Titled    bool
 	Language  string
 	People    []string
-	Terms     []string
 	FileName  string
 	MediaType string
 	Size      int64
@@ -97,7 +92,6 @@ type Meeting struct {
 
 // Notes are what a model wrote of a meeting.
 type Notes struct {
-	Format    string
 	State     string
 	Failure   string
 	Attempts  int
@@ -107,7 +101,7 @@ type Notes struct {
 	WrittenAt *time.Time
 }
 
-// Section is one section of a notes format, as written: its title and its points.
+// Section is one section of the notes, a topic of the meeting as written: its title and its points.
 type Section struct {
 	Title  string   `json:"title"`
 	Points []string `json:"points"`
@@ -204,8 +198,6 @@ type NewMeeting struct {
 	Title     string
 	Language  string
 	People    []string
-	Terms     []string
-	Format    string
 	FileName  string
 	MediaType string
 	Size      int64
@@ -236,13 +228,8 @@ func (s *Store) Create(ctx context.Context, nm NewMeeting) (Meeting, error) {
 		return Meeting{}, err
 	}
 
-	terms, err := cleanList(nm.Terms, MaxTerms, maxTerm, "words to hear right")
-	if err != nil {
-		return Meeting{}, err
-	}
-
-	if nm.ID == "" || nm.Size <= 0 || nm.FileName == "" || nm.Format == "" {
-		return Meeting{}, fmt.Errorf("%w: a meeting needs its recording and a notes format", storeerr.ErrInvalid)
+	if nm.ID == "" || nm.Size <= 0 || nm.FileName == "" {
+		return Meeting{}, fmt.Errorf("%w: a meeting needs its recording", storeerr.ErrInvalid)
 	}
 
 	peopleJSON, err := json.Marshal(people)
@@ -250,20 +237,15 @@ func (s *Store) Create(ctx context.Context, nm NewMeeting) (Meeting, error) {
 		return Meeting{}, fmt.Errorf("encoding the people: %w", err)
 	}
 
-	termsJSON, err := json.Marshal(terms)
-	if err != nil {
-		return Meeting{}, fmt.Errorf("encoding the words: %w", err)
-	}
-
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertMeeting(ctx, store.InsertMeetingParams{
 			ID: nm.ID, Title: title, Titled: flag(titled), Language: nm.Language, People: string(peopleJSON),
-			Terms: string(termsJSON), FileName: nm.FileName, MediaType: nm.MediaType, Size: nm.Size, Now: now,
+			FileName: nm.FileName, MediaType: nm.MediaType, Size: nm.Size, Now: now,
 		}); err != nil {
 			return fmt.Errorf("storing meeting %s: %w", nm.ID, err)
 		}
 
-		return q.InsertMeetingNotes(ctx, store.InsertMeetingNotesParams{MeetingID: nm.ID, Format: nm.Format, Now: now})
+		return q.InsertMeetingNotes(ctx, store.InsertMeetingNotesParams{MeetingID: nm.ID, Now: now})
 	}); err != nil {
 		return Meeting{}, err
 	}
@@ -341,7 +323,7 @@ func (s *Store) List(ctx context.Context, query string, limit int) ([]Meeting, e
 			Failure: r.Failure, Attempts: r.Attempts, Provider: r.Provider, Model: r.Model, CreatedAt: r.CreatedAt,
 			UpdatedAt: r.UpdatedAt,
 		})
-		m.Notes = Notes{State: r.NotesState, Format: r.NotesFormat, Summary: r.NotesSummary}
+		m.Notes = Notes{State: r.NotesState, Summary: r.NotesSummary}
 		m.Speakers = speakers[r.ID]
 		m.Actions, m.OpenActions = int(r.Actions), int(r.OpenActions)
 		out = append(out, m)
@@ -652,11 +634,11 @@ func (s *Store) SaveNotes(ctx context.Context, id string, w Written) error {
 	})
 }
 
-// WriteAgain asks for a meeting's notes again in a format (Granola's, Fireflies's and Otter's regenerate); not
-// while they are being written or before the transcript is there.
-func (s *Store) WriteAgain(ctx context.Context, id, format string) error {
+// WriteAgain asks for a meeting's notes again (Granola's, Fireflies's and Otter's regenerate); not while they are
+// being written or before the transcript is there.
+func (s *Store) WriteAgain(ctx context.Context, id string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		n, err := q.WriteNotesAgain(ctx, store.WriteNotesAgainParams{Format: format, Now: now, MeetingID: id})
+		n, err := q.WriteNotesAgain(ctx, store.WriteNotesAgainParams{Now: now, MeetingID: id})
 		if err != nil {
 			return err
 		}
@@ -911,7 +893,7 @@ func nextPosition(speakers []Speaker) int {
 func meetingOf(r store.Meeting) Meeting {
 	return Meeting{
 		ID: r.ID, Title: r.Title, Titled: r.Titled == 1, Language: r.Language, People: list(r.People),
-		Terms: list(r.Terms), FileName: r.FileName, MediaType: r.MediaType, Size: r.Size,
+		FileName: r.FileName, MediaType: r.MediaType, Size: r.Size,
 		Duration: time.Duration(r.DurationMs) * time.Millisecond, State: r.State, Failure: r.Failure,
 		Attempts: int(r.Attempts), Provider: r.Provider, Model: r.Model, CreatedAt: storeutil.Millis(r.CreatedAt),
 		UpdatedAt: storeutil.Millis(r.UpdatedAt),
@@ -923,7 +905,7 @@ func notesOf(r store.MeetingNote) Notes {
 	_ = json.Unmarshal([]byte(r.Sections), &sections)
 
 	return Notes{
-		Format: r.Format, State: r.State, Failure: r.Failure, Attempts: int(r.Attempts), Model: r.Model,
+		State: r.State, Failure: r.Failure, Attempts: int(r.Attempts), Model: r.Model,
 		Summary: r.Summary, Sections: sections, WrittenAt: storeutil.OptionalMillis(r.WrittenAt),
 	}
 }

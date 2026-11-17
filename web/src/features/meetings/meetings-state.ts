@@ -1,4 +1,4 @@
-import type { Meeting, MeetingSpeaker } from "@/api/generated/types.gen"
+import type { Meeting, MeetingSpeaker, MeetingWord } from "@/api/generated/types.gen"
 
 // What the Meetings pages compute from a meeting (issue #721), kept apart from the screens so that it is tested
 // without them.
@@ -220,6 +220,22 @@ export function listOf(text: string) {
     .split(/[,\n]/)
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+// ownWords are the owner's words to hear right, in their order (issue #747).
+export function ownWords(all: MeetingWord[]) {
+  return all.filter((w) => w.from === "owner").map((w) => w.word)
+}
+
+// addWords adds what was typed, one word or several separated by commas, to the owner's words; a word already there,
+// in any case, is not added again.
+export function addWords(own: string[], typed: string) {
+  const next = [...own]
+  for (const w of listOf(typed)) {
+    if (w.length <= 100 && !next.some((o) => sameName(o, w))) next.push(w)
+  }
+
+  return next
 }
 
 // maxRecording is the largest recording the server takes: 128 MB.

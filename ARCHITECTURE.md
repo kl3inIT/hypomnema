@@ -135,7 +135,28 @@ the chat's watchers from memory only and are never stored. A reply that ends in 
 row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
 `server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
-`agent_settled`, where the mark clears. An owner message may carry files (issue #343): each is kept on the
+`agent_settled`, where the mark clears. A turn that a restart cuts continues by itself (issue #716, after Hermes's
+interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continue.py`): pi's `agent_start` marks the
+chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 112) and
+`agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
+with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
+clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
+and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
+`continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
+check the current state before redoing anything, then finish the task"; it is no turn input of its own, so a turn
+that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
+with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
+line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
+for the chat or holds the cut turns. The partial transcript stays as kept; both lines reach a Channel's chat as a
+message of their own. A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
+more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_guard.py`), nothing is continued, the
+marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
+turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
+(`selfupdate.Updating`, below) it starts no pi and gives an idle pi no new turn (compactions included); a running
+turn goes on, and what is written waits for the update to end. A pi start holds the supervisor's lock from its last look for
+the update until pi has its token, and the update is marked under that same lock (`BeginUpdate`, below): a start
+that looked before the update began finishes first, and none starts after. Whether the control plane stops is read from `Run`'s context, not the one pi
+reads with (a pi a compaction started reads with its own). An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
@@ -202,7 +223,7 @@ sequenceDiagram
     participant W as Worker
     participant G as Git host
     C->>CP: create a Run (repository, base branch), then Tasks with dependencies
-    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the least loaded node with the runtime, a worktree root and room under its own limit,<br/>an account or a gateway model, while its Bot runs fewer workers than its limit (4 by default)
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room for its request (and under its cap, if set) and 1 GiB of memory available,<br/>an account or a gateway model; the Bot furthest below its guaranteed share goes first
     CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
     N->>CP: accept (new epoch, 90 s lease)
     N->>N: fetch the skills, add the Task's worktree, start the shim
@@ -227,10 +248,13 @@ sequenceDiagram
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, follow one up, finish or
   cancel a Run. A Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every
   Task downstream of it; reopening a failed Task resets its failure count and unblocks them.
-- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task of an open
-  Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
+- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task, or of one
+  blocked at a Gate (issue #714), of an open Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
   who asked: the owner or the coordinator, by the token), the failure count is reset, and the Task goes from
-  succeeded back to ready, the one transition from succeeded. Its next Dispatch continues the Conversation, and
+  succeeded (or blocked) back to ready, the one transition from succeeded. A follow-up to a Task blocked at a Gate
+  replaces the Gate: the Gate is canceled with the reason `superseded` (migration 00110), its `question.canceled`
+  event names the follow-up, and the next Dispatch carries the note and no Gate, as Omnara cancels open questions
+  on new input with the reason `superseded_by_input` (`commands_interactions.go:340-362`). Its next Dispatch continues the Conversation, and
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
@@ -265,7 +289,12 @@ sequenceDiagram
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
   resumes the Conversation with the question and answer. The first answer wins; the coordinator answers only what
   is addressed to it and can forward a question to the owner. Open questions close when their Dispatch settles (a
-  `wait` question) or their Task is canceled (a Gate); a Gate never expires.
+  `wait` question) or their Task is canceled (a Gate); a Gate never expires, but a follow-up replaces it (below).
+  A worker's options (`ask`, and `finish`'s Gate) are each a label or `{label, allows_text}`, so a "change first"
+  carries what to change; every question with options ends with an "Other" that takes text (a worker's own "Other"
+  is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
+  to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
+  `internal/node/workertools`).
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
@@ -301,7 +330,7 @@ sequenceDiagram
     installed has none. `GET /nodes` shows it as `machine`.
   - Create: the region, the size and the public URL are checked first; then the node and its token are written in
     one transaction, refused at the provider's limit; then the provider is asked for one machine named after the
-    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git,
+    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git, gcc and make (`build-essential`), unzip,
     Node.js 22 from nodejs.org (one archive, checked against its published checksum) and the Claude Code and Codex
     CLIs, and runs the install script of `GET /install/node.sh` with the token. The
     node's hello makes the machine `ready`. A refused create leaves the node `provision_failed` with the reason;
@@ -497,14 +526,31 @@ sequenceDiagram
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
     say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
-    Run), the chat it belongs to (`chat_id`, issue #557), and its address and title as Chrome's own DevTools port lists them. A tab's
+    Run), the chat it belongs to (`chat_id`, issue #557), its address and title as Chrome's own DevTools port lists them,
+    and its page's icon (`favicon`, issue #703): a `data:` address of an image of 64 KiB at most, which the
+    engine has the page read in a world of the engine's own beside the page's (`browser/favicon.go`, OpenClaw's
+    script), once per site and in the background, so that a tab has its icon from the next list on. A tab's
     chat is named whichever agent opened it: a worker's is its Run's chat, when the Run has one; a Bot's pi's
     (`b-<chat>`) is that chat, with the chat's Bot (`bot_id`); the owner's own tab, a coordinator token's and a
     worker's of a Run with no chat belong to none.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
     `GET /api/v1/browser`, read again every five seconds, whose `chat_id` is a chat of the pane, its Bot's and its
-    workers' alike, each named by its page's title with a mark of whose it is (a Bot's tab carries its Bot's name). The tab is shown as `BrowserView`, one piece that holds the address
+    workers' alike, each named by its page's title with a mark of whose it is (a Bot's tab carries its Bot's name).
+    A tab of a pane's chat that is new since the list the pane saw before opens by itself beside the chat, where
+    the phone opens (issue #528), or in the pane on a phone, once (issue #703, `workbench/follow-tabs.ts`): the
+    tabs already there when the pane is first shown are left alone, and a tab the owner closed is not opened again
+    until its agent closes it and opens a new one. Several new in one read (two chats of a pane, or a Bot and its
+    worker) all open, in one change of the pane or grid (`openAllBeside`), the last in front. A Bot's call of `agent_browser_open` shows in the chat as a
+    card under its work (`browser-tab-card.tsx`): the icon, title and address of the chat's Bot's tab as it is now,
+    and "Open the tab", which opens it there too; once the tab is closed the card names the address it opened. A
+    browser tab in front has a strip of the browser's tabs over it (`browser-strip.tsx`, as OpenClaw's
+    `PanelTabStrip`, `workbench/strip.ts`): the owner's tab, then the tabs of the pane's chats and of the chats
+    whose tab is open in the pane, each with its page's icon, title and whose it is; a click brings a tab open in
+    the pane in front, or shows another in the place of the one shown. A pane's browser tab keeps the chat whose
+    tabs its strip lists (`chat`), so that the owner's tab shown in place of a Bot's still lists the chat's. Panes
+    of the grid that open a tab beside them in one update each build on the grid as kept now (`latestBench`), so
+    that one does not undo the other's. The tab is shown as `BrowserView`, one piece that holds the address
     row, the control button and the picture. While the owner holds the browser the sidebar says so on every
     page, since every agent's browser tools wait meanwhile. It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
@@ -699,7 +745,8 @@ sequenceDiagram
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
+  owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
+  (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -768,19 +815,52 @@ sequenceDiagram
     row, 64 MiB unpacked by the sizes the zip declares (refused before a part is inflated; every part kept in
     memory), two workbooks read at once, and 20 seconds a read, which the request stops waiting for when its
     context ends. What is not a workbook is refused as invalid.
-    `POST .../revisions/{n}/frame` (owner only) gives the address a folder page's files load from in its frame,
+    `POST .../revisions/{n}/frame` (owner only) gives the address a page and its files load from in its frame,
     `/api/v1/artifact-files/<token>/<path>`, outside the contract and needing no sign-in, as a terminal's ticket:
     a random token kept in memory for an hour after its last use (Onyx's preview token lasts an hour; at most
     5000), serving only that revision's files by exact path, read only, with OpenMausBot's headers
     (`Content-Security-Policy: sandbox allow-scripts; default-src 'none'`, `nosniff`, `Access-Control-Allow-Origin:
-    *`, `no-referrer`, `no-store`).
+    *`, `no-referrer`, `no-store`). An HTML file is sent with the page's own policy in that header instead
+    (`pagePolicy`, issue #737, as Onyx's static preview sends one): `sandbox allow-scripts allow-forms`, the frame's
+    flags; OpenMausBot's directives (scripts, styles and fonts inline or from cdnjs, jsdelivr and unpkg, Google
+    Fonts; images from `data:`, `blob:` and those CDNs; connections to them and DuckDB's extensions; no frame,
+    object, form target or base); its own files by the token's address under the request's host, by http and
+    https, never the rest of this origin; `frame-ancestors 'self'`. A Host a policy could not name as one source
+    (LibreChat's check of frame ancestors) is refused.
   - CLI: `artifact show`, `artifact list [--chat]`, `artifact info <id>`, `artifact download <id> [--rev] [--out]`.
     A download is saved as `<id>-r<rev>-<name>` (a folder as `<id>-r<rev>.zip`), the name only the last part of
     what the server gave and left out when it is no plain file name here (`..`, a drive's colon, a device of
     Windows, a control character); a file that is there is never replaced.
     Every Bot's `AGENTS.md` says when to show one, with the tool, and that a Routine's script uses the command.
-  - Not built: JSX pages, a public link (OpenMausBot's `publish_page`), pinning to a board, the page calling back
-    into the chat, the dashboard skill (row 13); a pptx or an old .doc is a download.
+  - View-only links (issue #745, `clientapi/artifactshares.go`, `orchestration/artifactshares.go`): the owner
+    sends an artifact to someone with no account; the link always shows the newest revision (it names the
+    artifact, not a revision, as OpenMausBot's published pages and Claude's do) until he revokes it. A link is a row
+    of `artifact_shares` (migration 106: artifact, token, label, created, views, last viewed), as open-webui's
+    `shared_chat`, LibreChat's `SharedLink` and Grafana's public dashboards are; several to one artifact, each
+    labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32 random bytes
+    in base64url, kept as it is so the link can be copied again (open-webui, LibreChat, Grafana; it shows one
+    artifact whose bytes are in the same database unencrypted). Only the owner makes, lists and revokes links
+    (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has no tool for it). Revoking
+    deletes the row, and deleting the artifact with its chat deletes its links (`ON DELETE CASCADE`); no expiry,
+    password or pause. `GET /api/v1/shares/{token}` is public, as `CreateSession` is: the title, type, file
+    shown and its media type, newest revision, when it was updated and where its files load from,
+    `/api/v1/shares/<token>/files/<rev>/<path>` (outside the contract, no sign-in). That route checks the link and
+    that `rev` is the newest on every request (OpenMausBot's `server/page-files.ts`), so a revoke takes effect at
+    once and a file of a replaced revision answers 404; it mints no frame token and serves as the frame's route
+    does (the same headers, a page with `pagePolicy` naming the link's folder). Opening the page itself counts a
+    view and sets the last view (Grafana's request count, Metabase's anonymous view event); reading the link does
+    not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
+    `/s/<token>` carry `X-Robots-Tag: noindex, nofollow` (LibreChat), `Referrer-Policy: no-referrer`,
+    `Cache-Control: private, no-store` (LibreChat) and `frame-ancestors 'none'` (Grafana). An address that sends
+    five unknown tokens within an hour is locked as a wrong password locks it (`session.go`'s limiter, its own
+    instance; LibreChat limits its share route per address), for the link and its files alike, 429 with
+    Retry-After. CLI: `artifact share <id> --label L` prints the link, `artifact shares <id>` lists them with their
+    views, `artifact unshare <share_id>`.
+  - Not built: JSX pages, pinning to a board, the page calling back into the chat, the dashboard skill (row 13); a
+    pptx or an old .doc is a download. For a view-only link: a separate origin for shared pages (OpenMausBot's
+    `*.mausbot.page`; the opaque-origin sandbox keeps the page from the app's session), a password, expiry or
+    pause, a Bot tool to publish (OpenMausBot's `publish_page`), live data at view time, and a Share item on the
+    chat's artifact card (it is on the artifact's view).
 - The chat's work docked above its composer (issue #314, `web/src/features/chat/docked-work.tsx`), beside the
   pending Approval cards and in their scrolling box:
   - Each open question to the owner from the chat's Runs, with the Task it comes from, answered with the
@@ -920,11 +1000,12 @@ sequenceDiagram
     calls in chats", saved on change), in `PUT /bots/{name}` `tool_display` (left out, kept) and `hypomnema bots
     set --tool-display off|on|full`; a change from the coordinator's chat is undone with the rest of the Bot's
     settings.
-  - How many of a Bot's workers run at once (issue #660, migration 00100): `bots.max_dispatches`, 1 to 64, NULL for
-    the default 4 (the scheduler, above). It is set on the Bot's page ("Workers at once", saved with its button), in
-    `PUT /bots/{name}` `max_dispatches` (left out, kept; the Bot's answer has the number in force) and `hypomnema
-    bots set --max-dispatches N`; a change from the coordinator's chat is undone with the rest of the Bot's
-    settings.
+  - A Bot's guaranteed share of the room (issue #731, migration 00114; its limit, `max_dispatches`, from issue #660
+    and migration 00100 until 2026-11-17): `bots.guaranteed_dispatches`, 1 to 64, NULL for the default 4 (the
+    scheduler, below). It is set on the Bot's page ("Guaranteed workers", saved with its button), in
+    `PUT /bots/{name}` `guaranteed_dispatches` (left out, kept; the Bot's answer has the number in force) and
+    `hypomnema bots set --guarantee N`; a change from the coordinator's chat is undone with the rest of the Bot's
+    settings (its setup-change record keeps the key `max_dispatches`).
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
     `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
     the owner replaces a whole memory.
@@ -1268,7 +1349,9 @@ flowchart LR
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
-    runs. A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
+    runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
+    at a file under `scripts/`; the Bot's instructions say so and that the owner then reads only the stub (issue
+    #769). A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
@@ -1460,46 +1543,81 @@ flowchart LR
   on, keeps P0 for what breaks whatever the inputs, and calls a change `correct` when existing code and tests will
   not break and no finding is P0 or P1 (Codex's review rubric, omp's reviewer); the explorer checks callers, tries
   another search before saying something is not there, says how the pieces connect and runs no command that
-  changes state (omp's scout, gemini-cli's investigator). Migration 00108 (issue #718), under the same conditions,
-  tells the reviewer to check out the pull request and run the repository's checks for what it touched, and to
-  say which it could not run and why; `reviewer-codex.yaml` carries the same text. The reviewer and the explorer
-  are told to change nothing;
+  changes state (omp's scout, gemini-cli's investigator). The reviewer and the explorer are told to change nothing;
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
-  `reviewer` itself run on Codex with the seeded reviewer's instruction.
+  `reviewer` itself run on Codex with the seeded reviewer's instruction. Migration 00111 (issue #766; owner,
+  2026-11-17) makes a new version of the seeded reviewer, where `pfv_seed5_reviewer` is still current, that reads
+  first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
+  and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
+  `reviewer-codex.yaml` carries the same text, and a reviewer the owner applied gets it by applying that file again.
+  Migration 00115 (issue #718) makes the next version from that one (`pfv_seed8_reviewer`, where
+  `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
+  repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
+  this text.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
-  commit signal. There is no limit across every node (issue #660; until then 4, Orca's limit for one Run on one
-  desktop, `coordinator.ts:35`). Two limits hold, each counting the Dispatches that have not settled, one waiting on
-  a question included, a gated one not:
-  - a Bot's (migration 00100, `bots.max_dispatches`, `BotDispatchesDefault` 4 when unset; from OpenMausBot's
-    `threads.maxConcurrentPerBot`, `server/bot-thread-limits.ts`, the 4 the owner's, 2026-11-16): the Dispatches of
-    the Runs it made, the Bot found as `runBotGives` finds it (the Run's `bot_id`, else, for a Run a coordinator made
-    in a chat, that chat's Bot). The owner's Runs without a Bot count together as one more group with the default
-    (inference: no reference has that case);
-  - a node's own `max_dispatches` (from Coder's provisioner daemons per machine, `provisionerd/provisionerd.go`: any
-    machine with room takes the next job). The owner changes it after the node was added: `PATCH /nodes/{node_id}`
-    `max_dispatches` (1 to 64), `hypomnema nodes set <node> --max N`, and Change limit in a machine's menu on the
-    Machines page; the next pass places by it, and Dispatches running over a lower number go on.
+  commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
+  requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
+  one, fit its **allocatable** in CPU and in memory both (Kubernetes' `NodeResourcesFit`, Nomad's `AllocsFit`):
+  - a node's capacity is what its hello says, `nodes.cpus` and `nodes.memory_bytes`; its allocatable is
+    `cpus × 1000 − reserved_cpu_millis` millicores and `memory_bytes − reserved_memory_bytes − 1 GiB`
+    (`NodeMemoryFloor`, folded in as the kubelet folds its eviction threshold), never below 0. The reserves are
+    the owner's, 0 by default (the kubelet's system-reserved, Nomad's client `reserved`): `PATCH /nodes/{node_id}`
+    `reserved`, `hypomnema nodes set <node> --reserve-cpu C --reserve-memory M` (a part left out keeps what the node
+  has, read in the write's transaction). A change of a node's name, cap and reserve (`UpdateNode`) is checked whole
+  before anything is written and written in one transaction. A node that never said its size
+    has no capacity and takes work only under a cap;
+  - a Dispatch's request is its profile version's `cpu_request_millis` and `memory_request_bytes` (the YAML's
+    `requests: {cpu: 500m, memory: 512Mi}`), each the default for building work when unset
+    (`DefaultCPURequestMillis` 1000, `DefaultMemoryRequest` 3 GiB, from the repository's checks measured on
+    stc-hy-app); migration 00114 gives the seeded `explorer` 0.5 core and 512 MiB. The request is copied onto the
+    Dispatch (`dispatches.cpu_millis`, `memory_bytes`), so editing a profile does not change what runs;
+  - `nodes.max_dispatches` is an optional cap, NULL for none (Nomad's `node_max_allocs`); migration 00114 cleared
+    every node's, and the owner sets one again with `PATCH /nodes/{node_id}` `max_dispatches` (0 clears it),
+    `hypomnema nodes set <node> --max N|none`, or Change cap in a machine's menu on the Machines page. The next pass
+    places by it, and Dispatches running over a smaller room go on.
 
-  The coordinator's `CreateDispatch` meets both and checks. Ready Tasks of open Runs go oldest Run first, then
-  by position, and the pass goes through every one of them; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
-  records the model, the effort and that version; its worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node, once that node is active, connected, not
-  unavailable and below its limit; a new one goes to the least loaded such node that has the runtime and a worktree
-  root, ties by id, with the first active account of the runtime that is not cooling down (none for a model the
+  The Bots share the room. Each Bot's group (the Run's `bot_id`, else, for a Run a coordinator made in a chat, that
+  chat's Bot; the owner's Runs without a Bot are one more group, inference) has a **guaranteed share**,
+  `bots.guaranteed_dispatches` (`BotGuaranteeDefault` 4 when unset), counted in unsettled Dispatches. It is no cap:
+  a Bot may borrow any room that fits (Kueue's `nominalQuota` with no `borrowingLimit`; YARN's `capacity` under a
+  `maximum-capacity` of 100 %). A pass orders the groups with ready Tasks by used / guarantee, lowest first, places
+  one Task of the lowest (its oldest Run first, then by position) and orders them again; equal ratios go to the
+  older Run, then the group id (YARN's `PriorityUtilizationQueueOrderingPolicy`). A Task that fits nowhere does not
+  hold the room: the next Task, of its group or another, is tried (Kueue's `BestEffortFIFO`; the owner, 2026-11-17).
+  Nothing running is ever stopped or requeued to make room (Kueue's, YARN's and Nomad's preemption off by default).
+  The coordinator's `CreateDispatch` meets the same fit. The runtime, model and effort are the Task's own or its
+  profile's current version, and the Dispatch records the model, the effort, that version and the request; its
+  worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node,
+  once that node is active, connected, not unavailable and has room for its request; a new one goes to the node of
+  those with the most free capacity that has the runtime and a worktree root (issue #731): its score is the mean of
+  its free share by requests (the mean of `1 − requested/allocatable` over CPU and memory, the new Dispatch
+  counted), CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated
+  averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id,
+  and each Dispatch a pass places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`),
+  or never reported, or a node that never said its memory, count 0 for its measured CPU and memory shares, so only
+  its free share by requests scores it; it is not refused (Trimaran scores a node without metrics at the minimum),
+  and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
+  1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
+  continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
   Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
-  cleared when its Dispatch is made: `bot_at_limit:<bot id>` (nothing after the colon for the owner's Runs),
-  `nodes_full` (a node could run it but every such node is at its limit), `accounts_cooling`, `no_node`,
-  `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first three resolve by
-  themselves and are never escalated. The API's Task has it as `waiting_reason` while the Task is ready;
-  `hypomnema tasks show` and `runs show` print it as a sentence, and the web says it under a queued Task in a
-  chat's docked Run and on the Task's panel ("Waiting: vmap already runs 4 of 4 workers", "Waiting: every machine
-  that can run it is busy").
+  cleared when its Dispatch is made: `nodes_full` (a node could run it and would fit it empty, but every such node
+  is full now, by requests or by its cap), `accounts_cooling`, `nodes_low_memory` (a node could run it but every
+  such node with room has under 1 GiB available; escalated like `no_node`), `no_node_fits` (its request is larger
+  than the allocatable of every node that could run it, Kubernetes' `Unresolvable`; escalated like `no_node`),
+  `no_node`, `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first two
+  resolve by themselves and are never escalated (`bot_at_limit:<bot id>` went with the Bot limit, 2026-11-17). The
+  API's Task has it as `waiting_reason` while the Task is ready; `hypomnema tasks show` and `runs show` print it as
+  a sentence, and the web says it under a queued Task in a chat's docked Run and on the Task's panel ("Waiting:
+  every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
+  `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
+  the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
   A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
@@ -1936,18 +2054,45 @@ flowchart LR
       and a Dispatch given a `github.com` Connection gets no `gh` script before the worker's own `gh`, which keeps
       its `GH_TOKEN` (#44). `hypomnema tool run github.com -- curl …` runs another command through the same
       account.
-    - **Its catalog** (`serviceproxy/github.go`) is Onyx's GitHub list (`providers/github.py`, MIT; notice in
-      `third_party/onyx/NOTICE`): REST routes on `api.github.com`, and a POST to `/graphql` matched by each
-      operation's type and root field (gqlparser parses the query; fragments at the root are followed), the action
-      that needs the most care governing a request with several. Reads run: the connected user, repositories,
-      issues, pull requests with their files and reviews, Actions runs, jobs and logs, check runs and statuses,
-      search, refs, contents, commits, releases, and the GraphQL queries `repository`, `repositoryOwner`, `node`,
-      `nodes`, `viewer`, `search`, and a query that asks only the schema (`__type`, `__schema`, `__typename`, which
-      `gh` sends to detect features; beside another field, that field's action names it). Opening an issue, commenting, opening a pull request, writing a file and writing
-      a ref ask; anything else (merge, close, labels, a rerun, a mutation it does not name, a body that is not
-      GraphQL) asks as `github.unlisted`. A log's download, which GitHub redirects to
+    - **Its catalog** (`serviceproxy/github.go`) is generated ([issue #739](https://github.com/kl3inIT/hypomnema/issues/739),
+      step 1 of [#713](https://github.com/kl3inIT/hypomnema/issues/713)): `github_operations.json` holds every
+      operation of GitHub's REST description (`github/rest-api-description`, 1281: method, host, path, `x-github`
+      category, `operationId`) and every query and mutation of the public GraphQL schema (316, with
+      `@docsCategory`, read from `github/docs` at a pinned commit), for gh 2.103.3; notice in `third_party/github/NOTICE`. The categories fold into 13 services
+      (Repositories, Issues, Pull requests, Actions and checks, Releases, Search, Projects, Discussions, Gists,
+      Security, Organizations and teams, Account, Copilot and agents) and Everything else (the queries, which have
+      no category of their own), each with `github.<service>.read`, `.write` and `.delete`: a GET or a query
+      reads, a DELETE or a mutation named `delete…` deletes, anything else writes. Reads run; the rest asks. A table
+      (`githubNamed`) keeps the ids the hand-written list had (Onyx's GitHub list, `providers/github.py`, MIT; notice
+      in `third_party/onyx/NOTICE`) for the operations it named: `github.user.read`, `.refs.read`,
+      `.contents.read`, `.git_data.read`, `.graphql.repo.read` (`repository`, `repositoryOwner`, `node`, `nodes`),
+      `.issues.create`, `.comments.create`, `.contents.write`, `.refs.write`, `.pulls.create`; its GET routes stay
+      for a request the description does not have. **Merge and auto-merge are actions of their own** and ask:
+      `github.pulls.merge` (REST `PUT …/pulls/{n}/merge` and `…/merge-async`, GraphQL `mergePullRequest`) and
+      `github.pulls.automerge` (`enablePullRequestAutoMerge`, `disablePullRequestAutoMerge`). A trailing `path`,
+      `ref`, `branch` or `basehead` takes its slashes. A POST to `/graphql` is matched by each operation's type and
+      root field (gqlparser parses the query; fragments at the root are followed); the action that needs the most
+      care names the request and the others it names go with it (`Action.With`), and the proxy lets the strictest
+      of the owner's answers govern (refused, never, ask, allow; Onyx's `AllMatchedActions`). When several ask,
+      each needs its own answer: those allowed for the session or the Routine are set aside
+      (`orchestration.StandingGrant`), and the request asks as the first of the others, the owner shown them all;
+      when that ask finds a standing grant made meanwhile, the others are decided again, so that a granted comment
+      never carries a merge. A query that asks
+      only the schema (`__type`, `__schema`, `__typename`, which `gh` sends to detect features) is
+      `github.schema.read`; beside another field, that field's action names it. A root field the schema does not
+      have, a subscription or a body that is not GraphQL asks as `github.unlisted`. A release's asset upload goes
+      to `uploads.github.com`, also reached. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
       plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.
+    - **Regenerating it**: `make catalogs-generate SERVICE=github` runs `serviceproxy/catalogsgen`, which fetches the
+      REST description, the schema and gh's source at what `serviceproxy/catalog_sources.json` pins (URL, revision,
+      SHA-256, gh's version), fails on a changed SHA-256 or on a root field gh's source sends that the schema lacks
+      (the structs it gives `Query` and `Mutate` or its own wrappers of them, the queries it writes, the fields
+      it calls with an input),
+      writes the file and prints the operations added, removed or moved to another action. `make verify` runs only
+      the offline tests: every operation of the file is a named action (a GET or a query a read, nothing else), every
+      category is in a service, and the file's gh version is `agenttool.GitHubCLI`'s, so bumping gh fails until the
+      catalog is regenerated.
     - **Its skill** is the store skill `github` (`clientcli/skills/github`, requiring `integration:github.com`; a
       skill's integration requirement may be a host's name), from Onyx's and OpenClaw's github skills (MIT).
     - Not built: GitHub Enterprise Server and GitLab hosts (the proxy picks a catalog by the Integration's name);
@@ -1982,9 +2127,14 @@ flowchart LR
       `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
-      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
-      its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
-      coordinator token and a Routine never. Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
+      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
+      type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
+      omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760)) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
+      owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
+      again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
+      his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
+      that approval, as OpenClaw runs an exec approved later and guards the final effect rather than the list
+      ([issue #748](https://github.com/kl3inIT/hypomnema/issues/748)). Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
     - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
@@ -2041,10 +2191,15 @@ flowchart LR
       (`getUserInfo`), after the walk and when the owner writes first in a new one.
     - **Files**: a message's kind is read as the Hermes Zalo plugin and zaloclaw read it (image, video, audio,
       document, sticker, link, call); every image, video, voice note and file is downloaded at once, live or from
-      the past (Zalo's CDN links expire), by four workers, a plain GET of at most 100 MiB that dials only public
-      addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its sender's), into
-      `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404, 410) is said
-      once. `…/media` answers one; disconnecting removes them.
+      the past (Zalo's CDN links expire), by four workers, a plain GET of at most 20 MiB for an image and 50 MiB
+      for another file (zaloclaw's caps, [issue #743](https://github.com/kl3inIT/hypomnema/issues/743)) that dials
+      only public addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its
+      sender's), into `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404,
+      410) or one over its cap is said once. An image Zalo's phone sent as JPEG XL (`…/jxl/…/<id>.jxl`), which
+      models cannot read, is fetched as the JPG copy the CDN keeps (`/jpg/`, `.jpg`, without `jxlstatus`), as
+      deplao-builder and Zalo PC do, and one kept as JPEG XL before is fetched again when it is next opened
+      ([issue #761](https://github.com/kl3inIT/hypomnema/issues/761)). `…/media` answers one; disconnecting
+      removes them.
     - **A Bot reads and writes in it** ([issue #680](https://github.com/kl3inIT/hypomnema/issues/680), step 3):
       WhatsApp's tools became one family per service (`agentapi/messaging_tools.go`, `messagingServices`): a Bot
       given a Zalo Connection, on the owner's turn, has `zalo_chats`, `zalo_messages`, `zalo_media`,
@@ -3070,17 +3225,20 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   whether the public proxy cuts a long blocking transcription from a tool outside.
 
 Meetings (`internal/controlplane/meetings`, `orchestration/meetingstore`, `modelgateway/complete.go`,
-`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issue #721,
+`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues #721 and #747,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a meeting's recording; it is
 heard with who spoke when (Audio, above) and a gateway chat model writes its summary, decisions and actions.
-- Data (migration 00104): `meetings` (title and whether the owner gave it, language, people and terms as JSON, the
+- Data (migrations 00104, 00105): `meetings` (title and whether the owner gave it, language, people as JSON (a
+  `terms` column is left from before #747, no longer written or read), the
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
   `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
   the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
-  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, `state` waiting,
+  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, written `auto` since 00113, `state` waiting,
   writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
-  line and that line's start); `meeting_settings` (one row: `notes_model`).
+  line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
+  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771).
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3092,37 +3250,54 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   so a restart mid-job takes it again (MemoryOS `minutes_attempts`). Transcribing sends the language and the words
   to hear right (Soniox `context.terms`, MemoryOS; ElevenLabs gets none, no reference sends any) and saves voices
   and lines; a voice that says no line is dropped.
+- The words to hear right (`meetings/words.go`, `meetingstore/words.go`): one list for every transcription
+  (Nojoin's glossary, OpenNoteTaker's key terms): the owner's words, then the names the owner gave voices in earlier
+  meetings (the most recent first), the Bots' names and the registered repositories' names, each once in any case;
+  the first 100 are sent (MemoryOS `MAX_TERMS`, inside Soniox's 10,000-character context) and the rest are listed
+  as not sent. A word heard wrong is replaced in one line or the whole meeting, as a whole word in any case
+  (`POST /meetings/{id}/fix`; silent-notetaker's corrections, Lark Minutes' word replace); the right word joins
+  the owner's words unless the list is full, and the notes are not written again until the owner asks.
 - The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
-  of Settings → Meetings and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
-  `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the format's sections
-  (Hyprnote's and Meetily's templates, MIT, `meetings/formats.go`: General, Team meeting, 1:1, Stand-up, Client
-  call), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
+  of Settings → Notes model and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
+  `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the words sent to the
+  transcription as names to spell exactly (Hyprnote's preferred names, `preferred-names.ts`), a section for each
+  main topic the meeting discussed, titled by its topic, with points on specific details (Hyprnote's Auto, its notes
+  when no template is picked, `crates/template-app/assets/enhance.format.md.jinja`; there are no formats to pick
+  since issue #771, the owner's choice), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
   is checked as MemoryOS's `MinutesChecks` (`meetings/checks.go`) before it is kept: an owner is one voice of the
   transcript or nobody (a group, several people or an unknown label is none); a quote is looked for on its line or
   up to two lines away, a shortened quote given the line's own words, and a quote nowhere near dropped; an action
-  said twice is kept once with what only the repeat said; a decision that restates an action on its line is
+  said twice is kept once with what only the repeat said; a section without a title or a point is dropped and one
+  whose title came already joins it; a decision that restates an action on its line is
   dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
   one the owner did not give.
 - Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
   has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
-  body; `file_name`, `media_type`, `language`, `title`, `people`, `terms`, `format` in the query), `GET`
+  body; `file_name`, `media_type`, `language`, `title`, `people` in the query), `GET`
   and `DELETE /meetings/{id}` (a meeting with its lines, items and suggestions; deleting cancels its work and
-  removes the file), `POST /meetings/{id}/notes` `{format}` (write again, 202), `PATCH
+  removes the file), `POST /meetings/{id}/notes` (write again, 202), `PATCH
   /meetings/{id}/items/{item}` `{done}`, `GET /meeting-actions?who=&state=open|done|all` and `GET`/`PUT
-  /meeting-settings` `{notes_model}` (with the formats). Changes are the owner's; reads are any token's. The CLI:
-  `hypomnema meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings`.
+  /meeting-settings` `{notes_model}`, `GET`/`PUT /meeting-words`
+  (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
+  /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
+  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix`.
 - On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title, people, words to hear right and format. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
-  failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
-  its share of the talk and opens the speaker picker (this line or the whole meeting). Settings → Meetings picks
-  the notes model with the gateway keys' model picker and lists the formats.
+  failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
+  its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
+  word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
+  offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
+  Dictionary and AI) has Dictionary, the words (the owner's as chips to remove, the found ones marked speaker, Bot or
+  repository), and Notes model, picked with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`). Settings' "Back to app"
+  returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
 - Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
-  editing a line's text, sharing a meeting.
+  editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -3325,6 +3500,21 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `/var/lib/hypomnema-update`, requires the manifest's SHA-256 and the version the binary reports, and runs that
     binary's `update install`, so the steps are the release's own. The control plane's own binary belongs to its
     user and is never run as root.
+  - `update install` first waits, at most 5 minutes, until no Bot's turn runs (issue #716, as Hermes's update
+    drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
+    `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
+    TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
+    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    that wait until the release's coordinator is set up, `update install` names its process (pid and start time
+    from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
+    (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for
+    an update until pi has its token; when the control plane does not answer (one from before this, or one that is
+    down) the update writes the marker itself, and a pi that started meanwhile is stopped before it is given
+    anything, as Hermes's updater holds a live update
+    marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
+    starts no pi, so none starts while the old control plane stops nor in the new one before
+    `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
   - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
     binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
     migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for
@@ -3385,8 +3575,10 @@ The owner's commands:
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
   - `nodes rename <node> <new name>` gives a node another name (`PATCH /nodes/{node_id}`, owner only): its id, its
     tokens and what it runs stay, and the name of another node that is not removed is refused;
-  - `nodes set <node> --max N` changes how many Dispatches the node runs at once (`PATCH /nodes/{node_id}`
-    `max_dispatches`, owner only; issue #660);
+  - `nodes set <node> [--max N|none] [--reserve-cpu C] [--reserve-memory M]` sets or clears the node's optional cap
+    and what is kept back from its CPUs and memory (`PATCH /nodes/{node_id}` `max_dispatches` and `reserved`, owner
+    only; issues #660, #731); `nodes list` shows each node's running count of its cap and what is requested of its
+    allocatable;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
   - `machines providers add <name> --kind aws --key vault:<secret>|aws:<role> --region R --size S [--max N]
@@ -3478,7 +3670,11 @@ The owner's commands:
   to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
-  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; a review first reads
+  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
+  so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
+  permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
+  nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
@@ -3514,7 +3710,8 @@ The owner's commands:
   compares the tiles with the sums of their charts and tables and sets `data-check` on `<html>`; its charts are SVG
   its own script draws, its sums are computed in the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
   beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
-  artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
+  artifact's locked frame (a Playwright test in `web/tests/server.spec.ts` shows it there, under the control plane's
+  own headers, with no refusal).
   OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
   a page kept current is a folder page a Routine's script shows again with `hypomnema artifact show --id`.
 - The slides skill (`internal/controlplane/clientcli/skills/slides`, issue #479) is built in the same way, and since
@@ -3679,11 +3876,12 @@ Node (`internal/node`):
     Anthropic's Fable 5.2 page):
     - the rules, the same for every worker:
       - one decision boundary, within what the task and the worker's instruction allow: it decides how to build
-        it, which tests to add, running the checks, committing and pushing its branch, and opening or updating the
-        Task's pull request; it asks first, with `ask`, before changing the scope, merging, deploying or changing a
-        server, deleting what its change did not make, or acting outside its directory and pull request (the
-        owner's list, 2026-11-17, issue #672; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do
-        freely / Ask first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
+        it, which tests to add, running the checks, committing and pushing its branch, opening or updating the
+        Task's pull request and turning on its auto-merge (below); it never merges directly; it asks first, with
+        `ask`, before changing the scope, deploying or changing a server, deleting what its change did not make, or
+        acting outside its directory and pull request (the owner's list, 2026-11-17, issue #672, with merging taken
+        off it by issue #714; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask
+        first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
         omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
@@ -3706,8 +3904,25 @@ Node (`internal/node`):
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
       of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+    - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
+      `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
+      before merging:
+      1. read-only checks that the repository waits for its checks, since `gh` and `glab` merge at once otherwise:
+         on GitHub `allow_auto_merge` is true and the base branch requires a status check (a
+         `required_status_checks` rule in `gh api --hostname <host> repos/<path>/rules/branches/<base>`, or a check
+         listed by
+         `…/branches/<base>/protection/required_status_checks`); on GitLab the project has
+         `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
+         line says what the repository lacks, and no Gate is opened only to ask to merge;
+      2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
+         sides' intent, running the checks again and pushing; on GitLab the merge request must have a pipeline;
+      3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
+         `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
+      4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),
+         fixing red ones, then `finish`, saying whether it merged or that auto-merge is on;
     - `Task (<profile>):` and the Task's spec;
-    - the recovery note, a follow-up ("You finished this task before, and more is asked of it now: …", then to
+    - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
+      replaces the answer to any question you asked at `finish`): …", then to
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
@@ -3983,13 +4198,20 @@ Node (`internal/node`):
     Elements' `Artifact` header: its type, title, "vN · Updated …", Preview / Code for a page (Code is `index.html`
     in the Files panel's read-only Monaco), ‹ › through the revisions kept (the newest followed until the owner
     steps back), ⤢ full screen (Esc or ⤡ back), ↗ a new tab, ⋯ Download (the file, or a folder as a zip) and Copy
-    link, ✕. The new tab is the app's page `/artifacts/$id?rev=N` (signed in), a thin header with the way back to
+    link, Share link (issue #745: a dialog that makes a link for a label and copies it, lists the links with when
+    each was made, its views and last view, with Copy and Revoke, asked first), ✕. A view-only link opens the
+    app's page `/s/$token` (`features/artifacts/shared-view.tsx`), which the root layout shows with no session and
+    no shell (open-webui's `/s/{id}`, LibreChat's `ShareView`): the title, "Updated …" and the artifact, a page in
+    the same locked frame loaded by `src` from the link's files, a PDF or an image in the file preview read from
+    them, another file or a workbook as a download; it reads the link every 30 s and loads a newer revision
+    (OpenMausBot's live pages check every 30 s), and says so at once when the link is revoked. The new tab is the app's page `/artifacts/$id?rev=N` (signed in), a thin header with the way back to
     the chat and who made it over the same view, never a `blob:` or `data:` address (Omnigent's
-    `codeViewerHelpers.ts`). A page is an iframe `srcdoc`, `sandbox="allow-scripts allow-forms"`, never
-    `allow-same-origin`, `referrerpolicy="no-referrer"`, on a white canvas; its document starts with OpenMausBot's
-    CSP meta (`frame-document.ts`: scripts and styles inline or from cdnjs, jsdelivr and unpkg, Google Fonts,
-    images from `data:`, `blob:` and those CDNs, no other connection, frame, form target or base), and a folder
-    page's base and policy add its frame's address. Any other file opens in the file preview
+    `codeViewerHelpers.ts`). A page is an iframe loaded by `src` from its frame's address (`useFramePage`, the
+    file shown under the token's folder, its other files beside it by their relative paths), with
+    `sandbox="allow-scripts allow-forms"` (`frame.ts`), never `allow-same-origin`, `referrerpolicy="no-referrer"`,
+    on a white canvas; its policy is the server's header (above), as Onyx's `HtmlFilePreview.tsx` loads its preview.
+    It was a `srcdoc` with OpenMausBot's CSP meta until issue #737: a srcdoc document takes the web client's own
+    policy on top of its own, which refused its inline and CDN scripts and its base. Any other file opens in the file preview
     (`web/src/features/preview`, issue #422), copied from MemoryOS's `web/src/features/preview` (the owner's code,
     after Onyx's `PreviewModal`), one view a kind in Onyx's order, the PDF reader loaded only with a PDF: a PDF drawn
     by pdf.js through react-pdf 11 (pdfjs-dist 6.3.289, its worker and image decoders self-hosted under
@@ -4198,7 +4420,8 @@ Node (`internal/node`):
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
-    - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin;
+    - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin; under
+      `/s/`, a view-only link's page (issue #745), also `X-Robots-Tag: noindex, nofollow` and `no-store`;
     - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
     - gzipped, at level 5, to a browser that accepts it: HTML, CSS, JavaScript, JSON and SVG, through chi's
       `middleware.Compressor`, as Coder's site is (issue #510). The API's answers are not compressed.
@@ -4334,7 +4557,7 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, the formats, speaker suggestions
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores
@@ -4388,10 +4611,15 @@ and the node in the control plane binary.
   `web/src/components`. Oxlint also fails an import cycle (`import/no-cycle`) and an import of a feature or a
   route from `web/src/{components,lib,hooks}` (`no-restricted-imports`).
 - `make web-check`: oxlint, knip (`web/knip.jsonc`: unused files, exports and dependencies), oxfmt, `tsc -b` and
-  vitest for the web client; `make web-e2e`: Playwright on the production build, at a phone's and a desktop's size.
+  vitest for the web client; `make web-e2e`: Playwright on the production build, at a phone's and a desktop's size,
+  with a fake client API in the browser on Vite's preview, and `web/tests/server.spec.ts` on the control plane
+  itself for what only its answers show (issue #737): `web/tests/server` (`go run`, after the build, so that it
+  embeds it) migrates a temporary database, adds an owner, a chat and the artifacts of its `pages/` folder as a Bot
+  shows them, then runs `controlplane.Serve`. A CDN a page loads is answered in the browser by the test.
 - CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
   and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
-  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). `Unit` first sets the runner up as the
+  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`, with Go for the control plane its browser tests
+  run). `Unit` first sets the runner up as the
   coordinator's machine is (`deploy/coordinator/setup-box.sh`) and sets `HYPOMNEMA_BOX_TEST=required`, so the Bots'
   box tests fail rather than skip when a box cannot be made. Each Go job keeps its own build cache. A first
   job, `Changes`, finds whether anything but documentation changed (`docs/**`, `*.md`); when nothing did, the four

@@ -29,9 +29,10 @@ RETURNING seq;
 -- name: LastTurnInput :one
 -- The chat's last message of those pi is given as a turn (UndeliveredChatMessages says which): a person's message,
 -- a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
--- message, given to pi or about to be, ends his turn (issue #468).
+-- message, given to pi or about to be, ends his turn (issue #468). The line that wakes pi to continue a turn a
+-- restart cut is no input of its own: the continued turn is the cut one's (issue #716).
 SELECT role, sender_id FROM chat_messages
-WHERE chat_id = @chat_id AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
+WHERE chat_id = @chat_id AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1) AND kind <> 'continued'
 ORDER BY seq DESC
 LIMIT 1;
 
@@ -196,3 +197,52 @@ UPDATE chat_messages SET delivered_at = @now WHERE chat_id = @chat_id AND seq = 
 
 -- name: CountChatQueue :one
 SELECT count(*) FROM chat_queue WHERE chat_id = @chat_id;
+
+-- name: MarkChatTurn :exec
+-- A Bot's turn started in the chat (issue #716), in the pi process the token names; the attempts stay, so a
+-- continued turn keeps its count.
+UPDATE chats SET turn_started_at = @now, turn_token = @token WHERE id = @id;
+
+-- name: SettleChatTurn :exec
+-- The turn of the pi process the token names ended: no mark, no attempts. A newer turn's mark, of another pi
+-- process, stays (Hermes's compare-and-swap clear).
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0
+WHERE id = @id AND turn_token = @token;
+
+-- name: ClearChatTurn :exec
+-- The chat's cut turn is not continued: no mark, no attempts, whoever marked it.
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0 WHERE id = @id;
+
+-- name: CutChatTurns :many
+-- The chats whose turn was marked and never settled: at start, the turns a restart cut.
+SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_attempts FROM chats
+WHERE turn_started_at IS NOT NULL
+ORDER BY id;
+
+-- name: ContinueChatTurn :exec
+-- The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet.
+UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = @now, turn_token = NULL WHERE id = @id;
+
+-- name: VoidChatContinuations :exec
+-- A line that woke pi to continue a cut turn and was never given to it goes to pi no more (issue #716): a later
+-- start continues the turn again with a line of its own, or does not continue it.
+UPDATE chat_messages SET delivered_at = @now WHERE chat_id = @chat_id AND kind = 'continued' AND delivered_at IS NULL;
+
+-- name: VoidContinuations :exec
+-- VoidChatContinuations for every chat, when restarts are in a loop.
+UPDATE chat_messages SET delivered_at = @now WHERE kind = 'continued' AND delivered_at IS NULL;
+
+-- name: InsertChatRestartLine :one
+-- A line of the control plane about a restart: continued, given to pi too, or cut, not given to pi.
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (@chat_id, 'system', @kind, @text, @to_coordinator, @now)
+RETURNING seq;
+
+-- name: ListRestartBoots :many
+SELECT at FROM restart_boots ORDER BY at DESC;
+
+-- name: DeleteRestartBoots :exec
+DELETE FROM restart_boots;
+
+-- name: InsertRestartBoot :exec
+INSERT INTO restart_boots (at) VALUES (@at);

@@ -299,7 +299,8 @@ func (s *Server) ReopenTask(ctx context.Context, req openapi.ReopenTaskRequestOb
 	return openapi.ReopenTask200JSONResponse(toTask(t)), nil
 }
 
-// FollowUpTask asks more of a succeeded Task's worker, as the owner or as the
+// FollowUpTask asks more of the worker of a Task that succeeded or waits at a
+// Gate (issue #714), as the owner or as the
 // Run's coordinator by the caller's token (issue #666).
 func (s *Server) FollowUpTask(ctx context.Context, req openapi.FollowUpTaskRequestObject,
 ) (openapi.FollowUpTaskResponseObject, error) {
@@ -509,28 +510,22 @@ func (s *Server) ListMachineProviders(ctx context.Context, _ openapi.ListMachine
 	return openapi.ListMachineProviders200JSONResponse{Data: out}, nil
 }
 
-// UpdateNode renames a node.
+// UpdateNode renames a node, or changes its cap or its reserve (issue #731).
 func (s *Server) UpdateNode(ctx context.Context, req openapi.UpdateNodeRequestObject,
 ) (openapi.UpdateNodeResponseObject, error) {
-	if req.Body.Name == nil && req.Body.MaxDispatches == nil {
-		return nil, fmt.Errorf("%w: name a node's new name or limit", orchestration.ErrInvalid)
+	if req.Body.Name == nil && req.Body.MaxDispatches == nil && req.Body.Reserved == nil {
+		return nil, fmt.Errorf("%w: name a node's new name, cap or reserve", orchestration.ErrInvalid)
 	}
 
-	var (
-		n   orchestration.Node
-		err error
-	)
-
-	if req.Body.Name != nil {
-		if n, err = s.svc.RenameNode(ctx, req.NodeId, *req.Body.Name); err != nil {
-			return nil, err
-		}
+	// One change, checked whole before anything is written (PR #759).
+	change := orchestration.NodeChange{Name: req.Body.Name, MaxDispatches: req.Body.MaxDispatches}
+	if r := req.Body.Reserved; r != nil {
+		change.ReservedCPUMillis, change.ReservedMemoryBytes = &r.CpuMillis, &r.MemoryBytes
 	}
 
-	if req.Body.MaxDispatches != nil {
-		if n, err = s.svc.SetNodeLimit(ctx, req.NodeId, *req.Body.MaxDispatches); err != nil {
-			return nil, err
-		}
+	n, err := s.svc.UpdateNode(ctx, req.NodeId, change)
+	if err != nil {
+		return nil, err
 	}
 
 	return openapi.UpdateNode200JSONResponse(toNode(n)), nil

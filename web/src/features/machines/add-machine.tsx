@@ -169,12 +169,13 @@ export function AddMachine() {
                     min={1}
                     step={1}
                     inputMode="numeric"
-                    placeholder="Default"
+                    placeholder="No cap"
                     value={max}
                     onChange={(event) => setMax(event.target.value)}
                   />
                   <FieldDescription>
-                    How many Dispatches it runs at once. Leave empty for the default.
+                    The most Dispatches it runs at once, besides what fits its CPUs and memory.
+                    Leave empty for no cap.
                   </FieldDescription>
                 </Field>
                 {provider && !full && (

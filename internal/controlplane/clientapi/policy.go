@@ -228,15 +228,23 @@ var policies = map[string]policy{
 	"OpenArtifactFrame":  {scope: scopeOwner},
 	// Only the owner's web previews a workbook (issue #422, sheets.go).
 	"ReadArtifactSheets": {scope: scopeOwner},
-	"ListChats":          {scope: scopeOwner},
-	"CreateChat":         {scope: scopeOwner},
-	"GetChat":            {scope: scopeOwner},
-	"UpdateChat":         {scope: scopeOwner},
-	"DeleteChat":         {scope: scopeOwner},
-	"ListChatMessages":   {scope: scopeOwner, long: true},
-	"StreamChat":         {scope: scopeOwner, long: true},
-	"AbortChat":          {scope: scopeOwner},
-	"CompactChat":        {scope: scopeOwner},
+
+	// View-only links (issue #745, artifactshares.go): only the owner makes, lists and revokes them, as only
+	// Metabase's admins and Onyx's and Claude's owners do; a link is read by its token alone.
+	"CreateArtifactShare": {scope: scopeOwner},
+	"ListArtifactShares":  {scope: scopeOwner},
+	"DeleteArtifactShare": {scope: scopeOwner},
+	"GetShare":            {public: true},
+
+	"ListChats":        {scope: scopeOwner},
+	"CreateChat":       {scope: scopeOwner},
+	"GetChat":          {scope: scopeOwner},
+	"UpdateChat":       {scope: scopeOwner},
+	"DeleteChat":       {scope: scopeOwner},
+	"ListChatMessages": {scope: scopeOwner, long: true},
+	"StreamChat":       {scope: scopeOwner, long: true},
+	"AbortChat":        {scope: scopeOwner},
+	"CompactChat":      {scope: scopeOwner},
 	// pi reads its own key (issue #204). The handler lets one token through, pi's, by its name: no scope here
 	// says that.
 	"GetChatGatewayKey":       {},
@@ -283,6 +291,10 @@ var policies = map[string]policy{
 	"ListMeetingActions":    {},
 	"GetMeetingSettings":    {},
 	"SetMeetingSettings":    {scope: scopeOwner},
+	// The words to hear right (issue #747), read and changed as the settings are.
+	"FixMeetingWord":   {scope: scopeOwner},
+	"ListMeetingWords": {},
+	"SetMeetingWords":  {scope: scopeOwner},
 }
 
 var (

@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -50,7 +51,11 @@ type Config struct {
 	// Tokens makes the token each pi calls the control plane with (issue
 	// #260); nil when pi is given none, as in tests that play pi.
 	Tokens Tokens
-	Logger *slog.Logger
+	// Updating says an update of the control plane runs (issue #716,
+	// selfupdate.Updating): no pi is started and an idle pi is given no new
+	// turn until it ends; a turn that runs goes on, steers included. Nil: none.
+	Updating func() bool
+	Logger   *slog.Logger
 }
 
 // Tokens makes and ends the token of one pi process (issue #260): bound to
@@ -87,6 +92,11 @@ type Supervisor struct {
 	procs    map[string]*proc
 	watchers map[string]map[watcher]struct{}
 	kick     chan struct{}
+	// stopping says the control plane stops every pi: a turn cut now keeps its mark (cutturns.go).
+	stopping atomic.Bool
+	// running is Run's context, which ends when the control plane stops (SIGTERM): a pi started for a request, such
+	// as a compaction, reads with a context of its own, which does not (cutturns.go exitedMidTurn).
+	running atomic.Pointer[context.Context]
 }
 
 // New returns a Supervisor; Run starts it.
@@ -105,6 +115,23 @@ func New(svc *orchestration.Service, cfg Config) *Supervisor {
 	}
 }
 
+// updating says an update runs, during which no pi starts and no new turn begins.
+func (s *Supervisor) updating() bool { return s.cfg.Updating != nil && s.cfg.Updating() }
+
+// BeginUpdate runs mark, which names the update in its marker (selfupdate), under the lock every pi start holds from
+// its last look for an update until pi has its token (issue #716): a start that looked before the update began
+// finishes first, and every start after it sees the marker. So no pi starts once the update has begun.
+func (s *Supervisor) BeginUpdate(mark func() error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return mark()
+}
+
+// errUpdating refuses to start pi while the control plane is updated.
+var errUpdating = fmt.Errorf("%w: the control plane is being updated; pi starts again after it",
+	orchestration.ErrConflict)
+
 // Enabled reports whether a command to start pi is configured.
 func (s *Supervisor) Enabled() bool { return len(s.cfg.Command) > 0 }
 
@@ -115,6 +142,24 @@ func (s *Supervisor) Working(chatID string) bool {
 	s.mu.Unlock()
 
 	return p != nil && p.isWorking()
+}
+
+// WorkingChats lists the chats whose pi works on a turn, sorted, for `hypomnema update` to wait for (issue #716).
+func (s *Supervisor) WorkingChats() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var out []string
+
+	for id, p := range s.procs {
+		if p.isWorking() {
+			out = append(out, id)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
 }
 
 // Idle reports that the chat's pi runs and works on no turn: its last turn
@@ -169,6 +214,9 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 	wake := s.svc.Subscribe(ctx)
 	t := time.NewTicker(tick)
+
+	s.running.Store(&ctx)
+	s.continueCutTurns(ctx)
 
 	defer t.Stop()
 	defer s.stopAll()
@@ -230,6 +278,12 @@ func (s *Supervisor) pass(ctx context.Context) {
 // the chat first (issue #497), so it goes with the wake-ups as one prompt.
 func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 	working := s.Working(chatID)
+
+	// While the control plane is updated, what is written waits for the update to end, except what the owner sends a
+	// turn that runs (issue #716, as Hermes's update drain refuses new turns and lets the running ones finish).
+	if !working && s.updating() {
+		return nil
+	}
 
 	if !working {
 		if _, err := s.svc.TakeChatQueue(ctx, chatID); err != nil {
@@ -295,21 +349,35 @@ func ownerOnly(msgs []orchestration.ChatMessage) []orchestration.ChatMessage {
 
 // promptText joins the owner's messages and the wake-ups into one turn.
 // Wake-ups say they come from the control plane, so pi follows the skill's
-// rule for them: act, then end the turn.
+// rule for them: act, then end the turn. The line that wakes a chat to
+// continue a turn a restart cut is given as what it asks (cutturns.go).
 func promptText(msgs []orchestration.ChatMessage) string {
 	var owner, wakes []string
 
+	resumed := false
+
 	for _, m := range msgs {
-		if m.Role == orchestration.ChatOwner {
+		switch {
+		case m.Role == orchestration.ChatOwner:
 			owner = append(owner, ownerText(m))
-		} else {
+		case continued(m):
+			resumed = true
+		default:
 			wakes = append(wakes, "- "+m.Text)
 		}
 	}
 
 	var b strings.Builder
 
+	if resumed {
+		b.WriteString("Message from the Hypomnema control plane: " + continuedPrompt + "\n")
+	}
+
 	if len(wakes) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+
 		b.WriteString("Message from the Hypomnema control plane: these need you.\n")
 		b.WriteString(strings.Join(wakes, "\n"))
 		b.WriteString("\nAct on them, then end your turn; the control plane wakes you again.\n")
@@ -366,6 +434,10 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		return p, nil
 	}
 
+	if s.updating() {
+		return nil, errUpdating
+	}
+
 	args, bot, model, err := s.botArgs(ctx, chatID)
 	if err != nil {
 		return nil, err
@@ -389,11 +461,28 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		}
 	}
 
+	// An update that began while the key and the token were made is seen here, before pi starts (issue #716). From
+	// this look until pi has its token s.mu is held, which BeginUpdate takes to name the update: it cannot begin in
+	// between.
+	if s.updating() {
+		s.revoke(ctx, chatID, key)
+
+		return nil, errUpdating
+	}
+
 	p, err := start(ctx, s, chatID, args, key)
 	if err != nil {
 		s.revoke(ctx, chatID, key)
 
 		return nil, fmt.Errorf("starting pi for chat %s: %w", chatID, err)
+	}
+
+	// One that did not begin through BeginUpdate (a control plane whose control socket did not answer the update,
+	// which then names itself) and began while pi started: the pi is stopped before it is given anything.
+	if s.updating() {
+		p.stop()
+
+		return nil, errUpdating
 	}
 
 	p.model = model
@@ -489,6 +578,8 @@ func (s *Supervisor) reapIdle() {
 }
 
 func (s *Supervisor) stopAll() {
+	s.stopping.Store(true)
+
 	s.mu.Lock()
 	procs := s.procs
 	s.procs = map[string]*proc{}

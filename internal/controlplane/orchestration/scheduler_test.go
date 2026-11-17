@@ -91,26 +91,23 @@ func specs(n int) []NewTask {
 	return out
 }
 
-// Scenario: more ready Tasks of the owner's Runs than their limit (issue
-// #660), on a node with room for more. The owner's Runs without a Bot are one
-// group: at most BotDispatchesDefault run and the rest wait, told why; a
-// Dispatch waiting on a question keeps its slot, a gated or settled one frees
-// it, and the coordinator's own CreateDispatch meets the same limit.
-func TestSchedulerAdmitsTheOwnersRunsUpToTheirLimit(t *testing.T) {
+// Scenario: more ready Tasks of the owner's Runs than the node's cap of 4
+// (issues #660, #731). The owner's Runs have no limit of their own: the
+// node's room is what holds them back, and the rest wait, told why; a
+// Dispatch waiting on a question keeps its place, a gated or settled one
+// frees it, and the coordinator's own CreateDispatch meets the same room.
+func TestSchedulerAdmitsTheOwnersRunsUpToTheNodesRoom(t *testing.T) {
 	t.Parallel()
 
 	w := newSchedWorld(t)
-	_, err := w.s.SetNodeLimit(t.Context(), w.node.ID, 8)
-	require.NoError(t, err)
-
 	tasks := w.tasks(specs(6)...)
 
 	first := w.schedule().Created
-	require.Len(t, first, BotDispatchesDefault)
+	require.Len(t, first, 4)
 	assert.Empty(t, w.schedule().Created, "a second pass with nothing changed creates nothing")
-	assert.Equal(t, ReasonBotAtLimit, w.task(tasks[5].ID).WaitingReason, "the owner's group has no Bot id")
+	assert.Equal(t, ReasonNodesFull, w.task(tasks[5].ID).WaitingReason)
 
-	_, err = w.create(tasks[5].ID, w.spec())
+	_, err := w.create(tasks[5].ID, w.spec())
 	require.ErrorIs(t, err, ErrUnavailable)
 
 	waiting := w.begin(first[0])
@@ -203,8 +200,10 @@ func TestContinuingWaitsForItsNode(t *testing.T) {
 }
 
 // Scenario: several nodes for new Conversations. Drained, offline,
-// unavailable and full nodes and those without the runtime are skipped; the
-// least loaded wins, ties by id; the worktree is under the node's root.
+// unavailable and full nodes and those without the runtime are skipped; with
+// no stats the higher free share by requests wins (issue #731): node_big,
+// twice node_small's size, takes the first two, until its cap of 2; the
+// worktree is under the node's root.
 func TestPlacementPicksTheLeastLoadedNodeThatCanRun(t *testing.T) {
 	t.Parallel()
 
@@ -215,8 +214,10 @@ func TestPlacementPicksTheLeastLoadedNodeThatCanRun(t *testing.T) {
 	w.advance(NodeOfflineAfter)
 
 	small := w.addNode("node_small", 1, "claude")
+	w.resize(small, 4, 8*gib)
 	w.addNode("node_codex", 2, "codex")
 	big := w.addNode("node_big", 2, "claude")
+	w.resize(big, 8, 16*gib)
 	away := w.addNode("node_away", 2, "claude")
 	_, err := w.db.ExecContext(t.Context(), "UPDATE nodes SET unavailable_at = 1 WHERE id = ?", away.ID)
 	require.NoError(t, err)
@@ -224,7 +225,9 @@ func TestPlacementPicksTheLeastLoadedNodeThatCanRun(t *testing.T) {
 	tasks := w.tasks(specs(4)...)
 	created := w.schedule().Created
 
-	assert.Equal(t, map[string]string{"a": small.ID, "b": big.ID, "c": big.ID}, w.placed(created))
+	// Neither reports stats, so the free share by requests decides: with one building worker on it, node_big
+	// still has more room (1 - 2/8 and 1 - 6/15 against 1 - 1/4 and 1 - 3/7).
+	assert.Equal(t, map[string]string{"a": big.ID, "b": big.ID, "c": small.ID}, w.placed(created))
 	assert.NotContains(t, w.placed(created), "d", "every node that can run is full")
 	assert.NotEqual(t, offline.ID, w.dispatchOf(created[0]).NodeID)
 
@@ -469,7 +472,7 @@ func TestNodeTokenAuthenticatesAndIsNotStored(t *testing.T) {
 	w := newWorld(t)
 	n, token, err := w.s.AddNode(t.Context(), "node_new", 0)
 	require.NoError(t, err)
-	assert.Equal(t, NodeDispatchesDefault, n.MaxDispatches)
+	assert.Equal(t, 0, n.MaxDispatches, "a new node has no cap (issue #731)")
 	assert.True(t, strings.HasPrefix(token, "hyn_"))
 
 	got, _, err := w.s.AuthenticateNodeToken(t.Context(), token)

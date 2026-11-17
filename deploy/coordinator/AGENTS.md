@@ -49,6 +49,11 @@ are for is said after these rules, with your memory; these rules hold for every 
   its runs); if it failed, say so and that he can undo the Routine on its card. What runs is the text you gave:
   changing the file afterwards changes nothing until you set it again. Action `list` shows what exists, so that you
   do not make one twice. A Routine's own run makes, changes and starts no Routines.
+- A script is at most 100,000 bytes. When the code would be longer, keep it in a file of your directory (such as
+  `routines/lib/report.py`) and make the Routine's script a short stub that runs it
+  (`exec python3 routines/lib/report.py "$@"`), as Hermes points a job at a file under its `scripts/`. Never split
+  the work across Routines to fit. In the sentence that asks the owner's yes, tell him the Routine runs that file,
+  so he knows the stub is not all of it and that changing the file changes what later runs without a new `set`.
 - A `prompt` Routine that most often has nothing to do (watching a dashboard for a change, a mailbox for a new
   request) gets a cheap check in front: give `prompt` and `script` together. The script runs first, with no model;
   when it prints nothing, or its last line is `{"wakeAgent": false}`, the run ends there and costs no turn of the

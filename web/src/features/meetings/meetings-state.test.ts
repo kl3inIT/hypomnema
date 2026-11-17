@@ -2,7 +2,17 @@ import { describe, expect, it } from "vitest"
 
 import type { Meeting } from "@/api/generated/types.gen"
 
-import { actionsText, byDay, clock, listOf, sameName, stageOf, stepsOf } from "./meetings-state"
+import {
+  actionsText,
+  addWords,
+  byDay,
+  clock,
+  listOf,
+  ownWords,
+  sameName,
+  stageOf,
+  stepsOf,
+} from "./meetings-state"
 
 function meeting(over: Partial<Meeting> = {}): Meeting {
   return {
@@ -10,14 +20,13 @@ function meeting(over: Partial<Meeting> = {}): Meeting {
     title: "Weekly sync",
     titled: true,
     people: [],
-    terms: [],
     file_name: "sync.m4a",
     media_type: "audio/mp4",
     size: 10,
     duration_ms: 42 * 60_000,
     state: "transcribed",
     created_at: "2026-11-17T09:30:00Z",
-    notes: { format: "general", state: "ready", summary: "", sections: [] },
+    notes: { state: "ready", summary: "", sections: [] },
     speakers: [
       { label: "1", name: "Kai", named: true, talk_ms: 1, share: 0.5 },
       { label: "2", name: "Speaker 2", named: false, talk_ms: 1, share: 0.5 },
@@ -57,21 +66,15 @@ describe("meetings", () => {
       "now",
       "waiting",
     ])
-    expect(
-      stepsOf(
-        meeting({ notes: { format: "general", state: "writing", summary: "", sections: [] } }),
-      ),
-    ).toEqual([
+    expect(stepsOf(meeting({ notes: { state: "writing", summary: "", sections: [] } }))).toEqual([
       { name: "Uploaded", state: "done" },
       { name: "Transcribed · 2 speakers", state: "done" },
       { name: "Writing notes", state: "now" },
     ])
     expect(stageOf(meeting({ state: "failed" }))).toBe("failed")
-    expect(
-      stageOf(
-        meeting({ notes: { format: "general", state: "failed", summary: "", sections: [] } }),
-      ),
-    ).toBe("notes_failed")
+    expect(stageOf(meeting({ notes: { state: "failed", summary: "", sections: [] } }))).toBe(
+      "notes_failed",
+    )
   })
 
   it("says the actions, the times and the lists the owner types", () => {
@@ -82,5 +85,21 @@ describe("meetings", () => {
     expect(clock(3_725_000)).toBe("1:02:05")
     expect(listOf("Laura,  Kai\nMinh,,")).toEqual(["Laura", "Kai", "Minh"])
     expect(sameName("  laura ", "Laura")).toBe(true)
+  })
+
+  // Issue #747: the owner's words are those of the list that are the owner's; typing several at once adds each
+  // once, in any case, and a word too long for the list is left out.
+  it("adds the words the owner types to the owner's list", () => {
+    const own = ownWords([
+      { word: "MapOps", from: "owner", sent: true },
+      { word: "Laura", from: "speaker", sent: true },
+      { word: "ĐKSD", from: "owner", sent: true },
+    ])
+    expect(own).toEqual(["MapOps", "ĐKSD"])
+    expect(addWords(own, ` mapops, Hypomnema,\nhypomnema, ${"x".repeat(101)}`)).toEqual([
+      "MapOps",
+      "ĐKSD",
+      "Hypomnema",
+    ])
   })
 })

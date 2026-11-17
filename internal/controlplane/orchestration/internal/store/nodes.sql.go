@@ -147,14 +147,19 @@ func (q *Queries) CountActiveDispatchesPerBot(ctx context.Context, statuses []st
 }
 
 const countActiveDispatchesPerNode = `-- name: CountActiveDispatchesPerNode :many
-SELECT node_id, count(*) AS n FROM dispatches WHERE status IN (/*SLICE:statuses*/?) GROUP BY node_id
+SELECT node_id, count(*) AS n, CAST(sum(cpu_millis) AS INTEGER) AS cpu_millis,
+       CAST(sum(memory_bytes) AS INTEGER) AS memory_bytes
+FROM dispatches WHERE status IN (/*SLICE:statuses*/?) GROUP BY node_id
 `
 
 type CountActiveDispatchesPerNodeRow struct {
-	NodeID string
-	N      int64
+	NodeID      string
+	N           int64
+	CpuMillis   int64
+	MemoryBytes int64
 }
 
+// The unsettled Dispatches of each node, with the sum of their requests (issue #731).
 func (q *Queries) CountActiveDispatchesPerNode(ctx context.Context, statuses []string) ([]CountActiveDispatchesPerNodeRow, error) {
 	query := countActiveDispatchesPerNode
 	var queryParams []interface{}
@@ -174,7 +179,12 @@ func (q *Queries) CountActiveDispatchesPerNode(ctx context.Context, statuses []s
 	items := []CountActiveDispatchesPerNodeRow{}
 	for rows.Next() {
 		var i CountActiveDispatchesPerNodeRow
-		if err := rows.Scan(&i.NodeID, &i.N); err != nil {
+		if err := rows.Scan(
+			&i.NodeID,
+			&i.N,
+			&i.CpuMillis,
+			&i.MemoryBytes,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -319,7 +329,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm FROM nodes WHERE id = ?1
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -329,7 +339,6 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.ID,
 		&i.Name,
 		&i.Status,
-		&i.MaxDispatches,
 		&i.WorktreeRoot,
 		&i.Runtimes,
 		&i.DaemonVersion,
@@ -363,6 +372,9 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.Gpus,
 		&i.Device,
 		&i.Kvm,
+		&i.MaxDispatches,
+		&i.ReservedCpuMillis,
+		&i.ReservedMemoryBytes,
 	)
 	return i, err
 }
@@ -452,7 +464,7 @@ VALUES (?1, ?2, 'active', ?3, ?4, ?4)
 type InsertNodeParams struct {
 	ID            string
 	Name          string
-	MaxDispatches int64
+	MaxDispatches sql.NullInt64
 	Now           int64
 }
 
@@ -659,7 +671,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm FROM nodes WHERE status <> 'deleted' ORDER BY name
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes FROM nodes WHERE status <> 'deleted' ORDER BY name
 `
 
 // Every node that has not been removed.
@@ -676,7 +688,6 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.ID,
 			&i.Name,
 			&i.Status,
-			&i.MaxDispatches,
 			&i.WorktreeRoot,
 			&i.Runtimes,
 			&i.DaemonVersion,
@@ -710,6 +721,9 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.Gpus,
 			&i.Device,
 			&i.Kvm,
+			&i.MaxDispatches,
+			&i.ReservedCpuMillis,
+			&i.ReservedMemoryBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -1043,13 +1057,40 @@ UPDATE nodes SET updated_at = ?1, max_dispatches = ?2 WHERE id = ?3 AND status <
 
 type SetNodeMaxDispatchesParams struct {
 	Now           int64
-	MaxDispatches int64
+	MaxDispatches sql.NullInt64
 	ID            string
 }
 
-// A node's own limit, which the owner changes after the node was added (issue #660).
+// A node's optional cap, NULL for none, which the owner changes after the node was added (issues #660, #731).
 func (q *Queries) SetNodeMaxDispatches(ctx context.Context, arg SetNodeMaxDispatchesParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setNodeMaxDispatches, arg.Now, arg.MaxDispatches, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setNodeReserved = `-- name: SetNodeReserved :execrows
+UPDATE nodes SET updated_at = ?1, reserved_cpu_millis = ?2,
+    reserved_memory_bytes = ?3
+WHERE id = ?4 AND status <> 'deleted'
+`
+
+type SetNodeReservedParams struct {
+	Now                 int64
+	ReservedCpuMillis   int64
+	ReservedMemoryBytes int64
+	ID                  string
+}
+
+// What the owner keeps back from a node's capacity (issue #731).
+func (q *Queries) SetNodeReserved(ctx context.Context, arg SetNodeReservedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setNodeReserved,
+		arg.Now,
+		arg.ReservedCpuMillis,
+		arg.ReservedMemoryBytes,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

@@ -436,7 +436,8 @@ var commands = []command{
 				"slug separated by commas, such as prod=8,9; label= for none, label=all for every one")
 			fs.String("tool-display", "", "what its chats show of its tool calls: off (none), on (each tool's name) "+
 				"or full (arguments, output and time as well)")
-			fs.Int("max-dispatches", 0, "how many of its workers run at once, across every node: 1 to 64 (4 for a new bot)")
+			fs.Int("guarantee", 0, "its guaranteed share of the room, in workers across every node: 1 to 64 (4 for a "+
+				"new bot); it may use more when the others leave room free")
 			jsonFlag(fs)
 		},
 		run: botsSet,
@@ -600,6 +601,23 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: artifactDownload,
+	},
+	{
+		name: "artifact share", args: "<artifact_id>", min: 1, max: 1,
+		summary: "make a view-only link that always shows the artifact's newest revision, no sign-in needed (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("label", "", "whom the link is for, such as Laura")
+			jsonFlag(fs)
+		},
+		run: artifactShare,
+	},
+	{
+		name: "artifact shares", args: "<artifact_id>", min: 1, max: 1,
+		summary: "an artifact's view-only links, with their views (owner)", flags: jsonFlag, run: artifactShares,
+	},
+	{
+		name: "artifact unshare", args: "<share_id>", min: 1, max: 1,
+		summary: "revoke a view-only link at once (owner)", flags: jsonFlag, run: artifactUnshare,
 	},
 	{
 		name: "memory show", summary: "a memory: a bot's, an agent's (--agent) or the one about the owner (--owner)",
@@ -850,8 +868,6 @@ var commands = []command{
 			fs.String("language", "", "the meeting's language, an ISO-639-1 code such as vi (default: found)")
 			fs.String("title", "", "the meeting's title (default: written from the meeting)")
 			fs.String("people", "", "who was there, separated by commas; they help name the speakers")
-			fs.String("words", "", "words to hear right, such as names and jargon, separated by commas")
-			fs.String("format", "", "the notes format, as `meetings settings` lists them (default: general)")
 			jsonFlag(fs)
 		},
 		run: meetingsUpload,
@@ -863,11 +879,7 @@ var commands = []command{
 	},
 	{
 		name: "meetings notes", args: "<meeting_id>", min: 1, max: 1,
-		summary: "write a meeting's notes again in a format (owner)",
-		flags: func(fs *flag.FlagSet) {
-			fs.String("format", "", "the notes format, as `meetings settings` lists them (required)")
-			jsonFlag(fs)
-		},
+		summary: "write a meeting's notes again (owner)", flags: jsonFlag,
 		run: meetingsNotes,
 	},
 	{
@@ -907,12 +919,31 @@ var commands = []command{
 		run: meetingsRecording,
 	},
 	{
-		name: "meetings settings", summary: "the model that writes notes and the notes formats; --notes-model sets it",
+		name: "meetings settings", summary: "the model that writes notes; --notes-model sets it",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("notes-model", "", "the gateway chat model that writes notes; \"\" for none (owner)")
 			jsonFlag(fs)
 		},
 		run: meetingsSettings,
+	},
+	{
+		name:    "meetings words",
+		summary: "the words to hear right every transcription is given; --add and --remove change yours",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("add", "", "words to add, separated by commas (owner)")
+			fs.String("remove", "", "words to remove, separated by commas (owner)")
+			jsonFlag(fs)
+		},
+		run: meetingsWords,
+	},
+	{
+		name: "meetings fix", args: "<meeting_id> <heard> <said>", min: 3, max: 3,
+		summary: "replace a word heard wrong in a meeting's transcript; the right word joins your words (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.Int("line", 0, "only this line (default: the whole meeting)")
+			jsonFlag(fs)
+		},
+		run: meetingsFix,
 	},
 	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",

@@ -116,7 +116,7 @@ export type Task = {
   not_before?: string;
   cancel_requested_at?: string;
   /**
-   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
 };
@@ -347,7 +347,13 @@ export type Node = {
   id: string;
   name: string;
   status: 'active' | 'drained';
-  max_dispatches: number;
+  /**
+   * The node's optional cap on the Dispatches it runs at once; left out for none, when the requests of its Dispatches against its allocatable decide (issue #731).
+   */
+  max_dispatches?: number;
+  reserved: Resources;
+  allocatable: Resources;
+  requested: Resources;
   worktree_root?: string;
   runtimes: Array<Runtime>;
   system?: NodeSystem;
@@ -384,14 +390,26 @@ export type Node = {
 };
 
 /**
+ * An amount of CPU and memory (issue
+ */
+export type Resources = {
+  /**
+   * CPU in thousandths of a core.
+   */
+  cpu_millis: number;
+  memory_bytes: number;
+};
+
+/**
  * What changes of a node; what is left out stays.
  */
 export type NodeChange = {
   name?: string;
   /**
-   * Dispatches the node runs at once (issue #660). The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
+   * The node's optional cap on the Dispatches it runs at once (issues #660, #731); 0 for none. The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
    */
   max_dispatches?: number;
+  reserved?: Resources;
 };
 
 export type NewTerminal = {
@@ -946,6 +964,10 @@ export type BrowserTab = {
   url: string;
   title: string;
   /**
+   * Its page's icon, as a data: address of an image, once the control plane has read it from the page. Absent until then, and for a page that names none it can give.
+   */
+  favicon?: string;
+  /**
    * How many views of it are open.
    */
   views: number;
@@ -1014,7 +1036,7 @@ export type NodeSystem = {
 export type NewNode = {
   name: string;
   /**
-   * Dispatches the node runs at once; left out, the default.
+   * The node's optional cap on the Dispatches it runs at once; left out, none: the requests of its Dispatches against its allocatable decide (issue #731).
    */
   max_dispatches?: number;
   /**
@@ -2527,9 +2549,9 @@ export type Bot = {
   };
   tool_display: ToolDisplay;
   /**
-   * How many of the Bot's workers run at once, across every node (issue #660): the unsettled Dispatches of the Runs it made. 4 unless the Bot sets its own.
+   * The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
    */
-  max_dispatches: number;
+  guaranteed_dispatches: number;
   created_at: string;
   updated_at: string;
 };
@@ -2850,9 +2872,9 @@ export type BotSettings = {
   };
   tool_display?: ToolDisplay;
   /**
-   * How many of the Bot's workers run at once; left out, the Bot keeps it, 4 for a new one.
+   * The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
    */
-  max_dispatches?: number;
+  guaranteed_dispatches?: number;
 };
 
 export type Memory = {
@@ -2906,6 +2928,14 @@ export type Profile = {
   model?: string;
   effort?: string;
   instruction?: string;
+  /**
+   * What a worker of the profile asks of a node's CPU, in thousandths of a core, from its YAML's requests.cpu (issue #731); left out, the default for building work, 1000.
+   */
+  cpu_request_millis?: number;
+  /**
+   * What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
+   */
+  memory_request_bytes?: number;
   /**
    * The skills its workers get beside those given to everyone.
    */
@@ -3249,9 +3279,9 @@ export type ChatList = {
 export type ChatRole = 'owner' | 'coordinator' | 'tool' | 'system';
 
 /**
- * What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates.
+ * What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates; continued, the control plane restarted and woke the Bot to continue the turn the restart cut; cut, a restart cut the turn and it is not continued.
  */
-export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval' | 'artifact';
+export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval' | 'artifact' | 'continued' | 'cut';
 
 /**
  * One piece of a reply (text, thinking), of a tool pi ran (tool_result), or the result of a Routine's run told in the chat it was made in (routine_run: id is the run's).
@@ -3433,6 +3463,59 @@ export type ArtifactFrame = {
   url: string;
 };
 
+export type NewArtifactShare = {
+  /**
+   * Whom the link is for, one line of at most 80 characters, such as "Laura".
+   */
+  label: string;
+};
+
+export type ArtifactShare = {
+  id: string;
+  artifact_id: string;
+  label: string;
+  /**
+   * The link's secret, 32 random bytes in base64url.
+   */
+  token: string;
+  /**
+   * The link's path on this server, /s/<token>.
+   */
+  path: string;
+  created_at: string;
+  /**
+   * How many times its page was opened.
+   */
+  views: number;
+  last_viewed_at?: string;
+};
+
+export type ArtifactShareList = {
+  data: Array<ArtifactShare>;
+};
+
+export type SharedArtifact = {
+  title: string;
+  type: ArtifactType;
+  /**
+   * The file shown, index.html of a folder or the one file.
+   */
+  entry: string;
+  /**
+   * The type of the file shown.
+   */
+  media_type: string;
+  /**
+   * The newest revision; the page reloads when it changes.
+   */
+  revision: number;
+  updated_at: string;
+  /**
+   * The path its files load from, ending in "/".
+   */
+  files: string;
+};
+
 /**
  * A file the owner attached to a message (issue #343): uploaded into the chat's Bot's folder, where pi reads it.
  */
@@ -3552,10 +3635,6 @@ export type MeetingSection = {
 };
 
 export type MeetingNotes = {
-  /**
-   * The notes format's id.
-   */
-  format: string;
   state: MeetingNotesState;
   /**
    * Why writing them failed
@@ -3567,7 +3646,7 @@ export type MeetingNotes = {
   model?: string;
   summary: string;
   /**
-   * The format's sections, in its order.
+   * A section per topic the meeting discussed, in the order they came up.
    */
   sections: Array<MeetingSection>;
   written_at?: string;
@@ -3602,7 +3681,6 @@ export type Meeting = {
   titled: boolean;
   language?: string;
   people: Array<string>;
-  terms: Array<string>;
   file_name: string;
   media_type: string;
   size: number;
@@ -3701,8 +3779,31 @@ export type MeetingDetail = {
   suggestions: Array<SpeakerSuggestion>;
 };
 
-export type WriteMeetingNotesRequest = {
-  format: string;
+export type MeetingWordFix = {
+  /**
+   * The word as the transcript says it.
+   */
+  from: string;
+  /**
+   * The word as it was said.
+   */
+  to: string;
+  /**
+   * Only this line; absent
+   */
+  line?: number;
+};
+
+export type MeetingWordFixed = {
+  detail: MeetingDetail;
+  /**
+   * How many times the word was replaced.
+   */
+  replaced: number;
+  /**
+   * The right word is in the owner's words to hear right; false when the list is full.
+   */
+  learned: boolean;
 };
 
 export type SpeakerName = {
@@ -3737,15 +3838,37 @@ export type MeetingActionList = {
   people: Array<string>;
 };
 
-export type MeetingFormatSection = {
-  title: string;
-  about: string;
+/**
+ * Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a registered repository's.
+ */
+export type MeetingWordSource = 'owner' | 'speaker' | 'bot' | 'repository';
+
+export type MeetingWord = {
+  word: string;
+  from: MeetingWordSource;
+  /**
+   * A transcription is given it; false past max_sent.
+   */
+  sent: boolean;
 };
 
-export type MeetingFormat = {
-  id: string;
-  name: string;
-  sections: Array<MeetingFormatSection>;
+export type MeetingWords = {
+  data: Array<MeetingWord>;
+  /**
+   * How many words the owner may keep.
+   */
+  max_own: number;
+  /**
+   * How many words a transcription is given.
+   */
+  max_sent: number;
+};
+
+export type MeetingWordsUpdate = {
+  /**
+   * The owner's words, in their order.
+   */
+  words: Array<string>;
 };
 
 export type MeetingSettings = {
@@ -3753,7 +3876,6 @@ export type MeetingSettings = {
    * The gateway chat model that writes notes; empty for none.
    */
   notes_model: string;
-  formats: Array<MeetingFormat>;
 };
 
 export type MeetingSettingsUpdate = {
@@ -7578,6 +7700,114 @@ export type OpenArtifactFrameResponses = {
 
 export type OpenArtifactFrameResponse = OpenArtifactFrameResponses[keyof OpenArtifactFrameResponses];
 
+export type ListArtifactSharesData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+  };
+  query?: never;
+  url: '/artifacts/{artifact_id}/shares';
+};
+
+export type ListArtifactSharesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListArtifactSharesError = ListArtifactSharesErrors[keyof ListArtifactSharesErrors];
+
+export type ListArtifactSharesResponses = {
+  /**
+   * The links.
+   */
+  200: ArtifactShareList;
+};
+
+export type ListArtifactSharesResponse = ListArtifactSharesResponses[keyof ListArtifactSharesResponses];
+
+export type CreateArtifactShareData = {
+  body: NewArtifactShare;
+  path: {
+    artifact_id: string;
+  };
+  query?: never;
+  url: '/artifacts/{artifact_id}/shares';
+};
+
+export type CreateArtifactShareErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateArtifactShareError = CreateArtifactShareErrors[keyof CreateArtifactShareErrors];
+
+export type CreateArtifactShareResponses = {
+  /**
+   * The link.
+   */
+  201: ArtifactShare;
+};
+
+export type CreateArtifactShareResponse = CreateArtifactShareResponses[keyof CreateArtifactShareResponses];
+
+export type DeleteArtifactShareData = {
+  body?: never;
+  path: {
+    share_id: string;
+  };
+  query?: never;
+  url: '/artifact-shares/{share_id}';
+};
+
+export type DeleteArtifactShareErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteArtifactShareError = DeleteArtifactShareErrors[keyof DeleteArtifactShareErrors];
+
+export type DeleteArtifactShareResponses = {
+  /**
+   * Revoked; the link and its files answer 404 from now on.
+   */
+  204: void;
+};
+
+export type DeleteArtifactShareResponse = DeleteArtifactShareResponses[keyof DeleteArtifactShareResponses];
+
+export type GetShareData = {
+  body?: never;
+  path: {
+    token: string;
+  };
+  query?: never;
+  url: '/shares/{token}';
+};
+
+export type GetShareErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetShareError = GetShareErrors[keyof GetShareErrors];
+
+export type GetShareResponses = {
+  /**
+   * The artifact the link shows.
+   */
+  200: SharedArtifact;
+};
+
+export type GetShareResponse = GetShareResponses[keyof GetShareResponses];
+
 export type ListSkillsData = {
   body?: never;
   path?: never;
@@ -8941,14 +9171,6 @@ export type UploadMeetingData = {
      * Who was in the meeting; they help name the speakers.
      */
     people?: Array<string>;
-    /**
-     * Words to hear right, such as names and jargon, given to the speech-to-text provider.
-     */
-    terms?: Array<string>;
-    /**
-     * The notes format's id (GET /meeting-settings lists them); absent, general.
-     */
-    format?: string;
   };
   url: '/meetings';
 };
@@ -9053,7 +9275,7 @@ export type GetMeetingRecordingResponses = {
 export type GetMeetingRecordingResponse = GetMeetingRecordingResponses[keyof GetMeetingRecordingResponses];
 
 export type WriteMeetingNotesData = {
-  body: WriteMeetingNotesRequest;
+  body?: never;
   path: {
     meeting_id: string;
   };
@@ -9078,6 +9300,33 @@ export type WriteMeetingNotesResponses = {
 };
 
 export type WriteMeetingNotesResponse = WriteMeetingNotesResponses[keyof WriteMeetingNotesResponses];
+
+export type FixMeetingWordData = {
+  body: MeetingWordFix;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/fix';
+};
+
+export type FixMeetingWordErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type FixMeetingWordError = FixMeetingWordErrors[keyof FixMeetingWordErrors];
+
+export type FixMeetingWordResponses = {
+  /**
+   * The meeting as it is now, and what the fix did.
+   */
+  200: MeetingWordFixed;
+};
+
+export type FixMeetingWordResponse = FixMeetingWordResponses[keyof FixMeetingWordResponses];
 
 export type NameMeetingSpeakerData = {
   body: SpeakerName;
@@ -9252,6 +9501,56 @@ export type SetMeetingSettingsResponses = {
 };
 
 export type SetMeetingSettingsResponse = SetMeetingSettingsResponses[keyof SetMeetingSettingsResponses];
+
+export type ListMeetingWordsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/meeting-words';
+};
+
+export type ListMeetingWordsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMeetingWordsError = ListMeetingWordsErrors[keyof ListMeetingWordsErrors];
+
+export type ListMeetingWordsResponses = {
+  /**
+   * The words.
+   */
+  200: MeetingWords;
+};
+
+export type ListMeetingWordsResponse = ListMeetingWordsResponses[keyof ListMeetingWordsResponses];
+
+export type SetMeetingWordsData = {
+  body: MeetingWordsUpdate;
+  path?: never;
+  query?: never;
+  url: '/meeting-words';
+};
+
+export type SetMeetingWordsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetMeetingWordsError = SetMeetingWordsErrors[keyof SetMeetingWordsErrors];
+
+export type SetMeetingWordsResponses = {
+  /**
+   * The words.
+   */
+  200: MeetingWords;
+};
+
+export type SetMeetingWordsResponse = SetMeetingWordsResponses[keyof SetMeetingWordsResponses];
 
 export type ListChatsData = {
   body?: never;

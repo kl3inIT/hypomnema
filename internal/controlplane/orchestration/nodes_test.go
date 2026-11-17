@@ -132,7 +132,7 @@ func TestMigrationKeepsNodeTokens(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "nod_old", n.ID)
 	assert.Equal(t, NodeDrained, n.Status)
-	assert.Equal(t, 3, n.MaxDispatches)
+	assert.Equal(t, 0, n.MaxDispatches, "00114 cleared every node's cap (issue #731)")
 }
 
 // Scenario: a node sends what it measured. The registry shows the latest
@@ -242,4 +242,50 @@ func TestNodeStatsKeepTheLatestGPUs(t *testing.T) {
 	} {
 		require.ErrorIs(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{GPUs: []GPUStats{bad}}), ErrInvalid)
 	}
+}
+
+// Scenario: migration 00114 on a database with a capped node, a Bot with its
+// own limit and the seeded profiles (issue #731). The node's cap is cleared, a
+// cap can be set on it again, and the Bot keeps its number as its guarantee;
+// the seeded explorer asks for half a core and 512 MiB, and a reserve starts
+// at 0.
+func TestMigrationClearsCapsAndKeepsBotsNumbers(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 113)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO nodes (id, name, status, max_dispatches, runtimes, created_at, updated_at)
+		VALUES ('nod_elitex', 'elitex', 'active', 1, '[]', 100, 100)`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE bots SET max_dispatches = 8 WHERE id = ?`, DefaultBotID)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, db))
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
+
+	n, err := s.GetNode(ctx, "nod_elitex")
+	require.NoError(t, err)
+	assert.Equal(t, 0, n.MaxDispatches, "no cap")
+	assert.Equal(t, Resources{}, n.Reserved)
+
+	n, err = s.SetNodeLimit(ctx, "nod_elitex", 1)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n.MaxDispatches, "a cap can be set again")
+
+	bot, err := s.GetBot(ctx, DefaultBotID)
+	require.NoError(t, err)
+	assert.Equal(t, 8, bot.Guarantee())
+
+	explorer, err := s.GetProfile(ctx, "explorer")
+	require.NoError(t, err)
+	assert.Equal(t, [2]int64{500, 512 << 20}, [2]int64{explorer.CPURequestMillis, explorer.MemoryRequestBytes})
 }

@@ -2,9 +2,10 @@ import { expect, test, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
 
-// The Meetings pages (issue #721), built, against a fake client API, on a phone and a desktop: the list grouped by
-// day, the upload dialog, a meeting's page with its player, notes and transcript, the speaker picker, the Actions
-// tab and Settings → Meetings.
+// The Meetings pages (issues #721, #747), built, against a fake client API, on a phone and a desktop: the list
+// grouped by day, the upload dialog, a meeting's page with its player, notes and transcript, the speaker picker, a
+// word fixed in the transcript, the Actions tab, Settings' Meetings group (issue #762: the dictionary and the notes
+// model) and the way back from Settings. The notes have no format to pick: they are sectioned by topic (issue #771).
 
 function at(daysAgo: number, hour: number, minute = 0) {
   const d = new Date()
@@ -14,18 +15,6 @@ function at(daysAgo: number, hour: number, minute = 0) {
   return d.toISOString()
 }
 
-const formats = [
-  { id: "general", name: "General", sections: [{ title: "Discussion highlights", about: "" }] },
-  { id: "team", name: "Team meeting", sections: [{ title: "Progress summary", about: "" }] },
-  { id: "one_on_one", name: "1:1", sections: [{ title: "Updates", about: "" }] },
-  { id: "standup", name: "Stand-up", sections: [{ title: "Yesterday", about: "" }] },
-  {
-    id: "client_call",
-    name: "Client call",
-    sections: [{ title: "Agreed deliverables", about: "" }],
-  },
-]
-
 type Speaker = { label: string; name: string; named: boolean; talk_ms: number; share: number }
 
 function meeting(id: string, title: string, over: object = {}) {
@@ -34,7 +23,6 @@ function meeting(id: string, title: string, over: object = {}) {
     title,
     titled: true,
     people: [],
-    terms: [],
     file_name: `${id}.m4a`,
     media_type: "audio/wav",
     size: 1000,
@@ -44,7 +32,6 @@ function meeting(id: string, title: string, over: object = {}) {
     model: "stt-async-v5",
     created_at: at(0, 9, 30),
     notes: {
-      format: "team",
       state: "ready",
       summary: "",
       sections: [],
@@ -104,7 +91,6 @@ function world() {
     actions: 3,
     open_actions: 2,
     notes: {
-      format: "team",
       state: "ready",
       model: "claude-sonnet-4-6",
       summary:
@@ -154,7 +140,7 @@ function world() {
       meeting("mtg_vmap", "VMAP review with Phụng", {
         created_at: at(0, 8, 0),
         duration_ms: 58 * 60_000,
-        notes: { format: "general", state: "writing", summary: "", sections: [] },
+        notes: { state: "writing", summary: "", sections: [] },
         speakers: [
           { label: "1", name: "Speaker 1", named: false, talk_ms: 1, share: 0.5 },
           { label: "2", name: "Speaker 2", named: false, talk_ms: 1, share: 0.5 },
@@ -177,11 +163,12 @@ function world() {
         provider: undefined,
         failure:
           "No speech-to-text provider is set up. Add a Soniox or ElevenLabs key on Settings → Gateway → Audio, then upload the recording again.",
-        notes: { format: "client_call", state: "waiting", summary: "", sections: [] },
+        notes: { state: "waiting", summary: "", sections: [] },
       }),
     ],
     items,
     notesModel: "",
+    words: ["MapOps", "ĐKSD"],
   }
 }
 
@@ -209,6 +196,16 @@ function silence() {
 async function fakeServer(page: Page) {
   const w = world()
   const calls: string[] = []
+  const words = () => ({
+    data: [
+      ...w.words.map((word) => ({ word, from: "owner", sent: true })),
+      { word: "Kai", from: "speaker", sent: true },
+      { word: "coordinator", from: "bot", sent: true },
+      { word: "hypomnema", from: "repository", sent: true },
+    ],
+    max_own: 100,
+    max_sent: 100,
+  })
   const detail = (id: string) => {
     const m = w.meetings.find((x) => x.id === id)!
 
@@ -267,13 +264,11 @@ async function fakeServer(page: Page) {
         created_at: new Date().toISOString(),
         duration_ms: 0,
         notes: {
-          format: url.searchParams.get("format"),
           state: "waiting",
           summary: "",
           sections: [],
         },
         people: url.searchParams.getAll("people"),
-        terms: url.searchParams.getAll("terms"),
       })
       w.meetings.unshift(made)
 
@@ -324,12 +319,28 @@ async function fakeServer(page: Page) {
 
     const notes = path.match(/^\/meetings\/([^/]+)\/notes$/)
     if (request.method() === "POST" && notes) {
-      calls.push(`${call} ${(request.postDataJSON() as { format: string }).format}`)
+      calls.push(call)
 
       return json(
         w.meetings.find((x) => x.id === notes[1]),
         202,
       )
+    }
+
+    const fix = path.match(/^\/meetings\/([^/]+)\/fix$/)
+    if (request.method() === "POST" && fix) {
+      const body = request.postDataJSON() as { from: string; to: string; line?: number }
+      calls.push(`${call} ${body.from}→${body.to} ${body.line ?? "meeting"}`)
+      let replaced = 0
+      for (const l of lines) {
+        if (body.line && l.n !== body.line) continue
+        const next = l.text.split(body.from).join(body.to)
+        if (next !== l.text) replaced++
+        l.text = next
+      }
+      if (!w.words.includes(body.to)) w.words.push(body.to)
+
+      return json({ detail: detail(fix[1]), replaced, learned: true })
     }
 
     const one = path.match(/^\/meetings\/([^/]+)$/)
@@ -355,12 +366,19 @@ async function fakeServer(page: Page) {
         })
       }
       case "GET /meeting-settings":
-        return json({ notes_model: w.notesModel, formats })
+        return json({ notes_model: w.notesModel })
       case "PUT /meeting-settings":
         w.notesModel = (request.postDataJSON() as { notes_model: string }).notes_model
         calls.push(`${call} ${w.notesModel}`)
 
-        return json({ notes_model: w.notesModel, formats })
+        return json({ notes_model: w.notesModel })
+      case "GET /meeting-words":
+        return json(words())
+      case "PUT /meeting-words":
+        w.words = (request.postDataJSON() as { words: string[] }).words
+        calls.push(`${call} ${w.words.join(", ")}`)
+
+        return json(words())
       case "GET /gateway/models":
         return json({
           data: [
@@ -440,8 +458,9 @@ test("the owner sees the meetings by day, as cards or a table", async ({ page, i
   expect(calls).toContain("GET /meetings?q=staging")
 })
 
-// Scenario: the owner uploads a recording: the file and its language, then under More details a title, the people,
-// the words to hear right and the notes format. They are sent with the recording, and the meeting's page opens on
+// Scenario: the owner uploads a recording: the file and its language, then under More details a title and the
+// people; no notes format is asked (issue #771). The words to hear right are not asked: they are set once on
+// Settings → Dictionary, which the dialog says. They are sent with the recording, and the meeting's page opens on
 // its steps: uploaded, transcribing.
 test("the owner uploads a recording with its details", async ({ page }) => {
   const { calls } = await fakeServer(page)
@@ -459,9 +478,9 @@ test("the owner uploads a recording with its details", async ({ page }) => {
   await dialog.getByRole("button", { name: "More details" }).click()
   await dialog.getByLabel("Title").fill("Stand-up 17/11")
   await dialog.getByLabel("People").fill("Laura, Kai")
-  await dialog.getByLabel("Words to hear right").fill("MapOps, ĐKSD")
-  await dialog.getByLabel("Notes format").click()
-  await page.getByRole("option", { name: "Stand-up" }).click()
+  await expect(dialog.getByLabel("Words to hear right")).toHaveCount(0)
+  await expect(dialog.getByRole("link", { name: "Dictionary" })).toBeVisible()
+  await expect(dialog.getByLabel("Notes format")).toHaveCount(0)
   await shot(page, "meetings-upload")
 
   await dialog.getByRole("button", { name: "Upload" }).click()
@@ -476,15 +495,15 @@ test("the owner uploads a recording with its details", async ({ page }) => {
   expect(query.get("media_type")).toBe("audio/mp4")
   expect(query.get("language")).toBe("vi")
   expect(query.getAll("people")).toEqual(["Laura", "Kai"])
-  expect(query.getAll("terms")).toEqual(["MapOps", "ĐKSD"])
-  expect(query.get("format")).toBe("standup")
+  expect(query.has("terms")).toBe(false)
+  expect(query.has("format")).toBe(false)
   expect(await fits(page)).toBe(true)
   await shot(page, "meetings-transcribing")
 })
 
 // Scenario: the owner opens a meeting: the player on top with its length, the summary, the decision with the time
-// it was said, the actions with who and when, the format's sections. Marking an action done is sent; Write again
-// sends the format picked. A failed meeting says why and where to fix it.
+// it was said, the actions with who and when, a section per topic. Marking an action done is sent; Write again
+// asks for the notes again, with nothing to pick. A failed meeting says why and where to fix it.
 test("the owner reads a meeting's notes and marks an action done", async ({ page }) => {
   const { calls } = await fakeServer(page)
   await page.goto("/meetings/mtg_weekly")
@@ -507,10 +526,9 @@ test("the owner reads a meeting's notes and marks an action done", async ({ page
   await page.getByRole("checkbox", { name: /Send the pricing numbers/ }).click()
   await expect.poll(() => calls).toContain("PATCH /meetings/mtg_weekly/items/mti_a1 true")
 
-  await page.getByLabel("Notes format").click()
-  await page.getByRole("option", { name: "1:1" }).click()
+  await expect(page.getByLabel("Notes format")).toHaveCount(0)
   await page.getByRole("button", { name: "Write again" }).click()
-  await expect.poll(() => calls).toContain("POST /meetings/mtg_weekly/notes one_on_one")
+  await expect.poll(() => calls).toContain("POST /meetings/mtg_weekly/notes")
 
   await page.goto("/meetings/mtg_lost")
   await expect(page.getByTestId("meeting-progress")).toContainText("Settings → Gateway → Audio")
@@ -581,16 +599,113 @@ test("the owner follows the actions across meetings", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Weekly sync with Kai", level: 2 })).toBeVisible()
 })
 
-// Scenario: Settings → Meetings has no notes model yet; the owner picks one of the gateway's chat models.
+// Scenario: Settings → Notes model has no model yet; the owner picks one of the gateway's chat models with the
+// one-model picker the Bots use, then sets it back to none.
 test("the owner picks the model that writes notes", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/meetings")
+  await page.goto("/settings/notes-model")
 
-  await expect(page.getByTestId("notes-model")).toContainText("None picked")
-  await page.getByRole("checkbox", { name: /claude-sonnet-4-6/ }).click()
-  await expect(page.getByTestId("notes-model")).toContainText("claude-sonnet-4-6")
-  expect(calls).toContain("PUT /meeting-settings claude-sonnet-4-6")
-  await expect(page.getByText("Stand-up")).toBeVisible()
+  const model = page.getByTestId("notes-model").getByRole("combobox")
+  await expect(model).toContainText("None: notes are not written")
+  await expect(page.getByRole("checkbox", { name: /claude-sonnet-4-6/ })).toHaveCount(0)
+  await model.click()
+  await shot(page, "meetings-settings-model")
+  await page.getByRole("option", { name: /Claude Sonnet 4.6/ }).click()
+  await expect.poll(() => calls).toContain("PUT /meeting-settings claude-sonnet-4-6")
+  await expect(model).toContainText("Claude Sonnet 4.6")
+
+  await model.click()
+  await page.getByRole("option", { name: "None: notes are not written" }).click()
+  await expect.poll(() => calls).toContain("PUT /meeting-settings ")
+})
+
+// Scenario: the owner's dictionary is listed with the names added for them (a speaker, a Bot, a
+// repository), each marked with where it comes from. The owner adds two at once and removes one; each change sends
+// the owner's whole list.
+test("the owner keeps the dictionary", async ({ page }) => {
+  const { calls } = await fakeServer(page)
+  await page.goto("/settings/dictionary")
+  await expect(page.getByRole("heading", { name: "Dictionary", level: 1 })).toBeVisible()
+
+  const own = page.getByRole("list", { name: "Your words" })
+  await expect(own.getByRole("listitem")).toHaveText(["MapOps", "ĐKSD"])
+  const found = page.getByRole("list", { name: "Words added for you" })
+  await expect(found).toContainText("Kaispeaker")
+  await expect(found).toContainText("coordinatorBot")
+  await expect(found).toContainText("hypomnemarepository")
+  await expect(page.getByTestId("words-sent")).toContainText("All 5 are sent")
+
+  await page.getByLabel("Add a word").fill("Hyprnote, mapops, Phụng")
+  await page.getByLabel("Add a word").press("Enter")
+  await expect.poll(() => calls).toContain("PUT /meeting-words MapOps, ĐKSD, Hyprnote, Phụng")
+  await expect(own.getByRole("listitem")).toHaveCount(4)
+
+  await page.getByRole("button", { name: "Remove ĐKSD" }).click()
+  await expect.poll(() => calls).toContain("PUT /meeting-words MapOps, Hyprnote, Phụng")
   expect(await fits(page)).toBe(true)
-  await shot(page, "meetings-settings")
+  await shot(page, "meetings-settings-words")
+})
+
+// Scenario: in the transcript, the owner selects a word heard wrong in line 2 and opens that line's fix: it opens
+// with the words selected. The owner writes the right word and replaces it in the whole meeting; the line reads the
+// fixed word, and the page offers to write the notes again.
+test("the owner fixes a word heard wrong in the transcript", async ({ page }) => {
+  const { calls } = await fakeServer(page)
+  await page.goto("/meetings/mtg_weekly")
+  await page.getByRole("tab", { name: "Transcript" }).click()
+
+  // The owner selects "staging" in line 2, as a drag over the word would.
+  await page.evaluate(`(() => {
+    const text = document.querySelector('[data-line="2"]').firstChild
+    const at = text.textContent.indexOf("staging")
+    const range = document.createRange()
+    range.setStart(text, at)
+    range.setEnd(text, at + "staging".length)
+    document.getSelection().removeAllRanges()
+    document.getSelection().addRange(range)
+  })()`)
+  await page.getByRole("button", { name: "Fix a word in line 2" }).click()
+  const fix = page.getByRole("dialog", { name: "Fix a word in line 2" })
+  await expect(fix.getByLabel("Heard")).toHaveValue("staging")
+  await fix.getByLabel("Said").fill("Staging-2")
+  await fix.getByRole("button", { name: "Whole meeting" }).click()
+  await shot(page, "meeting-word-fix")
+  await fix.getByRole("button", { name: "Replace" }).click()
+
+  await expect
+    .poll(() => calls)
+    .toContain("POST /meetings/mtg_weekly/fix staging→Staging-2 meeting")
+  await expect(page.getByTestId("transcript-line").nth(1)).toContainText("done on Staging-2")
+  const behind = page.getByTestId("notes-behind")
+  await expect(behind).toContainText("The notes were written before your fix")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "meeting-word-fixed")
+
+  await behind.getByRole("button", { name: "Write again" }).click()
+  await expect.poll(() => calls).toContain("POST /meetings/mtg_weekly/notes")
+  await expect(behind).toHaveCount(0)
+})
+
+// Scenario: from the Meetings page, the owner follows the upload dialog's link into Settings → Dictionary; "Back to
+// app" returns to Meetings, not home (moving between Settings' own pages keeps it: back-from-settings.test.ts).
+// Settings opened straight away goes back home. The sidebar of Settings is a desktop's; a phone goes back with its
+// drawer.
+test("Back to app returns to the page the owner came from", async ({ page, isMobile }) => {
+  test.skip(isMobile, "Settings' sidebar, with Back to app, is a desktop's")
+  await fakeServer(page)
+  await page.goto("/meetings")
+
+  const dialog = page.getByRole("dialog", { name: "Upload a recording" })
+  await page.getByRole("button", { name: "Upload recording" }).first().click()
+  await dialog.getByRole("link", { name: "Dictionary" }).click()
+  await expect(page).toHaveURL(/\/settings\/dictionary$/)
+  await shot(page, "settings-back-to-app")
+  await page.getByRole("link", { name: "Back to app" }).click()
+  await expect(page).toHaveURL(/\/meetings$/)
+  await expect(page.getByRole("heading", { name: "Meetings", level: 1 })).toBeVisible()
+
+  await page.evaluate("sessionStorage.clear()")
+  await page.goto("/settings/dictionary")
+  await page.getByRole("link", { name: "Back to app" }).click()
+  await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/)
 })

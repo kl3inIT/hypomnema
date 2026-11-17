@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>One page</title>
+    <script src="https://cdn.jsdelivr.net/npm/hypomnema-e2e-stub@1.0.0/stub.js"></script>
+  </head>
+  <body>
+    <h1>One page</h1>
+    <p id="inline">inline script blocked</p>
+    <p id="cdn">CDN script blocked</p>
+    <script>
+      document.getElementById("inline").textContent = "inline script ran"
+      if (window.fromCDN) document.getElementById("cdn").textContent = window.fromCDN
+    </script>
+  </body>
+</html>

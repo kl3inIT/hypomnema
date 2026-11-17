@@ -135,13 +135,16 @@ const notes = `{
      "owner": "Speaker 2", "due": "thứ Tư"},
     {"quote": "words nobody said", "line": 3, "text": "Check the old redirects", "owner": "mọi người", "due": null}
   ],
-  "sections": [{"title": "Discussion highlights", "points": ["Launch timing", " "]},
-               {"title": "Something else", "points": ["dropped"]}],
+  "sections": [{"title": "Launch date", "points": ["Launch timing", " "]},
+               {"title": "Pricing", "points": ["Prices are still open"]},
+               {"title": "launch date", "points": ["Friday holds"]},
+               {"title": "Small talk", "points": [" "]}],
   "summary": "The launch is on Friday; Lan sends the prices.",
   "title": "Launch sync"
 }`
 
 type world struct {
+	orch   *orchestration.Service
 	svc    *meetings.Service
 	store  *meetingstore.Store
 	dir    string
@@ -166,7 +169,7 @@ func newWorld(t *testing.T) *world {
 	})
 
 	w := &world{
-		store: orch.Meetings(), dir: filepath.Join(t.TempDir(), "meetings"), soniox: &fakeSoniox{},
+		orch: orch, store: orch.Meetings(), dir: filepath.Join(t.TempDir(), "meetings"), soniox: &fakeSoniox{},
 		model: &fakeModel{answer: notes}, usage: &fakeUsage{},
 	}
 	srv := w.soniox.serve(t)
@@ -209,8 +212,9 @@ func (w *world) upload(t *testing.T, u meetings.Upload) meetingstore.Meeting {
 	return m
 }
 
-// An uploaded recording is kept and heard with two voices, in its language and with the words to hear right; the
-// notes model then writes the summary, the format's sections, a decision and the actions, checked: the action a
+// An uploaded recording is kept and heard with two voices, in its language and with the owner's words to hear
+// right; the
+// notes model then writes the summary, a section per topic, a decision and the actions, checked: the action a
 // voice took on is that voice's, the one given to a group has nobody, and a quote nobody said is dropped. Both calls
 // are counted on the meetings' gateway key, and a voice that introduced itself is offered its name.
 func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
@@ -219,12 +223,11 @@ func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	m := w.upload(t, meetings.Upload{
-		Language: "vi", People: []string{"Lan", "Minh"}, Terms: []string{"MapOps", "ĐKSD"},
-	})
+	require.NoError(t, w.svc.SetWords(ctx, []string{"MapOps", "ĐKSD"}))
+
+	m := w.upload(t, meetings.Upload{Language: "vi", People: []string{"Lan", "Minh"}})
 	assert.Equal(t, meetingstore.Transcribing, m.State)
 	assert.Equal(t, "weekly-sync", m.Title, "the file's name until the notes write one")
-	assert.Equal(t, meetings.DefaultFormat, m.Notes.Format)
 	assert.Equal(t, meetingstore.NotesWaiting, m.Notes.State)
 
 	kept, err := os.ReadFile(filepath.Join(w.dir, m.ID))
@@ -235,7 +238,8 @@ func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
 
 	assert.Equal(t, true, w.soniox.job["enable_speaker_diarization"])
 	assert.Equal(t, []any{"vi"}, w.soniox.job["language_hints"])
-	assert.Equal(t, map[string]any{"terms": []any{"MapOps", "ĐKSD"}}, w.soniox.job["context"])
+	assert.Equal(t, map[string]any{"terms": []any{"MapOps", "ĐKSD", "coordinator"}}, w.soniox.job["context"],
+		"the owner's words, then the Bot's name")
 
 	d, err := w.svc.Get(ctx, m.ID)
 	require.NoError(t, err)
@@ -258,8 +262,10 @@ func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
 	assert.Equal(t, meetingstore.NotesReady, n.State)
 	assert.Equal(t, "notes-model", n.Model)
 	assert.Equal(t, "The launch is on Friday; Lan sends the prices.", n.Summary)
-	assert.Equal(t, []meetingstore.Section{{Title: "Discussion highlights", Points: []string{"Launch timing"}}},
-		n.Sections, "the format's sections only, empty points dropped")
+	assert.Equal(t, []meetingstore.Section{
+		{Title: "Launch date", Points: []string{"Launch timing", "Friday holds"}},
+		{Title: "Pricing", Points: []string{"Prices are still open"}},
+	}, n.Sections, "a section per topic in the model's order: a topic said twice is one, one without points none")
 	assert.Equal(t, "Launch sync", d.Meeting.Title)
 
 	require.Len(t, d.Items, 3)
@@ -277,8 +283,8 @@ func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
 	require.Len(t, w.model.asked, 1)
 	asked := w.model.asked[0]
 	assert.Contains(t, asked, `"model":"notes-model"`)
+	assert.Contains(t, asked, "a section for each main topic the meeting discussed")
 	assert.Contains(t, asked, "Write in Vietnamese")
-	assert.Contains(t, asked, "Discussion highlights")
 	assert.Contains(t, asked, "[2] 00:02 Speaker 2: Chào mọi người")
 	assert.Contains(t, asked, "Participants: Lan, Minh")
 	assert.Equal(t, []string{"gwk_meetings"}, w.model.keys)
@@ -359,10 +365,10 @@ func shownNames(speakers []meetingstore.Speaker) []string {
 	return out
 }
 
-// Writing the notes again in another format asks the model with that format's sections and keeps the new notes in
-// place of the old; it is refused while they are being written. An action marked done stays across a read, and the
+// Writing the notes again asks the model again and keeps the new notes in place of the old; it is refused while
+// they are being written. An action marked done stays across a read, and the
 // Actions page filters by state.
-func TestNotesAreWrittenAgainInAnotherFormat(t *testing.T) {
+func TestNotesAreWrittenAgain(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -385,22 +391,18 @@ func TestNotesAreWrittenAgainInAnotherFormat(t *testing.T) {
 	w.model.answer = `{"decisions":[],"actions":[],"sections":[{"title":"Blockers","points":["None"]}],` +
 		`"summary":"A stand-up."}`
 
-	require.NoError(t, w.svc.WriteAgain(ctx, m.ID, "standup"))
-	require.ErrorIs(t, w.svc.WriteAgain(ctx, m.ID, "standup"), orchestration.ErrConflict, "already being written")
-	require.ErrorIs(t, w.svc.WriteAgain(ctx, m.ID, "nonsense"), orchestration.ErrInvalid)
+	require.NoError(t, w.svc.WriteAgain(ctx, m.ID))
+	require.ErrorIs(t, w.svc.WriteAgain(ctx, m.ID), orchestration.ErrConflict, "already being written")
 
 	w.svc.Work(ctx)
 
 	require.Len(t, w.model.asked, 2)
-	assert.Contains(t, w.model.asked[1], "Yesterday")
-	assert.Contains(t, w.model.asked[1], "Blockers")
 	assert.NotContains(t, w.model.asked[1], "a title for the meeting", "the owner titled it")
 
 	d, err = w.svc.Get(ctx, m.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "standup", d.Meeting.Notes.Format)
 	assert.Equal(t, "A stand-up.", d.Meeting.Notes.Summary)
-	assert.Equal(t, []string{"Yesterday", "Today", "Blockers"}, sectionTitles(d.Meeting.Notes.Sections))
+	assert.Equal(t, []string{"Blockers"}, sectionTitles(d.Meeting.Notes.Sections))
 	assert.Empty(t, d.Items)
 }
 
@@ -511,7 +513,7 @@ func TestAFailureSaysWhyAndWhereToFixIt(t *testing.T) {
 
 	require.NoError(t, w2.store.SetSettings(ctx, meetingstore.Settings{NotesModel: "notes-model"}))
 	w2.model.failWith = &modelgateway.CompletionError{Status: http.StatusUnauthorized, Message: "bad key"}
-	require.NoError(t, w2.svc.WriteAgain(ctx, m.ID, "general"))
+	require.NoError(t, w2.svc.WriteAgain(ctx, m.ID))
 	w2.svc.Work(ctx)
 
 	d, err = w2.svc.Get(ctx, m.ID)
@@ -521,7 +523,7 @@ func TestAFailureSaysWhyAndWhereToFixIt(t *testing.T) {
 	assert.Contains(t, d.Meeting.Notes.Failure, "bad key")
 }
 
-// An upload past the limit or empty, or in a format or language that is not one, is refused and keeps nothing.
+// An upload past the limit or empty, or in a language that is not one, is refused and keeps nothing.
 func TestAnUploadThatCannotBeHeardIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -530,7 +532,6 @@ func TestAnUploadThatCannotBeHeardIsRefused(t *testing.T) {
 
 	for _, u := range []meetings.Upload{
 		{Body: strings.NewReader(""), FileName: "empty.mp3"},
-		{Body: strings.NewReader(recording), FileName: "a.mp3", Format: "poem"},
 		{Body: strings.NewReader(recording), FileName: "a.mp3", Language: "vietnamese"},
 		{Body: io.LimitReader(zeros{}, meetings.MaxRecording+1), FileName: "big.wav"},
 	} {

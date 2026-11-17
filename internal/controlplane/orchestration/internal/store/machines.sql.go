@@ -151,7 +151,7 @@ VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?6, 'provisioning', ?7, ?7)
 type InsertMachineNodeParams struct {
 	ID            string
 	Name          string
-	MaxDispatches int64
+	MaxDispatches sql.NullInt64
 	ProviderID    sql.NullString
 	Region        sql.NullString
 	Size          sql.NullString
@@ -204,7 +204,7 @@ func (q *Queries) InsertMachineProvider(ctx context.Context, arg InsertMachinePr
 }
 
 const listLiveMachinesOfProvider = `-- name: ListLiveMachinesOfProvider :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm FROM nodes WHERE provider_id = ?1 AND status <> 'deleted' ORDER BY created_at, id
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes FROM nodes WHERE provider_id = ?1 AND status <> 'deleted' ORDER BY created_at, id
 `
 
 func (q *Queries) ListLiveMachinesOfProvider(ctx context.Context, providerID sql.NullString) ([]Node, error) {
@@ -220,7 +220,6 @@ func (q *Queries) ListLiveMachinesOfProvider(ctx context.Context, providerID sql
 			&i.ID,
 			&i.Name,
 			&i.Status,
-			&i.MaxDispatches,
 			&i.WorktreeRoot,
 			&i.Runtimes,
 			&i.DaemonVersion,
@@ -254,6 +253,9 @@ func (q *Queries) ListLiveMachinesOfProvider(ctx context.Context, providerID sql
 			&i.Gpus,
 			&i.Device,
 			&i.Kvm,
+			&i.MaxDispatches,
+			&i.ReservedCpuMillis,
+			&i.ReservedMemoryBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -334,7 +336,7 @@ func (q *Queries) ListMachineProviders(ctx context.Context) ([]MachineProvider, 
 }
 
 const listUnsettledMachines = `-- name: ListUnsettledMachines :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm FROM nodes
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes FROM nodes
 WHERE status <> 'deleted'
   AND (machine_state IN ('provisioning', 'deleting', 'delete_failed') OR machine_power IN ('stopping', 'starting'))
 ORDER BY created_at, id
@@ -354,7 +356,6 @@ func (q *Queries) ListUnsettledMachines(ctx context.Context) ([]Node, error) {
 			&i.ID,
 			&i.Name,
 			&i.Status,
-			&i.MaxDispatches,
 			&i.WorktreeRoot,
 			&i.Runtimes,
 			&i.DaemonVersion,
@@ -388,6 +389,9 @@ func (q *Queries) ListUnsettledMachines(ctx context.Context) ([]Node, error) {
 			&i.Gpus,
 			&i.Device,
 			&i.Kvm,
+			&i.MaxDispatches,
+			&i.ReservedCpuMillis,
+			&i.ReservedMemoryBytes,
 		); err != nil {
 			return nil, err
 		}

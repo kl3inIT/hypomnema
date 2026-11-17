@@ -1,12 +1,11 @@
 import { Dialog } from "@base-ui/react/dialog"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ArrowDown, ExternalLink, X } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import "@/api/client"
-import { listBotsOptions } from "@/api/generated/@tanstack/react-query.gen"
 import { followUpTask, forwardQuestion, reopenTask } from "@/api/generated/sdk.gen"
 import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
@@ -67,7 +66,6 @@ function useCard(taskId: string): Card | undefined {
 
 function PanelBody({ taskId }: { taskId: string }) {
   const card = useCard(taskId)
-  const bots = useQuery({ ...listBotsOptions(), select: (page) => page.data })
 
   if (!card) {
     return (
@@ -80,9 +78,7 @@ function PanelBody({ taskId }: { taskId: string }) {
 
   const { task, run } = card
   const waiting =
-    task.status === "ready" && !card.question
-      ? waitingText(task.waiting_reason, bots.data)
-      : undefined
+    task.status === "ready" && !card.question ? waitingText(task.waiting_reason) : undefined
   const pr = pullRequest(task)
   const dispatch = task.latest_dispatch
   const live = isLive(dispatch)

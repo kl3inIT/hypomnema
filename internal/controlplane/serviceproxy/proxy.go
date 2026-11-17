@@ -80,6 +80,7 @@ type Agents interface {
 // Store is what the proxy needs of orchestration.
 type Store interface {
 	AskApproval(ctx context.Context, n orchestration.NewApproval) (orchestration.Approval, bool, error)
+	StandingGrant(ctx context.Context, n orchestration.NewApproval) (bool, error)
 	GetApproval(ctx context.Context, id string) (orchestration.Approval, error)
 	DecideApproval(ctx context.Context, id string, approve bool, scope orchestration.ApprovalScope,
 	) (orchestration.Approval, error)
@@ -357,9 +358,9 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
-	action := s.catalog.Of(req, body, s.host)
-
-	verdict, message, err := p.decide(ctx, action, s, func() asking { return httpAsking(req, body, action, s) })
+	action, verdict, message, err := p.decide(ctx, s.catalog.Of(req, body, s.host), s, func(governing Action) asking {
+		return httpAsking(req, body, governing, s)
+	})
 	if err != nil {
 		// Every error refuses.
 		p.cfg.Logger.ErrorContext(ctx, "the proxy could not decide a request", slog.String("event", "serviceproxy.failed"),
@@ -377,54 +378,160 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 
 // decide applies the action's Policy. An empty message means the request
 // runs; otherwise it is what the tool is told. describe says what the owner is
-// asked, when he is.
-func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func() asking,
-) (verdict, message string, err error) {
+// asked, when he is. Of an action and those the request names beside it
+// (With), the strictest answer governs (Onyx's AllMatchedActions): one refused
+// or set to never refuses the request, and when the strictest is ask, each
+// action that asks needs its own answer, so that a grant of one never lets
+// another run (review of #746). The action returned is the one that decided.
+func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func(Action) asking,
+) (governing Action, verdict, message string, err error) {
 	if action.Plumbing {
-		return "plumbing", "", nil
+		return action, "plumbing", "", nil
 	}
 
-	if action.Never {
-		return "never", fmt.Sprintf("Refused: %q is never run through %s: %s. Do not try another way; say so in your "+
-			"answer.", action.Name, s.connection(), action.Text), nil
-	}
+	all := append([]Action{action}, action.With...)
+	answers := make([]answered, len(all))
 
-	policy := orchestration.PolicyAsk
+	strictest := 0
 
-	if _, listed := s.catalog.Action(action.ID); listed {
-		// What the account cannot do at the service is refused before the owner's answer is read, as lark-cli
-		// refuses a call whose scope is missing before it makes it (shortcuts/common/runner.go,
-		// checkShortcutScopes). What is granted or unknown goes on.
-		conn, err := p.cfg.Store.ConnectionOf(ctx, s.integration, s.label)
-		if err != nil {
-			return "", "", err
+	for i, a := range all {
+		if answers[i], err = p.answerOf(ctx, a, s); err != nil {
+			return action, "", "", err
 		}
 
-		if got := conn.Access.Of(action.ID); got.Access == orchestration.AccessMissing {
-			return "missing", cannot(conn, action, s, got.Reason), nil
-		}
-
-		policy = action.Default()
-
-		set, err := p.cfg.Store.ActionPolicies(ctx, s.integration, s.label)
-		if err != nil {
-			return "", "", err
-		}
-
-		if answer, ok := set[action.ID]; ok {
-			policy = answer
+		if answers[i].severity() > answers[strictest].severity() {
+			strictest = i
 		}
 	}
 
-	switch policy {
+	action, got := all[strictest], answers[strictest]
+
+	if got.refusal != "" {
+		return action, got.verdict, got.refusal, nil
+	}
+
+	switch got.policy {
 	case orchestration.PolicyAllow:
-		return "allowed", "", nil
+		return action, "allowed", "", nil
 	case orchestration.PolicyNever:
-		return "never", fmt.Sprintf("Refused: the owner set %q to never for %s. It was not run; do not try another "+
-			"way. Say so in your answer.", action.Name, s.connection()), nil
+		return action, "never", fmt.Sprintf("Refused: the owner set %q to never for %s. It was not run; do not try "+
+			"another way. Say so in your answer.", action.Name, s.connection()), nil
 	}
 
-	return p.ask(ctx, action, s, describe())
+	asks := make([]Action, 0, len(all))
+
+	for i, a := range all {
+		if answers[i].policy == orchestration.PolicyAsk {
+			asks = append(asks, a)
+		}
+	}
+
+	if len(asks) == 1 {
+		verdict, message, _, err = p.ask(ctx, action, s, describe(action))
+
+		return action, verdict, message, err
+	}
+
+	// Several actions ask, and each needs its own answer (review of #746). Those the owner allowed for the session
+	// or the Routine are set aside, and the request is asked for as the first of the others, the owner shown all
+	// of them: approved, once or for the session, the request runs, since he saw what it does; for the session,
+	// only that action is allowed from then on. When the ask finds the first allowed by a standing grant instead
+	// (one made since the check, by another request), that grant says nothing of the others: they are decided
+	// again, until one is refused or waits, or the owner has answered for all.
+	for {
+		var waiting []Action
+
+		for _, a := range asks {
+			granted, err := p.cfg.Store.StandingGrant(ctx, orchestration.NewApproval{
+				Integration: s.integration, Label: s.label, Action: a.ID, DispatchID: s.caller.DispatchID,
+				ChatID: s.chatID, RunKey: s.runKey,
+			})
+			if err != nil {
+				return a, "", "", err
+			}
+
+			if !granted {
+				waiting = append(waiting, a)
+			}
+		}
+
+		if len(waiting) == 0 {
+			return asks[0], "approved before", "", nil
+		}
+
+		action = waiting[0]
+		q := describe(action)
+
+		if len(waiting) > 1 {
+			names := make([]string, 0, len(waiting)-1)
+			for _, a := range waiting[1:] {
+				names = append(names, a.Name)
+			}
+
+			q.fields = append([]orchestration.Field{{Label: "Also", Value: strings.Join(names, "; ")}}, q.fields...)
+		}
+
+		verdict, message, standing, err := p.ask(ctx, action, s, q)
+		if err != nil || message != "" || !standing {
+			return action, verdict, message, err
+		}
+	}
+}
+
+// answered is what an action is for a Connection: the owner's Policy, or what refuses it whatever he set.
+type answered struct {
+	policy string
+	// verdict and refusal refuse an action that is never run, or that the account cannot do at the service.
+	verdict, refusal string
+}
+
+// severity orders answers from the strictest: refused, never, ask, allow (Onyx's POLICY_SEVERITY).
+func (a answered) severity() int {
+	switch {
+	case a.refusal != "":
+		return 3
+	case a.policy == orchestration.PolicyNever:
+		return 2
+	case a.policy == orchestration.PolicyAllow:
+		return 0
+	}
+
+	return 1
+}
+
+// answerOf reads an action's answer for the session's Connection. An action the catalog does not list asks.
+func (p *Proxy) answerOf(ctx context.Context, action Action, s session) (answered, error) {
+	if action.Never {
+		return answered{verdict: "never", refusal: fmt.Sprintf("Refused: %q is never run through %s: %s. Do not try "+
+			"another way; say so in your answer.", action.Name, s.connection(), action.Text)}, nil
+	}
+
+	if _, listed := s.catalog.Action(action.ID); !listed {
+		return answered{policy: orchestration.PolicyAsk}, nil
+	}
+
+	// What the account cannot do at the service is refused before the owner's answer is read, as lark-cli
+	// refuses a call whose scope is missing before it makes it (shortcuts/common/runner.go,
+	// checkShortcutScopes). What is granted or unknown goes on.
+	conn, err := p.cfg.Store.ConnectionOf(ctx, s.integration, s.label)
+	if err != nil {
+		return answered{}, err
+	}
+
+	if got := conn.Access.Of(action.ID); got.Access == orchestration.AccessMissing {
+		return answered{verdict: "missing", refusal: cannot(conn, action, s, got.Reason)}, nil
+	}
+
+	set, err := p.cfg.Store.ActionPolicies(ctx, s.integration, s.label)
+	if err != nil {
+		return answered{}, err
+	}
+
+	if policy, ok := set[action.ID]; ok {
+		return answered{policy: policy}, nil
+	}
+
+	return answered{policy: action.Default()}, nil
 }
 
 // asking is what the owner is asked to approve: its title, what it shows him, and the digest that tells the same
@@ -463,7 +570,11 @@ func httpAsking(req *http.Request, body []byte, action Action, s session) asking
 }
 
 // ask holds a request for the owner's Approval.
-func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (verdict, message string, err error) {
+//
+// standing is true when the action was allowed by a grant for the session or the Routine, not by an answer to this
+// request.
+func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking,
+) (verdict, message string, standing bool, err error) {
 
 	askedBy := "worker"
 	if s.caller.Coordinator {
@@ -479,11 +590,11 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (ve
 		MatchHash: q.hash,
 	})
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if granted {
-		return "approved before", "", nil
+		return "approved before", "", approval.ID == "", nil
 	}
 
 	// A request of a Routine's run waits where it is, for as long as a run waits, and is then refused: nobody is
@@ -495,18 +606,18 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (ve
 
 	decided, answered, err := p.wait(ctx, approval.ID, hold)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if !answered && approval.RoutineRunID != "" {
 		decided, err = p.cfg.Store.ExpireApproval(ctx, approval.ID)
 		if err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 
 		if decided.Expired {
 			return "expired", fmt.Sprintf("Refused: nobody answered the approval of %q in %s. It was not run and "+
-				"this run fails; do not try another way.", approval.Title, hold), nil
+				"this run fails; do not try another way.", approval.Title, hold), false, nil
 		}
 
 		// He answered as the wait ran out.
@@ -515,28 +626,28 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (ve
 
 	switch {
 	case !answered:
-		return "waiting", p.waitingMessage(approval, s), nil
+		return "waiting", p.waitingMessage(approval, s), false, nil
 	case decided.Status == orchestration.ApprovalRejected:
 		return "rejected", fmt.Sprintf("Rejected by the owner: %q was not run. Do not try another way; say so in "+
-			"your answer.", approval.Title), nil
+			"your answer.", approval.Title), false, nil
 	case decided.Scope == orchestration.ScopeSession:
-		return "approved for the session", "", nil
+		return "approved for the session", "", false, nil
 	case decided.Scope == orchestration.ScopeRoutine:
-		return "approved for the routine", "", nil
+		return "approved for the routine", "", false, nil
 	}
 
 	// An approval for one request runs once, whoever waited for it.
 	used, err := p.cfg.Store.UseApproval(ctx, approval.ID)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if !used {
 		return "used", fmt.Sprintf("%q was approved once and has run. Run the command again to ask for it again.",
-			approval.Title), nil
+			approval.Title), false, nil
 	}
 
-	return "approved", "", nil
+	return "approved", "", false, nil
 }
 
 // waitingMessage tells an agent what a held request needs of it.

@@ -19,6 +19,8 @@ import { useState } from "react"
 
 import type { ChatMessage } from "@/api/generated/types.gen"
 import { ArtifactCard } from "@/features/artifacts/artifact-card"
+import { BrowserTabCard } from "@/features/browser/browser-tab-card"
+import { browserOpen } from "@/features/browser/browser-state"
 import { SetupChangeCard } from "@/features/bots/setup-change-card"
 import { RunCard, SetUpCard } from "@/features/routines/chat-cards"
 import { cn } from "@/lib/utils"
@@ -252,12 +254,21 @@ function splitNotice(text: string): [string, string] {
 function Activity({ steps, live }: { steps: Step[]; live: boolean }) {
   const [open, setOpen] = useState(false)
   const expanded = live || open
+  // A page the Bot opened shows as a card under its work, seen when the work is folded (issue #703).
+  const pages = steps.flatMap((s) =>
+    s.kind === "tool" && s.name === browserOpen && s.result && !s.result.error
+      ? [<BrowserTabCard key={`page-${s.key}`} args={s.args} />]
+      : [],
+  )
 
   if (steps.length === 1 && steps[0]) {
     return (
-      <WorkLogBlock>
-        <StepRow step={steps[0]} />
-      </WorkLogBlock>
+      <>
+        <WorkLogBlock>
+          <StepRow step={steps[0]} />
+        </WorkLogBlock>
+        {pages}
+      </>
     )
   }
 
@@ -293,6 +304,7 @@ function Activity({ steps, live }: { steps: Step[]; live: boolean }) {
           </div>
         </WorkLogBlock>
       )}
+      {pages}
     </>
   )
 }

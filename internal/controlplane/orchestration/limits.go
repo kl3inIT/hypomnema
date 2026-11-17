@@ -72,22 +72,36 @@ const (
 	// RunPageDefault and RunPageMax bound one page of Runs (Omnara's PageLimit).
 	RunPageDefault = 50
 	RunPageMax     = 100
-	// BotDispatchesDefault: the unsettled Dispatches of one Bot's Runs, across
-	// every node, unless the Bot sets its own (issue #660). The owner's Runs
-	// without a Bot are one more group with this limit (inferred: no
-	// reference has that case). There is no limit across every node.
-	// From: OpenMausBot threads.maxConcurrentPerBot, server/bot-thread-limits.ts; 4 the owner's, 2026-11-16.
-	BotDispatchesDefault = 4
-	// NodeDispatchesDefault: a node's own limit unless set (inferred).
-	NodeDispatchesDefault = 2
-	// MaxDispatchesLimit bounds a node's and a Bot's limit, as the client API
-	// bounds a new node's (api/openapi.yaml, NewNode).
+	// BotGuaranteeDefault: a Bot's guaranteed share, in unsettled Dispatches
+	// across every node, unless the Bot sets its own (issue #731; the Bot's
+	// limit, BotDispatchesDefault, until 2026-11-17). The owner's Runs without
+	// a Bot are one more group with this guarantee (inferred: no reference has
+	// that case). From: Kueue's nominalQuota (clusterqueue_types.go:318-329),
+	// YARN's capacity; 4 the owner's, 2026-11-16.
+	BotGuaranteeDefault = 4
+	// MaxDispatchesLimit bounds a node's optional cap and a Bot's guarantee, as
+	// the client API bounds a new node's (api/openapi.yaml, NewNode).
 	MaxDispatchesLimit = 64
+	// DefaultCPURequestMillis and DefaultMemoryRequest: what a worker asks of a
+	// node when its profile asks for nothing, sized for building work: the
+	// repository's checks peaked at 2.7 GiB on stc-hy-app, plus a CLI; CPU is
+	// elastic, so only the mean is asked (issue #731, measurements of
+	// 2026-11-17). From: a Kubernetes container's requests
+	// (helper/resource_fit.go:159-178) and a Nomad task's default resources
+	// (nomad/structs/structs.go:2388-2394); 1 core and 3 GiB the owner's, 2026-11-17.
+	DefaultCPURequestMillis = 1000
+	DefaultMemoryRequest    = 3 << 30
 	// NodeOfflineAfter: a node not heard from for this long is not connected
 	// (Omnara, docs/agents/failure-handling.mdx).
 	NodeOfflineAfter = 30 * time.Second
 	// ScheduleEvery: the scheduler's pass when nothing wakes it (Orca DEFAULT_POLL_MS).
 	ScheduleEvery = 2 * time.Second
+	// NodeMemoryFloor: a node whose fresh stats show less memory available
+	// than this takes no new Conversation (issue #731). From the kubelet's hard
+	// eviction threshold memory.available < 100Mi, which taints the node
+	// memory-pressure:NoSchedule (kubelet/eviction/defaults_linux.go:22-27);
+	// 1 GiB, room for one worker CLI and its build, the owner's, 2026-11-17.
+	NodeMemoryFloor = 1 << 30
 	// UnplaceableAfter: a ready Task with no node or account for this long is
 	// escalated (inferred).
 	UnplaceableAfter = 5 * time.Minute

@@ -2,17 +2,21 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import "@/api/client"
 import {
+  fixMeetingWordMutation,
   getMeetingOptions,
   getMeetingQueryKey,
   getMeetingSettingsOptions,
   getMeetingSettingsQueryKey,
   listMeetingActionsOptions,
   listMeetingActionsQueryKey,
+  listMeetingWordsOptions,
+  listMeetingWordsQueryKey,
   listMeetingsOptions,
   listMeetingsQueryKey,
   nameMeetingSpeakerMutation,
   setMeetingLineSpeakerMutation,
   setMeetingSettingsMutation,
+  setMeetingWordsMutation,
   updateMeetingItemMutation,
   uploadMeetingMutation,
   writeMeetingNotesMutation,
@@ -131,6 +135,36 @@ export function useSetMeetingSettings() {
   return useMutation({
     ...setMeetingSettingsMutation(),
     onSuccess: (settings) => queryClient.setQueryData(getMeetingSettingsQueryKey(), settings),
+  })
+}
+
+// useFixWord replaces a word heard wrong in a line or the whole meeting (issue #747); the right word joins the word
+// list, which is read again.
+export function useFixWord(id: string) {
+  const queryClient = useQueryClient()
+  const put = usePutMeeting(id)
+
+  return useMutation({
+    ...fixMeetingWordMutation(),
+    onSuccess: (fixed) =>
+      Promise.all([
+        put(fixed.detail),
+        queryClient.invalidateQueries({ queryKey: listMeetingWordsQueryKey() }),
+      ]),
+  })
+}
+
+// useMeetingWords reads the words to hear right: the owner's and the names found.
+export function useMeetingWords() {
+  return useQuery(listMeetingWordsOptions())
+}
+
+export function useSetMeetingWords() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    ...setMeetingWordsMutation(),
+    onSuccess: (words) => queryClient.setQueryData(listMeetingWordsQueryKey(), words),
   })
 }
 

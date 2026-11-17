@@ -312,15 +312,22 @@ const (
 	// ReasonNoNodeHasTool is followed by the tool: "no_node_has_tool:gws". The
 	// Run uses an account whose tool no connected node has installed yet.
 	ReasonNoNodeHasTool = "no_node_has_tool:"
-	// ReasonBotAtLimit is followed by the Bot's id, nothing for the owner's
-	// Runs without a Bot: "bot_at_limit:bot_x". The Bot's Runs already have
-	// as many unsettled Dispatches as its limit (issue #660). It resolves by
-	// itself and is not escalated.
-	ReasonBotAtLimit = "bot_at_limit:"
-	// ReasonNodesFull: a node could run the Task, but every such node runs as
-	// many Dispatches as its own limit (issue #660). Unlike ReasonNoNode it
-	// resolves by itself and is not escalated.
+	// ReasonNodesFull: a node could run the Task and would fit its request
+	// when empty, but every such node is full now, by the requests of what it
+	// runs or by its cap (issues #660, #731). Unlike ReasonNoNode it resolves
+	// by itself and is not escalated.
 	ReasonNodesFull = "nodes_full"
+	// ReasonNoNodeFits: a node could run the Task, but its request is larger
+	// than the allocatable of every such node (issue #731), as Kubernetes
+	// marks such a pod Unresolvable (helper/resource_fit.go:166, 176). Waiting
+	// frees nothing, so it is escalated after UnplaceableAfter like
+	// ReasonNoNode.
+	ReasonNoNodeFits = "no_node_fits"
+	// ReasonNodesLowMemory: a node could run the Task, but every such node has
+	// less than NodeMemoryFloor available (issue #731). Nothing Hypomnema does
+	// is sure to free the memory, so it is escalated after UnplaceableAfter
+	// like ReasonNoNode.
+	ReasonNodesLowMemory = "nodes_low_memory"
 )
 
 // Escalation is one thing the reaper or the scheduler found.

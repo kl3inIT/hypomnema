@@ -24,8 +24,9 @@ func TestTheStartingSetIsThere(t *testing.T) {
 
 	// The seed, the seed with its description, for the two that report in a set form that form (issue #155), and
 	// the model gateway's model (issue #462), now its subscription's (issue #549).
-	// The instructions rewritten (issue #672), and the reviewer told to run the checks (issue #718).
-	versions := map[string]int{"explorer": 5, "implementer": 4, "reviewer": 6}
+	// The instructions rewritten (issue #672), and the reviewer told to answer CodeRabbit (issue #766) and to run
+	// the checks (issue #718).
+	versions := map[string]int{"explorer": 5, "implementer": 4, "reviewer": 7}
 	models := map[string]string{
 		"explorer": "claude-sonnet-5-5", "implementer": "claude-opus-5-5", "reviewer": "claude-opus-5-5",
 	}

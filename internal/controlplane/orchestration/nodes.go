@@ -127,14 +127,28 @@ func validGPUs(gpus []GPUStats) bool {
 	return true
 }
 
+// Resources is an amount of CPU, in thousandths of a core, and of memory, in bytes (issue #731).
+type Resources struct {
+	CPUMillis   int64
+	MemoryBytes int64
+}
+
 // Node is one machine that runs workers.
 type Node struct {
-	ID            string
-	Name          string
-	Status        NodeStatus
+	ID     string
+	Name   string
+	Status NodeStatus
+	// MaxDispatches is the node's optional cap on its unsettled Dispatches, 0
+	// for none: the requests against its allocatable decide (issue #731).
 	MaxDispatches int
-	WorktreeRoot  string
-	Runtimes      []RuntimeInfo
+	// Reserved is what the owner keeps back from its capacity; Allocatable
+	// what its Dispatches may ask for in all (placement.allocatable); and
+	// Requested what its unsettled Dispatches ask for.
+	Reserved     Resources
+	Allocatable  Resources
+	Requested    Resources
+	WorktreeRoot string
+	Runtimes     []RuntimeInfo
 	// GitHosts are the git hosts the node reached when it last tried; nil for
 	// a node that has not said, which is taken to reach every host.
 	GitHosts []string
@@ -211,12 +225,9 @@ const firstNodeTokenName = "first"
 // shown only here; only its hash is kept.
 func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (Node, string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || maxDispatches < 0 {
-		return Node{}, "", fmt.Errorf("%w: a node needs a name and a limit of zero (default) or more", ErrInvalid)
-	}
-
-	if maxDispatches == 0 {
-		maxDispatches = NodeDispatchesDefault
+	if name == "" || maxDispatches < 0 || maxDispatches > MaxDispatchesLimit {
+		return Node{}, "", fmt.Errorf("%w: a node needs a name, and a cap of 1 to %d or none (0)", ErrInvalid,
+			MaxDispatchesLimit)
 	}
 
 	token, err := newNodeToken()
@@ -228,7 +239,7 @@ func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertNode(ctx, store.InsertNodeParams{
-			ID: id, Name: name, MaxDispatches: int64(maxDispatches), Now: now,
+			ID: id, Name: name, MaxDispatches: storedLimit(maxDispatches), Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: inserting node %q: %w", ErrConflict, name, err)
 		}
@@ -288,27 +299,132 @@ func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
 	})
 }
 
-// SetNodeLimit changes how many Dispatches a node runs at once (issue #660),
-// as Coder's provisioner daemons are a setting, not fixed at install. The
-// next scheduling pass places by it; Dispatches it runs over a lower limit
-// go on.
-func (s *Service) SetNodeLimit(ctx context.Context, nodeID string, maxDispatches int) (Node, error) {
-	if maxDispatches < 1 || maxDispatches > MaxDispatchesLimit {
-		return Node{}, fmt.Errorf("%w: a node runs 1 to %d Dispatches at once", ErrInvalid, MaxDispatchesLimit)
+// NodeChange is what UpdateNode changes on a node; a part left nil keeps
+// what the node has.
+type NodeChange struct {
+	// Name is the node's new name.
+	Name *string
+	// MaxDispatches is its optional cap, 0 for none (issues #660, #731).
+	MaxDispatches *int
+	// ReservedCPUMillis and ReservedMemoryBytes are what the owner keeps back
+	// from its capacity (issue #731); each part may be changed alone.
+	ReservedCPUMillis   *int64
+	ReservedMemoryBytes *int64
+}
+
+// UpdateNode renames a node, or changes its cap or its reserve. Every part is
+// checked before anything is written, and all are written in one transaction,
+// so a part that is refused changes nothing; a reserve part left out keeps
+// what the node has when the change is written (PR #759).
+func (s *Service) UpdateNode(ctx context.Context, nodeID string, c NodeChange) (Node, error) {
+	if c.Name != nil {
+		name := strings.TrimSpace(*c.Name)
+		if name == "" || len(name) > maxNodeName {
+			return Node{}, fmt.Errorf("%w: a node's name is 1 to %d characters", ErrInvalid, maxNodeName)
+		}
+
+		c.Name = &name
+	}
+
+	if c.MaxDispatches != nil && (*c.MaxDispatches < 0 || *c.MaxDispatches > MaxDispatchesLimit) {
+		return Node{}, fmt.Errorf("%w: a node's cap is 1 to %d Dispatches, or none (0)", ErrInvalid,
+			MaxDispatchesLimit)
+	}
+
+	if (c.ReservedCPUMillis != nil && *c.ReservedCPUMillis < 0) ||
+		(c.ReservedMemoryBytes != nil && *c.ReservedMemoryBytes < 0) {
+		return Node{}, fmt.Errorf("%w: a node's reserve is 0 or more", ErrInvalid)
 	}
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		n, err := q.SetNodeMaxDispatches(ctx, store.SetNodeMaxDispatchesParams{
-			Now: now, MaxDispatches: int64(maxDispatches), ID: nodeID,
-		})
+		if c.Name != nil {
+			if err := renameNode(ctx, q, now, nodeID, *c.Name); err != nil {
+				return err
+			}
+		}
 
-		return oneRow(n, err, "node", nodeID)
+		if c.MaxDispatches != nil {
+			n, err := q.SetNodeMaxDispatches(ctx, store.SetNodeMaxDispatchesParams{
+				Now: now, MaxDispatches: storedLimit(*c.MaxDispatches), ID: nodeID,
+			})
+			if err := oneRow(n, err, "node", nodeID); err != nil {
+				return fmt.Errorf("changing its cap: %w", err)
+			}
+		}
+
+		if c.ReservedCPUMillis != nil || c.ReservedMemoryBytes != nil {
+			if err := reserveNode(ctx, q, now, nodeID, c.ReservedCPUMillis, c.ReservedMemoryBytes); err != nil {
+				return fmt.Errorf("changing its reserve: %w", err)
+			}
+		}
+
+		return nil
 	})
 	if err != nil {
-		return Node{}, fmt.Errorf("changing a node's limit: %w", err)
+		return Node{}, fmt.Errorf("changing a node: %w", err)
 	}
 
 	return s.GetNode(ctx, nodeID)
+}
+
+// renameNode gives a node another name in the transaction of q.
+func renameNode(ctx context.Context, q *store.Queries, now int64, nodeID, name string) error {
+	n, err := q.RenameNode(ctx, store.RenameNodeParams{Now: now, Name: name, ID: nodeID})
+	if err != nil {
+		return fmt.Errorf("%w: another node is named %q: %w", ErrConflict, name, err)
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: node %s", ErrNotFound, nodeID)
+	}
+
+	return nil
+}
+
+// reserveNode writes a node's reserve in the transaction of q; a part left
+// nil keeps what the node has, read in the same transaction so that a change
+// written meanwhile is not lost.
+func reserveNode(ctx context.Context, q *store.Queries, now int64, nodeID string, cpuMillis, memoryBytes *int64,
+) error {
+	row, err := q.GetNode(ctx, nodeID)
+	if err != nil {
+		return notFound(err, "node", nodeID)
+	}
+
+	params := store.SetNodeReservedParams{
+		Now: now, ReservedCpuMillis: row.ReservedCpuMillis, ReservedMemoryBytes: row.ReservedMemoryBytes, ID: nodeID,
+	}
+
+	if cpuMillis != nil {
+		params.ReservedCpuMillis = *cpuMillis
+	}
+
+	if memoryBytes != nil {
+		params.ReservedMemoryBytes = *memoryBytes
+	}
+
+	n, err := q.SetNodeReserved(ctx, params)
+
+	return oneRow(n, err, "node", nodeID)
+}
+
+// SetNodeLimit sets or clears a node's optional cap on the Dispatches it runs
+// at once (issues #660, #731), 0 for none, as Nomad's node_max_allocs
+// (client/config/config.go:400-402). The next scheduling pass places by it;
+// Dispatches it runs over a lower cap go on.
+func (s *Service) SetNodeLimit(ctx context.Context, nodeID string, maxDispatches int) (Node, error) {
+	return s.UpdateNode(ctx, nodeID, NodeChange{MaxDispatches: &maxDispatches})
+}
+
+// SetNodeReserved sets what the owner keeps back from a node's capacity for
+// what else runs on it (issue #731), as the kubelet's system-reserved and
+// Nomad's client reserved; 0 by default. A reserve larger than the capacity
+// leaves an allocatable of 0. The next scheduling pass places by it;
+// Dispatches it runs over the smaller room go on.
+func (s *Service) SetNodeReserved(ctx context.Context, nodeID string, reserved Resources) (Node, error) {
+	return s.UpdateNode(ctx, nodeID, NodeChange{
+		ReservedCPUMillis: &reserved.CPUMillis, ReservedMemoryBytes: &reserved.MemoryBytes,
+	})
 }
 
 // maxNodeName bounds a node's name, as the client API does.
@@ -317,28 +433,7 @@ const maxNodeName = 64
 // RenameNode gives a node another name. The name of another node that has
 // not been removed is refused; its id, its tokens and what it runs stay.
 func (s *Service) RenameNode(ctx context.Context, nodeID, name string) (Node, error) {
-	name = strings.TrimSpace(name)
-	if name == "" || len(name) > maxNodeName {
-		return Node{}, fmt.Errorf("%w: a node's name is 1 to %d characters", ErrInvalid, maxNodeName)
-	}
-
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		n, err := q.RenameNode(ctx, store.RenameNodeParams{Now: now, Name: name, ID: nodeID})
-		if err != nil {
-			return fmt.Errorf("%w: another node is named %q: %w", ErrConflict, name, err)
-		}
-
-		if n != 1 {
-			return fmt.Errorf("%w: node %s", ErrNotFound, nodeID)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return Node{}, fmt.Errorf("renaming a node: %w", err)
-	}
-
-	return s.GetNode(ctx, nodeID)
+	return s.UpdateNode(ctx, nodeID, NodeChange{Name: &name})
 }
 
 // AddNodeToken gives a node one more token and returns it with its secret,

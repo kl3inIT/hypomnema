@@ -17,7 +17,7 @@ import (
 
 // Meetings (issue #721): the owner uploads a recording, which the control plane keeps and hears with speakers in
 // the background, and a gateway model writes its notes, decisions and actions; the owner names the voices, marks
-// actions done and writes the notes again in another format. Every token reads them; only the owner changes them.
+// actions done and writes the notes again. Every token reads them; only the owner changes them.
 
 // Meetings is the meetings' service (meetings.Service).
 type Meetings interface {
@@ -26,13 +26,16 @@ type Meetings interface {
 	Get(ctx context.Context, id string) (meetings.Detail, error)
 	Delete(ctx context.Context, id string) error
 	Recording(ctx context.Context, id string) (meetingstore.Meeting, *os.File, error)
-	WriteAgain(ctx context.Context, id, format string) error
+	WriteAgain(ctx context.Context, id string) error
 	NameSpeaker(ctx context.Context, id, label, name string) error
 	SetLineSpeaker(ctx context.Context, id string, n int, name string) error
 	SetDone(ctx context.Context, id, itemID string, done bool) (meetingstore.Item, error)
 	Actions(ctx context.Context, who string, done *bool) ([]meetingstore.MeetingAction, error)
 	Settings(ctx context.Context) (meetingstore.Settings, error)
 	SetSettings(ctx context.Context, set meetingstore.Settings) error
+	Words(ctx context.Context) ([]meetings.Word, error)
+	SetWords(ctx context.Context, words []string) error
+	ReplaceWord(ctx context.Context, id string, fix meetingstore.Fix) (meetingstore.Fixed, error)
 }
 
 // WithMeetings gives the API the meetings.
@@ -82,7 +85,7 @@ func (s *Server) UploadMeeting(ctx context.Context, req openapi.UploadMeetingReq
 
 	m, err := s.meetings.Upload(ctx, meetings.Upload{
 		Body: req.Body, FileName: p.FileName, MediaType: val(p.MediaType), Language: val(p.Language),
-		Title: val(p.Title), People: val(p.People), Terms: val(p.Terms), Format: val(p.Format),
+		Title: val(p.Title), People: val(p.People),
 	})
 	if err != nil {
 		return nil, err
@@ -208,7 +211,7 @@ func (s *Server) WriteMeetingNotes(ctx context.Context, req openapi.WriteMeeting
 		return nil, errNoMeetings
 	}
 
-	if err := s.meetings.WriteAgain(ctx, req.MeetingId, req.Body.Format); err != nil {
+	if err := s.meetings.WriteAgain(ctx, req.MeetingId); err != nil {
 		return nil, err
 	}
 
@@ -329,7 +332,7 @@ func (s *Server) ListMeetingActions(ctx context.Context, req openapi.ListMeeting
 	return openapi.ListMeetingActions200JSONResponse(out), nil
 }
 
-// GetMeetingSettings returns the notes model and the formats.
+// GetMeetingSettings returns the notes model.
 func (s *Server) GetMeetingSettings(ctx context.Context, _ openapi.GetMeetingSettingsRequestObject,
 ) (openapi.GetMeetingSettingsResponseObject, error) {
 	out, err := s.meetingSettings(ctx)
@@ -369,18 +372,81 @@ func (s *Server) meetingSettings(ctx context.Context) (openapi.MeetingSettings, 
 		return openapi.MeetingSettings{}, err
 	}
 
-	out := openapi.MeetingSettings{NotesModel: set.NotesModel, Formats: []openapi.MeetingFormat{}}
+	return openapi.MeetingSettings{NotesModel: set.NotesModel}, nil
+}
 
-	for _, f := range meetings.Formats() {
-		sections := make([]openapi.MeetingFormatSection, 0, len(f.Sections))
-		for _, sec := range f.Sections {
-			sections = append(sections, openapi.MeetingFormatSection{Title: sec.Title, About: sec.About})
-		}
+// ListMeetingWords lists the words to hear right (issue #747).
+func (s *Server) ListMeetingWords(ctx context.Context, _ openapi.ListMeetingWordsRequestObject,
+) (openapi.ListMeetingWordsResponseObject, error) {
+	out, err := s.meetingWords(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-		out.Formats = append(out.Formats, openapi.MeetingFormat{Id: f.ID, Name: f.Name, Sections: sections})
+	return openapi.ListMeetingWords200JSONResponse(out), nil
+}
+
+// SetMeetingWords sets the owner's words to hear right.
+func (s *Server) SetMeetingWords(ctx context.Context, req openapi.SetMeetingWordsRequestObject,
+) (openapi.SetMeetingWordsResponseObject, error) {
+	if s.meetings == nil {
+		return nil, errNoMeetings
+	}
+
+	if err := s.meetings.SetWords(ctx, req.Body.Words); err != nil {
+		return nil, err
+	}
+
+	out, err := s.meetingWords(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetMeetingWords200JSONResponse(out), nil
+}
+
+func (s *Server) meetingWords(ctx context.Context) (openapi.MeetingWords, error) {
+	if s.meetings == nil {
+		return openapi.MeetingWords{}, errNoMeetings
+	}
+
+	words, err := s.meetings.Words(ctx)
+	if err != nil {
+		return openapi.MeetingWords{}, err
+	}
+
+	out := openapi.MeetingWords{
+		Data: make([]openapi.MeetingWord, 0, len(words)), MaxOwn: meetingstore.MaxWords, MaxSent: meetings.MaxSentWords,
+	}
+	for _, w := range words {
+		out.Data = append(out.Data, openapi.MeetingWord{Word: w.Text, From: openapi.MeetingWordSource(w.From), Sent: w.Sent})
 	}
 
 	return out, nil
+}
+
+// FixMeetingWord replaces a word heard wrong in a line or the whole meeting.
+func (s *Server) FixMeetingWord(ctx context.Context, req openapi.FixMeetingWordRequestObject,
+) (openapi.FixMeetingWordResponseObject, error) {
+	if s.meetings == nil {
+		return nil, errNoMeetings
+	}
+
+	fixed, err := s.meetings.ReplaceWord(ctx, req.MeetingId, meetingstore.Fix{
+		From: req.Body.From, To: req.Body.To, Line: val(req.Body.Line),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	d, err := s.meetingDetail(ctx, req.MeetingId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.FixMeetingWord200JSONResponse(openapi.MeetingWordFixed{
+		Detail: d, Replaced: fixed.Replaced, Learned: fixed.Learned,
+	}), nil
 }
 
 func meetingOut(m meetingstore.Meeting) openapi.Meeting {
@@ -407,22 +473,18 @@ func meetingOut(m meetingstore.Meeting) openapi.Meeting {
 		sections = append(sections, openapi.MeetingSection{Title: sec.Title, Points: append([]string{}, sec.Points...)})
 	}
 
-	people, terms := m.People, m.Terms
+	people := m.People
 	if people == nil {
 		people = []string{}
 	}
 
-	if terms == nil {
-		terms = []string{}
-	}
-
 	return openapi.Meeting{
-		Id: m.ID, Title: m.Title, Titled: m.Titled, Language: optional(m.Language), People: people, Terms: terms,
+		Id: m.ID, Title: m.Title, Titled: m.Titled, Language: optional(m.Language), People: people,
 		FileName: m.FileName, MediaType: m.MediaType, Size: m.Size, DurationMs: m.Duration.Milliseconds(),
 		State: openapi.MeetingState(m.State), Failure: optional(m.Failure), Provider: optional(m.Provider),
 		Model: optional(m.Model), CreatedAt: m.CreatedAt,
 		Notes: openapi.MeetingNotes{
-			Format: m.Notes.Format, State: openapi.MeetingNotesState(m.Notes.State), Failure: optional(m.Notes.Failure),
+			State: openapi.MeetingNotesState(m.Notes.State), Failure: optional(m.Notes.Failure),
 			Model: optional(m.Notes.Model), Summary: m.Notes.Summary, Sections: sections, WrittenAt: m.Notes.WrittenAt,
 		},
 		Speakers: speakers, Actions: m.Actions, OpenActions: m.OpenActions,

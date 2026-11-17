@@ -2,7 +2,10 @@ package agentapi_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,6 +24,8 @@ import (
 type ownWhatsApp struct {
 	asked []string
 	sent  []messaging.Outgoing
+	// files are the kept files by message id.
+	files map[string]messaging.Media
 }
 
 func (o *ownWhatsApp) Send(_ context.Context, _, _ string, out messaging.Outgoing) (messaging.Message, error) {
@@ -63,7 +68,11 @@ func (o *ownWhatsApp) Messages(_ context.Context, integration, label string, q m
 	}}, nil
 }
 
-func (o *ownWhatsApp) Media(context.Context, string, string, string, string) (messaging.Media, error) {
+func (o *ownWhatsApp) Media(_ context.Context, _, _, _, id string) (messaging.Media, error) {
+	if m, ok := o.files[id]; ok {
+		return m, nil
+	}
+
 	return messaging.Media{}, orchestration.ErrNotFound
 }
 
@@ -73,8 +82,9 @@ func (o *ownWhatsApp) Backfill(context.Context, string, string, string, int) (me
 
 // Scenario (issue #638): the owner linked his WhatsApp as "me" and gave it to a Bot. It is his own account, as his
 // Lark sign-in is (#468, #618): the Bot's pi has the whatsapp tools while the chat's last message is his, reads
-// with them, and is told the text is data; once someone else spoke, the tools are gone from its list and a call is
-// refused. A worker given it and a coordinator token never have them.
+// with them, and is told the text is data; once someone else spoke, the tools stay listed (pi would not list them
+// again on his next turn, issue #748) but a call is refused and reads nothing. A worker given it and a coordinator
+// token never have them.
 func TestTheOwnersWhatsAppIsABotsOnHisTurn(t *testing.T) {
 	t.Parallel()
 
@@ -123,9 +133,10 @@ func TestTheOwnersWhatsAppIsABotsOnHisTurn(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.NotContains(t, toolNames(w.tools(pi)), agenttool.ToolWhatsAppChats, "Linh spoke last")
-	status, _, _ := w.use(pi, agenttool.ToolWhatsAppChats, `{}`)
-	assert.Equal(t, http.StatusNotFound, status, "a call after the turn ended is refused")
+	assert.Contains(t, toolNames(w.tools(pi)), agenttool.ToolWhatsAppChats, "listed for his next turn")
+	_, text, isError = w.use(pi, agenttool.ToolWhatsAppChats, `{}`)
+	assert.True(t, isError)
+	assert.Contains(t, text, "runs only on his own request", "Linh spoke last: a call is refused")
 
 	worker, err := w.svc.AddAgentSession(ctx, "dsp_1", []string{"whatsapp:me"})
 	require.NoError(t, err)
@@ -276,4 +287,154 @@ func TestTheOwnersZaloIsReadAndWrittenAsHisWhatsAppIs(t *testing.T) {
 	_, text, isError = w.use(pi, agenttool.ToolZaloSend, call)
 	require.False(t, isError, text)
 	assert.Equal(t, []messaging.Outgoing{{Chat: "120363@g.us", Text: "Báo giá đã sẵn sàng"}}, w.whatsapp.sent)
+}
+
+// Scenario (issue #748): the owner's turn ended while his approval of a send was pending, and he approved it later.
+// The approval wakes the Bot outside his turn: its send tool is still listed, the approved send runs once on that
+// approval, another send is refused, and the same send again, its approval used, is refused too. His next message
+// finds the tools listed and working.
+func TestASendApprovedAfterItsTurnEndedIsSentOnce(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.judge.approved = true
+	ctx := t.Context()
+
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Account: "+84 900 000 001", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "whatsapp", "me", true)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, orchestration.DefaultBotID, "")
+	require.NoError(t, err)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "tell the PMO group the quote is ready")
+	require.NoError(t, err)
+
+	// On his turn the send was asked; the fake judge keeps its digest, which the real approval is asked with.
+	w.judge.approved = false
+	call := `{"chat":"120363@g.us","text":"Báo giá đã sẵn sàng"}`
+	_, _, isError := w.use(pi, agenttool.ToolWhatsAppSend, call)
+	require.True(t, isError)
+	require.Len(t, w.judge.asked, 1)
+
+	approval, _, err := w.svc.AskApproval(ctx, orchestration.NewApproval{
+		Integration: "whatsapp", Label: "me", Action: "whatsapp.send", ActionName: "Send a message as you",
+		ChatID: chat.ID, AskedBy: "pi", Title: "Send a message as you: PMO", MatchHash: w.judge.asked[0].Hash,
+	})
+	require.NoError(t, err)
+
+	// The turn ended; he approves later, and the answer wakes pi.
+	decided, err := w.svc.DecideApproval(ctx, approval.ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+	_, err = w.svc.TellAgentOfApproval(ctx, decided)
+	require.NoError(t, err)
+
+	mine, err := w.svc.OwnerTurn(ctx, chat.ID)
+	require.NoError(t, err)
+	require.False(t, mine, "the wake-up is not his turn")
+
+	assert.Contains(t, toolNames(w.tools(pi)), agenttool.ToolWhatsAppSend, "still listed after the wake-up")
+
+	_, text, isError := w.use(pi, agenttool.ToolWhatsAppSend, `{"chat":"120363@g.us","text":"something else"}`)
+	assert.True(t, isError)
+	assert.Contains(t, text, "runs only on his own request", "what he did not approve is refused")
+	assert.Empty(t, w.whatsapp.sent)
+
+	w.judge.approved = true
+	_, text, isError = w.use(pi, agenttool.ToolWhatsAppSend, call)
+	require.False(t, isError, text)
+	assert.Equal(t, []messaging.Outgoing{{Chat: "120363@g.us", Text: "Báo giá đã sẵn sàng"}}, w.whatsapp.sent)
+
+	// The real judge uses the approval as the send runs.
+	used, err := w.svc.UseApproval(ctx, approval.ID)
+	require.NoError(t, err)
+	require.True(t, used)
+
+	_, text, isError = w.use(pi, agenttool.ToolWhatsAppSend, call)
+	assert.True(t, isError)
+	assert.Contains(t, text, "runs only on his own request", "an approval runs once")
+	assert.Len(t, w.whatsapp.sent, 1, "never sent twice")
+
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "now read the group")
+	require.NoError(t, err)
+
+	_, text, isError = w.use(pi, agenttool.ToolWhatsAppMessages, `{"chat":"120363@g.us"}`)
+	require.False(t, isError, text)
+}
+
+// Scenario (issue #760): an image is given to the model by what its bytes are, not by what its message says, and one
+// a model cannot view is not given at all. Zalo once kept JPEG XL photos as image/jpeg: the model refused the
+// request, the image stayed in the chat's history, and every later turn failed. A PNG called a JPEG goes as a PNG;
+// a JPEG XL called a JPEG comes back as its path, with a line saying why.
+func TestAnImageIsGivenByItsBytesAndOneAModelCannotViewIsNot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	dir := t.TempDir()
+	write := func(name string, data []byte) string {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+
+		return path
+	}
+
+	png := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 24)...)
+	w.whatsapp.files = map[string]messaging.Media{
+		"png": {Path: write("a.jfif", png), MimeType: "image/jpeg"},
+		"jxl": {Path: write("b.jfif", []byte{0xFF, 0x0A, 0xFA, 0x4F, 1, 2, 3}), MimeType: "image/jpeg"},
+	}
+
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Account: "+84 900 000 001", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "whatsapp", "me", true)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, orchestration.DefaultBotID, "")
+	require.NoError(t, err)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what are these photos?")
+	require.NoError(t, err)
+
+	open := func(id string) (images []string, text string) {
+		status, body := w.call(http.MethodPost, agenttool.PathToolsCall, pi, agenttool.BrowserCall{
+			Tool: agenttool.ToolWhatsAppMedia, Arguments: json.RawMessage(`{"chat":"120363@g.us","message":"` + id + `"}`),
+		})
+		require.Equal(t, http.StatusOK, status, string(body))
+
+		var result struct {
+			Content []struct{ Type, Text, MimeType string } `json:"content"`
+		}
+		require.NoError(t, json.Unmarshal(body, &result))
+
+		for _, c := range result.Content {
+			if c.Type == "image" {
+				images = append(images, c.MimeType)
+			}
+
+			text += c.Text
+		}
+
+		return images, text
+	}
+
+	images, _ := open("png")
+	assert.Equal(t, []string{"image/png"}, images, "given as what its bytes are")
+
+	images, text := open("jxl")
+	assert.Empty(t, images, "a model cannot view it")
+	assert.Contains(t, text, "omitted image")
+	assert.Contains(t, text, "b.jfif", "its path, to read it otherwise")
 }

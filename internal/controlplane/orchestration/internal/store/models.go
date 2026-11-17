@@ -118,27 +118,37 @@ type ArtifactRevision struct {
 	CreatedAt  int64
 }
 
+type ArtifactShare struct {
+	ID           string
+	ArtifactID   string
+	Token        string
+	Label        string
+	CreatedAt    int64
+	Views        int64
+	LastViewedAt sql.NullInt64
+}
+
 type Bot struct {
-	ID               string
-	Provider         sql.NullString
-	Model            sql.NullString
-	Effort           sql.NullString
-	Persona          string
-	Memory           string
-	CreatedAt        int64
-	UpdatedAt        int64
-	Skills           string
-	SkillsOff        string
-	Connections      sql.NullString
-	Workers          sql.NullString
-	ToolDisplay      string
-	Name             string
-	Position         int64
-	Pinned           int64
-	Tools            string
-	ToolsOff         string
-	ConnectionScopes sql.NullString
-	MaxDispatches    sql.NullInt64
+	ID                   string
+	Provider             sql.NullString
+	Model                sql.NullString
+	Effort               sql.NullString
+	Persona              string
+	Memory               string
+	CreatedAt            int64
+	UpdatedAt            int64
+	Skills               string
+	SkillsOff            string
+	Connections          sql.NullString
+	Workers              sql.NullString
+	ToolDisplay          string
+	Name                 string
+	Position             int64
+	Pinned               int64
+	Tools                string
+	ToolsOff             string
+	ConnectionScopes     sql.NullString
+	GuaranteedDispatches sql.NullInt64
 }
 
 type Channel struct {
@@ -210,6 +220,9 @@ type Chat struct {
 	ContextTokens  sql.NullInt64
 	ContextWindow  sql.NullInt64
 	ContextPercent sql.NullFloat64
+	TurnStartedAt  sql.NullInt64
+	TurnToken      sql.NullString
+	TurnAttempts   int64
 }
 
 type ChatMessage struct {
@@ -223,10 +236,10 @@ type ChatMessage struct {
 	CreatedAt     int64
 	ToCoordinator int64
 	Attachments   sql.NullString
-	Kind          string
 	ApprovalID    sql.NullString
 	SenderID      sql.NullString
 	SenderName    sql.NullString
+	Kind          string
 }
 
 type ChatQueue struct {
@@ -315,6 +328,8 @@ type Dispatch struct {
 	Handoff          int64
 	StalledReason    sql.NullString
 	FollowUpID       sql.NullString
+	CpuMillis        int64
+	MemoryBytes      int64
 }
 
 type DispatchEffect struct {
@@ -549,6 +564,11 @@ type MeetingSpeaker struct {
 	Name      sql.NullString
 }
 
+type MeetingWord struct {
+	Word      string
+	CreatedAt int64
+}
+
 type Memory struct {
 	Kind      string
 	Name      string
@@ -562,43 +582,45 @@ type Model struct {
 }
 
 type Node struct {
-	ID                 string
-	Name               string
-	Status             string
-	MaxDispatches      int64
-	WorktreeRoot       sql.NullString
-	Runtimes           string
-	DaemonVersion      sql.NullString
-	Os                 sql.NullString
-	Arch               sql.NullString
-	Cpus               sql.NullInt64
-	MemoryBytes        sql.NullInt64
-	DiskBytes          sql.NullInt64
-	LastSeenAt         sql.NullInt64
-	UnavailableAt      sql.NullInt64
-	DeletedAt          sql.NullInt64
-	CreatedAt          int64
-	UpdatedAt          int64
-	CpuPercent         sql.NullFloat64
-	MemoryUsedBytes    sql.NullInt64
-	DiskUsedBytes      sql.NullInt64
-	Load1              sql.NullFloat64
-	StatsAt            sql.NullInt64
-	ProviderID         sql.NullString
-	ProviderResourceID sql.NullString
-	Region             sql.NullString
-	Size               sql.NullString
-	MachineState       sql.NullString
-	MachineError       sql.NullString
-	MachineAttempts    int64
-	MachineRetryAt     sql.NullInt64
-	GitHosts           sql.NullString
-	MachinePower       sql.NullString
-	Tools              sql.NullString
-	Terminal           int64
-	Gpus               sql.NullString
-	Device             string
-	Kvm                int64
+	ID                  string
+	Name                string
+	Status              string
+	WorktreeRoot        sql.NullString
+	Runtimes            string
+	DaemonVersion       sql.NullString
+	Os                  sql.NullString
+	Arch                sql.NullString
+	Cpus                sql.NullInt64
+	MemoryBytes         sql.NullInt64
+	DiskBytes           sql.NullInt64
+	LastSeenAt          sql.NullInt64
+	UnavailableAt       sql.NullInt64
+	DeletedAt           sql.NullInt64
+	CreatedAt           int64
+	UpdatedAt           int64
+	CpuPercent          sql.NullFloat64
+	MemoryUsedBytes     sql.NullInt64
+	DiskUsedBytes       sql.NullInt64
+	Load1               sql.NullFloat64
+	StatsAt             sql.NullInt64
+	ProviderID          sql.NullString
+	ProviderResourceID  sql.NullString
+	Region              sql.NullString
+	Size                sql.NullString
+	MachineState        sql.NullString
+	MachineError        sql.NullString
+	MachineAttempts     int64
+	MachineRetryAt      sql.NullInt64
+	GitHosts            sql.NullString
+	MachinePower        sql.NullString
+	Tools               sql.NullString
+	Terminal            int64
+	Gpus                sql.NullString
+	Device              string
+	Kvm                 int64
+	MaxDispatches       sql.NullInt64
+	ReservedCpuMillis   int64
+	ReservedMemoryBytes int64
 }
 
 type NodeToken struct {
@@ -620,23 +642,25 @@ type Profile struct {
 }
 
 type ProfileVersion struct {
-	ID          string
-	Profile     string
-	Version     int64
-	Source      string
-	Digest      string
-	Runtime     string
-	Provider    sql.NullString
-	Model       sql.NullString
-	Effort      sql.NullString
-	Instruction sql.NullString
-	CreatedAt   int64
-	Description string
-	Fallbacks   string
-	Skills      string
-	SkillsOff   string
-	Tools       string
-	ToolsOff    string
+	ID                 string
+	Profile            string
+	Version            int64
+	Source             string
+	Digest             string
+	Runtime            string
+	Provider           sql.NullString
+	Model              sql.NullString
+	Effort             sql.NullString
+	Instruction        sql.NullString
+	CreatedAt          int64
+	Description        string
+	Fallbacks          string
+	Skills             string
+	SkillsOff          string
+	Tools              string
+	ToolsOff           string
+	CpuRequestMillis   sql.NullInt64
+	MemoryRequestBytes sql.NullInt64
 }
 
 type Provider struct {
@@ -687,6 +711,10 @@ type Repo struct {
 	Connection sql.NullString
 	SshUrl     sql.NullString
 	SshHostKey sql.NullString
+}
+
+type RestartBoot struct {
+	At int64
 }
 
 type Routine struct {

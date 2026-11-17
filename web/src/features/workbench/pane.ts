@@ -4,7 +4,10 @@
 
 export type PaneTab =
   | { kind: "chat"; chat: string }
-  | { kind: "browser"; tab: string }
+  // A tab of the shared browser. `chat` is the chat whose browser tabs the strip over it lists, kept when the strip
+  // shows another tab in its place (issue #703), as OpenClaw's browser panel lists its session's tabs whichever
+  // one it shows.
+  | { kind: "browser"; tab: string; chat?: string }
   // The Android phone a node holds, of which there is one.
   | { kind: "phone" }
   // A new chat is made on its first message, as on the New chat page; until then it is only this tab. An empty bot
@@ -91,7 +94,7 @@ export function parsePane(value: unknown): Pane | null {
       case "chat":
         return typeof t.chat === "string"
       case "browser":
-        return typeof t.tab === "string"
+        return typeof t.tab === "string" && (t.chat === undefined || typeof t.chat === "string")
       case "phone":
         return true
       case "draft":

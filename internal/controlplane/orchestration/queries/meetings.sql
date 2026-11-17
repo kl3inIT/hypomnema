@@ -1,10 +1,11 @@
 -- name: InsertMeeting :exec
-INSERT INTO meetings (id, title, titled, language, people, terms, file_name, media_type, size, state, created_at,
-                      updated_at)
-VALUES (@id, @title, @titled, @language, @people, @terms, @file_name, @media_type, @size, 'transcribing', @now, @now);
+-- The words to hear right are the shared list's since issue #747; the meeting's own terms are left empty.
+INSERT INTO meetings (id, title, titled, language, people, file_name, media_type, size, state, created_at, updated_at)
+VALUES (@id, @title, @titled, @language, @people, @file_name, @media_type, @size, 'transcribing', @now, @now);
 
 -- name: InsertMeetingNotes :exec
-INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (@meeting_id, @format, 'waiting', @now);
+-- The notes are sectioned by the meeting's topics since issue #771; the format column keeps 'auto'.
+INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (@meeting_id, 'auto', 'waiting', @now);
 
 -- name: GetMeeting :one
 SELECT * FROM meetings WHERE id = @id;
@@ -14,7 +15,7 @@ SELECT * FROM meeting_notes WHERE meeting_id = @meeting_id;
 
 -- name: ListMeetings :many
 -- The newest first; with a query, those whose title or a line holds it.
-SELECT m.*, n.state AS notes_state, n.format AS notes_format, n.summary AS notes_summary,
+SELECT m.*, n.state AS notes_state, n.summary AS notes_summary,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action') AS actions,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action' AND i.done = 0)
            AS open_actions
@@ -97,8 +98,8 @@ DELETE FROM meeting_speakers WHERE meeting_id = @meeting_id;
 UPDATE meeting_notes SET state = @state, failure = @failure, updated_at = @now WHERE meeting_id = @meeting_id;
 
 -- name: WriteNotesAgain :execrows
--- The owner asks for the notes again, in a format; not while they are being written or the transcript is not there.
-UPDATE meeting_notes SET format = @format, state = 'writing', failure = '', attempts = 0, updated_at = @now
+-- The owner asks for the notes again; not while they are being written or the transcript is not there.
+UPDATE meeting_notes SET state = 'writing', failure = '', attempts = 0, updated_at = @now
 WHERE meeting_id = @meeting_id AND state IN ('ready', 'failed');
 
 -- name: ClaimNotes :execrows
@@ -153,3 +154,34 @@ SELECT * FROM meeting_settings WHERE id = 1;
 -- name: SetMeetingSettings :exec
 INSERT INTO meeting_settings (id, notes_model, updated_at) VALUES (1, @notes_model, @now)
 ON CONFLICT (id) DO UPDATE SET notes_model = excluded.notes_model, updated_at = excluded.updated_at;
+
+-- name: SetMeetingLineText :execrows
+-- The owner's fix of what a line says (issue #747).
+UPDATE meeting_lines SET text = @text WHERE meeting_id = @meeting_id AND n = @n;
+
+-- name: ListMeetingWords :many
+-- The owner's words to hear right, in the order they were added (issue #747); rowid orders the words added in one
+-- millisecond, as SQLite gives a new row the largest rowid yet plus one (issue #758).
+SELECT word FROM meeting_words ORDER BY created_at, rowid;
+
+-- name: InsertMeetingWord :exec
+INSERT OR IGNORE INTO meeting_words (word, created_at) VALUES (@word, @now);
+
+-- name: DeleteMeetingWord :exec
+DELETE FROM meeting_words WHERE word = @word;
+
+-- name: MeetingSpeakerNames :many
+-- The names the owner gave voices, the most recently heard first: words to hear right in the next meetings, as
+-- Nojoin's people library carries names across recordings.
+SELECT CAST(s.name AS TEXT) AS name FROM meeting_speakers s JOIN meetings m ON m.id = s.meeting_id
+WHERE s.name IS NOT NULL
+GROUP BY s.name
+ORDER BY max(m.created_at) DESC, s.name;
+
+-- name: MeetingBotNames :many
+-- The Bots' names, read as words to hear right; the bots table is the Bots' own.
+SELECT name FROM bots ORDER BY position, created_at, name;
+
+-- name: MeetingRepoNames :many
+-- The registered repositories' names, read as words to hear right; the repos table is the Runs' own.
+SELECT name FROM repos ORDER BY created_at, name;
