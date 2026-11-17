@@ -1139,6 +1139,21 @@ paths:
                   added: { type: integer }
                   complete: { type: boolean }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/phone-sync:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    post:
+      operationId: SyncMessagingFromPhone
+      summary: Ask the owner's phone for the past of every chat; only the owner
+      description: >-
+        Zalo's "Sync messages" (issue #697): the phone shows a confirmation for a minute; once confirmed it uploads
+        its messages, which are kept as the chats' past. What follows shows in the Connection's
+        session.phone_sync. Refused while a sync is under way (409), and for a service whose past does not come so
+        (400).
+      responses:
+        "202": { description: The phone was asked. }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}/check:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -5497,6 +5512,20 @@ components:
         edited: { type: boolean }
         revoked: { type: boolean, description: "Its sender deleted it for everyone; its content is gone." }
         media_kept: { type: boolean, description: "Its image or file was downloaded and is kept." }
+    PhoneSync:
+      type: object
+      description: >-
+        The last sync from the owner's phone while the session lasts (issue #697): asking (the phone shows a
+        confirmation), sending (confirmed; the phone uploads), importing, done, or failed with its reason.
+        messages were added in chats; skipped counts the chats that could not be read.
+      required: [stage, messages, chats, skipped, at]
+      properties:
+        stage: { type: string, enum: [asking, sending, importing, done, failed] }
+        reason: { type: string }
+        messages: { type: integer }
+        chats: { type: integer }
+        skipped: { type: integer }
+        at: { type: string, format: date-time, description: When it got to its stage. }
     DeviceSession:
       type: object
       description: >-
@@ -5511,6 +5540,7 @@ components:
           enum: [connecting, connected, disconnected, logged_out, banned, replaced, outdated]
         reason: { type: string, description: "The service's own words for a ban or a logout, when it gave some." }
         until: { type: string, format: date-time, description: "When a ban ends, when the service said." }
+        phone_sync: { $ref: "#/components/schemas/PhoneSync" }
     ConnectionCannot:
       type: object
       description: One action a Connection's account cannot do at the service, and why.

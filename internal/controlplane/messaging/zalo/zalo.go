@@ -53,6 +53,8 @@ type Service struct {
 	http     *http.Client
 	// gap is the wait between two pages of the past (past.go, pageGap).
 	gap time.Duration
+	// syncDir holds the backups the phone uploads, beside zalo.db, while they are read (phonesync.go).
+	syncDir string
 }
 
 // Open opens zalo.db at path and writes the bridge beside it, to run with node (DefaultNode when empty).
@@ -98,7 +100,7 @@ func open(ctx context.Context, path string, logger *slog.Logger) (*Service, erro
 
 	return &Service{
 		closeDB: db.Close, mirror: kept, log: logger, mediaDir: filepath.Join(filepath.Dir(path), "zalo-media"),
-		http: newHTTP(), gap: pageGap,
+		http: newHTTP(), gap: pageGap, syncDir: filepath.Join(filepath.Dir(path), "zalo-sync"),
 	}, nil
 }
 
@@ -274,6 +276,8 @@ type account struct {
 	mu    sync.Mutex
 	state messaging.State
 	b     *bridge
+	// sync is the last sync from the phone (phonesync.go).
+	sync *messaging.PhoneSync
 }
 
 // current is the bridge logged in now, or nil.
@@ -291,7 +295,13 @@ func (a *account) State() messaging.State {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	return a.state
+	st := a.state
+	if a.sync != nil {
+		s := *a.sync
+		st.PhoneSync = &s
+	}
+
+	return st
 }
 
 func (a *account) setState(st messaging.State) {
@@ -402,6 +412,8 @@ func (a *account) follow(ctx context.Context, b *bridge) {
 			a.setState(messaging.State{Status: messaging.StatusConnected})
 		case "credentials":
 			a.renew(ctx, e.Data)
+		case "phone_sync":
+			a.onPhoneSync(ctx, b, e.Data)
 		case "closed":
 			var c struct {
 				Code     int    `json:"code"`
@@ -600,7 +612,8 @@ func (a *account) Logout(ctx context.Context) error {
 	a.forgotten = true
 	a.filesMu.Unlock()
 
-	return errors.Join(a.svc.mirror.forget(ctx, a.uid), a.svc.forgetFiles(a.uid))
+	return errors.Join(a.svc.mirror.forget(ctx, a.uid), a.svc.forgetFiles(a.uid),
+		os.RemoveAll(filepath.Join(a.svc.syncDir, a.uid)))
 }
 
 func (a *account) Chats(ctx context.Context, limit int) ([]messaging.Chat, error) {
