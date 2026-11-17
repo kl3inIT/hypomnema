@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.2/configuration-schema.json
-# As Omnara's api/openapi/oapi-codegen.yaml: models, a std-http strict server and the embedded spec. The client is
+# As Omnara's api/openapi/oapi-codegen.yaml: models and a std-http strict server; no embedded spec, which nothing
+# read and which made every two changes to the spec conflict (issue #754). The client is
 # for the hypomnema CLI. Regenerate with `make openapi-generate`; `make openapi-check` fails when it is stale.
 package: openapi
 output: internal/controlplane/clientapi/openapi/api.gen.go
@@ -8,7 +9,7 @@ generate:
   std-http-server: true
   strict-server: true
   client: true
-  embedded-spec: true
+  embedded-spec: false
 output-options:
   skip-prune: true
   nullable-type: true
