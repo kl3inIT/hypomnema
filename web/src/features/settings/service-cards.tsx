@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { Copy, ExternalLink, Plug, Plus, RefreshCw, Smartphone, UserRound } from "lucide-react"
 import QRCode from "qrcode"
 import {
+  useEffect,
   useId,
   useRef,
   useState,
@@ -22,11 +23,13 @@ import {
 import {
   getIntegrationSignInOptions,
   patchIntegrationConnectionMutation,
+  syncMessagingFromPhoneMutation,
 } from "@/api/generated/@tanstack/react-query.gen"
 import type {
   DeviceSession,
   Integration,
   IntegrationConnection,
+  PhoneSync,
   SignIn,
 } from "@/api/generated/types.gen"
 import {
@@ -340,6 +343,9 @@ function AccountItem({
               </>
             )}
             {device && connection.session && <span>{sessionSays(connection.session)}</span>}
+            {device && connection.session?.phone_sync && (
+              <span>{phoneSyncSays(connection.session.phone_sync)}</span>
+            )}
             {account && (
               <>
                 <span className="break-all">{connection.address}</span>
@@ -354,8 +360,11 @@ function AccountItem({
           </span>
         </ItemDescription>
       </ItemContent>
-      <ItemActions>
+      <ItemActions className="flex-wrap">
         <ChatsSwitch service={service} connection={connection} />
+        {device && phoneSyncs.has(service.id) && connection.session?.state === "connected" && (
+          <PhoneSyncButton service={service} connection={connection} />
+        )}
         {app && (
           <ConnectAppDialog
             service={service}
@@ -484,6 +493,77 @@ function sessionSays(session: DeviceSession): string {
     case "outdated":
       return "WhatsApp refuses this version; update Hypomnema"
   }
+}
+
+// phoneSyncs are the services whose past comes from the owner's phone in one sync: Zalo's servers keep none of it
+// for a web session (issue #697), so it is asked of the phone as Zalo PC's "Sync messages" asks.
+const phoneSyncs = new Set(["zalo"])
+
+// syncing are the stages of a sync that is under way.
+const syncing = new Set<PhoneSync["stage"]>(["asking", "sending", "importing"])
+
+// phoneSyncSays is the last sync from the phone in a few words.
+function phoneSyncSays(sync: PhoneSync): string {
+  switch (sync.stage) {
+    case "asking":
+      return "Confirm the sync on your phone"
+    case "sending":
+      return "Your phone is sending its messages"
+    case "importing":
+      return "Keeping the messages from your phone"
+    case "done":
+      return `${sync.messages.toLocaleString()} messages from your phone kept, in ${sync.chats.toLocaleString()} chats${sync.skipped ? `; ${sync.skipped} chats could not be read` : ""}`
+    case "failed":
+      return `The sync from your phone failed: ${sync.reason ?? "no reason given"}`
+  }
+}
+
+// PhoneSyncButton asks the owner's phone for every chat's past, and follows the sync until it ends.
+function PhoneSyncButton({
+  service,
+  connection,
+}: {
+  service: Integration
+  connection: IntegrationConnection
+}) {
+  const refresh = useRefreshServices()
+  const stage = connection.session?.phone_sync?.stage
+  const busy = stage !== undefined && syncing.has(stage)
+
+  const sync = useMutation({
+    ...syncMessagingFromPhoneMutation(),
+    onSuccess: async () => {
+      await refresh()
+      said("Confirm the sync on your phone")
+    },
+  })
+
+  // The sync goes on at the phone and on the server: its stage is read again until it ends.
+  useEffect(() => {
+    if (!busy) return
+    const timer = window.setInterval(() => void refresh(), 3000)
+
+    return () => window.clearInterval(timer)
+  }, [busy, refresh])
+
+  return (
+    <>
+      {sync.error && <span className="text-xs text-destructive">{String(sync.error)}</span>}
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={busy || sync.isPending}
+        onClick={() => sync.mutate({ path: { integration: service.id, label: connection.label } })}
+      >
+        {busy || sync.isPending ? (
+          <Spinner data-icon="inline-start" />
+        ) : (
+          <Smartphone data-icon="inline-start" />
+        )}
+        Sync from phone
+      </Button>
+    </>
+  )
 }
 
 const labelSchema = z
@@ -1442,7 +1522,9 @@ function ChatsSwitch({
 
   return (
     <span className="flex items-center gap-2 text-xs text-muted-foreground">
-      <label htmlFor={id}>Use in chats</label>
+      <label htmlFor={id} className="whitespace-nowrap">
+        Use in chats
+      </label>
       <Switch
         id={id}
         size="sm"

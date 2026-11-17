@@ -68,6 +68,12 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 
 	if st := c.Session; st != nil {
 		out.Session = &openapi.DeviceSession{State: openapi.DeviceSessionState(st.Status), Reason: opt(st.Reason)}
+		if p := st.PhoneSync; p != nil {
+			out.Session.PhoneSync = &openapi.PhoneSync{
+				Stage: openapi.PhoneSyncStage(p.Stage), Reason: opt(p.Reason), Messages: p.Messages, Chats: p.Chats,
+				Skipped: p.Skipped, At: p.At,
+			}
+		}
 		if !st.Until.IsZero() {
 			out.Session.Until = &st.Until
 		}
@@ -331,6 +337,7 @@ type Messaging interface {
 	Messages(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
 	Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error)
 	Backfill(ctx context.Context, integration, label, chat string, count int) (messaging.Backfilled, error)
+	SyncFromPhone(ctx context.Context, integration, label string) error
 }
 
 // WithMessaging sets the service that reads the messaging accounts' kept chats.
@@ -427,6 +434,20 @@ func (s *Server) ReadMessagingMedia(ctx context.Context, req openapi.ReadMessagi
 }
 
 func (d download) VisitReadMessagingMediaResponse(w http.ResponseWriter) error { return d.write(w) }
+
+// SyncMessagingFromPhone asks the owner's phone for the past of every chat (issue #697).
+func (s *Server) SyncMessagingFromPhone(ctx context.Context, req openapi.SyncMessagingFromPhoneRequestObject,
+) (openapi.SyncMessagingFromPhoneResponseObject, error) {
+	if s.messaging == nil {
+		return nil, errNoMessaging
+	}
+
+	if err := s.messaging.SyncFromPhone(ctx, req.Integration, req.Label); err != nil {
+		return nil, err
+	}
+
+	return openapi.SyncMessagingFromPhone202Response{}, nil
+}
 
 // BackfillMessagingChat asks the phone for older messages of a chat (issue #634).
 func (s *Server) BackfillMessagingChat(ctx context.Context, req openapi.BackfillMessagingChatRequestObject,

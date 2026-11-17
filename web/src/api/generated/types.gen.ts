@@ -1238,6 +1238,21 @@ export type MessagingMessage = {
 };
 
 /**
+ * The last sync from the owner's phone while the session lasts (issue #697): asking (the phone shows a confirmation), sending (confirmed; the phone uploads), importing, done, or failed with its reason. messages were added in chats; skipped counts the chats that could not be read.
+ */
+export type PhoneSync = {
+  stage: 'asking' | 'sending' | 'importing' | 'done' | 'failed';
+  reason?: string;
+  messages: number;
+  chats: number;
+  skipped: number;
+  /**
+   * When it got to its stage.
+   */
+  at: string;
+};
+
+/**
  * The session of a Connection of kind device, held by the control plane. logged_out needs a link again (sign_in_required is then true); disconnected comes back by itself; banned lasts until `until` when the service said; replaced is another client that opened the same session; outdated needs the control plane updated.
  */
 export type DeviceSession = {
@@ -1250,6 +1265,7 @@ export type DeviceSession = {
    * When a ban ends, when the service said.
    */
   until?: string;
+  phone_sync?: PhoneSync;
 };
 
 /**
@@ -5191,6 +5207,32 @@ export type BackfillMessagingChatResponses = {
 };
 
 export type BackfillMessagingChatResponse = BackfillMessagingChatResponses[keyof BackfillMessagingChatResponses];
+
+export type SyncMessagingFromPhoneData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/phone-sync';
+};
+
+export type SyncMessagingFromPhoneErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SyncMessagingFromPhoneError = SyncMessagingFromPhoneErrors[keyof SyncMessagingFromPhoneErrors];
+
+export type SyncMessagingFromPhoneResponses = {
+  /**
+   * The phone was asked.
+   */
+  202: unknown;
+};
 
 export type CheckIntegrationConnectionData = {
   body?: never;

@@ -122,6 +122,7 @@ var policies = map[string]policy{
 	"ListMessagingChats":          {scope: scopeOwner},
 	"ListMessagingMessages":       {scope: scopeOwner},
 	"BackfillMessagingChat":       {scope: scopeOwner, long: true},
+	"SyncMessagingFromPhone":      {scope: scopeOwner, long: true},
 	"ReadMessagingMedia":          {scope: scopeOwner, long: true},
 	"GetIntegrationSignIn":        {scope: scopeOwner},
 	"PutIntegrationConnection":    {scope: scopeOwner},

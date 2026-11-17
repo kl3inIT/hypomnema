@@ -1,0 +1,8 @@
+softtyos/zca-js (published as @softtynet/zca-js)
+https://github.com/softtyos/zca-js
+Copyright (c) 2024 - 2025 RFS-ADRENO, truong9c2208, JustKemForFun
+
+Used under the MIT License (LICENSE, beside this file): bridges/zalo/src/phonesync.mjs ports its sync from the
+phone (src/apis/sync/pullMobile.ts, cancelPullMobile.ts, getSyncData.ts; src/apis/auth/getNoisedIds.ts), the
+decryption of the backup's key (src/crypto/zdb-cipher.ts) and its reading of the sync events
+(src/realtime/handlers/control.handler.ts, src/models/SyncEvent.ts).

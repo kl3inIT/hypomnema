@@ -10,6 +10,9 @@
 //   groupHistory {group, lastMsgId, isOld}   one page (50) of a group's past: {messages, lastMsgId, isOld, more}
 //   oldMessages {lastId}  one page of Zalo's queue of every direct chat's past: {messages, next}
 //   users {ids}           people's names: [{id, name}]
+//   phoneSync {dir}       asks the phone for its store; phone_sync events follow: confirmed, refused, ready
+//                         {path, key, size} (the backup written in dir and its AES key), failed {message}
+//   phoneIds {fids, gids}  the phone's ids of people and groups as Zalo Web's: {fids, gids}, "" when unknown
 //   send {chat, group, text, path, quote}    a message as the owner, a file at path with text as its caption,
 //                         replying to quote (a kept message): {id}
 //   groups {}             every group the account is in: [{id, name}]
@@ -23,6 +26,7 @@ import { createInterface } from "node:readline";
 import { LoginQRCallbackEventType, Zalo } from "zca-js";
 
 import { imageMeta } from "./imagemeta.mjs";
+import { backupKey, cancel, decode, download, frame, keys, noised, pull, syncEvents } from "./phonesync.mjs";
 import { answer, closed, event, failure, message, older, parseRequest, rejected } from "./protocol.mjs";
 import { ThreadType } from "zca-js";
 
@@ -70,11 +74,14 @@ function listen() {
     process.stdout.write(event("closed", closed(code, reason)) + "\n", () => process.exit(0));
   });
   api.listener.on("error", (err) => emit("error", { message: String(err?.message ?? err) }));
-  // Answered once the socket is open: a request sent on it before (the direct chats' past) would be lost, since
-  // zca-js sends it as it is (listen.ts, sendWs).
+  // The sync's controls are read off each socket the listener opens (phonesync.mjs).
+  api.listener.on("connected", () => api.listener.ws?.on?.("message", onFrame));
+
+  // Answered once Zalo gave the socket's cipher key: a request sent before it (the direct chats' past) is not
+  // answered, as softtyos's guide says (§7.2); zca-js sends it as it is (listen.ts, sendWs).
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("the listener did not connect in time")), listenWait);
-    api.listener.once("connected", () => {
+    api.listener.once("cipher_key", () => {
       clearTimeout(timer);
       resolve({});
     });
@@ -254,11 +261,92 @@ async function send(p) {
   return out;
 }
 
+// confirmWait is how long the phone has to answer a sync before it is withdrawn (softtyos's guide, §4: 60 s).
+const confirmWait = 60_000;
+
+// syncing is the sync under way: its keys, the folder its backup goes to, and the wait for the phone.
+let syncing = null;
+
+async function phoneSync(p) {
+  if (syncing) throw new Error("a sync from the phone is under way; answer it on the phone");
+
+  const k = keys();
+  const s = { ...k, dir: String(p.dir), confirmed: false };
+  s.timer = setTimeout(() => {
+    if (syncing !== s || s.confirmed) return;
+    syncing = null;
+    cancel(api, s.publicKey).catch(() => {});
+    emit("phone_sync", { stage: "failed", message: "the phone did not answer within a minute" });
+  }, confirmWait);
+
+  syncing = s;
+  try {
+    await pull(api, s.publicKey);
+  } catch (err) {
+    clearTimeout(s.timer);
+    syncing = null;
+    throw err;
+  }
+
+  return {};
+}
+
+function onFrame(data) {
+  const f = frame(data);
+  if (!f || f.version !== 1 || f.cmd !== 601 || f.subCmd !== 0) return;
+
+  let events;
+  try {
+    events = syncEvents(decode(f.body, api.listener.cipherKey));
+  } catch {
+    return;
+  }
+
+  for (const ev of events) onSync(ev).catch((err) => emit("phone_sync", { stage: "failed", message: String(err?.message ?? err) }));
+}
+
+// onSync follows the sync the bridge asked for; another device's is not its own (softtyos checks public_key).
+async function onSync({ act, data }) {
+  const s = syncing;
+  if (!s || data?.public_key !== s.publicKey) return;
+
+  if (act === "user_confirm") {
+    clearTimeout(s.timer);
+    if (data.user_action === 1) {
+      s.confirmed = true;
+      emit("phone_sync", { stage: "confirmed" });
+    } else {
+      syncing = null;
+      emit("phone_sync", { stage: "refused" });
+    }
+
+    return;
+  }
+
+  syncing = null;
+  clearTimeout(s.timer);
+
+  if (act === "transfer_error") {
+    emit("phone_sync", { stage: "failed", message: str(data.error_msg) || `Zalo's error ${data.error_code ?? ""}` });
+
+    return;
+  }
+
+  const path = `${s.dir}/zalo-backup-${Date.now()}.db.crypt`;
+  await download(api, String(data.url), path);
+  const key = backupKey(s.privateKey, String(data.encrypted_key));
+  emit("phone_sync", { stage: "ready", path, key: key.toString("base64"), size: Number(data.file_size) || 0 });
+}
+
+async function phoneIds(p) {
+  return noised(api, (p.fids ?? []).map(String), (p.gids ?? []).map(String));
+}
+
 const idOf = (v) => (v == null ? "" : String(v));
 
 const str = (v) => (typeof v === "string" ? v : "");
 
-const methods = { loginQR, login, listen, groups, groupHistory, oldMessages, users, send, stop };
+const methods = { loginQR, login, listen, groups, groupHistory, oldMessages, users, phoneSync, phoneIds, send, stop };
 
 const lines = createInterface({ input: process.stdin });
 

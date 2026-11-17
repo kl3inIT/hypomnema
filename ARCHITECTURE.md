@@ -2027,6 +2027,17 @@ flowchart LR
       call under `zalo-outgoing/` and removed after, an image with the size read from its header (adapted from the
       Hermes Zalo plugin, `third_party/hermes-zalo-plugin`), a reply quoting the kept message. What is sent is kept
       as the owner's.
+    - **The past from the phone** ([issue #697](https://github.com/kl3inIT/hypomnema/issues/697), step 4): Zalo's
+      servers give a web session none of the past (step 2 walks empty pages), so `POST …/phone-sync` asks the
+      owner's phone for it as Zalo PC's "Sync messages" does, ported from softtyos/zca-js
+      (`third_party/softtyos-zca-js`): the bridge makes an RSA-2048 key, asks `pull_mobile_msg`, reads the phone's
+      answer off the listener's cmd 601 controls (`syncmsgmb`), withdraws the request after a minute unanswered,
+      and downloads the uploaded backup into `zalo-sync/<account>/` with the session's cookies. The control plane
+      decrypts it (64 KB AES-256-CBC chunks, the key from the RSA-decrypted `encrypted_key`), reads its ZDB4.0
+      header, un-XZes each chat's SQLite database in turn and keeps its `ChatContent` rows as the chat's past
+      (types named as zlog's worker_sync names them, a message taken back left out), the phone's ids turned into
+      Zalo Web's through `/api/znoise`; a chat Zalo does not know is skipped. The session's `phone_sync` says the
+      stage (asking, sending, importing, done, failed) and what was kept; the backup is removed after.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
