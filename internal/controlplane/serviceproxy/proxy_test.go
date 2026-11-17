@@ -110,6 +110,14 @@ type world struct {
 func newWorld(t *testing.T, hold time.Duration) *world {
 	t.Helper()
 
+	return newWorldWith(t, hold, nil)
+}
+
+// newWorldWith is newWorld whose proxy reads the store through wrap, so that a test can act between two of its
+// reads.
+func newWorldWith(t *testing.T, hold time.Duration, wrap func(serviceproxy.Store) serviceproxy.Store) *world {
+	t.Helper()
+
 	ctx := t.Context()
 
 	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
@@ -144,8 +152,13 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 		return agentapi.Token{AccessToken: realToken}, nil
 	}, logger)
 
+	var store serviceproxy.Store = w.svc
+	if wrap != nil {
+		store = wrap(w.svc)
+	}
+
 	w.proxy, err = serviceproxy.New(serviceproxy.Config{
-		Agents: agents, Store: w.svc, Logger: logger, Upstream: w.service, Hold: hold, RunHold: runHold,
+		Agents: agents, Store: store, Logger: logger, Upstream: w.service, Hold: hold, RunHold: runHold,
 		Token: func(context.Context, string, string) (string, error) { return realToken, nil },
 		AWS: func(context.Context, string, string) (aws.Credentials, error) {
 			return aws.Credentials{AccessKeyID: roleKeyID, SecretAccessKey: roleSecret, SessionToken: roleSession}, nil

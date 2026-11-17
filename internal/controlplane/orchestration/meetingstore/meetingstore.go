@@ -92,7 +92,6 @@ type Meeting struct {
 
 // Notes are what a model wrote of a meeting.
 type Notes struct {
-	Format    string
 	State     string
 	Failure   string
 	Attempts  int
@@ -102,7 +101,7 @@ type Notes struct {
 	WrittenAt *time.Time
 }
 
-// Section is one section of a notes format, as written: its title and its points.
+// Section is one section of the notes, a topic of the meeting as written: its title and its points.
 type Section struct {
 	Title  string   `json:"title"`
 	Points []string `json:"points"`
@@ -199,7 +198,6 @@ type NewMeeting struct {
 	Title     string
 	Language  string
 	People    []string
-	Format    string
 	FileName  string
 	MediaType string
 	Size      int64
@@ -230,8 +228,8 @@ func (s *Store) Create(ctx context.Context, nm NewMeeting) (Meeting, error) {
 		return Meeting{}, err
 	}
 
-	if nm.ID == "" || nm.Size <= 0 || nm.FileName == "" || nm.Format == "" {
-		return Meeting{}, fmt.Errorf("%w: a meeting needs its recording and a notes format", storeerr.ErrInvalid)
+	if nm.ID == "" || nm.Size <= 0 || nm.FileName == "" {
+		return Meeting{}, fmt.Errorf("%w: a meeting needs its recording", storeerr.ErrInvalid)
 	}
 
 	peopleJSON, err := json.Marshal(people)
@@ -247,7 +245,7 @@ func (s *Store) Create(ctx context.Context, nm NewMeeting) (Meeting, error) {
 			return fmt.Errorf("storing meeting %s: %w", nm.ID, err)
 		}
 
-		return q.InsertMeetingNotes(ctx, store.InsertMeetingNotesParams{MeetingID: nm.ID, Format: nm.Format, Now: now})
+		return q.InsertMeetingNotes(ctx, store.InsertMeetingNotesParams{MeetingID: nm.ID, Now: now})
 	}); err != nil {
 		return Meeting{}, err
 	}
@@ -325,7 +323,7 @@ func (s *Store) List(ctx context.Context, query string, limit int) ([]Meeting, e
 			Failure: r.Failure, Attempts: r.Attempts, Provider: r.Provider, Model: r.Model, CreatedAt: r.CreatedAt,
 			UpdatedAt: r.UpdatedAt,
 		})
-		m.Notes = Notes{State: r.NotesState, Format: r.NotesFormat, Summary: r.NotesSummary}
+		m.Notes = Notes{State: r.NotesState, Summary: r.NotesSummary}
 		m.Speakers = speakers[r.ID]
 		m.Actions, m.OpenActions = int(r.Actions), int(r.OpenActions)
 		out = append(out, m)
@@ -636,11 +634,11 @@ func (s *Store) SaveNotes(ctx context.Context, id string, w Written) error {
 	})
 }
 
-// WriteAgain asks for a meeting's notes again in a format (Granola's, Fireflies's and Otter's regenerate); not
-// while they are being written or before the transcript is there.
-func (s *Store) WriteAgain(ctx context.Context, id, format string) error {
+// WriteAgain asks for a meeting's notes again (Granola's, Fireflies's and Otter's regenerate); not while they are
+// being written or before the transcript is there.
+func (s *Store) WriteAgain(ctx context.Context, id string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		n, err := q.WriteNotesAgain(ctx, store.WriteNotesAgainParams{Format: format, Now: now, MeetingID: id})
+		n, err := q.WriteNotesAgain(ctx, store.WriteNotesAgainParams{Now: now, MeetingID: id})
 		if err != nil {
 			return err
 		}
@@ -907,7 +905,7 @@ func notesOf(r store.MeetingNote) Notes {
 	_ = json.Unmarshal([]byte(r.Sections), &sections)
 
 	return Notes{
-		Format: r.Format, State: r.State, Failure: r.Failure, Attempts: int(r.Attempts), Model: r.Model,
+		State: r.State, Failure: r.Failure, Attempts: int(r.Attempts), Model: r.Model,
 		Summary: r.Summary, Sections: sections, WrittenAt: storeutil.OptionalMillis(r.WrittenAt),
 	}
 }
@@ -974,19 +972,6 @@ func checkText(v string, longest int, what string) error {
 
 	if strings.IndexFunc(v, unicode.IsControl) >= 0 {
 		return fmt.Errorf("%w: %s is one line", storeerr.ErrInvalid, what)
-	}
-
-	return nil
-}
-
-// checkParagraph is checkText for a text that may hold line breaks.
-func checkParagraph(v string, longest int, what string) error {
-	if utf8.RuneCountInString(v) > longest {
-		return fmt.Errorf("%w: %s is at most %d characters", storeerr.ErrInvalid, what, longest)
-	}
-
-	if strings.IndexFunc(v, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) >= 0 {
-		return fmt.Errorf("%w: %s holds a control character", storeerr.ErrInvalid, what)
 	}
 
 	return nil

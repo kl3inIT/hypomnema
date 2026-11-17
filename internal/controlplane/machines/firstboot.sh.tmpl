@@ -13,7 +13,7 @@ id "$user" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$user" ||
 # The CLIs are a convenience: a failure here leaves a node that reports none, which the owner sees.
 export DEBIAN_FRONTEND=noninteractive
 if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -y && apt-get install -y git curl ca-certificates || log "installing packages failed"
+  apt-get update -y && apt-get install -y git curl ca-certificates build-essential unzip || log "installing packages failed"
 fi
 {{- if .Device}}
 

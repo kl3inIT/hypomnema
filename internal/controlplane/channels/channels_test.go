@@ -1974,3 +1974,29 @@ func TestAnAnswerBeforeTheMarkStillQuotesTheQuestion(t *testing.T) {
 	require.Eventually(t, func() bool { return len(w.lark.marked("om_5")) == 0 }, eventual, tick,
 		"the late mark is taken off: the answer is there")
 }
+
+// Scenario (issue #716, review of #725 finding 5): the control plane restarted during a turn of a chat at Lark. The
+// line that the Bot continues, and the one that a restart cut a turn, reach the person at Lark, each a message of
+// its own.
+func TestTheRestartLinesReachTheChannel(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(channelstore.ChannelOwner)
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "search Lark for the contract"))
+	chat := w.chatOf(ownerDM)
+	w.answer(chat, "Searching.")
+	require.Eventually(t, func() bool { return len(w.lark.sent()) == 1 }, eventual, tick)
+
+	require.NoError(t, w.orch.ContinueCutTurn(t.Context(), chat))
+	require.NoError(t, w.orch.EndCutTurn(t.Context(), chat))
+
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{
+			ownerDM + ": Searching.",
+			ownerDM + ": " + orchestration.ContinuedText,
+			ownerDM + ": " + orchestration.CutText,
+		}, w.lark.sent())
+	}, eventual, tick, "both lines reach Lark")
+}

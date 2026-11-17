@@ -17,7 +17,7 @@ BINARIES := hypomnema hypomnema-node
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
 	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
 	web-api-check web-build web-e2e release-node release-controlplane web-doctor \
-	zalo-bridge-install zalo-bridge-check zalo-bridge-build pi-extension-check
+	zalo-bridge-install zalo-bridge-check zalo-bridge-build pi-extension-check catalogs-generate
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,6 +46,13 @@ deps-check: ## Fail when a binary links a tree or driver it must not
 	}; \
 	check hypomnema-node '^$(MODULE)/(internal/controlplane|web|bridges)(/|$$)'; \
 	check hypomnema '^$(MODULE)/internal/node(/|$$)'
+
+# Fetches each declaration at the revision catalog_sources.json pins, checks its SHA-256 and what the pinned CLI sends,
+# and prints what changed (issue #739). Run by hand with a CLI's bump; CI runs only the catalogs' offline tests.
+SERVICE ?= all
+
+catalogs-generate: ## Regenerate the service proxy's catalogs from their declarations (SERVICE=github; needs network)
+	$(GO) run ./internal/controlplane/serviceproxy/catalogsgen -service $(SERVICE)
 
 sqlc-generate: ## Regenerate the typed queries from the migrations and queries
 	$(SQLC) generate

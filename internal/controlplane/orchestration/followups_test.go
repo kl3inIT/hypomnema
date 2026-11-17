@@ -146,3 +146,73 @@ func TestFollowUpIsRefusedWithoutAFinishedWorker(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, all, "a refused follow-up keeps nothing")
 }
+
+// Scenario: the worker ended at a Gate ("Merge it?"), and the review's
+// findings arrive before the owner answers (issue #714, decision 9). The
+// follow-up replaces the Gate: the Gate is closed as superseded, the Task is
+// ready, and the next Dispatch continues the same Conversation with the note
+// and without the Gate. A Task blocked for another reason is still refused.
+func TestFollowUpReplacesAnOpenGate(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b"},
+		NewTask{Ref: "c", Profile: "implementer", Spec: "c", DependsOn: []string{"b"}},
+	)
+	task := tasks[0]
+
+	d, c := w.start(task.ID)
+	gate := mergeGate()
+	require.NoError(t, w.finish(c, Outcome{Gate: &gate, Result: Result{Summary: "PR #7 is ready"}}))
+	require.Equal(t, "blocked:gate", w.statuses()["a"])
+
+	f, err := w.s.FollowUpTask(t.Context(), task.ID, AddressCoordinator, "The review found: no test for the button.")
+	require.NoError(t, err)
+
+	got := w.task(task.ID)
+	assert.Equal(t, TaskReady, got.Status)
+	assert.Equal(t, BlockedNone, got.BlockedReason)
+
+	qs, err := w.s.ListQuestions(t.Context(), QuestionFilter{TaskID: task.ID})
+	require.NoError(t, err)
+	require.Len(t, qs, 1)
+	assert.Equal(t, QuestionCanceled, qs[0].Status)
+	assert.Equal(t, "superseded", qs[0].CancelReason)
+
+	_, err = w.s.AnswerQuestion(t.Context(), qs[0].ID, AddressOwner, Answer{Option: choice(0)})
+	require.ErrorIs(t, err, ErrConflict, "a replaced gate takes no answer")
+
+	next, err := w.create(task.ID, DispatchSpec{Continue: true})
+	require.NoError(t, err)
+	assert.Equal(t, d.ConversationID, next.ConversationID)
+	assert.Equal(t, f.ID, next.FollowUpID)
+	assert.Empty(t, next.GateQuestionID, "the replaced gate is not resumed from")
+
+	acc, err := w.s.AcceptDispatch(t.Context(), w.call(next, 0))
+	require.NoError(t, err)
+	assert.Equal(t, f.Note, acc.FollowUp)
+	assert.Nil(t, acc.Gate)
+
+	evs, err := w.s.ListEvents(t.Context(), 0, EventFilter{TaskID: task.ID}, EventPageMax)
+	require.NoError(t, err)
+
+	var canceled []string
+
+	for _, e := range evs.Events {
+		if e.Kind == EventQuestionCanceled {
+			canceled = append(canceled, string(e.Payload))
+		}
+	}
+
+	require.Len(t, canceled, 1)
+	assert.Contains(t, canceled[0], `"reason":"superseded"`)
+	assert.Contains(t, canceled[0], `"follow_up":"`+f.ID+`"`)
+
+	w.failForGood(tasks[1].ID)
+	require.Equal(t, "blocked:dependency_failed", w.statuses()["c"])
+
+	_, err = w.s.FollowUpTask(t.Context(), tasks[2].ID, AddressCoordinator, "more")
+	require.ErrorIs(t, err, ErrConflict, "only a gate is replaced")
+}

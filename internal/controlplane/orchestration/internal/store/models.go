@@ -220,6 +220,9 @@ type Chat struct {
 	ContextTokens  sql.NullInt64
 	ContextWindow  sql.NullInt64
 	ContextPercent sql.NullFloat64
+	TurnStartedAt  sql.NullInt64
+	TurnToken      sql.NullString
+	TurnAttempts   int64
 }
 
 type ChatMessage struct {
@@ -233,10 +236,10 @@ type ChatMessage struct {
 	CreatedAt     int64
 	ToCoordinator int64
 	Attachments   sql.NullString
-	Kind          string
 	ApprovalID    sql.NullString
 	SenderID      sql.NullString
 	SenderName    sql.NullString
+	Kind          string
 }
 
 type ChatQueue struct {
@@ -510,14 +513,6 @@ type Meeting struct {
 	UpdatedAt  int64
 }
 
-type MeetingFormat struct {
-	ID        string
-	Name      string
-	Sections  string
-	CreatedAt int64
-	UpdatedAt int64
-}
-
 type MeetingItem struct {
 	ID           string
 	MeetingID    string
@@ -716,6 +711,10 @@ type Repo struct {
 	Connection sql.NullString
 	SshUrl     sql.NullString
 	SshHostKey sql.NullString
+}
+
+type RestartBoot struct {
+	At int64
 }
 
 type Routine struct {

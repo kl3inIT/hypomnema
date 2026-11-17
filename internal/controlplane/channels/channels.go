@@ -1493,6 +1493,19 @@ func (r *relay) send(ctx context.Context, msgs []orchestration.ChatMessage, one 
 			// The server recorded that the person stopped the turn: it was stopped, not failed.
 			r.stopped(ctx, r.text.String())
 			r.settle(ctx, false)
+		case m.Kind == orchestration.ChatContinued:
+			// The control plane restarted and the Bot goes on with the turn a restart cut (issue #716): the person
+			// is told, and the message the Bot works on still waits for its reply.
+			r.line(ctx, m.Text)
+
+			ended = false
+		case m.Kind == orchestration.ChatCut:
+			// A restart cut the turn and it is not continued: the person is told, and the message is not worked
+			// on any more.
+			r.line(ctx, m.Text)
+			r.settle(ctx, false)
+
+			ended = false
 		case m.Kind == orchestration.ChatFailed:
 			// The model's call failed: what was written stays, with a line that says why it stops there
 			// (MemoryOS), and the message is marked as failed (Hermes).
@@ -1617,6 +1630,26 @@ func (r *relay) finish(ctx context.Context, text string) {
 		if err := reply.Close(ctx, part); err != nil {
 			r.failed(ctx, "closing a reply", err)
 		}
+	}
+}
+
+// line sends a line of the control plane as a message of its own, leaving the reply being written, if any, as it
+// is.
+func (r *relay) line(ctx context.Context, text string) {
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	reply, sentTo, err := r.conn.OpenReply(ctx, r.chat.ExternalChatID, "", text)
+	if err != nil {
+		r.failed(ctx, "sending a line", err)
+
+		return
+	}
+
+	r.named(ctx, sentTo)
+
+	if err := reply.Close(ctx, text); err != nil {
+		r.failed(ctx, "closing a line", err)
 	}
 }
 

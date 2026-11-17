@@ -135,7 +135,28 @@ the chat's watchers from memory only and are never stored. A reply that ends in 
 row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
 `server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
-`agent_settled`, where the mark clears. An owner message may carry files (issue #343): each is kept on the
+`agent_settled`, where the mark clears. A turn that a restart cuts continues by itself (issue #716, after Hermes's
+interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continue.py`): pi's `agent_start` marks the
+chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 112) and
+`agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
+with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
+clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
+and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
+`continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
+check the current state before redoing anything, then finish the task"; it is no turn input of its own, so a turn
+that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
+with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
+line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
+for the chat or holds the cut turns. The partial transcript stays as kept; both lines reach a Channel's chat as a
+message of their own. A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
+more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_guard.py`), nothing is continued, the
+marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
+turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
+(`selfupdate.Updating`, below) it starts no pi and gives an idle pi no new turn (compactions included); a running
+turn goes on, and what is written waits for the update to end. A pi start holds the supervisor's lock from its last look for
+the update until pi has its token, and the update is marked under that same lock (`BeginUpdate`, below): a start
+that looked before the update began finishes first, and none starts after. Whether the control plane stops is read from `Run`'s context, not the one pi
+reads with (a pi a compaction started reads with its own). An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
@@ -227,10 +248,13 @@ sequenceDiagram
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, follow one up, finish or
   cancel a Run. A Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every
   Task downstream of it; reopening a failed Task resets its failure count and unblocks them.
-- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task of an open
-  Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
+- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task, or of one
+  blocked at a Gate (issue #714), of an open Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
   who asked: the owner or the coordinator, by the token), the failure count is reset, and the Task goes from
-  succeeded back to ready, the one transition from succeeded. Its next Dispatch continues the Conversation, and
+  succeeded (or blocked) back to ready, the one transition from succeeded. A follow-up to a Task blocked at a Gate
+  replaces the Gate: the Gate is canceled with the reason `superseded` (migration 00110), its `question.canceled`
+  event names the follow-up, and the next Dispatch carries the note and no Gate, as Omnara cancels open questions
+  on new input with the reason `superseded_by_input` (`commands_interactions.go:340-362`). Its next Dispatch continues the Conversation, and
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
@@ -265,7 +289,12 @@ sequenceDiagram
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
   resumes the Conversation with the question and answer. The first answer wins; the coordinator answers only what
   is addressed to it and can forward a question to the owner. Open questions close when their Dispatch settles (a
-  `wait` question) or their Task is canceled (a Gate); a Gate never expires.
+  `wait` question) or their Task is canceled (a Gate); a Gate never expires, but a follow-up replaces it (below).
+  A worker's options (`ask`, and `finish`'s Gate) are each a label or `{label, allows_text}`, so a "change first"
+  carries what to change; every question with options ends with an "Other" that takes text (a worker's own "Other"
+  is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
+  to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
+  `internal/node/workertools`).
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
@@ -301,7 +330,7 @@ sequenceDiagram
     installed has none. `GET /nodes` shows it as `machine`.
   - Create: the region, the size and the public URL are checked first; then the node and its token are written in
     one transaction, refused at the provider's limit; then the provider is asked for one machine named after the
-    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git,
+    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git, gcc and make (`build-essential`), unzip,
     Node.js 22 from nodejs.org (one archive, checked against its published checksum) and the Claude Code and Codex
     CLIs, and runs the install script of `GET /install/node.sh` with the token. The
     node's hello makes the machine `ready`. A refused create leaves the node `provision_failed` with the reason;
@@ -716,7 +745,8 @@ sequenceDiagram
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
+  owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
+  (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -1319,7 +1349,9 @@ flowchart LR
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
-    runs. A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
+    runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
+    at a file under `scripts/`; the Bot's instructions say so and that the owner then reads only the stub (issue
+    #769). A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
@@ -1515,7 +1547,11 @@ flowchart LR
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
-  `reviewer` itself run on Codex with the seeded reviewer's instruction.
+  `reviewer` itself run on Codex with the seeded reviewer's instruction. Migration 00111 (issue #766; owner,
+  2026-11-17) makes a new version of the seeded reviewer, where `pfv_seed5_reviewer` is still current, that reads
+  first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
+  and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
+  `reviewer-codex.yaml` carries the same text, and a reviewer the owner applied gets it by applying that file again.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. Room is computed, not set (issue #731, migration 00107): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
@@ -2014,18 +2050,45 @@ flowchart LR
       and a Dispatch given a `github.com` Connection gets no `gh` script before the worker's own `gh`, which keeps
       its `GH_TOKEN` (#44). `hypomnema tool run github.com -- curl …` runs another command through the same
       account.
-    - **Its catalog** (`serviceproxy/github.go`) is Onyx's GitHub list (`providers/github.py`, MIT; notice in
-      `third_party/onyx/NOTICE`): REST routes on `api.github.com`, and a POST to `/graphql` matched by each
-      operation's type and root field (gqlparser parses the query; fragments at the root are followed), the action
-      that needs the most care governing a request with several. Reads run: the connected user, repositories,
-      issues, pull requests with their files and reviews, Actions runs, jobs and logs, check runs and statuses,
-      search, refs, contents, commits, releases, and the GraphQL queries `repository`, `repositoryOwner`, `node`,
-      `nodes`, `viewer`, `search`, and a query that asks only the schema (`__type`, `__schema`, `__typename`, which
-      `gh` sends to detect features; beside another field, that field's action names it). Opening an issue, commenting, opening a pull request, writing a file and writing
-      a ref ask; anything else (merge, close, labels, a rerun, a mutation it does not name, a body that is not
-      GraphQL) asks as `github.unlisted`. A log's download, which GitHub redirects to
+    - **Its catalog** (`serviceproxy/github.go`) is generated ([issue #739](https://github.com/kl3inIT/hypomnema/issues/739),
+      step 1 of [#713](https://github.com/kl3inIT/hypomnema/issues/713)): `github_operations.json` holds every
+      operation of GitHub's REST description (`github/rest-api-description`, 1281: method, host, path, `x-github`
+      category, `operationId`) and every query and mutation of the public GraphQL schema (316, with
+      `@docsCategory`, read from `github/docs` at a pinned commit), for gh 2.103.3; notice in `third_party/github/NOTICE`. The categories fold into 13 services
+      (Repositories, Issues, Pull requests, Actions and checks, Releases, Search, Projects, Discussions, Gists,
+      Security, Organizations and teams, Account, Copilot and agents) and Everything else (the queries, which have
+      no category of their own), each with `github.<service>.read`, `.write` and `.delete`: a GET or a query
+      reads, a DELETE or a mutation named `delete…` deletes, anything else writes. Reads run; the rest asks. A table
+      (`githubNamed`) keeps the ids the hand-written list had (Onyx's GitHub list, `providers/github.py`, MIT; notice
+      in `third_party/onyx/NOTICE`) for the operations it named: `github.user.read`, `.refs.read`,
+      `.contents.read`, `.git_data.read`, `.graphql.repo.read` (`repository`, `repositoryOwner`, `node`, `nodes`),
+      `.issues.create`, `.comments.create`, `.contents.write`, `.refs.write`, `.pulls.create`; its GET routes stay
+      for a request the description does not have. **Merge and auto-merge are actions of their own** and ask:
+      `github.pulls.merge` (REST `PUT …/pulls/{n}/merge` and `…/merge-async`, GraphQL `mergePullRequest`) and
+      `github.pulls.automerge` (`enablePullRequestAutoMerge`, `disablePullRequestAutoMerge`). A trailing `path`,
+      `ref`, `branch` or `basehead` takes its slashes. A POST to `/graphql` is matched by each operation's type and
+      root field (gqlparser parses the query; fragments at the root are followed); the action that needs the most
+      care names the request and the others it names go with it (`Action.With`), and the proxy lets the strictest
+      of the owner's answers govern (refused, never, ask, allow; Onyx's `AllMatchedActions`). When several ask,
+      each needs its own answer: those allowed for the session or the Routine are set aside
+      (`orchestration.StandingGrant`), and the request asks as the first of the others, the owner shown them all;
+      when that ask finds a standing grant made meanwhile, the others are decided again, so that a granted comment
+      never carries a merge. A query that asks
+      only the schema (`__type`, `__schema`, `__typename`, which `gh` sends to detect features) is
+      `github.schema.read`; beside another field, that field's action names it. A root field the schema does not
+      have, a subscription or a body that is not GraphQL asks as `github.unlisted`. A release's asset upload goes
+      to `uploads.github.com`, also reached. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
       plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.
+    - **Regenerating it**: `make catalogs-generate SERVICE=github` runs `serviceproxy/catalogsgen`, which fetches the
+      REST description, the schema and gh's source at what `serviceproxy/catalog_sources.json` pins (URL, revision,
+      SHA-256, gh's version), fails on a changed SHA-256 or on a root field gh's source sends that the schema lacks
+      (the structs it gives `Query` and `Mutate` or its own wrappers of them, the queries it writes, the fields
+      it calls with an input),
+      writes the file and prints the operations added, removed or moved to another action. `make verify` runs only
+      the offline tests: every operation of the file is a named action (a GET or a query a read, nothing else), every
+      category is in a service, and the file's gh version is `agenttool.GitHubCLI`'s, so bumping gh fails until the
+      catalog is regenerated.
     - **Its skill** is the store skill `github` (`clientcli/skills/github`, requiring `integration:github.com`; a
       skill's integration requirement may be a host's name), from Onyx's and OpenClaw's github skills (MIT).
     - Not built: GitHub Enterprise Server and GitLab hosts (the proxy picks a catalog by the Integration's name);
@@ -2061,8 +2124,12 @@ flowchart LR
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
-      its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
-      coordinator token and a Routine never. Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
+      its path) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
+      owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
+      again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
+      his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
+      that approval, as OpenClaw runs an exec approved later and guards the final effect rather than the list
+      ([issue #748](https://github.com/kl3inIT/hypomnema/issues/748)). Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
     - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
@@ -3161,12 +3228,12 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
   `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
   the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
-  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, `state` waiting,
+  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, written `auto` since 00113, `state` waiting,
   writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
-  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there);
-  `meeting_formats` (the owner's notes formats: `id` `mtf_…`, `name`, `sections` as JSON `[{title, about}]`).
+  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771).
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3186,44 +3253,43 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   (`POST /meetings/{id}/fix`; silent-notetaker's corrections, Lark Minutes' word replace); the right word joins
   the owner's words unless the list is full, and the notes are not written again until the owner asks.
 - The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
-  of Settings → Meetings and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
-  `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the format's sections
-  (built in, `meetings/formats.go`: General, Team meeting, Client call from Meetily, Hyprnote's 17 default
-  templates and Meetily's Retrospective (start, stop, continue) and Psychiatric Session Note, MIT, cut to the
-  sections the summary, decisions and actions do not already hold; or one of the owner's, a format deleted since
-  falling back to General), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
+  of Settings → Notes model and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
+  `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the words sent to the
+  transcription as names to spell exactly (Hyprnote's preferred names, `preferred-names.ts`), a section for each
+  main topic the meeting discussed, titled by its topic, with points on specific details (Hyprnote's Auto, its notes
+  when no template is picked, `crates/template-app/assets/enhance.format.md.jinja`; there are no formats to pick
+  since issue #771, the owner's choice), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
   is checked as MemoryOS's `MinutesChecks` (`meetings/checks.go`) before it is kept: an owner is one voice of the
   transcript or nobody (a group, several people or an unknown label is none); a quote is looked for on its line or
   up to two lines away, a shortened quote given the line's own words, and a quote nowhere near dropped; an action
-  said twice is kept once with what only the repeat said; a decision that restates an action on its line is
+  said twice is kept once with what only the repeat said; a section without a title or a point is dropped and one
+  whose title came already joins it; a decision that restates an action on its line is
   dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
   one the owner did not give.
 - Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
   has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
-  body; `file_name`, `media_type`, `language`, `title`, `people`, `format` in the query), `GET`
+  body; `file_name`, `media_type`, `language`, `title`, `people` in the query), `GET`
   and `DELETE /meetings/{id}` (a meeting with its lines, items and suggestions; deleting cancels its work and
-  removes the file), `POST /meetings/{id}/notes` `{format}` (write again, 202), `PATCH
+  removes the file), `POST /meetings/{id}/notes` (write again, 202), `PATCH
   /meetings/{id}/items/{item}` `{done}`, `GET /meeting-actions?who=&state=open|done|all` and `GET`/`PUT
-  /meeting-settings` `{notes_model}` (with the formats, each `builtin` or the owner's), `POST /meeting-formats`,
-  `PUT`/`DELETE /meeting-formats/{id}` `{name, sections}` (a built-in one is refused), `GET`/`PUT /meeting-words`
+  /meeting-settings` `{notes_model}`, `GET`/`PUT /meeting-words`
   (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
   /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
-  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix` and `meetings format
-  add|edit|rm`.
+  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix`.
 - On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title, people and format (the owner's formats first); it points to Settings → Meetings for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
-  failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
+  failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
   word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
-  offers Write again. Settings → Meetings picks the notes model with the single-model picker the Bots use
-  (`features/agents/model-picker.tsx`), keeps the words (the owner's as chips to remove, the found ones marked
-  speaker, Bot or repository) and lists the formats: the owner's with Edit and Delete, the built-in ones with Copy
-  to edit, in an editor after Hyprnote's (a section's menu inserts, moves or deletes it). Settings' "Back to app"
+  offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
+  Dictionary and AI) has Dictionary, the words (the owner's as chips to remove, the found ones marked speaker, Bot or
+  repository), and Notes model, picked with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
 - Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
   editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
@@ -3429,6 +3495,21 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `/var/lib/hypomnema-update`, requires the manifest's SHA-256 and the version the binary reports, and runs that
     binary's `update install`, so the steps are the release's own. The control plane's own binary belongs to its
     user and is never run as root.
+  - `update install` first waits, at most 5 minutes, until no Bot's turn runs (issue #716, as Hermes's update
+    drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
+    `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
+    TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
+    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    that wait until the release's coordinator is set up, `update install` names its process (pid and start time
+    from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
+    (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for
+    an update until pi has its token; when the control plane does not answer (one from before this, or one that is
+    down) the update writes the marker itself, and a pi that started meanwhile is stopped before it is given
+    anything, as Hermes's updater holds a live update
+    marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
+    starts no pi, so none starts while the old control plane stops nor in the new one before
+    `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
   - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
     binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
     migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for
@@ -3584,7 +3665,11 @@ The owner's commands:
   to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
-  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; a review first reads
+  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
+  so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
+  permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
+  nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
@@ -3786,11 +3871,12 @@ Node (`internal/node`):
     Anthropic's Fable 5.2 page):
     - the rules, the same for every worker:
       - one decision boundary, within what the task and the worker's instruction allow: it decides how to build
-        it, which tests to add, running the checks, committing and pushing its branch, and opening or updating the
-        Task's pull request; it asks first, with `ask`, before changing the scope, merging, deploying or changing a
-        server, deleting what its change did not make, or acting outside its directory and pull request (the
-        owner's list, 2026-11-17, issue #672; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do
-        freely / Ask first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
+        it, which tests to add, running the checks, committing and pushing its branch, opening or updating the
+        Task's pull request and turning on its auto-merge (below); it never merges directly; it asks first, with
+        `ask`, before changing the scope, deploying or changing a server, deleting what its change did not make, or
+        acting outside its directory and pull request (the owner's list, 2026-11-17, issue #672, with merging taken
+        off it by issue #714; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask
+        first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
         omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
@@ -3813,8 +3899,25 @@ Node (`internal/node`):
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
       of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+    - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
+      `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
+      before merging:
+      1. read-only checks that the repository waits for its checks, since `gh` and `glab` merge at once otherwise:
+         on GitHub `allow_auto_merge` is true and the base branch requires a status check (a
+         `required_status_checks` rule in `gh api --hostname <host> repos/<path>/rules/branches/<base>`, or a check
+         listed by
+         `…/branches/<base>/protection/required_status_checks`); on GitLab the project has
+         `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
+         line says what the repository lacks, and no Gate is opened only to ask to merge;
+      2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
+         sides' intent, running the checks again and pushing; on GitLab the merge request must have a pipeline;
+      3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
+         `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
+      4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),
+         fixing red ones, then `finish`, saying whether it merged or that auto-merge is on;
     - `Task (<profile>):` and the Task's spec;
-    - the recovery note, a follow-up ("You finished this task before, and more is asked of it now: …", then to
+    - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
+      replaces the answer to any question you asked at `finish`): …", then to
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
@@ -4438,7 +4541,7 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, the formats, speaker suggestions
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores

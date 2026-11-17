@@ -16,10 +16,8 @@ import (
 
 // Scenario (issue #747): the owner keeps the words to hear right once and every token reads them, with the name the
 // owner gave a speaker and the Bot's name among them; a coordinator's token may not change them. A word heard wrong
-// is fixed over the API in one line, and the right word joins the owner's list. The owner makes, changes and
-// deletes a notes format of their own, offered after the built-in ones; changing a built-in one is refused, and a
-// deleted one is no format to write notes in.
-func TestTheOwnerKeepsWordsAndFormatsOverTheAPI(t *testing.T) {
+// is fixed over the API in one line, and the right word joins the owner's list.
+func TestTheOwnerKeepsWordsOverTheAPI(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -80,47 +78,4 @@ func TestTheOwnerKeepsWordsAndFormatsOverTheAPI(t *testing.T) {
 		{Word: "Laura", From: openapi.MeetingWordSourceSpeaker, Sent: true},
 		{Word: "coordinator", From: openapi.MeetingWordSourceBot, Sent: true},
 	}, words.JSON200.Data)
-
-	made, err := owner.CreateMeetingFormatWithResponse(ctx, openapi.MeetingFormatInput{
-		Name: "Weekly ops", Sections: []openapi.MeetingFormatSectionInput{
-			{Title: "Incidents", About: ptr("What broke and how it was fixed")}, {Title: "On call"},
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, made.StatusCode(), string(made.Body))
-	assert.False(t, made.JSON201.Builtin)
-	assert.Equal(t, []openapi.MeetingFormatSection{
-		{Title: "Incidents", About: "What broke and how it was fixed"}, {Title: "On call"},
-	}, made.JSON201.Sections)
-
-	changed, err := owner.UpdateMeetingFormatWithResponse(ctx, made.JSON201.Id, openapi.MeetingFormatInput{
-		Name: "Weekly ops review", Sections: []openapi.MeetingFormatSectionInput{{Title: "Incidents"}},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
-	assert.Equal(t, "Weekly ops review", changed.JSON200.Name)
-
-	settings, err := pi.GetMeetingSettingsWithResponse(ctx)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, settings.StatusCode(), string(settings.Body))
-
-	formats := settings.JSON200.Formats
-	assert.Equal(t, "Weekly ops review", formats[len(formats)-1].Name, "the owner's follow the built-in ones")
-	assert.True(t, formats[0].Builtin)
-
-	builtin, err := owner.UpdateMeetingFormatWithResponse(ctx, "general", openapi.MeetingFormatInput{
-		Name: "Mine", Sections: []openapi.MeetingFormatSectionInput{{Title: "X"}},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, openapi.InvalidRequest, errorCode(t, builtin.Body, builtin.StatusCode(), http.StatusBadRequest))
-
-	gone, err := owner.DeleteMeetingFormatWithResponse(ctx, made.JSON201.Id)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNoContent, gone.StatusCode())
-
-	notes, err := owner.WriteMeetingNotesWithResponse(ctx, id,
-		openapi.WriteMeetingNotesRequest{Format: made.JSON201.Id})
-	require.NoError(t, err)
-	assert.Equal(t, openapi.InvalidRequest, errorCode(t, notes.Body, notes.StatusCode(), http.StatusBadRequest),
-		"a deleted format is no format")
 }

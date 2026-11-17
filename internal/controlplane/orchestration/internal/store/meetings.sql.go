@@ -46,35 +46,12 @@ func (q *Queries) ClaimNotes(ctx context.Context, arg ClaimNotesParams) (int64, 
 	return result.RowsAffected()
 }
 
-const countMeetingFormats = `-- name: CountMeetingFormats :one
-SELECT count(*) FROM meeting_formats
-`
-
-func (q *Queries) CountMeetingFormats(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countMeetingFormats)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const deleteMeeting = `-- name: DeleteMeeting :execrows
 DELETE FROM meetings WHERE id = ?1
 `
 
 func (q *Queries) DeleteMeeting(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteMeeting, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const deleteMeetingFormat = `-- name: DeleteMeetingFormat :execrows
-DELETE FROM meeting_formats WHERE id = ?1
-`
-
-func (q *Queries) DeleteMeetingFormat(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteMeetingFormat, id)
 	if err != nil {
 		return 0, err
 	}
@@ -169,23 +146,6 @@ func (q *Queries) GetMeeting(ctx context.Context, id string) (Meeting, error) {
 		&i.Attempts,
 		&i.Provider,
 		&i.Model,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getMeetingFormat = `-- name: GetMeetingFormat :one
-SELECT id, name, sections, created_at, updated_at FROM meeting_formats WHERE id = ?1
-`
-
-func (q *Queries) GetMeetingFormat(ctx context.Context, id string) (MeetingFormat, error) {
-	row := q.db.QueryRowContext(ctx, getMeetingFormat, id)
-	var i MeetingFormat
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Sections,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -306,27 +266,6 @@ func (q *Queries) InsertMeeting(ctx context.Context, arg InsertMeetingParams) er
 	return err
 }
 
-const insertMeetingFormat = `-- name: InsertMeetingFormat :exec
-INSERT INTO meeting_formats (id, name, sections, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
-`
-
-type InsertMeetingFormatParams struct {
-	ID       string
-	Name     string
-	Sections string
-	Now      int64
-}
-
-func (q *Queries) InsertMeetingFormat(ctx context.Context, arg InsertMeetingFormatParams) error {
-	_, err := q.db.ExecContext(ctx, insertMeetingFormat,
-		arg.ID,
-		arg.Name,
-		arg.Sections,
-		arg.Now,
-	)
-	return err
-}
-
 const insertMeetingItem = `-- name: InsertMeetingItem :exec
 INSERT INTO meeting_items (id, meeting_id, kind, position, text, owner, owner_speaker, due, quote, line, start_ms)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
@@ -392,17 +331,17 @@ func (q *Queries) InsertMeetingLine(ctx context.Context, arg InsertMeetingLinePa
 }
 
 const insertMeetingNotes = `-- name: InsertMeetingNotes :exec
-INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (?1, ?2, 'waiting', ?3)
+INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (?1, 'auto', 'waiting', ?2)
 `
 
 type InsertMeetingNotesParams struct {
 	MeetingID string
-	Format    string
 	Now       int64
 }
 
+// The notes are sectioned by the meeting's topics since issue #771; the format column keeps 'auto'.
 func (q *Queries) InsertMeetingNotes(ctx context.Context, arg InsertMeetingNotesParams) error {
-	_, err := q.db.ExecContext(ctx, insertMeetingNotes, arg.MeetingID, arg.Format, arg.Now)
+	_, err := q.db.ExecContext(ctx, insertMeetingNotes, arg.MeetingID, arg.Now)
 	return err
 }
 
@@ -497,39 +436,6 @@ func (q *Queries) ListMeetingActions(ctx context.Context) ([]ListMeetingActionsR
 			&i.MeetingCreatedAt,
 			&i.SpeakerName,
 			&i.SpeakerPosition,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listMeetingFormats = `-- name: ListMeetingFormats :many
-SELECT id, name, sections, created_at, updated_at FROM meeting_formats ORDER BY created_at, id
-`
-
-func (q *Queries) ListMeetingFormats(ctx context.Context) ([]MeetingFormat, error) {
-	rows, err := q.db.QueryContext(ctx, listMeetingFormats)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []MeetingFormat{}
-	for rows.Next() {
-		var i MeetingFormat
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Sections,
-			&i.CreatedAt,
-			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -652,10 +558,11 @@ func (q *Queries) ListMeetingSpeakers(ctx context.Context, meetingID string) ([]
 }
 
 const listMeetingWords = `-- name: ListMeetingWords :many
-SELECT word FROM meeting_words ORDER BY created_at, word
+SELECT word FROM meeting_words ORDER BY created_at, rowid
 `
 
-// The owner's words to hear right, in the order they were added (issue #747).
+// The owner's words to hear right, in the order they were added (issue #747); rowid orders the words added in one
+// millisecond, as SQLite gives a new row the largest rowid yet plus one (issue #758).
 func (q *Queries) ListMeetingWords(ctx context.Context) ([]string, error) {
 	rows, err := q.db.QueryContext(ctx, listMeetingWords)
 	if err != nil {
@@ -680,7 +587,7 @@ func (q *Queries) ListMeetingWords(ctx context.Context) ([]string, error) {
 }
 
 const listMeetings = `-- name: ListMeetings :many
-SELECT m.id, m.title, m.titled, m.language, m.people, m.terms, m.file_name, m.media_type, m.size, m.duration_ms, m.state, m.failure, m.attempts, m.provider, m.model, m.created_at, m.updated_at, n.state AS notes_state, n.format AS notes_format, n.summary AS notes_summary,
+SELECT m.id, m.title, m.titled, m.language, m.people, m.terms, m.file_name, m.media_type, m.size, m.duration_ms, m.state, m.failure, m.attempts, m.provider, m.model, m.created_at, m.updated_at, n.state AS notes_state, n.summary AS notes_summary,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action') AS actions,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action' AND i.done = 0)
            AS open_actions
@@ -717,7 +624,6 @@ type ListMeetingsRow struct {
 	CreatedAt    int64
 	UpdatedAt    int64
 	NotesState   string
-	NotesFormat  string
 	NotesSummary string
 	Actions      int64
 	OpenActions  int64
@@ -752,7 +658,6 @@ func (q *Queries) ListMeetings(ctx context.Context, arg ListMeetingsParams) ([]L
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.NotesState,
-			&i.NotesFormat,
 			&i.NotesSummary,
 			&i.Actions,
 			&i.OpenActions,
@@ -1172,44 +1077,19 @@ func (q *Queries) TranscribedMeeting(ctx context.Context, arg TranscribedMeeting
 	return err
 }
 
-const updateMeetingFormat = `-- name: UpdateMeetingFormat :execrows
-UPDATE meeting_formats SET name = ?1, sections = ?2, updated_at = ?3 WHERE id = ?4
-`
-
-type UpdateMeetingFormatParams struct {
-	Name     string
-	Sections string
-	Now      int64
-	ID       string
-}
-
-func (q *Queries) UpdateMeetingFormat(ctx context.Context, arg UpdateMeetingFormatParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateMeetingFormat,
-		arg.Name,
-		arg.Sections,
-		arg.Now,
-		arg.ID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const writeNotesAgain = `-- name: WriteNotesAgain :execrows
-UPDATE meeting_notes SET format = ?1, state = 'writing', failure = '', attempts = 0, updated_at = ?2
-WHERE meeting_id = ?3 AND state IN ('ready', 'failed')
+UPDATE meeting_notes SET state = 'writing', failure = '', attempts = 0, updated_at = ?1
+WHERE meeting_id = ?2 AND state IN ('ready', 'failed')
 `
 
 type WriteNotesAgainParams struct {
-	Format    string
 	Now       int64
 	MeetingID string
 }
 
-// The owner asks for the notes again, in a format; not while they are being written or the transcript is not there.
+// The owner asks for the notes again; not while they are being written or the transcript is not there.
 func (q *Queries) WriteNotesAgain(ctx context.Context, arg WriteNotesAgainParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, writeNotesAgain, arg.Format, arg.Now, arg.MeetingID)
+	result, err := q.db.ExecContext(ctx, writeNotesAgain, arg.Now, arg.MeetingID)
 	if err != nil {
 		return 0, err
 	}

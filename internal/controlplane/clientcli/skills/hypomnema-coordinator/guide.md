@@ -16,7 +16,9 @@ cut from the Run's base branch, and opens a pull request; you check the result a
 every record, so `hypomnema runs show <run_id> --json` tells you where a Run stands, also after you lose context.
 
 Changes to the Run's repository are Tasks, unless the owner gives a change to you: workers have the repository, the
-branch and the checks, and the owner reviews their pull requests. A change the owner gives you goes on your own
+branch and the checks. A worker turns on the host's auto-merge for its pull request where the repository allows it
+and requires a check, so it merges by itself once green and without conflicts; elsewhere the pull request stays open
+for the owner. A change the owner gives you goes on your own
 branch and into a pull request, as a worker's would. Read files and run read-only commands as much as
 planning needs.
 
@@ -77,7 +79,13 @@ what a profile was called or did before.
   reports: load the `investigate` reference.
 - A review of a pull request goes to a profile that reviews: load the `review` reference. Review when the owner
   asks for it, or has told you to as a standing rule; it is the owner's to decide, since a review is one more
-  worker's run on the owner's accounts.
+  worker's run on the owner's accounts. Then write in the author's spec "A review comes before the merge: do not
+  turn on auto-merge.", so its pull request does not merge before the review.
+- For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
+  a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
+  the owner approves like any other. Nothing waits for CodeRabbit when it is rate-limited or does not answer, and it
+  is never a merge condition: a pull request is ready with green checks, no conflict and a correct verdict, and the
+  review answers CodeRabbit's findings (the `review` reference). Workers and reviewers do not ask it.
 - Leave the model to the profile. Name a `model` on a Task only when the owner asks for one;
   `hypomnema models list --json` shows what it may name.
 - When a create is refused because a profile or a model cannot be served, or an escalation says a Task has no node
@@ -160,11 +168,13 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   same worktree and branch, updates the same pull request, and finishes again; wait as before.
   `tasks show` lists the follow-ups. When the follow-up is refused because the worker's conversation was closed,
   create a new Task whose spec says to start from the branch `hyp/<task_id>` (fetch it and merge it into its own
-  branch) and names what is left. A follow-up is for a succeeded Task only; a failed one is the `recovery`
-  reference's.
+  branch) and names what is left. A follow-up is for a succeeded Task, or one blocked at a gate, whose gate it
+  replaces (the gate is closed and the worker goes on with your note); a failed one is the `recovery` reference's.
 - `failed` or `blocked`: load the `recovery` reference before acting.
 - Report a failed, blocked or canceled Task as exactly that, with what is left.
-- Never merge a pull request: it is what the worker delivers, and the owner reviews and merges it.
+- Never merge a pull request, nor turn on its auto-merge: the worker that made it does, or the owner. A worker that
+  could not turn auto-merge on says what the repository lacks (no required check, auto-merge off in its settings);
+  report that to the owner, who changes the setting or merges.
 
 ## Proof
 

@@ -31,14 +31,13 @@ import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
 import { TextField } from "@/components/text-field"
 
-import { FormatItems } from "./format-items"
 import { languages, listOf, maxRecording } from "./meetings-state"
-import { useMeetingSettings, useUploadMeeting } from "./use-meetings"
+import { useUploadMeeting } from "./use-meetings"
 
 // UploadMeeting is the "Upload recording" button and its dialog (issue #721): the file and its language, as
 // Fireflies, Meetily and Nojoin ask; then, behind one "More details" control as Nojoin and MemoryOS keep them, the
-// title (written from the meeting when empty), the people and the notes format (Otter, Hyprnote). The words to hear
-// right are not asked here: they are one list on Settings → Meetings, given to every recording (issue #747, as
+// title (written from the meeting when empty), and the people (Otter, Hyprnote). The words to hear
+// right are not asked here: they are one list on Settings → Dictionary, given to every recording (issue #747, as
 // Nojoin's glossary and OpenNoteTaker's key terms are set once). The meeting's page opens once it is sent.
 
 const schema = z.object({
@@ -50,7 +49,6 @@ const schema = z.object({
   language: z.string(),
   title: z.string().max(200, "At most 200 characters."),
   people: z.string(),
-  format: z.string(),
 })
 
 export function UploadMeeting({ label = "Upload recording" }: { label?: string }) {
@@ -78,16 +76,13 @@ export function UploadMeeting({ label = "Upload recording" }: { label?: string }
 
 function Body({ onDone }: { onDone: () => void }) {
   const upload = useUploadMeeting()
-  const settings = useMeetingSettings()
   const navigate = useNavigate()
-  const formats = settings.data?.formats ?? []
   const form = useForm({
     defaultValues: {
       file: null as File | null,
       language: "auto",
       title: "",
       people: "",
-      format: "general",
     },
     validators: { onSubmit: schema },
     onSubmit: async ({ value }) => {
@@ -101,7 +96,6 @@ function Body({ onDone }: { onDone: () => void }) {
           ...(value.language !== "auto" ? { language: value.language } : {}),
           ...(value.title.trim() ? { title: value.title.trim() } : {}),
           ...(people.length ? { people } : {}),
-          format: value.format,
         },
       })
       toast.add({
@@ -207,46 +201,18 @@ function Body({ onDone }: { onDone: () => void }) {
                           />
                         )}
                       </form.Field>
-                      <form.Field name="format">
-                        {(field) => (
-                          <Field>
-                            <FieldLabel htmlFor="meeting-format">Notes format</FieldLabel>
-                            <Select
-                              value={field.state.value}
-                              onValueChange={(v) => v && field.handleChange(v)}
-                            >
-                              <SelectTrigger id="meeting-format" width="full">
-                                <SelectValue>
-                                  {(v: string) =>
-                                    formats.find((f) => f.id === v)?.name ?? "General"
-                                  }
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <FormatItems formats={formats} />
-                              </SelectContent>
-                            </Select>
-                            <FieldDescription>
-                              {formats
-                                .find((f) => f.id === field.state.value)
-                                ?.sections.map((s) => s.title)
-                                .join(" · ") ?? ""}
-                            </FieldDescription>
-                          </Field>
-                        )}
-                      </form.Field>
                     </FieldGroup>
                   </div>
                 </CollapsibleContent>
               </div>
             </Collapsible>
             <p className="text-xs text-muted-foreground">
-              Names and jargon are heard right from your words on{" "}
+              Names and jargon are heard right from your{" "}
               <Link
-                to="/settings/meetings"
+                to="/settings/dictionary"
                 className="underline underline-offset-2 hover:text-foreground"
               >
-                Settings → Meetings
+                Dictionary
               </Link>
               .
             </p>

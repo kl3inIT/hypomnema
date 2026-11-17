@@ -15,8 +15,9 @@ import (
 // instructions, then the meeting's facts and its numbered lines, then the task again. What a careful note-taker
 // records, an owner who is one person or nobody, and the evidence before the item are MemoryOS's
 // (TranscriptSummarizer.instructions, lines 89-123), which learned them from anarlog, Nojoin and opennotetaker; the
-// format's sections fed to the prompt are Hyprnote's (enhance.user.md.jinja, its Output Template) and Meetily's; the
-// answer is one JSON object as opennotetaker's NOTES_SCHEMA (src/providers/openai.js:30-73) and MemoryOS's
+// sections are the meeting's main topics, each titled by its topic with points on what was said of it, as Hyprnote's
+// Auto, its notes when no template is picked (crates/template-app/assets/enhance.format.md.jinja: a heading per main
+// topic, points on specific details rather than general topics, no nesting; issue #771); the answer is one JSON object as opennotetaker's NOTES_SCHEMA (src/providers/openai.js:30-73) and MemoryOS's
 // TranscriptSummary, written items first, each item's quote and line before its words, so the item is written from
 // its evidence. The answer is then checked (checks.go).
 
@@ -38,7 +39,8 @@ type subject struct {
 	When     time.Time
 	People   []string
 	Language string
-	Format   Format
+	// Names are the dictionary: names and jargon to write exactly as spelled there.
+	Names []string
 }
 
 // languageName names the language the notes are written in.
@@ -59,19 +61,6 @@ func instructions(s subject) string {
 	language := "the language the meeting was held in"
 	if name := languageName(s.Language); name != "" {
 		language = name
-	}
-
-	var sections strings.Builder
-
-	for i, sec := range s.Format.Sections {
-		if sec.About == "" {
-			// A section of the owner's or Hyprnote's may say nothing more than its title.
-			fmt.Fprintf(&sections, "%d. %s\n", i+1, sec.Title)
-
-			continue
-		}
-
-		fmt.Fprintf(&sections, "%d. %s: %s\n", i+1, sec.Title, strings.ReplaceAll(sec.About, "\n", " "))
 	}
 
 	title := ""
@@ -105,9 +94,12 @@ For each item, first copy the sentence it rests on and note its line, then write
 		`several people, or to nobody the transcript makes clear, leave the owner empty and keep the item: it is still ` +
 		`work the meeting expects.
 
-Besides the decisions and the actions, the notes have these sections, each as short points; a section the meeting ` +
-		`said nothing about has no points:
-` + sections.String() + `
+Besides the decisions and the actions, the notes have a section for each main topic the meeting discussed, in the ` +
+		`order they came up, titled by the topic in a few words. Each section has short points on the specific ` +
+		`details said of it: what was reported, the reasons given, the options weighed, the questions left open; not ` +
+		`general statements about the topic. A point does not repeat a decision or an action already listed. Small ` +
+		`talk is not a topic, and a meeting about one thing has one section.
+
 Everything you write must be supported by the transcript. A decision, a piece of work, an owner or a date it does ` +
 		`not contain would mislead the people who rely on these notes; where the transcript is broken or a part of it ` +
 		`is missing, say so in the summary.
@@ -123,7 +115,7 @@ Answer with one JSON object and nothing else, in this order:
 		`sentence that names what is done and to what", "owner": "the one person who does it, as the transcript or ` +
 		`the speaker name before their lines names them, or null", "due": "the deadline in the words the meeting ` +
 		`used, or null"}],
-  "sections": [{"title": "a section's title as listed", "points": ["a short point"]}],
+  "sections": [{"title": "the topic in a few words", "points": ["a short point"]}],
   "summary": "3 to 6 sentences on what the meeting settled and what is still open, outcomes first, in plain ` +
 		`sentences without headings or markup",` + title + `
 }
@@ -147,6 +139,13 @@ func transcript(s subject, lines []meetingstore.Line, shown map[string]string) s
 		b.WriteString("Participants: " + strings.Join(s.People, ", ") + "\n")
 	}
 
+	if len(s.Names) > 0 {
+		// The dictionary, as Hyprnote appends its Preferred Names to the notes prompt
+		// (store/zustand/ai-task/task-configs/preferred-names.ts): speech recognition may still spell them otherwise.
+		b.WriteString("Names and terms, written exactly so wherever they appear, even when the transcript spells " +
+			"them otherwise: " + strings.Join(s.Names, ", ") + "\n")
+	}
+
 	var body strings.Builder
 
 	for _, l := range lines {
@@ -156,7 +155,7 @@ func transcript(s subject, lines []meetingstore.Line, shown map[string]string) s
 	b.WriteString("\n<transcript>\n")
 	b.WriteString(bounded(body.String()))
 	b.WriteString("</transcript>\n\nWrite the notes of this meeting: every decision it settled and every piece of " +
-		"work someone will do, each from the sentence it rests on and its line, then the sections and the summary.\n")
+		"work someone will do, each from the sentence it rests on and its line, then a section for each topic and the summary.\n")
 
 	return b.String()
 }
@@ -295,7 +294,7 @@ func contentText(raw json.RawMessage) string {
 // written turns the model's answer into the notes kept: empty items dropped, a line that is not one of the
 // transcript's forgotten (MemoryOS TranscriptSummarizer.clean), then the checks; an action's owner that is a voice of
 // the meeting is that voice (MemoryOS V197), and each item is placed at the time its line was said.
-func written(a answer, f Format, lines []meetingstore.Line, speakers []meetingstore.Speaker, titled bool,
+func written(a answer, lines []meetingstore.Line, speakers []meetingstore.Speaker, titled bool,
 ) meetingstore.Written {
 	shown := make([]string, 0, len(speakers))
 	byName := map[string]string{}
@@ -329,7 +328,7 @@ func written(a answer, f Format, lines []meetingstore.Line, speakers []meetingst
 
 	decisions, actions := checkItems(items(a.Decisions), items(a.Actions), lines, shown)
 
-	w := meetingstore.Written{Summary: strings.TrimSpace(a.Summary), Sections: sectionsOf(a, f)}
+	w := meetingstore.Written{Summary: strings.TrimSpace(a.Summary), Sections: sectionsOf(a)}
 
 	if !titled {
 		w.Title = titleOf(a.Title)
@@ -363,26 +362,36 @@ func written(a answer, f Format, lines []meetingstore.Line, speakers []meetingst
 	return w
 }
 
-// sectionsOf keeps the format's sections in its order, with the points the model wrote for each.
-func sectionsOf(a answer, f Format) []meetingstore.Section {
-	out := make([]meetingstore.Section, 0, len(f.Sections))
+// sectionsOf keeps the model's sections in its order: one per topic, each with its points; a section without a title
+// or a point is dropped, and one whose title came already joins it.
+func sectionsOf(a answer) []meetingstore.Section {
+	var out []meetingstore.Section
 
-	for _, want := range f.Sections {
-		sec := meetingstore.Section{Title: want.Title, Points: []string{}}
+	at := map[string]int{}
 
-		for _, got := range a.Sections {
-			if meetingstore.Fold(got.Title) != meetingstore.Fold(want.Title) {
-				continue
-			}
+	for _, got := range a.Sections {
+		title := strings.TrimSpace(got.Title)
 
-			for _, p := range got.Points {
-				if p = strings.TrimSpace(p); p != "" {
-					sec.Points = append(sec.Points, p)
-				}
+		var points []string
+
+		for _, p := range got.Points {
+			if p = strings.TrimSpace(p); p != "" {
+				points = append(points, p)
 			}
 		}
 
-		out = append(out, sec)
+		if title == "" || len(points) == 0 {
+			continue
+		}
+
+		if i, ok := at[meetingstore.Fold(title)]; ok {
+			out[i].Points = append(out[i].Points, points...)
+
+			continue
+		}
+
+		at[meetingstore.Fold(title)] = len(out)
+		out = append(out, meetingstore.Section{Title: title, Points: points})
 	}
 
 	return out

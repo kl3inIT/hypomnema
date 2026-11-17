@@ -299,7 +299,8 @@ func (s *Server) ReopenTask(ctx context.Context, req openapi.ReopenTaskRequestOb
 	return openapi.ReopenTask200JSONResponse(toTask(t)), nil
 }
 
-// FollowUpTask asks more of a succeeded Task's worker, as the owner or as the
+// FollowUpTask asks more of the worker of a Task that succeeded or waits at a
+// Gate (issue #714), as the owner or as the
 // Run's coordinator by the caller's token (issue #666).
 func (s *Server) FollowUpTask(ctx context.Context, req openapi.FollowUpTaskRequestObject,
 ) (openapi.FollowUpTaskResponseObject, error) {

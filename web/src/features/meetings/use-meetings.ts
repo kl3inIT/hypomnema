@@ -2,8 +2,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import "@/api/client"
 import {
-  createMeetingFormatMutation,
-  deleteMeetingFormatMutation,
   fixMeetingWordMutation,
   getMeetingOptions,
   getMeetingQueryKey,
@@ -19,7 +17,6 @@ import {
   setMeetingLineSpeakerMutation,
   setMeetingSettingsMutation,
   setMeetingWordsMutation,
-  updateMeetingFormatMutation,
   updateMeetingItemMutation,
   uploadMeetingMutation,
   writeMeetingNotesMutation,
@@ -169,31 +166,6 @@ export function useSetMeetingWords() {
     ...setMeetingWordsMutation(),
     onSuccess: (words) => queryClient.setQueryData(listMeetingWordsQueryKey(), words),
   })
-}
-
-// The owner's notes formats: made, changed and deleted, then the settings that list them are read again.
-function useRefreshSettings() {
-  const queryClient = useQueryClient()
-
-  return () => queryClient.invalidateQueries({ queryKey: getMeetingSettingsQueryKey() })
-}
-
-export function useCreateFormat() {
-  const refresh = useRefreshSettings()
-
-  return useMutation({ ...createMeetingFormatMutation(), onSuccess: () => refresh() })
-}
-
-export function useUpdateFormat() {
-  const refresh = useRefreshSettings()
-
-  return useMutation({ ...updateMeetingFormatMutation(), onSuccess: () => refresh() })
-}
-
-export function useDeleteFormat() {
-  const refresh = useRefreshSettings()
-
-  return useMutation({ ...deleteMeetingFormatMutation(), onSuccess: () => refresh() })
 }
 
 // recordingUrl is where the player reads a meeting's recording; the session's cookie signs the request in.

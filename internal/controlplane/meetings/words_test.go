@@ -12,9 +12,9 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/meetingstore"
 )
 
-// Scenario (issue #747): the owner keeps a word list once; a later meeting is heard with it and with the names
+// Scenario (issues #747, #762): the owner keeps a word list once; a later meeting is heard with it and with the names
 // found elsewhere: the name the owner gave a voice in an earlier meeting, the Bot's and the registered repository's.
-// Each word is given once, the owner's first, and the list says where each comes from.
+// Each word is given once, the owner's first, and the list says where each comes from; the notes are written with them.
 func TestEveryTranscriptionIsGivenTheWordsAndTheNamesFound(t *testing.T) {
 	t.Parallel()
 
@@ -45,6 +45,9 @@ func TestEveryTranscriptionIsGivenTheWordsAndTheNamesFound(t *testing.T) {
 
 	assert.Equal(t, map[string]any{"terms": []any{"MapOps", "Lan", "Minh", "coordinator", "shop"}},
 		w.soniox.job["context"], "the next meeting is heard with every word")
+	require.NotEmpty(t, w.model.asked)
+	assert.Contains(t, w.model.asked[len(w.model.asked)-1], "otherwise: MapOps, Lan, Minh, coordinator, shop\\n",
+		"its notes are written with the same words, spelled as the dictionary has them")
 }
 
 // Scenario: the owner's list is full; the names found past the bound are listed but not sent, so that Soniox's
@@ -130,71 +133,4 @@ func TestAWordHeardWrongIsFixedInALineOrTheWholeMeeting(t *testing.T) {
 
 	w.svc.Work(ctx)
 	assert.Len(t, w.model.asked, 1, "the notes are written again only when the owner asks")
-}
-
-// Scenario: the owner makes a notes format; a meeting uploaded in it is written up with its sections, and written
-// again in it after a change. A built-in format is not changed or deleted. Once the owner deletes it, it is no
-// format to upload or write in; notes still waiting in it are written in the default one.
-func TestTheOwnersFormatsAreMadeChangedAndUsed(t *testing.T) {
-	t.Parallel()
-
-	w := newWorld(t)
-	ctx := t.Context()
-
-	f, err := w.svc.CreateFormat(ctx, " Weekly ops ", []meetings.FormatSection{
-		{Title: "Incidents", About: "What broke,\nand how it was fixed"}, {Title: " "}, {Title: "On call"},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "Weekly ops", f.Name)
-	assert.Equal(t, []meetings.FormatSection{
-		{Title: "Incidents", About: "What broke,\nand how it was fixed"}, {Title: "On call"},
-	}, f.Sections, "an empty section is dropped")
-
-	for _, bad := range [][]meetings.FormatSection{nil, {{About: "no title"}}, make([]meetings.FormatSection, 21)} {
-		for i := range bad {
-			if bad[i].About == "" {
-				bad[i] = meetings.FormatSection{Title: fmt.Sprint("S", i)}
-			}
-		}
-
-		_, err := w.svc.CreateFormat(ctx, "Bad", bad)
-		require.ErrorIs(t, err, orchestration.ErrInvalid)
-	}
-
-	m := w.upload(t, meetings.Upload{Format: f.ID})
-	w.svc.Work(ctx)
-
-	require.Len(t, w.model.asked, 1)
-	assert.Contains(t, w.model.asked[0], "Incidents: What broke, and how it was fixed")
-	assert.Contains(t, w.model.asked[0], "2. On call\\n")
-
-	_, err = w.svc.UpdateFormat(ctx, f.ID, "Weekly ops", []meetings.FormatSection{{Title: "Pages sent"}})
-	require.NoError(t, err)
-	require.NoError(t, w.svc.WriteAgain(ctx, m.ID, f.ID))
-	w.svc.Work(ctx)
-	assert.Contains(t, w.model.asked[1], "Pages sent")
-
-	_, err = w.svc.UpdateFormat(ctx, "general", "Mine", []meetings.FormatSection{{Title: "X"}})
-	require.ErrorIs(t, err, orchestration.ErrInvalid)
-	require.ErrorIs(t, w.svc.DeleteFormat(ctx, "standup"), orchestration.ErrInvalid)
-
-	waiting := w.upload(t, meetings.Upload{Format: f.ID})
-	require.NoError(t, w.svc.DeleteFormat(ctx, f.ID))
-	require.ErrorIs(t, w.svc.DeleteFormat(ctx, f.ID), orchestration.ErrNotFound)
-
-	_, err = w.svc.Upload(ctx, meetings.Upload{Body: nil, FileName: "x.mp3", Format: f.ID})
-	require.ErrorIs(t, err, orchestration.ErrInvalid)
-
-	w.svc.Work(ctx)
-
-	require.Len(t, w.model.asked, 3)
-	assert.Contains(t, w.model.asked[2], "Discussion highlights", "a deleted format's notes are in the default one")
-
-	d, err := w.svc.Get(ctx, waiting.ID)
-	require.NoError(t, err)
-	assert.Equal(t, meetingstore.NotesReady, d.Meeting.Notes.State)
-
-	all, err := w.svc.Formats(ctx)
-	require.NoError(t, err)
-	assert.Len(t, all, len(meetings.Builtins()), "only the built-in ones are left")
 }

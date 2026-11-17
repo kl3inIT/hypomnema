@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -386,6 +387,47 @@ func TestTheCoordinatorChangesWhatAnyBotMayUse(t *testing.T) {
 	made, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher"})
 	require.NoError(t, err, "a Bot it makes may have more than it has")
 	assert.False(t, made.Workers.Limited)
+}
+
+// Scenario: two changes of one Bot are made in the same millisecond, the later with the smaller id, as random ids
+// fall. The list is in the order they were made and the undo takes the later one only (issue #758).
+func TestChangesInOneMillisecondKeepTheOrderTheyWereMade(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	n := 1000
+	w.s.newID = func(prefix string) string {
+		n--
+
+		return fmt.Sprintf("%s_%04d", prefix, n)
+	}
+
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	require.NoError(t, err)
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	for _, persona := range []string{"You answer about maps.", "You answer about roads."} {
+		_, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{ID: vmapBot.ID, Name: "vmap", Persona: persona})
+		require.NoError(t, err)
+	}
+
+	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, changes, 2)
+	assert.Greater(t, changes[0].ID, changes[1].ID, "the later change has the smaller id")
+	assert.False(t, changes[0].CanUndo, "a later change of the Bot came after it")
+	assert.True(t, changes[1].CanUndo, changes[1].Problem)
+
+	_, err = w.s.UndoSetupChange(ctx, changes[1].ID)
+	require.NoError(t, err)
+
+	vmap, err := w.s.GetBot(ctx, vmapBot.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "You answer about maps.", vmap.Persona, "the later change is undone")
 }
 
 // Scenario: a profile that asks for its own CPU and memory is changed from a

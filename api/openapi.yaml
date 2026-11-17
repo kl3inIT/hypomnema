@@ -224,12 +224,13 @@ paths:
       - $ref: "#/components/parameters/TaskID"
     post:
       operationId: FollowUpTask
-      summary: Ask more of a succeeded Task's worker, which continues its own conversation
+      summary: Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
       description: >-
         The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same
-        worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose
-        worker's Conversation is still open takes one; otherwise the work is a new Task from the branch
-        hyp/<task_id>.
+        worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a
+        gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task
+        from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed
+        with the reason superseded.
       requestBody:
         required: true
         content:
@@ -3382,7 +3383,7 @@ paths:
       description: >-
         The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the
         background with speakers by the gateway's speech-to-text, given the words to hear right (GET
-        /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked.
+        /meeting-words); the notes model picked on the meetings' settings then writes the notes, a section per topic.
         The meeting is answered at once, transcribing.
       parameters:
         - name: file_name
@@ -3405,10 +3406,6 @@ paths:
           in: query
           description: Who was in the meeting; they help name the speakers.
           schema: { type: array, maxItems: 30, items: { type: string, maxLength: 100 } }
-        - name: format
-          in: query
-          description: The notes format's id (GET /meeting-settings lists them); absent, general.
-          schema: { type: string, maxLength: 64 }
       requestBody:
         required: true
         content:
@@ -3459,13 +3456,8 @@ paths:
       - $ref: "#/components/parameters/MeetingID"
     post:
       operationId: WriteMeetingNotes
-      summary: Write a meeting's notes again, in a format; only the owner
+      summary: Write a meeting's notes again; only the owner
       description: Refused (conflict) while they are being written or before the meeting is transcribed.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/WriteMeetingNotesRequest" }
       responses:
         "202":
           description: The meeting, its notes being written.
@@ -3590,7 +3582,7 @@ paths:
   /meeting-settings:
     get:
       operationId: GetMeetingSettings
-      summary: The model that writes notes, and the notes formats, built-in and the owner's
+      summary: The model that writes notes
       responses:
         "200":
           description: The settings.
@@ -3612,53 +3604,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MeetingSettings" }
-        default: { $ref: "#/components/responses/Error" }
-  /meeting-formats:
-    post:
-      operationId: CreateMeetingFormat
-      summary: Make a notes format of the owner's; only the owner
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/MeetingFormatInput" }
-      responses:
-        "201":
-          description: The format.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/MeetingFormat" }
-        default: { $ref: "#/components/responses/Error" }
-  /meeting-formats/{format_id}:
-    parameters:
-      - name: format_id
-        in: path
-        required: true
-        schema: { type: string, minLength: 1, maxLength: 64 }
-    put:
-      operationId: UpdateMeetingFormat
-      summary: Change a notes format of the owner's; only the owner
-      description: A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/MeetingFormatInput" }
-      responses:
-        "200":
-          description: The format.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/MeetingFormat" }
-        default: { $ref: "#/components/responses/Error" }
-    delete:
-      operationId: DeleteMeetingFormat
-      summary: Delete a notes format of the owner's; only the owner
-      description: >-
-        Notes written in it keep their sections; written again without another format, they are in the general one.
-        A built-in format is refused (bad request).
-      responses:
-        "204": { description: The format is deleted. }
         default: { $ref: "#/components/responses/Error" }
   /meeting-words:
     get:
@@ -7981,8 +7926,10 @@ components:
         chat's Runs; failed, pi's model call failed; stopped, the owner stopped
         the turn; approval, the coordinator is told the owner answered an
         Approval; artifact, an artifact a Bot showed, which its next
-        revision updates.
-      enum: [wake, failed, stopped, approval, artifact]
+        revision updates; continued, the control plane restarted and woke
+        the Bot to continue the turn the restart cut; cut, a restart cut the
+        turn and it is not continued.
+      enum: [wake, failed, stopped, approval, artifact, continued, cut]
     ChatPart:
       type: object
       description: >-
@@ -8349,16 +8296,15 @@ components:
         points: { type: array, items: { type: string } }
     MeetingNotes:
       type: object
-      required: [format, state, summary, sections]
+      required: [state, summary, sections]
       properties:
-        format: { type: string, description: The notes format's id. }
         state: { $ref: "#/components/schemas/MeetingNotesState" }
         failure: { type: string, description: Why writing them failed, and where to fix it. }
         model: { type: string, description: The gateway model that wrote them. }
         summary: { type: string }
         sections:
           type: array
-          description: The format's sections, in its order.
+          description: A section per topic the meeting discussed, in the order they came up.
           items: { $ref: "#/components/schemas/MeetingSection" }
         written_at: { type: string, format: date-time }
     MeetingSpeaker:
@@ -8461,12 +8407,6 @@ components:
           type: array
           description: Names offered for unnamed voices, from the lines they introduced themselves in.
           items: { $ref: "#/components/schemas/SpeakerSuggestion" }
-    WriteMeetingNotesRequest:
-      type: object
-      required: [format]
-      additionalProperties: false
-      properties:
-        format: { type: string, minLength: 1, maxLength: 64 }
     MeetingWordFix:
       type: object
       required: [from, to]
@@ -8521,38 +8461,6 @@ components:
           type: array
           description: Everyone who has an action, open or done, by the name shown.
           items: { type: string }
-    MeetingFormatSection:
-      type: object
-      required: [title, about]
-      properties:
-        title: { type: string }
-        about: { type: string }
-    MeetingFormat:
-      type: object
-      required: [id, name, sections, builtin]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        sections: { type: array, items: { $ref: "#/components/schemas/MeetingFormatSection" } }
-        builtin: { type: boolean, description: Shipped with the control plane; copied rather than changed. }
-    MeetingFormatInput:
-      type: object
-      required: [name, sections]
-      additionalProperties: false
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-        sections:
-          type: array
-          minItems: 1
-          maxItems: 20
-          items: { $ref: "#/components/schemas/MeetingFormatSectionInput" }
-    MeetingFormatSectionInput:
-      type: object
-      required: [title]
-      additionalProperties: false
-      properties:
-        title: { type: string, minLength: 1, maxLength: 100 }
-        about: { type: string, maxLength: 500, description: A short instruction of what the section holds. }
     MeetingWordSource:
       type: string
       description: >-
@@ -8585,10 +8493,9 @@ components:
           items: { type: string, minLength: 1, maxLength: 100 }
     MeetingSettings:
       type: object
-      required: [notes_model, formats]
+      required: [notes_model]
       properties:
         notes_model: { type: string, description: The gateway chat model that writes notes; empty for none. }
-        formats: { type: array, items: { $ref: "#/components/schemas/MeetingFormat" } }
     MeetingSettingsUpdate:
       type: object
       required: [notes_model]
