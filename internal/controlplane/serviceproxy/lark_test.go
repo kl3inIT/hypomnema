@@ -121,3 +121,81 @@ func TestLarkCLIsHelpersRequestsAreTheirCommandsRisk(t *testing.T) {
 		assert.Equal(t, action, catalog.Match(request[0], larkHost, request[1]).ID, request[0]+" "+request[1])
 	}
 }
+
+// larkSample is a request a route of the Lark catalog matches: each parameter "1", the rest of a part "z1/z2".
+func larkSample(path string) string {
+	return larkParameter.ReplaceAllString(strings.ReplaceAll(path, "{rest...}", "z1/z2"), "1")
+}
+
+// larkRank orders Lark's actions from the one that asks least: a read, a write, a high-risk change, and what no
+// action names, which always asks.
+func larkRank(id string) int {
+	switch {
+	case id == "lark.unlisted":
+		return 3
+	case strings.HasSuffix(id, ".risky"):
+		return 2
+	case strings.HasSuffix(id, ".write"):
+		return 1
+	}
+
+	return 0
+}
+
+// Scenario: regenerating the catalog from lark-cli's source (#742) lets no request through that asked before
+// (review of #794). Every route of the catalog before (testdata/lark_methods_before_742.json, main at 5547f61d) and
+// of the generated one, each method's path and each service's rest of its part, is the same action as before, or
+// one of its own service that asks more, or something unnamed. The only exceptions are the twelve queries lark-cli
+// marks as reads, which asked as writes or as unnamed before.
+func TestNoLarkRequestAsksLessThanBefore(t *testing.T) {
+	t.Parallel()
+
+	reads := map[string]bool{
+		"POST /open-apis/im/v1/chats/batch_query":                       true,
+		"POST /open-apis/im/v1/chat_p2p/batch_query":                    true,
+		"POST /open-apis/im/v1/chat_user_setting/batch_get_mute_status": true,
+		"POST /open-apis/im/v2/chats/search":                            true,
+		"POST /open-apis/contact/v3/users/search":                       true,
+		"POST /open-apis/bot/v4/bot/search":                             true,
+		"POST /open-apis/calendar/v4/freebusy/batch":                    true,
+		"POST /open-apis/calendar/v4/freebusy/room_find":                true,
+		"POST /open-apis/calendar/v4/freebusy/suggestion":               true,
+		"POST /open-apis/drive/v1/export_tasks":                         true,
+		"POST /open-apis/board/v1/whiteboards/1/export":                 true,
+		"POST /open-apis/vc/v1/bots/screenshot":                         true,
+	}
+
+	before, err := os.ReadFile("testdata/lark_methods_before_742.json")
+	require.NoError(t, err)
+
+	old, err := serviceproxy.LarkCatalogOf(before)
+	require.NoError(t, err)
+
+	now, ok := serviceproxy.CatalogOf("lark")
+	require.True(t, ok)
+
+	service := func(id string) string { return id[:strings.LastIndex(id, ".")] }
+	exceptions := map[string]bool{}
+
+	for _, c := range []serviceproxy.Catalog{old, now} {
+		for _, a := range c.Actions {
+			for _, r := range a.Routes {
+				request := r.Method + " " + larkSample(r.Path)
+				was, is := old.Match(r.Method, larkHost, larkSample(r.Path)).ID, now.Match(r.Method, larkHost,
+					larkSample(r.Path)).ID
+
+				switch {
+				case was == is:
+				case reads[request] && strings.HasSuffix(is, ".read"):
+					exceptions[request] = true
+				case is == "lark.unlisted",
+					larkRank(is) > larkRank(was) && service(is) == service(was):
+				default:
+					t.Errorf("%s asked as %s and is %s", request, was, is)
+				}
+			}
+		}
+	}
+
+	assert.Len(t, exceptions, len(reads), "each of the twelve reads is one")
+}

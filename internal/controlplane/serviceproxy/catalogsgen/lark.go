@@ -35,9 +35,11 @@ const (
 // (serviceproxy/lark.go, larkServices; issue #236). A part a shortcut calls that is in neither fails the generation,
 // so that a new one is named here by hand.
 var larkParts = map[string]string{
-	"authen":   "contact",
-	"base":     "base",
-	"board":    "whiteboard",
+	"authen": "contact",
+	"base":   "base",
+	"board":  "whiteboard",
+	// Only contact +search-bot's own search: the rest of /open-apis/bot is no service's (serviceproxy/lark.go,
+	// larkNamedOnly).
 	"bot":      "contact",
 	"contact":  "contact",
 	"docs_ai":  "doc",

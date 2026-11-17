@@ -93,6 +93,12 @@ var larkMethodList = sync.OnceValue(func() []larkMethod {
 
 var larkCatalog = sync.OnceValue(func() Catalog { return larkCatalogOf(larkMethodList()) })
 
+// larkNamedOnly are parts of the API a service has only a method or two of, borrowed from a part that is no
+// service's: contact +search-bot searches bots with POST /open-apis/bot/v4/bot/search (issue #742). Their methods are
+// the service's, but the rest of the part is not: adding a bot to a chat (POST /open-apis/bot/v4/add) must not
+// become a write of Contacts, and still asks as unnamed, and a GET there reads as everything else.
+var larkNamedOnly = map[string]bool{"/open-apis/bot": true}
+
 // larkCatalogOf is the catalog a list of methods makes.
 func larkCatalogOf(methods []larkMethod) Catalog {
 	routes := map[string][]Route{}
@@ -105,7 +111,7 @@ func larkCatalogOf(methods []larkMethod) Catalog {
 
 		if segments := strings.Split(strings.Trim(m.Path, "/"), "/"); len(segments) > 1 {
 			part := "/" + segments[0] + "/" + segments[1]
-			if !slices.Contains(parts[m.Service], part) {
+			if !larkNamedOnly[part] && !slices.Contains(parts[m.Service], part) {
 				parts[m.Service] = append(parts[m.Service], part)
 			}
 		}
