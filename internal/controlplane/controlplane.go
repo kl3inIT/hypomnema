@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/zalo"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
@@ -126,6 +127,9 @@ type Config struct {
 	// programs, its profile with the owner's sign-ins, and its sockets. From
 	// HYPOMNEMA_BROWSER_DIR; empty: `browser` beside the database.
 	BrowserDir string
+	// MeetingsDir holds the meetings' recordings (issue #721), from HYPOMNEMA_MEETINGS_DIR; empty: `meetings`
+	// beside the database, as the browser's folder.
+	MeetingsDir string
 	// BrowserOff gives no agent the shared browser, from HYPOMNEMA_BROWSER=0
 	// (issue #212). Agents have it otherwise, as T3 Code's and OpenMausBot's
 	// have theirs unless a setting turns it off.
@@ -175,6 +179,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			ClientSecret: env.String(envPrefix+"_ANTIGRAVITY_CLIENT_SECRET", ""),
 		},
 		BrowserDir:       env.String(envPrefix+"_BROWSER_DIR", ""),
+		MeetingsDir:      env.String(envPrefix+"_MEETINGS_DIR", ""),
 		BrowserOff:       env.String(envPrefix+"_BROWSER", "1") == "0",
 		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
 		BrowserLanguage:  browser.Language(env.String(envPrefix+"_BROWSER_LANG", ""), getenv),
@@ -184,6 +189,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 
 	if cfg.BrowserDir == "" {
 		cfg.BrowserDir = filepath.Join(filepath.Dir(cfg.Database.Path), "browser")
+	}
+
+	if cfg.MeetingsDir == "" {
+		cfg.MeetingsDir = filepath.Join(filepath.Dir(cfg.Database.Path), "meetings")
 	}
 
 	cfg.CoordinatorToken = env.String(envPrefix+"_COORDINATOR_TOKEN", "pi-coordinator")
@@ -505,6 +514,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agents.WithRoutines(routineRunner)
 	agents.WithGitSSHKey(sshKey.Pair)
 
+	// The meetings (issue #721): a recording heard by the gateway's speech service and written up by the owner's
+	// notes model, in the background, both counted on the meetings' gateway key.
+	meetingWork, err := meetings.New(meetings.Config{
+		Dir: cfg.MeetingsDir, Store: svc.Meetings(), Speech: voice, Models: gatewayServer, Usage: gateway,
+		Wake: svc.Subscribe, Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).WithGitSSHKey(sshKey).
@@ -517,6 +536,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
 		WithBuiltinSkills(builtinSkills).
 		WithRoutines(routineRunner).
+		WithMeetings(meetingWork).
 		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
 		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
 		WithImages(botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
@@ -647,6 +667,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = runtime.Run(ctx)
 	}()
 
+	// The meetings' recordings are heard and their notes written; a step the last stop interrupted is taken up again.
+	meetingsDone := make(chan struct{})
+
+	go func() {
+		defer close(meetingsDone)
+
+		meetingWork.Run(ctx)
+	}()
+
 	// Idle tabs and the idle Chrome are closed while the server runs, and Chrome when it stops.
 	browserDone := make(chan struct{})
 
@@ -661,6 +690,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	cancel(nil)
 	<-pprofDone
 	<-browserDone
+	<-meetingsDone
 	<-routinesDone
 	<-channelsDone
 	<-loopDone

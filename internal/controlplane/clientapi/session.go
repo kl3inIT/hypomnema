@@ -54,6 +54,8 @@ type caller struct {
 	address string
 	// sessionID is the web session the request was authenticated by, if any.
 	sessionID string
+	// ranges are the request's Range and If-Range, which a recording's answer reads (issue #721).
+	ranges http.Header
 }
 
 type callerKey struct{}
@@ -84,6 +86,7 @@ func newCaller(r *http.Request) caller {
 	return caller{
 		secure:  r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
 		address: host,
+		ranges:  http.Header{"Range": r.Header.Values("Range"), "If-Range": r.Header.Values("If-Range")},
 	}
 }
 

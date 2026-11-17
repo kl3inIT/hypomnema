@@ -296,6 +296,10 @@ type TranscribeRequest struct {
 	Language string
 	// Speakers asks who spoke when.
 	Speakers bool
+	// Terms are words to hear right, such as names and jargon. Soniox is given them as its job's context.terms, as
+	// MemoryOS (voice/SonioxAsync.java:82) and LiteLLM (llms/soniox/audio_transcription/transformation.py, the
+	// context parameter) send them; ElevenLabs is not, as no reference sends it any.
+	Terms []string
 	// Provider asks only this provider; empty: the first that answers.
 	Provider string
 }

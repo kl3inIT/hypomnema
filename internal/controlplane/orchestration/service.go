@@ -13,6 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/meetingstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/userstore"
@@ -40,6 +41,8 @@ type Service struct {
 	channels *channelstore.Store
 	// routines is the domain store of the Routines, their runs and grants.
 	routines *routinestore.Store
+	// meetings is the domain store of the meetings (issue #721).
+	meetings *meetingstore.Store
 	// chatKeys revokes a deleted chat's gateway keys (issue #405).
 	chatKeys ChatKeys
 }
@@ -72,6 +75,7 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 	s.memories = memorystore.New(s.db, s.clock, s.notify.signal)
 	s.channels = channelstore.New(s.db, s.clock, s.notify.signal)
 	s.routines = routinestore.New(s.db, s.clock, s.newID, s.notify.signal)
+	s.meetings = meetingstore.New(s.db, s.clock, s.newID, s.notify.signal)
 
 	return s
 }
@@ -95,6 +99,10 @@ func (s *Service) Channels() *channelstore.Store { return s.channels }
 // approvals too, stays here (RunRoutineNow, ClaimDueRoutines,
 // FinishRoutineRun).
 func (s *Service) Routines() *routinestore.Store { return s.routines }
+
+// Meetings returns the store of the meetings, their transcripts and notes (issue #721), over the same connection,
+// clock and ids, waking the same event readers.
+func (s *Service) Meetings() *meetingstore.Store { return s.meetings }
 
 // write runs fn in one transaction and wakes event readers after the commit.
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {

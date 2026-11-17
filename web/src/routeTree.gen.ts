@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as GridRouteImport } from './routes/grid'
 import { Route as MachinesRouteImport } from './routes/machines'
+import { Route as MeetingsRouteImport } from './routes/meetings'
 import { Route as RoutinesRouteImport } from './routes/routines'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
@@ -22,6 +23,7 @@ import { Route as BotsIndexRouteImport } from './routes/bots.index'
 import { Route as BotsIdRouteImport } from './routes/bots.$id'
 import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
+import { Route as MeetingsMeetingIdRouteImport } from './routes/meetings_.$meetingId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
 import { Route as SettingsAudioRouteImport } from './routes/settings.audio'
@@ -29,6 +31,7 @@ import { Route as SettingsChannelsRouteImport } from './routes/settings.channels
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsImagesRouteImport } from './routes/settings.images'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
+import { Route as SettingsMeetingsRouteImport } from './routes/settings.meetings'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
@@ -51,6 +54,11 @@ const GridRoute = GridRouteImport.update({
 const MachinesRoute = MachinesRouteImport.update({
   id: '/machines',
   path: '/machines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MeetingsRoute = MeetingsRouteImport.update({
+  id: '/meetings',
+  path: '/meetings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RoutinesRoute = RoutinesRouteImport.update({
@@ -103,6 +111,11 @@ const ChatsChatIdRoute = ChatsChatIdRouteImport.update({
   path: '/chats/$chatId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MeetingsMeetingIdRoute = MeetingsMeetingIdRouteImport.update({
+  id: '/meetings_/$meetingId',
+  path: '/meetings/$meetingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
@@ -136,6 +149,11 @@ const SettingsImagesRoute = SettingsImagesRouteImport.update({
 const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   id: '/settings/integrations',
   path: '/settings/integrations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsMeetingsRoute = SettingsMeetingsRouteImport.update({
+  id: '/settings/meetings',
+  path: '/settings/meetings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsModelsRoute = SettingsModelsRouteImport.update({
@@ -183,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
+  '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
@@ -191,12 +210,14 @@ export interface FileRoutesByFullPath {
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
+  '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/meetings': typeof SettingsMeetingsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -213,6 +234,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
+  '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
@@ -221,12 +243,14 @@ export interface FileRoutesByTo {
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
+  '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/meetings': typeof SettingsMeetingsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -244,6 +268,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
+  '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
@@ -252,12 +277,14 @@ export interface FileRoutesById {
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
+  '/meetings_/$meetingId': typeof MeetingsMeetingIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/meetings': typeof SettingsMeetingsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -276,6 +303,7 @@ export interface FileRouteTypes {
     | '/'
     | '/grid'
     | '/machines'
+    | '/meetings'
     | '/routines'
     | '/team'
     | '/agents/$name'
@@ -284,12 +312,14 @@ export interface FileRouteTypes {
     | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
+    | '/meetings/$meetingId'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
+    | '/settings/meetings'
     | '/settings/models'
     | '/settings/repositories'
     | '/settings/usage'
@@ -306,6 +336,7 @@ export interface FileRouteTypes {
     | '/'
     | '/grid'
     | '/machines'
+    | '/meetings'
     | '/routines'
     | '/team'
     | '/agents/$name'
@@ -314,12 +345,14 @@ export interface FileRouteTypes {
     | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
+    | '/meetings/$meetingId'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
+    | '/settings/meetings'
     | '/settings/models'
     | '/settings/repositories'
     | '/settings/usage'
@@ -336,6 +369,7 @@ export interface FileRouteTypes {
     | '/'
     | '/grid'
     | '/machines'
+    | '/meetings'
     | '/routines'
     | '/team'
     | '/agents/$name'
@@ -344,12 +378,14 @@ export interface FileRouteTypes {
     | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
+    | '/meetings_/$meetingId'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
+    | '/settings/meetings'
     | '/settings/models'
     | '/settings/repositories'
     | '/settings/usage'
@@ -367,6 +403,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GridRoute: typeof GridRoute
   MachinesRoute: typeof MachinesRoute
+  MeetingsRoute: typeof MeetingsRoute
   RoutinesRoute: typeof RoutinesRoute
   TeamRoute: typeof TeamRoute
   AgentsNameRoute: typeof AgentsNameRoute
@@ -375,12 +412,14 @@ export interface RootRouteChildren {
   BotsIdRoute: typeof BotsIdRoute
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
+  MeetingsMeetingIdRoute: typeof MeetingsMeetingIdRoute
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
   SettingsAudioRoute: typeof SettingsAudioRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsImagesRoute: typeof SettingsImagesRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
+  SettingsMeetingsRoute: typeof SettingsMeetingsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsUsageRoute: typeof SettingsUsageRoute
@@ -415,6 +454,13 @@ declare module '@tanstack/react-router' {
       path: '/machines'
       fullPath: '/machines'
       preLoaderRoute: typeof MachinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/meetings': {
+      id: '/meetings'
+      path: '/meetings'
+      fullPath: '/meetings'
+      preLoaderRoute: typeof MeetingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/routines': {
@@ -487,6 +533,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatsChatIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/meetings_/$meetingId': {
+      id: '/meetings_/$meetingId'
+      path: '/meetings/$meetingId'
+      fullPath: '/meetings/$meetingId'
+      preLoaderRoute: typeof MeetingsMeetingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/': {
       id: '/settings/'
       path: '/settings'
@@ -534,6 +587,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/integrations'
       fullPath: '/settings/integrations'
       preLoaderRoute: typeof SettingsIntegrationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/meetings': {
+      id: '/settings/meetings'
+      path: '/settings/meetings'
+      fullPath: '/settings/meetings'
+      preLoaderRoute: typeof SettingsMeetingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/models': {
@@ -599,6 +659,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GridRoute: GridRoute,
   MachinesRoute: MachinesRoute,
+  MeetingsRoute: MeetingsRoute,
   RoutinesRoute: RoutinesRoute,
   TeamRoute: TeamRoute,
   AgentsNameRoute: AgentsNameRoute,
@@ -607,12 +668,14 @@ const rootRouteChildren: RootRouteChildren = {
   BotsIdRoute: BotsIdRoute,
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
+  MeetingsMeetingIdRoute: MeetingsMeetingIdRoute,
   SettingsAboutYouRoute: SettingsAboutYouRoute,
   SettingsAudioRoute: SettingsAudioRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsImagesRoute: SettingsImagesRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
+  SettingsMeetingsRoute: SettingsMeetingsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsUsageRoute: SettingsUsageRoute,
