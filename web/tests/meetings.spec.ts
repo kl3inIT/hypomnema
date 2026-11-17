@@ -4,8 +4,8 @@ import { shot } from "./shot.js"
 
 // The Meetings pages (issues #721, #747), built, against a fake client API, on a phone and a desktop: the list
 // grouped by day, the upload dialog, a meeting's page with its player, notes and transcript, the speaker picker, a
-// word fixed in the transcript, the Actions tab, Settings → Meetings (the notes model, the words to hear right, the
-// notes formats) and the way back from Settings.
+// word fixed in the transcript, the Actions and Formats tabs, Settings' Meetings group (issue #762: the dictionary and
+// the notes model) and the way back from Settings.
 
 function at(daysAgo: number, hour: number, minute = 0) {
   const d = new Date()
@@ -563,7 +563,7 @@ test("the owner uploads a recording with its details", async ({ page }) => {
   await dialog.getByLabel("Title").fill("Stand-up 17/11")
   await dialog.getByLabel("People").fill("Laura, Kai")
   await expect(dialog.getByLabel("Words to hear right")).toHaveCount(0)
-  await expect(dialog.getByRole("link", { name: "Settings → Meetings" })).toBeVisible()
+  await expect(dialog.getByRole("link", { name: "Dictionary" })).toBeVisible()
   await dialog.getByLabel("Notes format").click()
   await expect(page.getByRole("group", { name: "Yours" }).getByRole("option")).toHaveText([
     "Weekly ops",
@@ -689,11 +689,11 @@ test("the owner follows the actions across meetings", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Weekly sync with Kai", level: 2 })).toBeVisible()
 })
 
-// Scenario: Settings → Meetings has no notes model yet; the owner picks one of the gateway's chat models with the
+// Scenario: Settings → Notes model has no model yet; the owner picks one of the gateway's chat models with the
 // one-model picker the Bots use, then sets it back to none.
 test("the owner picks the model that writes notes", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/meetings")
+  await page.goto("/settings/notes-model")
 
   const model = page.getByTestId("notes-model").getByRole("combobox")
   await expect(model).toContainText("None: notes are not written")
@@ -709,12 +709,13 @@ test("the owner picks the model that writes notes", async ({ page }) => {
   await expect.poll(() => calls).toContain("PUT /meeting-settings ")
 })
 
-// Scenario: the owner's words to hear right are listed with the names added for them (a speaker, a Bot, a
+// Scenario: the owner's dictionary is listed with the names added for them (a speaker, a Bot, a
 // repository), each marked with where it comes from. The owner adds two at once and removes one; each change sends
 // the owner's whole list.
-test("the owner keeps the words to hear right", async ({ page }) => {
+test("the owner keeps the dictionary", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/meetings")
+  await page.goto("/settings/dictionary")
+  await expect(page.getByRole("heading", { name: "Dictionary", level: 1 })).toBeVisible()
 
   const own = page.getByRole("list", { name: "Your words" })
   await expect(own.getByRole("listitem")).toHaveText(["MapOps", "ĐKSD"])
@@ -737,10 +738,13 @@ test("the owner keeps the words to hear right", async ({ page }) => {
 
 // Scenario: the owner copies a built-in format to change it (Hyprnote's Duplicate): the editor opens on "… (Copy)"
 // with its sections; the owner adds a section below the first, moves it up, deletes another, and saves it as their
-// own. Then the owner edits their own format and deletes it; a built-in one has no Edit or Delete.
+// own. Then the owner edits their own format and deletes it; a built-in one has no Edit or Delete. The formats are a
+// tab of the Meetings page, which has no way into Settings of its own (issue #762).
 test("the owner makes, changes and deletes notes formats", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/meetings")
+  await page.goto("/meetings")
+  await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0)
+  await page.getByRole("tab", { name: "Formats" }).click()
 
   const builtIn = page.getByRole("list", { name: "Built-in formats" })
   await expect(builtIn.getByTestId("format")).toHaveCount(builtins.length)
@@ -838,7 +842,7 @@ test("the owner fixes a word heard wrong in the transcript", async ({ page }) =>
   await expect(behind).toHaveCount(0)
 })
 
-// Scenario: from the Meetings page, the owner follows the upload dialog's link into Settings → Meetings; "Back to
+// Scenario: from the Meetings page, the owner follows the upload dialog's link into Settings → Dictionary; "Back to
 // app" returns to Meetings, not home (moving between Settings' own pages keeps it: back-from-settings.test.ts).
 // Settings opened straight away goes back home. The sidebar of Settings is a desktop's; a phone goes back with its
 // drawer.
@@ -849,15 +853,15 @@ test("Back to app returns to the page the owner came from", async ({ page, isMob
 
   const dialog = page.getByRole("dialog", { name: "Upload a recording" })
   await page.getByRole("button", { name: "Upload recording" }).first().click()
-  await dialog.getByRole("link", { name: "Settings → Meetings" }).click()
-  await expect(page).toHaveURL(/\/settings\/meetings$/)
+  await dialog.getByRole("link", { name: "Dictionary" }).click()
+  await expect(page).toHaveURL(/\/settings\/dictionary$/)
   await shot(page, "settings-back-to-app")
   await page.getByRole("link", { name: "Back to app" }).click()
   await expect(page).toHaveURL(/\/meetings$/)
   await expect(page.getByRole("heading", { name: "Meetings", level: 1 })).toBeVisible()
 
   await page.evaluate("sessionStorage.clear()")
-  await page.goto("/settings/meetings")
+  await page.goto("/settings/dictionary")
   await page.getByRole("link", { name: "Back to app" }).click()
   await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/)
 })

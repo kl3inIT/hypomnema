@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
 
 import { SettingsSidebar } from "@/components/settings-page"
-import { MeetingsSettingsScreen } from "@/features/meetings/meetings-settings-screen"
+import { DictionarySettingsScreen } from "@/features/meetings/meetings-settings-screen"
 
-export const Route = createFileRoute("/settings/meetings")({
+export const Route = createFileRoute("/settings/dictionary")({
   component: () => (
     <>
       <SettingsSidebar />
-      <MeetingsSettingsScreen />
+      <DictionarySettingsScreen />
     </>
   ),
 })

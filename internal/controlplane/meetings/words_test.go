@@ -12,9 +12,9 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/meetingstore"
 )
 
-// Scenario (issue #747): the owner keeps a word list once; a later meeting is heard with it and with the names
+// Scenario (issues #747, #762): the owner keeps a word list once; a later meeting is heard with it and with the names
 // found elsewhere: the name the owner gave a voice in an earlier meeting, the Bot's and the registered repository's.
-// Each word is given once, the owner's first, and the list says where each comes from.
+// Each word is given once, the owner's first, and the list says where each comes from; the notes are written with them.
 func TestEveryTranscriptionIsGivenTheWordsAndTheNamesFound(t *testing.T) {
 	t.Parallel()
 
@@ -45,6 +45,9 @@ func TestEveryTranscriptionIsGivenTheWordsAndTheNamesFound(t *testing.T) {
 
 	assert.Equal(t, map[string]any{"terms": []any{"MapOps", "Lan", "Minh", "coordinator", "shop"}},
 		w.soniox.job["context"], "the next meeting is heard with every word")
+	require.NotEmpty(t, w.model.asked)
+	assert.Contains(t, w.model.asked[len(w.model.asked)-1], "otherwise: MapOps, Lan, Minh, coordinator, shop\\n",
+		"its notes are written with the same words, spelled as the dictionary has them")
 }
 
 // Scenario: the owner's list is full; the names found past the bound are listed but not sent, so that Soniox's
