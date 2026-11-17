@@ -128,7 +128,7 @@ async function call(api, path, payload) {
     api.custom(name, async ({ ctx, utils, props }) => {
       const params = utils.encodeAES(JSON.stringify({ ...props, imei: ctx.imei }));
       if (!params) throw new Error("the request's params could not be encrypted");
-      const url = utils.makeURL(`${ctx.zpwServiceMap.file[0]}/api/message/${path}`,
+      const url = utils.makeURL(`${api.zpwServiceMap.file[0]}/api/message/${path}`,
         { zpw_ver: ctx.API_VERSION, zpw_type: ctx.API_TYPE, params, nretry: 0 }, false);
 
       return utils.resolve(await utils.request(url, { method: "GET" }));
@@ -173,7 +173,7 @@ export async function noised(api, fids, gids) {
       if (!params) throw new Error("the request's params could not be encrypted");
       let data;
       try {
-        data = await utils.resolve(await utils.request(utils.makeURL(`${ctx.zpwServiceMap.profile[0]}/api/znoise`, { params }), { method: "GET" }));
+        data = await utils.resolve(await utils.request(utils.makeURL(`${api.zpwServiceMap.profile[0]}/api/znoise`, { params }), { method: "GET" }));
       } catch (err) {
         try {
           data = await utils.resolve(await utils.request(utils.makeURL("https://zwid.api.zalo.me/api/znoise"),
