@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/prices"
 )
 
 // respond sends a Responses request, as the Codex CLI does, and returns the
@@ -249,4 +250,37 @@ func TestAClientThatLeavesAfterTheEndWasAnswered(t *testing.T) {
 			assert.Equal(t, modelgateway.Tokens{Prompt: 30, Completion: 7, Cached: 20, Reasoning: 4}, usage.Tokens)
 		}
 	}
+}
+
+// Scenario (issue #723, decision 3.1): a Codex worker's model searched the
+// web twice with the hosted web_search tool. Each search is a web_search_call
+// item, told when it is added and when it is done; the row counts two
+// searches beside the tokens, each priced at LiteLLM's price of a search.
+func TestResponsesCountTheModelsOwnWebSearches(t *testing.T) {
+	t.Parallel()
+
+	searched := []string{
+		event(`{"type":"response.created","response":{"id":"resp_1"}}`),
+		event(`{"type":"response.output_item.added","item":{"type":"web_search_call","id":"ws_1","status":"in_progress"}}`),
+		event(`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_1","status":"completed",` +
+			`"action":{"type":"search","query":"go 1.27"}}}`),
+		event(`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws_2","status":"completed"}}`),
+		event(`{"type":"response.output_item.done","item":{"type":"message","id":"msg_1"}}`),
+		helloEvents[3],
+	}
+
+	backend, _ := codexBackend(t, stream(searched...))
+	g := newCodexGateway(t, backend, &accounts{})
+
+	status, _, body := g.respond(t, g.key, codexAsks, "session-id", "sess-1")
+	require.Equal(t, http.StatusOK, status, body)
+
+	usage := g.lastUsage(t)
+	assert.Equal(t, int64(2), usage.WebSearches)
+	assert.Equal(t, modelgateway.Tokens{Prompt: 30, Completion: 7, Cached: 20, Reasoning: 4}, usage.Tokens)
+
+	tokens, ok := prices.Lookup("codex_subscription", "gpt-6.1-sol")
+	require.True(t, ok)
+	require.NotNil(t, usage.CostMicros)
+	assert.Equal(t, prices.Cost(tokens, prices.Tokens{Input: 30, CacheRead: 20, Output: 7})+20_000, *usage.CostMicros)
 }

@@ -557,8 +557,8 @@ var commands = []command{
 	},
 	{
 		name: "mcp", offline: true,
-		summary: "Hypomnema's tools for a Bot's pi, web_search, web_fetch and generate_image, as an MCP server on " +
-			"standard input and output; pi's mcp.json starts it",
+		summary: "Hypomnema's tools for a Bot's pi (web_search, web_fetch, generate_image, the audio_* and the " +
+			"others) as an MCP server on standard input and output; pi's mcp.json starts it",
 		run: mcpServe,
 	},
 	{

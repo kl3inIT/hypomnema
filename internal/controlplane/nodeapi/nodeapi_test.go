@@ -247,6 +247,10 @@ func TestDispatchRunsOverTheSocket(t *testing.T) {
 
 		return key, err == nil
 	})
+	// The tools the worker gets, for the "Tools" block of its rules (issue #723).
+	p.api.WithToolNames(func(_ context.Context, dispatchID string) []string {
+		return []string{"web_fetch", "tools of " + dispatchID}
+	})
 
 	conn := p.connect()
 	task := p.task()
@@ -254,6 +258,7 @@ func TestDispatchRunsOverTheSocket(t *testing.T) {
 	var offer nodeproto.Offer
 	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
 	assert.Equal(t, task.ID, offer.TaskID)
+	assert.Equal(t, []string{"web_fetch", "tools of " + offer.DispatchID}, offer.Tools)
 
 	// Its Run was given no account, and the worker still has a key of its own: the shared browser knows it by it.
 	session, err := p.svc.AgentSessionOf(t.Context(), offer.AgentKey)

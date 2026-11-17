@@ -276,10 +276,17 @@ func (s *Server) relayResponses(
 		sent     int
 	)
 
+	// searches are the model's own web searches, by their item's id (issue #723).
+	searches := map[string]bool{}
+
 	for scanner.Scan() {
 		idle.Reset(s.idleTimeout)
 
 		line := scanner.Bytes()
+
+		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData {
+			noteSearch(payload, searches)
+		}
 
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData &&
 			bytes.Contains(payload, []byte(`"response.completed"`)) {
@@ -325,4 +332,40 @@ func (s *Server) relayResponses(
 	}
 
 	record.Tokens.estimate(asked, sent)
+	record.WebSearches = int64(len(searches))
+}
+
+// noteSearch notes a web search the model made: an output item of type
+// web_search_call, as LiteLLM counts them (litellm_core_utils/llm_cost_calc/
+// tool_call_cost_tracking.py:577-584). Each is named by its id, so an item
+// that is told again (added, then done) is one search.
+func noteSearch(payload []byte, searches map[string]bool) {
+	if !bytes.Contains(payload, []byte(`"web_search_call"`)) {
+		return
+	}
+
+	var event struct {
+		Type string `json:"type"`
+		Item struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		} `json:"item"`
+	}
+
+	if json.Unmarshal(payload, &event) != nil || event.Item.Type != "web_search_call" ||
+		(event.Type != "response.output_item.added" && event.Type != "response.output_item.done") {
+		return
+	}
+
+	id := event.Item.ID
+	if id == "" {
+		// An item with no id is counted once, when it is done.
+		if event.Type != "response.output_item.done" {
+			return
+		}
+
+		id = fmt.Sprintf("#%d", len(searches))
+	}
+
+	searches[id] = true
 }

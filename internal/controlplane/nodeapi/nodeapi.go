@@ -45,6 +45,8 @@ type Server struct {
 	// agentKey makes a Dispatch's own key to the agent API, for the
 	// Connections its Run may use; nil when the control plane wired none.
 	agentKey func(ctx context.Context, dispatchID string, uses []string) (string, bool)
+	// toolNames are the tools a Dispatch's worker gets, for its "Tools" block (issue #723).
+	toolNames func(ctx context.Context, dispatchID string) []string
 	// tools names the tools a node of a system should have; nil when the
 	// control plane wired none.
 	tools func(ctx context.Context, os, arch string) []nodeproto.Tool
@@ -158,6 +160,14 @@ func (s *Server) skillsFor(nodeID string, skills []nodeproto.Skill) []nodeproto.
 // WithPhone sets how an offer learns whether workers are given a phone.
 func (s *Server) WithPhone(held func(ctx context.Context) bool) *Server {
 	s.phoneHeld = held
+
+	return s
+}
+
+// WithToolNames sets where an offer's tool names come from: the tools the
+// Dispatch's worker gets (agentapi.Server.WorkerTools).
+func (s *Server) WithToolNames(names func(ctx context.Context, dispatchID string) []string) *Server {
+	s.toolNames = names
 
 	return s
 }
@@ -570,6 +580,11 @@ func (c *session) push(ctx context.Context) error {
 		// And whether a phone is there to be used (issue #417): the worker is then told of its tools.
 		if c.srv.phoneHeld != nil && o.AgentKey != "" && c.srv.phoneHeld(ctx) {
 			o.Device = nodeproto.DeviceAndroid
+		}
+
+		// And the names of the tools it gets, for the "Tools" block of its rules (issue #723).
+		if c.srv.toolNames != nil && o.AgentKey != "" {
+			o.Tools = c.srv.toolNames(ctx, o.DispatchID)
 		}
 
 		o.Skills = c.srv.skillsFor(c.nodeID, o.Skills)

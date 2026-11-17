@@ -3274,7 +3274,7 @@ type GatewayRequest struct {
 	Characters       *int64 `json:"characters,omitempty"`
 	CompletionTokens int64  `json:"completion_tokens"`
 
-	// CostMicros The cost at the vendor's API price, in micro-dollars; absent when the model has no price.
+	// CostMicros The cost at the vendor's API price, in micro-dollars: its tokens, searches, seconds or characters, at the price of each (LiteLLM's price map for those not counted in tokens); absent when there is none.
 	CostMicros *int64    `json:"cost_micros,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	DurationMs int64     `json:"duration_ms"`
@@ -3285,8 +3285,11 @@ type GatewayRequest struct {
 	// Estimated The provider reported no usage; the counts are the sizes divided by four.
 	Estimated bool   `json:"estimated"`
 	Id        string `json:"id"`
-	KeyId     string `json:"key_id"`
-	KeyName   string `json:"key_name"`
+
+	// Images The images an image request made; absent for other requests.
+	Images  *int64 `json:"images,omitempty"`
+	KeyId   string `json:"key_id"`
+	KeyName string `json:"key_name"`
 
 	// Model The name the client asked for.
 	Model   string                `json:"model"`
@@ -3304,6 +3307,9 @@ type GatewayRequest struct {
 	Status        int    `json:"status"`
 	Stream        bool   `json:"stream"`
 	UpstreamModel string `json:"upstream_model"`
+
+	// WebSearches The web searches the request made: 1 for an answered web/search, and a model's own searches beside its tokens; absent when none.
+	WebSearches *int64 `json:"web_searches,omitempty"`
 }
 
 // GatewayRequestOutcome defines model for GatewayRequest.Outcome.
@@ -3338,7 +3344,12 @@ type GatewayUsageBucket struct {
 
 // GatewayUsageCounts defines model for GatewayUsageCounts.
 type GatewayUsageCounts struct {
-	CachedTokens     int64 `json:"cached_tokens"`
+	// AudioSeconds The seconds of recordings transcriptions heard.
+	AudioSeconds float32 `json:"audio_seconds"`
+	CachedTokens int64   `json:"cached_tokens"`
+
+	// Characters The characters speech spoke.
+	Characters       int64 `json:"characters"`
 	CompletionTokens int64 `json:"completion_tokens"`
 
 	// CostMicros What the priced requests cost at their vendor's API price, in micro-dollars; for a subscription, what the same tokens would cost at the API, not what the plan costs.
@@ -3347,13 +3358,19 @@ type GatewayUsageCounts struct {
 	// Failed The requests the provider refused, none answered, or whose answer ended early.
 	Failed int64 `json:"failed"`
 
+	// Images The images image requests made.
+	Images int64 `json:"images"`
+
 	// PromptTokens Tokens in, those read from the provider's cache included.
 	PromptTokens    int64 `json:"prompt_tokens"`
 	ReasoningTokens int64 `json:"reasoning_tokens"`
 	Requests        int64 `json:"requests"`
 
-	// Unpriced The requests with tokens whose model the price book has no price for.
+	// Unpriced The requests with tokens, searches, seconds or characters that the price book has no price for.
 	Unpriced int64 `json:"unpriced"`
+
+	// WebSearches The web searches: each web/search answered, and the searches models made themselves (Anthropic's server_tool_use.web_search_requests, the Responses API's web_search_call items).
+	WebSearches int64 `json:"web_searches"`
 }
 
 // GatewayUsageGroup defines model for GatewayUsageGroup.
@@ -5452,6 +5469,11 @@ type ToolFamilyList struct {
 	Data []ToolFamily `json:"data"`
 }
 
+// ToolNames defines model for ToolNames.
+type ToolNames struct {
+	Data []string `json:"data"`
+}
+
 // TranscribeRequest defines model for TranscribeRequest.
 type TranscribeRequest struct {
 	// Audio The recording's bytes, base64; at most 128 MiB.
@@ -7046,6 +7068,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /bots/{bot_id}/skills (the `ListBotSkills` operationId).
 	ListBotSkills(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	//
+	// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+	//
+	// Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
+	ListBotTools(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	//
@@ -9830,6 +9859,23 @@ func (c *Client) PutRoutine(ctx context.Context, botId BotID, routine string, bo
 // Corresponds with GET /bots/{bot_id}/skills (the `ListBotSkills` operationId).
 func (c *Client) ListBotSkills(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListBotSkillsRequest(c.Server, botId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+//
+// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+//
+// Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
+func (c *Client) ListBotTools(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBotToolsRequest(c.Server, botId)
 	if err != nil {
 		return nil, err
 	}
@@ -15945,6 +15991,40 @@ func NewListBotSkillsRequest(server string, botId BotID) (*http.Request, error) 
 	}
 
 	operationPath := fmt.Sprintf("/bots/%s/skills", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListBotToolsRequest constructs an http.Request for the ListBotTools method
+func NewListBotToolsRequest(server string, botId BotID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "bot_id", botId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/tools", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -25483,6 +25563,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /bots/{bot_id}/skills (the `ListBotSkills` operationId).
 	ListBotSkillsWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*ListBotSkillsResponse, error)
 
+	// ListBotToolsWithResponse The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	//
+	// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
+	ListBotToolsWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*ListBotToolsResponse, error)
+
 	// GetBrowserWithResponse The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -29298,6 +29387,54 @@ func (r ListBotSkillsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListBotSkillsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListBotToolsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ToolNames
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListBotToolsResponse) GetJSON200() *ToolNames {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListBotToolsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListBotToolsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBotToolsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBotToolsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBotToolsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -39284,6 +39421,21 @@ func (c *ClientWithResponses) ListBotSkillsWithResponse(ctx context.Context, bot
 	return ParseListBotSkillsResponse(rsp)
 }
 
+// ListBotToolsWithResponse The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+//
+// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
+func (c *ClientWithResponses) ListBotToolsWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*ListBotToolsResponse, error) {
+	rsp, err := c.ListBotTools(ctx, botId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBotToolsResponse(rsp)
+}
+
 // GetBrowserWithResponse The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 //
 // Returns a wrapper object for the known response body format(s).
@@ -44128,6 +44280,39 @@ func ParseListBotSkillsResponse(rsp *http.Response) (*ListBotSkillsResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest SkillRefList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListBotToolsResponse parses an HTTP response from a ListBotToolsWithResponse call
+func ParseListBotToolsResponse(rsp *http.Response) (*ListBotToolsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBotToolsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ToolNames
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -50646,6 +50831,9 @@ type ServerInterface interface {
 	// ListBotSkills The skills a Bot gets now, each at its newest revision
 	// (GET /bots/{bot_id}/skills)
 	ListBotSkills(w http.ResponseWriter, r *http.Request, botId BotID)
+	// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	// (GET /bots/{bot_id}/tools)
+	ListBotTools(w http.ResponseWriter, r *http.Request, botId BotID)
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	// (GET /browser)
 	GetBrowser(w http.ResponseWriter, r *http.Request)
@@ -52256,6 +52444,32 @@ func (siw *ServerInterfaceWrapper) ListBotSkills(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListBotSkills(w, r, botId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBotTools operation middleware
+func (siw *ServerInterfaceWrapper) ListBotTools(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bot_id" -------------
+	var botId BotID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bot_id", r.PathValue("bot_id"), &botId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBotTools(w, r, botId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -58686,6 +58900,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/bots/{bot_id}", wrapper.RenameBot)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}", wrapper.PutBot)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/skills", wrapper.ListBotSkills)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}/tools", wrapper.ListBotTools)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.ChangeBotMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{bot_id}/memory", wrapper.SetBotMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts", wrapper.ListArtifacts)
@@ -60216,6 +60431,45 @@ type ListBotSkillsdefaultJSONResponse struct {
 }
 
 func (response ListBotSkillsdefaultJSONResponse) VisitListBotSkillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotToolsRequestObject struct {
+	BotId BotID `json:"bot_id"`
+}
+
+type ListBotToolsResponseObject interface {
+	VisitListBotToolsResponse(w http.ResponseWriter) error
+}
+
+type ListBotTools200JSONResponse ToolNames
+
+func (response ListBotTools200JSONResponse) VisitListBotToolsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotToolsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListBotToolsdefaultJSONResponse) VisitListBotToolsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -68104,6 +68358,9 @@ type StrictServerInterface interface {
 	// ListBotSkills The skills a Bot gets now, each at its newest revision
 	// (GET /bots/{bot_id}/skills)
 	ListBotSkills(ctx context.Context, request ListBotSkillsRequestObject) (ListBotSkillsResponseObject, error)
+	// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	// (GET /bots/{bot_id}/tools)
+	ListBotTools(ctx context.Context, request ListBotToolsRequestObject) (ListBotToolsResponseObject, error)
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
 	// (GET /browser)
 	GetBrowser(ctx context.Context, request GetBrowserRequestObject) (GetBrowserResponseObject, error)
@@ -69764,6 +70021,32 @@ func (sh *strictHandler) ListBotSkills(w http.ResponseWriter, r *http.Request, b
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListBotSkillsResponseObject); ok {
 		if err := validResponse.VisitListBotSkillsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBotTools operation middleware
+func (sh *strictHandler) ListBotTools(w http.ResponseWriter, r *http.Request, botId BotID) {
+	var request ListBotToolsRequestObject
+
+	request.BotId = botId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBotTools(ctx, request.(ListBotToolsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBotTools")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBotToolsResponseObject); ok {
+		if err := validResponse.VisitListBotToolsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

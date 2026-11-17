@@ -364,6 +364,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
 		}, err
 	}, logger)
+	// A worker's offer names the tools it gets, for the "Tools" block of its rules (issue #723).
+	nodes.WithToolNames(agents.WorkerTools)
 
 	// The browser every agent shares (issue #193). Nothing is installed or started until an agent uses it. Its
 	// directory is made absolute: agent-browser's sockets are named by their full path.
@@ -488,12 +490,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Updating: func() bool { return selfupdate.Updating(filepath.Dir(cfg.Database.Path)) },
 	})
 
-	// Every worker's and every Bot's pi's web tools and generate_image (issues #354, #492), each call recorded on
-	// its Dispatch's key or on the key of the chat's running pi; before anything is served.
+	// Every worker's and every Bot's pi's web tools, generate_image and speech tools (issues #354, #492, #723), each
+	// call recorded on its Dispatch's key or on the key of the chat's running pi; before anything is served.
 	agents.WithWeb(agentWeb{worker: workerWeb{metered}, bot: botWeb{meteredWeb: metered, chats: sup}}).
 		WithImages(agentImages{
 			worker: workerImages{server: gatewayServer, gateway: gateway, logger: logger},
 			bot:    botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+		}).
+		WithAudio(agentAudio{
+			worker: workerAudio{speech: voice, gateway: gateway, logger: logger},
+			bot:    botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
 		})
 
 	// The Channels (issues #136, #169 and #404): one runtime for every kind, each kind's Channel found in the
@@ -508,7 +514,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	channelData := channelStore{Service: svc, Store: svc.Channels()}
 
-	runtime := channels.New(channelData, sup, registry, secrets, logger).WithWebURL(cfg.PublicURL)
+	runtime := channels.New(channelData, sup, registry, secrets, logger).WithWebURL(cfg.PublicURL).
+		WithHearer(channelVoice{speech: voice, gateway: gateway, chats: svc, logger: logger})
 	if bots != nil {
 		runtime.WithFiles(bots)
 	}
@@ -552,7 +559,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithImages(botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
 			imageSettings{Service: gateway, server: gatewayServer}).
 		WithAudio(botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
-			audioSettings{Service: gateway, speech: voice})
+			audioSettings{Service: gateway, speech: voice}).
+		WithBotTools(agents.BotTools)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
 	}

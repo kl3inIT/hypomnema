@@ -93,3 +93,39 @@ func TestFindGivesWhatModelsDevSaysOfAModel(t *testing.T) {
 	_, ok = prices.Find("openai_compatible", "deepseek-v4")
 	assert.False(t, ok)
 }
+
+// Scenario (issue #723): the prices by unit are LiteLLM's, under the names
+// the gateway records: a provider's search by the query, a transcription by
+// the second, speech by the character, and a model's own web search by the
+// search, found under the provider's vendor as a token price is. A unit
+// LiteLLM does not price is not found. A cost is rounded to the micro-dollar.
+func TestThePricesByUnitAreLiteLLMs(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		unit, name string
+		nanos      int64
+	}{
+		{prices.UnitQuery, "tavily/search", 8_000_000},
+		{prices.UnitQuery, "parallel/search", 5_000_000},
+		{prices.UnitSecond, "elevenlabs/scribe_v2", 61_100},
+		{prices.UnitSecond, "soniox/stt-async-v5", 27_778},
+		{prices.UnitCharacter, "elevenlabs/eleven_multilingual_v2", 80_000},
+	} {
+		p, ok := prices.LookupUnit(tt.unit, tt.name)
+		require.True(t, ok, tt.name)
+		assert.Equal(t, tt.nanos, p.Nanos, tt.name)
+	}
+
+	_, ok := prices.LookupUnit(prices.UnitQuery, "exa/search")
+	assert.False(t, ok, "LiteLLM gives Exa no price")
+
+	_, ok = prices.LookupUnit(prices.UnitCharacter, "soniox/tts-rt-v2")
+	assert.False(t, ok)
+
+	search, ok := prices.LookupWebSearch("codex_subscription", "gpt-6.1-sol")
+	require.True(t, ok)
+	assert.Equal(t, "openai/gpt-6.1-sol", search.Name)
+	assert.Equal(t, int64(30_000), prices.UnitCost(search, 3000), "three searches at $0.01")
+	assert.Equal(t, int64(2_500), prices.UnitCost(prices.UnitPrice{Nanos: 27_778}, 90_000), "90 s, to the micro-dollar")
+}

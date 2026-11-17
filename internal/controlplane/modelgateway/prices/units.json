@@ -1,0 +1,502 @@
+[
+  {
+    "name": "anthropic/claude-fable-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-fable-5-1",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-fable-5-2",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-haiku-5-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-mythos-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-mythos-5-1",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-mythos-5-2",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-mythos-preview",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-4-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-4-5-20251101",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-4-6",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-4-6-20260205",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-4-7",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-4-7-20260416",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-4-8",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-opus-5-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-sonnet-4-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-sonnet-4-5-20250929",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-sonnet-4-6",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-sonnet-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "anthropic/claude-sonnet-5-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "elevenlabs/eleven_flash_v2",
+    "unit": "character",
+    "nanos": 40000
+  },
+  {
+    "name": "elevenlabs/eleven_flash_v2_5",
+    "unit": "character",
+    "nanos": 40000
+  },
+  {
+    "name": "elevenlabs/eleven_multilingual_v2",
+    "unit": "character",
+    "nanos": 80000
+  },
+  {
+    "name": "elevenlabs/eleven_turbo_v2",
+    "unit": "character",
+    "nanos": 40000
+  },
+  {
+    "name": "elevenlabs/eleven_turbo_v2_5",
+    "unit": "character",
+    "nanos": 40000
+  },
+  {
+    "name": "elevenlabs/eleven_v3",
+    "unit": "character",
+    "nanos": 80000
+  },
+  {
+    "name": "elevenlabs/eleven_v3_conversational",
+    "unit": "character",
+    "nanos": 40000
+  },
+  {
+    "name": "elevenlabs/eleven_v4",
+    "unit": "character",
+    "nanos": 80000
+  },
+  {
+    "name": "elevenlabs/eleven_v4_turbo",
+    "unit": "character",
+    "nanos": 40000
+  },
+  {
+    "name": "elevenlabs/scribe_v1",
+    "unit": "second",
+    "nanos": 61100
+  },
+  {
+    "name": "elevenlabs/scribe_v1_experimental",
+    "unit": "second",
+    "nanos": 61100
+  },
+  {
+    "name": "elevenlabs/scribe_v2",
+    "unit": "second",
+    "nanos": 61100
+  },
+  {
+    "name": "openai/gpt-4.1",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4.1-2025-04-14",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4.1-mini",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4.1-mini-2025-04-14",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4o-mini",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4o-mini-2024-07-18",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4o-mini-search-preview",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4o-mini-search-preview-2025-03-11",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4o-search-preview",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-4o-search-preview-2025-03-11",
+    "unit": "web_search",
+    "nanos": 25000000
+  },
+  {
+    "name": "openai/gpt-5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-2025-08-07",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-mini",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-mini-2025-08-07",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-nano",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-nano-2025-08-07",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-pro",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-pro-2025-10-06",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-search-api",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5-search-api-2025-10-14",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.1",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.1-2025-11-13",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.2",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.2-2025-12-11",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.2-pro",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.2-pro-2025-12-11",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.3-codex",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.4-mini",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.4-mini-2026-03-17",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.4-nano",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.4-nano-2026-03-17",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.4-pro",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.4-pro-2026-03-05",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.5",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.5-2026-04-23",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.5-pro",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.5-pro-2026-04-23",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.6",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.6-luna",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.6-sol",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-5.6-terra",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-6-astra",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-6-astra-law",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-6-luna",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-6-sol",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-6.1-sol",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/gpt-6.1-terra",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/o3",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/o3-2025-04-16",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/o3-pro",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/o3-pro-2025-06-10",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/o4-mini",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "openai/o4-mini-2025-04-16",
+    "unit": "web_search",
+    "nanos": 10000000
+  },
+  {
+    "name": "parallel/search",
+    "unit": "query",
+    "nanos": 5000000
+  },
+  {
+    "name": "soniox/stt-async-v4",
+    "unit": "second",
+    "nanos": 27778
+  },
+  {
+    "name": "soniox/stt-async-v5",
+    "unit": "second",
+    "nanos": 27778
+  },
+  {
+    "name": "soniox/stt-async-v6",
+    "unit": "second",
+    "nanos": 27778
+  },
+  {
+    "name": "soniox/stt-rt-preview",
+    "unit": "second",
+    "nanos": 33330
+  },
+  {
+    "name": "soniox/stt-rt-preview-v2",
+    "unit": "second",
+    "nanos": 33330
+  },
+  {
+    "name": "soniox/stt-rt-v3",
+    "unit": "second",
+    "nanos": 33330
+  },
+  {
+    "name": "soniox/stt-rt-v3-preview",
+    "unit": "second",
+    "nanos": 33330
+  },
+  {
+    "name": "soniox/stt-rt-v4",
+    "unit": "second",
+    "nanos": 33330
+  },
+  {
+    "name": "soniox/stt-rt-v5",
+    "unit": "second",
+    "nanos": 33330
+  },
+  {
+    "name": "soniox/stt-rt-v6",
+    "unit": "second",
+    "nanos": 33330
+  },
+  {
+    "name": "tavily/search",
+    "unit": "query",
+    "nanos": 8000000
+  },
+  {
+    "name": "tinyfish/search",
+    "unit": "query",
+    "nanos": 0
+  }
+]

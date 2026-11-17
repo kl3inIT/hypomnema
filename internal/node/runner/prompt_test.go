@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -234,4 +235,28 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	assert.Contains(t, Prompt(d),
 		"`gh api --hostname github.example.com repos/kl3inIT/second-bite --jq .allow_auto_merge`",
 		"a GitHub Enterprise host is named apart too")
+}
+
+// Scenario (issue #723, decisions 2.2 to 2.4): the offer names the tools the
+// worker gets, and its rules end with the "Tools" block built from them, the
+// same block a Bot with those tools gets (agenttool.ToolGuide), before the
+// profile's instruction and the task. An offer of a control plane before
+// #723, with no tools, gets no block.
+func TestPromptCarriesTheToolsBlockBeforeTheTask(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Instruction = "Run the checks."
+	d.Offer.Tools = []string{agenttool.ToolMemory, agenttool.ToolWebSearch, agenttool.ToolWebFetch,
+		agenttool.ToolGenerateImage}
+
+	p := Prompt(d)
+	block := agenttool.ToolGuide(d.Offer.Tools)
+
+	assert.Contains(t, p, "the paths and lines you read.\n\n"+block+"\nFor this kind of task:",
+		"after the rules, before the instruction")
+	assert.Less(t, strings.Index(p, block), strings.Index(p, "Task (implementer):"))
+
+	d.Offer.Tools = nil
+	assert.NotContains(t, Prompt(d), "## Tools")
 }

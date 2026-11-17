@@ -129,6 +129,11 @@ type rawUsage struct {
 	CacheCreation struct {
 		Ephemeral1hInput int64 `json:"ephemeral_1h_input_tokens"`
 	} `json:"cache_creation"`
+	// ServerToolUse counts the model's own web searches (issue #723), as LiteLLM reads
+	// usage.server_tool_use.web_search_requests (llms/anthropic/cost_calculation.py:71-95).
+	ServerToolUse struct {
+		WebSearchRequests int64 `json:"web_search_requests"`
+	} `json:"server_tool_use"`
 }
 
 // Event turns one Messages event's data into the chat chunks it stands for.

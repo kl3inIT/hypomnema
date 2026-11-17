@@ -580,6 +580,11 @@ type Offer struct {
 	// each revision it does not have from PathSkills/<digest> and puts it
 	// where the worker's CLI reads skills.
 	Skills []Skill `json:"skills,omitempty"`
+	// Tools are the names of Hypomnema's tools the worker gets, after its
+	// profile's switches (issue #723, decision 2.3): the node writes the
+	// "Tools" block of its rules from them (agenttool.ToolGuide). A node of
+	// an earlier release ignores them.
+	Tools []string `json:"tools,omitempty"`
 }
 
 // Skill is one skill a worker is given, at one revision; its digest names

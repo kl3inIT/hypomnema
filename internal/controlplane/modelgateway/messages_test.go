@@ -301,3 +301,63 @@ func TestADisguisedClientKeepsItsCacheBreakpoint(t *testing.T) {
 	// Kept an hour, as the gateway's own are on a disguised request (issue #524).
 	assert.Equal(t, map[string]any{"type": "ephemeral", "ttl": "1h"}, moved["cache_control"])
 }
+
+// claudeSearches is an answer in which the model searched the web three times
+// with Anthropic's own web_search tool: message_delta counts them under
+// usage.server_tool_use (issue #723).
+var claudeSearches = []string{
+	event(`{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":12,"cache_read_input_tokens":4}}}`),
+	event(`{"type":"content_block_start","index":0,"content_block":{"type":"text"}}`),
+	event(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"found it"}}`),
+	event(`{"type":"content_block_stop","index":0}`),
+	event(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7,` +
+		`"server_tool_use":{"web_search_requests":3}}}`),
+	event(`{"type":"message_stop"}`),
+}
+
+// Scenario (issue #723, decision 3.1): Claude Code's model searched the web
+// itself. Its row counts the three searches beside its tokens, streamed or
+// whole, and its cost is its tokens' and its searches' at LiteLLM's price
+// of a search, as Claude Code itself prices them.
+func TestMessagesCountTheModelsOwnWebSearches(t *testing.T) {
+	t.Parallel()
+
+	whole := `{"id":"msg_1","type":"message","content":[{"type":"text","text":"found it"}],` +
+		`"usage":{"input_tokens":12,"output_tokens":7,"cache_read_input_tokens":4,` +
+		`"server_tool_use":{"web_search_requests":3}}}`
+
+	for name, answer := range map[string]http.HandlerFunc{
+		"streamed": stream(claudeSearches...),
+		"whole": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, whole)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, _, _ := anthropicBackend(t, answer)
+			g := newClaudeGateway(t, backend, &accounts{})
+
+			ask := claudeCodeAsk
+			if name == "whole" {
+				ask = strings.Replace(ask, `"stream":true`, `"stream":false`, 1)
+			}
+
+			status, _, body := g.send(t, "/v1/messages", ask, claudeCodeHeaders(g.key)...)
+			require.Equal(t, http.StatusOK, status, body)
+
+			usage := g.lastUsage(t)
+			assert.Equal(t, int64(3), usage.WebSearches)
+
+			tokens, ok := prices.Lookup("claude_subscription", "claude-sonnet-5-5")
+			require.True(t, ok)
+			search, ok := prices.LookupWebSearch("claude_subscription", "claude-sonnet-5-5")
+			require.True(t, ok)
+			assert.Equal(t, int64(10_000_000), search.Nanos, "LiteLLM's $0.01 a search")
+			require.NotNil(t, usage.CostMicros)
+			assert.Equal(t, prices.Cost(tokens, prices.Tokens{Input: 16, CacheRead: 4, Output: 7})+30_000,
+				*usage.CostMicros)
+		})
+	}
+}

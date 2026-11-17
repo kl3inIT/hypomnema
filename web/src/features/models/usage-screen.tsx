@@ -35,7 +35,8 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
+import { ProviderMark } from "@/components/icons/model-mark"
+import { RequestMark } from "@/components/icons/provider-marks"
 import { ErrorAlert } from "@/components/error-alert"
 import { SettingsPage } from "@/components/settings-page"
 import { modelName } from "@/lib/model-name"
@@ -52,6 +53,8 @@ import {
   share,
   tiles,
   tokens,
+  units,
+  unitsOf,
   type Period,
 } from "./usage-state"
 import { useGatewayRequests, useGatewayUsage } from "./use-models"
@@ -71,6 +74,8 @@ const chartConfig = {
 // the tables by model, key and account 9router's (UsageStats.js, MIT), and the requests a log with a status badge, a
 // page at a time and a drawer with a failed request's message, as LiteLLM's (RequestLogsTableColumns.tsx,
 // LogDetailsDrawer) and 9router's (RequestDetailsTab.js). Neither a prompt nor an answer is kept, so none is shown.
+// Each row leads with its provider's or its model's mark, says what it used that is not tokens in its own unit, and
+// a failed one its error under its outcome (issue #723, decisions 3.2 to 3.6).
 export function UsageScreen() {
   const [period, setPeriod] = useState<Period>("24h")
   const usage = useGatewayUsage(period)
@@ -79,7 +84,7 @@ export function UsageScreen() {
     <SettingsPage
       wide
       title="Usage"
-      description="What the model gateway served: requests, tokens, what they would cost at the API, and the requests that failed."
+      description="What the model gateway served: requests, tokens, web searches, audio and images, what they would cost at the API, and the requests that failed."
       actions={
         <ToggleGroup
           aria-label="Period"
@@ -133,13 +138,10 @@ function Totals({ usage }: { usage: GatewayUsage }) {
   return (
     <dl
       aria-label="Totals"
-      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4 lg:grid-cols-7"
+      className="flex flex-wrap gap-px overflow-hidden rounded-xl border bg-border"
     >
       {tiles(usage.totals).map((t) => (
-        <div
-          key={t.label}
-          className="flex flex-col gap-1 bg-card p-4 last:col-span-2 sm:last:col-span-1"
-        >
+        <div key={t.label} className="flex min-w-36 flex-1 flex-col gap-1 bg-card p-4">
           <dt className="text-sm text-muted-foreground">{t.label}</dt>
           <dd className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-2xl font-semibold tabular-nums">{t.value}</span>
@@ -224,7 +226,7 @@ function Breakdown({ usage }: { usage: GatewayUsage }) {
           total={usage.totals.prompt_tokens + usage.totals.completion_tokens}
           name={(g) => (
             <span className="inline-flex items-center gap-2" title={g.name}>
-              <ModelMark name={g.name} className="size-4 shrink-0" />
+              <RequestMark model={g.name} provider="" className="size-4 shrink-0" />
               <span className="font-medium">{modelName(g.name)}</span>
             </span>
           )}
@@ -297,6 +299,7 @@ function GroupTable({
             <TableHead>
               <span className="block text-end">Reasoning</span>
             </TableHead>
+            <TableHead>Other use</TableHead>
             <TableHead>
               <span className="block text-end">API cost</span>
             </TableHead>
@@ -344,6 +347,9 @@ function GroupTable({
                 </span>
               </TableCell>
               <TableCell>
+                <span className="block whitespace-nowrap tabular-nums">{unitsOf(g.counts)}</span>
+              </TableCell>
+              <TableCell>
                 <span className="block text-end tabular-nums">{cost(g.counts)}</span>
               </TableCell>
               <TableCell>
@@ -355,7 +361,7 @@ function GroupTable({
           ))}
           {groups.length === 0 && (
             <TableRow>
-              <TableCell colSpan={9}>
+              <TableCell colSpan={10}>
                 <p className="py-6 text-center text-muted-foreground">{empty ?? "Nothing yet."}</p>
               </TableCell>
             </TableRow>
@@ -451,12 +457,23 @@ function Requests({ period }: { period: Period }) {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span
-                      className="inline-flex items-center gap-2 whitespace-nowrap"
-                      title={r.model}
-                    >
-                      <ModelMark name={r.model} className="size-4 shrink-0" />
-                      {modelName(r.model)}
+                    <span className="flex flex-col gap-0.5">
+                      <span
+                        className="inline-flex items-center gap-2 whitespace-nowrap"
+                        title={r.model}
+                      >
+                        <RequestMark
+                          model={r.model}
+                          provider={r.provider}
+                          className="size-4 shrink-0"
+                        />
+                        {modelName(r.model)}
+                      </span>
+                      {units(r) && (
+                        <span className="ps-6 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                          {units(r)}
+                        </span>
+                      )}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -466,7 +483,17 @@ function Requests({ period }: { period: Period }) {
                     <span className="block whitespace-nowrap">{r.key_name}</span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={o.tone}>{o.label}</Badge>
+                    <span className="flex flex-col items-start gap-1">
+                      <Badge variant={o.tone}>{o.label}</Badge>
+                      {r.error && (
+                        <span
+                          className="block max-w-48 truncate text-xs text-destructive"
+                          title={r.error}
+                        >
+                          {r.error}
+                        </span>
+                      )}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <span className="block text-end tabular-nums">{tokens(r.prompt_tokens)}</span>
@@ -564,7 +591,11 @@ function RequestSheet({
             <SheetHeader>
               <SheetTitle>
                 <span className="flex items-center gap-2">
-                  <ModelMark name={request.model} className="size-4 shrink-0" />
+                  <RequestMark
+                    model={request.model}
+                    provider={request.provider}
+                    className="size-4 shrink-0"
+                  />
                   {modelName(request.model)}
                 </span>
               </SheetTitle>
@@ -605,6 +636,7 @@ function RequestSheet({
                 <Detail label="From cache" value={request.cached_tokens.toLocaleString()} />
                 <Detail label="Tokens out" value={request.completion_tokens.toLocaleString()} />
                 <Detail label="Reasoning" value={request.reasoning_tokens.toLocaleString()} />
+                {units(request) && <Detail label="Other use" value={units(request)} />}
                 <Detail
                   label="Written to cache"
                   value={
@@ -617,9 +649,9 @@ function RequestSheet({
                   label="API cost"
                   value={
                     request.cost_micros === undefined
-                      ? request.prompt_tokens + request.completion_tokens === 0
-                        ? "None: no tokens were used"
-                        : "No price for this model"
+                      ? request.prompt_tokens + request.completion_tokens === 0 && !units(request)
+                        ? "None: nothing priced was used"
+                        : "No price for this model or provider"
                       : `${money(request.cost_micros)} as ${request.priced_model ?? request.upstream_model}`
                   }
                 />

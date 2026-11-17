@@ -108,6 +108,15 @@ func (s *Server) ListGatewayRequests(ctx context.Context, req openapi.ListGatewa
 		if u.Characters > 0 {
 			item.Characters = ptr(u.Characters)
 		}
+
+		if u.WebSearches > 0 {
+			item.WebSearches = ptr(u.WebSearches)
+		}
+
+		if u.Images > 0 {
+			item.Images = ptr(u.Images)
+		}
+
 		if u.PricedModel != "" {
 			item.PricedModel = &u.PricedModel
 		}
@@ -173,6 +182,8 @@ func toUsageCounts(c modelgateway.UsageCounts) openapi.GatewayUsageCounts {
 	return openapi.GatewayUsageCounts{
 		Requests: c.Requests, Failed: c.Failed, PromptTokens: c.Prompt, CachedTokens: c.Cached,
 		CompletionTokens: c.Completion, ReasoningTokens: c.Reasoning, CostMicros: c.CostMicros, Unpriced: c.Unpriced,
+		WebSearches: c.WebSearches, AudioSeconds: float32(c.Audio.Seconds()), Characters: c.Characters,
+		Images: c.Images,
 	}
 }
 
