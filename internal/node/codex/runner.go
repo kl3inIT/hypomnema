@@ -150,7 +150,7 @@ func (rt *CodexRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.L
 	}
 
 	write := func(dir string, hostEnv []string) (shim.Spec, error) {
-		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey)
+		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey, runner.Path())
 		if err != nil {
 			return shim.Spec{}, err
 		}
@@ -193,11 +193,7 @@ type saved struct {
 func (rt *CodexRuntime) env(codexHome, key string) []string {
 	out := []string{"CODEX_HOME=" + codexHome, keyVariable + "=" + key, "LANG=C.UTF-8"}
 
-	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP"} {
-		if v, ok := os.LookupEnv(name); ok {
-			out = append(out, name+"="+v)
-		}
-	}
+	out = append(out, runner.HostEnv()...)
 
 	return append(out, rt.Env...)
 }

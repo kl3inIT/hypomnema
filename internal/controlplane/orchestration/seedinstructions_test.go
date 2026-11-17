@@ -38,3 +38,46 @@ func TestMigrationGivesTheSeedsTheirNewInstructions(t *testing.T) {
 		"implementer": "pfv_owner", "reviewer": "pfv_seed4_reviewer", "explorer": "pfv_seed4_explorer",
 	}, currentVersions(ctx, t, db))
 }
+
+// Scenario: the seeded reviewer runs the repository's checks (issue #718). A
+// reviewer the owner applied keeps its own version; the seed the owner left
+// gets the new text, the same version ApplyProfile makes from that YAML;
+// going down takes it back.
+func TestMigrationTellsTheSeededReviewerToRunTheChecks(t *testing.T) {
+	t.Parallel()
+
+	for _, owned := range []bool{false, true} {
+		_, db := migratedTo(t, 103)
+		ctx := t.Context()
+
+		want := "pfv_seed6_reviewer"
+		if owned {
+			putVersion(ctx, t, db, "pfv_owner", "reviewer", "name: reviewer", "claude-subscription",
+				"claude-opus-5-5", "high")
+
+			want = "pfv_owner"
+		}
+
+		p, err := provider(db)
+		require.NoError(t, err)
+		_, err = p.UpTo(ctx, 104)
+		require.NoError(t, err)
+		assert.Equal(t, want, currentVersions(ctx, t, db)["reviewer"], "owned: %v", owned)
+
+		if owned {
+			continue
+		}
+
+		var source, digest, instruction string
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT source, digest, instruction FROM profile_versions WHERE id = 'pfv_seed6_reviewer'`).
+			Scan(&source, &digest, &instruction))
+		assert.Contains(t, instruction, "Run the repository's checks on the pull request's code")
+		assert.Contains(t, instruction, "say in the report which one and why")
+		assert.Equal(t, sourceDigest(source), digest, "what ApplyProfile writes for that YAML")
+
+		_, err = p.DownTo(ctx, 103)
+		require.NoError(t, err)
+		assert.Equal(t, "pfv_seed5_reviewer", currentVersions(ctx, t, db)["reviewer"])
+	}
+}

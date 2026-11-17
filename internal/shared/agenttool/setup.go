@@ -153,8 +153,9 @@ func Brief(uses []string, device string) string {
 // ForDispatch prepares a node for a Dispatch that may use Connections and
 // returns what the worker's environment gains. Without any it does nothing
 // and adds nothing. home is the node's home, where its tools are installed;
-// exe the node's binary; key the Dispatch's own.
-func ForDispatch(home, exe, url string, uses []string, key string) ([]string, error) {
+// exe the node's binary; key the Dispatch's own; path the worker's PATH, which
+// the tools' directory goes before.
+func ForDispatch(home, exe, url string, uses []string, key, path string) ([]string, error) {
 	// A tool only for Bots is not a worker's: it reaches the same account with its own token (issue #685).
 	needs := slices.DeleteFunc(IntegrationsOf(uses), func(integration string) bool {
 		def, ok := Of(integration)
@@ -175,5 +176,5 @@ func ForDispatch(home, exe, url string, uses []string, key string) ([]string, er
 		return nil, err
 	}
 
-	return place.Env(url, key, os.Getenv("PATH")), nil
+	return place.Env(url, key, path), nil
 }

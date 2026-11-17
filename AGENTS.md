@@ -76,12 +76,17 @@
 - Run `make verify` before pushing. A pull request that adds a migration merges main and runs
   `make migration-check` again right before it is merged: another may have taken its number meanwhile (#334).
 - The checks need Go at the version `go.mod` names (the linters and generators come through `go tool`), and the
-  web client's need Node 24 and pnpm (`web/package.json`). An agent on a machine that lacks one installs it for its
-  own user, without sudo, and goes on: Go from go.dev's tarball, checked against its SHA-256, under
-  `$HOME/.local/go` (look there first: `$HOME/.local/go/bin/go`; on a node the repository's setup script,
-  `deploy/worker/setup.sh`, has put it there). What needs sudo, such as gcc for `make race`, is
-  left to CI and said in the pull request ([research](docs/research/2026-11-12-a-repository-tools-for-workers.md);
-  owner, 2026-11-12).
+  web client's need Node 24 and pnpm (`web/package.json`). On a node, the repository's setup script
+  (`deploy/worker/setup.sh`) has installed what was missing for the worker's user, without sudo, and linked it into
+  `$HOME/.local/bin`, which the node puts first on the worker's PATH; elsewhere, run that script yourself (it is
+  idempotent) and put `$HOME/.local/bin` first on your PATH. The web client's packages and Playwright's Chromium
+  come after: `pnpm --dir web install --frozen-lockfile`, then `pnpm --dir web exec playwright install chromium`;
+  `pnpm --dir web exec playwright install-deps --dry-run chromium` names the system libraries it lacks, which take
+  sudo. Without `make` (it takes sudo too), run the recipes of the Makefile's targets by hand: `make verify` is
+  `verify-static` (`fmt-check`, `tidy-check`, `lint`, `deps-check`, `sqlc-check`, `openapi-check`,
+  `migration-check`), `unit` and `race`, with `go` for `$(GO)`. What needs sudo, such as gcc for `make race` and
+  Chromium's libraries, is left to CI and said in the pull request
+  ([research](docs/research/2026-11-12-a-repository-tools-for-workers.md); owner, 2026-11-12; issue #718).
 - Work in its own `git worktree` when another session may use this checkout; never switch the branch of a checkout
   you did not start.
 - Before an action that reaches many things at once (many PRs, branches, machines, messages, or money), count them

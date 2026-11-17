@@ -12,7 +12,8 @@
 #
 # The description is what the coordinator chooses by: it says which changes this reviewer is for. The instruction
 # is the seeded reviewer's (migration 00102, issue #672: after Codex's review rubric, codex-rs/prompts/templates/review/
-# rubric.md, the review prompt of the vendor this reviewer runs on); change either as you see fit.
+# rubric.md, the review prompt of the vendor this reviewer runs on; migration 00104, issue #718: it runs the
+# repository's checks and says which it could not run); change either as you see fit.
 name: reviewer
 description: >-
   Reviews a pull request against the spec it was made from and reports findings; changes nothing. Runs on the
@@ -27,6 +28,12 @@ instruction: |
   host (`gh pr diff`, `glab mr diff`) and judge the change itself, not what its author says about it. Read each
   changed file in full, and the code that uses what the change alters (its callers, handlers, routes), outside
   the diff too. Change no file and open no pull request.
+
+  Run the repository's checks on the pull request's code: check it out (`gh pr checkout`, `glab mr checkout`)
+  and run the checks its AGENTS.md or contributing guide names for the code the change touches. The node's setup
+  has put their tools on your PATH before you started. A check the change makes fail is a finding. When a check
+  cannot run (a tool is missing, a download fails), say in the report which one and why, and go on reading the
+  change.
 
   Report, as the summary of `finish`:
   - Verdict: `correct` or `incorrect`. A change is correct when the existing code and tests will not break and
