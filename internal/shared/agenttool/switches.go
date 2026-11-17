@@ -31,6 +31,13 @@ const (
 	ToolWebFetch  = "web_fetch"
 )
 
+// The Muse pool's tools (issue #782): Meta's Muse asked through the owner's Muse accounts.
+const (
+	ToolMuseAsk      = "muse_ask"
+	ToolMuseChats    = "muse_chats"
+	ToolMuseMessages = "muse_messages"
+)
+
 // Superset's tools (issue #536, step 3).
 const (
 	ToolSupersetDashboards   = "superset_dashboards"
@@ -113,6 +120,8 @@ var ToolFamilies = []ToolFamily{
 		Tools: []string{ToolWebSearch, ToolWebFetch}},
 	{Name: "images", Description: "Make and edit images", Pattern: ToolGenerateImage,
 		Tools: []string{ToolGenerateImage}},
+	{Name: "muse", Description: "Ask Meta's Muse research questions through the owner's Muse accounts",
+		Pattern: "muse_*", Tools: []string{ToolMuseAsk, ToolMuseChats, ToolMuseMessages}},
 	{Name: "superset", Description: "Superset's dashboards, charts and data, with a Superset Connection",
 		Pattern: "superset_*",
 		Tools: []string{ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData,

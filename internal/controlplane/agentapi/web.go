@@ -42,18 +42,21 @@ import (
 // image_generate over MCP (agent/transports/hermes_tools_mcp_server.py); omp
 // and opencode get all three, their own being turned off where the node
 // writes their configuration. A runtime not named gets none.
+//
+// The Muse tools (muse.go, issue #782) are every runtime's and a Bot's pi's,
+// no CLI having Muse of its own.
 var toolsOf = map[string][]string{
-	"claude":   {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage},
-	"codex":    {toolWebFetch, agenttool.ToolGenerateImage},
-	"omp":      {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage},
-	"opencode": {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage},
+	"claude":   append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage}, museTools...),
+	"codex":    append([]string{toolWebFetch, agenttool.ToolGenerateImage}, museTools...),
+	"omp":      append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage}, museTools...),
+	"opencode": append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage}, museTools...),
 }
 
 // botTools are a Bot's pi's (issue #492): all three, pi having no web or
 // image tool of its own, as OpenMausBot gives its pi the `agents` server's
 // generate_image (server/drivers/pi-mcp-servers.ts). A Routine's script, which
 // has no MCP, keeps `hypomnema web` and `hypomnema image`.
-var botTools = []string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage}
+var botTools = append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage}, museTools...)
 
 const (
 	toolWebSearch = agenttool.ToolWebSearch
@@ -98,7 +101,7 @@ func (s *Server) WithWeb(web Web) *Server {
 // agent (the owner's token, the coordinator token, a Routine's script) none,
 // having the CLI's `hypomnema web` and `hypomnema image` commands.
 func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
-	if s.web == nil && s.images == nil {
+	if s.web == nil && s.images == nil && s.muse == nil {
 		return nil
 	}
 
@@ -124,9 +127,19 @@ func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
 
 	var out []string
 
+	museOn := s.museOn(ctx)
+
 	for _, name := range named {
-		if (name == agenttool.ToolGenerateImage && s.images != nil) ||
-			(name != agenttool.ToolGenerateImage && s.web != nil) {
+		switch {
+		case slices.Contains(museTools, name):
+			if museOn {
+				out = append(out, name)
+			}
+		case name == agenttool.ToolGenerateImage:
+			if s.images != nil {
+				out = append(out, name)
+			}
+		case s.web != nil:
 			out = append(out, name)
 		}
 	}
@@ -145,7 +158,7 @@ func (s *Server) gatewayToolList(ctx context.Context, a agent) []agenttool.Brows
 		out = append(out, imageTool(a.chatID != ""))
 	}
 
-	return out
+	return append(out, museToolList(names)...)
 }
 
 // listGateway lists the gateway's tools alone (PathGatewayTools), for a Bot's
@@ -203,6 +216,12 @@ func (s *Server) callGateway(w http.ResponseWriter, r *http.Request) {
 func (s *Server) gatewayCall(w http.ResponseWriter, r *http.Request, a agent, call agenttool.BrowserCall) {
 	if call.Tool == agenttool.ToolGenerateImage {
 		s.imageCall(w, r, a, call)
+
+		return
+	}
+
+	if slices.Contains(museTools, call.Tool) {
+		s.museCall(w, r, a, call)
 
 		return
 	}
