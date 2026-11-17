@@ -19,7 +19,7 @@ flowchart TB
         ORC["Runs, Tasks, Dispatches, chats, scheduler<br/>orchestration"]
         CO["coordinator: one pi per chat<br/>coordinator"]
         AAPI["agent API<br/>agentapi"]
-        GW["model gateway, web search, Images<br/>modelgateway, websearch"]
+        GW["model gateway, web search, Images, Audio<br/>modelgateway, websearch, speech"]
         SP["service proxy, Integrations<br/>serviceproxy, integration"]
         DB[("one SQLite file<br/>shared/sqlite; the vault's secrets in it")]
     end
@@ -74,7 +74,8 @@ loopback `host:port` such as `127.0.0.1:6060` is taken, anything else stops the 
 listen is logged and the control plane serves without it, as Coder's does.
 The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
 which providers are on and the keyed ones' order are set on Settings → Gateway → Web search and stored (see "Web
-search and fetch").
+search and fetch"). The audio providers' keys are vault secrets named `speech-<provider>` and
+`speech-<provider>-<n>` (see "Audio").
 
 How a message reaches a Bot's pi and its reply comes back (`internal/controlplane/coordinator`,
 `orchestration/chats.go` and `chatqueue.go`, `internal/controlplane/channels`, `deploy/coordinator/hypomnema-pi`).
@@ -887,6 +888,16 @@ sequenceDiagram
     which a Lark chat delivers as a file (#312); the web chat shows the line as text (it is not turned into a
     picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request no provider takes), 429
     `rate_limited` with `Retry-After`, 503 `unavailable`.
+  - Audio from the client API (issue #694), for the owner, a Routine's script and a Bot: `POST
+    /audio/transcriptions` `{audio (base64, at most 128 MiB), file_name?, mime_type?, language?, speakers?,
+    provider?}` answering `{provider, model, text, language?, duration, segments: [{start, end, text, speaker?}],
+    words: [{word, start, end, speaker?}], errors?}`, and `POST /audio/speech` `{input, voice?, format?, speed?,
+    language?, provider?}` answering `{provider, model, format, mime_type, audio (base64), characters, errors?}`, for
+    any token; `hypomnema audio transcribe <file> [--speakers] [--language] [--provider]` prints the text, or a line
+    a segment with its time and speaker, then who heard it; `hypomnema audio speak <text> -o <file> [--voice]
+    [--format] [--speed] [--language] [--provider]` saves the speech (the file's extension is its format when none is
+    named) and prints its path. "Audio" (below), recorded on the key of the chat's running pi when a pi's token asks.
+    Errors: 400, 429 `rate_limited` with `Retry-After`, 503 `unavailable`.
   - What a Bot's chats show of its tool calls (issue #441, migration 00079, after OpenClaw's `verboseDefault` per
     agent, `src/agents/agent-scope-config.ts`): `bots.tool_display`, `off`, `on` (a new Bot's) or `full`, the same
     for everyone who reads them, the owner included. The server sends only what the level shows, as OpenClaw drops a
@@ -2545,9 +2556,25 @@ capabilities do not exist yet.
   and CLIProxyAPI's) take OpenAI's image request, an edit as JSON or as a multipart form, and answer `{created, data:
   [{b64_json, revised_prompt?}], usage?}` (`url` as a data address when `response_format` is `url`), with any key the
   gateway knows that is not limited to other kinds. What they do is "Images", below.
+- `POST /v1/audio/transcriptions`, `POST /v1/audio/speech` and `GET /v1/audio/voices` (issue #694, OpenAI's shapes as
+  OmniRoute, 9router-go and LiteLLM serve them) for any key of the kind `audio`. A transcription is OpenAI's
+  multipart form (`file`, `model`, `language`, `prompt` taken and not sent, `response_format` json, text,
+  verbose_json, srt or vtt, `timestamp_granularities[]`), with a body up to 128 MB (9router-go's media cap); speakers
+  asked under any of OmniRoute's spellings (`diarize`, `enable_speaker_diarization`, `diarization`,
+  `speaker_labels`) make the answer `verbose_json`: `{task, text, language, duration, provider, model, segments:
+  [{id, start, end, text, speaker?}], words?: [{word, start, end, speaker?}] (when the word granularity is asked),
+  errors?}`; srt and vtt are a cue a segment, as LiteLLM renders them. Speech is OpenAI's JSON `{input (at most
+  4,096 characters), voice?, model?, response_format mp3|wav|pcm|opus, speed?}` (plus `language` for Soniox and
+  `provider`), answered with the audio's bytes. A `model` picks the provider only (`soniox/…`, `stt-*`, `tts-*`
+  Soniox; `elevenlabs/…`, `scribe*`, `eleven_*` ElevenLabs; `whisper-1`, `tts-1` none). A non-JSON answer names who
+  answered in `X-Hypomnema-Provider`, `X-Hypomnema-Model` and `X-Hypomnema-Fallback-Reasons` (OmniRoute's
+  headers). The voices are `{object: "list", data: [{id, name, provider, language?}], errors?}`. Errors: 400, 403
+  `endpoint_not_allowed`, 429 `audio_rate_limited` with `Retry-After`, 502 `upstream_failed`, 503
+  `no_audio_provider`. What they do is "Audio", below.
 - A key may be limited to the kinds of request it makes besides chat (issue #664, after OmniRoute's
   `allowed_endpoints` and LiteLLM's `allowed_routes`): `gateway_keys.endpoints` (migration 00099) is a JSON array of
-  `search` (`/v1/search`, `/v1/alpha/search`), `fetch` (`/v1/web/fetch`) and `images` (`/v1/images/*`), NULL being
+  `search` (`/v1/search`, `/v1/alpha/search`), `fetch` (`/v1/web/fetch`), `images` (`/v1/images/*`) and `audio`
+  (`/v1/audio/*`, issue #694, OmniRoute's `audio` category), NULL being
   every kind. Every key made before, and every key of a Dispatch or a chat, has NULL. A request of a kind the key
   is not given is refused 403 `permission_error` `endpoint_not_allowed` before any provider is asked. Chat is
   limited by the key's models alone.
@@ -2965,6 +2992,56 @@ the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (
   prints the size and quality the provider says it made.
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
+
+Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
+`clientcli/audio.go`, `controlplane/audio.go`; issue #694,
+[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
+owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
+(`hypomnema audio`, see the client API).
+- Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with one model a kind: Soniox `stt-async-v5`
+  and `tts-rt-v2`, ElevenLabs `scribe_v2` and `eleven_multilingual_v2`. Speech to text and text to speech each ask
+  the providers that are on in the owner's order for that kind; the first that answers wins and the answer says why
+  those before it did not.
+- Keys: each provider takes several, vault secrets `speech-<provider>` and `speech-<provider>-<n>` (the lowest free
+  number), read at each call, asked least recently used first; a key that is rate limited (429: its `Retry-After`,
+  else 2 s doubling to 5 minutes), out of credits (402 or the words, 5 minutes doubling to an hour) or refused
+  (401, 403: 2 minutes) rests on its own and the provider's next key is asked, as web search's keys; any other
+  failure goes to the next provider. In memory. Every key resting is 429; no provider on with a key, 503.
+- Soniox (MemoryOS `voice/SonioxApi.java`, `SonioxAsync.java`; LiteLLM `llms/soniox/`), bearer key, base
+  `https://api.soniox.com/v1`: `POST /files` (the recording, multipart `file`, streamed), `POST /transcriptions`
+  `{model, file_id, enable_speaker_diarization?, language_hints + language_hints_strict, or
+  enable_language_identification}`, `GET /transcriptions/{id}` each second until `completed` (or `error`) up to 30
+  minutes, `GET /transcriptions/{id}/transcript` (`{text, tokens: [{text, start_ms, end_ms, speaker, language,
+  is_audio_event}]}`), then `DELETE` the transcription and the file, best effort, even after the caller left. The
+  length is `audio_duration_ms`. Its speech is OmniRoute's: `POST https://tts-rt.soniox.com/tts` `{text, model,
+  language (en), voice (Adrian, also for OpenAI's voice names), audio_format (pcm as pcm_s16le)}`; its one voice
+  listed is Adrian, OmniRoute's default (no reference lists more).
+- ElevenLabs (9router-go `internal/handlers/media/elevenlabs_stt.go`, `voices.go`; Bifrost
+  `core/providers/elevenlabs/`; LiteLLM `llms/elevenlabs/text_to_speech/`), `xi-api-key`, base
+  `https://api.elevenlabs.io`: `POST /v1/speech-to-text` multipart `{model_id, file, timestamps_granularity word,
+  language_code?, diarize?}`, its words' `speaker_id` the speakers, a spacing no word, an audio event no speech, the
+  length the last word's end; `POST /v1/text-to-speech/{voice_id}?output_format=` (LiteLLM's mp3_44100_128,
+  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, voice_settings: {speed}?}`, OpenAI's voice names mapped
+  to LiteLLM's voices, none Rachel; `GET /v1/voices`, kept a day a key.
+- A transcript is cut into segments at a speaker change, a pause over 800 ms or past 400 characters, markers and
+  sounds left out (MemoryOS `SonioxAsync.group`). Base URLs and the poll's pace are `speech.Config`'s.
+- Usage: each request is one row of `gateway_usage` on its key, as model `audio/<the provider's model>` (`audio/stt`
+  or `audio/tts` when none was asked), with `audio_ms` heard or `characters` spoken (migration 00103, OmniRoute's
+  billing units), 0 on a failure; a request refused before any provider is not recorded. `GET /gateway/requests`
+  gives them as `audio_seconds` and `characters`; the Usage page does not show them.
+- What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
+  `tts_position`; read and written only by the gateway): one switch a provider for both kinds and each kind's order.
+  `GET /gateway/audio` (any token) lists the providers with their switch, `state` (`ready`, `resting` when every key
+  rests, `not_set_up` with no key, `off`) and keys (name, state, rest, last used; never a value), and `stt` and `tts`,
+  each kind's providers in order with their model and requests today and this month (UTC) with the seconds heard or
+  characters spoken. The owner's: `PUT /gateway/audio/providers/{provider}` `{on}`, `PUT /gateway/audio/order/{stt|tts}`
+  `{providers}`, `POST /gateway/audio/providers/{provider}/keys` `{key}` (answers the secret's name) and `DELETE
+  /gateway/audio/providers/{provider}/keys/{name}`. Settings → Gateway → Audio (`web/src/features/models/
+  audio-screen.tsx`) shows and changes them, built from the Web search and Images pages. The CLI: `hypomnema audio
+  providers`, `audio providers set <provider> on|off`, `audio order stt|tts <provider> <provider>`, `audio keys add
+  <provider> --key-file`, `audio keys rm <provider> <name>`.
+- Not built: live (streaming) transcription, meetings, prices for audio, an agent tool for audio. Not yet measured:
+  whether the public proxy cuts a long blocking transcription from a tool outside.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;

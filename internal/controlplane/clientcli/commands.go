@@ -788,6 +788,44 @@ var commands = []command{
 		flags:   jsonFlag, run: imageOrder,
 	},
 	{
+		name: "audio transcribe", args: "<file>", min: 1, max: 1, long: true,
+		summary: "turn a recording into text through the owner's audio providers, with who spoke when if asked",
+		flags:   audioTranscribeFlags, run: audioTranscribe,
+	},
+	{
+		name: "audio speak", args: "<text>", min: 1, max: -1, long: true,
+		summary: "turn text into speech through the owner's audio providers and save it (-o <file>)",
+		flags:   audioSpeakFlags, run: audioSpeak,
+	},
+	{
+		name:    "audio providers",
+		summary: "the audio providers with their keys, and the order speech-to-text and text-to-speech ask them in",
+		flags:   jsonFlag, run: audioProviders,
+	},
+	{
+		name: "audio providers set", args: "<provider> on|off", min: 2, max: 2,
+		summary: "switch an audio provider on or off, for both kinds (owner)", flags: jsonFlag, run: audioProvidersSet,
+	},
+	{
+		name: "audio order", args: "stt|tts <provider> <provider>", min: 3, max: 3,
+		summary: "the order speech-to-text (stt) or text-to-speech (tts) asks the providers in, each named once (owner)",
+		flags:   jsonFlag, run: audioOrder,
+	},
+	{
+		name: "audio keys add", args: "<provider>", min: 1, max: 1,
+		summary: "keep one more API key of soniox or elevenlabs in the vault (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("key-file", "", "the file holding the key, or - for standard input")
+			jsonFlag(fs)
+		},
+		run: audioKeysAdd,
+	},
+	{
+		name: "audio keys rm", args: "<provider> <name>", min: 2, max: 2,
+		summary: "remove one of an audio provider's keys from the vault, by its name (owner)",
+		flags:   jsonFlag, run: audioKeysRemove,
+	},
+	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
 		flags: jsonFlag, run: skillsList,
 	},

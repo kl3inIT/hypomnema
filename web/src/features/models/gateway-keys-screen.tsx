@@ -19,6 +19,7 @@ import {
   ArrowUpDown,
   Check,
   Copy,
+  AudioLines,
   FileText,
   Globe,
   ImageIcon,
@@ -93,8 +94,8 @@ import { useGatewayKeys, useGatewayModels, useProviders, useRefreshGatewayKeys }
 const every = "*"
 
 // What a key may use besides chat (issue #664), in the order shown, as OmniRoute's key Access page lists its
-// endpoint categories with a checkbox each. Search and images carry the icons of their pages in the Settings menu
-// (settings-page.tsx).
+// endpoint categories with a checkbox each. Search, images and audio carry the icons of their pages in the Settings
+// menu (settings-page.tsx).
 const endpointKinds: {
   id: GatewayEndpoint
   title: string
@@ -113,6 +114,12 @@ const endpointKinds: {
     title: "Making and editing images",
     description: "/v1/images/generations and /edits.",
     icon: ImageIcon,
+  },
+  {
+    id: "audio",
+    title: "Speech to text and text to speech",
+    description: "/v1/audio/transcriptions, /speech and /voices.",
+    icon: AudioLines,
   },
 ]
 
@@ -467,7 +474,7 @@ const keySchema = z
       .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "Lower-case letters, digits and dashes, 63 at most."),
     scope: z.enum(["every", "some"]),
     models: z.array(z.string()),
-    endpoints: z.array(z.enum(["search", "fetch", "images"])),
+    endpoints: z.array(z.enum(["search", "fetch", "images", "audio"])),
   })
   .refine((value) => value.scope === "every" || value.models.length > 0, {
     message: "Choose a model, or every model.",

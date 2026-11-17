@@ -40,6 +40,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
@@ -389,6 +390,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}},
 	})
 	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
+
+	// Speech-to-text and text-to-speech (issue #694), with the owner's keys in the vault and what the owner set on
+	// the Audio page, read at each call.
+	voice := speech.New(speech.Config{Keys: speechKeys(secrets, logger), Settings: gateway.AudioSettings, Logger: logger})
 	agents.WithRuntimes(dispatchRuntime(svc))
 
 	// The phone a node holds (issue #417), given to every worker as the browser is. A call that finds its
@@ -447,6 +452,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		ClaudeBaseURL:      cfg.ClaudeBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
 		Web:                webSearch,
+		Speech:             voice,
 	})
 	gatewayServer.Register(mux)
 	// The subscriptions the owner logged in search too, through the gateway's calls to them (issue #354); the
@@ -514,7 +520,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
 		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
 		WithImages(botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
-			imageSettings{Service: gateway, server: gatewayServer})
+			imageSettings{Service: gateway, server: gatewayServer}).
+		WithAudio(botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
+			audioSettings{Service: gateway, speech: voice})
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
 	}

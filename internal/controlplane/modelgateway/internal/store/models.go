@@ -8,6 +8,14 @@ import (
 	"database/sql"
 )
 
+type GatewayAudioProvider struct {
+	Provider    string
+	Off         int64
+	SttPosition sql.NullInt64
+	TtsPosition sql.NullInt64
+	UpdatedAt   int64
+}
+
 type GatewayImageProvider struct {
 	Provider  string
 	Off       int64
