@@ -123,6 +123,26 @@ export type Draft = {
   // tools and toolsOff are the Hypomnema tools the agent keeps and turns off (issue #536).
   tools: string[]
   toolsOff: string[]
+  // cpu and memory are what a worker of the agent asks of a machine, as the YAML's requests write them ("500m",
+  // "512Mi"); empty is the default for building work (issue #731).
+  cpu: string
+  memory: string
+}
+
+// cpuText writes thousandths of a core as a request: whole cores as a number, the rest in millicores.
+export function cpuText(millis: number | undefined) {
+  if (!millis) return ""
+
+  return millis % 1000 === 0 ? String(millis / 1000) : `${millis}m`
+}
+
+// memoryText writes bytes as a request: in Gi or Mi when they divide it, else in bytes.
+export function memoryText(bytes: number | undefined) {
+  if (!bytes) return ""
+  if (bytes % 2 ** 30 === 0) return `${bytes / 2 ** 30}Gi`
+  if (bytes % 2 ** 20 === 0) return `${bytes / 2 ** 20}Mi`
+
+  return String(bytes)
 }
 
 // As many backups as OpenMausBot keeps for one bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
@@ -140,6 +160,8 @@ export const emptyDraft: Draft = {
   skillsOff: [],
   tools: [],
   toolsOff: [],
+  cpu: "",
+  memory: "",
 }
 
 export function draftOf(profile: Profile): Draft {
@@ -155,6 +177,8 @@ export function draftOf(profile: Profile): Draft {
     skillsOff: profile.skills_off,
     tools: profile.tools,
     toolsOff: profile.tools_off,
+    cpu: cpuText(profile.cpu_request_millis),
+    memory: memoryText(profile.memory_request_bytes),
   }
 }
 
@@ -198,7 +222,9 @@ export function sameDraft(a: Draft, b: Draft) {
     a.skills.join() === b.skills.join() &&
     a.skillsOff.join() === b.skillsOff.join() &&
     a.tools.join() === b.tools.join() &&
-    a.toolsOff.join() === b.toolsOff.join()
+    a.toolsOff.join() === b.toolsOff.join() &&
+    a.cpu.trim() === b.cpu.trim() &&
+    a.memory.trim() === b.memory.trim()
   )
 }
 
@@ -241,7 +267,7 @@ function text(key: string, value: string, fold: boolean) {
 }
 
 // toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model,
-// instruction, list of fallbacks and skills).
+// instruction, list of fallbacks and skills, and the optional requests).
 export function toYaml(draft: Draft, models: Model[]) {
   let out = `name: ${scalar(draft.name.trim())}\n`
   out += text("description", draft.description.trim(), draft.description.trim().length > 80)
@@ -262,6 +288,14 @@ export function toYaml(draft: Draft, models: Model[]) {
   if (draft.skillsOff.length > 0) out += `skills_off: [${draft.skillsOff.map(scalar).join(", ")}]\n`
   if (draft.tools.length > 0) out += `tools: [${draft.tools.map(scalar).join(", ")}]\n`
   if (draft.toolsOff.length > 0) out += `tools_off: [${draft.toolsOff.map(scalar).join(", ")}]\n`
+
+  const cpu = draft.cpu.trim()
+  const memory = draft.memory.trim()
+  if (cpu || memory) {
+    out += "requests:\n"
+    if (cpu) out += `  cpu: ${JSON.stringify(cpu)}\n`
+    if (memory) out += `  memory: ${JSON.stringify(memory)}\n`
+  }
 
   return out
 }

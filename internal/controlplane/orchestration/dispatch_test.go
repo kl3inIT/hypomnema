@@ -58,8 +58,8 @@ func newSeedWorld(t *testing.T) *world {
 
 	s, db, clock := newTestService(t)
 	w := &world{t: t, s: s, db: db, clock: clock}
-	// The node's own limit is the owner's Runs' (issue #660), so the older scenarios meet one number.
-	w.node = w.addNode("node_a", BotDispatchesDefault, "claude")
+	// The node says no size, so its cap of 4 is what limits it (issue #731), the number the older scenarios meet.
+	w.node = w.addNode("node_a", 4, "claude")
 
 	w.run = newRun(t, s)
 

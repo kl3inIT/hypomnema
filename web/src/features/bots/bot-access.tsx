@@ -184,10 +184,11 @@ function ToolDisplayCard({
   )
 }
 
-// WorkersAtOnceCard is how many of a Bot's workers run at once, across every machine (issue #660), after
-// OpenMausBot's threads.maxConcurrentPerBot (server/bot-thread-limits.ts): its other Tasks wait their turn, and other
-// Bots' Tasks go on. It is saved with its button, a number being typed one digit at a time.
-function WorkersAtOnceCard({
+// GuaranteedWorkersCard is a Bot's guaranteed share of the machines' room, in workers (issue #731; its limit,
+// "Workers at once", until 2026-11-17), as Kueue's nominalQuota and YARN's capacity: a first claim on room as it
+// frees, not a cap; the Bot may use more while the others leave room free, and nothing running is stopped. It is
+// saved with its button, a number being typed one digit at a time.
+function GuaranteedWorkersCard({
   bot,
   pending,
   onSave,
@@ -196,13 +197,13 @@ function WorkersAtOnceCard({
   pending: boolean
   onSave: (max: number) => void
 }) {
-  const [max, setMax] = useState(String(bot.max_dispatches))
+  const [max, setMax] = useState(String(bot.guaranteed_dispatches))
   const n = Number(max)
-  const unchanged = !Number.isInteger(n) || n < 1 || n > 64 || n === bot.max_dispatches
+  const unchanged = !Number.isInteger(n) || n < 1 || n > 64 || n === bot.guaranteed_dispatches
 
   return (
     <section
-      aria-labelledby="bot-workers-at-once"
+      aria-labelledby="bot-guaranteed-workers"
       className="flex flex-col gap-3 rounded-xl border bg-card p-4"
     >
       <div className="flex items-start gap-3">
@@ -210,12 +211,13 @@ function WorkersAtOnceCard({
           <Gauge className="size-4" aria-hidden />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h3 id="bot-workers-at-once" className="text-sm font-medium">
-            Workers at once
+          <h3 id="bot-guaranteed-workers" className="text-sm font-medium">
+            Guaranteed workers
           </h3>
           <p className="text-xs text-muted-foreground">
-            How many of its workers run at the same time, across every machine. Its other Tasks wait
-            their turn; other Bots&apos; go on.
+            Its share of the machines&apos; room: when room frees, the Bot furthest below its share
+            goes first. It may run more while other Bots leave room free; nothing running is
+            stopped.
           </p>
         </div>
       </div>
@@ -228,7 +230,7 @@ function WorkersAtOnceCard({
       >
         <div className="w-24">
           <Input
-            aria-labelledby="bot-workers-at-once"
+            aria-labelledby="bot-guaranteed-workers"
             type="number"
             required
             min={1}
@@ -242,7 +244,7 @@ function WorkersAtOnceCard({
         <Button
           type="submit"
           variant="outline"
-          aria-label="Save workers at once"
+          aria-label="Save guaranteed workers"
           disabled={pending || unchanged}
         >
           Save
@@ -329,7 +331,7 @@ export function BotAccess({ bot }: { bot: Bot }) {
   function save(
     change: Pick<
       BotSettings,
-      "connections" | "workers" | "scopes" | "tool_display" | "max_dispatches"
+      "connections" | "workers" | "scopes" | "tool_display" | "guaranteed_dispatches"
     >,
     what: string,
   ) {
@@ -450,12 +452,15 @@ export function BotAccess({ bot }: { bot: Bot }) {
           )
         }
       />
-      <WorkersAtOnceCard
-        key={bot.max_dispatches}
+      <GuaranteedWorkersCard
+        key={bot.guaranteed_dispatches}
         bot={bot}
         pending={saving}
-        onSave={(max_dispatches) =>
-          save({ max_dispatches }, `${bot.name} runs up to ${max_dispatches} workers at once`)
+        onSave={(guaranteed_dispatches) =>
+          save(
+            { guaranteed_dispatches },
+            `${bot.name} is guaranteed ${guaranteed_dispatches} workers`,
+          )
         }
       />
       <ToolDisplayCard

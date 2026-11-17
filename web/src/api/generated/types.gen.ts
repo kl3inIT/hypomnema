@@ -116,7 +116,7 @@ export type Task = {
   not_before?: string;
   cancel_requested_at?: string;
   /**
-   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
 };
@@ -347,7 +347,13 @@ export type Node = {
   id: string;
   name: string;
   status: 'active' | 'drained';
-  max_dispatches: number;
+  /**
+   * The node's optional cap on the Dispatches it runs at once; left out for none, when the requests of its Dispatches against its allocatable decide (issue #731).
+   */
+  max_dispatches?: number;
+  reserved: Resources;
+  allocatable: Resources;
+  requested: Resources;
   worktree_root?: string;
   runtimes: Array<Runtime>;
   system?: NodeSystem;
@@ -384,14 +390,26 @@ export type Node = {
 };
 
 /**
+ * An amount of CPU and memory (issue
+ */
+export type Resources = {
+  /**
+   * CPU in thousandths of a core.
+   */
+  cpu_millis: number;
+  memory_bytes: number;
+};
+
+/**
  * What changes of a node; what is left out stays.
  */
 export type NodeChange = {
   name?: string;
   /**
-   * Dispatches the node runs at once (issue #660). The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
+   * The node's optional cap on the Dispatches it runs at once (issues #660, #731); 0 for none. The next scheduling pass places by it; Dispatches it already runs over a lower number go on.
    */
   max_dispatches?: number;
+  reserved?: Resources;
 };
 
 export type NewTerminal = {
@@ -1018,7 +1036,7 @@ export type NodeSystem = {
 export type NewNode = {
   name: string;
   /**
-   * Dispatches the node runs at once; left out, the default.
+   * The node's optional cap on the Dispatches it runs at once; left out, none: the requests of its Dispatches against its allocatable decide (issue #731).
    */
   max_dispatches?: number;
   /**
@@ -2531,9 +2549,9 @@ export type Bot = {
   };
   tool_display: ToolDisplay;
   /**
-   * How many of the Bot's workers run at once, across every node (issue #660): the unsettled Dispatches of the Runs it made. 4 unless the Bot sets its own.
+   * The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
    */
-  max_dispatches: number;
+  guaranteed_dispatches: number;
   created_at: string;
   updated_at: string;
 };
@@ -2854,9 +2872,9 @@ export type BotSettings = {
   };
   tool_display?: ToolDisplay;
   /**
-   * How many of the Bot's workers run at once; left out, the Bot keeps it, 4 for a new one.
+   * The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
    */
-  max_dispatches?: number;
+  guaranteed_dispatches?: number;
 };
 
 export type Memory = {
@@ -2910,6 +2928,14 @@ export type Profile = {
   model?: string;
   effort?: string;
   instruction?: string;
+  /**
+   * What a worker of the profile asks of a node's CPU, in thousandths of a core, from its YAML's requests.cpu (issue #731); left out, the default for building work, 1000.
+   */
+  cpu_request_millis?: number;
+  /**
+   * What a worker of the profile asks of a node's memory, from its YAML's requests.memory; left out, the default for building work, 3 GiB.
+   */
+  memory_request_bytes?: number;
   /**
    * The skills its workers get beside those given to everyone.
    */

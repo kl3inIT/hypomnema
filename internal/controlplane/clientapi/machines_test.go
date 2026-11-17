@@ -271,8 +271,19 @@ func TestOnlyTheOwnerChangesANodesLimit(t *testing.T) {
 	changed, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{MaxDispatches: ptr(4)})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
-	assert.Equal(t, 4, changed.JSON200.MaxDispatches)
+	assert.Equal(t, ptr(4), changed.JSON200.MaxDispatches)
 	assert.Equal(t, "stc-hy-app", changed.JSON200.Name)
+
+	// The cap is cleared with 0, and a reserve shrinks what the node's Dispatches may ask for (issue #731).
+	none := 0
+	cleared, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{
+		MaxDispatches: &none, Reserved: &openapi.Resources{CpuMillis: 500, MemoryBytes: 1 << 30},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, cleared.StatusCode(), string(cleared.Body))
+	assert.Nil(t, cleared.JSON200.MaxDispatches)
+	assert.Equal(t, openapi.Resources{CpuMillis: 500, MemoryBytes: 1 << 30}, cleared.JSON200.Reserved)
+	assert.Equal(t, openapi.Resources{}, cleared.JSON200.Allocatable, "a node that has not said its size has none")
 
 	tooMany, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{MaxDispatches: ptr(65)})
 	require.NoError(t, err)
@@ -281,6 +292,17 @@ func TestOnlyTheOwnerChangesANodesLimit(t *testing.T) {
 	empty, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, empty.StatusCode())
+
+	// A change with a part that is refused, a blank name, writes none of its parts (PR #759).
+	half, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{
+		Name: ptr("   "), MaxDispatches: ptr(2), Reserved: &openapi.Resources{CpuMillis: 2000},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, half.StatusCode())
+
+	kept, err := w.svc.GetNode(ctx, n.ID)
+	require.NoError(t, err)
+	assert.Equal(t, [3]any{"stc-hy-app", 0, int64(500)}, [3]any{kept.Name, kept.MaxDispatches, kept.Reserved.CPUMillis})
 }
 
 // Scenario: the Machines page reads a node whose machine has a GPU. The

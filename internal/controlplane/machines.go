@@ -152,7 +152,7 @@ func (o *owner) machinesCommand(ctx context.Context, args []string) error {
 		provider := fs.String("provider", "", "the machine provider's name")
 		region := fs.String("region", "", "the region (default: the provider's)")
 		size := fs.String("size", "", "the machine size (default: the provider's)")
-		limit := fs.Int("max", 0, "Dispatches the node runs at once (0: the default)")
+		limit := fs.Int("max", 0, "an optional cap on the Dispatches the node runs at once (0: none)")
 		device := fs.String("device", "", "android: a machine that holds an Android emulator (default: none)")
 
 		if err := fs.Parse(args[2:]); err != nil || *provider == "" || fs.NArg() > 0 {

@@ -33,7 +33,7 @@ const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
   workers: { limited: false, names: [] },
   scopes: {},
   tool_display: "on",
-  max_dispatches: 4,
+  guaranteed_dispatches: 4,
   created_at: "2026-11-01T00:00:00Z",
   updated_at: "2026-11-01T00:00:00Z",
   ...m,

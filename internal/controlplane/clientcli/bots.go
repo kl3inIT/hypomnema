@@ -78,7 +78,7 @@ func printBot(e *env, b *openapi.Bot) {
 	}
 
 	e.printf("tool calls shown: %s\n", b.ToolDisplay)
-	e.printf("workers at once: %d\n", b.MaxDispatches)
+	e.printf("guaranteed workers: %d\n", b.GuaranteedDispatches)
 
 	if b.Persona != "" {
 		e.printf("\n%s\n", b.Persona)
@@ -386,9 +386,9 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		case "tool-display":
 			d := openapi.ToolDisplay(v)
 			set.ToolDisplay = &d
-		case "max-dispatches":
+		case "guarantee":
 			n, _ := strconv.Atoi(v) // the flag set parsed it as a number
-			set.MaxDispatches = &n
+			set.GuaranteedDispatches = &n
 		case "persona-file":
 			persona, err := e.read(v)
 			if err != nil {

@@ -32,7 +32,8 @@ vi.mock("./yaml-editor", () => ({
     <textarea aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} />
   ),
 }))
-import { toYaml, type Draft } from "./profiles-state"
+import { profileSchema } from "./profile-schema"
+import { cpuText, memoryText, toYaml, type Draft } from "./profiles-state"
 import { SidebarProvider } from "@/components/ui/sidebar"
 
 beforeEach(() => {
@@ -576,6 +577,8 @@ const draft = (m: Partial<Draft>): Draft => ({
   skillsOff: [],
   tools: [],
   toolsOff: [],
+  cpu: "",
+  memory: "",
   ...m,
 })
 
@@ -608,6 +611,22 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
   expect(toYaml(draft({ instruction: "  indented first line\nsecond" }), models)).toContain(
     'instruction: "  indented first line\\nsecond"\n',
   )
+  // And what a worker asks of a machine (issue #731), as the profile's requests: an agent saved from the builder
+  // keeps them.
+  expect(toYaml(draft({ cpu: "500m", memory: "512Mi" }), models)).toBe(
+    'name: a\ndescription: "d"\nruntime: claude\nrequests:\n  cpu: "500m"\n  memory: "512Mi"\n',
+  )
+  // The YAML editor's schema allows what the builder writes, so switching to YAML shows no error (PR #759).
+  const written = toYaml(draft({ cpu: "500m", memory: "512Mi" }), models)
+  const keys = (indent: string) =>
+    [...written.matchAll(new RegExp(`^${indent}([a-z_]+):`, "gm"))].map((m) => m[1] ?? "")
+  expect(keys("").filter((k) => !(k in profileSchema.properties))).toEqual([])
+  expect(keys("  ").filter((k) => !(k in profileSchema.properties.requests.properties))).toEqual([])
+  expect(cpuText(1500)).toBe("1500m")
+  expect(cpuText(2000)).toBe("2")
+  expect(memoryText(3 * 2 ** 30)).toBe("3Gi")
+  expect(memoryText(512 * 2 ** 20)).toBe("512Mi")
+  expect(memoryText(undefined)).toBe("")
 })
 
 // Scenario: the owner wants a second reviewer like the first. "Duplicate" opens the new agent's form filled in

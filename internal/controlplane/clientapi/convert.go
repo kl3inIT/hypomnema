@@ -161,13 +161,18 @@ func toNode(n orchestration.Node) openapi.Node {
 	}
 
 	return openapi.Node{
-		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: n.MaxDispatches,
+		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: ptr(n.MaxDispatches),
+		Reserved: toResources(n.Reserved), Allocatable: toResources(n.Allocatable), Requested: toResources(n.Requested),
 		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
 		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal), Device: ptr(openapi.NodeDevice(n.Device)), Kvm: ptr(n.KVM),
 		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
 	}
+}
+
+func toResources(r orchestration.Resources) openapi.Resources {
+	return openapi.Resources{CpuMillis: r.CPUMillis, MemoryBytes: r.MemoryBytes}
 }
 
 // gitHostsOf is nil for a node that has not said which hosts it reaches, and

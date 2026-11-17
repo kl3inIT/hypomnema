@@ -46,7 +46,7 @@ func TestOwnerSetsUpANodeAndAnAccount(t *testing.T) {
 
 	out, err := command(t, cfg, "nodes", "add", "zm", "--max", "3")
 	require.NoError(t, err)
-	assert.Contains(t, out, "up to 3 Dispatches")
+	assert.Contains(t, out, "cap 3, reserved 0.0 CPU 0.0 GiB, allocatable 0.0 CPU 0.0 GiB")
 	assert.Contains(t, out, "curl -fsSL https://hyp.example/install/node.sh | sh")
 	assert.Regexp(t, `(?m)^hyn_[A-Za-z0-9_-]+$`, out)
 
@@ -54,13 +54,41 @@ func TestOwnerSetsUpANodeAndAnAccount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "\tzm\tactive\toffline\t0/3\t")
 
-	// The owner changes the node's limit after adding it (issue #660).
+	// The owner changes the node's cap after adding it (issue #660), clears it and keeps some of the node back
+	// (issue #731).
 	out, err = command(t, cfg, "nodes", "set", "zm", "--max", "5")
 	require.NoError(t, err)
-	assert.Contains(t, out, "up to 5 Dispatches")
+	assert.Contains(t, out, "cap 5,")
+
+	// A part that cannot be read changes nothing, not even the parts before it (PR #759).
+	_, err = command(t, cfg, "nodes", "set", "zm", "--max", "none", "--reserve-memory", "invalid")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+
+	_, err = command(t, cfg, "nodes", "set", "zm", "--max", "none", "--reserve-cpu", "1", "--reserve-memory", "-1")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+
+	out, err = command(t, cfg, "nodes", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "\tzm\tactive\toffline\t0/5\t", "the cap is still 5")
+
+	out, err = command(t, cfg, "nodes", "set", "zm", "--reserve-memory", "1Gi")
+	require.NoError(t, err)
+	assert.Contains(t, out, "cap 5, reserved 0.0 CPU 1.0 GiB", "the cap and the CPU left out are kept")
+
+	out, err = command(t, cfg, "nodes", "set", "zm", "--max", "none", "--reserve-cpu", "500m",
+		"--reserve-memory", "2Gi")
+	require.NoError(t, err)
+	assert.Contains(t, out, "cap -, reserved 0.5 CPU 2.0 GiB")
+
+	out, err = command(t, cfg, "nodes", "set", "zm", "--reserve-cpu", "1")
+	require.NoError(t, err)
+	assert.Contains(t, out, "reserved 1.0 CPU 2.0 GiB", "the memory left out is kept")
 
 	_, err = command(t, cfg, "nodes", "set", "zm")
-	require.ErrorIs(t, err, ErrUsage, "a change names the limit")
+	require.ErrorIs(t, err, ErrUsage, "a change names the cap or the reserve")
+
+	_, err = command(t, cfg, "nodes", "set", "zm", "--max", "0")
+	require.ErrorIs(t, err, ErrUsage, "no cap is said with none")
 
 	out, err = command(t, cfg, "accounts", "add", "claude", "personal")
 	require.NoError(t, err)
