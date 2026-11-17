@@ -72,6 +72,12 @@ type Conn interface {
 	NameOf(ctx context.Context, personID string) (string, error)
 }
 
+// Recorder is a Conn that reads a voice message's recording (issue #723):
+// at most limit bytes, or an error.
+type Recorder interface {
+	Recording(ctx context.Context, messageID, key string, limit int64) ([]byte, error)
+}
+
 // Reply is a reply being written. Its text is replaced as more is written,
 // and set once more when it ends; how a change is counted is the service's.
 type Reply interface {
@@ -110,6 +116,9 @@ type Message struct {
 	// Text is the text of a text message; IsText says it is one.
 	Text   string
 	IsText bool
+	// Voice is the service's key of a voice message's recording, which the
+	// Conn reads as a Recorder; empty for any other message (issue #723).
+	Voice string
 	// Sender is the sender's id; FromPerson says a person sent it, not an
 	// app.
 	Sender     string

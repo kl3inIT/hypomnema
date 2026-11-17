@@ -102,6 +102,11 @@ type UsageCounts struct {
 	// micro-dollars; Unpriced counts those with tokens it has no price for
 	// (Coder's has_unpriced_usage).
 	CostMicros, Unpriced int64
+	// WebSearches, Audio, Characters and Images are the units counted beside
+	// the tokens (issue #723): searches, seconds heard, characters spoken and
+	// images made.
+	WebSearches, Characters, Images int64
+	Audio                           time.Duration
 }
 
 // UsageGroup is the counts of the requests of one model, key or account.
@@ -163,6 +168,8 @@ func (s *Service) Usage(ctx context.Context, period string, offset time.Duration
 		Requests: totals.Requests, Failed: totals.Failed, Prompt: totals.PromptTokens, Cached: totals.CachedTokens,
 		Completion: totals.CompletionTokens, Reasoning: totals.ReasoningTokens,
 		CostMicros: totals.CostMicros, Unpriced: totals.Unpriced,
+		WebSearches: totals.WebSearches, Audio: time.Duration(totals.AudioMs) * time.Millisecond,
+		Characters: totals.Characters, Images: totals.Images,
 	}
 
 	buckets, err := q.UsageBuckets(ctx, store.UsageBucketsParams{
@@ -185,6 +192,8 @@ func (s *Service) Usage(ctx context.Context, period string, offset time.Duration
 			UsageCounts: UsageCounts{
 				Requests: b.Requests, Failed: b.Failed, Prompt: b.PromptTokens, Cached: b.CachedTokens,
 				Completion: b.CompletionTokens, Reasoning: b.ReasoningTokens, CostMicros: b.CostMicros, Unpriced: b.Unpriced,
+				WebSearches: b.WebSearches, Audio: time.Duration(b.AudioMs) * time.Millisecond,
+				Characters: b.Characters, Images: b.Images,
 			},
 		}
 	}
@@ -215,6 +224,8 @@ func (s *Service) usageByModel(ctx context.Context, q *store.Queries, since time
 		out = append(out, UsageGroup{ID: r.Name, Name: r.Name, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
 			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
+			WebSearches: r.WebSearches, Audio: time.Duration(r.AudioMs) * time.Millisecond,
+			Characters: r.Characters, Images: r.Images,
 		}})
 	}
 
@@ -232,6 +243,8 @@ func (s *Service) usageByKey(ctx context.Context, q *store.Queries, since time.T
 		out = append(out, UsageGroup{ID: r.ID, Name: r.Name, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
 			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
+			WebSearches: r.WebSearches, Audio: time.Duration(r.AudioMs) * time.Millisecond,
+			Characters: r.Characters, Images: r.Images,
 		}})
 	}
 
@@ -251,6 +264,8 @@ func (s *Service) usageByAccount(ctx context.Context, q *store.Queries, since ti
 		out = append(out, UsageGroup{ID: r.ID, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
 			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
+			WebSearches: r.WebSearches, Audio: time.Duration(r.AudioMs) * time.Millisecond,
+			Characters: r.Characters, Images: r.Images,
 		}})
 	}
 

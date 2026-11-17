@@ -32,7 +32,7 @@ import type {
   AudioProvider,
   AudioProviderLink,
 } from "@/api/generated/types.gen"
-import { ElevenLabsIcon } from "@/components/icons/brand-icons"
+import { AudioProviderMark } from "@/components/icons/provider-marks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -155,7 +155,7 @@ function ProviderRow({ link }: { link: AudioProviderLink }) {
   return (
     <div className={link.on ? undefined : "opacity-70"}>
       <Item variant="muted" size="sm" aria-label={name}>
-        <Mark provider={link.provider} />
+        <AudioProviderMark provider={link.provider} className="size-5 shrink-0 self-start" />
         <ItemContent>
           <ItemTitle>{name}</ItemTitle>
           <ItemDescription>
@@ -463,7 +463,7 @@ function KindRow({
         >
           #{place}
         </span>
-        <Mark provider={entry.provider} />
+        <AudioProviderMark provider={entry.provider} className="size-5 shrink-0 self-start" />
         <ItemContent>
           <ItemTitle>{name}</ItemTitle>
           <ItemDescription>
@@ -512,17 +512,6 @@ function stateIcon(state: AudioProviderLink["state"]): LucideIcon | undefined {
   if (state === "off") return Power
 
   return undefined
-}
-
-// Mark is a provider's mark: ElevenLabs's as LobeHub draws it; Soniox's, which no reference draws, as OmniRoute
-// shows it, a microphone in its colour (src/shared/constants/providers/audio.ts: icon mic, #5B5BD6).
-function Mark({ provider }: { provider: AudioProvider }) {
-  const className = "size-5 shrink-0 self-start"
-
-  if (provider === "elevenlabs")
-    return <ElevenLabsIcon className={`${className} text-foreground`} />
-
-  return <Mic className={`${className} text-[#5B5BD6]`} aria-hidden />
 }
 
 function Fact({

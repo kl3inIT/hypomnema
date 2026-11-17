@@ -2088,11 +2088,27 @@ export type CreatedGatewayKey = {
 export type GatewayUsageCounts = {
   requests: number;
   /**
+   * The web searches: each web/search answered, and the searches models made themselves (Anthropic's server_tool_use.web_search_requests, the Responses API's web_search_call items).
+   */
+  web_searches: number;
+  /**
+   * The seconds of recordings transcriptions heard.
+   */
+  audio_seconds: number;
+  /**
+   * The characters speech spoke.
+   */
+  characters: number;
+  /**
+   * The images image requests made.
+   */
+  images: number;
+  /**
    * What the priced requests cost at their vendor's API price, in micro-dollars; for a subscription, what the same tokens would cost at the API, not what the plan costs.
    */
   cost_micros: number;
   /**
-   * The requests with tokens whose model the price book has no price for.
+   * The requests with tokens, searches, seconds or characters that the price book has no price for.
    */
   unpriced: number;
   /**
@@ -2186,7 +2202,7 @@ export type GatewayRequest = {
    */
   cache_write_1h_tokens: number;
   /**
-   * The cost at the vendor's API price, in micro-dollars; absent when the model has no price.
+   * The cost at the vendor's API price, in micro-dollars: its tokens, searches, seconds or characters, at the price of each (LiteLLM's price map for those not counted in tokens); absent when there is none.
    */
   cost_micros?: number;
   /**
@@ -2206,6 +2222,14 @@ export type GatewayRequest = {
    * The characters an audio speech request spoke; absent for other requests.
    */
   characters?: number;
+  /**
+   * The web searches the request made: 1 for an answered web/search, and a model's own searches beside its tokens; absent when none.
+   */
+  web_searches?: number;
+  /**
+   * The images an image request made; absent for other requests.
+   */
+  images?: number;
 };
 
 export type GatewayRequestList = {
@@ -2548,6 +2572,10 @@ export type SkillFromGitHub = {
 
 export type SkillEveryone = {
   everyone: boolean;
+};
+
+export type ToolNames = {
+  data: Array<string>;
 };
 
 export type Bot = {
@@ -7709,6 +7737,36 @@ export type ListBotSkillsResponses = {
 };
 
 export type ListBotSkillsResponse = ListBotSkillsResponses[keyof ListBotSkillsResponses];
+
+export type ListBotToolsData = {
+  body?: never;
+  path: {
+    /**
+     * The Bot's id, which never changes (issue
+     */
+    bot_id: string;
+  };
+  query?: never;
+  url: '/bots/{bot_id}/tools';
+};
+
+export type ListBotToolsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBotToolsError = ListBotToolsErrors[keyof ListBotToolsErrors];
+
+export type ListBotToolsResponses = {
+  /**
+   * The tools' names.
+   */
+  200: ToolNames;
+};
+
+export type ListBotToolsResponse = ListBotToolsResponses[keyof ListBotToolsResponses];
 
 export type ChangeBotMemoryData = {
   body: MemoryChange;

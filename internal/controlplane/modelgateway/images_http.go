@@ -336,12 +336,16 @@ type ImageCall struct {
 // RecordImageCall records an image request on its key as model
 // image/<the provider's one model>: the provider and model that made it, or for one that
 // failed the last tried and every provider's reason; the tokens the provider
-// reported, none invented.
+// reported, none invented; and the images it made (issue #723).
 func (s *Service) RecordImageCall(ctx context.Context, c ImageCall) error {
 	res := c.Result
 	u := Usage{
 		KeyID: c.KeyID, Provider: res.Provider, UpstreamModel: res.Model, Attempts: len(res.Errors) + 1,
 		Outcome: OutcomeOK, Status: http.StatusOK, AccountID: res.AccountID, Tokens: res.Tokens, Duration: c.Duration,
+	}
+
+	if c.Err == nil {
+		u.Images = int64(len(res.Images))
 	}
 
 	var failed *ImageError

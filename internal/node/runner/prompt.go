@@ -74,7 +74,8 @@ const rules = "\nRules:\n" +
 
 // Prompt is the worker's first turn, after Orca's dispatch preamble
 // (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts):
-// who it is and the rules, the same for every worker; the profile's
+// who it is, the rules and the "Tools" block, the same for every worker with
+// the same tools; the profile's
 // instruction, the accounts and phone of the Run and the memories; where to
 // work; the task; and last the recovery note, a follow-up and a resolved
 // Gate, the newest instruction.
@@ -96,6 +97,12 @@ func Prompt(d statedb.Dispatch) string {
 	b.WriteString("You are a worker dispatched by Hypomnema, a software factory. ")
 	b.WriteString("Carry out the task at the end of this message on your own.\n")
 	b.WriteString(rules)
+
+	// The "Tools" block (issue #723, decisions 2.2 to 2.4): built from the tools the worker gets alone, so it is the
+	// same for every worker with the same tools and sits with the rules, before anything of the task.
+	if guide := agenttool.ToolGuide(o.Tools); guide != "" {
+		b.WriteString("\n" + guide)
+	}
 
 	// The profile's instruction comes after the rules it may not override.
 	if s := strings.TrimSpace(o.Instruction); s != "" {

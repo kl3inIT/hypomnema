@@ -65,9 +65,11 @@ func PassThrough(raw []byte, opt PassOptions) ([]byte, error) {
 
 // PassUsage counts the tokens of a Messages answer passed on as it came.
 // CacheCreation1h is the part of CacheCreation written for an hour
-// (usage.cache_creation.ephemeral_1h_input_tokens; issue #448).
+// (usage.cache_creation.ephemeral_1h_input_tokens; issue #448); WebSearches
+// are the model's own web searches (usage.server_tool_use.web_search_requests;
+// issue #723).
 type PassUsage struct {
-	Input, Output, CacheRead, CacheCreation, CacheCreation1h int64
+	Input, Output, CacheRead, CacheCreation, CacheCreation1h, WebSearches int64
 }
 
 // Note reads the usage an event, or a whole answer, carries: message_start
@@ -108,6 +110,10 @@ func (u *PassUsage) Note(data []byte) {
 
 		if got.CacheCreation.Ephemeral1hInput > 0 {
 			u.CacheCreation1h = got.CacheCreation.Ephemeral1hInput
+		}
+
+		if got.ServerToolUse.WebSearchRequests > 0 {
+			u.WebSearches = got.ServerToolUse.WebSearchRequests
 		}
 	}
 }

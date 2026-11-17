@@ -219,6 +219,10 @@ type Offer struct {
 	// Skills are the skills the worker is given, each at the revision
 	// recorded when the Dispatch was made (issue #21).
 	Skills []nodeproto.Skill `json:"skills,omitempty"`
+	// Tools are set by the node API as the offer is sent: the names of the
+	// tools the worker gets, from which its node writes the "Tools" block
+	// (issue #723).
+	Tools []string `json:"tools,omitempty"`
 }
 
 // StopRequest is a stop asked of a Dispatch on the node.

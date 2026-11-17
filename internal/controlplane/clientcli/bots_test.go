@@ -1,14 +1,19 @@
 package clientcli
 
 import (
+	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Scenario: the owner makes a Bot from the laptop with a persona from
@@ -186,4 +191,45 @@ func TestABotIsRenamedFromTheCLI(t *testing.T) {
 
 	_, err = pi.cmd(t, "bots", "rename", vmap.Id, "maps")
 	require.ErrorContains(t, err, "forbidden")
+}
+
+// Scenario (issue #723, decisions 2.2 to 2.4): pi's prompt opens with the
+// "Tools" block built from the tools the control plane says its Bot gets,
+// before the persona, in a direct chat and in a group's; a Bot whose tools
+// say nothing gets no block.
+func TestABotsPromptOpensWithItsToolsBlock(t *testing.T) {
+	t.Parallel()
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) {
+		s.WithBotTools(func(_ context.Context, bot orchestration.Bot) []string {
+			if bot.Name == "quiet" {
+				return []string{agenttool.ToolMemory}
+			}
+
+			return []string{agenttool.ToolMemory, agenttool.ToolWebSearch, agenttool.ToolWebFetch,
+				agenttool.ToolAudioTranscribe}
+		})
+	})
+	w.login(t, bearertoken.Owner)
+
+	_, err := w.cmdIn(t, "You answer questions about VMAP.\n", "bots", "set", "vmap", "--persona-file", "-")
+	require.NoError(t, err)
+	_, err = w.cmdIn(t, "You say little.\n", "bots", "set", "quiet", "--persona-file", "-")
+	require.NoError(t, err)
+
+	block := agenttool.ToolGuide([]string{agenttool.ToolWebSearch, agenttool.ToolAudioTranscribe})
+	require.NotEmpty(t, block)
+
+	out, err := w.cmd(t, "bots", "prompt", "vmap")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(out, block+"\nYou answer questions about VMAP.\n"), out)
+
+	out, err = w.cmd(t, "bots", "prompt", "--group", "vmap")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(out, block+"\nYou answer questions about VMAP.\n\n## Conversation"), out)
+
+	out, err = w.cmd(t, "bots", "prompt", "quiet")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(out, "You say little.\n"), out)
+	assert.NotContains(t, out, "## Tools")
 }

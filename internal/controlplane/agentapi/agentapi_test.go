@@ -54,6 +54,13 @@ func newWorld(t *testing.T) *world {
 func newWorldWriting(t *testing.T, writeTimeout time.Duration) *world {
 	t.Helper()
 
+	return newWorldWith(t, writeTimeout, nil)
+}
+
+// newWorldWith is newWorldWriting with more given to its agent API by more, when it is set.
+func newWorldWith(t *testing.T, writeTimeout time.Duration, more func(*agentapi.Server)) *world {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -69,12 +76,17 @@ func newWorldWriting(t *testing.T, writeTimeout time.Duration) *world {
 	}
 
 	mux := http.NewServeMux()
-	agentapi.New(w.svc, func(_ context.Context, integration, label string) (agentapi.Token, error) {
+	api := agentapi.New(w.svc, func(_ context.Context, integration, label string) (agentapi.Token, error) {
 		w.asked = append(w.asked, integration+":"+label)
 
 		return agentapi.Token{AccessToken: "ya29.token-of-" + label, ExpiresAt: time.Unix(1_800_000_000, 0).UTC()}, nil
 	}, slog.New(slog.NewTextHandler(w.logs, nil))).WithBrowser(w.browser).WithMessaging(w.whatsapp).
-		WithJudge(w.judge).Register(mux)
+		WithJudge(w.judge)
+	if more != nil {
+		more(api)
+	}
+
+	api.Register(mux)
 
 	w.srv = httptest.NewUnstartedServer(mux)
 	w.srv.Config.WriteTimeout = writeTimeout

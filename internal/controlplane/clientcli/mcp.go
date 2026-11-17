@@ -21,7 +21,7 @@ import (
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
 // pi's own token there. It lists the tools the control plane gives a Bot's pi
 // (PathTools, issue #536: memory, show_artifact, routines, web_search,
-// web_fetch, generate_image, the shared browser's, and Superset's superset_*
+// web_fetch, generate_image, audio_transcribe, audio_speak, the shared browser's, and Superset's superset_*
 // when its Bot may use a Superset account) and the phone's (PathDeviceTools,
 // issue #536 step 4), as a worker's server does (internal/node/workertools),
 // so that a Bot is offered none of a worker's own (ask, finish). The phone's
@@ -36,6 +36,8 @@ const (
 	mcpName = "hypomnema"
 	// mcpImages is the folder, in the one pi works in, a Bot's images are saved in.
 	mcpImages = "images"
+	// mcpAudio is the folder, in the one pi works in, a Bot's speech is saved in (issue #723).
+	mcpAudio = "audio"
 	// mcpTimeout is pi's wait for one request, in seconds (its default is 60): longer than an image may take
 	// (toolsmcp.ImageCallTimeout).
 	mcpTimeout = 12 * 60
@@ -69,6 +71,10 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 			case c.Name == agenttool.ToolGenerateImage:
 				return agent.ImageCall(ctx, c.Arguments,
 					toolsmcp.Images{Path: agenttool.PathToolsCall, Folder: mcpImages})
+			case c.Name == agenttool.ToolAudioTranscribe:
+				return agent.TranscribeCall(ctx, c.Arguments, toolsmcp.Audio{Path: agenttool.PathToolsCall})
+			case c.Name == agenttool.ToolAudioSpeak:
+				return agent.SpeakCall(ctx, c.Arguments, toolsmcp.Audio{Path: agenttool.PathToolsCall, Folder: mcpAudio})
 			case c.Name == agenttool.ToolShowArtifact:
 				// pi starts the server in the folder it works in, the Bot's, where its pages are.
 				dir, err := os.Getwd()

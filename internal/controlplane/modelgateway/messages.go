@@ -637,6 +637,7 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 
 	record.Tokens = messagesTokens(usage)
 	record.Tokens.estimate(asked, sent)
+	record.WebSearches = usage.WebSearches
 }
 
 // passMessagesAnswer copies an answer that is not a stream, and reads its usage.
@@ -649,6 +650,7 @@ func passMessagesAnswer(w http.ResponseWriter, asked int, resp *http.Response, r
 	record.Outcome = OutcomeOK
 	record.Tokens = messagesTokens(usage)
 	record.Tokens.estimate(asked, len(body))
+	record.WebSearches = usage.WebSearches
 }
 
 // messagesTokens counts as the chat route counts a Claude answer: the prompt

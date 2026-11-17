@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Bots, from the terminal (issue #169): the owner makes and changes them, and
@@ -478,10 +479,29 @@ func botsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // per session (tools/memory_tool.py). What changes least comes first, so a
 // change to the Bot's memory leaves the rest of the prompt the provider
 // caches as it was.
+//
+// It opens with the "Tools" block (issue #723, decisions 2.2 to 2.4), built
+// from the tools the Bot's pi gets as a worker's is from its offer's
+// (agenttool.ToolGuide): it is the same for every Bot with the same tools,
+// so it comes before the persona, and the start of the prompt stays the same
+// for the provider's cache.
 func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	b, err := getBot(ctx, e, fs.Arg(0))
 	if err != nil {
 		return err
+	}
+
+	tools, err := e.api.ListBotToolsWithResponse(ctx, b.Id)
+	if err != nil {
+		return fmt.Errorf("reading the tools of bot %s: %w", b.Name, err)
+	}
+
+	if tools.JSON200 == nil {
+		return apiError("reading the tools of bot "+b.Name, tools.StatusCode(), tools.JSONDefault)
+	}
+
+	if guide := agenttool.ToolGuide(tools.JSON200.Data); guide != "" {
+		e.printf("%s\n", guide)
 	}
 
 	if boolean(fs, "group") {
