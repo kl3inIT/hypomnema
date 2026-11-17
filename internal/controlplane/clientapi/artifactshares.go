@@ -69,6 +69,27 @@ func (s *Server) ListArtifactShares(ctx context.Context, req openapi.ListArtifac
 	return out, nil
 }
 
+// ListShares lists every link with what it shows (issue #765).
+func (s *Server) ListShares(ctx context.Context, _ openapi.ListSharesRequestObject,
+) (openapi.ListSharesResponseObject, error) {
+	list, err := s.svc.ListSharedLinks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListShares200JSONResponse{Data: make([]openapi.SharedLink, 0, len(list))}
+	for _, l := range list {
+		out.Data = append(out.Data, openapi.SharedLink{
+			Id: l.ID, ArtifactId: l.ArtifactID, Label: l.Label, Token: l.Token, Path: "/s/" + l.Token,
+			CreatedAt: l.CreatedAt, Views: l.Views, LastViewedAt: l.LastViewedAt,
+			Title: l.Title, Type: openapi.ArtifactType(l.Type), Bot: l.Bot, BotName: l.BotName,
+			ChatId: l.ChatID,
+		})
+	}
+
+	return out, nil
+}
+
 // DeleteArtifactShare revokes a link.
 func (s *Server) DeleteArtifactShare(ctx context.Context, req openapi.DeleteArtifactShareRequestObject,
 ) (openapi.DeleteArtifactShareResponseObject, error) {

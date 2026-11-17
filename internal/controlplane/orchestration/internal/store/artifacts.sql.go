@@ -334,6 +334,68 @@ func (q *Queries) InsertArtifactShare(ctx context.Context, arg InsertArtifactSha
 	return err
 }
 
+const listAllArtifactShares = `-- name: ListAllArtifactShares :many
+SELECT s.id, s.artifact_id, s.token, s.label, s.created_at, s.views, s.last_viewed_at,
+       a.chat_id, a.bot_id, coalesce(b.name, '') AS bot_name, r.title, r.type
+FROM artifact_shares s
+JOIN artifacts a ON a.id = s.artifact_id
+JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
+LEFT JOIN bots b ON b.id = a.bot_id
+ORDER BY s.created_at DESC, s.id
+`
+
+type ListAllArtifactSharesRow struct {
+	ID           string
+	ArtifactID   string
+	Token        string
+	Label        string
+	CreatedAt    int64
+	Views        int64
+	LastViewedAt sql.NullInt64
+	ChatID       string
+	BotID        string
+	BotName      string
+	Title        string
+	Type         string
+}
+
+// Every link, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
+func (q *Queries) ListAllArtifactShares(ctx context.Context) ([]ListAllArtifactSharesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllArtifactShares)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllArtifactSharesRow{}
+	for rows.Next() {
+		var i ListAllArtifactSharesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ArtifactID,
+			&i.Token,
+			&i.Label,
+			&i.CreatedAt,
+			&i.Views,
+			&i.LastViewedAt,
+			&i.ChatID,
+			&i.BotID,
+			&i.BotName,
+			&i.Title,
+			&i.Type,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listArtifactBlobsBefore = `-- name: ListArtifactBlobsBefore :many
 SELECT DISTINCT sha256 FROM artifact_files WHERE artifact_id = ?1 AND revision < ?2
 `

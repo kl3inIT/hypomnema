@@ -3494,6 +3494,50 @@ export type ArtifactShareList = {
   data: Array<ArtifactShare>;
 };
 
+/**
+ * A view-only link with what it shows (issue
+ */
+export type SharedLink = {
+  id: string;
+  artifact_id: string;
+  label: string;
+  /**
+   * The link's secret, 32 random bytes in base64url.
+   */
+  token: string;
+  /**
+   * The link's path on this server, /s/<token>.
+   */
+  path: string;
+  created_at: string;
+  /**
+   * How many times its page was opened.
+   */
+  views: number;
+  last_viewed_at?: string;
+  /**
+   * The artifact's newest title.
+   */
+  title: string;
+  type: ArtifactType;
+  /**
+   * The id of the Bot that made the artifact.
+   */
+  bot: string;
+  /**
+   * That Bot's name; empty when the Bot is gone.
+   */
+  bot_name: string;
+  /**
+   * The chat the artifact is in.
+   */
+  chat_id: string;
+};
+
+export type SharedLinkList = {
+  data: Array<SharedLink>;
+};
+
 export type SharedArtifact = {
   title: string;
   type: ArtifactType;
@@ -7753,6 +7797,31 @@ export type CreateArtifactShareResponses = {
 };
 
 export type CreateArtifactShareResponse = CreateArtifactShareResponses[keyof CreateArtifactShareResponses];
+
+export type ListSharesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/artifact-shares';
+};
+
+export type ListSharesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSharesError = ListSharesErrors[keyof ListSharesErrors];
+
+export type ListSharesResponses = {
+  /**
+   * The links.
+   */
+  200: SharedLinkList;
+};
+
+export type ListSharesResponse = ListSharesResponses[keyof ListSharesResponses];
 
 export type DeleteArtifactShareData = {
   body?: never;

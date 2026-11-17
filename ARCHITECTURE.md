@@ -861,7 +861,13 @@ sequenceDiagram
     five unknown tokens within an hour is locked as a wrong password locks it (`session.go`'s limiter, its own
     instance; LibreChat limits its share route per address), for the link and its files alike, 429 with
     Retry-After. CLI: `artifact share <id> --label L` prints the link, `artifact shares <id>` lists them with their
-    views, `artifact unshare <share_id>`.
+    views, `artifact unshare <share_id>`. Every link in one place (issue #765): `GET /artifact-shares` (owner
+    only) lists them newest first with the artifact's newest title and type, its Bot's id and name and its chat,
+    as open-webui's `GET /chats/shared` and LibreChat's `GET /share` list theirs; the web's Settings › Connections ›
+    Shared links (`web/src/features/artifacts/shared-links-screen.tsx`) shows them in the Gateway keys page's table
+    (search by artifact or label, columns that sort, newest first), each with Copy (open-webui) and a menu: Open the
+    link (Grafana, Metabase), Open the artifact, Open its chat (LibreChat), Revoke link…, asked first (LibreChat,
+    Grafana, Metabase). Links are made only from an artifact's Share menu.
   - Not built: JSX pages, pinning to a board, the page calling back into the chat, the dashboard skill (row 13); a
     pptx or an old .doc is a download. For a view-only link: a separate origin for shared pages (OpenMausBot's
     `*.mausbot.page`; the opaque-origin sandbox keeps the page from the app's session), a password, expiry or
