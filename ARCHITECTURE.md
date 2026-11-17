@@ -2038,10 +2038,11 @@ flowchart LR
       (`getUserInfo`), after the walk and when the owner writes first in a new one.
     - **Files**: a message's kind is read as the Hermes Zalo plugin and zaloclaw read it (image, video, audio,
       document, sticker, link, call); every image, video, voice note and file is downloaded at once, live or from
-      the past (Zalo's CDN links expire), by four workers, a plain GET of at most 100 MiB that dials only public
-      addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its sender's), into
-      `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404, 410) is said
-      once. `…/media` answers one; disconnecting removes them.
+      the past (Zalo's CDN links expire), by four workers, a plain GET of at most 20 MiB for an image and 50 MiB
+      for another file (zaloclaw's caps, [issue #743](https://github.com/kl3inIT/hypomnema/issues/743)) that dials
+      only public addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its
+      sender's), into `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404,
+      410) or one over its cap is said once. `…/media` answers one; disconnecting removes them.
     - **A Bot reads and writes in it** ([issue #680](https://github.com/kl3inIT/hypomnema/issues/680), step 3):
       WhatsApp's tools became one family per service (`agentapi/messaging_tools.go`, `messagingServices`): a Bot
       given a Zalo Connection, on the owner's turn, has `zalo_chats`, `zalo_messages`, `zalo_media`,
