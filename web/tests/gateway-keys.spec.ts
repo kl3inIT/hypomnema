@@ -24,7 +24,7 @@ async function fakeServer(page: Page, start?: Key[]) {
       name: "opencode-laptop",
       prefix: "hyp_gateway_v1_Zx81Qa",
       models: ["*"],
-      endpoints: ["search", "fetch", "images"],
+      endpoints: ["search", "fetch", "images", "audio"],
       created_at: iso(now - 9 * 86_400_000),
       last_used_at: iso(now - 40 * 60_000),
     },
@@ -61,7 +61,7 @@ async function fakeServer(page: Page, start?: Key[]) {
         name: body.name,
         prefix: secret.slice(0, 21),
         models: body.models?.length ? body.models : ["*"],
-        endpoints: body.endpoints ?? ["search", "fetch", "images"],
+        endpoints: body.endpoints ?? ["search", "fetch", "images", "audio"],
         created_at: iso(now),
       }
       keys = [...keys, key]
@@ -142,7 +142,7 @@ test("the owner sees the gateway's address and keys", async ({ page }) => {
 // Scenario: the owner makes a key for one tool, limited to some models, and copies it; its value is shown once and
 // the list then shows it by its start. The models are grouped by the provider that serves them; a provider's box
 // takes all of its models, and the search narrows the list. A key with no model chosen is refused before it is sent.
-// Besides chat a key may search, read pages and make images, each ticked at first; one unticked is not given
+// Besides chat a key may search, read pages, make images and hear or make speech (issue #694), each ticked at first; one unticked is not given
 // (issue #664), and a key given every kind names none, so a kind added later is given too.
 test("the owner creates a key and sees it once", async ({ page }) => {
   const calls = await fakeServer(page)
@@ -173,6 +173,9 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   await expect(dialog.getByRole("group", { name: "Claude subscription" })).toHaveCount(0)
   await dialog.getByLabel("Search models").fill("")
   await expect(dialog.getByRole("checkbox", { name: /Web search/ })).toBeChecked()
+  await expect(
+    dialog.getByRole("checkbox", { name: /Speech to text and text to speech/ }),
+  ).toBeChecked()
   await dialog.getByRole("checkbox", { name: /Making and editing images/ }).click()
   await expect(
     dialog.getByRole("checkbox", { name: /Making and editing images/ }),
@@ -189,9 +192,10 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   await expect(phone).toContainText("Claude Opus 5.5")
   await expect(phone).toContainText("Reading a web page")
   await expect(phone).not.toContainText("Making and editing images")
+  await expect(phone).toContainText("Speech to text and text to speech")
   await expect(page.getByText(secret)).toHaveCount(0)
   expect(calls).toContain(
-    "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex; search,fetch",
+    "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex; search,fetch,audio",
   )
 })
 

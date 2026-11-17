@@ -5,6 +5,8 @@ import "@/api/client"
 import {
   getAccountLimitsOptions,
   getAccountLimitsQueryKey,
+  getAudioOptions,
+  getAudioQueryKey,
   getGatewayUsageOptions,
   getImagesOptions,
   getImagesQueryKey,
@@ -20,7 +22,7 @@ import {
   listProvidersOptions,
 } from "@/api/generated/@tanstack/react-query.gen"
 import { getAccountLimits } from "@/api/generated/sdk.gen"
-import type { AccountLimits, Images, WebSearch } from "@/api/generated/types.gen"
+import type { AccountLimits, Audio, Images, WebSearch } from "@/api/generated/types.gen"
 import { everyCall } from "@/lib/query-keys"
 
 import type { Period } from "./usage-state"
@@ -109,6 +111,19 @@ export function useShowImages() {
   const queryClient = useQueryClient()
 
   return (images: Images) => queryClient.setQueryData(getImagesQueryKey(), images)
+}
+
+// The audio providers and each kind's order. A key's rest ends on its own, so they are read again now and then while
+// the page is open.
+export function useAudio() {
+  return useQuery({ ...getAudioOptions(), refetchInterval: 30_000 })
+}
+
+// useShowAudio shows the providers the server answered a change with: the body of their read.
+export function useShowAudio() {
+  const queryClient = useQueryClient()
+
+  return (audio: Audio) => queryClient.setQueryData(getAudioQueryKey(), audio)
 }
 
 // The web search chain. A rest ends on its own, so the chain is read again now and then while the page is open.
