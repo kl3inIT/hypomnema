@@ -3068,17 +3068,20 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   whether the public proxy cuts a long blocking transcription from a tool outside.
 
 Meetings (`internal/controlplane/meetings`, `orchestration/meetingstore`, `modelgateway/complete.go`,
-`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issue #721,
+`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues #721 and #747,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a meeting's recording; it is
 heard with who spoke when (Audio, above) and a gateway chat model writes its summary, decisions and actions.
-- Data (migration 00104): `meetings` (title and whether the owner gave it, language, people and terms as JSON, the
+- Data (migrations 00104, 00105): `meetings` (title and whether the owner gave it, language, people as JSON (a
+  `terms` column is left from before #747, no longer written or read), the
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
   `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
   the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
   `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, `state` waiting,
   writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
-  line and that line's start); `meeting_settings` (one row: `notes_model`).
+  line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
+  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there);
+  `meeting_formats` (the owner's notes formats: `id` `mtf_…`, `name`, `sections` as JSON `[{title, about}]`).
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3090,11 +3093,20 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   so a restart mid-job takes it again (MemoryOS `minutes_attempts`). Transcribing sends the language and the words
   to hear right (Soniox `context.terms`, MemoryOS; ElevenLabs gets none, no reference sends any) and saves voices
   and lines; a voice that says no line is dropped.
+- The words to hear right (`meetings/words.go`, `meetingstore/words.go`): one list for every transcription
+  (Nojoin's glossary, OpenNoteTaker's key terms): the owner's words, then the names the owner gave voices in earlier
+  meetings (the most recent first), the Bots' names and the registered repositories' names, each once in any case;
+  the first 100 are sent (MemoryOS `MAX_TERMS`, inside Soniox's 10,000-character context) and the rest are listed
+  as not sent. A word heard wrong is replaced in one line or the whole meeting, as a whole word in any case
+  (`POST /meetings/{id}/fix`; silent-notetaker's corrections, Lark Minutes' word replace); the right word joins
+  the owner's words unless the list is full, and the notes are not written again until the owner asks.
 - The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
   of Settings → Meetings and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
   `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the format's sections
-  (Hyprnote's and Meetily's templates, MIT, `meetings/formats.go`: General, Team meeting, 1:1, Stand-up, Client
-  call), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
+  (built in, `meetings/formats.go`: General, Team meeting, Client call from Meetily, Hyprnote's 17 default
+  templates and Meetily's Retrospective (start, stop, continue) and Psychiatric Session Note, MIT, cut to the
+  sections the summary, decisions and actions do not already hold; or one of the owner's, a format deleted since
+  falling back to General), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
   is checked as MemoryOS's `MinutesChecks` (`meetings/checks.go`) before it is kept: an owner is one voice of the
   transcript or nobody (a group, several people or an unknown label is none); a quote is looked for on its line or
   up to two lines away, a shortened quote given the line's own words, and a quote nowhere near dropped; an action
@@ -3105,22 +3117,31 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
-  body; `file_name`, `media_type`, `language`, `title`, `people`, `terms`, `format` in the query), `GET`
+  body; `file_name`, `media_type`, `language`, `title`, `people`, `format` in the query), `GET`
   and `DELETE /meetings/{id}` (a meeting with its lines, items and suggestions; deleting cancels its work and
   removes the file), `POST /meetings/{id}/notes` `{format}` (write again, 202), `PATCH
   /meetings/{id}/items/{item}` `{done}`, `GET /meeting-actions?who=&state=open|done|all` and `GET`/`PUT
-  /meeting-settings` `{notes_model}` (with the formats). Changes are the owner's; reads are any token's. The CLI:
-  `hypomnema meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings`.
+  /meeting-settings` `{notes_model}` (with the formats, each `builtin` or the owner's), `POST /meeting-formats`,
+  `PUT`/`DELETE /meeting-formats/{id}` `{name, sections}` (a built-in one is refused), `GET`/`PUT /meeting-words`
+  (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
+  /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
+  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix` and `meetings format
+  add|edit|rm`.
 - On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title, people, words to hear right and format. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  title, people and format (the owner's formats first); it points to Settings → Meetings for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
   failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
-  its share of the talk and opens the speaker picker (this line or the whole meeting). Settings → Meetings picks
-  the notes model with the gateway keys' model picker and lists the formats.
+  its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
+  word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
+  offers Write again. Settings → Meetings picks the notes model with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`), keeps the words (the owner's as chips to remove, the found ones marked
+  speaker, Bot or repository) and lists the formats: the owner's with Edit and Delete, the built-in ones with Copy
+  to edit, in an editor after Hyprnote's (a section's menu inserts, moves or deletes it). Settings' "Back to app"
+  returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
 - Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
-  editing a line's text, sharing a meeting.
+  editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
