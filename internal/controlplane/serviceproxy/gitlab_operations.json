@@ -741,6 +741,7 @@
     {"method":"GET","route":"projects/%s/packages/%d/package_files"},
     {"method":"DELETE","route":"projects/%s/packages/%d/package_files/%d"},
     {"method":"GET","route":"projects/%s/packages/generic/%s/%s/%s"},
+    {"method":"PUT","route":"projects/%s/packages/generic/%s/%s/%s"},
     {"method":"GET","route":"projects/%s/packages/ml_models/%s/files/%s/%s"},
     {"method":"GET","route":"projects/%s/packages/protection/rules"},
     {"method":"POST","route":"projects/%s/packages/protection/rules"},

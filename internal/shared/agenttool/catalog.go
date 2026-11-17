@@ -328,7 +328,8 @@ func GitHubCLI() Def {
 // proxy is HTTPS_PROXY and, being Go, it trusts what SSL_CERT_FILE names. Update checks, prompts and its telemetry,
 // which would reach the host as usage_data/track_event (cmd/glab/telemetry.go), are off. GITLAB_ACCESS_TOKEN,
 // OAUTH_TOKEN, a CI job's token and the other names of the host are taken away, so that the placeholder is the only
-// credential it has and the account's host the only one. The checksums are those of the release's checksums.txt
+// credential it has and the account's host the only one; so is GLAB_PROXY, which glab prefers to HTTPS_PROXY
+// (internal/config/schema.go, internal/api/transport_cache.go) and which would take it past the bridge. The checksums are those of the release's checksums.txt
 // (.goreleaser.yml, checksum), read on 2026-11-17 and matched against the files. A worker keeps its own glab with
 // its Dispatch's GITLAB_TOKEN (#44).
 func GitLabCLI() Def {
@@ -344,7 +345,7 @@ func GitLabCLI() Def {
 		Env:      []string{"GLAB_CHECK_UPDATE=false", "GLAB_SEND_TELEMETRY=false", "GLAB_NO_PROMPT=true"},
 		Unset: []string{
 			"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_HOST", "GITLAB_URI",
-			"GL_HOST", "GITLAB_REPO",
+			"GL_HOST", "GITLAB_REPO", "GLAB_PROXY",
 		},
 		BotsOnly: true,
 		Releases: map[string]Release{

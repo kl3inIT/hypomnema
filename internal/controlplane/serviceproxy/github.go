@@ -4,6 +4,8 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"slices"
@@ -522,15 +524,17 @@ func graphqlInvocations(body []byte) ([]Operation, bool) {
 	var out []Operation
 
 	for _, raw := range documents {
-		var request struct {
-			Query *string `json:"query"`
-		}
-
-		if err := json.Unmarshal(raw, &request); err != nil || request.Query == nil {
+		fields, ok := graphqlObject(raw)
+		if !ok {
 			return nil, false
 		}
 
-		document, err := parser.ParseQueryWithTokenLimit(&ast.Source{Input: *request.Query}, maxGraphQLTokens)
+		var query string
+		if err := json.Unmarshal(fields["query"], &query); err != nil {
+			return nil, false
+		}
+
+		document, err := parser.ParseQueryWithTokenLimit(&ast.Source{Input: query}, maxGraphQLTokens)
 		if err != nil {
 			return nil, false
 		}
@@ -543,6 +547,54 @@ func graphqlInvocations(body []byte) ([]Operation, bool) {
 	}
 
 	return out, true
+}
+
+// graphqlObject reads one GraphQL request, a JSON object, by its exact keys, as the services read it (GitLab's
+// Rails params, graphql_controller.rb), not as Go's decoder would, which takes a key that differs only by case
+// ("Query") and the last of keys given twice. An object with a key twice, or two keys that differ only by case, could
+// be read as another request by the service than by the proxy: it is no request (review of #777).
+func graphqlObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, false
+	}
+
+	fields := map[string]json.RawMessage{}
+	folded := map[string]bool{}
+
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+
+		key, ok := tok.(string)
+		if !ok || folded[strings.ToLower(key)] {
+			return nil, false
+		}
+
+		folded[strings.ToLower(key)] = true
+
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, false
+		}
+
+		fields[key] = value
+	}
+
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return nil, false
+	}
+
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, false
+	}
+
+	_, hasQuery := fields["query"]
+
+	return fields, hasQuery
 }
 
 // rootFields names the fields directly under a selection set, with those of its inline fragments and of the

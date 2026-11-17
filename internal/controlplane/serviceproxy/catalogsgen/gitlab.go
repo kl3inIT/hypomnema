@@ -210,6 +210,7 @@ func clientGoOperations(files map[string][]byte) (ops []gitlabOperation, unnamed
 		return nil, nil, errors.New("no route registered with route(…)")
 	}
 
+	helpers := pathHelpers(parsed, routes)
 	found := map[gitlabOperation]bool{}
 
 	for _, f := range parsed {
@@ -219,7 +220,7 @@ func clientGoOperations(files map[string][]byte) (ops []gitlabOperation, unnamed
 				continue
 			}
 
-			for _, op := range functionOperations(fn.Body, routes) {
+			for _, op := range functionOperations(fn.Body, routes, helpers) {
 				found[op] = true
 			}
 		}
@@ -247,8 +248,72 @@ func clientGoOperations(files map[string][]byte) (ops []gitlabOperation, unnamed
 	return ops, unnamed, nil
 }
 
+// pathHelpers are the functions of the client that build a request's path and return it, by name: a variable given
+// a path, returned first (FormatPackageURL, generic_packages.go: u := fmt.Sprintf("projects/%s/packages/generic/…");
+// return u, nil).
+func pathHelpers(files []*ast.File, routes map[string]string) map[string]string {
+	helpers := map[string]string{}
+
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+
+			vars := assignedPaths(fn.Body, routes, nil)
+
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				ret, ok := n.(*ast.ReturnStmt)
+				if !ok || len(ret.Results) == 0 {
+					return true
+				}
+
+				if id, ok := ret.Results[0].(*ast.Ident); ok && vars[id.Name] != "" {
+					helpers[fn.Name.Name] = vars[id.Name]
+				}
+
+				return true
+			})
+		}
+	}
+
+	return helpers
+}
+
+// assignedPaths are the paths a function's variables are first given.
+func assignedPaths(body *ast.BlockStmt, routes, helpers map[string]string) map[string]string {
+	paths := map[string]string{}
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+
+		for i, rhs := range assign.Rhs {
+			id, ok := assign.Lhs[min(i, len(assign.Lhs)-1)].(*ast.Ident)
+			if !ok {
+				continue
+			}
+
+			if _, seen := paths[id.Name]; seen {
+				continue
+			}
+
+			if p, ok := pathOf(rhs, routes, nil, helpers); ok {
+				paths[id.Name] = p
+			}
+		}
+
+		return true
+	})
+
+	return paths
+}
+
 // functionOperations reads the operations of one function's body.
-func functionOperations(body *ast.BlockStmt, routes map[string]string) []gitlabOperation {
+func functionOperations(body *ast.BlockStmt, routes, helpers map[string]string) []gitlabOperation {
 	// What a variable of the function was given: a path a NewRequest call may name by the variable, and the
 	// options gathered in a slice before do is given them (reqOpts := []doOption{…}; reqOpts = append(reqOpts, …),
 	// labels.go), which are read together, so that a method and a path appended apart make one operation.
@@ -287,7 +352,7 @@ func functionOperations(body *ast.BlockStmt, routes map[string]string) []gitlabO
 				continue
 			}
 
-			if p, ok := pathOf(rhs, routes, nil); ok {
+			if p, ok := pathOf(rhs, routes, nil, helpers); ok {
 				paths[id.Name] = p
 			}
 		}
@@ -301,18 +366,44 @@ func functionOperations(body *ast.BlockStmt, routes map[string]string) []gitlabO
 		out = append(out, optionsOperations(options, routes)...)
 	}
 
+	// A request built with NewRequest whose method is changed after (req.Method = http.MethodPut, as PublishPackageFile
+	// does, generic_packages.go) is of the method it is sent with.
+	requests := map[string]int{}
+
 	ast.Inspect(body, func(n ast.Node) bool {
 		if inSlice[n] {
 			return false
 		}
 
 		switch n := n.(type) {
-		case *ast.CallExpr:
-			if calleeName(n) == "NewRequest" && len(n.Args) >= 2 {
-				if method, ok := httpMethod(n.Args[0]); ok {
-					if p, ok := pathOf(n.Args[1], routes, paths); ok {
-						out = append(out, gitlabOperation{Method: method, Route: p})
+		case *ast.AssignStmt:
+			if len(n.Lhs) == 1 && len(n.Rhs) == 1 {
+				if sel, ok := n.Lhs[0].(*ast.SelectorExpr); ok && sel.Sel.Name == "Method" {
+					if req, ok := sel.X.(*ast.Ident); ok {
+						if i, built := requests[req.Name]; built {
+							if method, ok := httpMethod(n.Rhs[0]); ok {
+								out[i].Method = method
+							}
+						}
 					}
+				}
+			}
+
+			if call, ok := n.Rhs[0].(*ast.CallExpr); ok && calleeName(call) == "NewRequest" {
+				if op, ok := newRequest(call, routes, paths, helpers); ok {
+					if req, ok := n.Lhs[0].(*ast.Ident); ok {
+						requests[req.Name] = len(out)
+					}
+
+					out = append(out, op)
+				}
+
+				inSlice[call] = true
+			}
+		case *ast.CallExpr:
+			if calleeName(n) == "NewRequest" {
+				if op, ok := newRequest(n, routes, paths, helpers); ok {
+					out = append(out, op)
 				}
 
 				return true
@@ -327,6 +418,22 @@ func functionOperations(body *ast.BlockStmt, routes map[string]string) []gitlabO
 	})
 
 	return out
+}
+
+// newRequest reads client.NewRequest(http.Method…, path, …).
+func newRequest(call *ast.CallExpr, routes, paths, helpers map[string]string) (gitlabOperation, bool) {
+	if len(call.Args) < 2 {
+		return gitlabOperation{}, false
+	}
+
+	method, ok := httpMethod(call.Args[0])
+	if !ok {
+		return gitlabOperation{}, false
+	}
+
+	p, ok := pathOf(call.Args[1], routes, paths, helpers)
+
+	return gitlabOperation{Method: method, Route: p}, ok
 }
 
 // optionsOperations reads the operations of a call's options: withPath names a route, withMethod the method, GET
@@ -372,8 +479,9 @@ func routeCall(expr ast.Expr) (string, bool) {
 	return stringLiteral(call.Args[0])
 }
 
-// pathOf reads a request's path: a string, a fmt.Sprintf of one, a route, or a variable of the function given one.
-func pathOf(expr ast.Expr, routes, vars map[string]string) (string, bool) {
+// pathOf reads a request's path: a string, a fmt.Sprintf of one, a route, a variable of the function given one, or
+// a call of a function of the client that returns one (helpers: FormatPackageURL, generic_packages.go).
+func pathOf(expr ast.Expr, routes, vars, helpers map[string]string) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		return stringLiteral(e)
@@ -387,8 +495,12 @@ func pathOf(expr ast.Expr, routes, vars map[string]string) (string, bool) {
 		return p, ok
 	case *ast.CallExpr:
 		if sel, ok := e.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Sprintf" && len(e.Args) > 0 {
-			return pathOf(e.Args[0], routes, nil)
+			return pathOf(e.Args[0], routes, nil, nil)
 		}
+
+		p, ok := helpers[calleeName(e)]
+
+		return p, ok
 	}
 
 	return "", false

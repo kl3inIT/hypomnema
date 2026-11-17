@@ -764,6 +764,10 @@ func (p *Proxy) Decide(ctx context.Context, id string, approve bool, scope orche
 // service's answer back.
 func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, body []byte, action Action, s session,
 ) error {
+	if s.catalog.Rewrite != nil {
+		body = s.catalog.Rewrite(req, body, action)
+	}
+
 	// The address is built from its parts: the host is the tunnel's, one of the Integration's own, whatever
 	// the request named; only the path and the query are the tool's, and malformed has checked them.
 	target := url.URL{

@@ -2062,7 +2062,8 @@ flowchart LR
       for the accounts of `gitlab`, which lists those the agent may use on every host of that kind, each with its
       host, and runs glab for the one named (`--account <host>:<label>`, or a label only one host has, or the only
       one) with `GITLAB_HOST` set to that host, a placeholder `GITLAB_TOKEN`, update checks, telemetry and prompts
-      off, and `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `CI_JOB_TOKEN` and the other names of a host taken away; its
+      off, and `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `CI_JOB_TOKEN`, `GLAB_PROXY` (which glab prefers to the
+      bridge's `HTTPS_PROXY`) and the other names of a host taken away; its
       stream is opened for that host's Connection. `hypomnema tool run gitlab --account <host>:<label> -- curl …`
       runs another command the same way. A Bot given a Connection of a GitLab host has the requirement
       `integration:gitlab` (as well as its host's), so it gets the store skill `gitlab` (`clientcli/skills/gitlab`).
@@ -2070,21 +2071,29 @@ flowchart LR
     - **Its catalog** (`serviceproxy/gitlab.go`) is generated from the route table of client-go
       (`gitlab.com/gitlab-org/api/client-go`, Apache-2.0; notice in `third_party/gitlab/NOTICE`), the client glab
       is built on, at the version glab requires (v3.46.1 for glab 1.130.0, not the newer one the design read on
-      trunk): `gitlab_operations.json` holds each method and route the client calls (1131: the routes it registers
+      trunk): `gitlab_operations.json` holds each method and route the client calls (1132: the routes it registers
       with `route("…")`, named by `withPath` beside `withMethod`, GET when none, options gathered in a slice, and the
-      few requests it builds with `NewRequest`). GitLab's own OpenAPI is not used: it lacks notes, discussions,
+      few requests it builds with `NewRequest`, from a path a helper returns too, with the method set after, as the
+      generic package's upload). GitLab's own OpenAPI is not used: it lacks notes, discussions,
       labels and `/user`. A request is listed when its method and its path under `/api/v4/`, each segment decoded,
       match a route; anything else asks as `gitlab.unlisted`. Its action is a service, then read, write or delete,
       the service read off the request's own path (the resource after `projects/:id`, `groups/:id` or `users/:id`,
       else the first segment): Repositories, Issues, Merge requests, CI/CD, Releases and packages, Search, Security,
       Groups and members, Account, Administration and Everything else, each `gitlab.<service>.read|write|delete`; a
       GET or a HEAD reads, a DELETE deletes, anything else writes. **Merge and auto-merge are actions of their own**
-      and ask: `gitlab.merge_requests.merge` is `PUT …/merge_requests/:iid/merge`; `gitlab.merge_requests.automerge`
-      is the same request with `auto_merge` or `merge_when_pipeline_succeeds` true in the query or a JSON or form
-      body (and neither anything else), and `POST …/cancel_auto_merge` or `…/cancel_merge_when_pipeline_succeeds`; a
-      body that cannot be read is a merge. A note on a merge request is a write of merge requests. A GraphQL query on
-      `/api/graphql` is `gitlab.graphql.read`; a mutation asks as unlisted. A project's path is one segment with its
-      slashes encoded (`group%2Fproject`), allowed on the host (`SlashInSegment`).
+      and ask: `gitlab.merge_requests.merge` is `PUT …/merge_requests/:iid/merge` or `POST
+      …/merge_trains/merge_requests/:iid` (adding to a merge train merges); `gitlab.merge_requests.automerge` is either
+      with an auto-merge flag true in a JSON body (`auto_merge`, `merge_when_pipeline_succeeds`, a train's
+      `when_pipeline_succeeds`; none anything else, none in the query), and `POST …/cancel_auto_merge` or
+      `…/cancel_merge_when_pipeline_succeeds`; a body that cannot be read, a form or a flag in the query is a merge.
+      GitLab 17.10 reads only `merge_when_pipeline_succeeds` and merges at once without it, 17.11 and later either,
+      so an auto-merge is sent on with every flag of its pair set to true (`Catalog.Rewrite`), which every version
+      reads as auto-merge. A note on a merge request is a write of merge requests. A GraphQL query on `/api/graphql`
+      is `gitlab.graphql.read`; a mutation asks as unlisted, and so does a body GitLab could read otherwise than the
+      proxy: not JSON, a parameter in the URL, a key other than `query`, `operationName` and `variables` (such as a
+      multiplex in `_json`), or a key twice or by another case (`graphqlObject`, which GitHub's GraphQL reads with
+      too). A project's path is one segment with its slashes encoded (`group%2Fproject`), allowed on the host
+      (`SlashInSegment`).
     - **Regenerating it**: `make catalogs-generate SERVICE=gitlab` fetches glab's `go.mod` and client-go's module
       from the Go module proxy at what `catalog_sources.json` pins (URL, revision, SHA-256, version), fails when
       glab requires another client-go than the one pinned, writes the file and prints the routes registered that no

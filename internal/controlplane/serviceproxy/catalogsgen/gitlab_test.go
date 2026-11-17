@@ -29,7 +29,8 @@ var (
 
 // clientGoCalls are client-go's calls in each of the ways it makes them: options given to do, with a method and
 // without (GET), options gathered in a slice whose path is appended apart (labels.go), and a request built with
-// NewRequest from a string, a fmt.Sprintf and a variable.
+// NewRequest from a string, a fmt.Sprintf, a variable and a helper that returns the path, whose method is changed
+// after (generic_packages.go, PublishPackageFile: built as a GET, sent as a PUT; review of #777).
 const clientGoCalls = `package gitlab
 
 import (
@@ -75,6 +76,19 @@ func (s *LabelsService) DeleteLabel(pid any, lid any) (*Response, error) {
 	return resp, err
 }
 
+func (s *GenericPackagesService) FormatPackageURL(pid any, name string) (string, error) {
+	u := fmt.Sprintf("projects/%s/packages/generic/%s", PathEscape(pid), name)
+	return u, nil
+}
+
+func (s *GenericPackagesService) PublishPackageFile(pid any, name string) error {
+	u, err := s.FormatPackageURL(pid, name)
+	req, err := s.client.NewRequest(http.MethodGet, u, nil, nil)
+	req.Method = http.MethodPut
+	_ = req
+	return err
+}
+
 func (s *RepositoriesService) Archive(pid any) error {
 	u := fmt.Sprintf("projects/%s/repository/archive", PathEscape(pid))
 	_, err := s.client.NewRequest(http.MethodGet, u, nil, nil)
@@ -87,7 +101,7 @@ func (s *RepositoriesService) Archive(pid any) error {
 
 // Scenario: the generator reads every method and route client-go calls (#740, decision 3 of #713): a call's route
 // and method (GET when it names none), options gathered in a slice whose method and path are appended apart, and the
-// requests it builds itself. Tests and the packages under the module's root are left out; a route no call names is
+// requests it builds itself, with the method they are sent with. Tests and the packages under the module's root are left out; a route no call names is
 // said.
 func TestTheGeneratorReadsEveryOperationClientGoCalls(t *testing.T) {
 	t.Parallel()
@@ -115,6 +129,7 @@ func TestTheGeneratorReadsEveryOperationClientGoCalls(t *testing.T) {
 		{"GET", "projects/%s/merge_requests/%d"},
 		{"POST", "projects/%s/merge_requests/%d/cancel_auto_merge"},
 		{"PUT", "projects/%s/merge_requests/%d/merge"},
+		{"PUT", "projects/%s/packages/generic/%s"},
 		{"GET", "projects/%s/repository/archive"},
 	}, ops)
 	assert.Equal(t, []string{"projects/%s/never", "projects/%s/repository/archive%s"}, unnamed)

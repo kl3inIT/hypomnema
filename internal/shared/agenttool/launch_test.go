@@ -49,7 +49,9 @@ func TestMain(m *testing.M) {
 	}
 
 	if def.HostEnv != "" {
-		fmt.Printf("host=%s access=%q\n", os.Getenv(def.HostEnv), os.Getenv("GITLAB_ACCESS_TOKEN"))
+		glabProxy, hasGlabProxy := os.LookupEnv("GLAB_PROXY")
+		fmt.Printf("host=%s access=%q glabproxy=%q/%t\n", os.Getenv(def.HostEnv), os.Getenv("GITLAB_ACCESS_TOKEN"),
+			glabProxy, hasGlabProxy)
 	}
 
 	if def.CAEnv != "" {
@@ -515,12 +517,14 @@ func TestGlabActsOnTheHostOfTheAccountItIsGiven(t *testing.T) {
 
 	t.Setenv("GITLAB_ACCESS_TOKEN", "glpat-left-behind")
 	t.Setenv("GITLAB_HOST", "elsewhere.example")
+	// glab prefers GLAB_PROXY to HTTPS_PROXY: one left in the agent's environment would take it past the bridge.
+	t.Setenv("GLAB_PROXY", "http://127.0.0.1:9")
 
 	var out bytes.Buffer
 
 	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "glab",
 		[]string{"--account", "git.example.com:default", "mr", "list"}))
-	assert.Equal(t, "token="+Placeholder+" key=\"\" args=mr list\nhost=git.example.com access=\"\"\n"+
+	assert.Equal(t, "token="+Placeholder+" key=\"\" args=mr list\nhost=git.example.com access=\"\" glabproxy=\"\"/false\n"+
 		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
 	assert.Equal(t, []string{
 		"connections gitlab", "certificate", "tunnel git.example.com:default gmail.googleapis.com:443",

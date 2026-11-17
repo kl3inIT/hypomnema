@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -36,11 +35,12 @@ import (
 // reads, a DELETE deletes, anything else writes (github-mcp-server's ReadOnlyHint, zereight's GitLab server, which
 // sends only GET in read-only mode). Reads run; the rest asks. Merging a merge request and turning auto-merge on or
 // off are actions of their own (t3code's merge, enable-auto-merge and disable-auto-merge): on GitLab both are the
-// same request, PUT …/merge_requests/:iid/merge, told apart by auto_merge or merge_when_pipeline_succeeds (client-go
-// merge_requests.go AcceptMergeRequestOptions), and auto-merge is canceled by POST …/cancel_auto_merge or
+// same request, PUT …/merge_requests/:iid/merge, or adding the merge request to a merge train, told apart by their
+// auto-merge flags (gitlabMergeFlags, autoMerge), and auto-merge is canceled by POST …/cancel_auto_merge or
 // …/cancel_merge_when_pipeline_succeeds. `glab mr merge` asks for auto-merge by default when the merge request has a
-// pipeline (mr_merge.go). A GraphQL query on /api/graphql reads (glab sends only queries: its work items); a
-// mutation, or a body that is no GraphQL request, asks as unlisted.
+// pipeline (mr_merge.go). An auto-merge is sent with all its flags set, which every version of GitLab reads
+// (gitlabAutoMergeBody). A GraphQL query on /api/graphql reads (glab sends only queries: its work items); a mutation,
+// or a body GitLab could read as another request than the proxy does (gitlabGraphQLBody), asks as unlisted.
 
 //go:embed gitlab_operations.json
 var gitlabOperationsFile []byte
@@ -148,13 +148,14 @@ const (
 var gitlabNamedActions = []Action{
 	{
 		ID: gitlabMerge, Service: "Merge requests", Name: "Merge a merge request", Kind: NeedsCare,
-		Text: "Merge now (`glab mr merge --auto-merge=false`); the project's rules, such as pipelines and " +
-			"approvals, still apply",
+		Text: "Merge now (`glab mr merge --auto-merge=false`), or add it to the merge train, which merges it once " +
+			"the train's pipeline passes; the project's rules, such as pipelines and approvals, still apply",
 	},
 	{
 		ID: gitlabAutoMerge, Service: "Merge requests", Name: "Turn auto-merge on or off", Kind: NeedsCare,
-		Text: "GitLab merges the merge request once its pipeline succeeds (`glab mr merge`, which asks for " +
-			"auto-merge when the merge request has a pipeline), or no longer does",
+		Text: "GitLab merges the merge request, or adds it to the merge train, once its pipeline succeeds, at " +
+			"once when it already has (`glab mr merge`, which asks for auto-merge when the merge request has a " +
+			"pipeline), or no longer does",
 	},
 	{
 		ID: gitlabGraphRead, Service: "Everything else", Name: "Read through GraphQL queries", Kind: Reads,
@@ -236,6 +237,7 @@ func gitlabCatalog(host string) Catalog {
 
 	c := Catalog{Integration: GitLabIntegration, Actions: t.actions, SlashInSegment: []string{host}}
 	c.Reaches = func(h string) bool { return h == host }
+	c.Rewrite = gitlabAutoMergeBody
 	c.Name = func(req *http.Request, body []byte, _ string) Action {
 		return t.actionOf(req.Method, req.URL.EscapedPath(), req.URL.RawQuery, req.Header.Get("Content-Type"), body)
 	}
@@ -269,27 +271,16 @@ type HostKinds interface {
 // actionOf is the action of a request to a GitLab host.
 func (t gitlabTable) actionOf(method, path, query, contentType string, body []byte) Action {
 	if path == gitlabGraphQL {
-		if method == http.MethodPost {
+		if method == http.MethodPost && query == "" && gitlabGraphQLBody(contentType, body) {
 			return t.graphql(body)
 		}
 
 		return unlisted(GitLabIntegration)
 	}
 
-	rest, ok := strings.CutPrefix(path, gitlabREST)
+	segments, ok := gitlabSegments(path)
 	if !ok {
 		return unlisted(GitLabIntegration)
-	}
-
-	// Each segment is read as GitLab reads it, decoded: merg%65 is merge. A segment's encoded slash stays in it.
-	segments := strings.Split(strings.TrimSuffix(rest, "/"), "/")
-	for i, s := range segments {
-		decoded, err := url.PathUnescape(s)
-		if err != nil {
-			return unlisted(GitLabIntegration)
-		}
-
-		segments[i] = decoded
 	}
 
 	if !slices.ContainsFunc(t.routes, func(r gitlabRoute) bool { return r.method == method && r.matches(segments) }) {
@@ -297,6 +288,27 @@ func (t gitlabTable) actionOf(method, path, query, contentType string, body []by
 	}
 
 	return t.action(gitlabActionID(method, segments, query, contentType, body))
+}
+
+// gitlabSegments are the segments of a path under /api/v4/, each read as GitLab reads it, decoded: merg%65 is
+// merge. A segment's encoded slash stays in it.
+func gitlabSegments(path string) ([]string, bool) {
+	rest, ok := strings.CutPrefix(path, gitlabREST)
+	if !ok {
+		return nil, false
+	}
+
+	segments := strings.Split(strings.TrimSuffix(rest, "/"), "/")
+	for i, s := range segments {
+		decoded, err := url.PathUnescape(s)
+		if err != nil {
+			return nil, false
+		}
+
+		segments[i] = decoded
+	}
+
+	return segments, true
 }
 
 // action is a listed action by its id.
@@ -308,6 +320,50 @@ func (t gitlabTable) action(id string) Action {
 	}
 
 	return unlisted(GitLabIntegration)
+}
+
+// gitlabGraphQLKeys are the keys of a GraphQL request GitLab reads (app/controllers/graphql_controller.rb at
+// v18.5.0, permitted_params and permitted_multiplex_params), and that glab sends (internal/commands/api/http.go,
+// groupGraphQLVariables).
+var gitlabGraphQLKeys = []string{"query", "operationName", "variables"}
+
+// gitlabGraphQLBody is whether a GraphQL request is read by GitLab only as the proxy reads it: a JSON body, with no
+// parameter in the URL, which Rails would merge into its params; one request, or an array of them (GitLab's
+// multiplex, params[:_json]); each an object with no key but those GitLab reads, none twice and none that differs
+// from another only by case (graphqlObject). Anything else asks as unlisted: a "_json" key in an object would be run
+// as a multiplex in place of the query the proxy reads.
+func gitlabGraphQLBody(contentType string, body []byte) bool {
+	media, _, err := mime.ParseMediaType(contentType)
+	if err != nil || media != "application/json" {
+		return false
+	}
+
+	trimmed := bytes.TrimSpace(body)
+
+	// A fresh slice: decoding into one that held trimmed would write over the body itself.
+	var documents []json.RawMessage
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &documents); err != nil {
+			return false
+		}
+	} else {
+		documents = []json.RawMessage{trimmed}
+	}
+
+	for _, raw := range documents {
+		fields, ok := graphqlObject(raw)
+		if !ok {
+			return false
+		}
+
+		for key := range fields {
+			if !slices.Contains(gitlabGraphQLKeys, key) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // graphql is a GraphQL request's action: a read when every operation in it is a query.
@@ -355,18 +411,18 @@ func (r gitlabRoute) matches(segments []string) bool {
 
 // gitlabActionID is the id of a request's action, from its method and its path's segments (under /api/v4/).
 func gitlabActionID(method string, segments []string, query, contentType string, body []byte) string {
-	if len(segments) == 5 && segments[0] == "projects" && segments[2] == "merge_requests" {
-		switch {
-		case method == http.MethodPut && segments[4] == "merge":
-			if autoMerge(query, contentType, body) {
-				return gitlabAutoMerge
-			}
-
-			return gitlabMerge
-		case method == http.MethodPost &&
-			(segments[4] == "cancel_auto_merge" || segments[4] == "cancel_merge_when_pipeline_succeeds"):
+	if flags := gitlabMergeFlags(method, segments); flags != nil {
+		if autoMerge(flags, query, contentType, body) {
 			return gitlabAutoMerge
 		}
+
+		return gitlabMerge
+	}
+
+	if len(segments) == 5 && segments[0] == "projects" && segments[2] == "merge_requests" &&
+		method == http.MethodPost &&
+		(segments[4] == "cancel_auto_merge" || segments[4] == "cancel_merge_when_pipeline_succeeds") {
+		return gitlabAutoMerge
 	}
 
 	what := githubWrite
@@ -379,6 +435,128 @@ func gitlabActionID(method string, segments []string, query, contentType string,
 	}
 
 	return "gitlab." + gitlabServiceOf(segments).key + "." + what
+}
+
+// gitlabMergeFlags are the parameters that ask for auto-merge on a request that merges a merge request, and nil for
+// a request that does not. Two requests merge: accepting it, PUT projects/:id/merge_requests/:iid/merge
+// (lib/api/merge_requests.rb), and adding it to a merge train, POST projects/:id/merge_trains/merge_requests/:iid,
+// which GitLab's "Merge" does in a project with merge trains and which merges once the train's pipeline passes
+// (ee/lib/api/merge_trains.rb, ee/app/services/merge_trains/add_merge_request_service.rb: STRATEGY_MERGE_TRAIN, or
+// STRATEGY_ADD_TO_MERGE_TRAIN_WHEN_CHECKS_PASS when asked). Each has a deprecated flag and auto_merge.
+func gitlabMergeFlags(method string, segments []string) []string {
+	switch {
+	case method == http.MethodPut && len(segments) == 5 && segments[0] == "projects" &&
+		segments[2] == "merge_requests" && segments[4] == "merge":
+		return []string{"auto_merge", "merge_when_pipeline_succeeds"}
+	case method == http.MethodPost && len(segments) == 5 && segments[0] == "projects" &&
+		segments[2] == "merge_trains" && segments[3] == "merge_requests":
+		return []string{"auto_merge", "when_pipeline_succeeds"}
+	}
+
+	return nil
+}
+
+// autoMerge is whether a merge asks for auto-merge: one of its flags is true in a JSON body, none is anything else,
+// and none is in the query. A body that cannot be read, a form, a flag in the query or a value that is not plainly
+// true is a merge: of the two, the one that merges now.
+//
+// Which flag a GitLab reads depends on its version: 17.10 reads only merge_when_pipeline_succeeds and merges at
+// once, pipeline running or not, when it is absent (lib/api/merge_requests.rb at v17.10.0, lines 756-779), while
+// 17.11 and later read either (v18.5.0, line 767), as the merge trains' API reads when_pipeline_succeeds or
+// auto_merge. glab sends auto_merge alone (mr_merge.go, mergeOpts.AutoMerge). So a request named auto-merge is sent
+// on with every flag of its pair set to true (gitlabAutoMergeBody), which every version reads as auto-merge.
+func autoMerge(flags []string, query, contentType string, body []byte) bool {
+	q, err := url.ParseQuery(query)
+	if err != nil || slices.ContainsFunc(flags, q.Has) {
+		return false
+	}
+
+	fields, ok := jsonObject(contentType, body)
+	if !ok {
+		return false
+	}
+
+	asked := false
+
+	for _, name := range flags {
+		raw, present := fields[name]
+		if !present {
+			continue
+		}
+
+		if !plainlyTrue(raw) {
+			return false
+		}
+
+		asked = true
+	}
+
+	return asked
+}
+
+// plainlyTrue is whether a JSON value is true or "true".
+func plainlyTrue(raw json.RawMessage) bool {
+	var b bool
+	if json.Unmarshal(raw, &b) == nil {
+		return b
+	}
+
+	var s string
+
+	return json.Unmarshal(raw, &s) == nil && s == "true"
+}
+
+// jsonObject reads a JSON object body; an empty body is an empty object.
+func jsonObject(contentType string, body []byte) (map[string]json.RawMessage, bool) {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return map[string]json.RawMessage{}, true
+	}
+
+	media, _, err := mime.ParseMediaType(contentType)
+	if err != nil || media != "application/json" {
+		return nil, false
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
+		return nil, false
+	}
+
+	return fields, true
+}
+
+// gitlabAutoMergeBody is the body an auto-merge is sent on with: every flag of its pair set to true, so that the
+// host reads it as auto-merge whatever its version (autoMerge). Any other request is sent as it came.
+func gitlabAutoMergeBody(req *http.Request, body []byte, action Action) []byte {
+	if action.ID != gitlabAutoMerge {
+		return body
+	}
+
+	segments, ok := gitlabSegments(req.URL.EscapedPath())
+	if !ok {
+		return body
+	}
+
+	flags := gitlabMergeFlags(req.Method, segments)
+	if flags == nil {
+		return body
+	}
+
+	fields, ok := jsonObject(req.Header.Get("Content-Type"), body)
+	if !ok {
+		return body
+	}
+
+	for _, name := range flags {
+		fields[name] = json.RawMessage("true")
+	}
+
+	written, err := json.Marshal(fields)
+	if err != nil {
+		return body
+	}
+
+	return written
 }
 
 // gitlabServiceOf is the service of a path: its resource's, else its scope's, else Everything else.
@@ -400,93 +578,6 @@ func gitlabServiceOf(segments []string) gitlabService {
 	}
 
 	return gitlabOther
-}
-
-// The parameters that ask for auto-merge on a merge (client-go AcceptMergeRequestOptions).
-var autoMergeParams = []string{"auto_merge", "merge_when_pipeline_succeeds"}
-
-// autoMerge is whether a merge asks for auto-merge: auto_merge or merge_when_pipeline_succeeds is true, in the query
-// or the body, and neither is anything else anywhere. A body that cannot be read, or a value that is not plainly
-// true, is a merge: of the two, the one that merges now.
-func autoMerge(query, contentType string, body []byte) bool {
-	values, ok := mergeParams(query, contentType, body)
-	if !ok || len(values) == 0 {
-		return false
-	}
-
-	for _, v := range values {
-		if v != "true" {
-			return false
-		}
-	}
-
-	return true
-}
-
-// mergeParams reads every value of the auto-merge parameters, from the query and from a JSON or form body. ok is
-// false for a body that cannot be read.
-func mergeParams(query, contentType string, body []byte) ([]string, bool) {
-	q, err := url.ParseQuery(query)
-	if err != nil {
-		return nil, false
-	}
-
-	var values []string
-
-	for _, name := range autoMergeParams {
-		values = append(values, q[name]...)
-	}
-
-	if len(bytes.TrimSpace(body)) == 0 {
-		return values, true
-	}
-
-	media, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return nil, false
-	}
-
-	switch media {
-	case "application/json":
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(body, &fields); err != nil {
-			return nil, false
-		}
-
-		for _, name := range autoMergeParams {
-			raw, ok := fields[name]
-			if !ok {
-				continue
-			}
-
-			var b bool
-			if err := json.Unmarshal(raw, &b); err == nil {
-				values = append(values, strconv.FormatBool(b))
-
-				continue
-			}
-
-			var s string
-			if err := json.Unmarshal(raw, &s); err != nil {
-				return nil, false
-			}
-
-			values = append(values, s)
-		}
-	case "application/x-www-form-urlencoded":
-		form, err := url.ParseQuery(string(body))
-		if err != nil {
-			return nil, false
-		}
-
-		for _, name := range autoMergeParams {
-			values = append(values, form[name]...)
-		}
-	default:
-		return nil, false
-	}
-
-	return values, true
 }
 
 // GitLabActionIDs names the action of every operation of a gitlab_operations.json, keyed "METHOD route": catalogsgen

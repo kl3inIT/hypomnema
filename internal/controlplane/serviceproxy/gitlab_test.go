@@ -158,10 +158,14 @@ func TestGitLabsCatalogIsForTheGlabAgenttoolPins(t *testing.T) {
 
 // Scenario: merging a merge request and turning auto-merge on or off are actions of their own (#740, decision 8 of
 // #713), as glab sends them: `glab mr merge` is PUT …/merge, with auto_merge true when the merge request has a
-// pipeline; auto-merge is canceled by its own POST. A body that cannot be read, or a flag that is not plainly true,
-// is a merge. Both ask until the owner says otherwise. A note on a merge request is a write of merge requests, its
-// deletion a delete; a segment is read decoded, and a project's encoded path stays one segment. A GraphQL query
-// reads; a mutation, or a path client-go does not call, asks as unlisted.
+// pipeline; auto-merge is canceled by its own POST. Adding a merge request to a merge train merges it too, now or,
+// when asked, once its checks pass (review of #777). Auto-merge is read only from a JSON body, where every version of
+// GitLab is sent it the same way (TestAnAutoMergeIsSentAsEveryGitLabReadsIt); a body that cannot be read, a flag in
+// the query or a form, or one that is not plainly true, is a merge. Both ask until the owner says otherwise. A note
+// on a merge request is a write of merge requests, its deletion a delete; a segment is read decoded, and a project's
+// encoded path stays one segment. A GraphQL query reads; a mutation, a body GitLab could read as another request
+// (a key twice or by another case, a multiplex in "_json", a query in the URL, a form), or a path client-go does not
+// call, asks as unlisted.
 func TestGlabsMergeAndAutoMergeAreActionsOfTheirOwn(t *testing.T) {
 	t.Parallel()
 
@@ -174,54 +178,212 @@ func TestGlabsMergeAndAutoMergeAreActionsOfTheirOwn(t *testing.T) {
 	}
 
 	const (
-		mr   = "/api/v4/projects/group%2Fproject/merge_requests/7"
-		json = "application/json"
-		form = "application/x-www-form-urlencoded"
+		mr      = "/api/v4/projects/group%2Fproject/merge_requests/7"
+		train   = "/api/v4/projects/group%2Fproject/merge_trains/merge_requests/7"
+		graphql = "/api/graphql"
+		json    = "application/json"
+		form    = "application/x-www-form-urlencoded"
 	)
 
-	cases := []struct{ method, target, contentType, body, action string }{
-		{http.MethodPut, mr + "/merge", json, `{"auto_merge":true,"sha":"abc"}`, "gitlab.merge_requests.automerge"},
-		{http.MethodPut, mr + "/merge", json, `{"merge_when_pipeline_succeeds":true}`,
-			"gitlab.merge_requests.automerge"},
-		{http.MethodPut, mr + "/merge?auto_merge=true", "", "", "gitlab.merge_requests.automerge"},
-		{http.MethodPut, mr + "/merge", form, "auto_merge=true", "gitlab.merge_requests.automerge"},
-		{http.MethodPut, mr + "/merge", json, `{"squash":true}`, "gitlab.merge_requests.merge"},
-		{http.MethodPut, mr + "/merge", "", "", "gitlab.merge_requests.merge"},
-		{http.MethodPut, mr + "/merge", json, `{"auto_merge":false}`, "gitlab.merge_requests.merge"},
-		{http.MethodPut, mr + "/merge", json, `{"auto_merge":true,"merge_when_pipeline_succeeds":false}`,
-			"gitlab.merge_requests.merge"},
-		{http.MethodPut, mr + "/merge?auto_merge=1", "", "", "gitlab.merge_requests.merge"},
-		{http.MethodPut, mr + "/merge", json, `{"auto_merge":tru`, "gitlab.merge_requests.merge"},
-		{http.MethodPut, mr + "/merge", "text/plain", "auto_merge=true", "gitlab.merge_requests.merge"},
-		{http.MethodPut, mr + "/merg%65", json, `{}`, "gitlab.merge_requests.merge"},
-		{http.MethodPost, mr + "/cancel_auto_merge", "", "", "gitlab.merge_requests.automerge"},
-		{http.MethodPost, mr + "/cancel_merge_when_pipeline_succeeds", "", "", "gitlab.merge_requests.automerge"},
-		{http.MethodPost, mr + "/notes", json, `{"body":"Looking"}`, "gitlab.merge_requests.write"},
-		{http.MethodDelete, mr + "/notes/3", "", "", "gitlab.merge_requests.delete"},
-		{http.MethodPost, mr + "/notes/3/award_emoji", json, `{"name":"thumbsup"}`, "gitlab.merge_requests.write"},
-		{http.MethodGet, mr, "", "", "gitlab.merge_requests.read"},
-		{http.MethodGet, "/api/v4/projects/group%2Fproject/merge_requests?state=opened", "", "",
-			"gitlab.merge_requests.read"},
-		{http.MethodPost, "/api/v4/projects/1/issues/4/notes", json, `{"body":"x"}`, "gitlab.issues.write"},
-		{http.MethodGet, "/api/v4/projects/1/pipelines/9/jobs", "", "", "gitlab.ci.read"},
-		{http.MethodPost, "/api/v4/projects/1/jobs/9/retry", "", "", "gitlab.ci.write"},
-		{http.MethodHead, "/api/v4/projects/1/repository/files/a%2Fb.md", "", "", "gitlab.repos.read"},
-		{http.MethodGet, "/api/v4/projects/1/repository/archive.zip", "", "", "gitlab.repos.read"},
-		{http.MethodGet, "/api/v4/user", "", "", "gitlab.account.read"},
-		{http.MethodDelete, "/api/v4/projects/1", "", "", "gitlab.repos.delete"},
-		{http.MethodGet, "/api/v4/projects/1/no_such_thing", "", "", "gitlab.unlisted"},
-		{http.MethodPatch, mr + "/merge", json, `{}`, "gitlab.unlisted"},
-		{http.MethodGet, "/group/project/-/merge_requests/7", "", "", "gitlab.unlisted"},
-		{http.MethodPost, "/api/graphql", json, `{"query":"query { project(fullPath: \"g/p\") { name } }"}`,
-			"gitlab.graphql.read"},
-		{http.MethodPost, "/api/graphql", json, `{"query":"mutation { createNote(input: {}) { note { id } } }"}`,
-			"gitlab.unlisted"},
-		{http.MethodPost, "/api/graphql", json, `not graphql`, "gitlab.unlisted"},
+	cases := []struct {
+		name, method, target, contentType, body, action string
+	}{
+		{
+			name: "auto_merge true in JSON", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"auto_merge":true,"sha":"abc"}`, action: "gitlab.merge_requests.automerge",
+		},
+		{
+			name: "merge_when_pipeline_succeeds true in JSON", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"merge_when_pipeline_succeeds":true}`, action: "gitlab.merge_requests.automerge",
+		},
+		{
+			name: "auto_merge as the string true", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"auto_merge":"true"}`, action: "gitlab.merge_requests.automerge",
+		},
+		{
+			name: "auto_merge in the query is a merge", method: http.MethodPut, target: mr + "/merge?auto_merge=true", contentType: "",
+			body: "", action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "auto_merge in a form is a merge", method: http.MethodPut, target: mr + "/merge", contentType: form,
+			body: "auto_merge=true", action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "no flag is a merge", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"squash":true}`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "no body is a merge", method: http.MethodPut, target: mr + "/merge", contentType: "",
+			body: "", action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "auto_merge false", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"auto_merge":false}`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "one flag true, the other false", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"auto_merge":true,"merge_when_pipeline_succeeds":false}`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "auto_merge 1 is not plainly true", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"auto_merge":1}`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "a body that cannot be read", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"auto_merge":tru`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "a body of another type", method: http.MethodPut, target: mr + "/merge", contentType: "text/plain",
+			body: "auto_merge=true", action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "a segment read decoded", method: http.MethodPut, target: mr + "/merg%65", contentType: json,
+			body: `{}`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "only a differently cased flag", method: http.MethodPut, target: mr + "/merge", contentType: json,
+			body: `{"Auto_Merge":true}`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "cancel auto-merge", method: http.MethodPost, target: mr + "/cancel_auto_merge", contentType: "",
+			body: "", action: "gitlab.merge_requests.automerge",
+		},
+		{
+			name: "cancel merge when pipeline succeeds", method: http.MethodPost, target: mr + "/cancel_merge_when_pipeline_succeeds", contentType: "",
+			body: "", action: "gitlab.merge_requests.automerge",
+		},
+		{
+			name: "add to a merge train", method: http.MethodPost, target: train, contentType: json,
+			body: `{}`, action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "add to a merge train with no body", method: http.MethodPost, target: train, contentType: "",
+			body: "", action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "add to a merge train when checks pass", method: http.MethodPost, target: train, contentType: json,
+			body: `{"when_pipeline_succeeds":true}`, action: "gitlab.merge_requests.automerge",
+		},
+		{
+			name: "add to a merge train with auto_merge", method: http.MethodPost, target: train, contentType: json,
+			body: `{"auto_merge":true}`, action: "gitlab.merge_requests.automerge",
+		},
+		{
+			name: "merge train flag in the query is a merge", method: http.MethodPost, target: train + "?auto_merge=true", contentType: "",
+			body: "", action: "gitlab.merge_requests.merge",
+		},
+		{
+			name: "a note on a merge request", method: http.MethodPost, target: mr + "/notes", contentType: json,
+			body: `{"body":"Looking"}`, action: "gitlab.merge_requests.write",
+		},
+		{
+			name: "a note deleted", method: http.MethodDelete, target: mr + "/notes/3", contentType: "",
+			body: "", action: "gitlab.merge_requests.delete",
+		},
+		{
+			name: "an emoji on a note", method: http.MethodPost, target: mr + "/notes/3/award_emoji", contentType: json,
+			body: `{"name":"thumbsup"}`, action: "gitlab.merge_requests.write",
+		},
+		{
+			name: "a merge request read", method: http.MethodGet, target: mr, contentType: "",
+			body: "", action: "gitlab.merge_requests.read",
+		},
+		{
+			name: "merge requests listed", method: http.MethodGet, target: "/api/v4/projects/group%2Fproject/merge_requests?state=opened", contentType: "",
+			body: "", action: "gitlab.merge_requests.read",
+		},
+		{
+			name: "a note on an issue", method: http.MethodPost, target: "/api/v4/projects/1/issues/4/notes", contentType: json,
+			body: `{"body":"x"}`, action: "gitlab.issues.write",
+		},
+		{
+			name: "a pipeline's jobs", method: http.MethodGet, target: "/api/v4/projects/1/pipelines/9/jobs", contentType: "",
+			body: "", action: "gitlab.ci.read",
+		},
+		{
+			name: "a job retried", method: http.MethodPost, target: "/api/v4/projects/1/jobs/9/retry", contentType: "",
+			body: "", action: "gitlab.ci.write",
+		},
+		{
+			name: "a file's head", method: http.MethodHead, target: "/api/v4/projects/1/repository/files/a%2Fb.md", contentType: "",
+			body: "", action: "gitlab.repos.read",
+		},
+		{
+			name: "an archive", method: http.MethodGet, target: "/api/v4/projects/1/repository/archive.zip", contentType: "",
+			body: "", action: "gitlab.repos.read",
+		},
+		{
+			name: "a generic package uploaded", method: http.MethodPut, target: "/api/v4/projects/1/packages/generic/pkg/1.0/app.bin", contentType: "application/octet-stream",
+			body: "binary", action: "gitlab.releases.write",
+		},
+		{
+			name: "a generic package downloaded", method: http.MethodGet, target: "/api/v4/projects/1/packages/generic/pkg/1.0/app.bin", contentType: "",
+			body: "", action: "gitlab.releases.read",
+		},
+		{
+			name: "the user", method: http.MethodGet, target: "/api/v4/user", contentType: "",
+			body: "", action: "gitlab.account.read",
+		},
+		{
+			name: "a project deleted", method: http.MethodDelete, target: "/api/v4/projects/1", contentType: "",
+			body: "", action: "gitlab.repos.delete",
+		},
+		{
+			name: "a path client-go does not call", method: http.MethodGet, target: "/api/v4/projects/1/no_such_thing", contentType: "",
+			body: "", action: "gitlab.unlisted",
+		},
+		{
+			name: "a method client-go does not send", method: http.MethodPatch, target: mr + "/merge", contentType: json,
+			body: `{}`, action: "gitlab.unlisted",
+		},
+		{
+			name: "a page, not the API", method: http.MethodGet, target: "/group/project/-/merge_requests/7", contentType: "",
+			body: "", action: "gitlab.unlisted",
+		},
+		{
+			name: "a GraphQL query", method: http.MethodPost, target: graphql, contentType: json,
+			body: `{"query":"query { project(fullPath: \"g/p\") { name } }"}`, action: "gitlab.graphql.read",
+		},
+		{
+			name: "a batch of GraphQL queries", method: http.MethodPost, target: graphql, contentType: json,
+			body: `[{"query":"query { currentUser { id } }"},{"query":"query { a: currentUser { id } }"}]`, action: "gitlab.graphql.read",
+		},
+		{
+			name: "a GraphQL mutation", method: http.MethodPost, target: graphql, contentType: json,
+			body: `{"query":"mutation { createNote(input: {}) { note { id } } }"}`, action: "gitlab.unlisted",
+		},
+		{
+			name: "a mutation hidden behind Query", method: http.MethodPost, target: graphql, contentType: json,
+			body: `{"query":"mutation { createNote(input: {}) { note { id } } }","Query":"query { __typename }"}`, action: "gitlab.unlisted",
+		},
+		{
+			name: "a query key given twice", method: http.MethodPost, target: graphql, contentType: json,
+			body: `{"query":"mutation { createNote(input: {}) { note { id } } }","query":"query { __typename }"}`, action: "gitlab.unlisted",
+		},
+		{
+			name: "a multiplex hidden in _json", method: http.MethodPost, target: graphql, contentType: json,
+			body: `{"query":"query { __typename }","_json":[{"query":"mutation { createNote(input: {}) { note { id } } }"}]}`, action: "gitlab.unlisted",
+		},
+		{
+			name: "a query in the URL", method: http.MethodPost, target: graphql + "?query=mutation%7BcreateNote%7D", contentType: json,
+			body: `{"query":"query { __typename }"}`, action: "gitlab.unlisted",
+		},
+		{
+			name: "a GraphQL form", method: http.MethodPost, target: graphql, contentType: form,
+			body: "query=query+%7B+__typename+%7D", action: "gitlab.unlisted",
+		},
+		{
+			name: "a body that is no GraphQL", method: http.MethodPost, target: graphql, contentType: json,
+			body: `not graphql`, action: "gitlab.unlisted",
+		},
 	}
 
 	for _, c := range cases {
-		assert.Equal(t, c.action, gitlabOf(t, catalog, c.method, c.target, c.contentType, c.body).ID, "%s %s %s",
-			c.method, c.target, c.body)
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, c.action, gitlabOf(t, catalog, c.method, c.target, c.contentType, c.body).ID)
+		})
 	}
 }
 
@@ -341,4 +503,121 @@ func (tl *tool) doGlab(method, path, contentType string, body []byte) answer {
 	require.NoError(tl.t, resp.Body.Close())
 
 	return answer{Status: resp.StatusCode, Body: string(raw)}
+}
+
+// openGitLab is a pi's glab tunnel to the declared GitLab host, its Connection on for chats.
+func openGitLab(t *testing.T, w *world) *tool {
+	t.Helper()
+
+	ctx := t.Context()
+
+	_, err := w.svc.AddGitHost(ctx, gitlabHost, githost.GitLab)
+	require.NoError(t, err)
+
+	_, err = w.svc.SetConnection(ctx, gitlabHost, "default", "", "conn-git-example-com-default")
+	require.NoError(t, err)
+
+	_, err = w.svc.SetConnectionChats(ctx, gitlabHost, "default", true)
+	require.NoError(t, err)
+
+	glab, refused := w.openTo(gitlabHost, w.pi, "default", gitlabHost, w.chat)
+	require.Zero(t, refused)
+
+	return glab
+}
+
+// Scenario (review of #777): glab asks for auto-merge with auto_merge alone, which GitLab 17.10 does not read: it
+// merges at once (lib/api/merge_requests.rb at v17.10.0). An auto-merge the owner allowed is sent with every flag of
+// its pair set, merge_when_pipeline_succeeds beside auto_merge, and a merge train's when_pipeline_succeeds beside
+// auto_merge, which every version reads as auto-merge; the rest of the body is kept. A merge is sent as it came.
+func TestAnAutoMergeIsSentAsEveryGitLabReadsIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+	glab := openGitLab(t, w)
+
+	require.NoError(t, w.svc.SetActionPolicy(ctx, gitlabHost, "default", "gitlab.merge_requests.automerge",
+		orchestration.PolicyAllow))
+	require.NoError(t, w.svc.SetActionPolicy(ctx, gitlabHost, "default", "gitlab.merge_requests.merge",
+		orchestration.PolicyAllow))
+
+	const project = "/api/v4/projects/group%2Fproject"
+
+	for _, c := range []struct {
+		name, method, path, body string
+		want                     map[string]any
+	}{
+		{
+			name: "glab mr merge", method: http.MethodPut, path: project + "/merge_requests/7/merge",
+			body: `{"auto_merge":true,"sha":"abc"}`,
+			want: map[string]any{"auto_merge": true, "merge_when_pipeline_succeeds": true, "sha": "abc"},
+		},
+		{
+			name: "a merge train when checks pass", method: http.MethodPost,
+			path: project + "/merge_trains/merge_requests/7", body: `{"when_pipeline_succeeds":true}`,
+			want: map[string]any{"auto_merge": true, "when_pipeline_succeeds": true},
+		},
+		{
+			name: "a merge now", method: http.MethodPut, path: project + "/merge_requests/7/merge",
+			body: `{"squash":true}`, want: map[string]any{"squash": true},
+		},
+	} {
+		before := len(w.service.received())
+
+		require.Equal(t, http.StatusOK, glab.doGlab(c.method, c.path, "application/json", []byte(c.body)).Status,
+			c.name)
+
+		received := w.service.received()
+		require.Len(t, received, before+1, c.name)
+
+		var sent map[string]any
+		require.NoError(t, json.Unmarshal(received[before].Body, &sent), c.name)
+		assert.Equal(t, c.want, sent, c.name)
+	}
+}
+
+// Scenario (review of #777): with writes of merge requests allowed and merge and auto-merge set to never, adding a
+// merge request to a merge train is refused: it merges. A GraphQL mutation behind a "Query" key that Go's decoder
+// would read waits for the owner as unlisted, and reaches GitLab only once he approves.
+func TestAMergeTrainAndAHiddenMutationAreNotWrites(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+	glab := openGitLab(t, w)
+
+	for action, policy := range map[string]string{
+		"gitlab.merge_requests.write":     orchestration.PolicyAllow,
+		"gitlab.merge_requests.merge":     orchestration.PolicyNever,
+		"gitlab.merge_requests.automerge": orchestration.PolicyNever,
+	} {
+		require.NoError(t, w.svc.SetActionPolicy(ctx, gitlabHost, "default", action, policy))
+	}
+
+	note := glab.doGlab(http.MethodPost, "/api/v4/projects/1/merge_requests/7/notes", "application/json",
+		[]byte(`{"body":"Looking"}`))
+	require.Equal(t, http.StatusOK, note.Status, "a note is a write")
+
+	for _, body := range []string{`{}`, `{"auto_merge":true}`} {
+		train := glab.doGlab(http.MethodPost, "/api/v4/projects/1/merge_trains/merge_requests/7", "application/json",
+			[]byte(body))
+		assert.Equal(t, http.StatusForbidden, train.Status, body)
+	}
+
+	assert.Len(t, w.service.received(), 1, "no merge train reached GitLab")
+
+	hidden := []byte(`{"query":"mutation { createNote(input: {}) { note { id } } }","Query":"query { __typename }"}`)
+	answered := make(chan answer, 1)
+
+	go func() { answered <- glab.doGlab(http.MethodPost, "/api/graphql", "application/json", hidden) }()
+
+	asked := w.pending()
+	assert.Equal(t, "gitlab.unlisted", asked.Action)
+	assert.Len(t, w.service.received(), 1, "nothing is sent while the owner has not answered")
+
+	_, err := w.proxy.Decide(ctx, asked.ID, false, orchestration.ScopeOnce)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+	assert.Len(t, w.service.received(), 1)
 }
