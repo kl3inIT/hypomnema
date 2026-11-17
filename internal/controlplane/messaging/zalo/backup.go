@@ -80,7 +80,7 @@ func (c *chunkReader) Read(p []byte) (int, error) {
 
 // openBackup decrypts the backup at path with its key. The container starts at the file's start or 4 bytes in;
 // the one whose first chunk starts with the magic is it (softtyos decryptZdbBuffer).
-func openBackup(path string, key []byte) (io.Reader, io.Closer, error) {
+func openBackup(path string, key []byte) (*bufio.Reader, io.Closer, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, nil, fmt.Errorf("zalo: the backup's key: %w", err)
@@ -155,6 +155,26 @@ func readHeader(r io.Reader) ([]zdbFile, error) {
 	return files, nil
 }
 
+// xzMagic starts an XZ stream.
+var xzMagic = []byte{0xFD, '7', 'z', 'X', 'Z', 0x00}
+
+// xzProbe is how far past the header the XZ stream is looked for (deplao-builder zdbBackup.ts: 64 bytes).
+const xzProbe = 64
+
+// skipToXZ moves to the XZ stream, right after the header or a few bytes later.
+func skipToXZ(br *bufio.Reader) error {
+	head, _ := br.Peek(xzProbe + len(xzMagic))
+
+	i := bytes.Index(head, xzMagic)
+	if i < 0 {
+		return errors.New("zalo: no XZ stream follows the backup's header")
+	}
+
+	_, err := br.Discard(i)
+
+	return err
+}
+
 // eachDatabase writes each of the backup's chat databases in turn to a file in dir and hands it to fn, then
 // removes it: the XZ stream after the header holds the files one after the other, in the header's order (zlog
 // ExtractDatabases). A file that is not SQLite is passed over.
@@ -169,6 +189,10 @@ func eachDatabase(ctx context.Context, path string, key []byte, dir string,
 
 	files, err := readHeader(r)
 	if err != nil {
+		return err
+	}
+
+	if err := skipToXZ(r); err != nil {
 		return err
 	}
 
@@ -259,7 +283,9 @@ type phoneRow struct {
 
 // eachRow reads a chat database's messages, the oldest first.
 func eachRow(ctx context.Context, path string, fn func(phoneRow) error) error {
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+	// immutable: nothing else writes it, so SQLite reads a database in WAL mode, as the phone's are, without
+	// making a -shm and a -wal beside it (issue #733).
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&immutable=1")
 	if err != nil {
 		return fmt.Errorf("zalo: opening a chat of the backup: %w", err)
 	}

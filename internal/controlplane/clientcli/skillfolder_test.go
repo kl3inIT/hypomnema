@@ -220,11 +220,41 @@ func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
 	removed := regexp.MustCompile(
 		`(?i)show_html|publish_page|data_sql|data_show|data_export|mausbot|duckdb|echarts|tailwind|lucide|\bjsx\b|parquet`)
 
-	for _, name := range []string{"SKILL.md", "dashboard.html"} {
+	// The design references (issue #729) are dashboard-design-skill's for a plain page: no React, Tailwind or
+	// SwiftUI, no address to load; each names its source and license, and every file a file names is shipped.
+	adapted := regexp.MustCompile(`(?i)react|swiftui|\bnpx\b|https?://|cdn\.|chart\.js\b|plotly|matplotlib`)
+	named := regexp.MustCompile("`(references/[a-z]+\\.md)`|\\]\\(([a-z]+\\.md)\\)")
+
+	err = fs.WalkDir(skill, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || path.Base(name) == "LICENSE" {
+			return err
+		}
+
 		b, err := fs.ReadFile(skill, name)
-		require.NoError(t, err)
+		if err != nil {
+			return err
+		}
+
 		assert.Empty(t, removed.FindAllString(string(b), -1), "%s names what OpenMausBot has and Hypomnema has not", name)
-	}
+
+		if strings.HasPrefix(name, "references/") {
+			assert.Empty(t, adapted.FindAllString(string(b), -1), "%s names what a page in the frame has not", name)
+			assert.Contains(t, string(b), "MIT License", "%s names its source's license", name)
+		}
+
+		for _, m := range named.FindAllStringSubmatch(string(b), -1) {
+			file := m[1]
+			if m[2] != "" {
+				file = path.Join(path.Dir(name), m[2])
+			}
+
+			assert.True(t, exists(skill, file), "%s names %s, which is not shipped", name, file)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, exists(skill, "references/LICENSE"), "dashboard-design-skill's MIT license ships with its files")
 
 	text, err := fs.ReadFile(skill, "SKILL.md")
 	require.NoError(t, err)

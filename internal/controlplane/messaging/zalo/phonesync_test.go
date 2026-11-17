@@ -53,7 +53,7 @@ func binNet(title, href string) []byte {
 
 // writeBackup writes a backup as the phone uploads it: chat databases in an XZ stream after a ZDB4.0 header, in
 // 64 KB chunks of AES-256-CBC with a zero IV, the container 4 bytes in (softtyos zdb-cipher.ts).
-func writeBackup(path string, chats map[string][]backupRow) error {
+func writeBackup(path string, gap int, chats map[string][]backupRow) error {
 	// The fake bridge makes it outside any test's context.
 	ctx := context.Background()
 
@@ -72,6 +72,11 @@ func writeBackup(path string, chats map[string][]backupRow) error {
 
 		conn, err := sql.Open("sqlite", db)
 		if err != nil {
+			return err
+		}
+
+		// The phone's databases are in WAL mode.
+		if _, err := conn.ExecContext(ctx, `PRAGMA journal_mode=WAL`); err != nil {
 			return err
 		}
 
@@ -110,6 +115,8 @@ func writeBackup(path string, chats map[string][]backupRow) error {
 		_ = binary.Write(&plain, binary.BigEndian, uint32(len(blobs[i]))) //nolint:gosec // A test's small databases.
 	}
 
+	plain.Write(make([]byte, gap))
+
 	w, err := xz.NewWriter(&plain)
 	if err != nil {
 		return err
@@ -124,6 +131,10 @@ func writeBackup(path string, chats map[string][]backupRow) error {
 	if err := w.Close(); err != nil {
 		return err
 	}
+
+	// The backup's tail: a footer of its own, not zeros, which decrypts to junk after the stream (deplao-builder
+	// zdbBackup.ts).
+	plain.WriteString("TLV-footer")
 
 	data := plain.Bytes()
 	data = append(data, make([]byte, (aes.BlockSize-len(data)%aes.BlockSize)%aes.BlockSize)...)
@@ -151,7 +162,7 @@ func writeBackup(path string, chats map[string][]backupRow) error {
 func fakeBackup(dir string) (string, error) {
 	path := filepath.Join(dir, "zalo-backup-1.db.crypt")
 
-	return path, writeBackup(path, map[string][]backupRow{
+	return path, writeBackup(path, 0, map[string][]backupRow{
 		"group_55.db": {
 			{sender: "8", glb: 9001, cli: 1, typ: 3, at: 1_600_000_000_000, title: "Ảnh công trình cũ",
 				href: os.Getenv(fakeMediaEnv) + "/old.jpg"},
@@ -223,6 +234,25 @@ func TestASyncFromThePhoneKeepsThePastOfEveryChat(t *testing.T) {
 	assert.Empty(t, left, "the backup and its databases are removed")
 
 	require.NoError(t, syncer.SyncFromPhone(ctx), "a sync done can be asked again")
+}
+
+// The XZ stream may start a few bytes after the header (deplao-builder looks within 64); the chats are read all
+// the same.
+func TestTheXZStreamIsFoundAFewBytesAfterTheHeader(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gap.db.crypt")
+	require.NoError(t, writeBackup(path, 3, map[string][]backupRow{
+		"7.db": {{sender: "7", glb: 1, cli: 1, at: 1_600_000_000_000, text: "chào"}},
+	}))
+
+	var read []string
+	require.NoError(t, eachDatabase(t.Context(), path, []byte(backupKeyForTests), dir,
+		func(_ context.Context, file zdbFile, _ string) error {
+			read = append(read, file.Name)
+
+			return nil
+		}))
+	assert.Equal(t, []string{"7.db"}, read)
 }
 
 func TestABackupWithTheWrongKeyIsNotRead(t *testing.T) {

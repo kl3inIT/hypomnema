@@ -888,6 +888,11 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	require.NoError(t, err)
 	assert.Contains(t, out, "# Recovery")
 
+	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "investigate")
+	require.NoError(t, err)
+	assert.Contains(t, out, "three or four\n   mature projects, never a single one",
+		"a research Task names several references to clone (issue #719)")
+
 	_, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "nothing")
 	require.ErrorIs(t, err, ErrUsage)
 

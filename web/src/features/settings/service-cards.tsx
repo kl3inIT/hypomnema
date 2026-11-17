@@ -511,9 +511,13 @@ function phoneSyncSays(sync: PhoneSync): string {
     case "asking":
       return "Confirm the sync on your phone"
     case "sending":
-      return "Your phone is sending its messages"
+      return sync.reason
+        ? `Your phone is sending its messages: ${sync.reason}`
+        : "Your phone is sending its messages"
     case "importing":
-      return "Keeping the messages from your phone"
+      return sync.messages
+        ? `Keeping the messages from your phone: ${sync.messages.toLocaleString()} so far, in ${sync.chats.toLocaleString()} chats`
+        : "Keeping the messages from your phone"
     case "done":
       return `${sync.messages.toLocaleString()} messages from your phone kept, in ${sync.chats.toLocaleString()} chats${sync.skipped ? `; ${sync.skipped} chats could not be read` : ""}`
     case "failed":

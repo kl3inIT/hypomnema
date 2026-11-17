@@ -269,6 +269,20 @@ var policies = map[string]policy{
 	"SetAudioOrder":    {scope: scopeOwner},
 	"AddAudioKey":      {scope: scopeOwner},
 	"RemoveAudioKey":   {scope: scopeOwner},
+	// Meetings (issue #721): every token reads them, as it reads the rest; only the owner uploads, deletes or changes
+	// one. An upload carries up to 128 MB and a recording is played as long as it is listened to.
+	"ListMeetings":          {},
+	"UploadMeeting":         {scope: scopeOwner, long: true},
+	"GetMeeting":            {},
+	"DeleteMeeting":         {scope: scopeOwner},
+	"GetMeetingRecording":   {long: true},
+	"WriteMeetingNotes":     {scope: scopeOwner},
+	"NameMeetingSpeaker":    {scope: scopeOwner},
+	"SetMeetingLineSpeaker": {scope: scopeOwner},
+	"UpdateMeetingItem":     {scope: scopeOwner},
+	"ListMeetingActions":    {},
+	"GetMeetingSettings":    {},
+	"SetMeetingSettings":    {scope: scopeOwner},
 }
 
 var (

@@ -846,7 +846,12 @@ sequenceDiagram
     shape of a report on finished work: the answer first, then what was done, checked and left (Hermes). The
     Browser part (issue #704) says to read a page in the browser rather than its scripts, that the Bot's page is
     in its own tab, which the owner sees beside the chat in the web client and not in "My browser", that the owner
-    signs in there, and that no password is asked for or used in the chat.
+    signs in there, and that no password is asked for or used in the chat. The Research before a design part
+    (issue #719, the owner's rule of this repository's `AGENTS.md`, 2026-11-17) says that before the Bot answers
+    how others do something or proposes a design or a choice, it has a worker clone and read the code of three or
+    four mature projects (or reads them itself), compares them with the paths read, recommends one and marks what
+    no reference does as its inference; the coordinator guide's `investigate` reference has a research Task name
+    three or four references, never one.
   - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
     every chat with the Bot, whoever writes in it (one store per agent, as all three references have). The Bot
     changes it through `POST /bots/{bot_id}/memory`: add, replace or remove the one entry that has a text. The change reads
@@ -3061,8 +3066,63 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   audio-screen.tsx`) shows and changes them, built from the Web search and Images pages. The CLI: `hypomnema audio
   providers`, `audio providers set <provider> on|off`, `audio order stt|tts <provider> <provider>`, `audio keys add
   <provider> --key-file`, `audio keys rm <provider> <name>`.
-- Not built: live (streaming) transcription, meetings, prices for audio, an agent tool for audio. Not yet measured:
+- Not built: live (streaming) transcription, prices for audio, an agent tool for audio. Not yet measured:
   whether the public proxy cuts a long blocking transcription from a tool outside.
+
+Meetings (`internal/controlplane/meetings`, `orchestration/meetingstore`, `modelgateway/complete.go`,
+`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issue #721,
+[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a meeting's recording; it is
+heard with who spoke when (Audio, above) and a gateway chat model writes its summary, decisions and actions.
+- Data (migration 00104): `meetings` (title and whether the owner gave it, language, people and terms as JSON, the
+  file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
+  `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
+  the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
+  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, `state` waiting,
+  writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
+  `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
+  line and that line's start); `meeting_settings` (one row: `notes_model`).
+- The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
+  temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
+  read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
+  application/ogg and the sniffed content agrees, else application/octet-stream; `GET
+  /meetings/{id}/recording` answers ranges (206) with `X-Content-Type-Options: nosniff`, `Content-Security-Policy:
+  sandbox; default-src 'none'` and `Content-Disposition: inline` with the file's name, as the artifact downloads.
+- The work (`meetings.Service.Run`): woken by the store's events and each minute, it transcribes the meetings
+  waiting, then writes the notes waiting; a job claimed is counted in `attempts` and a meeting is failed after 3,
+  so a restart mid-job takes it again (MemoryOS `minutes_attempts`). Transcribing sends the language and the words
+  to hear right (Soniox `context.terms`, MemoryOS; ElevenLabs gets none, no reference sends any) and saves voices
+  and lines; a voice that says no line is dropped.
+- The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
+  of Settings → Meetings and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
+  `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the format's sections
+  (Hyprnote's and Meetily's templates, MIT, `meetings/formats.go`: General, Team meeting, 1:1, Stand-up, Client
+  call), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
+  is checked as MemoryOS's `MinutesChecks` (`meetings/checks.go`) before it is kept: an owner is one voice of the
+  transcript or nobody (a group, several people or an unknown label is none); a quote is looked for on its line or
+  up to two lines away, a shortened quote given the line's own words, and a quote nowhere near dropped; an action
+  said twice is kept once with what only the repeat said; a decision that restates an action on its line is
+  dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
+  one the owner did not give.
+- Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
+  has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
+  voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
+- The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
+  body; `file_name`, `media_type`, `language`, `title`, `people`, `terms`, `format` in the query), `GET`
+  and `DELETE /meetings/{id}` (a meeting with its lines, items and suggestions; deleting cancels its work and
+  removes the file), `POST /meetings/{id}/notes` `{format}` (write again, 202), `PATCH
+  /meetings/{id}/items/{item}` `{done}`, `GET /meeting-actions?who=&state=open|done|all` and `GET`/`PUT
+  /meeting-settings` `{notes_model}` (with the formats). Changes are the owner's; reads are any token's. The CLI:
+  `hypomnema meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings`.
+- On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
+  page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
+  meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
+  title, people, words to hear right and format. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
+  failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
+  its share of the talk and opens the speaker picker (this line or the whole meeting). Settings → Meetings picks
+  the notes model with the gateway keys' model picker and lists the formats.
+- Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
+  editing a line's text, sharing a meeting.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -3443,9 +3503,16 @@ The owner's commands:
   issue #536 reaches every agent kind through the skills store (above), naming the Superset tools:
   OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
   `third_party/openmausbot/NOTICE`), for dashboards and any other page an agent shows with the `show_artifact`
-  tool.
-  Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
-  the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
+  tool. Since issue #729 it also teaches how a dashboard should look and how to check its numbers: the build steps,
+  rules and critique order of dashboard-design-skill at `463b8fd` (MIT, its `LICENSE` in `references/`, the notice
+  in `third_party/dashboard-design-skill/NOTICE`) and chart choice from Anthropic's knowledge-work-plugins `data`
+  plugin at `e91a134` (Apache-2.0, `third_party/knowledge-work-plugins/NOTICE`), with their references
+  (`perception`, `layout`, `tokens`, `components`, `snippets`, `qa`) cut to a plain HTML page in `references/`
+  beside `SKILL.md`. The main view has no sentences; a report may end with one notes section (owner, 2026-11-17).
+  Its `dashboard.html` template is self-contained: its colours are tokens with light and dark values, it has a KPI
+  row with deltas against the period before, one tooltip, loading, empty and error states, and a `check()` that
+  compares the tiles with the sums of their charts and tables and sets `data-check` on `<html>`; its charts are SVG
+  its own script draws, its sums are computed in the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
   beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
   artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
   OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
@@ -3631,6 +3698,9 @@ Node (`internal/node`):
         system it names before it is built on, with what was seen cited; a false premise ends the Task with
         `finish` and that evidence, and no change (issue #513, after OpenClaw's and Hermes's `AGENTS.md` and
         Coder's "state uncertainty instead of guessing");
+      - that a Task asking for research or a design reads the references' code, not only their documents, and
+        cites the paths and lines (issue #719, the owner's "Research before design" of this repository's
+        `AGENTS.md`, given to every repository on 2026-11-17);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
@@ -4263,6 +4333,7 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, the formats, speaker suggestions
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores
@@ -4270,6 +4341,7 @@ internal/controlplane/orchestration/internal/storeutil  what its stores share: t
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
+internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names

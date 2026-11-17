@@ -27,7 +27,7 @@ import { createInterface } from "node:readline";
 import { LoginQRCallbackEventType, Zalo } from "zca-js";
 
 import { imageMeta } from "./imagemeta.mjs";
-import { backupKey, cancel, decode, download, frame, keys, noised, pull, syncEvents } from "./phonesync.mjs";
+import { backupKey, cancel, decode, download, frame, keys, noised, pull, step, syncEvents } from "./phonesync.mjs";
 import { answer, closed, event, failure, message, older, parseRequest, rejected } from "./protocol.mjs";
 import { ThreadType } from "zca-js";
 
@@ -262,9 +262,10 @@ async function send(p) {
   return out;
 }
 
-// confirmWait is how long the phone has to answer a sync before it is withdrawn (softtyos's guide, §4: 60 s).
-const confirmWait = 60_000;
-// sendWait is how long a confirmed phone has to upload its backup (inference: softtyos and zlog set none).
+// confirmWait is how long the phone has to answer a sync before it is withdrawn (deplao-builder
+// CONFIRM_TIMEOUT_MS: 3 min; softtyos's guide says 60 s, too short for the owner to reach his phone).
+const confirmWait = 3 * 60_000;
+// sendWait is how long a confirmed phone has to upload its backup (deplao-builder BACKUP_TIMEOUT_MS: 30 min).
 const sendWait = 30 * 60_000;
 
 // syncing is the sync under way: its keys, the folder its backup goes to, and the wait for the phone.
@@ -279,7 +280,7 @@ async function phoneSync(p) {
     if (syncing !== s || s.confirmed) return;
     syncing = null;
     cancel(api, s.publicKey).catch(() => {});
-    emit("phone_sync", { stage: "failed", message: "the phone did not answer within a minute" });
+    emit("phone_sync", { stage: "failed", message: "the phone did not answer within 3 minutes" });
   }, confirmWait);
 
   syncing = s;
@@ -302,42 +303,53 @@ function onFrame(data) {
   let events;
   try {
     events = syncEvents(decode(f.body, api.listener.cipherKey));
-  } catch {
+  } catch (err) {
+    // Said, not dropped: a control the bridge cannot read is how a sync goes silent (issue #715).
+    console.error(`a control (cmd 601) could not be read: ${err?.message ?? err}`);
+
     return;
   }
 
   for (const ev of events) onSync(ev).catch((err) => emit("phone_sync", { stage: "failed", message: String(err?.message ?? err) }));
 }
 
-// onSync follows the sync the bridge asked for; another device's is not its own (softtyos checks public_key).
+// onSync follows the sync the bridge asked for; another device's is not its own (softtyos and deplao-builder
+// check public_key). Each event is logged without its URL or key.
 async function onSync({ act, data }) {
   const s = syncing;
-  if (!s || data?.public_key !== s.publicKey) return;
+  const mine = Boolean(s) && data?.public_key === s.publicKey;
+  console.error(`phone sync: ${act} user_action=${data?.user_action ?? ""} status=${data?.status ?? ""} ` +
+    `error_code=${data?.error_code ?? ""}${mine ? "" : " (not this sync's)"}`);
+  if (!mine) return;
 
-  if (act === "user_confirm") {
-    clearTimeout(s.timer);
-    if (data.user_action === 1) {
-      s.confirmed = true;
-      // A phone that confirmed and then went away would hold the sync for ever.
-      s.timer = setTimeout(() => {
-        if (syncing !== s) return;
-        syncing = null;
-        emit("phone_sync", { stage: "failed", message: "the phone did not send its messages within 30 minutes" });
-      }, sendWait);
-      emit("phone_sync", { stage: "confirmed" });
-    } else {
+  const next = step(act, data);
+  if (next.next === "none") return;
+
+  clearTimeout(s.timer);
+
+  if (next.next === "wait") {
+    s.confirmed = true;
+    // A phone that confirmed and then went away would hold the sync for ever.
+    s.timer = setTimeout(() => {
+      if (syncing !== s) return;
       syncing = null;
-      emit("phone_sync", { stage: "refused" });
-    }
+      emit("phone_sync", { stage: "failed", message: "the phone did not send its messages within 30 minutes" });
+    }, sendWait);
+    emit("phone_sync", { stage: "confirmed", message: next.note ?? "" });
 
     return;
   }
 
   syncing = null;
-  clearTimeout(s.timer);
 
-  if (act === "transfer_error") {
-    emit("phone_sync", { stage: "failed", message: str(data.error_msg) || `Zalo's error ${data.error_code ?? ""}` });
+  if (next.next === "refused") {
+    emit("phone_sync", { stage: "refused" });
+
+    return;
+  }
+
+  if (next.next === "failed") {
+    emit("phone_sync", { stage: "failed", message: next.message });
 
     return;
   }

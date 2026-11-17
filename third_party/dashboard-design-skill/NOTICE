@@ -1,0 +1,28 @@
+dashboard-design-skill
+Copyright (c) 2026 Otabek Abdiraimov
+
+Used under the MIT License (LICENSE in this directory, and the same file as
+internal/controlplane/clientcli/skills/pages/references/LICENSE, shipped with
+the files adapted from it).
+Source: https://github.com/abdiraimov-otabek/dashboard-design-skill at
+463b8fdf62c640180ec1ba731f3616c2319bf68c (version 2.1.0),
+skills/dashboard-design.
+
+What is adapted from it here (issue #729): the dashboard part of the pages
+skill (internal/controlplane/clientcli/skills/pages/): the build steps, the
+critique order and the rules of its SKILL.md in pages's SKILL.md, and its
+references perception.md, layout.md, tokens.md, components.md, snippets.md and
+qa.md as the files of the same names in references/, each naming what changed
+in its header. Changed: written for one plain HTML page in the artifact's
+locked frame, so the React and Tailwind snippets are plain JavaScript and CSS
+on the same tokens, charts are inline SVG or CSS and nothing is loaded from the
+network; the page cannot act, so an action is offered in the chat reply; one
+notes section is allowed at the end of a report (owner, 2026-11-17); the
+screenshot pass uses the widths an artifact is seen at. The template
+(dashboard.html) follows its rules: tokens for light and dark, a KPI row with
+deltas, loading, empty and error states, one tooltip, and a check that the
+tiles, charts and tables agree, after the totals its examples expose to a test.
+Left out: swiftui.md (Bots make web pages), the range calendar, the Tailwind
+notes, the case studies, sources.md (its sources are named in perception.md),
+the README, the example pages and images, the plugin files, and the sign-off
+line.
