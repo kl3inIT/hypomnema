@@ -63,6 +63,10 @@ type Store interface {
 	AuthenticateToken(ctx context.Context, secret string) (orchestration.Token, error)
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
+	// ListGitHosts and KindOfHost say which git hosts are of a kind: a tool for a kind of host (glab) acts on a
+	// Connection of any of them (issue #740).
+	ListGitHosts(ctx context.Context) ([]orchestration.GitHost, error)
+	serviceproxy.HostKinds
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
 	// ChangeBotMemory changes a Bot's own memory, for its pi's memory tool (issue #536).
 	ChangeBotMemory(ctx context.Context, id string, op orchestration.MemoryOp) (orchestration.Bot, error)
@@ -370,6 +374,37 @@ func (s *Server) connectionsBy(ctx context.Context, integration string, keep fun
 	return slices.DeleteFunc(all, func(c orchestration.Connection) bool { return !keep(c) }), nil
 }
 
+// allowedOf is what an agent may use for a tool: the Connections of its Integration, or, for a tool of a kind of
+// git host (glab, issue #740), those of every host of that kind.
+func (s *Server) allowedOf(ctx context.Context, a agent, integration string, def agenttool.Def,
+) ([]orchestration.Connection, error) {
+	if def.HostKind == "" {
+		return s.allowed(ctx, a, integration)
+	}
+
+	hosts, err := s.store.ListGitHosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []orchestration.Connection
+
+	for _, h := range hosts {
+		if string(h.Kind) != def.HostKind {
+			continue
+		}
+
+		allowed, err := s.allowed(ctx, a, h.Host)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, allowed...)
+	}
+
+	return out, nil
+}
+
 func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {
@@ -380,27 +415,31 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 
 	integration := r.URL.Query().Get("integration")
 
-	allowed, err := s.allowed(r.Context(), a, integration)
+	// A tool that will not run without the id of its app is told it with each account: a Lark app's id, which
+	// is not a secret. Each Connection is an app of its own (issue #311), as OpenClaw's tool takes the app of
+	// the account it acts as (extensions/feishu/src/tool-account.ts).
+	def, _ := agenttool.Of(integration)
+
+	allowed, err := s.allowedOf(r.Context(), a, integration, def)
 	if err != nil {
 		s.fail(w, r, err)
 
 		return
 	}
 
-	// A tool that will not run without the id of its app is told it with each account: a Lark app's id, which
-	// is not a secret. Each Connection is an app of its own (issue #311), as OpenClaw's tool takes the app of
-	// the account it acts as (extensions/feishu/src/tool-account.ts).
-	def, _ := agenttool.Of(integration)
-
 	out := agenttool.ConnectionList{Data: make([]agenttool.Connection, 0, len(allowed))}
 	for _, c := range allowed {
 		conn := agenttool.Connection{Label: c.Label, Account: c.Account, User: c.User()}
+		if def.HostKind != "" {
+			conn.Host = c.Integration
+		}
+
 		if def.ClientEnv != "" {
 			conn.ClientID = c.AppID
 		}
 
 		// What the account cannot do at the service, so that the agent is told before it tries (issue #567).
-		for _, no := range serviceproxy.CannotOf(integration, c.Access) {
+		for _, no := range serviceproxy.CannotOf(c.Integration, c.Access) {
 			conn.Cannot = append(conn.Cannot, agenttool.Cannot{
 				Action: no.Action.ID, Service: no.Action.Service, Name: no.Action.Name, Reason: no.Reason,
 			})
@@ -446,7 +485,7 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	// An Integration that goes through the service proxy hands no token to an agent: its tool is given a
 	// placeholder and the proxy adds the token (issue #154). The owner's own token still gets one, as it can
 	// read the vault.
-	if _, proxied := serviceproxy.CatalogOf(asked.Integration); proxied && !a.owner {
+	if _, proxied := serviceproxy.CatalogIn(r.Context(), s.store, asked.Integration); proxied && !a.owner {
 		refuse(w, http.StatusForbidden, fmt.Sprintf("no token of %s is handed to an agent: its tool goes through "+
 			"the service proxy. Run the tool as the guide says", asked.Integration))
 

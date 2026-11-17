@@ -99,6 +99,9 @@ type Catalog struct {
 	// Console's site and sitemap (issue #617). Elsewhere an encoded slash is refused, as one the service could read
 	// as two segments; on these hosts the service reads it as one, and every action that is not a read asks.
 	SlashInSegment []string
+	// Rewrite gives the body a request is sent on with, once its action is decided; nil sends it as it came. GitLab's
+	// auto-merge is sent with each of its flags set, so that no version of GitLab reads it as a merge now (issue #740).
+	Rewrite func(req *http.Request, body []byte, action Action) []byte
 }
 
 // Has reports whether host is one the Integration's actions are on.
