@@ -3609,10 +3609,6 @@ export type MeetingSection = {
 };
 
 export type MeetingNotes = {
-  /**
-   * The notes format's id.
-   */
-  format: string;
   state: MeetingNotesState;
   /**
    * Why writing them failed
@@ -3624,7 +3620,7 @@ export type MeetingNotes = {
   model?: string;
   summary: string;
   /**
-   * The format's sections, in its order.
+   * A section per topic the meeting discussed, in the order they came up.
    */
   sections: Array<MeetingSection>;
   written_at?: string;
@@ -3757,10 +3753,6 @@ export type MeetingDetail = {
   suggestions: Array<SpeakerSuggestion>;
 };
 
-export type WriteMeetingNotesRequest = {
-  format: string;
-};
-
 export type MeetingWordFix = {
   /**
    * The word as the transcript says it.
@@ -3820,34 +3812,6 @@ export type MeetingActionList = {
   people: Array<string>;
 };
 
-export type MeetingFormatSection = {
-  title: string;
-  about: string;
-};
-
-export type MeetingFormat = {
-  id: string;
-  name: string;
-  sections: Array<MeetingFormatSection>;
-  /**
-   * Shipped with the control plane; copied rather than changed.
-   */
-  builtin: boolean;
-};
-
-export type MeetingFormatInput = {
-  name: string;
-  sections: Array<MeetingFormatSectionInput>;
-};
-
-export type MeetingFormatSectionInput = {
-  title: string;
-  /**
-   * A short instruction of what the section holds.
-   */
-  about?: string;
-};
-
 /**
  * Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a registered repository's.
  */
@@ -3886,7 +3850,6 @@ export type MeetingSettings = {
    * The gateway chat model that writes notes; empty for none.
    */
   notes_model: string;
-  formats: Array<MeetingFormat>;
 };
 
 export type MeetingSettingsUpdate = {
@@ -9182,10 +9145,6 @@ export type UploadMeetingData = {
      * Who was in the meeting; they help name the speakers.
      */
     people?: Array<string>;
-    /**
-     * The notes format's id (GET /meeting-settings lists them); absent, general.
-     */
-    format?: string;
   };
   url: '/meetings';
 };
@@ -9290,7 +9249,7 @@ export type GetMeetingRecordingResponses = {
 export type GetMeetingRecordingResponse = GetMeetingRecordingResponses[keyof GetMeetingRecordingResponses];
 
 export type WriteMeetingNotesData = {
-  body: WriteMeetingNotesRequest;
+  body?: never;
   path: {
     meeting_id: string;
   };
@@ -9516,85 +9475,6 @@ export type SetMeetingSettingsResponses = {
 };
 
 export type SetMeetingSettingsResponse = SetMeetingSettingsResponses[keyof SetMeetingSettingsResponses];
-
-export type CreateMeetingFormatData = {
-  body: MeetingFormatInput;
-  path?: never;
-  query?: never;
-  url: '/meeting-formats';
-};
-
-export type CreateMeetingFormatErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type CreateMeetingFormatError = CreateMeetingFormatErrors[keyof CreateMeetingFormatErrors];
-
-export type CreateMeetingFormatResponses = {
-  /**
-   * The format.
-   */
-  201: MeetingFormat;
-};
-
-export type CreateMeetingFormatResponse = CreateMeetingFormatResponses[keyof CreateMeetingFormatResponses];
-
-export type DeleteMeetingFormatData = {
-  body?: never;
-  path: {
-    format_id: string;
-  };
-  query?: never;
-  url: '/meeting-formats/{format_id}';
-};
-
-export type DeleteMeetingFormatErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type DeleteMeetingFormatError = DeleteMeetingFormatErrors[keyof DeleteMeetingFormatErrors];
-
-export type DeleteMeetingFormatResponses = {
-  /**
-   * The format is deleted.
-   */
-  204: void;
-};
-
-export type DeleteMeetingFormatResponse = DeleteMeetingFormatResponses[keyof DeleteMeetingFormatResponses];
-
-export type UpdateMeetingFormatData = {
-  body: MeetingFormatInput;
-  path: {
-    format_id: string;
-  };
-  query?: never;
-  url: '/meeting-formats/{format_id}';
-};
-
-export type UpdateMeetingFormatErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type UpdateMeetingFormatError = UpdateMeetingFormatErrors[keyof UpdateMeetingFormatErrors];
-
-export type UpdateMeetingFormatResponses = {
-  /**
-   * The format.
-   */
-  200: MeetingFormat;
-};
-
-export type UpdateMeetingFormatResponse = UpdateMeetingFormatResponses[keyof UpdateMeetingFormatResponses];
 
 export type ListMeetingWordsData = {
   body?: never;

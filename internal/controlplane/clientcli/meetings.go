@@ -202,7 +202,7 @@ func meetingsUpload(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	params := &openapi.UploadMeetingParams{
 		FileName: filepath.Base(path), Language: optional(fs, "language"), Title: optional(fs, "title"),
-		People: commaList(str(fs, "people")), Format: optional(fs, "format"),
+		People: commaList(str(fs, "people")),
 	}
 
 	if kind := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); kind != "" {
@@ -259,12 +259,7 @@ func meetingsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 func meetingsNotes(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	id := fs.Arg(0)
 
-	format := str(fs, "format")
-	if format == "" {
-		return fmt.Errorf("%w: meetings notes <meeting_id> --format <format>", ErrUsage)
-	}
-
-	resp, err := e.api.WriteMeetingNotesWithResponse(ctx, id, openapi.WriteMeetingNotesRequest{Format: format})
+	resp, err := e.api.WriteMeetingNotesWithResponse(ctx, id)
 	if err != nil {
 		return fmt.Errorf("writing the notes of %s: %w", id, err)
 	}
@@ -273,7 +268,7 @@ func meetingsNotes(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("writing the notes of "+id, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON202, func() { e.printf("Writing the notes of %s again as %s.\n", id, format) })
+	return e.print(fs, resp.JSON202, func() { e.printf("Writing the notes of %s again.\n", id) })
 }
 
 func meetingsSpeaker(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -459,25 +454,11 @@ func meetingsSettings(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			model = "none picked"
 		}
 
-		e.printf("Notes model: %s\nFormats:\n", model)
-
-		for _, f := range out.Formats {
-			titles := make([]string, 0, len(f.Sections))
-			for _, s := range f.Sections {
-				titles = append(titles, s.Title)
-			}
-
-			mine := ""
-			if !f.Builtin {
-				mine = " (yours)"
-			}
-
-			e.printf("  %-24s %s%s: %s\n", f.Id, f.Name, mine, strings.Join(titles, ", "))
-		}
+		e.printf("Notes model: %s\n", model)
 	})
 }
 
-// The words to hear right and the owner's notes formats (issue #747), as Settings → Meetings has them.
+// The words to hear right (issue #747), as Settings → Dictionary has them.
 
 func meetingsWords(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	add, remove := commaList(str(fs, "add")), commaList(str(fs, "remove"))
@@ -583,134 +564,8 @@ func meetingsFix(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			e.printf("%q is not in your words to hear right: the list is full or the words too long.\n", fs.Arg(2))
 		}
 
-		e.printf("The notes are as they were; `hypomnema meetings notes %s --format %s` writes them again.\n", id,
-			fixed.Detail.Meeting.Notes.Format)
+		e.printf("The notes are as they were; `hypomnema meetings notes %s` writes them again.\n", id)
 	})
-}
-
-// sectionsFlag is --section, given once a section as "Title: what it holds".
-type sectionsFlag struct {
-	list []openapi.MeetingFormatSectionInput
-}
-
-func (f *sectionsFlag) String() string {
-	if f == nil {
-		return ""
-	}
-
-	titles := make([]string, 0, len(f.list))
-	for _, s := range f.list {
-		titles = append(titles, s.Title)
-	}
-
-	return strings.Join(titles, ", ")
-}
-
-func (f *sectionsFlag) Set(v string) error {
-	title, about, _ := strings.Cut(v, ": ")
-
-	sec := openapi.MeetingFormatSectionInput{Title: strings.TrimSpace(title)}
-	if about = strings.TrimSpace(about); about != "" {
-		sec.About = &about
-	}
-
-	f.list = append(f.list, sec)
-
-	return nil
-}
-
-func sectionsOf(fs *flag.FlagSet) []openapi.MeetingFormatSectionInput {
-	if f, ok := fs.Lookup("section").Value.(*sectionsFlag); ok {
-		return f.list
-	}
-
-	return nil
-}
-
-func meetingsFormatAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	sections := sectionsOf(fs)
-	if len(sections) == 0 {
-		return fmt.Errorf("%w: meetings format add <name> --section \"Title: what it holds\" …", ErrUsage)
-	}
-
-	resp, err := e.api.CreateMeetingFormatWithResponse(ctx, openapi.MeetingFormatInput{
-		Name: fs.Arg(0), Sections: sections,
-	})
-	if err != nil {
-		return fmt.Errorf("making a notes format: %w", err)
-	}
-
-	if resp.JSON201 == nil {
-		return apiError("making a notes format", resp.StatusCode(), resp.JSONDefault)
-	}
-
-	f := resp.JSON201
-
-	return e.print(fs, f, func() { e.printf("Made %s %s.\n", f.Id, f.Name) })
-}
-
-func meetingsFormatEdit(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	id := fs.Arg(0)
-
-	read, err := e.api.GetMeetingSettingsWithResponse(ctx)
-	if err != nil {
-		return fmt.Errorf("reading the notes formats: %w", err)
-	}
-
-	if read.JSON200 == nil {
-		return apiError("reading the notes formats", read.StatusCode(), read.JSONDefault)
-	}
-
-	var had *openapi.MeetingFormat
-
-	for i := range read.JSON200.Formats {
-		if read.JSON200.Formats[i].Id == id {
-			had = &read.JSON200.Formats[i]
-		}
-	}
-
-	if had == nil {
-		return fmt.Errorf("%w: no notes format %s", ErrUsage, id)
-	}
-
-	in := openapi.MeetingFormatInput{Name: had.Name, Sections: sectionsOf(fs)}
-	if name := str(fs, "name"); name != "" {
-		in.Name = name
-	}
-
-	if len(in.Sections) == 0 {
-		for _, s := range had.Sections {
-			in.Sections = append(in.Sections, openapi.MeetingFormatSectionInput{Title: s.Title, About: &s.About})
-		}
-	}
-
-	resp, err := e.api.UpdateMeetingFormatWithResponse(ctx, id, in)
-	if err != nil {
-		return fmt.Errorf("changing notes format %s: %w", id, err)
-	}
-
-	if resp.JSON200 == nil {
-		return apiError("changing notes format "+id, resp.StatusCode(), resp.JSONDefault)
-	}
-
-	f := resp.JSON200
-
-	return e.print(fs, f, func() { e.printf("Changed %s %s.\n", f.Id, f.Name) })
-}
-
-func meetingsFormatRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	id := fs.Arg(0)
-
-	resp, err := e.api.DeleteMeetingFormatWithResponse(ctx, id)
-	if err != nil {
-		return fmt.Errorf("deleting notes format %s: %w", id, err)
-	}
-
-	if resp.StatusCode() != http.StatusNoContent {
-		return apiError("deleting notes format "+id, resp.StatusCode(), resp.JSONDefault)
-	}
-
-	return e.print(fs, map[string]string{"deleted": id}, func() { e.printf("Deleted %s.\n", id) })
 }
 
 func isSet(fs *flag.FlagSet, name string) bool {
