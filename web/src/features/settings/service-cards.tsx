@@ -511,7 +511,9 @@ function phoneSyncSays(sync: PhoneSync): string {
     case "asking":
       return "Confirm the sync on your phone"
     case "sending":
-      return "Your phone is sending its messages"
+      return sync.reason
+        ? `Your phone is sending its messages: ${sync.reason}`
+        : "Your phone is sending its messages"
     case "importing":
       return "Keeping the messages from your phone"
     case "done":
