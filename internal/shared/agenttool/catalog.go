@@ -55,6 +55,10 @@ type Def struct {
 	Unset []string
 	// Releases is the release file of each system, by "os/arch".
 	Releases map[string]Release
+	// BotsOnly says the tool is installed and run only where Bots run: a worker reaches the same account with its
+	// Dispatch's own token (gh, issue #685), so a node is never told to have it and a worker is not given its
+	// script, which would stand before the worker's own gh.
+	BotsOnly bool
 }
 
 // Release is one system's release file of a tool.
@@ -80,7 +84,7 @@ func (d Def) For(os, arch string) (nodeproto.Tool, bool) {
 }
 
 // Catalog is every tool, one an Integration.
-func Catalog() []Def { return []Def{GoogleWorkspaceCLI(), LarkCLI(), AWSCLI()} }
+func Catalog() []Def { return []Def{GoogleWorkspaceCLI(), LarkCLI(), AWSCLI(), GitHubCLI()} }
 
 // Of returns the tool of an Integration.
 func Of(integration string) (Def, bool) {
@@ -261,6 +265,49 @@ func AWSCLI() Def {
 				URL:    release + "aarch64-" + version + ".zip",
 				SHA256: "a9f355189a5a25834c015fc07d65e1834f0dbbee1d9bd1c418176f43a463067f",
 				Binary: "aws/dist/aws",
+			},
+		},
+	}
+}
+
+// GitHubCLI is GitHub's own command-line tool (github.com/cli/cli, MIT), for
+// a Bot given a git host's Connection of github.com (issue #685), as Onyx's
+// and OpenClaw's github skills use it. It reads a ready token from GH_TOKEN
+// before any login it keeps, and its proxy from HTTPS_PROXY; being Go, it
+// trusts what SSL_CERT_FILE names. GH_HOST holds it to github.com; prompts,
+// update notices and the spinner are off, so that nothing waits for a
+// terminal; its telemetry is off, as it would reach a host the proxy does not
+// serve. GITHUB_TOKEN and the enterprise tokens are taken away, so that the
+// placeholder is the only credential it has. The checksums are those of the
+// release's gh_2.103.3_checksums.txt, read on 2026-11-17 and matched against
+// the files. A worker keeps its own gh with its Dispatch's GH_TOKEN (#44).
+func GitHubCLI() Def {
+	const (
+		version = "2.103.3"
+		release = "https://github.com/cli/cli/releases/download/v" + version + "/gh_" + version + "_linux_"
+	)
+
+	return Def{
+		Integration: "github.com", Name: "gh", Version: version,
+		TokenEnv: "GH_TOKEN",
+		Env: []string{
+			"GH_HOST=github.com", "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1",
+			"GH_NO_EXTENSION_UPDATE_NOTIFIER=1", "GH_SPINNER_DISABLED=1", "GH_TELEMETRY=false",
+		},
+		Unset: []string{
+			"GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST",
+		},
+		BotsOnly: true,
+		Releases: map[string]Release{
+			"linux/amd64": {
+				URL:    release + "amd64.tar.gz",
+				SHA256: "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d",
+				Binary: "gh_" + version + "_linux_amd64/bin/gh",
+			},
+			"linux/arm64": {
+				URL:    release + "arm64.tar.gz",
+				SHA256: "ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63",
+				Binary: "gh_" + version + "_linux_arm64/bin/gh",
 			},
 		},
 	}

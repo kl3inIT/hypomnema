@@ -62,6 +62,10 @@ var ErrInvalid = errors.New("invalid skill")
 // hyphens, not at either end.
 var namePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// requirementPattern is a name, or names joined by dots: an Integration that is a git host is its host's name,
+// github.com (issue #685).
+var requirementPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)*$`)
+
 // File is one file of a skill, its path relative to the skill's folder.
 type File struct {
 	Path string
@@ -343,9 +347,9 @@ func requirements(manifest []byte) ([]string, error) {
 	} {
 		switch {
 		case r[1] == "":
-		case !namePattern.MatchString(r[1]):
-			return nil, fmt.Errorf("%w: metadata.hypomnema.requires.%s %q is not lowercase letters, digits and "+
-				"single hyphens", ErrInvalid, r[0], r[1])
+		case !requirementPattern.MatchString(r[1]):
+			return nil, fmt.Errorf("%w: metadata.hypomnema.requires.%s %q is not lowercase letters, digits, "+
+				"single hyphens and dots", ErrInvalid, r[0], r[1])
 		default:
 			out = append(out, Requirement(r[0], r[1]))
 		}

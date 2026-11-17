@@ -481,3 +481,18 @@ func TestANodePreparesADispatchForSuperset(t *testing.T) {
 	assert.NotContains(t, brief, "guide.md")
 	assert.NotContains(t, brief, "PATH")
 }
+
+// Scenario: a Run is given the git host's Connection github.com:default, which a Bot reads GitHub with (issue
+// #685). The worker reaches GitHub with its Dispatch's own GH_TOKEN: no gh script is put before its own gh, and its
+// first message does not name one.
+func TestAWorkerKeepsItsOwnGhForAGitHostsConnection(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+
+	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"github.com:default"}, "")
+	require.NoError(t, err)
+	assert.Empty(t, env)
+	assert.NoFileExists(t, filepath.Join(Place{Home: home}.Bin(), "gh"))
+	assert.NotContains(t, Brief([]string{"github.com:default"}, ""), "`gh` command")
+}

@@ -49,6 +49,8 @@ the control plane, which adds it.
 Lark works the same way, with `lark-cli` and `lark:<label>`. A Superset deployment is connected with its address
 and a local account (`hypomnema integrations connect superset --label <name> --url <address> --user <name>
 --password-file <file>`), and AWS accounts as roles, one Connection a role ([setup](deploy/integrations/aws.md)).
+A Bot reads GitHub with `gh` and the github.com token the workers use: `hypomnema integrations chats
+github.com:default on`, then `hypomnema bots set <bot> --connections …,github.com:default`; reads run, writes ask.
 
 What an agent may do with an account is set action by action: `hypomnema integrations actions google:work` lists
 them, and `hypomnema integrations actions set google:work gmail.send never` changes one to `allow`, `ask` or

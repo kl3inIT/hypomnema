@@ -524,6 +524,24 @@ func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "github.com\tgithub\tpersonal,work\ngitlab.com\tgitlab\tnot connected\n", out)
 
+	// A Bot reads GitHub with a host's Connection once the owner allows it for chats (issue #685).
+	out, err = w.cmd(t, "integrations", "chats", "github.com:work", "on")
+	require.NoError(t, err)
+	assert.Equal(t, "the coordinator may use github.com:work in chats\n", out)
+
+	_, err = w.cmd(t, "integrations", "chats", "github.com:nobody", "on")
+	require.Error(t, err, "the host has no such connection")
+
+	// Reads run and the writes ask, until the owner says otherwise.
+	out, err = w.cmd(t, "integrations", "actions", "github.com:work")
+	require.NoError(t, err)
+	assert.Contains(t, out, "github.issues.read")
+	assert.Contains(t, out, "github.comments.create")
+
+	out, err = w.cmd(t, "integrations", "actions", "set", "github.com:work", "github.comments.create", "allow")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "github.comments.create allow")
+
 	out, err = w.cmd(t, "integrations", "list", "--json")
 	require.NoError(t, err)
 	assert.NotContains(t, out, "ghp_", "the API never returns a token")

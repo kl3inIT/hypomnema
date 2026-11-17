@@ -175,6 +175,12 @@ func TestASkillSaysWhatItRequires(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"integration:superset", "device:android"}, sk.Requires)
 
+	// A git host is an Integration by its name (issue #685).
+	sk, err = FromArchive(zipOf(t, entry{name: "SKILL.md", body: "---\nname: github\ndescription: d\nmetadata:\n" +
+		"  hypomnema:\n    requires:\n      integration: github.com\n---\n"}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"integration:github.com"}, sk.Requires)
+
 	sk, err = FromArchive(zipOf(t, entry{name: "SKILL.md", body: manifest}))
 	require.NoError(t, err)
 	assert.Empty(t, sk.Requires)

@@ -51,6 +51,9 @@ type Action struct {
 	// that makes credentials (issue #331).
 	Never  bool
 	Routes []Route
+	// Operations are the GraphQL operations that are the action, for an Integration whose API is GraphQL too
+	// (GitHub's, issue #685).
+	Operations []Operation
 }
 
 // Default is the answer an action has until the owner gives another. Reading
@@ -251,6 +254,8 @@ func CatalogOf(integration string) (Catalog, bool) {
 		return awsCatalog, true
 	case WhatsAppID:
 		return whatsappCatalog(), true
+	case GitHubID:
+		return githubCatalog(), true
 	}
 
 	return Catalog{}, false

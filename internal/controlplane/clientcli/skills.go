@@ -132,7 +132,7 @@ var releasedFolders = map[string][]string{
 // names its Integration's command, which every agent given a Connection of
 // it has.
 var storeSkills = []string{
-	"pdf", "slides", "pages", "google-workspace", "lark", "aws", "superset", "android-device",
+	"pdf", "slides", "pages", "google-workspace", "lark", "aws", "superset", "android-device", "github",
 }
 
 // StoreSkills are the skills the control plane publishes into its skills
