@@ -418,14 +418,25 @@ var plainHost = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9.-]*|\[[0-9a-fA-F:.]+
 // authority: the frame sends no sign-in. Only the files of the revision the token names are served, by their exact
 // path.
 func (s *Server) artifactFiles(w http.ResponseWriter, r *http.Request) {
-	for k, v := range frameHeaders {
-		w.Header().Set(k, v)
+	if !frameRequest(w, r) {
+		return
 	}
 
-	answer := func(status int, text string) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, text)
+	fr, ok := s.frames.take(r.PathValue("token"), s.now())
+	if !ok {
+		answerText(w, http.StatusNotFound, "Not found.")
+
+		return
+	}
+
+	s.serveFrameFile(w, r, fr.artifact, fr.revision, artifactFilesPath+r.PathValue("token")+"/")
+}
+
+// frameRequest sets the frame's headers on an answer of a files route, and answers what is not a read; false
+// when it answered.
+func frameRequest(w http.ResponseWriter, r *http.Request) bool {
+	for k, v := range frameHeaders {
+		w.Header().Set(k, v)
 	}
 
 	switch r.Method {
@@ -434,49 +445,49 @@ func (s *Server) artifactFiles(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Max-Age", "600")
 		w.WriteHeader(http.StatusNoContent)
 
-		return
+		return false
 	case http.MethodGet, http.MethodHead:
+		return true
 	default:
-		answer(http.StatusMethodNotAllowed, "Read only.")
+		answerText(w, http.StatusMethodNotAllowed, "Read only.")
 
-		return
+		return false
 	}
+}
 
-	fr, ok := s.frames.take(r.PathValue("token"), s.now())
-	if !ok {
-		answer(http.StatusNotFound, "Not found.")
-
-		return
-	}
-
+// serveFrameFile sends a file of a revision by the request's path, a page with its policy naming folder, the
+// address its files load from under this host; false when it answered with an error.
+func (s *Server) serveFrameFile(w http.ResponseWriter, r *http.Request, artifact string, revision int,
+	folder string,
+) bool {
 	path := r.PathValue("path")
 	if path != "" && artifactpack.CheckPath(path) != nil {
-		answer(http.StatusBadRequest, "Not a file of this page.")
+		answerText(w, http.StatusBadRequest, "Not a file of this page.")
 
-		return
+		return false
 	}
 
-	f, err := s.svc.ReadArtifactFile(r.Context(), fr.artifact, fr.revision, path)
+	f, err := s.svc.ReadArtifactFile(r.Context(), artifact, revision, path)
 	if errors.Is(err, orchestration.ErrNotFound) {
-		answer(http.StatusNotFound, "Not found.")
+		answerText(w, http.StatusNotFound, "Not found.")
 
-		return
+		return false
 	}
 
 	if err != nil {
-		answer(http.StatusInternalServerError, "The file could not be read.")
+		answerText(w, http.StatusInternalServerError, "The file could not be read.")
 
-		return
+		return false
 	}
 
 	if isPage(f.MediaType) {
 		if !plainHost.MatchString(r.Host) {
-			answer(http.StatusBadRequest, "Not a host a page can name.")
+			answerText(w, http.StatusBadRequest, "Not a host a page can name.")
 
-			return
+			return false
 		}
 
-		w.Header().Set("Content-Security-Policy", pagePolicy(r.Host+artifactFilesPath+r.PathValue("token")+"/"))
+		w.Header().Set("Content-Security-Policy", pagePolicy(r.Host+folder))
 	}
 
 	w.Header().Set("Content-Type", f.MediaType)
@@ -486,6 +497,15 @@ func (s *Server) artifactFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		_, _ = w.Write(f.Data)
 	}
+
+	return true
+}
+
+// answerText answers a files route's request with a line of text.
+func answerText(w http.ResponseWriter, status int, text string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, text)
 }
 
 // isPage says whether a file is opened as a page: HTML, the type artifactpack gives .html and .htm.

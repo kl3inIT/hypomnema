@@ -603,6 +603,23 @@ var commands = []command{
 		run: artifactDownload,
 	},
 	{
+		name: "artifact share", args: "<artifact_id>", min: 1, max: 1,
+		summary: "make a view-only link that always shows the artifact's newest revision, no sign-in needed (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("label", "", "whom the link is for, such as Laura")
+			jsonFlag(fs)
+		},
+		run: artifactShare,
+	},
+	{
+		name: "artifact shares", args: "<artifact_id>", min: 1, max: 1,
+		summary: "an artifact's view-only links, with their views (owner)", flags: jsonFlag, run: artifactShares,
+	},
+	{
+		name: "artifact unshare", args: "<share_id>", min: 1, max: 1,
+		summary: "revoke a view-only link at once (owner)", flags: jsonFlag, run: artifactUnshare,
+	},
+	{
 		name: "memory show", summary: "a memory: a bot's, an agent's (--agent) or the one about the owner (--owner)",
 		flags: memoryFlags, run: memoryShow,
 	},
