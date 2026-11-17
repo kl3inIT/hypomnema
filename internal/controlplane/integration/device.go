@@ -491,6 +491,23 @@ func (s *Service) Backfill(ctx context.Context, integration, label, chat string,
 	return acc.Backfill(ctx, chat, count)
 }
 
+// SyncFromPhone asks the owner's phone for the past of every chat of a Connection of kind device whose service
+// brings it so, Zalo's (issue #697); its State's PhoneSync tells what follows.
+func (s *Service) SyncFromPhone(ctx context.Context, integration, label string) error {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return err
+	}
+
+	syncer, ok := acc.(messaging.PhoneSyncer)
+	if !ok {
+		return fmt.Errorf("%w: %s's past does not come from the phone in one sync", orchestration.ErrInvalid,
+			integration)
+	}
+
+	return syncer.SyncFromPhone(ctx)
+}
+
 // Messages lists the messages kept of a Connection of kind device, the latest first (issue #631).
 func (s *Service) Messages(ctx context.Context, integration, label string, q messaging.Query,
 ) ([]messaging.Message, error) {

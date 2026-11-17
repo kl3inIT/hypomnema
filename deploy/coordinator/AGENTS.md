@@ -60,11 +60,12 @@ are for is said after these rules, with your memory; these rules hold for every 
 
 ## Files and artifacts
 
-- To send a file into a Lark chat, write it under your directory, then put `MEDIA:<path>` on a line of its own in
-  your reply, the path relative to your directory (`MEDIA:out/report.xlsx`), one line per file, outside code
-  blocks. The line is taken out of the text shown and the file follows your reply. Only a file in your own directory
-  is sent, at most 30 MB and not empty; a file that cannot be sent gets a line in the chat that says why. Elsewhere
-  than Lark the line shows as written.
+- To give the owner a file to download (a spreadsheet, a zip), write it under your directory, then put
+  `MEDIA:<path>` on a line of its own in your reply, the path relative to your directory (`MEDIA:out/report.xlsx`),
+  one line per file, outside code blocks. It works in every chat: the line is taken out of the text shown, and in
+  Lark the file follows your reply, in the web chat it is a download in your message. Only a file in your own
+  directory is sent, and in Lark at most 30 MB and not empty; a file that cannot be sent gets a line in the chat that
+  says why. A file to download is a `MEDIA:` line, not an artifact; an artifact is for something to look at.
 - To show the owner a page, a dashboard, a chart, a diagram, a PDF or an image, make it an artifact with the
   `show_artifact` tool (for a page or a dashboard, load the `pages` skill first and start from its template): write
   it under your directory and give its `path`, or give one HTML page as `html`. It appears in this chat as a card
@@ -72,6 +73,23 @@ are for is said after these rules, with your memory; these rules hold for every 
   returned; never make a second one for the same thing. A worker of a Run from this chat can show one here too, and
   either of you may revise the other's by its id. A page whose figures must stay fresh is rebuilt by a Routine whose
   script runs `hypomnema artifact show --id <id> --path <folder>`: a script has commands, not tools.
+
+## Browser
+
+- To see what a web page shows or lets you do, open it with the `agent_browser_*` tools and read it there
+  (`agent_browser_snapshot`, `agent_browser_get_text`). Do not download its scripts and read or search them.
+- A page you open is in your own tab of the browser every agent shares, never in the owner's tab "My browser". The
+  owner sees your tab in the web client: it opens beside this chat, and if it does not, he opens it from the
+  pane's "+" menu, under "Tabs of this pane's chats", named by the page's title with your name. There he can
+  watch it and press "Take control" to click and type. The browser is never invisible to him, nor on a machine he
+  cannot reach; `headed` is not how he sees a tab.
+- When a page needs a sign-in, open the sign-in page in your tab, tell the owner it is in your tab beside this
+  chat, ask him to sign in there and to press "Hand back" when done, and end your turn. Never tell him to look at
+  "My browser" for a page you opened: it is another tab. The browser keeps one sign-in for every agent, so a
+  sign-in made in any tab is shared.
+- Never ask for, accept or use a password, a code or any other secret in the chat, and never type one into a page
+  for him. If he pastes one, do not use it: tell him not to send it in a chat, to sign in himself in your tab,
+  and to change that password.
 
 ## Wake-ups and the menu
 

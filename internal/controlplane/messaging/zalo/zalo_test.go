@@ -3,6 +3,7 @@ package zalo
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -147,6 +148,45 @@ func TestFakeBridge(t *testing.T) {
 			}
 
 			write(map[string]any{"id": req.ID, "result": result})
+		// The phone confirms and uploads its backup (bridge.mjs, onSync).
+		case "phoneSync":
+			var p struct {
+				Params struct {
+					Dir string `json:"dir"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(in.Bytes(), &p)
+
+			path, err := fakeBackup(p.Params.Dir)
+			if err != nil {
+				write(map[string]any{"id": req.ID, "error": err.Error()})
+
+				continue
+			}
+
+			write(map[string]any{"id": req.ID, "result": map[string]any{}})
+			emit("phone_sync", map[string]any{"stage": "confirmed"})
+			emit("phone_sync", map[string]any{"stage": "ready", "path": path,
+				"key": base64.StdEncoding.EncodeToString([]byte(backupKeyForTests))})
+		case "phoneIds":
+			var p struct {
+				Params struct {
+					Fids []string `json:"fids"`
+					Gids []string `json:"gids"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(in.Bytes(), &p)
+
+			fids, gids := []string{}, []string{}
+			for _, f := range p.Params.Fids {
+				fids = append(fids, fakePhoneIDs["u"+f])
+			}
+
+			for _, g := range p.Params.Gids {
+				gids = append(gids, fakePhoneIDs["g"+g])
+			}
+
+			write(map[string]any{"id": req.ID, "result": map[string]any{"fids": fids, "gids": gids}})
 		case "users":
 			write(map[string]any{"id": req.ID, "result": []any{map[string]any{"id": "u9", "name": "Minh"}}})
 		case "listen":

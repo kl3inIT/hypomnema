@@ -2,6 +2,8 @@ package browser
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -145,4 +147,32 @@ func TestOpenTakesOnlyAWebAddress(t *testing.T) {
 
 	_, err = c.arguments(toolOpen, json.RawMessage(`{}`))
 	require.ErrorIs(t, err, ErrBadArguments)
+}
+
+// open says where the page shows and how the owner signs in, after
+// agent-browser's own text, and an agent cannot ask it for a window on the
+// browser's machine (issue #704).
+func TestOpenSaysWhereTheOwnerSeesTheTab(t *testing.T) {
+	t.Parallel()
+
+	tools := listed()
+	open := slices.IndexFunc(tools, func(tool Tool) bool { return tool.Name == toolOpen })
+	tools[open].InputSchema = json.RawMessage(
+		`{"type":"object","properties":{"url":{"type":"string"},"headed":{"type":"boolean"}}}`)
+
+	c, err := newCatalog(tools)
+	require.NoError(t, err)
+
+	got := c.tools[indexOf(t, c, toolOpen)]
+	assert.True(t, strings.HasPrefix(got.Description, "does "+toolOpen+"\n\n"), "agent-browser's text comes first")
+	assert.Contains(t, got.Description, "your own tab")
+	assert.Contains(t, got.Description, "in the web client")
+	assert.Contains(t, got.Description, "Never ask for or use a password in the chat")
+	assert.NotContains(t, properties(t, got), "headed", "a window is not how the owner sees a tab")
+	assert.Equal(t, "does agent_browser_click", c.tools[indexOf(t, c, "agent_browser_click")].Description,
+		"only open's description is added to")
+
+	args, err := c.arguments(toolOpen, json.RawMessage(`{"url":"https://example.com","headed":true}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"url":"https://example.com"}`, string(args))
 }

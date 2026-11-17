@@ -92,6 +92,30 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   let codes = 0
   // Zalo: the owner's own account, linked by a QR code Zalo gives as a picture (issue #657).
   let zalos: Record<string, unknown>[] = []
+  // A sync from the phone (issue #697) goes a stage further each time the page reads the accounts again.
+  const syncStages = ["asking", "sending", "importing", "done"] as const
+  const syncOn = () =>
+    zalos.map((a) => {
+      const session = a.session as { state: string; phone_sync?: { stage: string } }
+      const sync = session.phone_sync
+      if (!sync || sync.stage === "done") return a
+      const stage = syncStages[syncStages.indexOf(sync.stage as (typeof syncStages)[number]) + 1]
+      const done = stage === "done"
+
+      return {
+        ...a,
+        session: {
+          ...session,
+          phone_sync: {
+            stage,
+            messages: done ? 18_240 : 0,
+            chats: done ? 96 : 0,
+            skipped: done ? 2 : 0,
+            at: now,
+          },
+        },
+      }
+    })
   // AWS: a role a Connection, assumed with a key kept under a name (issue #331).
   let roles: Record<string, unknown>[] = []
   const keys = new Set<string>()
@@ -280,6 +304,23 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       zalos = [...zalos.filter((a) => a.label !== added.label), added]
 
       return json(added)
+    }
+
+    if (
+      kind === "integrations" &&
+      sub === "connections" &&
+      name === "zalo" &&
+      path.endsWith("/phone-sync")
+    ) {
+      zalos = zalos.map((a) => ({
+        ...a,
+        session: {
+          state: "connected",
+          phone_sync: { stage: "asking", messages: 0, chats: 0, skipped: 0, at: now },
+        },
+      }))
+
+      return route.fulfill({ status: 202 })
     }
 
     if (kind === "integrations" && sub === "connections" && name === "zalo") {
@@ -566,7 +607,7 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
               name: "Zalo",
               kind: "device",
               services: [],
-              connections: zalos,
+              connections: (zalos = syncOn()),
             },
           ],
         })
@@ -1309,6 +1350,22 @@ test("the owner links his Zalo by its QR picture", async ({ page }) => {
   expect(await fits(page)).toBe(true)
   await shot(page, "integrations-zalo-linked")
 
+  // The past comes from his phone (issue #697): he confirms on it, and the account says what was kept.
+  await main.getByRole("button", { name: "Sync from phone" }).click()
+  await expect(main).toContainText(/Confirm the sync on your phone|Your phone is sending/)
+  await expect(main.getByRole("button", { name: "Sync from phone" })).toBeDisabled()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-zalo-syncing")
+  await expect(main).toContainText(
+    "18,240 messages from your phone kept, in 96 chats; 2 chats could not be read",
+    {
+      timeout: 20_000,
+    },
+  )
+  await expect(main.getByRole("button", { name: "Sync from phone" })).toBeEnabled()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-zalo-synced")
+
   await zalo.getByRole("button", { name: "Disconnect main" }).click()
   const confirm = page.getByRole("alertdialog")
   await expect(confirm).toContainText("Account and security › Login devices")
@@ -1319,6 +1376,7 @@ test("the owner links his Zalo by its QR picture", async ({ page }) => {
   expect(calls.filter((c) => c.includes("/zalo/"))).toEqual([
     "POST /integrations/zalo/sign-ins",
     "POST /integrations/zalo/sign-ins/link-zalo",
+    "POST /integrations/zalo/connections/main/phone-sync",
     "DELETE /integrations/zalo/connections/main",
   ])
 })

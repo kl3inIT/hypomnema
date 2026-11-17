@@ -21,6 +21,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/stretchr/testify v1.12.1
+	github.com/ulikunitz/xz v0.5.15
 	github.com/vektah/gqlparser/v2 v2.5.27
 	github.com/xuri/excelize/v2 v2.11.1
 	go.mau.fi/libsignal v0.2.2

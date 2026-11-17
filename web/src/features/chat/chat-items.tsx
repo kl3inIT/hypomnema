@@ -28,7 +28,9 @@ import { cn } from "@/lib/utils"
 import { ApprovalRow } from "./approval-row"
 import { failed, type ChatItem, type Step } from "./chat-state"
 import Markdown from "./markdown"
+import { mediaOf } from "./media"
 import { MessageFiles } from "./message-files"
+import { ReplyFiles } from "./reply-files"
 import { hasDetail, outputPreview, toolDuration, toolInput, toolPhrase } from "./tool-row"
 import { WakeCard } from "./wake-card"
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./work-log"
@@ -70,6 +72,8 @@ export function ChatItemView({
           text={item.text}
           streaming={item.streaming}
           createdAt={item.createdAt}
+          chat={item.chat}
+          fence={item.fence}
           botName={botName}
         />
       )
@@ -86,6 +90,7 @@ export function ChatItemView({
           runId={item.runId}
           text={item.text}
           createdAt={item.createdAt}
+          chat={item.chat}
         />
       )
   }
@@ -163,21 +168,30 @@ function Reply({
   text,
   streaming,
   createdAt,
+  chat,
+  fence,
   botName,
 }: {
   text: string
   streaming: boolean
   createdAt?: string
+  chat?: string
+  fence?: string
   botName: string
 }) {
+  // Its MEDIA: lines leave the text and become files to download (issue #699); the reply being written shows its
+  // files once it is done, as a Channel sends them after the reply.
+  const { shown, paths } = mediaOf(text, fence)
+
   return (
     <div
       className="group/assistant relative min-w-0 px-1 py-0.5 pb-2"
       data-testid={streaming ? "reply-streaming" : "reply"}
     >
       <h3 className="sr-only">{botName}</h3>
-      <Markdown text={text} streaming={streaming} />
-      {!streaming && <Meta text={text} createdAt={createdAt} align="start" />}
+      {shown && <Markdown text={shown} streaming={streaming} />}
+      {chat && paths.length > 0 && <ReplyFiles chat={chat} paths={paths} />}
+      {!streaming && <Meta text={shown} createdAt={createdAt} align="start" />}
     </div>
   )
 }

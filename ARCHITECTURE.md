@@ -441,8 +441,11 @@ sequenceDiagram
   - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
     select, scroll, back, forward, reload, the waits, screenshot, get text, URL and title, eval. Tabs, `close`,
     flows and `read` are not offered. A call keeps only the tool's own arguments: the ones agent-browser takes on
-    every tool (`session`, `extraArgs`, `restore` and the like) and a screenshot's path are dropped. `open` takes
-    an http(s) address or `about:blank`; a bare host means https.
+    every tool (`session`, `extraArgs`, `restore` and the like), a screenshot's path and `open`'s `headed` are
+    dropped. `open` takes an http(s) address or `about:blank`; a bare host means https. Its description is
+    agent-browser's with a paragraph of Hypomnema's after it (issue #704): the page is in the agent's own tab,
+    which the owner sees and takes control of in the web client beside its chat, not in his own tab; a sign-in is
+    made by the owner there and shared by every agent; no password is asked for in the chat.
   - Chrome keeps its sandbox. On a machine that blocks it (Ubuntu 23.10 and later) a call fails and says to run
     `deploy/browser/setup-browser.sh` once with sudo (and again when the pinned browser's path changes, as it did
     in issue #540), which writes an AppArmor profile and installs missing
@@ -848,12 +851,15 @@ sequenceDiagram
     (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language, and that what a document, an
     issue or memory says about the code or a server is checked before it is acted on or given to workers (issue
     #513); the coordinator guide's Recipe starts by checking a Run's premise on the base branch. Since issue #672
-    they are under headings (Approvals, Skills and accounts, Routines, Files and artifacts, Wake-ups and the menu,
-    Checking claims, Answering: OpenClaw's workspace template `docs/reference/templates/AGENTS.md`, Hermes's
+    they are under headings (Approvals, Skills and accounts, Routines, Files and artifacts, Browser, Wake-ups and
+    the menu, Checking claims, Answering: OpenClaw's workspace template `docs/reference/templates/AGENTS.md`, Hermes's
     `agent/prompt_builder.py`, pi's `system-prompt.ts`), state the approval rule for Google, Lark and Superset once
     with a "do freely" line before it (OpenClaw's "Do freely / Ask first", GPT-5.6 Sol's "state each rule once"),
     say when something may be sent as the owner rather than "never" (Anthropic's Fable 5.2 page), and give the
-    shape of a report on finished work: the answer first, then what was done, checked and left (Hermes).
+    shape of a report on finished work: the answer first, then what was done, checked and left (Hermes). The
+    Browser part (issue #704) says to read a page in the browser rather than its scripts, that the Bot's page is
+    in its own tab, which the owner sees beside the chat in the web client and not in "My browser", that the owner
+    signs in there, and that no password is asked for or used in the chat.
   - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
     every chat with the Bot, whoever writes in it (one store per agent, as all three references have). The Bot
     changes it through `POST /bots/{bot_id}/memory`: add, replace or remove the one entry that has a text. The change reads
@@ -898,8 +904,8 @@ sequenceDiagram
     extension replaced by the image's own and numbered when several, as opencode's tool) and print each absolute
     path, then who made them; `--json` prints the paths instead of the images. "Images" (above), recorded on the
     key of the chat's running pi when a pi's token asks. A Bot sends an image it made with a `MEDIA:<path>` line,
-    which a Lark chat delivers as a file (#312); the web chat shows the line as text (it is not turned into a
-    picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request no provider takes), 429
+    which a Lark chat delivers as a file (#312); the web chat shows it as a file to download in the message (#699,
+    not drawn as a picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request no provider takes), 429
     `rate_limited` with `Retry-After`, 503 `unavailable`.
   - Audio from the client API (issue #694), for the owner, a Routine's script and a Bot: `POST
     /audio/transcriptions` `{audio (base64, at most 128 MiB), file_name?, mime_type?, language?, speakers?,
@@ -1941,7 +1947,8 @@ flowchart LR
       that needs the most care governing a request with several. Reads run: the connected user, repositories,
       issues, pull requests with their files and reviews, Actions runs, jobs and logs, check runs and statuses,
       search, refs, contents, commits, releases, and the GraphQL queries `repository`, `repositoryOwner`, `node`,
-      `nodes`, `viewer`, `search`. Opening an issue, commenting, opening a pull request, writing a file and writing
+      `nodes`, `viewer`, `search`, and a query that asks only the schema (`__type`, `__schema`, `__typename`, which
+      `gh` sends to detect features; beside another field, that field's action names it). Opening an issue, commenting, opening a pull request, writing a file and writing
       a ref ask; anything else (merge, close, labels, a rerun, a mutation it does not name, a body that is not
       GraphQL) asks as `github.unlisted`. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
@@ -2051,6 +2058,17 @@ flowchart LR
       call under `zalo-outgoing/` and removed after, an image with the size read from its header (adapted from the
       Hermes Zalo plugin, `third_party/hermes-zalo-plugin`), a reply quoting the kept message. What is sent is kept
       as the owner's.
+    - **The past from the phone** ([issue #697](https://github.com/kl3inIT/hypomnema/issues/697), step 4): Zalo's
+      servers give a web session none of the past (step 2 walks empty pages), so `POST …/phone-sync` asks the
+      owner's phone for it as Zalo PC's "Sync messages" does, ported from softtyos/zca-js
+      (`third_party/softtyos-zca-js`): the bridge makes an RSA-2048 key, asks `pull_mobile_msg`, reads the phone's
+      answer off the listener's cmd 601 controls (`syncmsgmb`), withdraws the request after a minute unanswered,
+      and downloads the uploaded backup into `zalo-sync/<account>/` with the session's cookies. The control plane
+      decrypts it (64 KB AES-256-CBC chunks, the key from the RSA-decrypted `encrypted_key`), reads its ZDB4.0
+      header, un-XZes each chat's SQLite database in turn and keeps its `ChatContent` rows as the chat's past
+      (types named as zlog's worker_sync names them, a message taken back left out), the phone's ids turned into
+      Zalo Web's through `/api/znoise`; a chat Zalo does not know is skipped. The session's `phone_sync` says the
+      stage (asking, sending, importing, done, failed) and what was kept; the backup is removed after.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
@@ -3730,6 +3748,12 @@ Node (`internal/node`):
     opening large in a dialog, and its other files as chips that open in the pane beside the Files panel. Not
     built: a Lark message's files, retrying a failed upload in place. Files attached and never sent stay
     in the folder.
+  - A reply's files (issue #699, `features/chat/media.ts`, `reply-files.tsx`, after OpenClaw's web chat,
+    `splitMediaFromOutput` and `stripAssistantMediaDirectivesForDisplay`): each `MEDIA:<path>` line of a Bot's
+    reply, read by the rules of `channels/media.go` (one per line, any case, never in a fenced code block), leaves
+    the text shown and is a chip under it with the file's name and its kind's icon. The chip reads the file from the
+    Bot's folder with `/raw` and saves it under its name; a file the server refuses (not there, outside the folder)
+    turns the chip red with the server's message. The reply being written shows its files once it is done. A fence opened in one text part of a message goes on in the next, as a Channel reads the parts joined, and a Routine run's report card gives its `MEDIA:` files the same way, from the Bot's folder of the run's chat.
   - Attaching on the New chat page and in a new chat's tab (issue #357, `features/chat/chat-id.ts`): the page
     chooses its chat's id when it opens and keeps it while it lives; the files go into `attachments/<that id>/` in
     the picked Bot's folder (the folder calls name the Bot), and the first message makes the chat under that id

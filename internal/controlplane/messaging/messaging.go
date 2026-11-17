@@ -167,6 +167,41 @@ type State struct {
 	Reason string
 	// Until is when a ban ends, when the service said.
 	Until time.Time
+	// PhoneSync is the last sync from the owner's phone, while the session lasts; nil when none was asked.
+	PhoneSync *PhoneSync
+}
+
+// PhoneSyncer is an account whose past comes from the owner's phone, as Zalo PC's "Sync messages" brings it
+// (issue #697).
+type PhoneSyncer interface {
+	// SyncFromPhone asks the phone for its messages; the phone shows the owner a confirmation, and State's
+	// PhoneSync tells what follows.
+	SyncFromPhone(ctx context.Context) error
+}
+
+// SyncStage is where a sync from the phone is.
+type SyncStage string
+
+const (
+	// SyncAsking: the phone shows the owner a confirmation, for a minute.
+	SyncAsking SyncStage = "asking"
+	// SyncSending: the owner confirmed; the phone packs and uploads its messages.
+	SyncSending SyncStage = "sending"
+	// SyncImporting: the backup is downloaded and its messages are being kept.
+	SyncImporting SyncStage = "importing"
+	// SyncDone: the messages are kept.
+	SyncDone SyncStage = "done"
+	// SyncFailed: refused on the phone, not answered, or the backup could not be read; Reason says.
+	SyncFailed SyncStage = "failed"
+)
+
+// PhoneSync is a sync from the phone: its stage, why it failed, what it kept, and when it got there.
+type PhoneSync struct {
+	Stage  SyncStage
+	Reason string
+	// Messages is how many messages were added, in how many Chats; Skipped counts the chats it could not read.
+	Messages, Chats, Skipped int
+	At                       time.Time
 }
 
 // NeedsLink says the account cannot be used until it is linked again.

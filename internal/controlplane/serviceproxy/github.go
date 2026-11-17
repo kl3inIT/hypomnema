@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/parser"
@@ -19,7 +21,10 @@ import (
 // jobs and logs, check runs and commit statuses (github-mcp-server's actions
 // toolset), pull requests' files, reviews and comments, and the GraphQL root
 // fields node and nodes, which `gh pr checks` asks (read off GH_DEBUG=api with
-// gh 2.91.0 on 2026-11-17). Reads run; the five writes ask (Onyx's defaults);
+// gh 2.91.0 on 2026-11-17), and the introspection root fields __type,
+// __schema and __typename, which read only the schema (GraphQL spec,
+// "Introspection"; gh asks __type to detect features, seen on 2026-11-17,
+// issue #706). Reads run; the five writes ask (Onyx's defaults);
 // anything else asks as github.unlisted.
 
 // GitHubID is the Integration a Bot reads GitHub through: github.com, whose
@@ -104,6 +109,11 @@ func githubCatalog() Catalog {
 			},
 		},
 		{
+			ID: "github.schema.read", Service: "GitHub", Name: "Read the API's schema", Kind: Reads,
+			Text:       "GraphQL introspection, which gh asks to learn what the server supports; no account's data",
+			Operations: []Operation{{"query", "__type"}, {"query", "__schema"}, {"query", "__typename"}},
+		},
+		{
 			ID: "github.refs.read", Service: "GitHub", Name: "Read branches and refs", Kind: Reads,
 			Routes: at(get, repo+"/branches", repo+"/branches/{branch...}", repo+"/git/ref/{ref...}",
 				repo+"/git/refs", repo+"/git/refs/{ref...}", repo+"/git/matching-refs/{ref...}", repo+"/tags"),
@@ -175,12 +185,25 @@ func githubAction(c Catalog, req *http.Request, body []byte, host string) Action
 // graphql is the action of a GraphQL request: of all the root fields its operations ask, the action that needs
 // the most care. A field no action names, or a body that is not a GraphQL request, is unlisted and asks (Onyx's
 // engine: a batched request is governed by its strictest action; graphql_parsing.py resolves fragments at the
-// root, so that no field hides in one).
+// root, so that no field hides in one). An introspection field governs only a request that asks nothing else: beside
+// another field, that field's action names the request.
 func (c Catalog) graphql(body []byte) Action {
 	invocations, ok := graphqlInvocations(body)
 	if !ok || len(invocations) == 0 {
 		return unlisted(c.Integration)
 	}
+
+	// Introspection last: a tie between reads keeps the first, so another field's read names the request.
+	slices.SortStableFunc(invocations, func(a, b Operation) int {
+		switch ia, ib := introspection(a.Field), introspection(b.Field); {
+		case ia == ib:
+			return 0
+		case ia:
+			return 1
+		default:
+			return -1
+		}
+	})
 
 	rank := map[Kind]int{Reads: 0, Changes: 1, NeedsCare: 2}
 
@@ -208,6 +231,9 @@ func (c Catalog) graphql(body []byte) Action {
 
 	return *governing
 }
+
+// introspection is whether a root field is one of GraphQL's introspection fields (__type, __schema, __typename).
+func introspection(field string) bool { return strings.HasPrefix(field, "__") }
 
 // graphqlInvocations reads the operation type and root field of every operation of a GraphQL request's body:
 // one request, or a batch of them. ok is false for a body that is not one, so that it asks.

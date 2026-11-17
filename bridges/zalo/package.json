@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "esbuild src/bridge.mjs --bundle --platform=node --target=node18 --format=cjs --legal-comments=eof --outfile=dist/bridge.cjs && node licenses.mjs",
-    "test": "node --test test/protocol.test.mjs"
+    "test": "node --test test/protocol.test.mjs test/phonesync.test.mjs"
   },
   "dependencies": {
     "zca-js": "2.3.0"

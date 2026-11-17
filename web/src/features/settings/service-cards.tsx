@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { Copy, ExternalLink, Plug, Plus, RefreshCw, Smartphone, UserRound } from "lucide-react"
 import QRCode from "qrcode"
 import {
+  useEffect,
   useId,
   useRef,
   useState,
@@ -22,11 +23,13 @@ import {
 import {
   getIntegrationSignInOptions,
   patchIntegrationConnectionMutation,
+  syncMessagingFromPhoneMutation,
 } from "@/api/generated/@tanstack/react-query.gen"
 import type {
   DeviceSession,
   Integration,
   IntegrationConnection,
+  PhoneSync,
   SignIn,
 } from "@/api/generated/types.gen"
 import {
@@ -96,6 +99,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
+import { errorText } from "@/lib/server-error"
 import { useRefreshServices } from "./use-integrations"
 
 // The services that sign in with an account (issue #103, step 4): Google is the first. A card a service, as the
@@ -340,6 +344,9 @@ function AccountItem({
               </>
             )}
             {device && connection.session && <span>{sessionSays(connection.session)}</span>}
+            {device && connection.session?.phone_sync && (
+              <span>{phoneSyncSays(connection.session.phone_sync)}</span>
+            )}
             {account && (
               <>
                 <span className="break-all">{connection.address}</span>
@@ -355,109 +362,114 @@ function AccountItem({
         </ItemDescription>
       </ItemContent>
       <ItemActions>
-        <ChatsSwitch service={service} connection={connection} />
-        {app && (
-          <ConnectAppDialog
-            service={service}
-            connection={connection}
+        <div className="flex flex-wrap items-center gap-2">
+          <ChatsSwitch service={service} connection={connection} />
+          {device && phoneSyncs.has(service.id) && connection.session?.state === "connected" && (
+            <PhoneSyncButton service={service} connection={connection} />
+          )}
+          {app && (
+            <ConnectAppDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Change app
+                </Button>
+              }
+            />
+          )}
+          {account && (
+            <ConnectAccountDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Connect again
+                </Button>
+              }
+            />
+          )}
+          {role && (
+            <ConnectRoleDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Connect again
+                </Button>
+              }
+            />
+          )}
+          {device && (
+            <LinkDeviceDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Link again
+                </Button>
+              }
+            />
+          )}
+          {user && (
+            <UserSignInDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Sign in again
+                </Button>
+              }
+            />
+          )}
+          {!app && !account && !role && !device && !user && (
+            <SignInDialog
+              service={service}
+              connection={connection}
+              trigger={
+                <Button variant="ghost" size="sm">
+                  <RefreshCw data-icon="inline-start" />
+                  Sign in again
+                </Button>
+              }
+            />
+          )}
+          <ConfirmDialog
             trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Change app
+              <Button variant="ghost" size="sm" aria-label={`Disconnect ${connection.label}`}>
+                Disconnect
               </Button>
             }
-          />
-        )}
-        {account && (
-          <ConnectAccountDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Connect again
-              </Button>
+            title={`Disconnect ${connection.label} (${connection.account})?`}
+            consequence={
+              user
+                ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; no Bot acts as you any more. If ${service.name} cannot be reached, remove the app's access in your own account.`
+                : device
+                  ? (forgetHow[service.id] ??
+                    `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`)
+                  : role
+                    ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
+                    : account
+                      ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
+                      : app
+                        ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
+                        : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
             }
-          />
-        )}
-        {role && (
-          <ConnectRoleDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Connect again
-              </Button>
+            action="Disconnect"
+            run={() =>
+              deleteIntegrationConnection({
+                path: { integration: service.id, label: connection.label },
+              })
             }
+            onDone={refresh}
+            done={`${connection.label} was disconnected`}
           />
-        )}
-        {device && (
-          <LinkDeviceDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Link again
-              </Button>
-            }
-          />
-        )}
-        {user && (
-          <UserSignInDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Sign in again
-              </Button>
-            }
-          />
-        )}
-        {!app && !account && !role && !device && !user && (
-          <SignInDialog
-            service={service}
-            connection={connection}
-            trigger={
-              <Button variant="ghost" size="sm">
-                <RefreshCw data-icon="inline-start" />
-                Sign in again
-              </Button>
-            }
-          />
-        )}
-        <ConfirmDialog
-          trigger={
-            <Button variant="ghost" size="sm" aria-label={`Disconnect ${connection.label}`}>
-              Disconnect
-            </Button>
-          }
-          title={`Disconnect ${connection.label} (${connection.account})?`}
-          consequence={
-            user
-              ? `${service.name} is asked to end your sign-in, and its tokens are removed from the vault; no Bot acts as you any more. If ${service.name} cannot be reached, remove the app's access in your own account.`
-              : device
-                ? (forgetHow[service.id] ??
-                  `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`)
-                : role
-                  ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
-                  : account
-                    ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
-                    : app
-                      ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
-                      : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
-          }
-          action="Disconnect"
-          run={() =>
-            deleteIntegrationConnection({
-              path: { integration: service.id, label: connection.label },
-            })
-          }
-          onDone={refresh}
-          done={`${connection.label} was disconnected`}
-        />
+        </div>
       </ItemActions>
     </Item>
   )
@@ -484,6 +496,79 @@ function sessionSays(session: DeviceSession): string {
     case "outdated":
       return "WhatsApp refuses this version; update Hypomnema"
   }
+}
+
+// phoneSyncs are the services whose past comes from the owner's phone in one sync: Zalo's servers keep none of it
+// for a web session (issue #697), so it is asked of the phone as Zalo PC's "Sync messages" asks.
+const phoneSyncs = new Set(["zalo"])
+
+// syncing are the stages of a sync that is under way.
+const syncing = new Set<PhoneSync["stage"]>(["asking", "sending", "importing"])
+
+// phoneSyncSays is the last sync from the phone in a few words.
+function phoneSyncSays(sync: PhoneSync): string {
+  switch (sync.stage) {
+    case "asking":
+      return "Confirm the sync on your phone"
+    case "sending":
+      return sync.reason
+        ? `Your phone is sending its messages: ${sync.reason}`
+        : "Your phone is sending its messages"
+    case "importing":
+      return "Keeping the messages from your phone"
+    case "done":
+      return `${sync.messages.toLocaleString()} messages from your phone kept, in ${sync.chats.toLocaleString()} chats${sync.skipped ? `; ${sync.skipped} chats could not be read` : ""}`
+    case "failed":
+      return `The sync from your phone failed: ${sync.reason ?? "no reason given"}`
+  }
+}
+
+// PhoneSyncButton asks the owner's phone for every chat's past, and follows the sync until it ends.
+function PhoneSyncButton({
+  service,
+  connection,
+}: {
+  service: Integration
+  connection: IntegrationConnection
+}) {
+  const refresh = useRefreshServices()
+  const stage = connection.session?.phone_sync?.stage
+  const busy = stage !== undefined && syncing.has(stage)
+
+  const sync = useMutation({
+    ...syncMessagingFromPhoneMutation(),
+    onSuccess: async () => {
+      await refresh()
+      said("Confirm the sync on your phone")
+    },
+  })
+
+  // The sync goes on at the phone and on the server: its stage is read again until it ends.
+  useEffect(() => {
+    if (!busy) return
+    const timer = window.setInterval(() => void refresh(), 3000)
+
+    return () => window.clearInterval(timer)
+  }, [busy, refresh])
+
+  return (
+    <>
+      {sync.error && <span className="text-xs text-destructive">{errorText(sync.error)}</span>}
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={busy || sync.isPending}
+        onClick={() => sync.mutate({ path: { integration: service.id, label: connection.label } })}
+      >
+        {busy || sync.isPending ? (
+          <Spinner data-icon="inline-start" />
+        ) : (
+          <Smartphone data-icon="inline-start" />
+        )}
+        Sync from phone
+      </Button>
+    </>
+  )
 }
 
 const labelSchema = z
@@ -1442,7 +1527,9 @@ function ChatsSwitch({
 
   return (
     <span className="flex items-center gap-2 text-xs text-muted-foreground">
-      <label htmlFor={id}>Use in chats</label>
+      <label htmlFor={id} className="whitespace-nowrap">
+        Use in chats
+      </label>
       <Switch
         id={id}
         size="sm"
