@@ -121,7 +121,7 @@ func (c Connection) User() bool {
 
 // ownAccountIntegrations are the Integrations every Connection of which is the owner's own account: those of kind
 // device (integration.KindDevice), named here as scopedIntegration names Superset (botaccess.go).
-var ownAccountIntegrations = []string{"whatsapp"}
+var ownAccountIntegrations = []string{"whatsapp", "zalo"}
 
 // SetConnection records a Connection and the secret that holds its
 // credential, or changes the secret and account of an existing one. The

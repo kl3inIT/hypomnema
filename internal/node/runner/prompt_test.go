@@ -146,6 +146,12 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 
 	p := Prompt(d)
 
+	// The decision boundary the owner set (issue #672): what the worker decides itself, then what it asks first.
+	assert.Contains(t, p, "Decide yourself, within what the task and your instructions allow")
+	assert.Contains(t, p, "Ask first, with the `ask` tool, and wait for the answer: before changing the task's scope, "+
+		"merging, deploying or changing a server")
+	assert.NotContains(t, p, "When a decision is not yours to make")
+
 	order := []string{
 		"Rules:", "For this kind of task:", "Memory of your agent", "Work only in this directory",
 		"Task (implementer):\nadd the Google login button\n", "outcome is unknown", "more is asked of it now",

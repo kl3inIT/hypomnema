@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // The bridge is played by this test binary (TestFakeBridge), as os/exec's own tests run a helper process: it speaks
@@ -114,6 +115,38 @@ func TestFakeBridge(t *testing.T) {
 			}
 
 			write(map[string]any{"id": req.ID, "result": map[string]any{"next": "", "messages": []any{}}})
+		// A send answers an id that says what it was given: a quote, and a file there at the time.
+		case "send":
+			var p struct {
+				Params struct {
+					Path  string          `json:"path"`
+					Quote json.RawMessage `json:"quote"`
+					Group bool            `json:"group"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(in.Bytes(), &p)
+
+			id := "s"
+			if p.Params.Group {
+				id += "-group"
+			}
+
+			if len(p.Params.Quote) > 0 {
+				id += "-quote"
+			}
+
+			result := map[string]any{"textId": id}
+
+			if _, err := os.Stat(p.Params.Path); p.Params.Path != "" && err == nil {
+				result["fileId"] = "f-there"
+			}
+
+			// The text fails after its file went (bridge.mjs, send).
+			if script == "textfails" {
+				result["textId"], result["error"] = "", "rate limited"
+			}
+
+			write(map[string]any{"id": req.ID, "result": result})
 		case "users":
 			write(map[string]any{"id": req.ID, "result": []any{map[string]any{"id": "u9", "name": "Minh"}}})
 		case "listen":
@@ -402,4 +435,89 @@ func TestTheFilesLeftAreListedBatchAfterBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rest, 1)
 	assert.Equal(t, "a", rest[0].id)
+}
+
+// Scenario (issue #680): once connected, the account sends as the owner: a reply in a group quotes the kept
+// message, and a file is written for the bridge to send and removed after. What is sent is kept as the owner's.
+func TestTheAccountSendsAsTheOwnerAndKeepsIt(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	require.NoError(t, svc.mirror.saveSession(ctx, "100", "Owner", []byte(`{"imei":"i1"}`)))
+
+	acc, err := svc.Open(ctx, "100")
+	require.NoError(t, err)
+	t.Cleanup(acc.Close)
+
+	eventually(t, "the live message kept", func() bool {
+		found, err := acc.Messages(ctx, messaging.Query{Search: "giúp em"})
+
+		return err == nil && len(found) == 1
+	})
+
+	sent, err := acc.Send(ctx, messaging.Outgoing{Chat: "g1", Text: "Đây ạ", ReplyTo: "m1",
+		File: []byte("%PDF"), FileName: "bao-gia.pdf"})
+	require.NoError(t, err)
+	assert.Equal(t, "s-group-quote", sent.ID, "the text's id, in a group, with its quote")
+
+	file, err := acc.Messages(ctx, messaging.Query{Chat: "g1", Search: "bao-gia.pdf"})
+	require.NoError(t, err)
+	require.Len(t, file, 1, "the file is a message of its own")
+	assert.Equal(t, "f-there", file[0].ID, "kept under its own id, the file there when it was sent")
+	assert.True(t, file[0].FromMe)
+
+	text, err := acc.Messages(ctx, messaging.Query{Chat: "g1", Search: "Đây"})
+	require.NoError(t, err)
+	require.Len(t, text, 1)
+	assert.Equal(t, "m1", text[0].QuotedID)
+	assert.Empty(t, text[0].FileName)
+
+	left, err := os.ReadDir(filepath.Join(filepath.Dir(svc.mediaDir), "zalo-outgoing"))
+	require.NoError(t, err)
+	assert.Empty(t, left, "the file sent is not kept on disk")
+
+	_, err = acc.Send(ctx, messaging.Outgoing{Chat: "nobody", Text: "hi"})
+	require.ErrorIs(t, err, orchestration.ErrNotFound, "a chat not kept is said so")
+}
+
+// A file that went before its text failed is said, with its id, so that it is not sent again (review of #683).
+func TestATextThatFailsAfterItsFileSaysTheFileWent(t *testing.T) {
+	svc := fakeService(t, "textfails")
+	ctx := t.Context()
+	require.NoError(t, svc.mirror.saveSession(ctx, "100", "Owner", []byte(`{"imei":"i1"}`)))
+
+	acc, err := svc.Open(ctx, "100")
+	require.NoError(t, err)
+	t.Cleanup(acc.Close)
+
+	eventually(t, "connected", func() bool {
+		chats, err := acc.Chats(ctx, 0)
+
+		return err == nil && len(chats) > 0
+	})
+
+	_, err = acc.Send(ctx, messaging.Outgoing{Chat: "g1", Text: "Đây ạ", File: []byte("%PDF"), FileName: "q.pdf"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "the file was sent in g1 (message f-there), but not the text")
+}
+
+// The owner's send keeps a message before the listener brings it back with Zalo's own fields: those fill in what
+// it lacked, and its file is downloaded (review of #683).
+func TestAMessageKeptBeforeTheListenerIsFilledInByIt(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+
+	mine := kept{account: "100", chat: "g1", chatKind: "group", id: "f1", at: time.Now(), fromMe: true,
+		mediaType: "document", fileName: "q.pdf"}
+	added, err := svc.mirror.keep(ctx, mine)
+	require.NoError(t, err)
+	assert.True(t, added)
+
+	mine.cliID, mine.mediaURL = "c9", "https://f/q.pdf"
+	added, err = svc.mirror.keep(ctx, mine)
+	require.NoError(t, err)
+	assert.False(t, added, "kept once")
+
+	row, err := svc.mirror.mediaOf(ctx, "100", "g1", "f1")
+	require.NoError(t, err)
+	assert.Equal(t, "https://f/q.pdf", row.url, "the listener's link filled in")
 }

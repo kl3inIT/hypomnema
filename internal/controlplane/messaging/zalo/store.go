@@ -213,6 +213,24 @@ func (m *mirror) keep(ctx context.Context, k kept) (added bool, err error) {
 		return false, err
 	}
 
+	if n == 0 {
+		// Kept before, as the owner's send kept it ahead of the listener: what was not known then is filled in.
+		_, err = tx.ExecContext(ctx, `UPDATE zl_messages SET
+				cli_msg_id = CASE WHEN cli_msg_id = '' THEN ? ELSE cli_msg_id END,
+				action_id = CASE WHEN action_id = '' THEN ? ELSE action_id END,
+				kind = CASE WHEN ? <> '' THEN ? ELSE kind END,
+				media_type = CASE WHEN ? <> '' THEN ? ELSE media_type END,
+				attachment_url = CASE WHEN attachment_url = '' THEN ? ELSE attachment_url END,
+				attachment_title = CASE WHEN attachment_title = '' THEN ? ELSE attachment_title END,
+				file_size = CASE WHEN file_size = 0 THEN ? ELSE file_size END
+			WHERE account = ? AND chat_id = ? AND msg_id = ?`,
+			k.cliID, k.actionID, k.kind, k.kind, k.mediaType, k.mediaType, k.mediaURL, k.fileName, k.fileSize,
+			k.account, k.chat, k.id)
+		if err != nil {
+			return false, fmt.Errorf("zalo: filling in message %s: %w", k.id, err)
+		}
+	}
+
 	_, err = tx.ExecContext(ctx, `INSERT INTO zl_chats (account, id, kind, name, last_message_ts)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (account, id) DO UPDATE SET

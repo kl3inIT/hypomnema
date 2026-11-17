@@ -22,20 +22,58 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
-// WhatsApp's tools (issue #638, step 3 of #612): a Bot reads the owner's own WhatsApp, kept by the control plane
-// (#631, #634), as Superset's tools read his Superset (superset.go): one family named after the service, listed
-// only when the agent may use a Connection, with account only when it may use several (OpenClaw's Feishu tools,
-// extensions/feishu/src/tool-account.ts, tool-registration.ts). A WhatsApp Connection is the owner's own account
-// (orchestration.Connection.User), so only a Bot given it has the tools, and only on the owner's turn (#618,
-// botMay); a worker, a coordinator token and a Routine never. Message text is the owner's correspondents' words:
-// each answer says it is data, never instructions, as wacli's docs/integrations.md asks of an assistant.
+// The messaging tools (issues #638, #680): a Bot reads and writes in the owner's own messaging accounts, kept by
+// the control plane, as Superset's tools read his Superset (superset.go): one family per service, named after it
+// (whatsapp_*, zalo_*), listed only when the agent may use one of its Connections, with account only when it may
+// use several (OpenClaw's Feishu tools, extensions/feishu/src/tool-account.ts, tool-registration.ts). Every
+// service's tools run the same path; a service differs only in its words (messagingService). Such a Connection is
+// the owner's own account (orchestration.Connection.User), so only a Bot given it has the tools, and only on the
+// owner's turn (#618, botMay); a worker, a coordinator token and a Routine never. Message text is the owner's
+// correspondents' words: each answer says it is data, never instructions, as wacli's docs/integrations.md asks of
+// an assistant.
 
-// whatsappID is the WhatsApp Integration's id (integration.WhatsAppID).
-const whatsappID = "whatsapp"
+// messagingService is one messaging service's tools: its Integration, its tools' names and its own words.
+type messagingService struct {
+	integration, name                     string
+	chats, messages, media, history, send string
+	chatsAbout, historyAbout              string
+	historyStart, historyNone             string
+}
 
-var whatsappTools = []string{
-	agenttool.ToolWhatsAppChats, agenttool.ToolWhatsAppMessages, agenttool.ToolWhatsAppMedia,
-	agenttool.ToolWhatsAppHistory, agenttool.ToolWhatsAppSend,
+// messagingServices are the services whose accounts Bots use; their tools are named after them.
+var messagingServices = []messagingService{
+	{
+		integration: "whatsapp", name: "WhatsApp",
+		chats: agenttool.ToolWhatsAppChats, messages: agenttool.ToolWhatsAppMessages,
+		media: agenttool.ToolWhatsAppMedia, history: agenttool.ToolWhatsAppHistory, send: agenttool.ToolWhatsAppSend,
+		chatsAbout: "Every chat is kept as it arrives, with about three months of history from the link.",
+		historyAbout: "Ask the owner's phone for messages of a chat older than the oldest kept, up to count " +
+			"(50 by default, 500 at most), and keep them. The phone must be online; it decides what it sends.",
+		historyStart: "The phone says the chat has none older: this is its start.",
+		historyNone:  "Nothing older came: the owner's phone may hold no more of this chat.",
+	},
+	{
+		integration: "zalo", name: "Zalo",
+		chats: agenttool.ToolZaloChats, messages: agenttool.ToolZaloMessages,
+		media: agenttool.ToolZaloMedia, history: agenttool.ToolZaloHistory, send: agenttool.ToolZaloSend,
+		chatsAbout: "Every chat is kept as it arrives from when it was linked; Zalo's servers give this account " +
+			"little or none of what came before.",
+		historyAbout: "Ask Zalo's servers for messages of a chat older than the oldest kept, up to count " +
+			"(50 by default, 500 at most), and keep them. They often hold none.",
+		historyStart: "Zalo says the chat has none older that it gives.",
+		historyNone:  "Nothing older came: Zalo's servers hold no more of this chat.",
+	},
+}
+
+// messagingServiceOf is the service a tool belongs to.
+func messagingServiceOf(tool string) (messagingService, bool) {
+	for _, m := range messagingServices {
+		if slices.Contains([]string{m.chats, m.messages, m.media, m.history, m.send}, tool) {
+			return m, true
+		}
+	}
+
+	return messagingService{}, false
 }
 
 const (
@@ -60,28 +98,28 @@ type Judge interface {
 	Judge(ctx context.Context, a serviceproxy.Act) error
 }
 
-// WithJudge lets whatsapp_send ask the owner (issue #645); without it nothing is sent.
+// WithJudge lets the send tools ask the owner (issues #645, #680); without it nothing is sent.
 func (s *Server) WithJudge(j Judge) *Server {
 	s.judge = j
 
 	return s
 }
 
-// WithMessaging gives Bots WhatsApp's tools.
+// WithMessaging gives Bots the messaging tools.
 func (s *Server) WithMessaging(m Messaging) *Server {
 	s.messaging = m
 
 	return s
 }
 
-// whatsappLabels are the WhatsApp Connections an agent uses with the tools: a Bot's pi only, and only those its
+// messagingLabels are a service's Connections an agent uses with its tools: a Bot's pi only, and only those its
 // may allows now.
-func (s *Server) whatsappLabels(ctx context.Context, a agent) ([]string, error) {
+func (s *Server) messagingLabels(ctx context.Context, a agent, m messagingService) ([]string, error) {
 	if s.messaging == nil || a.chatID == "" || a.bot == "" {
 		return nil, nil
 	}
 
-	allowed, err := s.allowed(ctx, a, whatsappID)
+	allowed, err := s.allowed(ctx, a, m.integration)
 	if err != nil {
 		return nil, err
 	}
@@ -96,24 +134,33 @@ func (s *Server) whatsappLabels(ctx context.Context, a agent) ([]string, error) 
 	return labels, nil
 }
 
-// whatsappToolList is WhatsApp's tools as a Bot is offered them.
-func (s *Server) whatsappToolList(ctx context.Context, a agent) []agenttool.BrowserTool {
-	labels, err := s.whatsappLabels(ctx, a)
-	if err != nil {
-		s.logger.WarnContext(ctx, "the WhatsApp accounts of an agent could not be read",
-			slog.String("event", "agentapi.whatsapp_failed"), slog.String("error", err.Error()))
+// messagingToolList is every service's tools a Bot is offered.
+func (s *Server) messagingToolList(ctx context.Context, a agent) []agenttool.BrowserTool {
+	var out []agenttool.BrowserTool
 
-		return nil
+	for _, m := range messagingServices {
+		labels, err := s.messagingLabels(ctx, a, m)
+		if err != nil {
+			s.logger.WarnContext(ctx, "the "+m.name+" accounts of an agent could not be read",
+				slog.String("event", "agentapi.messaging_failed"), slog.String("error", err.Error()))
+
+			continue
+		}
+
+		if len(labels) > 0 {
+			out = append(out, m.tools(labels)...)
+		}
 	}
 
-	if len(labels) == 0 {
-		return nil
-	}
+	return out
+}
 
+// tools are a service's tools for the accounts an agent may use.
+func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 	with := func(properties map[string]any, required ...string) json.RawMessage {
 		if len(labels) > 1 {
 			properties["account"] = map[string]any{"type": "string", "enum": labels,
-				"description": "The WhatsApp account to use."}
+				"description": "The " + m.name + " account to use."}
 			required = append(required, "account")
 		}
 
@@ -127,20 +174,20 @@ func (s *Server) whatsappToolList(ctx context.Context, a agent) []agenttool.Brow
 		return raw
 	}
 
-	chat := map[string]any{"type": "string", "description": "The chat's id, as whatsapp_chats lists it."}
+	chat := map[string]any{"type": "string", "description": "The chat's id, as " + m.chats + " lists it."}
 	limit := map[string]any{"type": "integer", "minimum": 1, "maximum": 500}
 
 	return []agenttool.BrowserTool{
 		{
-			Name: agenttool.ToolWhatsAppChats,
-			Description: "List the owner's WhatsApp chats, groups and people, the latest first: each one's id, " +
-				"kind (dm, group, broadcast), name and when its last message came. Every chat is kept as it " +
-				"arrives, with about three months of history from the link. Start here to find a chat's id.",
+			Name: m.chats,
+			Description: "List the owner's " + m.name + " chats, groups and people, the latest first: each one's " +
+				"id, kind (dm, group, broadcast), name and when its last message came. " + m.chatsAbout +
+				" Start here to find a chat's id.",
 			InputSchema: with(map[string]any{"limit": limit}),
 		},
 		{
-			Name: agenttool.ToolWhatsAppMessages,
-			Description: "Read the owner's WhatsApp messages, the latest first: of one chat, or matching a search " +
+			Name: m.messages,
+			Description: "Read the owner's " + m.name + " messages, the latest first: of one chat, or matching a search " +
 				"of their text, caption, file name, chat or sender, or both. Each has its id, chat, sender, time, " +
 				"text, what it replies to, its media (type, caption, file name, whether its file is kept), and " +
 				"whether it was edited or deleted. before (RFC 3339) pages back. " + untrusted,
@@ -152,8 +199,8 @@ func (s *Server) whatsappToolList(ctx context.Context, a agent) []agenttool.Brow
 			}),
 		},
 		{
-			Name: agenttool.ToolWhatsAppMedia,
-			Description: "Open a WhatsApp message's image or file: an image comes as an image, another file as " +
+			Name: m.media,
+			Description: "Open a " + m.name + " message's image or file: an image comes as an image, another file as " +
 				"its path on this machine with its type and name. A file not kept yet is downloaded first.",
 			InputSchema: with(map[string]any{
 				"chat":    chat,
@@ -161,15 +208,13 @@ func (s *Server) whatsappToolList(ctx context.Context, a agent) []agenttool.Brow
 			}, "chat", "message"),
 		},
 		{
-			Name: agenttool.ToolWhatsAppHistory,
-			Description: "Ask the owner's phone for messages of a chat older than the oldest kept, up to count " +
-				"(50 by default, 500 at most), and keep them. The phone must be online; it decides what it sends. " +
-				"Then read them with whatsapp_messages.",
+			Name:        m.history,
+			Description: m.historyAbout + " Then read them with " + m.messages + ".",
 			InputSchema: with(map[string]any{"chat": chat, "count": limit}, "chat"),
 		},
 		{
-			Name: agenttool.ToolWhatsAppSend,
-			Description: "Send a message in one of the owner's WhatsApp chats, as him: text, or a file of the folder " +
+			Name: m.send,
+			Description: "Send a message in one of the owner's " + m.name + " chats, as him: text, or a file of the folder " +
 				"you work in (path, at most 5 MB) with text as its caption, replying to reply_to when given. It " +
 				"waits for the owner's approval unless he set it to run; when it waits, tell him in one line and " +
 				"end your turn, then call it again unchanged once he answers. Send only what he asked for.",
@@ -183,7 +228,7 @@ func (s *Server) whatsappToolList(ctx context.Context, a agent) []agenttool.Brow
 	}
 }
 
-type whatsappArgs struct {
+type messagingArgs struct {
 	Account string `json:"account"`
 	Chat    string `json:"chat"`
 	Message string `json:"message"`
@@ -193,18 +238,18 @@ type whatsappArgs struct {
 	Count   int    `json:"count"`
 }
 
-// whatsappCall runs one of WhatsApp's tools for a Bot that may use the account.
-func (s *Server) whatsappCall(w http.ResponseWriter, r *http.Request, a agent, labels []string,
+// messagingCall runs one of a service's tools for a Bot that may use the account.
+func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, m messagingService, labels []string,
 	call agenttool.BrowserCall,
 ) {
-	var in whatsappArgs
+	var in messagingArgs
 	if json.Unmarshal(orEmpty(call.Arguments), &in) != nil {
 		answerTool(w, call.Tool+" takes a JSON object of its arguments", true)
 
 		return
 	}
 
-	label, fix := pickWhatsAppAccount(labels, strings.TrimSpace(in.Account))
+	label, fix := pickMessagingAccount(m, labels, strings.TrimSpace(in.Account))
 	if fix != "" {
 		answerTool(w, fix, true)
 
@@ -216,14 +261,14 @@ func (s *Server) whatsappCall(w http.ResponseWriter, r *http.Request, a agent, l
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	ctx := r.Context()
-	s.logger.InfoContext(ctx, "a WhatsApp tool used", slog.String("event", "whatsapp.read"),
+	s.logger.InfoContext(ctx, "a "+m.name+" tool used", slog.String("event", m.integration+".read"),
 		slog.String("agent", a.name), slog.String("tool", call.Tool), slog.String("account", label))
 
 	switch call.Tool {
-	case agenttool.ToolWhatsAppChats:
-		chats, err := s.messaging.Chats(ctx, whatsappID, label, in.Limit)
+	case m.chats:
+		chats, err := s.messaging.Chats(ctx, m.integration, label, in.Limit)
 		s.answerJSON(w, r, map[string]any{"chats": chats}, err)
-	case agenttool.ToolWhatsAppMessages:
+	case m.messages:
 		q := messaging.Query{Chat: strings.TrimSpace(in.Chat), Search: in.Search, Limit: in.Limit}
 		if in.Before != "" {
 			before, err := time.Parse(time.RFC3339, in.Before)
@@ -236,34 +281,35 @@ func (s *Server) whatsappCall(w http.ResponseWriter, r *http.Request, a agent, l
 			q.Before = before
 		}
 
-		msgs, err := s.messaging.Messages(ctx, whatsappID, label, q)
+		msgs, err := s.messaging.Messages(ctx, m.integration, label, q)
 		s.answerJSON(w, r, map[string]any{"note": untrusted, "messages": msgs}, err)
-	case agenttool.ToolWhatsAppMedia:
-		s.whatsappMedia(w, r, label, in)
-	case agenttool.ToolWhatsAppSend:
-		s.whatsappSend(w, r, a, label, call.Arguments)
-	case agenttool.ToolWhatsAppHistory:
-		got, err := s.messaging.Backfill(ctx, whatsappID, label, strings.TrimSpace(in.Chat), in.Count)
+	case m.media:
+		s.messagingMedia(w, r, m, label, in)
+	case m.send:
+		s.messagingSend(w, r, a, m, label, call.Arguments)
+	case m.history:
+		got, err := s.messaging.Backfill(ctx, m.integration, label, strings.TrimSpace(in.Chat), in.Count)
 		if err != nil {
 			s.answerErr(w, r, err)
 
 			return
 		}
 
-		text := fmt.Sprintf("%d older messages were added; read them with %s.", got.Added,
-			agenttool.ToolWhatsAppMessages)
+		text := fmt.Sprintf("%d older messages were added; read them with %s.", got.Added, m.messages)
 		if got.Complete {
-			text += " The phone says the chat has none older: this is its start."
+			text += " " + m.historyStart
 		} else if got.Added == 0 {
-			text += " Nothing older came: the owner's phone may hold no more of this chat."
+			text += " " + m.historyNone
 		}
 
 		answerTool(w, text, false)
 	}
 }
 
-func (s *Server) whatsappMedia(w http.ResponseWriter, r *http.Request, label string, in whatsappArgs) {
-	media, err := s.messaging.Media(r.Context(), whatsappID, label, strings.TrimSpace(in.Chat),
+func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, m messagingService, label string,
+	in messagingArgs,
+) {
+	media, err := s.messaging.Media(r.Context(), m.integration, label, strings.TrimSpace(in.Chat),
 		strings.TrimSpace(in.Message))
 	if err != nil {
 		s.answerErr(w, r, err)
@@ -330,15 +376,15 @@ func (s *Server) answerErr(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	s.logger.WarnContext(r.Context(), "a WhatsApp tool failed", slog.String("event", "agentapi.whatsapp_failed"),
+	s.logger.WarnContext(r.Context(), "a messaging tool failed", slog.String("event", "agentapi.messaging_failed"),
 		slog.String("error", err.Error()))
 	answerTool(w, err.Error(), true)
 }
 
-func pickWhatsAppAccount(labels []string, asked string) (string, string) {
+func pickMessagingAccount(m messagingService, labels []string, asked string) (string, string) {
 	switch {
 	case asked != "" && !slices.Contains(labels, asked):
-		return "", "this agent was not given " + orchestration.Use(whatsappID, asked)
+		return "", "this agent was not given " + orchestration.Use(m.integration, asked)
 	case asked != "":
 		return asked, ""
 	case len(labels) == 1:
@@ -348,12 +394,14 @@ func pickWhatsAppAccount(labels []string, asked string) (string, string) {
 	}
 }
 
-// whatsappSend sends a message or a file as the owner once the control plane's decision lets it (issue #645): the
-// action whatsapp.send, which asks the owner until he sets another answer, as a Superset write does.
-func (s *Server) whatsappSend(w http.ResponseWriter, r *http.Request, a agent, label string, raw json.RawMessage) {
+// messagingSend sends a message or a file as the owner once the control plane's decision lets it (issues #645,
+// #680): the action <service>.send, which asks the owner until he sets another answer, as a Superset write does.
+func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, m messagingService, label string,
+	raw json.RawMessage,
+) {
 	var in agenttool.WhatsAppSendCall
 	if json.Unmarshal(orEmpty(raw), &in) != nil {
-		answerTool(w, "whatsapp_send takes {chat, text, path, reply_to}", true)
+		answerTool(w, m.send+" takes {chat, text, path, reply_to}", true)
 
 		return
 	}
@@ -362,7 +410,7 @@ func (s *Server) whatsappSend(w http.ResponseWriter, r *http.Request, a agent, l
 
 	switch {
 	case in.Chat == "":
-		answerTool(w, "name the chat, by its id as whatsapp_chats lists it", true)
+		answerTool(w, "name the chat, by its id as "+m.chats+" lists it", true)
 
 		return
 	case in.Path != "" && len(in.File) == 0:
@@ -387,7 +435,7 @@ func (s *Server) whatsappSend(w http.ResponseWriter, r *http.Request, a agent, l
 
 	ctx := r.Context()
 
-	name := s.whatsappChatName(ctx, label, in.Chat)
+	name := s.messagingChatName(ctx, m, label, in.Chat)
 	fields := []orchestration.Field{{Label: "Chat", Value: name}}
 
 	if in.Text != "" {
@@ -411,7 +459,7 @@ func (s *Server) whatsappSend(w http.ResponseWriter, r *http.Request, a agent, l
 
 	err := s.judge.Judge(ctx, serviceproxy.Act{
 		Caller:      serviceproxy.Caller{Name: a.name, Coordinator: true, ChatID: a.chatID},
-		Integration: whatsappID, Label: label, ChatID: a.chatID, Action: "whatsapp.send",
+		Integration: m.integration, Label: label, ChatID: a.chatID, Action: m.integration + ".send",
 		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]),
 	})
 
@@ -428,7 +476,7 @@ func (s *Server) whatsappSend(w http.ResponseWriter, r *http.Request, a agent, l
 		return
 	}
 
-	sent, err := s.messaging.Send(ctx, whatsappID, label, messaging.Outgoing{
+	sent, err := s.messaging.Send(ctx, m.integration, label, messaging.Outgoing{
 		Chat: in.Chat, Text: in.Text, ReplyTo: in.ReplyTo, File: in.File, FileName: in.FileName,
 	})
 	if err != nil {
@@ -440,9 +488,9 @@ func (s *Server) whatsappSend(w http.ResponseWriter, r *http.Request, a agent, l
 	answerTool(w, fmt.Sprintf("sent in %s as the owner: message %s", name, sent.ID), false)
 }
 
-// whatsappChatName is a chat's name and id as the owner reads them in an approval, or its id alone.
-func (s *Server) whatsappChatName(ctx context.Context, label, chat string) string {
-	chats, err := s.messaging.Chats(ctx, whatsappID, label, maxBackfillChats)
+// messagingChatName is a chat's name and id as the owner reads them in an approval, or its id alone.
+func (s *Server) messagingChatName(ctx context.Context, m messagingService, label, chat string) string {
+	chats, err := s.messaging.Chats(ctx, m.integration, label, maxBackfillChats)
 	if err == nil {
 		for _, c := range chats {
 			if c.ID == chat && c.Name != "" {

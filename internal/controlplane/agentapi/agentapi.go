@@ -120,9 +120,9 @@ type Server struct {
 	// relay sends Superset's tools' requests through the service proxy (issue #536); nil when the control
 	// plane gave none.
 	relay Relay
-	// messaging reads the owner's WhatsApp for WhatsApp's tools (issue #638); nil when the control plane gave none.
+	// messaging reads the owner's WhatsApp and Zalo for their tools (#638, #680); nil when the control plane gave none.
 	messaging Messaging
-	// judge decides whatsapp_send as the service proxy decides a request (issue #645); nil sends nothing.
+	// judge decides a send tool as the service proxy decides a request (#645, #680); nil sends nothing.
 	judge Judge
 	// routines starts a Routine's run for a Bot's pi's routines tool (issue #536); nil when the control plane
 	// gave none.

@@ -11,6 +11,8 @@ import (
 	"mime"
 	"path/filepath"
 	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // mimeOf is a file's type, from its name, or from its kind when its name says nothing (Zalo's images and voice
@@ -207,4 +209,18 @@ func (m *mirror) chatKind(ctx context.Context, account, id string) string {
 	}
 
 	return kind
+}
+
+// quoteOf is a kept message as a reply quotes it.
+func (m *mirror) quoteOf(ctx context.Context, account, chat, id string) (quote, error) {
+	q := quote{ID: id}
+
+	err := m.db.QueryRowContext(ctx, `SELECT cli_msg_id, sender_id, ts, kind, text FROM zl_messages
+		WHERE account = ? AND chat_id = ? AND msg_id = ?`, account, chat, id).
+		Scan(&q.CliID, &q.From, &q.At, &q.Kind, &q.Text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return q, fmt.Errorf("%w: no message %s is kept in chat %s", orchestration.ErrNotFound, id, chat)
+	}
+
+	return q, err
 }

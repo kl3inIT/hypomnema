@@ -1,0 +1,6 @@
+Hermes Zalo plugin
+https://github.com/hitechcloudvn/hermes-zalo-plugin
+Copyright (c) 2026 HiTechCloud.VN
+
+Used under the MIT License (LICENSE, beside this file): bridges/zalo/src/imagemeta.mjs adapts its sidecar's
+imageMeta (sidecar/server.js), which reads an image's size for zca-js to send it.

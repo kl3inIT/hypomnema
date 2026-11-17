@@ -92,7 +92,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_* on the owner's turn"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -1958,7 +1958,7 @@ flowchart LR
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
       its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
-      coordinator token and a Routine never. Built as Superset's tools (`agentapi/whatsapp.go`); each read says
+      coordinator token and a Routine never. Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
     - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
@@ -2018,7 +2018,15 @@ flowchart LR
       the past (Zalo's CDN links expire), by four workers, a plain GET of at most 100 MiB that dials only public
       addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its sender's), into
       `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404, 410) is said
-      once. `…/media` answers one; disconnecting removes them. The Bot's tools and sending are step 3.
+      once. `…/media` answers one; disconnecting removes them.
+    - **A Bot reads and writes in it** ([issue #680](https://github.com/kl3inIT/hypomnema/issues/680), step 3):
+      WhatsApp's tools became one family per service (`agentapi/messaging_tools.go`, `messagingServices`): a Bot
+      given a Zalo Connection, on the owner's turn, has `zalo_chats`, `zalo_messages`, `zalo_media`,
+      `zalo_history` and `zalo_send`. `zalo_send` is the action `zalo.send` of the service proxy's catalog
+      (NeedsCare: it asks the owner); the bridge sends with zca-js's `sendMessage`, a file by a path written for the
+      call under `zalo-outgoing/` and removed after, an image with the size read from its header (adapted from the
+      Hermes Zalo plugin, `third_party/hermes-zalo-plugin`), a reply quoting the kept message. What is sent is kept
+      as the owner's.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
@@ -3308,8 +3316,11 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
   standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only; findings that make a change incorrect are reported with an offer to send them to the change's
-  worker as a follow-up, two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  the spec only in the first round; findings that make a change incorrect are reported with an offer to send them
+  to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
+  author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
+  or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
@@ -3502,8 +3513,13 @@ Node (`internal/node`):
     query and what varies last; that the recovery note, a follow-up and a Gate come after the spec is inferred from
     Anthropic's Fable 5.2 page):
     - the rules, the same for every worker:
-      - `ask` instead of guessing; no one reads the worker's messages before `finish`, so no progress messages
-        (Orca, omp); a decision boundary of what a worker decides itself waits for the owner (#672);
+      - one decision boundary, within what the task and the worker's instruction allow: it decides how to build
+        it, which tests to add, running the checks, committing and pushing its branch, and opening or updating the
+        Task's pull request; it asks first, with `ask`, before changing the scope, merging, deploying or changing a
+        server, deleting what its change did not make, or acting outside its directory and pull request (the
+        owner's list, 2026-11-17, issue #672; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do
+        freely / Ask first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
+        omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
         Anthropic's Opus 5.5 and Fable 5.2 pages, omp's subagent and Hermes's task-completion guidance);
