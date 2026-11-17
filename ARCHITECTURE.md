@@ -511,7 +511,8 @@ sequenceDiagram
     A tab of a pane's chat that is new since the list the pane saw before opens by itself beside the chat, where
     the phone opens (issue #528), or in the pane on a phone, once (issue #703, `workbench/follow-tabs.ts`): the
     tabs already there when the pane is first shown are left alone, and a tab the owner closed is not opened again
-    until its agent closes it and opens a new one. A Bot's call of `agent_browser_open` shows in the chat as a
+    until its agent closes it and opens a new one. Several new in one read (two chats of a pane, or a Bot and its
+    worker) all open, in one change of the pane or grid (`openAllBeside`), the last in front. A Bot's call of `agent_browser_open` shows in the chat as a
     card under its work (`browser-tab-card.tsx`): the icon, title and address of the chat's Bot's tab as it is now,
     and "Open the tab", which opens it there too; once the tab is closed the card names the address it opened. A
     browser tab in front has a strip of the browser's tabs over it (`browser-strip.tsx`, as OpenClaw's

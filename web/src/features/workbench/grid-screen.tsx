@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 
 import { GridDrop } from "./grid-drop"
 import { gridAreas, gridPanes } from "./grid-layout"
-import { alone, dropTab, openBeside, withoutPane, type Bench } from "./moves"
+import { alone, dropTab, openAllBeside, withoutPane, type Bench } from "./moves"
 import { frontOf, hasTab, tabKey, type Pane } from "./pane"
 import { PaneView, type Beside } from "./pane-view"
 import {
@@ -88,11 +88,14 @@ export function GridScreen() {
       onFull={() => setFull(full === node ? null : node)}
       onRemove={() => commit(withoutPane(bench, node))}
       beside={{
-        open: (tab) => {
+        open: (...tabs) => {
+          const last = tabs.at(-1)
+          if (last === undefined) return
+
           // From the grid as kept now: another pane may have opened a tab beside it in this same update.
-          const next = openBeside(latestBench() ?? bench, node, tab, newPaneId())
+          const next = openAllBeside(latestBench() ?? bench, node, tabs, newPaneId)
           // A pane filling the screen gives way to the pane the tab opened in, so that it is seen.
-          const at = gridPanes(next.layout).find((id) => next.panes[id]?.active === tabKey(tab))
+          const at = gridPanes(next.layout).find((id) => next.panes[id]?.active === tabKey(last))
           if (full !== null && at !== full) setFull(null)
           commit(next)
         },

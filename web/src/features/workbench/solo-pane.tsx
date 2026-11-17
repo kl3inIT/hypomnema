@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 
 import { GridDrop } from "./grid-drop"
-import { closeHome, dropTab, openBeside, type Bench, type Dragged } from "./moves"
+import { closeHome, dropTab, openAllBeside, type Bench, type Dragged } from "./moves"
 import { hasTab, openTab, paneOf, tabKey, type Pane, type PaneTab } from "./pane"
 import { PaneView } from "./pane-view"
 import { newPaneId, setBench, setPane, soloId, useGridOffered, usePane } from "./use-grid"
@@ -66,9 +66,9 @@ export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
         beside={
           offered
             ? {
-                open: (tab) => {
+                open: (...tabs) => {
                   const as = newPaneId()
-                  const next = openBeside(bench(as), as, tab, newPaneId())
+                  const next = openAllBeside(bench(as), as, tabs, newPaneId)
                   if (typeof next.layout === "string") {
                     setPane(id, next.panes[as] ?? pane)
 

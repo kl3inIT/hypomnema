@@ -68,7 +68,7 @@ import {
 } from "./pane"
 import { setDragged, tabDrag } from "./use-grid"
 
-export type Beside = { open: (tab: PaneTab) => void; has: (key: string) => boolean }
+export type Beside = { open: (...tabs: PaneTab[]) => void; has: (key: string) => boolean }
 
 // PaneView is a pane (issue #235): a strip of its tabs, and the tab in front under it. "+" opens a new chat, the
 // owner's browser tab, the phone (issue #417), or a browser tab of a chat in the pane, its Bot's or a worker's (issue #557), as Orca's tab bar does
@@ -122,13 +122,15 @@ export function PaneView({
   const [closing, setClosing] = useState<string | null>(null)
   const frontKey = front === undefined ? "" : tabKey(front)
   const open = (tab: PaneTab) => onChange(openTab(pane, tab))
-  // A browser tab of a chat opens beside it, or in the pane on a phone (issue #703).
-  const showTab = (tab: string) => {
-    const shown = browserTab(tab, browser.data?.tabs)
-    if (beside) beside.open(shown)
-    else open(shown)
+  // Browser tabs of a chat open beside it, or in the pane on a phone (issue #703), all in one change, so that
+  // none undoes another; the last is in front.
+  const showTabs = (tabs: string[]) => {
+    const shown = tabs.map((tab) => browserTab(tab, browser.data?.tabs))
+    if (beside) beside.open(...shown)
+    else onChange(shown.reduce(openTab, pane))
   }
-  useFollowTabs(browser.data?.tabs, paneChats(pane), showTab)
+  const showTab = (tab: string) => showTabs([tab])
+  useFollowTabs(browser.data?.tabs, paneChats(pane), showTabs)
   // The strip over a browser tab, and a click on it (./strip.ts).
   const strip = paneStrip(pane, browser.data?.tabs)
   const pickBrowser = (from: string, tab: string) =>

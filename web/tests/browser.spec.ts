@@ -517,6 +517,30 @@ test("a tab the chat's Bot opens shows beside the chat once, with the browser's 
   await expect(paneTab(page, /Example Domain|Maps search/)).toHaveCount(0)
 })
 
+// Scenario: the chat's Bot and its worker each open a tab between two reads of the browser's list (issue #703).
+// Both show beside the chat, or in its pane on a phone, once: neither is dropped, neither opens again.
+test("the tabs a Bot and its worker open at once both show beside the chat", async ({
+  page,
+}, info) => {
+  const phone = info.project.name === "phone"
+  const server = await fakeServer(page, {
+    tabs: tabs.filter((t) => t.id !== "b-cht_1" && t.id !== "d-dsp_1"),
+  })
+  await page.goto("/chats/cht_1")
+  await expect(page.getByText("add a health page")).toBeVisible()
+  await page.waitForTimeout(500)
+
+  server.setTabs(tabs)
+  await expect(paneTab(page, /Example Domain/)).toHaveCount(1, { timeout: 10_000 })
+  await expect(paneTab(page, /Maps search/)).toHaveCount(1)
+  if (!phone) await expect(page).toHaveURL(/\/grid$/)
+
+  // A later read of the list keeps both, and opens neither again.
+  await page.waitForTimeout(6_000)
+  await expect(paneTab(page, /Example Domain/)).toHaveCount(1)
+  await expect(paneTab(page, /Maps search/)).toHaveCount(1)
+})
+
 // Scenario: two chats are on the grid, one above the other, and both their Bots open a tab at once (issue #703).
 // Each tab shows beside its own chat: the one opened first is not lost to the second.
 test("the tabs two chats of the grid open at once both show beside their chats", async ({
