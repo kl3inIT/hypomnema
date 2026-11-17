@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,8 +25,8 @@ import (
 
 // Artifacts (issue #402): a Bot shows one with `hypomnema artifact show`, its pi's token naming the chat; every
 // token reads them, a Bot's only its own chat's (its Bot's for a Routine's script), as a pi's token reads only its
-// own chat's Runs (issue #260). A file is sent as /raw sends one, never as a page of this origin. A folder page's
-// other files load in its locked frame from a short-lived address of their own (OpenMausBot's server/page-files.ts,
+// own chat's Runs (issue #260). A file is sent as /raw sends one, never as a page of this origin. A page and its
+// files load in its locked frame from a short-lived address of their own (OpenMausBot's server/page-files.ts,
 // Onyx's static_preview.py), which the frame reaches without the owner's session.
 
 // ShowArtifact keeps the files a Bot shows as a new artifact in its chat, or as the next revision of one.
@@ -209,7 +210,7 @@ func (d download) VisitReadArtifactFileResponse(w http.ResponseWriter) error { r
 
 func (d download) VisitGetArtifactArchiveResponse(w http.ResponseWriter) error { return d.write(w) }
 
-// OpenArtifactFrame gives the address a folder page's files load from in its frame.
+// OpenArtifactFrame gives the address a page and its files load from in its frame.
 func (s *Server) OpenArtifactFrame(ctx context.Context, req openapi.OpenArtifactFrameRequestObject,
 ) (openapi.OpenArtifactFrameResponseObject, error) {
 	a, err := s.readableArtifact(ctx, req.ArtifactId)
@@ -276,8 +277,8 @@ func toArtifactCard(c *orchestration.ArtifactCard) *openapi.ArtifactCard {
 	}
 }
 
-// artifactFilesPath is where a folder page's files load from: the frame's own address, as OpenMausBot's
-// /api/page-files/<token>/.
+// artifactFilesPath is where a page and its files load from: the frame's own address, as OpenMausBot's
+// /api/page-files/<token>/ and Onyx's /build/static-preview/<token>/.
 const artifactFilesPath = BasePath + "/artifact-files/"
 
 // frameTTL is how long a frame's address lasts after its last use: Onyx's preview token lasts an hour.
@@ -355,7 +356,8 @@ func (f *artifactFrames) take(token string, now time.Time) (artifactFrame, bool)
 }
 
 // frameHeaders are on every answer of the files route (OpenMausBot's SHARED_HEADERS): read from the frame's opaque
-// origin, never a page of this origin if opened directly, never cached.
+// origin, never a page of this origin if opened directly, never cached. A page itself is sent with its own policy
+// instead (pagePolicy).
 var frameHeaders = map[string]string{
 	"Access-Control-Allow-Origin":   "*",
 	"Access-Control-Expose-Headers": "Content-Length",
@@ -363,21 +365,78 @@ var frameHeaders = map[string]string{
 	"X-Content-Type-Options":        "nosniff",
 	"Referrer-Policy":               "no-referrer",
 	"Cache-Control":                 "private, no-store",
-	"Content-Security-Policy":       "sandbox allow-scripts; default-src 'none'",
+	"Content-Security-Policy":       fileCSP,
 }
 
-// artifactFiles serves a folder page's files to its frame by the token in the address, which is its whole
+// fileCSP is the policy of every answer but a page's: none of it runs, opened on its own.
+const fileCSP = "sandbox allow-scripts; default-src 'none'"
+
+// A page is its frame's document, loaded from this route by its address (issue #737), so that its policy is this
+// answer's header and nothing else: a srcdoc frame took the web client's own policy on top of its meta, which
+// refused its inline and CDN scripts and its base. Onyx's static preview sends a page so (PREVIEW_HEADERS in
+// backend/onyx/server/features/build/static_preview.py), as LibreChat's MCP app sandbox does (buildSandboxResponse
+// in packages/api/src/mcp/sandbox.ts). The directives are OpenMausBot's BOT_HTML_CSP and folderPageCsp
+// (shared/app-frame/csp.ts), which the frame's meta carried until then.
+
+// pageCDNs are where a page's scripts, styles and fonts load from: three package CDNs. Its images come from them,
+// its own files, data: and blob: only, so no tracking pixel reaches another host.
+const pageCDNs = "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com"
+
+// duckdbExtensions is where DuckDB-WASM fetches its readers, Parquet's among them, when a query first needs one.
+const duckdbExtensions = "https://extensions.duckdb.org"
+
+// pagePolicy is a page's policy: sandboxed as its frame is (the sandbox attribute's flags, so that a form's submit
+// event still reaches its script), its own files under files (its address, by http and https as Onyx names it,
+// never the rest of this origin, the API included) and the CDNs, framed only by the web client.
+func pagePolicy(files string) string {
+	own := "http://" + files + " https://" + files
+
+	return strings.Join([]string{
+		"sandbox allow-scripts allow-forms",
+		"default-src 'none'",
+		"script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' " + pageCDNs + " " + own,
+		"style-src 'unsafe-inline' " + pageCDNs + " https://fonts.googleapis.com " + own,
+		"font-src data: " + pageCDNs + " https://fonts.gstatic.com " + own,
+		"img-src data: blob: " + pageCDNs + " " + own,
+		"media-src data: blob: " + own,
+		"connect-src " + pageCDNs + " " + own + " " + duckdbExtensions,
+		"worker-src blob:",
+		"frame-src 'none'",
+		"object-src 'none'",
+		"base-uri 'none'",
+		"form-action 'none'",
+		"manifest-src 'none'",
+		"frame-ancestors 'self'",
+	}, "; ")
+}
+
+// plainHost is a Host a policy may name: a name or an address, and a port. Anything else would be read as more of
+// the policy (LibreChat's FRAME_ANCESTOR_RE, packages/api/src/mcp/sandbox.ts).
+var plainHost = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9.-]*|\[[0-9a-fA-F:.]+\])(:[0-9]{1,5})?$`)
+
+// artifactFiles serves a page and its files to its frame by the token in the address, which is its whole
 // authority: the frame sends no sign-in. Only the files of the revision the token names are served, by their exact
 // path.
 func (s *Server) artifactFiles(w http.ResponseWriter, r *http.Request) {
-	for k, v := range frameHeaders {
-		w.Header().Set(k, v)
+	if !frameRequest(w, r) {
+		return
 	}
 
-	answer := func(status int, text string) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, text)
+	fr, ok := s.frames.take(r.PathValue("token"), s.now())
+	if !ok {
+		answerText(w, http.StatusNotFound, "Not found.")
+
+		return
+	}
+
+	s.serveFrameFile(w, r, fr.artifact, fr.revision, artifactFilesPath+r.PathValue("token")+"/")
+}
+
+// frameRequest sets the frame's headers on an answer of a files route, and answers what is not a read; false
+// when it answered.
+func frameRequest(w http.ResponseWriter, r *http.Request) bool {
+	for k, v := range frameHeaders {
+		w.Header().Set(k, v)
 	}
 
 	switch r.Method {
@@ -386,39 +445,49 @@ func (s *Server) artifactFiles(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Max-Age", "600")
 		w.WriteHeader(http.StatusNoContent)
 
-		return
+		return false
 	case http.MethodGet, http.MethodHead:
+		return true
 	default:
-		answer(http.StatusMethodNotAllowed, "Read only.")
+		answerText(w, http.StatusMethodNotAllowed, "Read only.")
 
-		return
+		return false
 	}
+}
 
-	fr, ok := s.frames.take(r.PathValue("token"), s.now())
-	if !ok {
-		answer(http.StatusNotFound, "Not found.")
-
-		return
-	}
-
+// serveFrameFile sends a file of a revision by the request's path, a page with its policy naming folder, the
+// address its files load from under this host; false when it answered with an error.
+func (s *Server) serveFrameFile(w http.ResponseWriter, r *http.Request, artifact string, revision int,
+	folder string,
+) bool {
 	path := r.PathValue("path")
 	if path != "" && artifactpack.CheckPath(path) != nil {
-		answer(http.StatusBadRequest, "Not a file of this page.")
+		answerText(w, http.StatusBadRequest, "Not a file of this page.")
 
-		return
+		return false
 	}
 
-	f, err := s.svc.ReadArtifactFile(r.Context(), fr.artifact, fr.revision, path)
+	f, err := s.svc.ReadArtifactFile(r.Context(), artifact, revision, path)
 	if errors.Is(err, orchestration.ErrNotFound) {
-		answer(http.StatusNotFound, "Not found.")
+		answerText(w, http.StatusNotFound, "Not found.")
 
-		return
+		return false
 	}
 
 	if err != nil {
-		answer(http.StatusInternalServerError, "The file could not be read.")
+		answerText(w, http.StatusInternalServerError, "The file could not be read.")
 
-		return
+		return false
+	}
+
+	if isPage(f.MediaType) {
+		if !plainHost.MatchString(r.Host) {
+			answerText(w, http.StatusBadRequest, "Not a host a page can name.")
+
+			return false
+		}
+
+		w.Header().Set("Content-Security-Policy", pagePolicy(r.Host+folder))
 	}
 
 	w.Header().Set("Content-Type", f.MediaType)
@@ -428,4 +497,20 @@ func (s *Server) artifactFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		_, _ = w.Write(f.Data)
 	}
+
+	return true
+}
+
+// answerText answers a files route's request with a line of text.
+func answerText(w http.ResponseWriter, status int, text string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, text)
+}
+
+// isPage says whether a file is opened as a page: HTML, the type artifactpack gives .html and .htm.
+func isPage(mediaType string) bool {
+	t, _, _ := mime.ParseMediaType(mediaType)
+
+	return t == "text/html"
 }

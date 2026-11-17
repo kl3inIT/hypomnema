@@ -321,6 +321,11 @@ const (
 	// many Dispatches as its own limit (issue #660). Unlike ReasonNoNode it
 	// resolves by itself and is not escalated.
 	ReasonNodesFull = "nodes_full"
+	// ReasonNodesLowMemory: a node could run the Task, but every such node has
+	// less than NodeMemoryFloor available (issue #731). Nothing Hypomnema does
+	// is sure to free the memory, so it is escalated after UnplaceableAfter
+	// like ReasonNoNode.
+	ReasonNodesLowMemory = "nodes_low_memory"
 )
 
 // Escalation is one thing the reaper or the scheduler found.

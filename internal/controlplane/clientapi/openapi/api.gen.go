@@ -7,20 +7,16 @@ package openapi
 
 import (
 	"bytes"
-	"compress/flate"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"time"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/oapi-codegen/runtime"
 )
 
@@ -1047,6 +1043,30 @@ func (e MeetingState) Valid() bool {
 	case MeetingStateTranscribed:
 		return true
 	case MeetingStateTranscribing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingWordSource.
+const (
+	MeetingWordSourceBot        MeetingWordSource = "bot"
+	MeetingWordSourceOwner      MeetingWordSource = "owner"
+	MeetingWordSourceRepository MeetingWordSource = "repository"
+	MeetingWordSourceSpeaker    MeetingWordSource = "speaker"
+)
+
+// Valid indicates whether the value is a known member of the MeetingWordSource enum.
+func (e MeetingWordSource) Valid() bool {
+	switch e {
+	case MeetingWordSourceBot:
+		return true
+	case MeetingWordSourceOwner:
+		return true
+	case MeetingWordSourceRepository:
+		return true
+	case MeetingWordSourceSpeaker:
 		return true
 	default:
 		return false
@@ -2304,6 +2324,29 @@ type ArtifactRevision struct {
 
 	// Type How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
 	Type ArtifactType `json:"type"`
+}
+
+// ArtifactShare defines model for ArtifactShare.
+type ArtifactShare struct {
+	ArtifactId   string     `json:"artifact_id"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Id           string     `json:"id"`
+	Label        string     `json:"label"`
+	LastViewedAt *time.Time `json:"last_viewed_at,omitempty"`
+
+	// Path The link's path on this server, /s/<token>.
+	Path string `json:"path"`
+
+	// Token The link's secret, 32 random bytes in base64url.
+	Token string `json:"token"`
+
+	// Views How many times its page was opened.
+	Views int64 `json:"views"`
+}
+
+// ArtifactShareList defines model for ArtifactShareList.
+type ArtifactShareList struct {
+	Data []ArtifactShare `json:"data"`
 }
 
 // ArtifactType How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
@@ -3682,7 +3725,6 @@ type Meeting struct {
 
 	// State Where the meeting's transcription stands.
 	State MeetingState `json:"state"`
-	Terms []string     `json:"terms"`
 	Title string       `json:"title"`
 
 	// Titled The owner gave the title; otherwise the notes wrote it.
@@ -3726,15 +3768,30 @@ type MeetingDetail struct {
 
 // MeetingFormat defines model for MeetingFormat.
 type MeetingFormat struct {
+	// Builtin Shipped with the control plane; copied rather than changed.
+	Builtin  bool                   `json:"builtin"`
 	Id       string                 `json:"id"`
 	Name     string                 `json:"name"`
 	Sections []MeetingFormatSection `json:"sections"`
+}
+
+// MeetingFormatInput defines model for MeetingFormatInput.
+type MeetingFormatInput struct {
+	Name     string                      `json:"name"`
+	Sections []MeetingFormatSectionInput `json:"sections"`
 }
 
 // MeetingFormatSection defines model for MeetingFormatSection.
 type MeetingFormatSection struct {
 	About string `json:"about"`
 	Title string `json:"title"`
+}
+
+// MeetingFormatSectionInput defines model for MeetingFormatSectionInput.
+type MeetingFormatSectionInput struct {
+	// About A short instruction of what the section holds.
+	About *string `json:"about,omitempty"`
+	Title string  `json:"title"`
 }
 
 // MeetingItem defines model for MeetingItem.
@@ -3850,6 +3907,59 @@ type MeetingSpeaker struct {
 
 // MeetingState Where the meeting's transcription stands.
 type MeetingState string
+
+// MeetingWord defines model for MeetingWord.
+type MeetingWord struct {
+	// From Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a registered repository's.
+	From MeetingWordSource `json:"from"`
+
+	// Sent A transcription is given it; false past max_sent.
+	Sent bool   `json:"sent"`
+	Word string `json:"word"`
+}
+
+// MeetingWordFix defines model for MeetingWordFix.
+type MeetingWordFix struct {
+	// From The word as the transcript says it.
+	From string `json:"from"`
+
+	// Line Only this line; absent
+	Line *int `json:"line,omitempty"`
+
+	// To The word as it was said.
+	To string `json:"to"`
+}
+
+// MeetingWordFixed defines model for MeetingWordFixed.
+type MeetingWordFixed struct {
+	Detail MeetingDetail `json:"detail"`
+
+	// Learned The right word is in the owner's words to hear right; false when the list is full.
+	Learned bool `json:"learned"`
+
+	// Replaced How many times the word was replaced.
+	Replaced int `json:"replaced"`
+}
+
+// MeetingWordSource Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a registered repository's.
+type MeetingWordSource string
+
+// MeetingWords defines model for MeetingWords.
+type MeetingWords struct {
+	Data []MeetingWord `json:"data"`
+
+	// MaxOwn How many words the owner may keep.
+	MaxOwn int `json:"max_own"`
+
+	// MaxSent How many words a transcription is given.
+	MaxSent int `json:"max_sent"`
+}
+
+// MeetingWordsUpdate defines model for MeetingWordsUpdate.
+type MeetingWordsUpdate struct {
+	// Words The owner's words, in their order.
+	Words []string `json:"words"`
+}
 
 // Memory defines model for Memory.
 type Memory struct {
@@ -3983,6 +4093,12 @@ type NewAccountSignIn struct {
 
 // NewAccountSignInRuntime The kind of subscription.
 type NewAccountSignInRuntime string
+
+// NewArtifactShare defines model for NewArtifactShare.
+type NewArtifactShare struct {
+	// Label Whom the link is for, one line of at most 80 characters, such as "Laura".
+	Label string `json:"label"`
+}
 
 // NewBot defines model for NewBot.
 type NewBot struct {
@@ -4798,6 +4914,26 @@ type SetupChangeList struct {
 	Data []SetupChange `json:"data"`
 }
 
+// SharedArtifact defines model for SharedArtifact.
+type SharedArtifact struct {
+	// Entry The file shown, index.html of a folder or the one file.
+	Entry string `json:"entry"`
+
+	// Files The path its files load from, ending in "/".
+	Files string `json:"files"`
+
+	// MediaType The type of the file shown.
+	MediaType string `json:"media_type"`
+
+	// Revision The newest revision; the page reloads when it changes.
+	Revision int    `json:"revision"`
+	Title    string `json:"title"`
+
+	// Type How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
+	Type      ArtifactType `json:"type"`
+	UpdatedAt time.Time    `json:"updated_at"`
+}
+
 // Sheet defines model for Sheet.
 type Sheet struct {
 	// Csv The sheet's rows as RFC 4180 CSV, one line a sheet row, a row the sheet never stored as an empty line.
@@ -5147,7 +5283,7 @@ type Task struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
@@ -5187,7 +5323,7 @@ type TaskDetail struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
@@ -6016,9 +6152,6 @@ type UploadMeetingParams struct {
 	// People Who was in the meeting; they help name the speakers.
 	People *[]string `form:"people,omitempty" json:"people,omitempty"`
 
-	// Terms Words to hear right, such as names and jargon, given to the speech-to-text provider.
-	Terms *[]string `form:"terms,omitempty" json:"terms,omitempty"`
-
 	// Format The notes format's id (GET /meeting-settings lists them); absent, general.
 	Format *string `form:"format,omitempty" json:"format,omitempty"`
 }
@@ -6122,6 +6255,9 @@ type MoveAccountJSONRequestBody = AccountMove
 
 // DecideApprovalJSONRequestBody defines body for DecideApproval for application/json ContentType.
 type DecideApprovalJSONRequestBody = ApprovalDecision
+
+// CreateArtifactShareJSONRequestBody defines body for CreateArtifactShare for application/json ContentType.
+type CreateArtifactShareJSONRequestBody = NewArtifactShare
 
 // SpeakAudioJSONRequestBody defines body for SpeakAudio for application/json ContentType.
 type SpeakAudioJSONRequestBody = SpeakRequest
@@ -6255,8 +6391,20 @@ type BeginIntegrationSignInJSONRequestBody = NewSignIn
 // CompleteIntegrationSignInJSONRequestBody defines body for CompleteIntegrationSignIn for application/json ContentType.
 type CompleteIntegrationSignInJSONRequestBody = SignInCallback
 
+// CreateMeetingFormatJSONRequestBody defines body for CreateMeetingFormat for application/json ContentType.
+type CreateMeetingFormatJSONRequestBody = MeetingFormatInput
+
+// UpdateMeetingFormatJSONRequestBody defines body for UpdateMeetingFormat for application/json ContentType.
+type UpdateMeetingFormatJSONRequestBody = MeetingFormatInput
+
 // SetMeetingSettingsJSONRequestBody defines body for SetMeetingSettings for application/json ContentType.
 type SetMeetingSettingsJSONRequestBody = MeetingSettingsUpdate
+
+// SetMeetingWordsJSONRequestBody defines body for SetMeetingWords for application/json ContentType.
+type SetMeetingWordsJSONRequestBody = MeetingWordsUpdate
+
+// FixMeetingWordJSONRequestBody defines body for FixMeetingWord for application/json ContentType.
+type FixMeetingWordJSONRequestBody = MeetingWordFix
 
 // UpdateMeetingItemJSONRequestBody defines body for UpdateMeetingItem for application/json ContentType.
 type UpdateMeetingItemJSONRequestBody = MeetingItemUpdate
@@ -6546,6 +6694,11 @@ type ClientInterface interface {
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteArtifactShare Revoke a view-only link at once (owner only)
+	//
+	// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+	DeleteArtifactShare(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListArtifacts Artifacts at their newest revision, the latest changed first
 	//
 	// Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -6590,6 +6743,29 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /artifacts/{artifact_id}/revisions/{revision}/sheets (the `ReadArtifactSheets` operationId).
 	ReadArtifactSheets(ctx context.Context, artifactId ArtifactID, revision ArtifactRevisionNumber, params *ReadArtifactSheetsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListArtifactShares An artifact's view-only links, newest first (owner only)
+	//
+	// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+	ListArtifactShares(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateArtifactShareWithBody Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShareWithBody(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShare(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SpeakAudioWithBody Turn text into speech; any token, a Bot's included
 	//
@@ -7737,7 +7913,46 @@ type ClientInterface interface {
 	// Corresponds with GET /meeting-actions (the `ListMeetingActions` operationId).
 	ListMeetingActions(ctx context.Context, params *ListMeetingActionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetMeetingSettings The model that writes notes, and the notes formats
+	// CreateMeetingFormatWithBody Make a notes format of the owner's; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateMeetingFormat Make a notes format of the owner's; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormat(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+	//
+	// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+	//
+	// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+	DeleteMeetingFormat(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateMeetingFormatWithBody Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormatWithBody(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormat(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 	//
 	// Corresponds with GET /meeting-settings (the `GetMeetingSettings` operationId).
 	GetMeetingSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -7756,6 +7971,31 @@ type ClientInterface interface {
 	// Corresponds with PUT /meeting-settings (the `SetMeetingSettings` operationId).
 	SetMeetingSettings(ctx context.Context, body SetMeetingSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListMeetingWords The words to hear right, given to every transcription
+	//
+	// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+	//
+	// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+	ListMeetingWords(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMeetingWordsWithBody Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWordsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMeetingWords Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWords(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListMeetings The meetings, the newest first
 	//
 	// With q, those whose title or transcript holds it.
@@ -7765,7 +8005,7 @@ type ClientInterface interface {
 
 	// UploadMeetingWithBody Upload a meeting's recording, at most 128 MB; only the owner
 	//
-	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -7781,6 +8021,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FixMeetingWordWithBody Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWordWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWord(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateMeetingItemWithBody Mark an action done or not done; only the owner
 	//
@@ -8362,6 +8620,13 @@ type ClientInterface interface {
 	// Corresponds with POST /setup-changes/{change_id}/undo (the `UndoSetupChange` operationId).
 	UndoSetupChange(ctx context.Context, changeId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetShare What a view-only link shows, without signing in
+	//
+	// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+	//
+	// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+	GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 	//
 	// Read from skills.sh as the skills CLI reads it before installing. Empty when skills.sh has none or does not answer.
@@ -8846,6 +9111,21 @@ func (c *Client) DecideApproval(ctx context.Context, approvalId string, body Dec
 	return c.Client.Do(req)
 }
 
+// DeleteArtifactShare Revoke a view-only link at once (owner only)
+//
+// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+func (c *Client) DeleteArtifactShare(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteArtifactShareRequest(c.Server, shareId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListArtifacts Artifacts at their newest revision, the latest changed first
 //
 // Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -8951,6 +9231,59 @@ func (c *Client) OpenArtifactFrame(ctx context.Context, artifactId ArtifactID, r
 // Corresponds with GET /artifacts/{artifact_id}/revisions/{revision}/sheets (the `ReadArtifactSheets` operationId).
 func (c *Client) ReadArtifactSheets(ctx context.Context, artifactId ArtifactID, revision ArtifactRevisionNumber, params *ReadArtifactSheetsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReadArtifactSheetsRequest(c.Server, artifactId, revision, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListArtifactShares An artifact's view-only links, newest first (owner only)
+//
+// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+func (c *Client) ListArtifactShares(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListArtifactSharesRequest(c.Server, artifactId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateArtifactShareWithBody Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *Client) CreateArtifactShareWithBody(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateArtifactShareRequestWithBody(c.Server, artifactId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *Client) CreateArtifactShare(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateArtifactShareRequest(c.Server, artifactId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11647,7 +11980,96 @@ func (c *Client) ListMeetingActions(ctx context.Context, params *ListMeetingActi
 	return c.Client.Do(req)
 }
 
-// GetMeetingSettings The model that writes notes, and the notes formats
+// CreateMeetingFormatWithBody Make a notes format of the owner's; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *Client) CreateMeetingFormatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateMeetingFormatRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateMeetingFormat Make a notes format of the owner's; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *Client) CreateMeetingFormat(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateMeetingFormatRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+//
+// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+//
+// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+func (c *Client) DeleteMeetingFormat(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteMeetingFormatRequest(c.Server, formatId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateMeetingFormatWithBody Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *Client) UpdateMeetingFormatWithBody(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateMeetingFormatRequestWithBody(c.Server, formatId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *Client) UpdateMeetingFormat(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateMeetingFormatRequest(c.Server, formatId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 //
 // Corresponds with GET /meeting-settings (the `GetMeetingSettings` operationId).
 func (c *Client) GetMeetingSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -11696,6 +12118,61 @@ func (c *Client) SetMeetingSettings(ctx context.Context, body SetMeetingSettings
 	return c.Client.Do(req)
 }
 
+// ListMeetingWords The words to hear right, given to every transcription
+//
+// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+//
+// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+func (c *Client) ListMeetingWords(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListMeetingWordsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMeetingWordsWithBody Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *Client) SetMeetingWordsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMeetingWordsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMeetingWords Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *Client) SetMeetingWords(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMeetingWordsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListMeetings The meetings, the newest first
 //
 // With q, those whose title or transcript holds it.
@@ -11715,7 +12192,7 @@ func (c *Client) ListMeetings(ctx context.Context, params *ListMeetingsParams, r
 
 // UploadMeetingWithBody Upload a meeting's recording, at most 128 MB; only the owner
 //
-// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 //
 // Takes any type of body and a specified content type.
 //
@@ -11752,6 +12229,44 @@ func (c *Client) DeleteMeeting(ctx context.Context, meetingId MeetingID, reqEdit
 // Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 func (c *Client) GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMeetingRequest(c.Server, meetingId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FixMeetingWordWithBody Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *Client) FixMeetingWordWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFixMeetingWordRequestWithBody(c.Server, meetingId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *Client) FixMeetingWord(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFixMeetingWordRequest(c.Server, meetingId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -13182,6 +13697,23 @@ func (c *Client) UndoSetupChange(ctx context.Context, changeId string, reqEditor
 	return c.Client.Do(req)
 }
 
+// GetShare What a view-only link shows, without signing in
+//
+// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+//
+// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+func (c *Client) GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetShareRequest(c.Server, token)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 //
 // Read from skills.sh as the skills CLI reads it before installing. Empty when skills.sh has none or does not answer.
@@ -14127,6 +14659,40 @@ func NewDecideApprovalRequestWithBody(server string, approvalId string, contentT
 	return req, nil
 }
 
+// NewDeleteArtifactShareRequest constructs an http.Request for the DeleteArtifactShare method
+func NewDeleteArtifactShareRequest(server string, shareId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "share_id", shareId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/artifact-shares/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListArtifactsRequest constructs an http.Request for the ListArtifacts method
 func NewListArtifactsRequest(server string, params *ListArtifactsParams) (*http.Request, error) {
 	var err error
@@ -14509,6 +15075,87 @@ func NewReadArtifactSheetsRequest(server string, artifactId ArtifactID, revision
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListArtifactSharesRequest constructs an http.Request for the ListArtifactShares method
+func NewListArtifactSharesRequest(server string, artifactId ArtifactID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "artifact_id", artifactId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/artifacts/%s/shares", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateArtifactShareRequest calls the generic CreateArtifactShare builder with application/json body
+func NewCreateArtifactShareRequest(server string, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateArtifactShareRequestWithBody(server, artifactId, "application/json", bodyReader)
+}
+
+// NewCreateArtifactShareRequestWithBody constructs an http.Request for the CreateArtifactShare method, with any body, and a specified content type
+func NewCreateArtifactShareRequestWithBody(server string, artifactId ArtifactID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "artifact_id", artifactId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/artifacts/%s/shares", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -20073,6 +20720,127 @@ func NewListMeetingActionsRequest(server string, params *ListMeetingActionsParam
 	return req, nil
 }
 
+// NewCreateMeetingFormatRequest calls the generic CreateMeetingFormat builder with application/json body
+func NewCreateMeetingFormatRequest(server string, body CreateMeetingFormatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateMeetingFormatRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateMeetingFormatRequestWithBody constructs an http.Request for the CreateMeetingFormat method, with any body, and a specified content type
+func NewCreateMeetingFormatRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-formats")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteMeetingFormatRequest constructs an http.Request for the DeleteMeetingFormat method
+func NewDeleteMeetingFormatRequest(server string, formatId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "format_id", formatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-formats/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateMeetingFormatRequest calls the generic UpdateMeetingFormat builder with application/json body
+func NewUpdateMeetingFormatRequest(server string, formatId string, body UpdateMeetingFormatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateMeetingFormatRequestWithBody(server, formatId, "application/json", bodyReader)
+}
+
+// NewUpdateMeetingFormatRequestWithBody constructs an http.Request for the UpdateMeetingFormat method, with any body, and a specified content type
+func NewUpdateMeetingFormatRequestWithBody(server string, formatId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "format_id", formatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-formats/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetMeetingSettingsRequest constructs an http.Request for the GetMeetingSettings method
 func NewGetMeetingSettingsRequest(server string) (*http.Request, error) {
 	var err error
@@ -20121,6 +20889,73 @@ func NewSetMeetingSettingsRequestWithBody(server string, contentType string, bod
 	}
 
 	operationPath := fmt.Sprintf("/meeting-settings")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListMeetingWordsRequest constructs an http.Request for the ListMeetingWords method
+func NewListMeetingWordsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-words")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetMeetingWordsRequest calls the generic SetMeetingWords builder with application/json body
+func NewSetMeetingWordsRequest(server string, body SetMeetingWordsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetMeetingWordsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSetMeetingWordsRequestWithBody constructs an http.Request for the SetMeetingWords method, with any body, and a specified content type
+func NewSetMeetingWordsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-words")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -20290,18 +21125,6 @@ func NewUploadMeetingRequestWithBody(server string, params *UploadMeetingParams,
 
 		}
 
-		if params.Terms != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "terms", *params.Terms, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
 		if params.Format != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "format", *params.Format, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
@@ -20394,6 +21217,53 @@ func NewGetMeetingRequest(server string, meetingId MeetingID) (*http.Request, er
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewFixMeetingWordRequest calls the generic FixMeetingWord builder with application/json body
+func NewFixMeetingWordRequest(server string, meetingId MeetingID, body FixMeetingWordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewFixMeetingWordRequestWithBody(server, meetingId, "application/json", bodyReader)
+}
+
+// NewFixMeetingWordRequestWithBody constructs an http.Request for the FixMeetingWord method, with any body, and a specified content type
+func NewFixMeetingWordRequestWithBody(server string, meetingId MeetingID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "meeting_id", meetingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/%s/fix", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -22998,6 +23868,40 @@ func NewUndoSetupChangeRequest(server string, changeId string) (*http.Request, e
 	return req, nil
 }
 
+// NewGetShareRequest constructs an http.Request for the GetShare method
+func NewGetShareRequest(server string, token string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token", token, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/shares/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListSkillAuditsRequest constructs an http.Request for the ListSkillAudits method
 func NewListSkillAuditsRequest(server string, params *ListSkillAuditsParams) (*http.Request, error) {
 	var err error
@@ -23925,6 +24829,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
 
+	// DeleteArtifactShareWithResponse Revoke a view-only link at once (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+	DeleteArtifactShareWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*DeleteArtifactShareResponse, error)
+
 	// ListArtifactsWithResponse Artifacts at their newest revision, the latest changed first
 	//
 	// Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -23981,6 +24892,31 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /artifacts/{artifact_id}/revisions/{revision}/sheets (the `ReadArtifactSheets` operationId).
 	ReadArtifactSheetsWithResponse(ctx context.Context, artifactId ArtifactID, revision ArtifactRevisionNumber, params *ReadArtifactSheetsParams, reqEditors ...RequestEditorFn) (*ReadArtifactSheetsResponse, error)
+
+	// ListArtifactSharesWithResponse An artifact's view-only links, newest first (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+	ListArtifactSharesWithResponse(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*ListArtifactSharesResponse, error)
+
+	// CreateArtifactShareWithBodyWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShareWithBodyWithResponse(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error)
+
+	// CreateArtifactShareWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShareWithResponse(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error)
 
 	// SpeakAudioWithBodyWithResponse Turn text into speech; any token, a Bot's included
 	//
@@ -25260,7 +26196,48 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /meeting-actions (the `ListMeetingActions` operationId).
 	ListMeetingActionsWithResponse(ctx context.Context, params *ListMeetingActionsParams, reqEditors ...RequestEditorFn) (*ListMeetingActionsResponse, error)
 
-	// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats
+	// CreateMeetingFormatWithBodyWithResponse Make a notes format of the owner's; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error)
+
+	// CreateMeetingFormatWithResponse Make a notes format of the owner's; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormatWithResponse(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error)
+
+	// DeleteMeetingFormatWithResponse Delete a notes format of the owner's; only the owner
+	//
+	// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+	DeleteMeetingFormatWithResponse(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*DeleteMeetingFormatResponse, error)
+
+	// UpdateMeetingFormatWithBodyWithResponse Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormatWithBodyWithResponse(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error)
+
+	// UpdateMeetingFormatWithResponse Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormatWithResponse(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error)
+
+	// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats, built-in and the owner's
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -25281,6 +26258,33 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /meeting-settings (the `SetMeetingSettings` operationId).
 	SetMeetingSettingsWithResponse(ctx context.Context, body SetMeetingSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMeetingSettingsResponse, error)
 
+	// ListMeetingWordsWithResponse The words to hear right, given to every transcription
+	//
+	// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+	ListMeetingWordsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMeetingWordsResponse, error)
+
+	// SetMeetingWordsWithBodyWithResponse Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWordsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error)
+
+	// SetMeetingWordsWithResponse Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWordsWithResponse(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error)
+
 	// ListMeetingsWithResponse The meetings, the newest first
 	//
 	// With q, those whose title or transcript holds it.
@@ -25292,7 +26296,7 @@ type ClientWithResponsesInterface interface {
 
 	// UploadMeetingWithBodyWithResponse Upload a meeting's recording, at most 128 MB; only the owner
 	//
-	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -25312,6 +26316,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*GetMeetingResponse, error)
+
+	// FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWordWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error)
+
+	// FixMeetingWordWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWordWithResponse(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error)
 
 	// UpdateMeetingItemWithBodyWithResponse Mark an action done or not done; only the owner
 	//
@@ -25976,6 +26998,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /setup-changes/{change_id}/undo (the `UndoSetupChange` operationId).
 	UndoSetupChangeWithResponse(ctx context.Context, changeId string, reqEditors ...RequestEditorFn) (*UndoSetupChangeResponse, error)
+
+	// GetShareWithResponse What a view-only link shows, without signing in
+	//
+	// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+	GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error)
 
 	// ListSkillAuditsWithResponse What skills.sh's auditors said of a skill; only the owner
 	//
@@ -26738,6 +27769,47 @@ func (r DecideApprovalResponse) ContentType() string {
 	return ""
 }
 
+type DeleteArtifactShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteArtifactShareResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteArtifactShareResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteArtifactShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteArtifactShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteArtifactShareResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListArtifactsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -27061,6 +28133,102 @@ func (r ReadArtifactSheetsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ReadArtifactSheetsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListArtifactSharesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ArtifactShareList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListArtifactSharesResponse) GetJSON200() *ArtifactShareList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListArtifactSharesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListArtifactSharesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListArtifactSharesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListArtifactSharesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListArtifactSharesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateArtifactShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ArtifactShare
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateArtifactShareResponse) GetJSON201() *ArtifactShare {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateArtifactShareResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateArtifactShareResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateArtifactShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateArtifactShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateArtifactShareResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -32262,6 +33430,143 @@ func (r ListMeetingActionsResponse) ContentType() string {
 	return ""
 }
 
+type CreateMeetingFormatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *MeetingFormat
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateMeetingFormatResponse) GetJSON201() *MeetingFormat {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateMeetingFormatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateMeetingFormatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateMeetingFormatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateMeetingFormatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateMeetingFormatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteMeetingFormatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteMeetingFormatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteMeetingFormatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteMeetingFormatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteMeetingFormatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteMeetingFormatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateMeetingFormatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingFormat
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateMeetingFormatResponse) GetJSON200() *MeetingFormat {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateMeetingFormatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateMeetingFormatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateMeetingFormatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateMeetingFormatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateMeetingFormatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetMeetingSettingsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -32352,6 +33657,102 @@ func (r SetMeetingSettingsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetMeetingSettingsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListMeetingWordsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingWords
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListMeetingWordsResponse) GetJSON200() *MeetingWords {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListMeetingWordsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListMeetingWordsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListMeetingWordsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListMeetingWordsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListMeetingWordsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetMeetingWordsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingWords
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetMeetingWordsResponse) GetJSON200() *MeetingWords {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetMeetingWordsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetMeetingWordsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetMeetingWordsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetMeetingWordsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetMeetingWordsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -32537,6 +33938,54 @@ func (r GetMeetingResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetMeetingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type FixMeetingWordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingWordFixed
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r FixMeetingWordResponse) GetJSON200() *MeetingWordFixed {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r FixMeetingWordResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r FixMeetingWordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r FixMeetingWordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r FixMeetingWordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r FixMeetingWordResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -35525,6 +36974,54 @@ func (r UndoSetupChangeResponse) ContentType() string {
 	return ""
 }
 
+type GetShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SharedArtifact
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetShareResponse) GetJSON200() *SharedArtifact {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetShareResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetShareResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetShareResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListSkillAuditsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -36645,6 +38142,19 @@ func (c *ClientWithResponses) DecideApprovalWithResponse(ctx context.Context, ap
 	return ParseDecideApprovalResponse(rsp)
 }
 
+// DeleteArtifactShareWithResponse Revoke a view-only link at once (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+func (c *ClientWithResponses) DeleteArtifactShareWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*DeleteArtifactShareResponse, error) {
+	rsp, err := c.DeleteArtifactShare(ctx, shareId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteArtifactShareResponse(rsp)
+}
+
 // ListArtifactsWithResponse Artifacts at their newest revision, the latest changed first
 //
 // Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -36742,6 +38252,49 @@ func (c *ClientWithResponses) ReadArtifactSheetsWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReadArtifactSheetsResponse(rsp)
+}
+
+// ListArtifactSharesWithResponse An artifact's view-only links, newest first (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+func (c *ClientWithResponses) ListArtifactSharesWithResponse(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*ListArtifactSharesResponse, error) {
+	rsp, err := c.ListArtifactShares(ctx, artifactId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListArtifactSharesResponse(rsp)
+}
+
+// CreateArtifactShareWithBodyWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *ClientWithResponses) CreateArtifactShareWithBodyWithResponse(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error) {
+	rsp, err := c.CreateArtifactShareWithBody(ctx, artifactId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateArtifactShareResponse(rsp)
+}
+
+// CreateArtifactShareWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *ClientWithResponses) CreateArtifactShareWithResponse(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error) {
+	rsp, err := c.CreateArtifactShare(ctx, artifactId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateArtifactShareResponse(rsp)
 }
 
 // SpeakAudioWithBodyWithResponse Turn text into speech; any token, a Bot's included
@@ -38946,7 +40499,78 @@ func (c *ClientWithResponses) ListMeetingActionsWithResponse(ctx context.Context
 	return ParseListMeetingActionsResponse(rsp)
 }
 
-// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats
+// CreateMeetingFormatWithBodyWithResponse Make a notes format of the owner's; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *ClientWithResponses) CreateMeetingFormatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error) {
+	rsp, err := c.CreateMeetingFormatWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateMeetingFormatResponse(rsp)
+}
+
+// CreateMeetingFormatWithResponse Make a notes format of the owner's; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *ClientWithResponses) CreateMeetingFormatWithResponse(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error) {
+	rsp, err := c.CreateMeetingFormat(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateMeetingFormatResponse(rsp)
+}
+
+// DeleteMeetingFormatWithResponse Delete a notes format of the owner's; only the owner
+//
+// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+func (c *ClientWithResponses) DeleteMeetingFormatWithResponse(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*DeleteMeetingFormatResponse, error) {
+	rsp, err := c.DeleteMeetingFormat(ctx, formatId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteMeetingFormatResponse(rsp)
+}
+
+// UpdateMeetingFormatWithBodyWithResponse Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *ClientWithResponses) UpdateMeetingFormatWithBodyWithResponse(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error) {
+	rsp, err := c.UpdateMeetingFormatWithBody(ctx, formatId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateMeetingFormatResponse(rsp)
+}
+
+// UpdateMeetingFormatWithResponse Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *ClientWithResponses) UpdateMeetingFormatWithResponse(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error) {
+	rsp, err := c.UpdateMeetingFormat(ctx, formatId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateMeetingFormatResponse(rsp)
+}
+
+// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats, built-in and the owner's
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -38985,6 +40609,51 @@ func (c *ClientWithResponses) SetMeetingSettingsWithResponse(ctx context.Context
 	return ParseSetMeetingSettingsResponse(rsp)
 }
 
+// ListMeetingWordsWithResponse The words to hear right, given to every transcription
+//
+// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+func (c *ClientWithResponses) ListMeetingWordsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMeetingWordsResponse, error) {
+	rsp, err := c.ListMeetingWords(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListMeetingWordsResponse(rsp)
+}
+
+// SetMeetingWordsWithBodyWithResponse Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *ClientWithResponses) SetMeetingWordsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error) {
+	rsp, err := c.SetMeetingWordsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMeetingWordsResponse(rsp)
+}
+
+// SetMeetingWordsWithResponse Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *ClientWithResponses) SetMeetingWordsWithResponse(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error) {
+	rsp, err := c.SetMeetingWords(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMeetingWordsResponse(rsp)
+}
+
 // ListMeetingsWithResponse The meetings, the newest first
 //
 // With q, those whose title or transcript holds it.
@@ -39002,7 +40671,7 @@ func (c *ClientWithResponses) ListMeetingsWithResponse(ctx context.Context, para
 
 // UploadMeetingWithBodyWithResponse Upload a meeting's recording, at most 128 MB; only the owner
 //
-// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -39039,6 +40708,36 @@ func (c *ClientWithResponses) GetMeetingWithResponse(ctx context.Context, meetin
 		return nil, err
 	}
 	return ParseGetMeetingResponse(rsp)
+}
+
+// FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *ClientWithResponses) FixMeetingWordWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error) {
+	rsp, err := c.FixMeetingWordWithBody(ctx, meetingId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFixMeetingWordResponse(rsp)
+}
+
+// FixMeetingWordWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *ClientWithResponses) FixMeetingWordWithResponse(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error) {
+	rsp, err := c.FixMeetingWord(ctx, meetingId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFixMeetingWordResponse(rsp)
 }
 
 // UpdateMeetingItemWithBodyWithResponse Mark an action done or not done; only the owner
@@ -40209,6 +41908,21 @@ func (c *ClientWithResponses) UndoSetupChangeWithResponse(ctx context.Context, c
 	return ParseUndoSetupChangeResponse(rsp)
 }
 
+// GetShareWithResponse What a view-only link shows, without signing in
+//
+// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+func (c *ClientWithResponses) GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error) {
+	rsp, err := c.GetShare(ctx, token, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetShareResponse(rsp)
+}
+
 // ListSkillAuditsWithResponse What skills.sh's auditors said of a skill; only the owner
 //
 // Read from skills.sh as the skills CLI reads it before installing. Empty when skills.sh has none or does not answer.
@@ -40930,6 +42644,35 @@ func ParseDecideApprovalResponse(rsp *http.Response) (*DecideApprovalResponse, e
 	return response, nil
 }
 
+// ParseDeleteArtifactShareResponse parses an HTTP response from a DeleteArtifactShareWithResponse call
+func ParseDeleteArtifactShareResponse(rsp *http.Response) (*DeleteArtifactShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteArtifactShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListArtifactsResponse parses an HTTP response from a ListArtifactsWithResponse call
 func ParseListArtifactsResponse(rsp *http.Response) (*ListArtifactsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -41141,6 +42884,72 @@ func ParseReadArtifactSheetsResponse(rsp *http.Response) (*ReadArtifactSheetsRes
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListArtifactSharesResponse parses an HTTP response from a ListArtifactSharesWithResponse call
+func ParseListArtifactSharesResponse(rsp *http.Response) (*ListArtifactSharesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListArtifactSharesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ArtifactShareList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateArtifactShareResponse parses an HTTP response from a CreateArtifactShareWithResponse call
+func ParseCreateArtifactShareResponse(rsp *http.Response) (*CreateArtifactShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateArtifactShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ArtifactShare
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -44738,6 +46547,101 @@ func ParseListMeetingActionsResponse(rsp *http.Response) (*ListMeetingActionsRes
 	return response, nil
 }
 
+// ParseCreateMeetingFormatResponse parses an HTTP response from a CreateMeetingFormatWithResponse call
+func ParseCreateMeetingFormatResponse(rsp *http.Response) (*CreateMeetingFormatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateMeetingFormatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest MeetingFormat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteMeetingFormatResponse parses an HTTP response from a DeleteMeetingFormatWithResponse call
+func ParseDeleteMeetingFormatResponse(rsp *http.Response) (*DeleteMeetingFormatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteMeetingFormatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateMeetingFormatResponse parses an HTTP response from a UpdateMeetingFormatWithResponse call
+func ParseUpdateMeetingFormatResponse(rsp *http.Response) (*UpdateMeetingFormatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateMeetingFormatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingFormat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMeetingSettingsResponse parses an HTTP response from a GetMeetingSettingsWithResponse call
 func ParseGetMeetingSettingsResponse(rsp *http.Response) (*GetMeetingSettingsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -44787,6 +46691,72 @@ func ParseSetMeetingSettingsResponse(rsp *http.Response) (*SetMeetingSettingsRes
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest MeetingSettings
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListMeetingWordsResponse parses an HTTP response from a ListMeetingWordsWithResponse call
+func ParseListMeetingWordsResponse(rsp *http.Response) (*ListMeetingWordsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListMeetingWordsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingWords
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetMeetingWordsResponse parses an HTTP response from a SetMeetingWordsWithResponse call
+func ParseSetMeetingWordsResponse(rsp *http.Response) (*SetMeetingWordsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetMeetingWordsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingWords
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -44915,6 +46885,39 @@ func ParseGetMeetingResponse(rsp *http.Response) (*GetMeetingResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest MeetingDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseFixMeetingWordResponse parses an HTTP response from a FixMeetingWordWithResponse call
+func ParseFixMeetingWordResponse(rsp *http.Response) (*FixMeetingWordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &FixMeetingWordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingWordFixed
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -47014,6 +49017,39 @@ func ParseUndoSetupChangeResponse(rsp *http.Response) (*UndoSetupChangeResponse,
 	return response, nil
 }
 
+// ParseGetShareResponse parses an HTTP response from a GetShareWithResponse call
+func ParseGetShareResponse(rsp *http.Response) (*GetShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SharedArtifact
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListSkillAuditsResponse parses an HTTP response from a ListSkillAuditsWithResponse call
 func ParseListSkillAuditsResponse(rsp *http.Response) (*ListSkillAuditsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -47649,6 +49685,9 @@ type ServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string)
+	// DeleteArtifactShare Revoke a view-only link at once (owner only)
+	// (DELETE /artifact-shares/{share_id})
+	DeleteArtifactShare(w http.ResponseWriter, r *http.Request, shareId string)
 	// ListArtifacts Artifacts at their newest revision, the latest changed first
 	// (GET /artifacts)
 	ListArtifacts(w http.ResponseWriter, r *http.Request, params ListArtifactsParams)
@@ -47670,6 +49709,12 @@ type ServerInterface interface {
 	// ReadArtifactSheets A workbook of a revision read as CSV text a sheet, for its preview (owner only)
 	// (GET /artifacts/{artifact_id}/revisions/{revision}/sheets)
 	ReadArtifactSheets(w http.ResponseWriter, r *http.Request, artifactId ArtifactID, revision ArtifactRevisionNumber, params ReadArtifactSheetsParams)
+	// ListArtifactShares An artifact's view-only links, newest first (owner only)
+	// (GET /artifacts/{artifact_id}/shares)
+	ListArtifactShares(w http.ResponseWriter, r *http.Request, artifactId ArtifactID)
+	// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+	// (POST /artifacts/{artifact_id}/shares)
+	CreateArtifactShare(w http.ResponseWriter, r *http.Request, artifactId ArtifactID)
 	// SpeakAudio Turn text into speech; any token, a Bot's included
 	// (POST /audio/speech)
 	SpeakAudio(w http.ResponseWriter, r *http.Request)
@@ -48000,12 +50045,27 @@ type ServerInterface interface {
 	// ListMeetingActions The actions of every meeting, the newest meeting first
 	// (GET /meeting-actions)
 	ListMeetingActions(w http.ResponseWriter, r *http.Request, params ListMeetingActionsParams)
-	// GetMeetingSettings The model that writes notes, and the notes formats
+	// CreateMeetingFormat Make a notes format of the owner's; only the owner
+	// (POST /meeting-formats)
+	CreateMeetingFormat(w http.ResponseWriter, r *http.Request)
+	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+	// (DELETE /meeting-formats/{format_id})
+	DeleteMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string)
+	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+	// (PUT /meeting-formats/{format_id})
+	UpdateMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string)
+	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 	// (GET /meeting-settings)
 	GetMeetingSettings(w http.ResponseWriter, r *http.Request)
 	// SetMeetingSettings Pick the model that writes notes; only the owner
 	// (PUT /meeting-settings)
 	SetMeetingSettings(w http.ResponseWriter, r *http.Request)
+	// ListMeetingWords The words to hear right, given to every transcription
+	// (GET /meeting-words)
+	ListMeetingWords(w http.ResponseWriter, r *http.Request)
+	// SetMeetingWords Set the owner's words to hear right; only the owner
+	// (PUT /meeting-words)
+	SetMeetingWords(w http.ResponseWriter, r *http.Request)
 	// ListMeetings The meetings, the newest first
 	// (GET /meetings)
 	ListMeetings(w http.ResponseWriter, r *http.Request, params ListMeetingsParams)
@@ -48018,6 +50078,9 @@ type ServerInterface interface {
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
+	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+	// (POST /meetings/{meeting_id}/fix)
+	FixMeetingWord(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// UpdateMeetingItem Mark an action done or not done; only the owner
 	// (PATCH /meetings/{meeting_id}/items/{item_id})
 	UpdateMeetingItem(w http.ResponseWriter, r *http.Request, meetingId MeetingID, itemId string)
@@ -48207,6 +50270,9 @@ type ServerInterface interface {
 	// UndoSetupChange Undo a change of the main Bot; only the owner
 	// (POST /setup-changes/{change_id}/undo)
 	UndoSetupChange(w http.ResponseWriter, r *http.Request, changeId string)
+	// GetShare What a view-only link shows, without signing in
+	// (GET /shares/{token})
+	GetShare(w http.ResponseWriter, r *http.Request, token string)
 	// ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 	// (GET /skill-audits)
 	ListSkillAudits(w http.ResponseWriter, r *http.Request, params ListSkillAuditsParams)
@@ -48610,6 +50676,32 @@ func (siw *ServerInterfaceWrapper) DecideApproval(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteArtifactShare operation middleware
+func (siw *ServerInterfaceWrapper) DeleteArtifactShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "share_id" -------------
+	var shareId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "share_id", r.PathValue("share_id"), &shareId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "share_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteArtifactShare(w, r, shareId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListArtifacts operation middleware
 func (siw *ServerInterfaceWrapper) ListArtifacts(w http.ResponseWriter, r *http.Request) {
 
@@ -48891,6 +50983,58 @@ func (siw *ServerInterfaceWrapper) ReadArtifactSheets(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReadArtifactSheets(w, r, artifactId, revision, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListArtifactShares operation middleware
+func (siw *ServerInterfaceWrapper) ListArtifactShares(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "artifact_id" -------------
+	var artifactId ArtifactID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "artifact_id", r.PathValue("artifact_id"), &artifactId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "artifact_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListArtifactShares(w, r, artifactId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateArtifactShare operation middleware
+func (siw *ServerInterfaceWrapper) CreateArtifactShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "artifact_id" -------------
+	var artifactId ArtifactID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "artifact_id", r.PathValue("artifact_id"), &artifactId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "artifact_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateArtifactShare(w, r, artifactId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -52744,6 +54888,72 @@ func (siw *ServerInterfaceWrapper) ListMeetingActions(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// CreateMeetingFormat operation middleware
+func (siw *ServerInterfaceWrapper) CreateMeetingFormat(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMeetingFormat(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMeetingFormat operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMeetingFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "format_id" -------------
+	var formatId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "format_id", r.PathValue("format_id"), &formatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMeetingFormat(w, r, formatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMeetingFormat operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMeetingFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "format_id" -------------
+	var formatId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "format_id", r.PathValue("format_id"), &formatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMeetingFormat(w, r, formatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMeetingSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetMeetingSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -52763,6 +54973,34 @@ func (siw *ServerInterfaceWrapper) SetMeetingSettings(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetMeetingSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMeetingWords operation middleware
+func (siw *ServerInterfaceWrapper) ListMeetingWords(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMeetingWords(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetMeetingWords operation middleware
+func (siw *ServerInterfaceWrapper) SetMeetingWords(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetMeetingWords(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -52892,19 +55130,6 @@ func (siw *ServerInterfaceWrapper) UploadMeeting(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// ------------- Optional query parameter "terms" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "terms", r.URL.Query(), &params.Terms, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "terms"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "terms", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "format" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "format", r.URL.Query(), &params.Format, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -52972,6 +55197,32 @@ func (siw *ServerInterfaceWrapper) GetMeeting(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMeeting(w, r, meetingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FixMeetingWord operation middleware
+func (siw *ServerInterfaceWrapper) FixMeetingWord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meeting_id" -------------
+	var meetingId MeetingID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meeting_id", r.PathValue("meeting_id"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meeting_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FixMeetingWord(w, r, meetingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -54717,6 +56968,32 @@ func (siw *ServerInterfaceWrapper) UndoSetupChange(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// GetShare operation middleware
+func (siw *ServerInterfaceWrapper) GetShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetShare(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSkillAudits operation middleware
 func (siw *ServerInterfaceWrapper) ListSkillAudits(w http.ResponseWriter, r *http.Request) {
 
@@ -55438,6 +57715,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}/revisions/{revision}/sheets", wrapper.ReadArtifactSheets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}/revisions/{revision}/archive", wrapper.GetArtifactArchive)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts/{artifact_id}/revisions/{revision}/frame", wrapper.OpenArtifactFrame)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}/shares", wrapper.ListArtifactShares)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts/{artifact_id}/shares", wrapper.CreateArtifactShare)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/artifact-shares/{share_id}", wrapper.DeleteArtifactShare)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/shares/{token}", wrapper.GetShare)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/skills", wrapper.ListSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/skills", wrapper.AddSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/skills/archive", wrapper.UploadSkill)
@@ -55492,12 +57773,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meetings/{meeting_id}", wrapper.GetMeeting)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meetings/{meeting_id}/recording", wrapper.GetMeetingRecording)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/notes", wrapper.WriteMeetingNotes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/fix", wrapper.FixMeetingWord)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/speakers/{label}", wrapper.NameMeetingSpeaker)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/lines/{n}/speaker", wrapper.SetMeetingLineSpeaker)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/meetings/{meeting_id}/items/{item_id}", wrapper.UpdateMeetingItem)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-actions", wrapper.ListMeetingActions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-settings", wrapper.GetMeetingSettings)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-settings", wrapper.SetMeetingSettings)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meeting-formats", wrapper.CreateMeetingFormat)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/meeting-formats/{format_id}", wrapper.DeleteMeetingFormat)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-formats/{format_id}", wrapper.UpdateMeetingFormat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-words", wrapper.ListMeetingWords)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-words", wrapper.SetMeetingWords)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats", wrapper.ListChats)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats", wrapper.CreateChat)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/chats/{chat_id}", wrapper.DeleteChat)
@@ -55999,6 +58286,39 @@ func (response DecideApprovaldefaultJSONResponse) VisitDecideApprovalResponse(w 
 	return err
 }
 
+type DeleteArtifactShareRequestObject struct {
+	ShareId string `json:"share_id"`
+}
+
+type DeleteArtifactShareResponseObject interface {
+	VisitDeleteArtifactShareResponse(w http.ResponseWriter) error
+}
+
+type DeleteArtifactShare204Response struct {
+}
+
+func (response DeleteArtifactShare204Response) VisitDeleteArtifactShareResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteArtifactSharedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteArtifactSharedefaultJSONResponse) VisitDeleteArtifactShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListArtifactsRequestObject struct {
 	Params ListArtifactsParams
 }
@@ -56294,6 +58614,85 @@ type ReadArtifactSheetsdefaultJSONResponse struct {
 }
 
 func (response ReadArtifactSheetsdefaultJSONResponse) VisitReadArtifactSheetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListArtifactSharesRequestObject struct {
+	ArtifactId ArtifactID `json:"artifact_id"`
+}
+
+type ListArtifactSharesResponseObject interface {
+	VisitListArtifactSharesResponse(w http.ResponseWriter) error
+}
+
+type ListArtifactShares200JSONResponse ArtifactShareList
+
+func (response ListArtifactShares200JSONResponse) VisitListArtifactSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListArtifactSharesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListArtifactSharesdefaultJSONResponse) VisitListArtifactSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateArtifactShareRequestObject struct {
+	ArtifactId ArtifactID `json:"artifact_id"`
+	Body       *CreateArtifactShareJSONRequestBody
+}
+
+type CreateArtifactShareResponseObject interface {
+	VisitCreateArtifactShareResponse(w http.ResponseWriter) error
+}
+
+type CreateArtifactShare201JSONResponse ArtifactShare
+
+func (response CreateArtifactShare201JSONResponse) VisitCreateArtifactShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateArtifactSharedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateArtifactSharedefaultJSONResponse) VisitCreateArtifactShareResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -60732,6 +63131,118 @@ func (response ListMeetingActionsdefaultJSONResponse) VisitListMeetingActionsRes
 	return err
 }
 
+type CreateMeetingFormatRequestObject struct {
+	Body *CreateMeetingFormatJSONRequestBody
+}
+
+type CreateMeetingFormatResponseObject interface {
+	VisitCreateMeetingFormatResponse(w http.ResponseWriter) error
+}
+
+type CreateMeetingFormat201JSONResponse MeetingFormat
+
+func (response CreateMeetingFormat201JSONResponse) VisitCreateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMeetingFormatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateMeetingFormatdefaultJSONResponse) VisitCreateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMeetingFormatRequestObject struct {
+	FormatId string `json:"format_id"`
+}
+
+type DeleteMeetingFormatResponseObject interface {
+	VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error
+}
+
+type DeleteMeetingFormat204Response struct {
+}
+
+func (response DeleteMeetingFormat204Response) VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMeetingFormatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteMeetingFormatdefaultJSONResponse) VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMeetingFormatRequestObject struct {
+	FormatId string `json:"format_id"`
+	Body     *UpdateMeetingFormatJSONRequestBody
+}
+
+type UpdateMeetingFormatResponseObject interface {
+	VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error
+}
+
+type UpdateMeetingFormat200JSONResponse MeetingFormat
+
+func (response UpdateMeetingFormat200JSONResponse) VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMeetingFormatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateMeetingFormatdefaultJSONResponse) VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMeetingSettingsRequestObject struct {
 }
 
@@ -60798,6 +63309,83 @@ type SetMeetingSettingsdefaultJSONResponse struct {
 }
 
 func (response SetMeetingSettingsdefaultJSONResponse) VisitSetMeetingSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeetingWordsRequestObject struct {
+}
+
+type ListMeetingWordsResponseObject interface {
+	VisitListMeetingWordsResponse(w http.ResponseWriter) error
+}
+
+type ListMeetingWords200JSONResponse MeetingWords
+
+func (response ListMeetingWords200JSONResponse) VisitListMeetingWordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeetingWordsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListMeetingWordsdefaultJSONResponse) VisitListMeetingWordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMeetingWordsRequestObject struct {
+	Body *SetMeetingWordsJSONRequestBody
+}
+
+type SetMeetingWordsResponseObject interface {
+	VisitSetMeetingWordsResponse(w http.ResponseWriter) error
+}
+
+type SetMeetingWords200JSONResponse MeetingWords
+
+func (response SetMeetingWords200JSONResponse) VisitSetMeetingWordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMeetingWordsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetMeetingWordsdefaultJSONResponse) VisitSetMeetingWordsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -60949,6 +63537,46 @@ type GetMeetingdefaultJSONResponse struct {
 }
 
 func (response GetMeetingdefaultJSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FixMeetingWordRequestObject struct {
+	MeetingId MeetingID `json:"meeting_id"`
+	Body      *FixMeetingWordJSONRequestBody
+}
+
+type FixMeetingWordResponseObject interface {
+	VisitFixMeetingWordResponse(w http.ResponseWriter) error
+}
+
+type FixMeetingWord200JSONResponse MeetingWordFixed
+
+func (response FixMeetingWord200JSONResponse) VisitFixMeetingWordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FixMeetingWorddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response FixMeetingWorddefaultJSONResponse) VisitFixMeetingWordResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -63425,6 +66053,45 @@ func (response UndoSetupChangedefaultJSONResponse) VisitUndoSetupChangeResponse(
 	return err
 }
 
+type GetShareRequestObject struct {
+	Token string `json:"token"`
+}
+
+type GetShareResponseObject interface {
+	VisitGetShareResponse(w http.ResponseWriter) error
+}
+
+type GetShare200JSONResponse SharedArtifact
+
+func (response GetShare200JSONResponse) VisitGetShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSharedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSharedefaultJSONResponse) VisitGetShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSkillAuditsRequestObject struct {
 	Params ListSkillAuditsParams
 }
@@ -64195,6 +66862,9 @@ type StrictServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(ctx context.Context, request DecideApprovalRequestObject) (DecideApprovalResponseObject, error)
+	// DeleteArtifactShare Revoke a view-only link at once (owner only)
+	// (DELETE /artifact-shares/{share_id})
+	DeleteArtifactShare(ctx context.Context, request DeleteArtifactShareRequestObject) (DeleteArtifactShareResponseObject, error)
 	// ListArtifacts Artifacts at their newest revision, the latest changed first
 	// (GET /artifacts)
 	ListArtifacts(ctx context.Context, request ListArtifactsRequestObject) (ListArtifactsResponseObject, error)
@@ -64216,6 +66886,12 @@ type StrictServerInterface interface {
 	// ReadArtifactSheets A workbook of a revision read as CSV text a sheet, for its preview (owner only)
 	// (GET /artifacts/{artifact_id}/revisions/{revision}/sheets)
 	ReadArtifactSheets(ctx context.Context, request ReadArtifactSheetsRequestObject) (ReadArtifactSheetsResponseObject, error)
+	// ListArtifactShares An artifact's view-only links, newest first (owner only)
+	// (GET /artifacts/{artifact_id}/shares)
+	ListArtifactShares(ctx context.Context, request ListArtifactSharesRequestObject) (ListArtifactSharesResponseObject, error)
+	// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+	// (POST /artifacts/{artifact_id}/shares)
+	CreateArtifactShare(ctx context.Context, request CreateArtifactShareRequestObject) (CreateArtifactShareResponseObject, error)
 	// SpeakAudio Turn text into speech; any token, a Bot's included
 	// (POST /audio/speech)
 	SpeakAudio(ctx context.Context, request SpeakAudioRequestObject) (SpeakAudioResponseObject, error)
@@ -64546,12 +67222,27 @@ type StrictServerInterface interface {
 	// ListMeetingActions The actions of every meeting, the newest meeting first
 	// (GET /meeting-actions)
 	ListMeetingActions(ctx context.Context, request ListMeetingActionsRequestObject) (ListMeetingActionsResponseObject, error)
-	// GetMeetingSettings The model that writes notes, and the notes formats
+	// CreateMeetingFormat Make a notes format of the owner's; only the owner
+	// (POST /meeting-formats)
+	CreateMeetingFormat(ctx context.Context, request CreateMeetingFormatRequestObject) (CreateMeetingFormatResponseObject, error)
+	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+	// (DELETE /meeting-formats/{format_id})
+	DeleteMeetingFormat(ctx context.Context, request DeleteMeetingFormatRequestObject) (DeleteMeetingFormatResponseObject, error)
+	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+	// (PUT /meeting-formats/{format_id})
+	UpdateMeetingFormat(ctx context.Context, request UpdateMeetingFormatRequestObject) (UpdateMeetingFormatResponseObject, error)
+	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 	// (GET /meeting-settings)
 	GetMeetingSettings(ctx context.Context, request GetMeetingSettingsRequestObject) (GetMeetingSettingsResponseObject, error)
 	// SetMeetingSettings Pick the model that writes notes; only the owner
 	// (PUT /meeting-settings)
 	SetMeetingSettings(ctx context.Context, request SetMeetingSettingsRequestObject) (SetMeetingSettingsResponseObject, error)
+	// ListMeetingWords The words to hear right, given to every transcription
+	// (GET /meeting-words)
+	ListMeetingWords(ctx context.Context, request ListMeetingWordsRequestObject) (ListMeetingWordsResponseObject, error)
+	// SetMeetingWords Set the owner's words to hear right; only the owner
+	// (PUT /meeting-words)
+	SetMeetingWords(ctx context.Context, request SetMeetingWordsRequestObject) (SetMeetingWordsResponseObject, error)
 	// ListMeetings The meetings, the newest first
 	// (GET /meetings)
 	ListMeetings(ctx context.Context, request ListMeetingsRequestObject) (ListMeetingsResponseObject, error)
@@ -64564,6 +67255,9 @@ type StrictServerInterface interface {
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(ctx context.Context, request GetMeetingRequestObject) (GetMeetingResponseObject, error)
+	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+	// (POST /meetings/{meeting_id}/fix)
+	FixMeetingWord(ctx context.Context, request FixMeetingWordRequestObject) (FixMeetingWordResponseObject, error)
 	// UpdateMeetingItem Mark an action done or not done; only the owner
 	// (PATCH /meetings/{meeting_id}/items/{item_id})
 	UpdateMeetingItem(ctx context.Context, request UpdateMeetingItemRequestObject) (UpdateMeetingItemResponseObject, error)
@@ -64753,6 +67447,9 @@ type StrictServerInterface interface {
 	// UndoSetupChange Undo a change of the main Bot; only the owner
 	// (POST /setup-changes/{change_id}/undo)
 	UndoSetupChange(ctx context.Context, request UndoSetupChangeRequestObject) (UndoSetupChangeResponseObject, error)
+	// GetShare What a view-only link shows, without signing in
+	// (GET /shares/{token})
+	GetShare(ctx context.Context, request GetShareRequestObject) (GetShareResponseObject, error)
 	// ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 	// (GET /skill-audits)
 	ListSkillAudits(ctx context.Context, request ListSkillAuditsRequestObject) (ListSkillAuditsResponseObject, error)
@@ -65197,6 +67894,32 @@ func (sh *strictHandler) DecideApproval(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// DeleteArtifactShare operation middleware
+func (sh *strictHandler) DeleteArtifactShare(w http.ResponseWriter, r *http.Request, shareId string) {
+	var request DeleteArtifactShareRequestObject
+
+	request.ShareId = shareId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteArtifactShare(ctx, request.(DeleteArtifactShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteArtifactShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteArtifactShareResponseObject); ok {
+		if err := validResponse.VisitDeleteArtifactShareResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListArtifacts operation middleware
 func (sh *strictHandler) ListArtifacts(w http.ResponseWriter, r *http.Request, params ListArtifactsParams) {
 	var request ListArtifactsRequestObject
@@ -65380,6 +68103,65 @@ func (sh *strictHandler) ReadArtifactSheets(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReadArtifactSheetsResponseObject); ok {
 		if err := validResponse.VisitReadArtifactSheetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListArtifactShares operation middleware
+func (sh *strictHandler) ListArtifactShares(w http.ResponseWriter, r *http.Request, artifactId ArtifactID) {
+	var request ListArtifactSharesRequestObject
+
+	request.ArtifactId = artifactId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListArtifactShares(ctx, request.(ListArtifactSharesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListArtifactShares")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListArtifactSharesResponseObject); ok {
+		if err := validResponse.VisitListArtifactSharesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateArtifactShare operation middleware
+func (sh *strictHandler) CreateArtifactShare(w http.ResponseWriter, r *http.Request, artifactId ArtifactID) {
+	var request CreateArtifactShareRequestObject
+
+	request.ArtifactId = artifactId
+
+	var body CreateArtifactShareJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateArtifactShare(ctx, request.(CreateArtifactShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateArtifactShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateArtifactShareResponseObject); ok {
+		if err := validResponse.VisitCreateArtifactShareResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -68578,6 +71360,96 @@ func (sh *strictHandler) ListMeetingActions(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// CreateMeetingFormat operation middleware
+func (sh *strictHandler) CreateMeetingFormat(w http.ResponseWriter, r *http.Request) {
+	var request CreateMeetingFormatRequestObject
+
+	var body CreateMeetingFormatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateMeetingFormat(ctx, request.(CreateMeetingFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateMeetingFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateMeetingFormatResponseObject); ok {
+		if err := validResponse.VisitCreateMeetingFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMeetingFormat operation middleware
+func (sh *strictHandler) DeleteMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string) {
+	var request DeleteMeetingFormatRequestObject
+
+	request.FormatId = formatId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMeetingFormat(ctx, request.(DeleteMeetingFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMeetingFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMeetingFormatResponseObject); ok {
+		if err := validResponse.VisitDeleteMeetingFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMeetingFormat operation middleware
+func (sh *strictHandler) UpdateMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string) {
+	var request UpdateMeetingFormatRequestObject
+
+	request.FormatId = formatId
+
+	var body UpdateMeetingFormatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMeetingFormat(ctx, request.(UpdateMeetingFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMeetingFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMeetingFormatResponseObject); ok {
+		if err := validResponse.VisitUpdateMeetingFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMeetingSettings operation middleware
 func (sh *strictHandler) GetMeetingSettings(w http.ResponseWriter, r *http.Request) {
 	var request GetMeetingSettingsRequestObject
@@ -68626,6 +71498,61 @@ func (sh *strictHandler) SetMeetingSettings(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetMeetingSettingsResponseObject); ok {
 		if err := validResponse.VisitSetMeetingSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMeetingWords operation middleware
+func (sh *strictHandler) ListMeetingWords(w http.ResponseWriter, r *http.Request) {
+	var request ListMeetingWordsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMeetingWords(ctx, request.(ListMeetingWordsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMeetingWords")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMeetingWordsResponseObject); ok {
+		if err := validResponse.VisitListMeetingWordsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetMeetingWords operation middleware
+func (sh *strictHandler) SetMeetingWords(w http.ResponseWriter, r *http.Request) {
+	var request SetMeetingWordsRequestObject
+
+	var body SetMeetingWordsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetMeetingWords(ctx, request.(SetMeetingWordsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetMeetingWords")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetMeetingWordsResponseObject); ok {
+		if err := validResponse.VisitSetMeetingWordsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -68732,6 +71659,39 @@ func (sh *strictHandler) GetMeeting(w http.ResponseWriter, r *http.Request, meet
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeetingResponseObject); ok {
 		if err := validResponse.VisitGetMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// FixMeetingWord operation middleware
+func (sh *strictHandler) FixMeetingWord(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
+	var request FixMeetingWordRequestObject
+
+	request.MeetingId = meetingId
+
+	var body FixMeetingWordJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.FixMeetingWord(ctx, request.(FixMeetingWordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FixMeetingWord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(FixMeetingWordResponseObject); ok {
+		if err := validResponse.VisitFixMeetingWordResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -70506,6 +73466,32 @@ func (sh *strictHandler) UndoSetupChange(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// GetShare operation middleware
+func (sh *strictHandler) GetShare(w http.ResponseWriter, r *http.Request, token string) {
+	var request GetShareRequestObject
+
+	request.Token = token
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetShare(ctx, request.(GetShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetShareResponseObject); ok {
+		if err := validResponse.VisitGetShareResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListSkillAudits operation middleware
 func (sh *strictHandler) ListSkillAudits(w http.ResponseWriter, r *http.Request, params ListSkillAuditsParams) {
 	var request ListSkillAuditsRequestObject
@@ -70999,994 +73985,4 @@ func (sh *strictHandler) SearchWeb(w http.ResponseWriter, r *http.Request) {
 	} else if response != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
 	}
-}
-
-// Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
-// Stored as a slice of fixed-width chunks rather than one concatenated
-// const string: with thousands of chunks the chained `+` fold is several
-// times slower for the Go compiler than parsing a slice literal.
-var swaggerSpec = []string{
-	"7P37chs5li+MvgqCe5+QPZG62OVyd0nxxflUrpun6+KxXFNnT1dtCWKCJEZJgJVASmY7KuI8zXmw8yRf",
-	"rAuQSBKZJCXKrp49f3SXzMzEdWFhXX/rw2hs5wtrlPFudPphtJC1nCuvavzX+XhsG+NffwX/0GZ0OlpI",
-	"PxsVIyPnanQ6kvT8UpejYlSr3xtdq3J06utGFSM3nqm5pEa9VzV8/r/leHz5d3n4j5PDL3778Kx4cfLH",
-	"/xwVI79cQHPO19pMR3/8UYzOJ17V8G2p3LjWC68tfP9upoRTvws7EX6mRCWdF+pWGS9kVStZLgX8/9Go",
-	"oNH+3qh6mQwXG01HNrH1XPrR6Ugb//LFqBjNtdHzZj46PYmj0sarqappWLXXEzkeWBF+YZclqT0uyfPD",
-	"v/z24fnLvgXhht+qW+20NT8282tV94yi5pcGhxCn+iw/VXejzfTVTPr8Noxn0gspxtbWpTbS21pId+PE",
-	"pLbzQjgrPL5gxPliUdtbWeGOwXCU8+JOau/ExNZCOyGNu1O1KuGNWh2J11Nj4Z/wGD6yd0bVfZsK46DV",
-	"TqYm33+vzNTPRqcvX2RXEyf31jZeG/W2Mfkp3qhloDR+9cCJujHibmadEvQ6zroQdzM9ngmYVCUbM56p",
-	"WtxJJ6b6VpldluNaVdZMnfD8Rd2YTQsyU7JUdbsi3y0Xdm7UXB7yqA9hhj3r8+z5X3ML9KVlGl9flS+t",
-	"P3BCl2HORt2qGsjBTJUTT7RzjRoVObK8thvPRbpzn+FxjAPNDRPIs/cstpQxeAiGO7DGqDHM/nt5raqe",
-	"nip8tuV5D+yP/3v424eT4rM+Pvi6VPOF9cqMl39Ty/UN+UHeKNchJScnCqinVgsl/Sk+c3JO1Hyn/az9",
-	"JXxSK9/UhpqZ6Bp/cU3lz+h9aSwczPi69nBodTuyyxu1vBxbM6n02PeSZTKVQ5hLz7Y///zzzfv+GhhV",
-	"LWERerdft+/ssjWr+/Lk70fJT8+Kl5/98fTDSfHXng37XtY3r2bSGFX9iOPIHSF+4cAJGOtR/rSM6aV7",
-	"j/3FFz1D/EEpr820d+Hm9HyHK2zup1vd6mFFMp3if/bIGX5Ud8AcvrSZ6+sbuKvoAjPWi7kslVgqXzBf",
-	"13gRiXGllfFijL8RWxP/47PP//KUztSX1vP7E1uVqhZX19ZfCe1abk/nqVIu3CLQ5YHjMzZXzsmpElMr",
-	"tPFW0A2ATdmJkN7L8WyujHfiWk1srWILcPpgzEciZcdH4idTLanPdEAeOYT2Z2LSTtsnzcB5njfOi2uV",
-	"DvJL6/uu3GvrO6c3s/q2VL30ZWypHsqX/w040dDp/51f2ENHjRrqpdk4l34hMy958a3d22lNz3c4n7U3",
-	"l38/P/wPOqKXyMb6zujbpn9R6+bB63lxo6tqgA84eL41I3ixmRFcNAtVO+W/km52bWVd9sk1ZXgB2DJK",
-	"18LWeCpd1Ux7mHT8aGs2Hbfht2RHkGE/e/6Xnj15J91N76Z46W4euiu/2PrGLeRY5RaH+EiQPYnfEIsp",
-	"BLIUGB7yIDHhFbuz9Y2vVd/Vdhe629u430D7ayM/F9Cv0CZhiwUJNRNb38m6FK6SbqbcmVDzhV/ifK4d",
-	"8H3tko9gUqqa9DFEnl0/R/wDJukW1jiFivXXdW1ReRtb45XBO0ouFpUeo7xy/J/Ook7Stvg/azUZnY7+",
-	"x3Grrx/TU3dMrWEvK/M3QsGzI1wsfj1R7OHPRW0XqvaaBja2toK7v1aSh9Bt8ZfZUmiUD70rhBS19EpU",
-	"eq49LN1duPWm0qs7Cdr42NalQo18ZU2K2FdjvK46jLKUXh16PVe5z9Rc0utrT3SZ/bkKkvvak0UlTf6B",
-	"dZpm/GGNQxfABnFwuS+dnppL3aNQOg/LBbe7gPcOtaEb2BKBAjHUthIwLHUkzokQ8do2gm0tLHO8+v41",
-	"6pfQjCqBwq0RUsDVCmutDFwvfx/Jsde3sIqVnWpzGQ9aMTL20tsbZdzot8waw0AbJIi1lkrt5HWlyux3",
-	"2OSler/QtXKXOdPBLzNFk5XjsXJO4BdCmRJ1aGWiaHJj7J05Y2WjVkbdqTKRhAxMcxuC+SPlL38fEcPh",
-	"DSyi5sYTTna+nZ69/k819jA9PjbfA72/VU7RuS1L/EJWb5KjNJGVU8XK6WIN6lKX6wuDNhVZVaomVooi",
-	"o3aiceqsVdl0KeRUagM/O2GscGpsTQkHUqG8lr1qLklzedFzvaTrkwxxqxVw6zxE3kpdAY2sT/I7eyfm",
-	"0iyZZeCoXSAHJO+xxLklDCM5eFsRljUKWiiFUe99l7KUuFWmtLVwcunuSUDt7Datzy/alPZufX1Mr154",
-	"h18UwjXjmZBO/Dr6XMxsU7tfR4X4dXSn1M2vI2Fr/ls8+WnRuKe/jrLslRZ3eK2oQ+BLtXdEWQ9brGIE",
-	"S3+5UPVYmUzPMMuFrD3uUIHGQnEivBXPTk6SWZD8tbb2rCR2uti0CxkCLZXnK2R1WaQXd8Bz72prpkUQ",
-	"HJyqb/FY3tm6Q01wXsVE6qrnhquVLIc3gJd4Km8VHXf4RJvp9utdx1M4JCJkzi3slRk4q3DVo0FWyFoB",
-	"qyFicac00BttkEmFgwtUIow1zK3CzzNJbIqvO2wPWTwcdOluztJlkO5GlUANYA89yy1xuI6M9ZdoWx21",
-	"Vy6uBVguYO3wi+wdxdOACWuv5jstHR/pP2Kzsq7lco1OQxeDtOky4lcpvdx1YBtHg40ODOUHe6t2vMhK",
-	"XZNVNBURmsWoGJX2zmSWfXVI8fuBcV3oqXltzr0H0Xx9rcJloM0lXYIuL631SIUL6XyG6l/Z+aJC+5cw",
-	"SpV8OZVljcLKTInr2t45VcPFokphTXLwr62tlDSbRMSmrvKMsdLmprXvC7tQxgEPkrFTTydJaHPUw3vr",
-	"y7Ete64XeJK0r4xXtQvC5wJsUT6MAvsu2GQUDi+e29Ki4OEFLuDRrgIXTD4sfpHbw40E8UpW1bUc3+xI",
-	"suPks8zNO7PV5n1OTA9/ffbF82HjQzG6q7VXYJUjxfaPP7JTg1GcozCcvSfQ9L4qIdVKVtVSlJafwOtC",
-	"+nhb6bEqhHTkIIUr5VRMa2k83Llz7RyQ9xMZLfqktpOgPWlcK2jTj04ZNI5Kj64epBZb6fHyKRoAGoOy",
-	"uniivRjbpiqRPK4VdnwWOnFiaoU1T1MuzmOClaVBAYFQa1nWTYv1BvvuKCdVZe9GxUi6m1ExQofUxu9f",
-	"ocNqRyJaxK6HGXMyzNXzwE1kyZzIT6l0bomDdVSM8OTm5wZrEG6VwSllhB6J5uy5XKLsLX60niR0oBcd",
-	"H4CrvV4KvOPjY0tWZ+sUOjPKQkhToiBAcpKx+LvQKEN2l5MbSbhkwkLhq+4tvTbnwWsvNB5ayq44ep53",
-	"XLE3enyDWobFX8T1UmhTqvc0c1mWwoPmgbPXXiBxujMhRbBJowXKNp4bcGyjh6/W18guwj07FJtQjODr",
-	"VVfaycnJSY4/r68DO6XXOdBPpvUTgsQ2VYY9Jt4KGZgNXQ2tFzteMgfBu18INwMmUSq4hcoj8RpZC3AK",
-	"Kb6VXq3PXI5XTDDtxtOjy6BJrT8HQfLyOuMwXegCrZNk3Y2O9LUWgvM41/q4VtKrINlvJ6aXaqzLXb/R",
-	"biH9eNY3Dro9M7aEH+21LZdtXMXdTMPtthrFIPkE037BT3jZodEF7xoHd0itgEo6Gk5ySnuGljpfd7TJ",
-	"yWVlZbm9FMyk+41WVbnOFIrUXZK9+nlR2LAGq4DUk1fouC12hOTGP/DIje2ixygykWTk48nA1TlGszRb",
-	"o9FGyo/h9PBAMHqmupPL9tgNTCdcKdaM1agYOeVCkBB9s8EUuM0uXNDbfxTRLZHl29pXPbKxy9HzebIy",
-	"ME+bMCVQMCFIJkOdOUm0GxUQzH/MarqMJWEjYcgteSYmQxxzhyv8NsBiv1Jjis3aUeNKPusuDhOFqMiU",
-	"pl1neerGnAW6ueQdF7JyVjhvF3DAIRIqUg+LkuGfNTQRQqAaE1hF60PGFWo7YEIKikO8OFY4D9wfxeAA",
-	"grbRfldJr2r42glvbcEnQnsnFrWdL3wR4rFsLYAqy6ZSMSopvZKiR1yAOnDG/I0lX/i9Y0CniY2K8Ndl",
-	"e2pWJo32B9ztzepv2MwhQiGGtqb29nPOW1k1Ku+P78hFTPP0+tAI9mGj4KYeYKTocpZEMl4oU5LOEPhi",
-	"3IIe008Iolyf1LXtMVYGSzwFfCBNgiCjSiaURxcclPH1chd3Vwz+zM4H/CioE9JLeTt7eJrRSL9GFSC8",
-	"IG4UnDxuFONazkgjQOkXGFGIiBVs3IQetyOdlYjX3N3u9D9UNsRifU79dw79sN1g3sG7cE8tyh13MncZ",
-	"tRGKFFKTxO2G+wZbCVTAE+4QUmcs2QPEQ38l6ww72YKI/jnWsn/ttlyfb3SlXpuJXV+juSq1vAxTy0is",
-	"fpZ9sDV1rswnhBPQXie9Dw6/ZmWoO/ZeYyMFNhw4CpFAI6B27OooBLFWuIZ/HR1nHUwrY4Z+hoa3j7uE",
-	"m3rAXbLKUtYG9CAOnVlk0LtQ8S3IRnA08/OKIgBCrF8dvZbwdvZOgQdu53WKBJ1TigbP9ydiq2uu6C25",
-	"IS3PZgk87SyrhYEGllxXvHET25iSXJXaO3G99MqRkUvO1amAHS2EJAM6WusrOwY/1gRO5JlYlJMzoedy",
-	"qs5whwvhrQA3CegRqawJDY2K0aKcjIoRfsBzW5dlitH7Q/js8FbWbCf7e5zfd+9++H7UTvfNV98k/3rN",
-	"7aZEggvyG6xQU+oM/wPhSpecE7RO5BK+EvGlQoDuSlFWsF7uTntwZ5sSQtDd9vc/NPuGW/1em5usAOD7",
-	"nMxhOMGJa2s4bW6h1Hh26O0h2ugwY8XP1Hy3Uf1Nm7JvRN67nUYE44Dx0Mj2P6LVuyXuJS0eDTh7XLBd",
-	"tVynB/AqXKITfhc22R/2cCubygunxrViEXtmK3a93ahlX3SD37Qyv6jrCyXr8ewtvPxH9A/vGnGGYVup",
-	"5oGpZom/eaPCx/YEamhosc/LUmWkNBkO5kZC2GmlcXkx2EotwMZUZo2h+bnQkPrnok3GkOM8MdbOKSyE",
-	"927lHKR8MUemiU7XIf912c2WqkcCgisXH7Obi6IPQnRoG+WAnrQGY/XBJ8juDC+e4BIc/9qcnHw2xobw",
-	"T/U0S7B9ClkwkzObDHaQcE7zVtfwdCceSvY1OVVbffUzvtnHPkY4oYKXN7TbSw0/qjvmJDuYvG7UcsWh",
-	"8ezk+Yt7OF3TCUCjvcP8qS5VveMoO5fj7hcb9D2X71/Th+RSbv+xJSvvndCbhE7icbJG2/ejYqQqSJ2t",
-	"5PXAwQoN3Mtb2hEv+6yyfVawtdt/7WiDNLF+pl57h3JG0b1mE2NkuGGFsXc73rJqmbvy73m0yUp6bf0M",
-	"2Yzb81H/JDdkdxHwnjztsFdtUCj0TW2OBPd2ShKjnQjNm4dPHNt4rzqDuqJlwx+vjgQEgjnlL5vFqTCW",
-	"7jMOrYO77kjYyeQ0Mf7SXsBAwLA9Se+Z1Vu9GLWNj4qRnUw2X/Sr/JEWpiBa7aXzC7zzBq79ddqia/KA",
-	"1ZFCXEunXr7ohA3Ckx4LZS3Hvleeb58Lt4Dw7J5g3Lq29UZZl3Y9yWCDW5dzock7SW7zu9mSqKDUGD+y",
-	"9cGMJMxZEOvHMyxIRked67nqN+xE2WHtyT0PZT+xhHuUx5qOLIhanY3rJaV3EBiUoSRe7Ly+fy+K2MI4",
-	"wFGY2T6TmL31DvkhsARKIdGYE19LA29eq3JzrHCccRxG2+eWS8nd5YIPy6Z1bq8PP44Z/FYoqgBT4t4z",
-	"Q/8nOkyVNNOGZcjHPzCwZdN5ACdZj0xxCyVv2tBsDEjB9wsxbryAhQnvsC+QLDWNU8JCLNtfT07EHP2D",
-	"L05OEjrfesVaIrmgnnOLFmJz1mORYdRbC45tX7/Yutxa1U/YCw6kaKk3Wd8wmN7j8HNQHVYpVLtu5tKB",
-	"C7IW3EtL8fO7V6KUS6TMuTV+th7qgz9vRRvE32DqtpTLXT5ZWR36vuCuc7P+kux4b2MqXBAUSgWuR0Q+",
-	"iKxlSvd8DNkJYYzFCMOIL2XT6aUlAc5QX03DC7ATmwXTGPdX5JAG2oaiE5Oj+dhOlwREnKJruBBybs2U",
-	"Y/oykhPHB4Dzyh3d2605mdjaD/g1dwQeOePgRGK9xBTRMhqnHf6lXVY/n8u+rD14Ai2chlAbzIoouP9a",
-	"zcH1XHRS66kvY7FjL6sbF+yhxKAxLBCYN48e3iOb8qK2BBkQ7c3Qal41mMv3l4HglBvItmo92MQpb1RN",
-	"gRjSC2swVnhcW+d4DY0tW8SDly9PGPGgMU55X6lSfBU7TYJDHEWKAi7BC9GYKgRSwxJgmhdMxt71SJNz",
-	"Nbc5L8ovIaUUmrlRauHCWJH+CrwC0R8gFqoWlTZ5Fwq1f4lBoT3bbJ1PJR3olL4ic2TPuHuvvLwVrjMf",
-	"7SjlrzwLvgYgAaIJtkRJUasAErJ+q6raWSM39wLNzuwdBr2ombxVkMVUa+8Vhq/GQ34mFlpMabMEwmWR",
-	"y6PRlYcMAG2crxviJ/kRaWNyEVzAoEj7g76cLtW1hGv7Db4PohG8WJANUvjk1PVoxUmCbh+nWFRyrFaM",
-	"7S03U0A8J4zFEYj9xV9Onp51uofVw3fy25/KNfl4P9dvNBlm7C3rvoB2Rn8UQ5s8x2xrVqNlwveT+O0C",
-	"1GPchRWWf0ofBaiE5OsCO4goBy60hpEc4jztxzCPLSnJi8I98MLA5IqjUeaKRbSHPh0An8UJIlVeKyAd",
-	"vpow/0t4S1zL0sHfNlg89H0Jav1Q/2u9tNguX9okHWaq/G79e2srZN/VZjnmnbXVV/wqf+r6jNrVUkQE",
-	"MIFvJsyfjzff/fScYYgIy2Ei57paiidXGOl9yVkwl/9y9ZQhEgq+JOBLzhuAFpEYvn99gCyeu6W8Qd9K",
-	"DgjvtvMiDezR4ETpfu5Md3WeGOp8p40jbQAb2W2AuwevFCO+gR8m2VEjrbyQMgKgWXxBeHuUD5dhLw5K",
-	"PQk7jRy8vVzi3bxyicbT2zlKgTjTrSs68mw7/8ghVw7DmmSzW8DTl9Zvaa6ea5P++qzoydTeBXLmMe7A",
-	"s5Blo9YyFlKzem4l9hB3AxrKvUNuvrT+Pl4VggrckP7TukqebRheaK5nhBfKg8XX7TjIj6GlnYlKTbyw",
-	"jS9WxGDEmtQgmAyrU3vTEoaGUogXHPNt1J3gu3gu31PCEh+aXtCrQctRK+MOWpX+PNIX/jcVoaQTkoSg",
-	"065oFtYzLP1cLtblJvH9AAHQJB8qW8mydP27S9KWxlSLRxGxgHAS6Yr6JkhKO5k8xsDuK3sNEcEBq6So",
-	"ygVnFnSEOp4bPj3WrB6fLcS8jswzLOjkBLqCMa/i8nNm56Os9gAVdKcR931AaNv/ED+qSLYVT8/e57R5",
-	"GXvhrLZ9MT8RO2AVYQqTadBCiyuM1icSRW5VvZIc0K7cjLNS+hPVScFuQ7h4AGeUPOoO6DygdhDSzedK",
-	"GkxS7EkyNM6jnWS4Y+7oAFOCprWcOwFOETFRqH6gYr/EfiM4Z+38CtxQF8TBwKyz6cleXm9vueeNeyev",
-	"N0pS7VzbARRhg3n5ufff+kkEesoluVwOGFc5ZXChEf2B4LiFl9chm4t4nJfXFOW6YpfMZsD0wIZzwwnY",
-	"Ndt0UWNDMglj0B7uTDpZ0Pusts2UAkvfNoZ5bhFHt9AHiekUrI0dGDXs1U6Esf3DX8m67TvmBy6aQbPN",
-	"9CRW3GTj4n7Blcel9UK7zpSfyNjR04JPcYQEOGALKK9WxHcOoSekjN8oUwhbrz+hvYSf79Q1I96mIRE0",
-	"CFTgUhQCbHEQjWAgC/aeiaF1T9KbVndDQi0+p9sYTz4s1NHmFAzUkXGvqOs2BJ06HDh6/67V3Ts9vlED",
-	"mDW7WAt8bGs49ITf66CkZYcJxlxtEIg1h42VLOOAVXurGNG0sU1D2Yeims7s3hprKHlwzwTBwOKi0yfP",
-	"I60BX+zlVvGYMKJX9AFHZXYPZAb3NHksyD870dOmJnQtChY4E6jU4t3rAho1XcsYDkwwHn6mzZS/6IlQ",
-	"e5j7L39FMIOi15jFsY6EEbsMMIrxFbeqahPlA+qGJmEKb4Vd+PNAvHAyLhpErHUwqJiuySt1B2e7bU47",
-	"SjVp5xK4OT4/yjOHXoZ5T8MkCzyZ6XdJit8l3FEQ2iNiZZ/DMsdiA1el/MfQ/+p9s4v1Dw5LP5zJeVKA",
-	"IwYkht1ATb2VYCN8hvanBG17JzkGh+5heqEQs34ABw7HIZqMBUEQ/cRYAdJP68LuQ0Dphzm5D6jIA0Ao",
-	"QlL/f5L54uNDSvQQ+9pFSDTVxXLgTntJJuLt74gGdE5JfgnZYEvMaQNfbQsIvPjs6aloFpD8Ra44u4K6",
-	"n6Br3yGzWGh0twVogm3BRGFYwbXToeuFxvQ0am2nyhttrmuOqTHXNWsw4adpNQPOl8BLUpf4D8W/wYjp",
-	"h5WRUdz/9vm1G5CSsvl/EDeOqbYCnicgn0F/Jt+mNauDw2XbShxK83r76HBLz8XafY+fde9IYD10gYbY",
-	"FETPgFsF0KgmWlVla4J0Xi6Bu9E2rhPa0I29ck0ba1QhcBNkVYjK3hW4tM28EDM9nRXiPfwHBziX788S",
-	"O9TwnT1wOeOj7Vva5oLu3soFe4K7l/JZJ6KfXMN2MsEsPxZGcEj5tKo8BaSSXp5PN1WVMg0WJgOar3Z4",
-	"kS10gP9b2BodTyGkI9zX8BcwXmKULYv664szUqSnyge8k0vgn+5pq06Djs1kxQGpCx2rB8Ue1+koSL53",
-	"ER25ZzMzE2Nd1sHwwsgRwJKVfbLraBAKnRPPXn721xdbRioPAha7mazj2eKxEH5xgC5eEdlwkJ2eS9tc",
-	"VyoX+Usv91lGbxgCdKHb5Yid1Xo6a/e03ckAjoMfIQo2SSpbrcUK61rZrj629ZWqFCP57Y49yGRcQhut",
-	"W8Ss2zrEXI5nHOHVpSo0uF7ChxnIEvbLdCrwkH1WriFWcjAf7uPdbBk4Cp5kgCKmduYIE00FeEJJnpKW",
-	"AN8KeO27GKFXFj6Z0cCi+0zw1zvYcUpgNCiiLzQK7LUGJyemn8vFQhmUUK4hyJWwCeIaNXWN5KUW1XJ9",
-	"qcvQawb0rVTv89H+wewV5EUORA5D3JxYw7YY6qLgQfQtzLekHWaTlzmrcENvatnb+N96LHhIym7pvJpH",
-	"qU+7U3EnbzDqHP572CxCPQcqW2knqW7L1AnBlGcMel3QKaa7KAHDPkP4rEVQRTiojX7CX4DFn0VZfs1w",
-	"CBThbVXm9J2kSuFZBEQoOugIFPhDSEhp8UPkNhEdiFQ1d4acS5smjHbFDaEQfx47LsWdvUmcgDZ+GicV",
-	"gclk7SHK/wz+rxAy/a19maNtGWoyjqNj5JQ3qpMlQqsYcaUkIsTxzCmYhRqBvxufVXGAUPZg0YJmHmbJ",
-	"+oEocX0cMtGRNw3hvF2HHNWnKqO9O3CrKnaIPl0ntY5qSVUGgyEKPaCh3V5bfNtTdxDcgxvsILNvMkEI",
-	"2wa45BWVflofWHtSklMDA4MzQwJaIMu7javQak/9qh4auaXhBebvN0x/axpMtOOM83T/WKmVvlV1/Kqn",
-	"dkLKzabWr02eBFxmu9sXVEDGfOnU7z26Djxu22Vh120pZ4Z7cNOC/42uu+3umE30s5B1jnLO6YY/IOwF",
-	"PKXhPubCXhwdGqqBpr3wMS5XRrMbWb2Rtc9DtlZbGcXfwnuYJPb7tnBFvZlY8marLn+hy6InDCRe6kQf",
-	"dODlcsMOrfBzmE2KDYerEXO3NoAcJTx/T/cPt5bbp5l0l3Nb59IctJ+xXoimFJwyAV51PA0g355FCFv0",
-	"R1DaAyg1eXcDiBiXsr8++Lipna1jtj28jthMBf8ToQqd+p3h6VsTXRA6ZrpUjrwmjWHg4y1IC8dFU96w",
-	"Hn59lAvkVxXbEEzEceXU9apMB130D9qMq6bccsg5MaKzvMkG95EanuBsauZCqzHXOkM2I54w1guzmKcF",
-	"PcQIqYUWtTTiCfzjktjN0xaYGv9Nb3dxZFGATQz4wchOZU2NeJLgNZ8KXYaifjVEDjzN2NvroRhQKk6Y",
-	"j18CnPN62uAdnY3GCymXl3TotqAnFWoE9oFu50eCSsLRbgBM8F32E9v4ReP7P4qXQyGkpwyqZy/F3/SX",
-	"g+jZm5C4iWjarcOKUdkWe9m5rxszll719ETzQloZNz0pRsFM3KeychQhzX/UwQbfrM72wjnGa21t3Hjl",
-	"nqJ1ulxJ2kokoVPSF/HIneEenXYPWdEis4V7na7w00SooVBE6/W4U04Qu8tEg1gsoYet9GpDFwEipHvk",
-	"EpfjBn9heLNv1SBOEypv3Gq/zAk7uAZB03wSFyHGvsXz+xSmj0j49+MQa6PrEY173XqLmXQd0sNR4z6U",
-	"m0mLvsZe+5bqFxZ2tpZuC7x3yOgb5ZxsHu4p14MNdXNqPGTXlEpdxLimUOprRYxva2SguUG5sawk/ROf",
-	"vm1M38607/bMLD4/CLBeocweB9xBF5AG1EWTX1EMOhxBupujCAMfRn5EsViwXe2QMCLqaKKNdrMQ2nc0",
-	"lmassmXKsviOsGuwtBehR/ghFML+KXQKP36ddgw/vG3MN23f/Mur2P0fRadedh4QuL8gLOwi7rmOOw1r",
-	"GQxYfI13NoCaOxrtFjrWOo575G8cxbUaw5l+4prxWKkShhCGEukwLD1JGcE4EclLPAlblby64gcPKybY",
-	"nhenl7+peqPeVo4vUVn25MbEgfNxns5/wvh5CtjhMMqxNKK0IZe4k5VgykydFuFt1m0jY4WqzZWPuJoV",
-	"avITQGHarWBSv3xD7o3g1NYGfB5ziRU+w1meQnXgI6dMvoDHqh0aHeukbQH3inANY1nnYxf6mfY9SkMN",
-	"HquCwmwn6i7UnWzLgoJKKC6o9s5bJUtVh0KLYwllfiWiNHxvp7+OjsTXrQcjxHPdyRaMff2UUbsDxTvZ",
-	"XP26zSOmzPI2mjcM9Vvcjh1Et1yQUBhQzFpkUYx9ArzyLbUVgVq3OUX70JJXmnyAxTa29EoaY3tUq1Dv",
-	"LTnOBy6tD2cwMXm9IBxBAw1VWrrXmXOcN35U2ak76qWr3qMzeAhCJ1uT/CaaHia4WAlmjeh4lMPbdhGi",
-	"q3bwgqbHKt3TpCobRmIdiW9sHZP0hzLzKakDXcyr5diowqND0zO6Ns94hbGvGuOMONmUIu27vRTt3wGr",
-	"oubPqKekhiB8ef7mtahVJZds6ZApuEDGtxg76hy+bQx7w+ctNju8fT+7XTEuMeVrC+2F3sv2Tga9LXyW",
-	"Qzwo+ZzA1WrVo7ffKDD5YvWXovX5scEJsjxx+7V3cL5mAR14My4wDDL2PDDRH7k+aXeKhn8dmiN+GUIm",
-	"8pODZg5cSHnglLpu2VNOsHGhBB3VpcNJz1TdO/+YhsmthpifNioh6EPTAHaDowAuTGEx19ZusYy4ED3L",
-	"Vyrjtax2zVNeSOdAhFhJZf/L843hfo1TdS4J/rMNX67MKTZTtGPJTfErBSz3Vdj5/tLp62kglLG2dWZC",
-	"eL9/FHuQC6ihSLWrxvNsIt27TALdYoYBdRxyBQkoAe0KZfwDR29QeIB2hG+3Iakub/zFMfWvSf7ochp8",
-	"Xx3PUoWbNxbVMmVtdb5E02CqHws0eKDji0Ea5VXCpFG8TtEe7EIy4ylEG3i4SQ4x4bQQPIzDcaWxeNh4",
-	"sTyM9U/mTUUWiejiOsSSDFv7t1ZpOUMBN7fzfi4mnNRlmAMG8vE60y0Kv8KxQgWvcUocl+r2+OZ2HrgQ",
-	"qtxhFqjU9LhTeq3CzEt70afg+X3NBUSwA6XzexCF38VvOaS5XSpYo9Ogosf6xYzeRIa/hGi0D1aBRC6S",
-	"8UV+ZOvuOpJx4BqvB1VN1i4FvmpkqHvvaWhOm7HKRL6wNZJNJDINUzGx5mY8NTizUTwiZCdqg1WwMfqx",
-	"zRvtrYOfuXUuU2AYPrVFcrqJYNMj2s8pLjgRoAfdFR+uybt2goY5QX0XArhRsHR3Fu5IVHY6VeUlrDzS",
-	"tpBUt1xOJfh9nJ4aKCoepsiOHyN83ainZ6LULs4LFBrlsBhgu7Nn4lpiKnQlEyBq/M9VSzCh+i1s8hna",
-	"3OWYOpOGvLyUUkmbm2TVOjmPy3AG9IMpLUnF+S6dcMrLuryMR+HSLc14Ezt6A29ewIsDp/NdOyfOTCJY",
-	"VSLua8kxw5WdYu56yGuZylslnJ2r4ZPcVrSmHedEn5a80l0ZFaN2j0fFiLYD1TBa5RF6p3BdshdJRDDP",
-	"RI/QXBQqsdnN3DZaZNVz31vf46t0ams3aK1u7c2m7PYwPuJBPoYHHwmcE0l+HMEaCsYrFxMy2DwAcPSM",
-	"drOFWBAG1jMlTEpen47s9cKA9aLSwL2vbeNThzzZpXyLooCM09ai1PkLYs+go2phx7N87Crw0KZWl+NK",
-	"unwg70RWFfCPy4mtezGcY5oQGqnJ/zGxdaRA3SaUozOcYKAkMqZmwSnMYNtuK7HznpIEJH3ohbzjsAhc",
-	"45kPMOJ2CW9FrcBaI674/UsWkS51edVyypnirntSKOKk+06a9jNxlS7NVXLa6FbGgVsXqdOhZdJbca3E",
-	"pFaK+Pn2sVszacoszkhmMKcra+6tvSEYOPZgERwCk+NMluJaTRuKKJ0rLyTXhMFVRWUSdk2blsHDpx5m",
-	"wdb35N7jhIWABhvwltoUwYRSYAkK8seqaLVXphV8Id7WNi5BSYhA0TsV7R7AMh0Q9daJaPgI8HtC04Jx",
-	"OlLrWUnAZVHjCdkl9HlvOs+0Vm63xHr23G+S43k4b+ltNK4gCu5OfbGkt+s3W6RJhvFtV3mbYakvkYvs",
-	"L29YYmrBJcq567t/oTyXoE/4O3zjQjB8Jj9lx/KfYdJFIspG1ywx993yiFf2fe2SU2D94elupRB+HT7I",
-	"AWU187mst0hMCC8Wbf9Dg18vmvx7o5p+dQG1CfqzBTCHHxM88+hWTWPmp5JktujSDjAU8Je8BrZsegS1",
-	"r0Oc06pVYbNBED99xfaVeRvpPryG2HL7fm792oaTpbuVlS4piCvOWxv89ZIB73HdZONnttb/oBWy9bUu",
-	"S2W4nAzmEpLcO6k05hPoUs0X1iOe/I1aXiaPGiNvpa4k5Y5xJ5fe2stK1ljHsZZeESCnCuXtayOrS4oe",
-	"y673bda0dq9A7S5UzpZgNxj6QL0VIg2LoH8FEioExlfEN5Noi0KEntvH8ZfwytgauGrIJT+uLCbsrQRp",
-	"JD+0FTTiTxNb38m67PwWRocxQsMu/8FLUy4hA3y3YMPX6HTD6TGyAClynGADFygX2e5AIDEmfjYscWPY",
-	"x0AwxvZB19vGPlDkc3Dr8hJtDHlGgt6DuRbb2RTmvHs8Mj4KshrnR+Gyf5Qg3a+Ta2rFqZQ9nOBiVO/l",
-	"fFEpsWiqKnC2Av2+GhMLx7qnJOdki8w62lx4Nzfcbywg7P28WB8uKkyX15sjLMqyVs4pdV8lsS9az3q1",
-	"ZbwCvlq0I95Iwey8+9qUC6tzWcjnZBjDcki4HYyETmArp8Jh0R44/ce3z475X8Ag4J+yWswk/1gQGF54",
-	"805dH+MPBVUoduEB/et4qoyiAA8Xm+NHqtTeFVz8l7/Cfxy32gd8VyRPQo1bUyY/3lo9JrE+hjviUOF0",
-	"wNBCMWSXKTrabs+Q+/R+Rb1pL/qizVpU/c5WtJhAW7Gc1Y3PMJ8eclytwduTI8U4SWzaBudGmZRC5CDY",
-	"LngShnNur3Kj0ugG8vi5GIpOII2v/gXtDGTEiOBG26N19gdh1Wqi3w/5vVHsxRxor6pKYLFBuZC1T7Ej",
-	"JPxOWQTRkYCq+Xae8NSOziOK65RS1rZ84W9quYfrrRshsLqkkHF3SarZZb6wZoTUg8e0OLRW0YKC/+Ic",
-	"5oUmtFOusbndtbY2iIFF+SEYK1auCe9rfd14te16YDvn7VfDlVtksOgThukGcC6Q0b3rwxih/E8+lCCw",
-	"FcLXmiCpsFzJ0Y5sBKfyDjvdT6mCvO88TKtIF3ujPt2z3BuWmT0iVoD22YG3YU8vxrEEuAZeVQz/hQWF",
-	"i9EHk1wAFflf5z98z850/Mkdleo2JmLhT8FCR0ZKmi866VgL3gbVZOv9IvyPaJ3eabO/5k/Qcc6ZOtt+",
-	"+xo/YID4NtFn93Evavbvb/vpG/wg+qE4/WPbr9/GjzZglXRmFhYo7bRd8k0E+3V0HAQZxVijAtIUJsZX",
-	"1CPCHI2K0UxPZxDGz/+dy/dDYktnM7PQVHHUAdKJcA+L1oSeXvdgQnZdaKIMSQsZ4BP5ZOlaZKmbzsll",
-	"qW53vW3S1cvZvWxT70Y7F/QFhPzAyd/reFa1UepqE228Dgdvr2uGrWIW+J9m2QaG9ICV+1seGQZF/o1H",
-	"Zn9iETZ3/8DtdfbWpza4gOo0ts6HEO1bZUoEODp/8xrj/ktbVbJ2WNNurqtK24B9FUEqw1lnxxkFBBHm",
-	"gxjLMZ59PVZJ+0mxKn2rMEwB5f7MdQbfY1B1V1ToRbGiD7D2/pZfxPtqi3fb22njy2to6sT0uYVNW/c2",
-	"vZCGzvO6GWgvZ3KDO37Lc7V1OZuMsSpKZmsyk3DKuzOEK4qggRQ6syJLbSMd9UM2ZsvDJKLRA7j9XL7n",
-	"ekF/yejZgR4fxhfbPp6v99GVtHZcg46wtE31pwyt9WgiksXodjvBogyQYJwwTxsnXtFvGCHFMobkH11z",
-	"HdsNeFXg3fZ6WksIBknbsbVA/4XzIRP71fev39T2/fL8zWvMDpxq5+sgxwAeVdJQrquu+ciPivS8Fujy",
-	"ASU8GU/i4tp0y7BKtcYSBssPNQvnayXnl31e9f5qzSufbjru7yKC4BDHylxGifqDC51EdME/A9bpFhb+",
-	"vTC/TAQqMnUUTunOBINX11qVaGS72tI3c9O37NXLRDjhrdsb65CSaDdKh6NMpfdgbuqmlBpMlwmEkMen",
-	"4o6xbGeW7rhll49lQgPq5ba1931ayx7Gh5+LjoFXzJSsc0BeoQb40QZ54fLZ7HIIBDPNOMTPEMmQw2wp",
-	"PFMaMbNNLZ6cGz+r7UKPD9zTguSfGEONnjDptyXpdITbDq/F6wzFdRndOUkWwXZ3GUOZdL/NN7GCcS+K",
-	"PT9vN5Tt8rxjwi3sjdqwo9uMxIIXCb2Lu83AOn851+Pa9k2hR3KmDUf5GT8/ZCm6yzFaKw/nD+JX287p",
-	"Pl7y+0O/ZKOoYtoRQwAFWHbaPDwWA4H1ynk970dGCe23IL7GBr0CTyBpG5IxkgHL2olSwzcYqz2xTb1T",
-	"0BlEPAw86jX1D2BBwzc0WDIixljLPoybMRfPijgnN+ktTLtRjJDtwaIkvwSUmWJEfV1ObQ/oPTGjy00Q",
-	"1rzIjvwNgYP1Rr3NF363w7UN8HV6QxHQbd7dy/LobgPow3BYIe7v3r17w7EOZ+KkG2pubKfIe6dx2LG8",
-	"grarQKbL1YgxJtWEMAMZFgPiWxxVcje3VJdEqXW3c5X75/hpZhOyF1fffZtygy6f2iwU7c/0wg3uBjD3",
-	"U1UmN1IMhVW1tnDUIYpgh7S3oQgKHuXPeRjV6waqLvVLVOA1A1gEDOSuCZudpRVk26Vc5kmZGt5Z5cVh",
-	"fonf5hb0ennJIuS9Gv62ts2ip11OUt5rm/Go7q/VGKO63eXtrZfVTj2/whuyk4Jyn1QSTRVVqI1ilc7i",
-	"wFpCSRYs7kdnwzcRN1NNJhKzMf6eS0DIVfdcAvy2CP1vGv6rOMyMLXNXIfoxRNeYv8q3emReiTyr6y0l",
-	"WhL6Uj2zEHehA8w+oIGLO8S3T7ogG7PBeo9hQJU0+Mq2oj3Hv2Yv8Tgt3xUnJ1QywWDyZgy2tDXnWdBP",
-	"nN2kZF0ttxzLmhS0MqSgkxXsJ+sima1qZrtBaN5bCgqLtOXrjSGa2bDiSfUJXtVWpsQGxDUkuaR6TxCL",
-	"dzWexAkkQeD7EmCSQ5RMfdP5J46/V+6ly6FQIo4YaBPrdBnOJZs/A77gjnCcwerOHVBv8Hqx3icagjqx",
-	"S63BidKOuaZFH9aa17lhnJukD35LPBlXsilVQbbhjnX36W5RUUMsnUIOVfl6nhe4Xr64/M/e7FV0Gx44",
-	"cb30yhXiWjr18kV26nM9V5f0azZ//VZDcB2R9GZlIY4qbTg7Pe2/s873oiho22dowp2Oku7MOtiaNnva",
-	"FQEmGF38R+KcOAHmlCNC40zVarc4u/tYO0CW7gFoSbNZYfzIiNIM8CMBeXpYEB8uiZAqhOHu8FFlp9rE",
-	"JWB8ArDrNa4PLXrGi92bmzDIFWizgm+HvAXrm1M3ZISZaj9rro/Gdo4hrlPtK4n/bJEyyZ5SqnEl69XM",
-	"gT4lBacQw+JDGk67zkWHdgaIbtXVTuMdFSMaad4PQp/uQ9ujlh7gY9f+4uK7bITvormu9DioIBnDAj7H",
-	"qM6QDh2TdC4xnhGIm0rjlGWw2k61RzrdzNuS/nMjR1Z2jgJOb3TyLqbB7bXCX9T1BUZTU5ZV5oxzbPXW",
-	"u9hlz5kG+7NIydd3GWbZy7/dgaB3QqhDlCJjKPET8joyPK3QABcekOIWZrqx5tvQFHFmb8LLmCQjq2w6",
-	"O4yYH3bH6eSSI55LlRlrdnihmuF6F/Bkp/YDv4GAa65sBZ8jUwVb6BYE3ZqzgkoZ6DSSTC+lx4ioHTCq",
-	"AivZ4UqPpwWebLziuw2/7SgB2DTZGENow1oFypNNS9bLt3BNfqqZ8nZYk7AJ25/ONdLthCPMtemLTejZ",
-	"/oFNfpOcphbZY93NnrtUOg1sWfGyuzQdqK++i7MH36vT+/fa3PT6d3tiMcNTLiAnjZjLGyZUBxouRjhQ",
-	"3hfp9LXq3CIJPx/wB8Bxxcd00m+U4y5Qz8M4MEIgqO1dgOeEBBR4hyuq4uf4p3raX1HzcrMqgq2DjLNQ",
-	"dlEp7PynudEA2a8iW852Yc0AyhlkZNxpP561lTDW3d+JOHdvHg47AFrmTja5XhiqWslyecoR/LGONAb3",
-	"NbU5EtzbKcWoc+htJJtaJZhCnYFdFbGcI8NKQM6wU/6yWZwKY9NYglhut3FKPIHle0VqGVpYED50IXWJ",
-	"xp2nR1CV9DQtFYerTlVB7WSSxs/g5EZxyThxmQYxKkaAr5EF3NmmlH2UR7iQff+1QyCsuPztHZSQa9Ee",
-	"0tB372FP4jh24DGAFDKtMV+7C3/4/CQzfTx2l/lLPIleAoWFQp7g1VPx7G+FeP43YWvx4m8rd86Lvl5c",
-	"7j6bqFqBuk9vnDHmiFkWHMWBK4DkaoQq6axuf6ekyQJ8hzx7MSD7dUf3Ro9vVsPRTbU8FdOFJ1i9w38J",
-	"1DtVc2304b+kIV9F/O5YmmWACpI+/nwG8rzFuDK+v2nalEYjOo5t4qQ+CpttPYyW4YJlFHVmz+7kVXEg",
-	"SwJmIGkqbMuzrJjBYX8nm2IAW3NEMpjPnp+cnGyu3L0H6XfTGchTP5QmOIewPngsnkAx7/fwf4V49vln",
-	"L8Of+Ovnn70scCufMqq+dAs19gJ15SjgP3t5+sVqEe6TLSRaWLpeHuH64/vcgGAa6coVQbVEoluNyKAr",
-	"0rAIjvQ33+0IdiSWPx4mwLXA7blc44A0hgN3esohTcRQ2iuoZm4iF4uALS59esUoL7jeabYQNAVM9NlY",
-	"dcQ3+um88bMQy6FXRhRje+g6hfXFpDpPQwoWURgiWcQTixndzjN5q5LkF/Gj9YJQjPO4Y1073Xb71653",
-	"2/0Oyb75VH3gLR38RE1pmafCgnWD1ynZMW24pgCXtMfysMEbAG8fwhu4KEmr1yoE/y0WYUsChbSs887A",
-	"jsGS09qdtb269BMAqqcM/QIRtFipxy+lCOjAZ4wBGT4OsiJ0Q2FPOCbu4Ql41tz5YvG0QBRIikSS4t/e",
-	"oqVazHRAyHVjaTqp5rhSVOm1lSjamns0it0KQfBE3SC8YtfuiTrEtRLTWhoEM+lUszgjttEl5aDel7Y9",
-	"dmFXJEQ/0MLJxeIBNahTkz2bH+PsNlsd81TfU9EgirXSdOpKJOxETw3K2UWExkOTeF+tksvxTI1vovU6",
-	"kyAfFy4pnYALKl0onS/LlSoKD8qVT0IvcoUWgr8FqJwOxUoBh0AWcOIUkQZRxBBMLx+3oYCvQDjaFYHM",
-	"0j0IuKw8wnwvi0UeTIQPeVp5ZvVEM+uJJQdoTqcci3atQtV1+LXD71buAgThk2Pvgt0QOymEs6GkQdsv",
-	"Y7ObkisfEOie9oWwZm2AoNQVEe9B967AFpcZTAH+22Hbw6sOB97WaQNra9oejrCIm++xngIjbc0Pt3o2",
-	"+sqKJKdlRQjyM7WkOp/aAYCtOI9SEcyYb+tQMKLFWsAr3PhO7Rodz6esKlyRXDWbHQu2cJmVnqLGbtiH",
-	"lVYuC8SxurcGARG4OIaznHnn0dMA9aaOxE+TCQsvLa8DgkMDb95BdE9gm67Ulwu3HYinZfIDFwr8Fy5I",
-	"Mn64Zq5KNkkNkDF8sJEo+9Ma4PNLWffYknA0ux0r/OTJ+S8XTzuiivZOnP9yMcjr+m/4GOKTjAMhPeli",
-	"P0UQ0HBJA/V7y5cMiM+19uTiR7Hq19EpPPp1FF8CJrabA9e1MNybseoDZjd8t4KfPSjLdAq+dEoS1WpS",
-	"K8chKeQitZaCflZCFWDZg/DXxiADJedg0wOzO4uY+Nq3ULG50N/dMS2TihI9e5wCRsMA6sa4NsVghQJA",
-	"MG/zqwLG9IaIieTAhrORCqmJLLa2YYGBRUa/G/plcmL24PpNWru/+/d7Wd+Ar8DkLEznAh4Lft65/wkD",
-	"BFTRoKUSB6drpgO1vyJGDlzo2BsJXrrcyNaurd8kF4AMQuA5LU58W4ApzMvL6oYMVkO66SYkcW7tANPL",
-	"nXaIHNhK88Jbmp92OJaeGyj0dTm0TkHcGXdPA09RJimHCWg+VsCmVk8zx3/exDINeOZhvOHqNepOdLMD",
-	"HogYbgB7c7v1FB4ti2kl/PVlA4Pywg0QFb2wsk/Xlo39Bacvobg1VsZXy5DeglE/20pAyWHqjZRGiLGe",
-	"VKRQx6OTKuJt5McDCUjzLYBdk+H9wPCu/T6qdpl6dSBkBJdAdb2UGuR9KroCA4C1NCsbgfr0qWmqKtML",
-	"+ca25orJJN+o2uUtQveCY1bXlxX7NfNUG2qyozWo1DVsGfIeZUoX4MqhiRAKgw95Ne7UNVvjSJ6PDSHp",
-	"hmAz6VYOYp+Xlu0L13hHMS9hKlnduPY8JpPs1pDgPYgHbbdrb+1Y9F00NNXeQ4oov60swE9kiZUbrCAY",
-	"TW2wrQNHBfn4Iri2YAKg0XPZZcLJ88qIuTaNVy5zV7lBS4ezc2VNOK6x9DKOi4aIHa4YN+y1LZewk9tb",
-	"OIBOeo8Y9nHAQIntOfu4zBrmTLHmrjN3oGX8A6+9jE7GHtNBtayfSYW5B7sOTDyE7eJqE1ll0tv6UKx5",
-	"paOBrj0aG1AFV4l8a7iQLsklq73hhIc3NwxmD4Jm0tpeBM0fbJnZz19mFvV9kMZyYtppMImznzOxeMX6",
-	"DcSnxEwRV0CdiPEwVQQ9IAHqwBFx2Hoqjf4HhY2K1wnrDpnA4ZjbSZSl0o9SW4s2CfwmtxaYGhWiCpY6",
-	"TCYZzywqrYtFpRUC8qGbgMd6BwuiTGs0urY+FpiuuVoJG3tyk6QDmJrlYa1GxQgt2cAdR8UoNJK1xq/f",
-	"pftBgQUja/5A4yMycN2pmreRXVLJsaafr5eC77DdUgF03WEYa98Wo3jHgKQd6r+iiRKlFJB9WqlnmKMk",
-	"tyxOu43W35qf3JOVtBpEJ+Tu+YuNXm34si12utPXxQgNLj+Zaklw69srausqmbfRKQPaiXqvnaeE+bnU",
-	"Bj/iCnHqrv206xiGG2hMxgU+gQtlxI1SCzJLfWm5SQQR5+NEKT+s+XxpV+MWX362Ou3uPbl+hd1TPKcT",
-	"OyhZ04nRZoivUTl+7dLj0g112EgSH1X6Tbdzhp6ZVKFtCx3xO2u+D/BlVcoBAVUlwWzcadcnNq8dvR+o",
-	"8mwai9k9WRscyrG24J3LslWubNsTBxmehoqHt4qjjZXJZB2lQY/y/WV/0zFmhuPmYjfA3vBkAT+0ZtwD",
-	"AjBQZ3zaW5OQngkZeqMqviwH01GDdsv7hG7fp9HNnlieDfe+sqjJ1v22mW72IHmttHh/6esHtTMVD40L",
-	"0z9DAk8PZWxa6/wwlc/iBMo2NuRTwcdwwTocDamhNXoaJvp9KxkUGYvOTEnoVehgwMmNB4t99Z6xXrh6",
-	"M23y1XkINFf25+INlSXbAuebd+pHy+jeeLMM7lLGjrPR09KPq4JsAAGWDr099HB3h5eZcSpZl31e5cBa",
-	"tth2t1DyZpdsAV6ZC/ouN6sY/rxNM/guNKLqudtt9bz2VX7z8clgnewpx28JfPWsvUTxRyQRcVdbv+K4",
-	"71NW8fTTeGLviVmJJpeegg79Rm6cnto2jrljiyLqTfatiMxjhUoHGNB5jKpZYd7W9NSrKZudTu6c+tmJ",
-	"ZYVvNjTZv+u/N/lqKwwosT0rhOOWbeduZsluRvX/O2hnbPjiq7mHW1pC09V+u7s7WZLVBeiscREAkMuu",
-	"qtuz8fu4udP2sqwtssPuGnwdtHpQ/zGV13DkSEGqCyIOG1WEGs6oyuJyPyAmjSF7eFADC/SV8qy8rwgT",
-	"od91hlKqsXaUSx1roMqQXY0GD1YC8Oge7FilgccF4fP5ChxG7cy7v9cmn4TZiidbtEIlCKdTqgWWWZwf",
-	"UUm1k4mquZpsY/B4CKreU7S5dBVrBJhq62tbNmOyNs+dqm6VE9psvWJ8M13EoW2kjjDvsJyho+78Bqjm",
-	"m5icupUIOhAFumOMcKf/CzXearqpqOrUeMvZXaieSwOrMvdfw5tF58DQqKGBgeAh2P3Syh1ZWcJWR/Uc",
-	"C5bDX0wKiBl7tEOhr220imQWQbeAQeSHSMPznPbVcR0kN1U0oIQradPNE7ltv8OTJYsBPIlg1cJjTOJo",
-	"37VWjBLLBroogoUx3tbrnThlPKUlZeefv9eztaykp4WE8IG1Eu07CwC5c8R69Zb3b9z7xIwS7o8oyWWN",
-	"KkkDP6M7ctdU6Z5TsnpRbpjA90ywq16dcnvpCjWXIerqpHwFPacPztLktbFdiZgIFI9QX0/7ESJX1tuM",
-	"koaLsJDt+MNycXuDO7Mvoe4hZphEa14by70tDGBy50L/8yEbwwBEBGl09AaFX/UmNucbCIUzAjaW9Kwf",
-	"hpyswct8vb04lPBaEZKB7yUfXvSnB+2ijuPORZ28v8A0uUE8aJv3BerjT1o1N/S2nVCSjLS3UprjbXde",
-	"mvJMcMFxOOghb7xb8z5wZH6RnT30V8hvZvIbYNG9glJbGvLhNo4eEYq7GFi31Nm2cjxxQ+4pe+bGjot/",
-	"ucWZGse6AuFgaa9481KUsu1iHNJuizirLZbkXvfqyiR3Q/9IPx4aYHuZdTuPke/ra4vXWoB6GxWj+fP/",
-	"///3/xfzJ9rQgrksVRuc1sU2hAyFZ72Ba0GL4dGJH9eCX1qEhyxrf9fR7vtc3D0eRzeTdJWcwBXyrKcL",
-	"cDjhm7EKIK0o5PLI6iZXZAB+v5z3eJgQlFd7xwprJe9XkDlsCithNM226zC7IZIY4nwrE+0UXkBe2Mlm",
-	"DM+vidHFf6a1+vPsbm7r5Y7HRU5VbyrblILIEIES2yap7KytHBTrLdJjVBhbestf6XGU6z0q42utXIFH",
-	"YqFq3NWBVqhkfh/mifNpmYRkmDNblS6vv3UDNTMqjKZqFdCymapyZS1k6ILCJ/lO3jbwbs0Kgiu1Mtk8",
-	"DcIL94LgWfMhl+SVXFRyrPAv8AD3uJX9eJaBiUhKaVhDm7qk7BdsFLgYtZrd2SCm56ljyeBuDDkrfWiV",
-	"NphewbjNzffSgFcQlvMdD2SHxdwHbeeJID9MTqF+Neu3dfXm+1CQNO8T1R+XIqRgi399/VV2d1bJpZyH",
-	"IN1RMbqurSzH0vksuWAgOse47eSH2MHfy8o/s/HVHjcu4l5UtnRTHqC4cTP0h8qVSN5+Bcdy0ZsvOGbi",
-	"yT7o9xCrUvs+UWDYtww25st5j4Ww19cEvrkbtfD5GBYC8YCENF2Rcam0d6ayslSUlafXqn4nnXY914G0",
-	"sc1RMQLhy8aq9cWotONmrih1y+sxyIG/7YxMi8a2sjfGmomW7G0hWLOnfsetvVFlflmcwhT7UlXKE0jU",
-	"JASoWqPOUHDCqn6UNTntCfUvRtRQr3Gw5JyLAoO+SHQ7cMBEKEwmFvfK6OTwcT+x7GD4Q0JOyTYOu9tN",
-	"McL3AhlGUyFTdLukHbLb5pDuk33QH+oBHCRfWT0w8O19IAP18fpxvzYG3uyp7usDC77+qO7OKRGzi22x",
-	"Q73N805puCQz2KNtn2AbQhAcWDOf8G8Fpv8TIHhImn1aJBAtbVtPKLS2EG2g7NOCKo9gArRFwI0k4Vk8",
-	"CZnWBeR6UxQ3A2pQ/RsKkKS2LtsnbbYL/EM7SsWrg5RVPu3F6WgrQHUQtv76cCyLgJcx837hTo+PXbNQ",
-	"tVP+SL2X80WlAJt5Dejz+YsdwR0olBVkn9dfZVPOQzwvbdBqtuh2nQ8EOW8Oax7O7G/T+qXnfH7XyfEH",
-	"NkaYK+2SzjnZOg3OzcKOMX3ec+TDaf/nb3+MZQptlQCkyNqcyjt3quX89PTZ889efP7yL3/94uTZ81N4",
-	"73i2XNi5UXN5HGAjOlBiL/6atwF3Cf6eMwpHd4vP//hjkPFc6Kl5bXZUNAbsTC0ATUT7jAo53fjqEEO4",
-	"uwh24m9AHgC4lFYeCHAkMSs/DUp/sUspAiy4oA1qHGm9k9TwQYUJegq9/rZJUwpd9/D5L+2u2lxmf19u",
-	"zmVwiT136Ob60vpo+s0mU/bMIyh7u0Bgbp8PQZkLMT99JflhDfRwbfZU4rm3ZmXARaLXSBcOhkA0N7MF",
-	"Guyk6lZV7izkTBy4LXrX5WDPcIOOZ9YpE2KZGI6OIWviAjAEm3gCv/yo7ujXhZyqgD8HegbVT5TeY4GU",
-	"0AiMl7IFWIh/eiquxjN/ecUFzSiR6PnL1DgFF/jhP/CWfn74l1gcHm7BFOtyfiTecuYXLsZcVqAAqlI8",
-	"eXFygmiLkL1u4J9fACIKXt+63GLpBrwCyb7hW3ERGWOps0DiiXauUZuQ23utpEgF6BBqwEXUcT3j1Ybh",
-	"S22KxuCkorOmczGcbMuh4agl+veORdhDfgiTAVEyBg5DBsS1EmoFFamutXJEWRkpC8lsrrJw1t/AN6JZ",
-	"sMKrTZLxchCOz8RisT26EHQc1/ZwSzPpz+Mosr4xVta6PpeTzW6XXlf6j+ruGzw0Py/u4QZa3/mNCKsZ",
-	"f1DfwLjYEFey2Cnltmw9jxlUGu0jDtW1crpUlGt9xkmXeIt2aJ/BovE3JCrIaYqyYGgr+drNsJxYpSTB",
-	"WGEbzgpJjynbsZJeITgogap5a7cmFV6ar3miXcThz3oAh91QPdVYMoJnc5bkva6IMsAFaRXS4a4qJRtu",
-	"8QRx/+RkfcD5VM9fusipY1lVLr1mcDuwDI72rZRrF8qAwHNYyYW3mEC7kN6rGpr833+Xh/84OfziN/7v",
-	"4W8fToqXz//4n5u9rgMyRFK+6B6ugq1r7Wxrb29H9C6UHNphWD1likgvp6Q8uBKTikst4v+icTNxXUuD",
-	"kABw/cJuiEVTVZ062Sme98kXL3dNSV1ldzjinpVI8TaRbHZcjg4g766JuPzx3nJxVybejm21q57FyCaE",
-	"77AYnB+Qy8jeOo+VQYXvmcm6sgIwoJ65/sgpuztMj4Ft1xkRJb8GwalIchcpVwkcoGgyMmVtdSnUvKmk",
-	"t/WpkJ7sSJTziEYio5yHGHFdewARp6Uhi5KHO8R58eJEfKu/hDNWandzlgjB1xbRSZxHZhixWkOHwihV",
-	"uiPxfbzKpFhUUpsw4FQ/lDTaHmfk+8tSu4VEdI/1JfkqPotVxwjqjZNQz1Yw50s1kU3VRXZn7W8A2f1+",
-	"KmO/YHwe9y2JAoFOqMYahmHGV7QTnJkkYonSAKzfnRzdT3FX4oJ0UmftJJD+XU713zCnvizdNdK8a2X/",
-	"OI/V8SaT7+7LoC0in8+7NoCka0a339x9C34YIK59WuEpUjd4onytVQlL+2T8F304qdT7o+fvK1lPFR+2",
-	"p5sns8Pd/lYt7M4lMtyarPz555sviwE46E5UbwckO1j61MI67W0Nun4oz7ZB7vnsJCf3wNIsMmweifyY",
-	"UE+NAAGjuQ4MXfz89nsaWTsOon50VcUBJSvy+RbVGZybXcKn/SXsLi6+C0Uf22p2DhX+K+dmh/AvEEwO",
-	"F4Jq/yxs7fEvxT/A1/TDlVjUmgoYqfmZCATCln03u2zqCszUpQIibJxvBSCC3obvCMG04IAVa5htN261",
-	"WMZfT7ZcgKau+jR8g2MZV5ZSKTDbyEK/FxffRaMHDhAi0JzQ/hQmcnp8PNX+/4YHfz+FBfntGEMOcHOP",
-	"poTDFd447T46EueYEnhKHX337t2bixZug7cCBbKd93utlu6i925/25iPdCaHkLvGGMuJ9qsU9JguDVjt",
-	"M5aM2QZ2Z29aU9nbBrBg1a0yLBIPD4Smr2/vo4T3nehzxHdwHtPXOgyEy+p+/BMP2lwPnmFSoaJdP6qF",
-	"6oIay/mI0okEJfYUGWdSPsDaaaVO4VM4zgYq3cV7UJx39hLaRXBqhEpfHQODV7EVEu4v2GrXUZRXePAq",
-	"Az7dhTEnZYZebnDRtvTSc4QuUFH4d1k1uxrjvtaIF3N1C99esW9PTJVRtR6zCw/JhN5wVwXDlWKdayWc",
-	"YtcuKZJOZcqg3IZxpff451AIZ2f0IhpE/xxzffSFrfMKZhWz7CLfxxnVXzSAXNmJRru5GkC3UoRD55MT",
-	"Mz13qpoEmLaCTgAKXmA6eYDsED1p9/y+H0X8/MEg4eJHpUpV9jqju0V9sMBOn83r5YvB4/nZplKStEw9",
-	"R/OddDc7a64LZUp3mZMd36oJekSUrCutavEOSy2hpq5dMMvg4ukSX6QXZIUpIUGlB1T+zmJsa/B7ljP4",
-	"tX6tzgWx2Y6YyUN4vl2dL3AE9NRBpoctWjl66jSwq7kyXtVdg2iuCOrG+3fSlz4OawsLjr2ubQqQaru3",
-	"9+m5dSDv+KVbqHGP92E3MW4y4sYGyH1XbDwfvtnKfs6dZOiyLf76bMOJpR77pqDquTay2nEWXIjgsj+0",
-	"GJ8XQoqff379VWr7Jh8m8D6EwqNqfghKqUtRKyqVwW4rRzkoqgLLvq5Ua6AIMHqnYgJCDgPptkVaOTa/",
-	"vU7gDAwbL/66iSCSSfetJsgF521VoI8RyBGkkQA8yFEd9zDU7BqxccayJQZroLDp4mi8FQvpvMpEdeSM",
-	"dj2me+iZ2ruij4VTvlkc4m9B66XggRBEv18DfViTtlzDgMmezbbr+GG3Kh+V2zFFppB7Tnlf9aHtdaoC",
-	"7KeUTJ/5mBAZolkLTx6Wx5BU4iM9ZDQFzTblItS1ApVqbM1ETxlBqc09i7begKUJzSdm6ZBUuI3Vd6o9",
-	"Glx6dLBQ+j+1+SqK1rhLk3nQRBcsBevDwtJ6VO4j4INqx5EWJLCNZ+yPRDVSnNMNieol/CKmVjk6Nt52",
-	"2qbhhKrL26eh9qFe3M770q232ENHBanA/tQ4JY5LdXt8czsPc874C9h8n40Zx+wLp3ZKSY6AhxtvSFsq",
-	"BivMW/93AZSk07799fyWPujL7XbbDP4CX+QvGtdJwSLeUYzKWmrTk+znlo7BVzb2RG8ypFu49e9JIugH",
-	"Q37PbdFBQjD6/MkmexPX4eGzZBSlb8GTdU4BskCnpPU6bXlrq6HCTdgz9MVKJr6fKUKCeK1Uxwu4cGJz",
-	"uaOc9G/R9rIVa9g6OgI25Z21VbZQhJG3UleA7LtbsQhb3/haqcvaWr8bOCYT4NohSg5GtzhDpM8NiNIw",
-	"zy1zEjPbSAmWjiwvsOJn5D3Uro30cF4uM7FSD/UFcgyb+B8vX548JUkVwZphA8um0maKAfuCEw+vl2g6",
-	"TVrVPmqj2C6anqUAs1vN6TFiakVUkB7TvfhHz858++bnfBXPb9/8jGnqXmEMo3RNjWol3u1fKvcPLJPx",
-	"7Zufv5Jeri++NhC7m+XAnMfqrZfV5fXSq22hW/jDxqlyp+/6c1pgJy7vpPfpZZHknKv5QtXSN7W6HKvK",
-	"6Sb/Hlasv1yoepzNooYM9evGkQH92zc/YzoD5cefnBytJ7uvnlJDYdB8ULud5VYlu8R9R3MP2Tc/Mmz4",
-	"PZNvkjt8bekuVOYWCR5icKsmrm6ZcXRnkBXY3w0X1VvIP2YEG+qgVM7XdulSd/A6cW9TR8l5tRiqnIS0",
-	"t95GvDtblTdx7EOtCOftYqHKU7gWi7ZoM0RcYHLHGb1BdZ5Lqq2lzfQ0lJayNecB4T+p6BYhRGi6yWZy",
-	"sVCGhh2EkdAkXhTYfwBIgh9/G4hm6MMNbSMDMo+cbeqx6jUwJJ54XbboA7ROBTHvLlqVdFwnZgPo9/qD",
-	"PKADtuy0NQhKF/E1WHhaOgFmC3sm4nuXRAptYlUcWyjiYeu2CXLDlhprZ1cEfQd7hv9QbVsZEmEKVh0d",
-	"pdbrW607aBPphBJYndXxj4pRGFD4Mwxnc2pGShLrkOe00n0c4sLLPvUOVqznqqL6R+GIzJSs/bWSqfLZ",
-	"oXx83eZO/E5p1oum/y6AAUfkE1lV4tWbn9GqjW7AgUuhGMEJX7n8Vq7tgJxWNfOOLs1YiigaChANt8Tb",
-	"my6avnDcGCnz7ZufHTpi8JpaE/67AWdrYn9QxhOFf+srB0SXHPSqleWz/KitUYdkLBTwlpC3qsaY/H+o",
-	"2iYhSKRVxeFmd+N+wshqJGRCKvmbfHXTw/wwfbn3sEStcEgxIiUPsVq0R79aRuMDK8ZEK9KPxhgvbqwX",
-	"E03Z9KlzYeXE1IQKkjsePap5KdXcmsukWOvax7gcPeQfSzTYfZ8D3phdZE7r8upXdr9QDcx4Dsd2Ppem",
-	"PESsTFBegxwUZZiMU5AxUZadDdtZhuEehiSYXrG6t9ouAmDRw3YK3Tp1W/W9bRzcT4seaFwIfXCXK6gC",
-	"HaNVvnT11u7QNzNr1MXSjPti4pwXbmnGLdRyyBNazCiJI1zt7HfAT1yrkn7xl6co0YFkgPlp9B0FTEky",
-	"pQCRamue4j1Y4pv8uwo5VfgRZQy5pwU4Dy2KdAWDfduad6G9RWslHcihoTRqWjErVEg/E+5Gg5Qo0Hnh",
-	"YhoS27pbRnKtYrX33I2bh16aWk+VFxFDkJKXti9p6PrUUppP/inNOi8i0lTz3+H4OmY93DMGo6C/4qoH",
-	"pNoBfK9VrxQ2nwy+LRUdhtV7U7xpncsrSx9sT0NVlyiECa3EVL43BhNGx7Sxd6dChptElYUgm1Frl4Md",
-	"fPX9a1JI4B9sa2oR6JF+YtI9UMzYWrS9lIiiEEvvJDESEbOwhTLEFEr3FG4z9li9smU7UqzzRcXZOk4u",
-	"AleIonooN3+FHVxy41cFlMibUR9lCJTjh9AjTjfcrXquvXBeVxWfjUI4HRQW8qhLeBH+BybQI/EtJl5N",
-	"wlBgwFB3s6lrZXzgp52aBzIWIeWnPbb5VSNjJkT6irfAXfK6XxUto6Yg0aTg/qRWqs0S3/JI3stllQy0",
-	"V8oJu0vAoiliZVgWroEYs3aThtyGxOa1RxNZVddyfOMGozUIT7ZTOKzm3AxyFk0olALIGo2GdKzoPiDn",
-	"UoIzkh4ZIpuw/XMyZ9fKKX+ablbfwTX27kiALzSMpGvZhjcZRCn6mkPPEHCIJy6BNwFgNwf+aVgSLJYK",
-	"vyJZ8jkOadBH4mvYl9PVAxDUepzCjm4x43zdjHvBrgaKEN0D/qbjPM/dDlVfUiM9wzULEaFT5TndU3jU",
-	"kELaZcRr2m0pqItLO5kMDmGtl9YZGEZWWty26a6bQbac/Kt5/w2patVSfBegPdhzs7JQIWwWn4YACaT/",
-	"iZzraimeXCF45eV1be+cqi//5eopc4GCzxIL1Xwmpso7vCK+f80ES/3Kmj3zVDW4FDNV77gP2FD/NgzN",
-	"lIxB6XxXJ3qGefA6uBiwid2GlzqcWlFnXTUwdo1/8H1wFRu4QoYrK6dO4f2B6x9Lb37/mmTR9Oo3Nrwb",
-	"mZ2J/p81Lph+PcblK7EKkK1Xr4Hk7j9wKTNTmsWazu1vtrr+QcZJGg4LRC4fdPYnVYWDWJCY3oy9NFQg",
-	"3dhLnhb617oXLzxXqnSh36zVdV13TmRRfrhV/Vh2NqQU0Gkg/qN1EI7SOzAyvg4LCkc+PQ+RQ2z0JLLA",
-	"ugePBbd0f6dFf5FOudAIgpWNnWwRLs7fvA7YWmC0RwsarPkZH3fGccoKIZAUEvJrNlcDNUB+Cz3mOmRS",
-	"X8KCSK9BwC84LusypfsAvbP6Y4LDs/qocyLymZkxuX97rtR7Gw/cKV3o3nvg7XYLc/KwEyJNOhiijP1Q",
-	"6QPrb/5bw6WW1smUwNdUeentpnGc87t4XsiNsvETeiu+v6N8Hz+6Xu40uLE0Y1VdDijr99I22KXf58rq",
-	"+Xmb4sthg2Ll5cVuhabYwpU5O3Vj+sbbxhptM7QLehu6kO6mr80dEDrT5WwbjSPmhSu6JMo9tCuURKxs",
-	"uDbCRPZwIkNTDz+RPzBxpLUtRsVo2vWBteu7shvJl8DUR+2RGYVT0BMx9m+NalS5gmm0hpnBRQjoDa7+",
-	"0NHKkmyzAzJUCG85dLUFfxoEL9oT3FCS67iX067Lzrt7qUYVxhipeDPJdjcpT7txBbcl3pWd30TF1Gxu",
-	"gCG9PJ+tuq7fELhKdL44Nj2g9ZtCByFTJ62fP3pIqnmS1JsklUHvoEhogt/pmMySL1Bm7x3CPShqxiA7",
-	"O1gbpM87z+6bWp7iEQUXAIXO/zqihHLoqpNhDpv58gX99OuIiuirM07e3pBInl26HbLCQTObKD+eZfLD",
-	"Y9Z2J4bzwOHMb9RyzZ9EuFcbUr63kgnhoxHvzsYzDEdkD1cONHP/6+atbXw2sOoXOAsS4RxLikoXMkQ2",
-	"qlPSeucLH1Eh4ezgW9EPxBh9huEFgcUxGDH1w5HtITMttISLbivWvi01A0YX7pBHjCnMmBKRaY9NmZBB",
-	"GTARcZB4ckNIP7ioyYiScS4ZYxuTS3o4hx4OQrRQOh/gDI1fNBzGn2DrofVFMlikNnlb+5bomxQWERYh",
-	"hums8yFpLhtT2gH/IoXO4sgkrzwsGRhurhUc2V6c983wAb0zfhinDN9cL3uAPGBDrq3v6bBH5keD0SVn",
-	"ieVNI1wDr8cYiUSH5MfOUKT62t7lc3SmteyH9VtPwEd7f9hxWd1xMPN23IE++xZ63CVBZAsMN246lkSF",
-	"PI66MVt+BlAX4Sv2RO6j2kcxghBsGMdOrS0khtAM6IXEfXr2TK4yJ0p3Y0za/GXHrLTH6s5PMWvb1qU7",
-	"jYlDTd3THrSQbw2tm5FNhjEC0RbRgTlfeRJ4KAYLzNT4pkgcuMQsanrdiVLXauxtvRwY2WW+YE8k+chD",
-	"cbCrpZeS1rjGbD4oPTzlu0BhzKATPl1S4HEh0CffReuvX1/LslECqIjP+0I6FyMtJawc8j3y306tNtMz",
-	"EjE4ew/fWIXMykYFbK79yNuVK/vYs8gwZaFbFyOSFgznbmbVLVeV4ySzdQ1ez5VtEIrPmjKPZBA2Ef2L",
-	"Z+KzlycnYpIjMbjxEYTTqPwKQG//6Na+3aMND1UtuHGLFXNePJYJpa1PvS1+GQWF5IpIQyuSCyu5kzuX",
-	"X2c68XIYENaImeeRLAN2luyCZQRKdRH2gJo6cK0ABttBwSe54g29vlJ61F+a5V4qdhutlm1zy/CrtJnw",
-	"URjwqDvyzdJ6ctslxhW+FiL/zVlU+NPvZWPGs7cEgfB40OxRPgYF7Fph5UMqCpSmA3226YRc23Qya+uw",
-	"D8WFWnqw7sKgWd2R9EqoUY8gMR7ey3I7ZcodiTYGTK4/ea/95ZgNer08E96KMDXrDLFHUiOVo6+WXEnM",
-	"HUUUekpp8ars3vypTpNdDr7rByzG9a6HPHyTk+W/XHbvbJDq4Q413aSTllnPpWlklT1+PRkaSVXh8GcH",
-	"O6HV8bzFnOYF+HlldSaC+RQ+RTLBsWHUSsEjXWGxkEYkq3TodWM4k6ItWuya8VipMq3fOWirzd1pyT51",
-	"Vri9sZKtitQTiHf4lO3vzLPwv+bOA9HdTiZO9RA0PQscD17HYgLRosPAUKG8a0aqgIS3fALeXJplUORa",
-	"LjqT2QqgORYVWh9YxItE6N8Fq/kBiuuAHPXH5oG+qdWtVnfru25Ymo+7vt2ZX93xe2pBd0rdlHIppBd/",
-	"OT05Ed9Z8WqmxQ/azFA432ywS1iH6asqENcCRkW3d6ZQWp+dlVgqVtWi4ClrxmqD6rZJd9pGJt9AqtxZ",
-	"t+mchAsTG1qVpH7NDqTcb1hrI4dp5Wrlmiq1pTHiJMYyoUmS/AJ48u9rpkqPuo7mqjM2fJqIZBVtWmjl",
-	"3K7GUTi1qzU4bhUlzLgzgsUQ4Yjm5ZDVIx7zwJ+9eHGSZIJ/nuN3WL2w7rPxvktmT3ZF0E4BEIpjtqxR",
-	"uNRnZGgMqYjbzP4eFqTWxLK1deOczAWE60mBMVKA+Z2kG86PIfgf0UI6zxcM2UxtJQaP02geZtBcY/0M",
-	"8x1s3eY+VUwvH34dgYH5fKqM/3V0SkFtfxQh4EwoUzoRr3WGSbdMxhbI/U47FcX3iKWKL94xzbHAllYf",
-	"oilsY21Zf94aCXbX8GMp9SBNdqTIAxcsRWCbrxtzJkD/T4+pSMVvPk1oH/BUiFuaaOEahjhIr7U1Nfj1",
-	"+Y/neKrEP6xJ0DrOnZbH39nLVzN9CXfFA2o/d2wva2Ow5jSi7iHsg4t32ZEgW+NpZGPGUnRXa/iFBUGo",
-	"slotKHs92BZSERJ1WGpsSO38Ge346xcXCqV9Vq7IFaSL2fFAocgguVBufxnYhOFspQCuQevRyLLrnlP2",
-	"glt5PRBuO7XZThLoXWT1T8ALfnRt/dOVvIm3DZ1ONJb0a4/3x1cuU1TK9Xbb9y/RNdnfSdIyvhkSq/hn",
-	"FeGG1/Pr2A/M4+kxBz7cfbP2eKKNdrN7hWMMA0tvCRwN60aXxyr4fIy1vkMLqqEoAUKkP1sBlJ5qP2uu",
-	"Q7XRbNeXwePfj0W2OgBM+QC8ANXdKyBITIZKXj7qUbe3COp62yTxXLubWR8T6XqXgPWcatxSRCY07HqZ",
-	"/GPVKNvDiL5SXuqK80V/moxO/75xbUd/FB8eBPkJ+S/c7x/3RPb8jUa/D21+QI0fN7XL5Q+/SQl4bmuk",
-	"A8fJPpsv5H5jYNMf+hb4yqbQt7dtmk53VXrDbYYSe/rT1HthJDlwJHyZm+dFrLm0DiMNT2JyO9UfCXeV",
-	"9k4gYvi6bf8+jBwC2OfaOfhnXvu11lP8Ooq1TslKlexB5PwuHQtI1yhgO0v1Dc1K2u+6fBF0i263Aan9",
-	"iTWK5oqVLq1s/IwvS6e8eCJBjamVm/G9iGEiFMDoBAYmUpqo9k+zjLSyU20u2w1c34kIAB+0qk5/dzIq",
-	"UtjP1Nqeec6Vl+FA9oG8D6c+jtrq04yLNlPVwlHm39hOTShF01aoXqO4Xs/OPa+HvMX3F3LYYtFOb5Mx",
-	"teL7r6M20wYTFX4dwQb/moT9JZcvFkL4dbRbmlMvMsErSlPHULNnSDJTyBmj2womy4euahQpylQHfQvb",
-	"Ydf/2CbNhJXqHrY18tvt1iLusQfWTw3d33ezUqYhX1F5naVurHmw4Ti8i2R1wPwQFTSKClyp9UDAkEaF",
-	"wIdfqXsiqZUJ5feUh5ufv28WLerhGrAHPiFHLmooSW53t9YyamRIlq060ue7DdcifENBx2aqCGppVePa",
-	"JpDs3MDKQMIfgDVcK4a6NfYuz84eJxB7Y4ITufl58bJTzJfpTJKy29IxafyLDnACfTE+i9peV3mcnWX3",
-	"rlsLtks4Jj56YKhDG1/OfIYpNPrC86EJGyh3L3wktvYAZjJTKjOQsbvtw9dSigKY7hxcLG+/eSVePPvr",
-	"iXh18e8tXriQ9CK8VlA4H11L+CMZG523tSoFgVEQfECAGt8+Ys3XjRlLn5Ml3sIIF9L5tucDJ6Di0MnJ",
-	"SVIZHCkT37tLY32urb05cOI5vI1fIBwTCTcF4bIEgCbKsYW8WES+inhI89xZzrM7WO90Nr1bFehmleuF",
-	"IcN6vrr4d6qCHXYhINu8eP786Sndu/RgDKYYn10UAAkieXgOr8R1KKLB8fMTaiUDD0u/b0/J8Ho2s7t/",
-	"e/GbZIMp5u7zk/1tDU9i47bEgj7dNVDvF7pW7lKbIRdTLyv+ve4Je/hmvVRNSJ4mRPmiJeR/e4tREQke",
-	"kRtL4wjKiNamqbEYvO9UtjbqDs/y2M6VYxwzch8+PxE8m1Mqo4OHS0/NoTaMgkhnJAI6R8TIShuEVEK/",
-	"/1ko/gS/aM/xAmAVustygN/ry7CgvehF6YydtwsnrhU0fysrwo7e7m78vb7Uczm9z9Kz0hKqErWhrGFY",
-	"aG1a6LFvaiWe/IesbCEC7NTnADuFO8XP8WXg3FBZrcBNI2wvWHc7EUwi6xsW/DC8Yvm7se4BKYdtSg3q",
-	"iEYOmysY6gGT0fTU9AWnN0710S5ZV8sUMlYZD/vO4QcLSonjUWDfoZpYILJuXapVOkI69pi5AN4izpk/",
-	"2u6qhzUpcge3/9y/4h52DUtIPltforuZrZTgHE1cjrD0eHZgscjJMbYGztgZIT8OrdNqqclnXzy/RwWP",
-	"9UUA/IGMV6HRlb/UJse2Cbssn2kUcFUxu8phwXAk7VoRUmrIZ6tVpaRTEcEcruTGVGG1jLpTzrdfabeC",
-	"U4yIakfiNRpYGAzfTia4ggGlJThFWcDvkcvvIXuHDtYX59sOUkwAuwCNmSIUZev2wlEPAvgTZuvGqxc2",
-	"8C0v1HANB34pY6L+GocbXijC+uOVfJZkDvkAikN6vizbjLbt5ITVwa5BrewJoCBuUdGSclzRHc0GMObz",
-	"ptQ+h5Wo6j7IPGlktfxHnEsm7aL2RmVRJq2Q0B/6nxBSHtfcHblZG5YxF0/AW4MFGJQphLPjGzQYmeVN",
-	"3nZXa3eT6oZOThTaVO6AtahSN/NRMZrpKeXvaa/HEthpY7D85xYQxjwj7mp4MfehP7U7c3/1Cdr4OjnQ",
-	"O9wBKR/YIIrGV3vH8E0WbVC9V+PGB7jBdR7RnwvLmN27gu6yFR4/L9LuBwe+r8385kG4M9REbedU1nbH",
-	"3STraV+N7Fot7N+PYXV++/v/XavJb2eY0KImLHuHYrOczN2XW1P1FZaRc7Z4MXs1Kz7QFTYQBNMiFScp",
-	"+ocB7WxF0HjWKXHxt9fff380LxlXSjMaGEL/NYh233J2xJzk/FDkPliObuHjSwj1AgnU0m8RRMKr2rtd",
-	"+6KcB1LNWzXJjEJP1a7J6eEO3SIaka+q+EUROhwa5b7WCyb80CVrZ7oiG9v5XPs+5WE+18HBPwF/UFAP",
-	"Nrjw94CEuf48bvCKjPvd+eHzz18GdyJCUx4gwbtCtDxRTCo55bxha3yo+p0J7aj6kXP7yaVl4j0Zbdgu",
-	"mkQwqQ0RuLcE7W4xorptE9pxwa6k0zXeB6yP4vxBqtLmlOAQWJzHf0Q1BhnZej0pN9MLt5lxpMeig7PG",
-	"mxbvKFrd7YHSkHgvFECw7+swUWtvMWg3J9Wq93LsByLv7SSxgFHsrxNzgAFqFQkGpa6xjAM+cnauto/P",
-	"pzFsWBCewtqS5AKtWto4dlUzLdorBC+HKcYDxRvrKJ/qhljmDy5V1EfN7RBpdCQXdCKLUIHUZkv7ArPs",
-	"SGpxAtl1jaPapXxsz1SAd/6v8x++F6UdN3M0GWjP9zhmu6nfG0nHDUGfgzXGz1YMB/ep98uDyk5yoeTN",
-	"/fL6wo6vTnW++Gy9OHN03y0+w7whsLYvxnPEvGpc1rOlDSeH7VT4FBVvM23ktGcXwDCPFVXoJeR2F9Zo",
-	"+/5MKDNYVvr5STEMnjuI5daU2qaod26hcnb1ryt1q8z38tqBm9fqsRL4ZqeOWlpG7eTo+eeZGh74ac5T",
-	"QW0yzwqjJ5x9xjiEyidfvxPHt8+OQZG1x/iJo5AUg9/+tFDm/DX7Fl1bk4pj4JIiRixYr5Lx85NNVEv7",
-	"30u0qv6R+ckONJupLvfsZONIemsw8EAumum0D4uwL923GFW9eQ0Vw6NgERPtu/wtw1B79BGqE4IGSKqn",
-	"QZVQNvPKkG3M7BIHmp1+s1C1U/48wib2ee9zpZ85vVuFyuokTIaAGcdtH4FPzLujlYiqLmDoyxd59fra",
-	"lplwnTDsmCV5huIXthNN9xzoBdyiD67LK+Mv6cEgEOH65OmZCAOJ5bvQKruFTNCGgKaj4PnGJYku8qG9",
-	"ewXLmxeielMZ+SGf/vUY7ABfDHGxsIiIjO7xQze7trIuD1xoJC9y88PLrfHqtn4xH3+XkESnEnkoDo5E",
-	"2BInqQ+2Fgu9o78cyLg/fwy6/L1R9ZLMAdhrRM2/4bJEKLqLmapVJFaGlXbyVpXUwBbu1VQi4siKZNl5",
-	"qBtJ5yuWtlfdK5AyMjxRLIernBjLOUcBJbuADfSG4tQ7UMYYKiWZHcF54f5uWnW1x9cZZoAe7/AJZ2HF",
-	"s01LAe/PYwwOVRbgfQXmnOC5lbrkUiBhWbRP1mNLzTkctMudD8YOtGzvLvGg9+jG9q6H/XHwmp2QsIAx",
-	"KqFwRM1g5LxtHddE+COzYf3A/Os6W3vKsMgmrPM1l2iwRrU7R8epdZQRD2AZiE5hrHCEDw+ccJxa2kn1",
-	"h3aCJyOf5v97j12RhhlHVEuzTZh5svfJcVk97K3CzSeEtyzdWBpa9zwU4XQP8YavwiCy8Bb1LrEpnYsq",
-	"s9UTXXlV797gN/hdP7DYNmaYqpn2ZCP6Sm2Jn0rvFmFd2glttb77sIGstnnBeZb3NzD2tZgjBjMluto/",
-	"iG3wYpd56XCvu9f2NbQgTHMDZyKbcldzlTGiDC7s4xgaZx3GoH9F1u85OPp54+quIhgregMsP50DiCxR",
-	"YIwsiyJOuhKl9kmxys2hs7sJdjSaVrKjf186VUF9yB1Eu83CFe/xZvLoiSyPV20f/gfEWyJUm9629uNt",
-	"6Klvw+SakuKE9qdComJUCMml3vFaNE1VHa2tBPVR8PC3nP0euVq6pg9maPdFwCr7gDaovQMn4B2u6Sud",
-	"+NeLn368Z3Ku7KTPQh4dSilH4vXUYMBvByloGziEufIz2wlL//brd6Ni9OanC/zPz/j/5+9efTcqRl99",
-	"/f3X777OV81mZ3dP4mrANiSZJ6U8qqFLEnQ4qMdyocFAhafq+P/9+//1BGzWl+BUOP386c7RVquUwHPm",
-	"QedIArIZM4FXFcRxpGicQzT6Jb39ll5OazwgWdwzQ3mXbwZrvmHe/pCIv8+k54G6ZdZfEoDEOvX8aDE+",
-	"7Ssuu0DQ6y7gTWhMmYM4v0OILiM/pfSKMB6fbq9PocOh18+3aItN5uq986WYS8DsLSA/VHRtocYPKH0B",
-	"dPuwNGlG/RqspSXx0C6p5h2bJ+ImLRWFRaUwafUB45MspAtxDbEg7MuTp62Jmf2TbR0/NtVhh1DmD1Xr",
-	"a+svpb/EjWYv57X1Qpf4txJP2lwYTOKVFQ2YUGToRg353VzMk4FBGVWFI0DJQVpZs4bA9rYDTgl9PS0I",
-	"CP5y0lSVeEK+QUPhuLFwLAwg4G+EgfAAqMogUG4hVitoFYJLbeEf/LQQnapa8R3YuvFMOV6YkLfPS0Pg",
-	"5fTiTLpLb23Fb8Kf9NaWHrdY9ySeoPa4MCknGe1dlrNbnB/Qw5d5jRN3qsdQTpGS4HIh9f33VioliZRS",
-	"XmV5xnne+Ajfd0wCVI3yRqkF/Mm1S7eUwHYSaYYS6HGpezQIpERy+DgqQ+kKSgsAMtgej7vZsjYMj6Xg",
-	"he/brV0xCOCbDAgBbctls8jM/gdbM3KwdDcqAqdASxG/od3FiHZUCFuVMYJ26wX6Bkfy8yK3OxS7ehnq",
-	"A21qKvDKHNLdb7x+exCSeUnvKRUnV0kKKxtrPyNHHRUJYCSLR/cAjCxG71Q910ZW7zREyvbn++xylfnY",
-	"1jAv4/eKtJPsikCW/CrOLl4Iow4ADiM4Z6dpbQW7X8khNGy6uajqOOSlhPK0wKDRouyKTsXTu5ntiNHs",
-	"ertT18jupRffy/rmFKLZC1S1CwobhzZZ8YNA8pBLuFA1261DxYykTOmZgPuNPcHwFjja6imGPQDjQdzO",
-	"Qqi6thRcD7sDd9ydqqojETWZWIQ9aAbO10rORaVAyYVbNeZZgc+8EjNdrsBMYQlGvHRgSOvrXYzeH8LL",
-	"h7eyhqE7+CrZgZ+wgfQH0/33N9gsb9s3WLA0cyQ3xLENlcrxqjZ9CLmeHEVUcsRybVQAISV5AieU1oIN",
-	"cUo4zDxOeihae0+wmmxlzTCL0Hz+4ITl2wdXa/fi/rytlgYmca3up/Nj4ESf0j9GRjA9cBT0V7Dz+Sym",
-	"dj57/lfxg/6yI0TAq33hiZf9oQBpbwngYNCj4XwezRefrYa6fP75TpE1gFx38dPhy8++OHwmZtokztJb",
-	"nYaHoGS/TVzNXM9V9K6vZBYrWbauF1zCwbidXIjHwwJ3IOojJ2wpdOVZ4Rb2htyzWzhiiVSGiHDhX/tc",
-	"Lv5PJmEDodIzFCGK30FuIvPRQpDCBrqLrUGN0WMuVaze+zMuNX2JbH3GlHGpywJ/Rh6METnxRQY57b6K",
-	"Wc+m5FoyxMxRwxk33hH+YnwHm8tg+lBj67P9V6uNW+nd23j74Mi3iD3uceZ2o1xrNVb6NiLIbSdN0KTz",
-	"zoYYzZbnIb5uVIYAtkEi7RJJACR16veHlfojbr1ZNIKOWhv3cOxuZqgptAfRKQmORKh8Z+DWhr9p57Gi",
-	"NFBwXojqdLSPK6XTYE7AB015nrVR/UCmKDV3otJKXKulNVwZCeNs2fVNlWi0Nb3oUXldK3Y8vOIXagoC",
-	"2Po6qI7fvw0gZDbXCy4SAvyoMCFYP5DzUcxadOFwVig3xrESqIwd9QLrZ9w4lAfcMn18L2mhHfZ2lSup",
-	"HyyVEApXDi/fLzZnWdhi7fqnuPbVHfcxPHR8q+jMIDf0X9T1N8rft2hHNjv93IiZ9wu4PeC/LmRIP9ja",
-	"Dr31zOENixurvjCMe+vzJkwVmc7qm7Jbpmizj3cQ8+Id3xPom4R7j+A7nmchTWI6vSQIO3BNkPkuH9fE",
-	"Sx6sEU7UiliCOxqdgm+t6C24jt0EQ9Vom9VOwg54KTfBbPyirinJIOu91j1KChR8E1I4/FJoR0d/Jdwn",
-	"Pk/UFmPb2GRfa9WihmzFr+Nov9dms4WDJjA4674Y175IN5g81+C4k2Sg7pig4uTIbMxxYHnKQE3ZDTNi",
-	"h6vUQdqmlHvZhpcWjBe4JNWcI812X9OvYTy5OzAVqfuH2h1UHm0EfIAD/pTto33ioPvSe1YTaMMUwiDa",
-	"LgcDn2I/X8pKmr4UkBsFwfXX9Eow67froqqKsjY1QfSOa1XCf5+8k7e6WhbiG2AItbyrnmbkZsAv39GV",
-	"g+woexfVai61YYzMtacI3L3+YJXROLTqUSdpk0U62MHV/DoUJurOdd6W9x7U6zYkvLd7HRocHMzf1DIH",
-	"4B33eys6DPQRCkgiVuJ9qkfmYjZAJWIEQDxkEW8JKK8H0tn5rcf+Fl7mj8ADCF7KaqeqSTnEeW6NYOeV",
-	"805gu+Kq080VJZrij1dHwi2U8ad4SngHiqHz5ASss2gWoRwEl7njrrRn5J4AVhNrHQUTNg2FfFYmb7lt",
-	"AklutZY/49s9BrRQ8KjZiijPAU2lH4pyI6EoQrt1lCiOiJFZWrlT15cuygBbzbJvgklTm2anyjfJiQ4b",
-	"o95LDJVkfohmxhrSXOBPj+wS/tBmOdFult2vroyQq46TLRR5A0NKFSB4sU+iwfgbhPtgaMndLi3gOJl7",
-	"ti+pJrie3Z0GP3vwSIex5qWLbe1gcVCpLeyjso+emG6Sg1HEpkWnowy64mnHI3/+5jVvlgz145UpF1ab",
-	"IJyFKidY+ojAxkIyC6E7NNex55RNQMEhjgFFh3by2i513ZDbnDKHohGxJOCb2hyJlFM+oTCILjWy04Wd",
-	"QTDXp9uzVIizgYjPZnHKaxCImgG50WrYWYO4OtoAgz0C/1Gy5kyIqkyAkvo5a9v/qEDXzWMx2eTej0Hw",
-	"6KnYge3+qO5YHNhBq+aCWx3T9PMX98AB69R5Ucvhof5U8+neYaRRrdhd0O6y7D/QNPCaWvgcp9r+YytJ",
-	"3A3Pbg+XQzFa2gZV4VK9h/9WsimpQq7X01rear8cvkHuZ2SZy/eXiT7TF9dLb5yJz7NODkoCfn6yqepQ",
-	"v2527m7I2UsmSX4vddq06AaJ6tbxtH6sFY+KYcd9tGtCPLUySFZvs8giDH6MLPUIQwk5wqyF0FSlePH8",
-	"C+Cml6y+rTw8eS5sHeykrY4na0VC7VFA2GeBGP+OUtqTFyfPCvHi5LOnR6KUulomA6CoLmoWn5G5qWDm",
-	"f3IC9QZ/fveqw4bjHJADhzEjY56wApf0s+kY5PEnYnIEKzooqEcQpB7zFmeaqq65BD/KSgcGBHq/U0JH",
-	"NLptiv4gUxkZzkJHg+RzgRffjvygEx7QZ/W3GwxV72SVi0EI9NcTyLvquerLPI7NxG8GB/Oz68Fh0K7r",
-	"cDtwIWrlegkkKrBEpinF3BpKiV5hnfDz1lcSrQkGGRs/uyxtVcna9YbXaEfdhkGJsXVtxGokRTrChqv+",
-	"4MKIJ1+/l0/zfglbyuWuI14lRGyDp5FfeVvfuIUcq+1AYK6urb+K1moOi9N5m1wemx4q9ewITE+xS6wI",
-	"2jq5XRD4oBuj5xZqHBnEeicQo9oTQ43PekNrrMnjL3QylBGE7QA8CeMZDG0sTaju0l8qoLbW9ykpbauE",
-	"iYqsmlvPLvpAjDis/OCzNh58i0DdLrY+ziEu0iChtYUgVoAvtIE4uWCaWOc59EJSym/9lbkt9USv28cG",
-	"Uv56ARXX4hTZVz1qu8HIpUr5bSpWB6DFELqcDnWL9XJ9qZA7CNwrO5CxE0xzMG7fwNXDQfSBFo0wFsu3",
-	"tdhK67RdjAgcmMP5ebx8OFcdZxtusSnKG2HKG31PYapf6clkp/huiniyd2spheCU4c3Ow4r0JJzERqUX",
-	"3319/lW2YSatfMPadGuYboYDzZMeNzS8Xtnymf2HZCaff/4yW96g1t4rI7iiCCPsZSdIGHT5kiv4SFyr",
-	"aWNGGUUXyQtNuFqNOfAT/smog8CcArnl1mRwKb42PpeAjNFjWzKXFXbUnd7PRr8P0PxbBv8PxX3OBoIv",
-	"Wx7GeRTkJ7b1cjPfYgbPNBRwY3ARdmBiebTblrRXyYee0MEJ7IP8zvk7dJddSWIBtl/IPkpv0d+7lB6A",
-	"0SWeBMVOapYIMaJN+1A5q81fxuIYz05CKOdwqAEHE8g2jmBAMeJJB/RaEp+op82BQ4GB8K7ztqXDaVd1",
-	"kAz2EFgV27p/qG5nOOyxXA3T8TX/udugiGlsiPbasNqh8w2RWrHPH+ztLjzb261vDG+He34j/exLzlXe",
-	"qvedmfDPeAG8mjU5h0ugmxAE/dlfX4i/6S/7DwHeEpkQ6Yjm1a842MmE4a0eIlS2V91W68+vx96LLWia",
-	"VyxC8q7lvKixvxziZhkw3CyvIoGQ65jkS4Ltdxm2mHYW1vljDuMXYPaD4WcxYp+YfC+t8nVCdwtcGLkV",
-	"3mE7414ieqjzGqO2b1VmP+G1XTY0v1yDFwIs0w8Ki8D8aL1yD0UU7UB+7mbb5UZ+y9U5dGrc1NovL4DP",
-	"s8yiZK3q84ZWAi8AZOb4c7toM+8Xoz/+wEDuSU9ehzUKXYyUcTOutDKxpG03urxxyp3GBCx6k6zss+XC",
-	"zo2aS4BxLxibOqaNOfFkoUPullP1LSNvpE5Oe2eEnGLXt6oWP7x68/RIvOb6Y8+ORKgVghskxrLG4Dop",
-	"aMZU5/VUSEMN0r8Rya/kdDLMfj5bwZmg10I5GPYmcOap7pZuhznFVDQ0pRM0MjVBOPhaLGo7Vs5h/r71",
-	"9DCWanr+8uQpVWLBDDBSEVYHA89jJBWsCsFjEF5++A0LVBrOhiIr8ei7uAe8h+dvXiflTU9Ht8/wClko",
-	"Ixd6dDr67Ojk6DMWqpGojtktesi1gPDHRbZu+jmjqqDnWW5R/MkaAV4hNhq16eja4dtUnailjyPxtY4G",
-	"raSKkaOGkiJHaXEbQhEnkZfrO3HRfZ6ReHIFwq26etolwFBO6ioWoboaKC3F9B3rRwGygGvrl7XuZXRC",
-	"K1PaOibqQ1ETB7OGEZGjHMufwU4CU8HyYK/L0enoSzXV5pxa4mJxxDKU80HcSTk6oCuN8fPj/2SAAxIM",
-	"N4mNP6q7bjd/dJkTem/hB7ewhmvNPz852Vv/nc7PvVfzhacxrDOrsI/exg0+WkFxynUVx37MQaDAVQO4",
-	"1+jCy9pj07CbsjdUwGZSbs5aroGUhE2vHaTjD/AXlAbT5R8kDdRyrggA7u8fRhrmxzcWqdej9oPR6mYU",
-	"ycKuoOAMXzm/FT3H+Rc4xlehutgVMfWhQmKr1dXIwepu2mPwC0FIFGRc0jGWoz1zoFHjuWM/IVW6S08N",
-	"98IZWLJ7lJ2XS2IelK+F7NOJqQ3FrDH84ywZpHaRaEoEElg/dK/4+cc4d50+YkG4T3P4+s4bE/LDz1hY",
-	"2HY7Bk8OznNKqk53h0BbPg8vPf7CQHcbFsc9fHXS1iJ+S90YroP9xFgOe3RPGdenJ4mEZAg2r1ijxBXF",
-	"KAinfLM4xMdXYlFrzGmnm7KSzjshxVLJOhS3c0pWdDvFk4S3HtW2C+5UkoAQAimAsNP97UKGfcHGUP4Q",
-	"c+DdOhc9FVK8ooG+Ai5AS8CRAY4KNNa2mRKkKXcFY2V4GxdBm9nPBUjH0fXJUp40RHGYKoqDdusM4Lws",
-	"EQ0hnItHu3I7vWx16J/90x36vym1SIMRuWg67Ud7EaBI5ob5wfEH/ivcoOQFWecPb9Ezl25fZxFf9OG6",
-	"0wiD6Z4vE1mrtpDjQ1eDRpauB96a4HlphcGcjFGkeBU3ymSWqliVKHLDa18JFPD6K8JlyS/zcaldKAJ3",
-	"/+ZbdtXdqK+o8d6d+ue7497Jm8722gYV6capM06li3IIhKzvQPDHyjzeRnxt/ovtw5vGp9sAYhVH+u6y",
-	"5HSxJHLIqncI7hlWYWE7WSKea9N4dSauJrVys6sYSh8UQQjAECF9v1YMA4e6sLcEiuPbJDz2Ot1pU2Ll",
-	"fFMKB2Lv3Wy5fnd9q3yUWuYUDbdCLesRlN2RpXX9pvqW1KEwT7YJIdwdzfIIrdaj05hzxroLTn2Uqilr",
-	"zobfPobohovQQ228pGgHgNxC2g1g+BGy90FEiIGwDUW1t8R4EAUWzu0JyY2KA7IYCRJtAh+LzdOIYD5E",
-	"6PtgMeuHxYXsLp55a7YhLHtIYRLBIIkvJGJsSqbBh2mgyIm4YvnsUpdXYo4VvIFkFxjKEA2G8L2Tc2z4",
-	"lPFqYYlRPW0cDoTd4DRUsOOQiSspDdLuHkmWS6SXkPrcMf2ElAyet4VOivgrthJyu5gErYtTJJ5hUW+G",
-	"VXhx8sX6aX+rSqXmKa2/VeSeeURlNenn0yiqw4c67E7EuKS9fPBh/tmpUEJq/SxTJ1Gd4hOMFg+nysNm",
-	"EYcFFEdhPdtfQ/PgV937vf/Dipz8aEQDHf057RpFQDkAhxN6Fh9OKz+sCPlAN9i0aBCDokRXxxwxhVK1",
-	"n7OfGEO3h0QWEMYrqw3mkfhWkTU0rtzWMRhwy5Xl1gMa7x9FvtmA+T1grVxzieVbCiGju7W0ijmFq2md",
-	"ajPUMGT6rW28xkjuuuHCLZkh1PTWjqN4VCGHt2HIQBXecWTQTevr78dmxUzDkesOrDABFRivroklR99M",
-	"ljSC4O0LBcwGafz4Q/iTlFE1biv/bjSfJ5/uYj/f2mL+LoYvBbgMDXp5lDP4V2L5tfJNbUiUCHsCEGdB",
-	"OmE/uKpKMbWKfFyeLNQoU0wpUhOIN3wykyUb47UT3lYsSCIHQeEniOs4mvDVQjqH7eds31+psS5VGN9j",
-	"XQnc/FdhNz/2vRCmt+HICOkSrI+HnpVzpoZEHpU+8RsGau05EbXXEzkeUEa/ZrRMsKu1eKlnhN994DpP",
-	"Ur/yAek/8BO9iINJeCJ1sk4reM3EYW3QM3+KWXrUZx+T3d+NETLDOu1QluHnJxtyDh+Xa/OaDboVwrru",
-	"ge5CU+xX03W4BEKh64J1eg8/clkjYmzDjgYo/IHp3sLLulOy/BQlHviTxOUlVq0pRBq5T/ZMU6r3RzM/",
-	"r4IU5u0iouZiW0KS/x0c+05cK6dLrBODcPnfvfvhe+pHuwhBCkFGf/uyEJKrgHMz/PRz8cOX2MPzkxP2",
-	"Gi4XSjyBQRRiUU4KoefQoa3xy6fQNKH6rwB3hmFicLc4RwEybBytC2OzwCLAAiRPTeuVYDTkM14RvibD",
-	"qwek5MbNEgQmz2EP3AHNA9k8TZZ8RpH3Y3wIasakj1JTMObVY07MJ4TYoQwbxszC6Zc2wwsuZvYuENpm",
-	"VqBiulTYlL+mGGRnQoYRzBXr0WhHNQqx6ol/4Zz62EjIe8wykRfZurkfBo6h8DaMqK/He0iF29ysduyV",
-	"PyT46C6LaUNHYxD0Sicf91INu9/D0fgQwpFBYpScU7bCiw5YgIorTwm3d5I44V49YAMjXjnMMSAxHp2H",
-	"B5yAlVeaNZbQwqPH8KTu+bcTOAgsJXQu9xVJ4fhD+DP4y7LaIliM25P7yegjjHUfgla7qMhSFccN8gKC",
-	"ob7oKEIkNxP+CPJCJNZ7mFq529bWmt+L4zAWd/wh/PnHMSTP6lu1zUad86s77dc/9OIeHGR9p/6hFw/f",
-	"JJJWo4TQ7g7I3NAFeu6lEXYhf28UWkww6PlBm1Js/fZbHs+PnAW9+3aGukrZvQQc8NAVZiRtuDOTOGys",
-	"OKZD/XHq7awNqgbvkSFnAoVT911YIQ00d2U9y5aW300ofuDNlRE3CXCeokgwxKQUMoiHe2AbGWr85yfC",
-	"mhP1Pslw+11BbmZrf1ghTnmIMSSZNVTHC3M7RF58TOIuBxalpB+4dYj4A2IAaVaa8tq+B0WmxqoBbJjH",
-	"+GFjgx/+tAOBoAmG9hCu1iJVaOCGXS5a540zejKhgOzQE3hHX9FJOLzgYP3DN7bSYwxSChFWRsxs0xbu",
-	"4cphAEC1JlP/tFAm8oias9sf+3qmjvpkuIAqENGTH3roCFsg6oS8ebShcNK4jDhFwlMFHtpQ8YTDzE21",
-	"fDr6Y+eD4WZKDRlT0A8L77C/533l3nP2tBOvLv4dOcMPam7r5U8XSAk/meV7sYAeKBHpFGmJOBRxwQIn",
-	"Ws+bSoawtLa4LIS7XVt7E6quPyE+p+ANcGNC4TQeUUy3rO2duAbNVNZLytj8/GQV0BmUPBx3WnBOtt0h",
-	"zRNQD4ja5lZWulwnxvTCuqC1+693Ze12ZHAZhow4RGMRXzEsOWS61Ihp+PArK25jV4gKlPfq4t+5aAUN",
-	"puDQbBcJtXuMPuW1BqVEjt1CKcbp7jU74ZspejTGndcKTeZ1x7eT5BbVEbFavfeH3h5SVww7GIPrAHjw",
-	"rAc1DO37eNavCNf6KgbisFupLd6ZIFSvWEoAXx8LszySdR07CFlsH9sIAPO6oD3sOxT4dA+up6Y2nL5u",
-	"vOVmz9DWyBlXQTfWZlw1pSr5lkA6a8vMwMXwqPRGIwOKo8LTj0tv4lxcWKPte9GZImH2qD7fA/z3P+11",
-	"Ae5pb8VnJxzc5ULSXZh9wPGE9lLQOJrQ1Vvl6+XhOQg3V2cYREUPJMGSfn7y2fqBaMtVPeapWC+K9SmO",
-	"RluUo+94JPWP9nNEZFtGi04KUSFuS7fek9ATouUtTtG1HQyLhNxENIBD0k4Q86d9SaWEhY3R+AX+uVC1",
-	"s0ZGb+Yc5SwUo72sbjizYKHsosIaNFRMEN4mYD64FTF2irIoQkKDXMg6BqC/oVKuQTHA0cYqVLUa64XK",
-	"u7y+tI+bdPKlHRQqoPt9mV++tJy7m9YMHfb5wM5OFWkyuiQ+QpIqZ9BSmDMIbMRzqiXLd7A9kKFB78UK",
-	"yS9evnyKzhPymFvM+IReZtIlwim8Ar9idME1uUfnUhuaQ2SnC33g2oxbJv0Wi5jyaKmsh28WYSxtGsJY",
-	"Yr6NPWOjYRxOaDYd0nrmGIInfWkfMWXkS8uU8fEyRWKXWWrYQ7AUhsxDW2ftTkTjd9hk1gR5E1sudGwD",
-	"RjBXKct5xQM9SY7CwiQLRjwvWjeZNd0M+Eijfzl5eiTC6UNSLYWXN2oFOx24D3tT2X9GAaKc9wslDYS3",
-	"U4TpW6OwxLWFH6OGCTaAH2TjiAJrRf1Q+GsME4BlENoLCBN0NM64asDXKixlEyJVyqAE4jTO0khZW4vG",
-	"QHYynu0hSn9LI4m8cP+0/qX1hP78ke/pbr89xIRQk3HzEXlkPxodBg4ikXUIy2POa6muZS0q7XyI7chF",
-	"iuCh+HBto9enzZJaP8AZOuEg+JZOQvITBivNMTBmhQE/iNVSmjCIoUDz7XPq1hFnaDl8e9e3kkE8qJ99",
-	"dvKU0CnwtYO2EO/UniGkQxE83tRGDDSji4UWfY55xdHtHJorosOfGw/pjiDDc5rYrQVdAN4DL1O4tPCW",
-	"jP3aGisWCwA/NKrCEOHUDKNuKTHE5MKzYCvpghk0vnCeGTsUh1dvlYx6Mzos4c235yiSOmOibJHh8aJf",
-	"rMAl2HOeXbv8LfQjL4Cxcf7b3zpFr2su3PqPx5Ye9RI+XxWkEhGclml369CXNgafh8Lx3dG/9sRHcVPa",
-	"k1m0R6PtHs/kloJirfCl/XKpnzqHRCy0cXRh4l9EaanAcLYio6bXcBF460Ibk79fYQaPJ0l+aX3AXv3o",
-	"1+uj0vG3Oh77QCNUNdrilsUdw0Kf2577gEiFrpEiL2h24aFXCTdNFgIKZTrbTpHB1aYINovF10z5CZSb",
-	"N41/VHq8UB4sS+6/GkXSOYt2FMfTvJeuE8S6Y2bJpx/uz5J7VXwmW868o1EzEmRBmSyqxgC+RHPSUXNC",
-	"wyJRcULoZG+0TVVi/LnwsZ+YQZU6okzJH8bE2NMQfwdrRWJCGFRIZljTxrGFL60nN90jUS41/mdkpgk3",
-	"4S1tc+JodfcgNpRlkdkZ263uTjSUiBFNn8sVyIpsy/T9mVDzhV/i7yyx8xNStoW/02MKJixru1jQ/Y9u",
-	"AXvLc+2ls4xzBuW4j0Av79R73ro/MbVQTvs+hHGij0AIhCTJvWCvqeeESvpv1GyPOR0LvPr01x/3ZofZ",
-	"2N82MpoEiJAzQWl7MV0iakvd3CMe02De0UJ6r2r49n//XR7+4zf4v5PDLw5/+3BSvHz+x/8c5XORmqzJ",
-	"nYcL5I3mb5KBypBKJKDbsqkQZmdR2/nCt9qhrW/wrZYCEM4HwfvAuBGjUWWIEkd+XjfGtfsX5AhbtfoV",
-	"NBMi4y0NLtZV6yQ4hXuCbGC+s/xY2qzNbGoMBoiHPIUwr5Bzi1ensXcFh+dww23t4vmCjd48Fb57YzsY",
-	"IXQ3kz4dBiK0yKqyd6pkSZ4T1VGymstl6K+rbrfQjlHGYv/DmOAf2aGhTXREcBnp03D/w+i5egcIb0Z1",
-	"w/aBJOtmo+j2tkOP+2Zq3PqnEuHC5Hq4Gz/em6U60ES42/BopNK2YXrjkuA57uVudFX1u9DeoXuXrzhG",
-	"L41FscO5jeAJvqmNsJNJsFDBt9pDlJZjgCzZmDEI+xPlEU0LrVzo9FvoeHJszXTZ6/i6oFE/ZlAN9PBW",
-	"TQbjanAU+8lepbaEbB1byDsoKjDmhacZCve3gyAVEIjiUJD3l/zKY4oC3EVfpC093s8Kc2OsH5AX2M1k",
-	"rVwn+OgUyBEVUpLRtHEeqvCRNlA3xmgzLeJLCYQkFopuYeac8PLa8Zmjvo/hl+MPXl7j2YPAJ5cRFlav",
-	"VC+v0dAvpBNX3379ToT2rtgIr+noX+FArmLR2hTP2MvrxMXMudHK9EgNNMKthYbzw/8gkeG39s9LEh8+",
-	"6xUfsjgQ4Gdiovh3re5Gj+lObLt5p8c3qveYe3y6D9MmtURoKh4ONmxLTI4GWiwjmaY0yemB9DXB/sIX",
-	"UOrM4m9XIVo5EBqS1vEH+uSPKxRvSLJGYQrDnoXXc8rY4xQo9jbWaqw0eTwoxBVtOVx/5F/ffP1t8GYk",
-	"ooJMMZivPvyKO/7r6PTXkRzf/Dr64yqECMU8ImsUVRmm8/KvFz/92HpJrmD8C1v7K/Hk6k6XfnZViKuZ",
-	"0tOZB7zkK47bgMf8Z6Xqq1Nxhef6Ck/D0jZXTylsqamrK4y+oLjrK/CZvuImCnFVq0pJF3+hb2rl9D9U",
-	"bgCnHOBNUqH+R1wI+Bl2dEK83Ato1otnz/96Iu50qZ7iXPFtKiFAPINnUIiruW0cdinHQIAwIdBjoW+I",
-	"+Yf/NourM3H1Hv5cwv9dN95bfDKu9PjmlW0M1KO74kI0tcP1upsphavVfliqysv/T/zrf+F7N2rZ7b7b",
-	"LTzG1S9xTKAiXdFXr/inbrdG3mrwTkGbsAfw20w7b2vsBjsOe1QrCLS+AkAyChPuMlZepJR9H7h4WhBH",
-	"sxU9mes2uvKH2hxuFHLUEmmRyBfvXCYJHNpYmgjnyS7Ir+kdggSVARbhehm1sxpVHDxVHdlbtQEv0ojX",
-	"xqspsb+DpB2St1h8gxZbdNesQATz1ObxhaK0o48sGK0Fax24wJLcTC+o6mUr5I7ZcXNcyfpmIECMHTwU",
-	"dlVaWwtvceG/tP5USHKQysWCkdEsRg6BqhRBYMm8SG6qAyeojlRMuOZkEGzBU2urCdkysVXCuzykA8pw",
-	"FhdAMbIKP7tkBHGkhMyxWBw4huaFTigait33xJ/z5AOjCq0/JvUk/QwRTxjKfsin4+FeDzLLG3g61HP8",
-	"gf+5MYiBfLpkYla1CsUEWkoh32GPNz1Znq2hYhPyndh6ar1Xe0gJ/sbWU+UD9XMfISISYx2DhJvSXA4h",
-	"sE+1GJzro1DcBmrbh3TXXa0eZsGMJNUwxtYYNfaqzK3gbhpeMuEfkRf+NuAl5EBvPVdk/7nhjDbaVE0K",
-	"D/OTEHESVAo1l7oKLO1InLNBH7OBJlpVZSx9zqa0aMgKJDuTJaNFUA8INkSBwQHlO7FsxS61E5XF4Jam",
-	"ZamRd8rFIpaZqxxBmPZPCuyNwSqYnCQ0YNByRIE0OsJaqZzWBK1m3nbdZo2plHPR8as5VC+w6ZgCFV5o",
-	"WX4rwhB0CbzNIfOBUlcGzNQTvbJnsVX4Fu+X8GroNhJchL+MgCKrVyyK6miXyVrzVs/x/i16SQ+fyqr3",
-	"MbnIxRrfDaCcbNfTu11Zx9PaNgt3/AH/ew/PxBpHyfoosHWGi8BDxowhb13At7dFQnt+crJNKZG8MwJ7",
-	"WpGqri3bdfisr9UCYc8AhrJacyReGyFjS3SCAlbRtW1VXynmCvLIiPMrA4NwLce385VxgFNCVBjC7m6y",
-	"LsBk7b9NluwRjxh28yc4ZzTdnsOGW7GHo4bbHE4b7W+HXVqM0rGTyW4njkSkPZy03uAIGjCbaEjziEzf",
-	"LhTU6WmL6sON6Gz7osasaRBLLb0RpotZKdkiFMnI3mAjj5dWsN7VpyPCdADrVEjLuZfIBeHsXGGOWk5m",
-	"XLkOuEg28w/N3kCwA9+HTI8/0Dy2KGORp4JttJSW8oDdUv0yt68aB2HtoOnuUmGkhfOPIFUX/bM8cPEI",
-	"8iUYo6pIgMXoO1QP6RiC7NpzTy7Sw7bxovzs+eaLkgliQ0mjV/jGVni9f1pwQ5jDkJUBV2E/JoagoGCT",
-	"rS6S2P1IWECAuVqNlfGgPYy9vmUlLE11y2VywWQej+e+oti+j5rL1faZ35p9FdJbNa4lmxLZI7jDGe5z",
-	"k4kn1MgQjJHVBlr/9QV7aQhWNGqORScI1hUtoibKhcivcIjriSEHFNiSTw9hY1JPcgjcD1tlhdDqoKM+",
-	"WZoQvMMJ1iEcElfxxckXmBHGWmkbheAV2GlDaIygGGdquoNrDV9CJi5Eso9VHDj8PLWGA5wWGv7tPIbS",
-	"xSkRHkssS5Ta1bmYZ1oliSJXpPdyPJsDxYQA5QAvW2HWHTS+0Dw2+hF/c8ohWksXuGSMsaNddwDOyE6n",
-	"PFJKy9OGhnsJhpCzdppUKpBorOyzBcYD/4jckXoqh06h0MlIH3ogqb9wIie2FlNry12shh9jVR6XKZ0n",
-	"ZzSNIOg5exbodXd5BeYxnPCC7iuy05GvKQKt+sjCihjmipGvcNhJ52hPbDxLBC0es99efvH0CI5wa1MM",
-	"eQatE5g6IQMTM8uzGFHUpqDau0z62c8IPfuItyI0/WlCqR+fBl/NrHUqqZYI26wmE4wICFsbQyqzt+Sx",
-	"vLb1PcrzpISZFXfOod38Mc/oFgtN4ZCIe+ItXhdUwEZSPBqfo30IE3aRuXTGTV0rw3FvoYgDYSiHOloz",
-	"ucB4DVbb0PJUViq/rDAeOd7Pwq4tFc1GOz6RAeisTrEwblXtcDfa0FGEZ6dxaZuc8b++eFqQZRimidMz",
-	"Fg49kk4IQUKShcAL/BU2KwQJhsZPE6JDTPjA/Mgspz0GwhaJz9TBks+VNBRGkaLHMM8CKkJqcGgvlWIi",
-	"ddXUHFOrDf+iSlFDBbR3NHmM1m+cDGkiEwuataMoFRr7FT6+4rgYa1JORthq9xaq8vV/5bjnODzP7rF2",
-	"ca+4pAsPjqe3hxuM67R1i8WHXjNdCmPv8tTOAurhjVr2eugXOq3kLKQnmxUxLub8RZdYKbo5LXofg2Dp",
-	"aEoTUs5Wk83CZnzGsvyNWsZouUyQaiRc5KAYrk16hvRioc/a84C1vDtfYCGtF9myebDf39LS/E0tH1ve",
-	"SXrquXVuFLqsZ0qWyI0+jF7J8UwdcrRUxuxOCaZXxh46b2t1dZQrv9dirO5DB+/U/T1AOKvI1ogcwzYs",
-	"9AMEqhwZB02vl4YRVgBTntgOwB+kXIb+dup3Rt8nQalTKid+Rpzbz6RBjofG3UBUwEJbZ6XCTACsWoCe",
-	"WfT1Bg7++cnzp/mAEJjuD2FWO0PxwUQzJrK3WHcmOyGG5nLqd3GtaDFIuzyjZSNxWWofwNqN0FNja9Kf",
-	"cmYpWr4O2UWwX238yxejDaapx6jlsbYkF1jjr62uFy7RcNGFCwipuKmdrcUS4iz+oWrbup18LKGTG/Gd",
-	"7B9wMt6TT2CeYxLrs9JBeYYFx0gFUtmXBpYYaAKJ8QoXq+FBOBxZVctYRqoTw/ow7SwrBF8oUybr87iG",
-	"v9DJJ7D/dbrOpf+GIGOpfecCbUUPrsXwfG/j+rdGNarcYnR5wQ65ccLjWTjVHUHxd+ijiL6QFmmviDKv",
-	"IynZKe8r5SLLfvHFX54CrlnIwwr2J1uTUGzsXSsY7wEUudY+hjAmE8YhYI5KZ6qs4cDYQPFH00XuwsT5",
-	"b3RA4E48pvSzttVD7gIc837dBV0xoMNcVtL18N60TA3FOkje/mQZnObxB/zPdsXt1w/Mx9yyDbwjHBA8",
-	"lniq1Hsi0KkNpbgjec8Xdj+5RpScF4bAhddXz/8ZyP94c6+pU1PrH2T22wyAjOu4NREcO2XK+9skdhnO",
-	"MBwELSihcbUbFxQwDCD0qHKxTFQE0HOFUTmcc0FZxk9AM1uMD8d2PpemdEfz8ukpfBsK0yUgBd7aCjMM",
-	"XMw3Ptq0fbmAHlNucVo+zR2b3FD7CGJDvQMJqIz7hrWGVxcrrnZEEA4mYVToYNHzl0hbzyOrc/1NLRIF",
-	"A3M7IHmOf2EDTuus1TVqHwyGz1GiUiQrCM9K6WVIT1loIqQibcpSsX9dUu38uwTpHqvyL5U/xcQiBYlN",
-	"oZLTolqyVeFpSMa5Ek/YReMl/AgUyL+9s7Y6B9+x9kvOnMHEdH4MlXDV0zNEOm6XoLXvhzhcQkOFmNRg",
-	"08LPX5HR5mf46SmhPMNMJg2XsAtGHapYD5OjY4IHZ2FrDCrleuZH4gpJ4Eo8yd61TwO0C/NFgmNg6chR",
-	"mVFCoGPbGqe+hSL1lN8QKgWinw5OM3wY4DuwFUq5eXbCNdUzSTQX2Dwb2vaj7r5D18eiVmNVKmATCAPC",
-	"VgDpGA4Z43BBtg15TJSfptvKA2R2afW576Xzh1/fQnWP119tqeDeT7mDfT5W2FOueM5WpXLYJronrQ3W",
-	"7ULVt6o+vICNxWVwhaiVa+byuuL8re4S7VdAwjO/gJO0UYD9pX31EUWi2MuQ9Epe7T2Fu3BjbHQ6iPWW",
-	"YWngHukmU7c+QrDNpj73UIrC1wp1fDTsvpPuJjgHIBqixUysG1OQxV16fK11+j/aHh9/iH/jE+Y0g1sf",
-	"N+QVv/wxNj/01e84NHuxnvyCkSra080QoE/QocLEQDssnAae993X5191K9w9sM7H9jJlXJp7bHOpJ5Pe",
-	"Pf5KTyax8XzJtG2H9kaCf/W3j0EgMOqhiphB/kK5By6pPfFsLuFbJZmOLZFIjxSCnSLaRdR/KRHdW1HW",
-	"8u6fgmZClb0+bZmiX2IPXxuPVtoHUc7mGbGRDxG3tsLA/Wrv0T5U3GCt4PIdww5hcncRw4HW9rq3auE/",
-	"3xnEgQ6cwf2WDuwcNRQ5yb+NhVWenYgf9Jef6GD1ZOugm0y9X6ixv3QzCcWzY2WueeO8cF5XlZjJW/bP",
-	"X3x3fvj885cxvvoOzZXdOmJSjK2ZVHoMmLixqPhT+MRYz+W04cmdMv7pWdDiihi/AeH414pLllMBsSdJ",
-	"o6ihODtX9LZ2UEOCa0k/gzVeVzbQqrpKvY9h4Y99YI8fO5CpvXqsGSR72CbYur2kLuNUhew/B0DrLSQj",
-	"Hgkq6xxrla0X9NvhFsBe3GMay9bOUtaHBAhhLY3hqHbmkWuXxyOSKLBhbPkj+6G2o1Jcv73BtoVrEMPJ",
-	"A5/RDyM8MIr+CajO3q6LOI9KN9Djn46zUTFRzba/u30AlyKWt60FVxMg9lYHUvJ2v9RUy7vBitFxBd7K",
-	"u48rev1zFnM+cKGfVPzqKer8T6HubChbm9RcxYlzWoZMkAZCwgYZeBDiyUdei0sDZMgOAj9T86TsSQpS",
-	"0L7RFiGVTqzXiUWYynxB2bgSfRVl/zzaxJ+t2GtHn8gYgj5WBdiPQ/a+Vmo7699XiANlP7aSn89MRf8V",
-	"uzMZjKQvXgxfG4zX/O1jWbMHuPa+mPMiYnCVYb+yWgNji/1T0GizgFvkT6CDfKmm2sRXf8Zh/bcScl8l",
-	"hLZVXKtpswc9GfdGSBOa9YgQIf0sQ/5nnJGpxli/jN5lo7HTJUq6D5E2mWAfmlS0L7LFHKR/JrKlIb5V",
-	"k+3oNmf15ZIVD7f61naRUhXlXldVSJidaKPdTJV7oZfxrDE3n55eINplZS9e4cj+/DRD47wv1fyyL6Md",
-	"xwshh0H+EwioEJJtqZ/99YX4G6pMZIi1k4lT5ECQDkOuvN0PUdn5XP8JuNArHMc/Hxuicf+pjc201ftg",
-	"d28o3osaDOgCXDR3zSBj69bujEPp+jqolu46CZfqVo/VEE7/V/TGIy4v9TCkdRpbKtfq8nCaZ9bsKWJ6",
-	"rXEjzk1ZW11SL1wmIYJ84I+dgi0hEq8F88cYk97lTqD5e2HqaVH+D0Cpj0vKiJcY2k+0nKzfmQhJCs/+",
-	"sgNgfbre2+HVw9rjkfIhFzPd82BWSvKtUxSRdi7JC8b6trADoaOE6j/0bkyog9RtbK8NJ9YE+DSEo89F",
-	"fpQyQkbU6hYgBnr47uj5yxdCjsfKOdEYzXmuGijdqPeHX4prNdOISlLfqkM1bw6cePbyEKxr4uLrH34W",
-	"FCgonlzBv64KAanc2hrxrABpvZJTMsVxXvK19uJEzGV94zBUdElhrIXwd5byy9hg6WeKIWKNmOtxbTmI",
-	"8mmRfteevYs3F7iEb95ctDG9ZzmI/60h/Is2wpX/OBVXdxLyba54H1KDIhEFjtysswPXFtEg0rtiztua",
-	"GK9qJZ011DFuW64IACzIQr9XleMoXAWHCd7kz0/Tfe/AxpD5WpVP71GSQPnDW10qi/HD7foTBsLE1htL",
-	"DHjbjGd5jP9QaqBTYoCI/wStfLFUBU4qqRdwo5ZYE+A0MOYDjGXG+gDiCf0XfoCcC1xDO1c0y7Ey3vH0",
-	"FvZO1TsWAKADGuD/KSlSlW19Iq4DViuxkG1lgFI7REYBOTD8jWKg9mo+kMkbWgXZUdXCSQ4VL3VJIRZ8",
-	"W1HgMUDDryb/Ygc7Zv7SN52033zi7lc8ldc4i8fL3KUB/XfabjdtF1blv3LO7ruYqAj0tU3aLtLJvjwO",
-	"VJQxjkGUTU0YSUoEut8peRcGl7HhZnAYEw4xCMaYhVvECPrhkGGKY3/Aec0RUd0YGm9CRoPgkD3teOlu",
-	"9tLQxzmEuNy9p7AthRGKuyK21SLmrxq6TUDO/I9//hOLhLXNQSUiffhJJUp+cEp9e2425XkRkBmKQDO+",
-	"f/HDAxcSujTX9of/3oAEnb7W1kiHn3D08BwlVcr2emBO0YOP9j9XVtGfjhf9c6U5heNznzQnODOMf3Ms",
-	"m1Lb3jNzYY2275Hqv65g5t/La5faUPCoqGXELcBiHAUXM4sAtlQ4Ao40qU3WKIbOxxN9bf0MD5w7EhcL",
-	"pcazQ28PKQQAzpt67+EHh4+oc8nYUoB1qjHHiCqK1AqREE23qGEdPLO85ILnRVXYxXlsJqAlkI7UKkaS",
-	"VV9490YBatCtrBq1UjspahVZsKZzXOlHZOHUQZ8bPCzUfuxsSDbJ6qfZsVwToSDCgB1EdboNysH9EG6n",
-	"nZ5TveFYdI1NOBGVsOHc5VXSPsbOjj8AeeVqWmRkOHh1UHjbuAl/gxbSYhNr9RrwtZ/qkmum7t/WnnTw",
-	"kQ3s25Ehn1FdU6Ht/cQbQUmUXgJ74rzHaP4VKnvivXtK0HF+ZYR5mPwufcX3jz+EP7eks/D6w2jtTWhl",
-	"qLhJ6KqtSjKZCGRemur/IL8ztg5JDDDEsmhD8FDgYjoV1mRrkHSH84hkHfr4NLCrW9J3iwlBmST7q0Ji",
-	"VrhvW32kWLlO70u/x8C5PyER9wJ7MMoi4hWwcM4Fuq74tP/anJx8Ng6jwn+pqxYdIDzAK92QQ6hyavBz",
-	"/tHExoIBG0rrg65SKyVMAwV96I4jkaBGWxiW8oonp3FUK6h7rqxR2TN1XpZ0najlYx6nH9VdxHT8eJFM",
-	"YWbnUNqi11co52TdTTe+MZ3E8BUhRO/BsfU3pRa4K3NbK3H+5nUAiVw/e6nc+6DjdvwBJjtYVQBlz8jC",
-	"jcXLruY8NoL3klWtZLnMxS7DCx1y+rT8Ma1GgLihD898gBmGUrhrO3XAiko8ej1bVnwKplf0MLu2SqtB",
-	"l5trUCIOoo1DNebweU9RGPzPLrXTslbJQL96PghdClWd34sn04U/xDcPn5Oz69x4Pa0lYNCIJ1MFNoHD",
-	"z46eHU4q6Wb06tNVjZKOXomVRDepctRvXpObowN6TsihqMxJEwoks1u/rcegTVsuIk0agEloA6y7EJK7",
-	"i20YjIXUJeL/fPvmHX5zlhZibqtoces/wMQcxSUj3LVyPgwPl4E2mb+mp8FKhobRIilDd6tMichv6O/L",
-	"6p2v5/KRsSW4h4+jeeJ2rukRLPLLeNMGeX6+SluknhZBJx3UIIl0SIVEcahHm8MFeExtLungI0u7W+7t",
-	"R1Dn1vc2QwvDVzDv5ydU2XA5/zwqW3c4j0i7n1Zl25aIH1Nn69LqpoqRgWKDItZTk57F4juqpszBRLbx",
-	"TpeJtGAXyoxtqbDH+aJIirNwP8H7waJuhLRnQHvQKlPnqeB/c+z/QqPh1ViPVfRUeSquoGzTJfliL6Gh",
-	"qxYhbi7NkiCgMOM1F53QQs0/6sXVdjMUsAjD38/d1amzFXcc1xhhJELdraxUOlD0baUGwKMgQK+i/39E",
-	"AGicY7lV+YFY/wvt83vLw0827qxtfiWMSDuuqr3pQB9/uFHLzZi5QApD1R0ycfb0UbkPZerWrs88spjG",
-	"cVhlAqGCF4+xd8Ka+2lVtCjbKiwvX2xVwjKsO8p5w7EVvNYkn38EtoMdDTEeGvN+WA+11eH5GB/qViOi",
-	"vawRr5s2l9PcYW8LqtNXrlI0tXz8Af/7x7H0vtbXjVc5A2LPHOEOaa4rPUYhBujMgXbIxQuDI1068f96",
-	"/k2ProvtbEs7z+5fKDwdc1iqYImqlWO10on/df7D91R2keyUSyFrhVX9uX4WuFOrrk2SPyX0O2ocM9HJ",
-	"1IO6LNSCOcmKcilRnbd78Dj3QdrZp6oBno5h8AQVobgjrwnsk63QWobYs3uqxB+OVaCOpENtIk2coeBU",
-	"qQnKaVwwClknn/ZS3Q7fIKSnDiR58ML8zKDRW5TmXaha22HOqwwEcvx99PwFHLq/wMufnZSj37IBGesb",
-	"AUH7aMAptfPSjDlQ/ud3r7gqTYm1eK5lHSL1OXw2fjjXpYFo6r64qsaPLynV63KuDdN+Jsrqry/SMKtD",
-	"/OdHjbTqbE9fBq/bS9Z6DELusHxG4aRNJwub9bIqhMT1b8v/AF+7XoZDFKQrtkxtQaTHzHq2unbfhnf/",
-	"BBT7U5hZmABHYWMhuD4CpKc5PIRrayslTX+wEtHtaqzSzrFTA2GTzz9phe3uFveJPC3GQlj2/Yg+cRMx",
-	"Xz2QfQo1W6yVvhqm7jt1feiUrMezhLKz+ogqM6bK1JYtniS27K/fy0J8o2s1ruVdVYg3spZVBYfvnbzV",
-	"1bIQ77RZfqPd7OlDgrDO2oSXG7WslEOLuxNPsP+202Qkof//ZZujsZ0/xayRMcX0wzpw/VYYQFMbYu4S",
-	"IKhAT0COnnSKNvRCvKpkU6o1J4FrruNCBumUzAqxDm5b1oasYATRCOb/9ONcMNeD7P872PXvHyYGiW9E",
-	"Wo+ZBBs76YeB3odkBE3dqetAJNhqwRGxqy7UYOXld32tY6pVa7y3TT1WxaoRPwaaZWz47Vlds+Nn4oO7",
-	"R1YwAk5JEd3i3eqJCZJ/h2YxJ5Ct4VRKISuwxz14TMfBSicfO9d6KzIL4vEjeg5WaSrDmrfl+J/SexDX",
-	"cy8eBFiNdQ8CCYc011VvAv0KzgTxGnyWYNHt3kCYx8WefWuUcDMKyQ3xvsMn4ZE9EbEfssr/SU9D64QI",
-	"S7YvJ0TKind1RGw4AB8zYiyu49/gEO8hdKyd273DxzY0sYcQMt63nSPI0tV67HP1aSLJ0hk+OJqMzuBH",
-	"iCS7TwjZNofwo8SRrRHVp2WZjx1L9ucMIuvlg7tGkyXMS72Xjx1Opv2xc7PBUu4/IorLuIL1l1gtzGkE",
-	"XKzVVDuP/jY8otKIi4vvQA+rlYtZKHi0l7EU6svnnxN8QqjPzgob2dmBzuH4C1U+//zzZ1/Ap0V0Iy5q",
-	"fSu9EjNZTSLLSA9shluLmapZWSD/riwZdZadHHj6qCRhEkgG/5wiCoPzdDhxAVxWS/xW+4uL7x759LWd",
-	"9EVOxPnsR1Xk9nCx7WRdFz9wuN2IZWFrWK08v4Ql3GB01P47S9bGx1w+6GPIw4cD3VNsAZOOExLKYQXj",
-	"Bzhjp9rPmmuw21D1S+0ryf+slZBUg1/OrZmivp2s4fEH+M8fm6vV8Fy3clKHicN5mth6avcDDfeNRYeZ",
-	"FKUaVxJYBHRyFv3T0QBkF8rgElkKKossJWE06MvPl1bNT+bAMVON+tDC1j5CB80kNKh6OOssLN02nPXz",
-	"zzu+y8+GfJfdrXrT+HSfHidMhDv42M7AtNv8Du2jUBESFlaKmS+kgQsVjh16Vep4Z0DqzQBf4jN1HJKv",
-	"rXHHHyp5rapBoe1tl4x76DYCFIlXsfn1C6RzZtsXR592g4qOHJeOf2+soW2U5Lp434a98/ZG3TN8Zc+H",
-	"uMh2gnQy2MtCeq9q+PJ//10e/uPk8Ivf+L+Hv304KT47+eN/jrYPdzhPl0xTZH5iQPfhbBGIGyweFVeO",
-	"NZdbIUm7FTkJa8PHarM+NtDdfTGT5ZEA1EaKtk+IHXXhlbdhEweOBuvrvuXauNXMmvvY5coReUzG+Q6W",
-	"4E/IPYvWZrHPk4n6seSNxyz7viNakKYupMAzsAWDxUa3Fl1o4T/1Iht7F7kgL8ve2F+qYBy4dKF/De3/",
-	"OvpT8L6h4CtAGQHKCFUoiX8TaB4WfHPAZGSVzM/diz2B0Y3B25AQUWJk/x32GcLkQnWKqfaFmM5IxgYJ",
-	"e4CjtNT2fyYzCXS+PyJf5ST3pHbgIpwmMlWGN68D75opRViriaqVGcdkM3Iso1FB8+W4mqsi6+CZzqe4",
-	"9WTEQXDkFf51lUaosOCHs1no8QqWQZqW9y8wMvbAczrev6T+9yJ+dSzNkiCJ0RoRfn56JK6c/geCMv7e",
-	"yEr7JYMy2sYvGn9JOEBXYV4MogXzDRXl24FhUoD2HAJPMQXgjYK6uqomOxt+dScdLdcZw2eGjIK7Geyf",
-	"dWE1mS/gioaaQTFIu9QlRQp83XVBY+SMKjsB3S+ef0Hrf/VW+Xp5iEBLV2eE+xWsT0EW8pYSBD8/+Sxn",
-	"r0FCUkkm3iOl2XCEzSfJrznHhes79nQw9hSQb2s8WOG0+Vltm+msc4o6HnkAlV0SayiE5CLj2oyrpgww",
-	"nxgIlZz2fMKNEa/b99DOJ5yeGpeSQnAf/HTe+BlCbX1r7bRSBbMEuVhEcFRVA64svvS9rG+wPqnutIbU",
-	"Gw2cHCFs7wx+c9EsVO0URr5EVYa+T8fprQ1XHAfSkChF4tKR+NGGtTFWLKRzd7YmsFJjQ8Q/G461E20g",
-	"i+qNYwGb1+t0RR+T+Np+hkxt6XD2Y3Hj3ePgQKCDuPfJBlpifbTxRQqUlAgo6zR47Hhvc3YCQMS+R92B",
-	"2ND30Mpo2F/aDYKaEwRu58rxluOhSPFaVdwOwiOKCsANVq5zSIl8ToVEdNsAPVdEQWzC3k4g9hvG9k1Q",
-	"AEMz5wtg5LJKkTaCd2umqlJU1kwDIC58SEiz2DnvHhZ21d61jkAn5+1UKf9g2nXPh27xyCiXxAiRELIa",
-	"IJYJK0viwqThEa3NgmTba66K5+8sBV484So89E6l59eO/BiY61dSCgX8YilflFjI0yRlhwbLhAo55LZS",
-	"GHgd+ArXUS7VWJcq1uHG+9mSzxAQmC3+AjsEM3Zxe4DXAMcqpZtdW1mX2ZJ6lVyG7sLttTMEogOA77e2",
-	"8dqot415tAIWqwP9yNds6L7/pg1vxLNV4K4RjXnCNW/cnsqwWNPhBbIlmw4TAKc3EDvpVcQycGyiMVxk",
-	"e1f211JU/1XN1WCkmDWmrFWJoBFe+6rjmmPKpWMvxdjautRGelvzIY6hH/Q+g9uVq2Yna5DssYgMtZ+s",
-	"TFwXHRioLLsHYyP3DIilXc7Jqmf+/g29ftUu1gZfRgx7TwZGNQBw3ZCBSY0FGrTrC4P/fbSLS7jY8nAD",
-	"vMboj+K+rOCRD2Rc4iEBJGWD+xA/kk1C+0Tm9LU0f48KhGvSwn3P6PGH+Pcfw+i845msPYlILQYvW+ZL",
-	"6aVTDCAaAsElf4LytPT0BXs+QzlR+PCM1OmJrryqW0smR2eTey6e9DhaKkfy0CvuW7V+FO95xf2TnIKN",
-	"J2AfOO+R3NvtioSDROEi6dC2uz2cgc1Lv7YYr7/a09E5pllhibLaw1teDqafjG3VzE3we+DFY+/4r4t/",
-	"+75dwVqacKpCZMy0qZUTd6pW6OtsfJAWkduHi8wa1bbi5G0Iy+FAunX/N51eFEjvtKMGrhtdJfGM+N0B",
-	"6rjCcWrpWfdcHsQtJdUKNYsyZgzCoeacW8w8wTEV4hodi9YphL9AhYVaieU41jughERFhYPmIJnHhI6Q",
-	"kgzbEDQWUMn/7fuzzjxoF1wh5srXekxUOa1ts3CUH8wKPTTOnXaZUMwABus2WgiQ1cWfYfoxngh7LdK0",
-	"fCPnZMLDe5y+hL4i45TENemij9sLLdPOLAPTxY8p8JU3G9/u9Ba3n6rQTyIfJ+pJN7e2d2R3I8Vuj2z2",
-	"FfTyFRyPDQIP8Dk6D8yMcHnH7jb2DCdGyKo1+YXiSZU2vRD/DISeS0aEHkfFaOxut0pEDPRmJyEWsecg",
-	"IA1D9/8XflCE0nFe1RzWv0rj+DOq07YGMYHA74/EW7VQpOfBGgRnCh8qJBenKjX23PoZ9cprNK6UrF3S",
-	"OVAa5pIG0sY0MXi1Bsm/jUH8FYHlxZ1SN7+OYEi/jp6fPH95+OzZ4ckzcSriP/4KVntOUJ3WEjEJ6F/M",
-	"77gn6INBQIqRer+obKmCXyq7afhZZ9NihZ8udMC6GFvAG1RJ5/RZ8lzWtVzCY+eXVaCM0X8Robc9ZXA1",
-	"IzY+kPXukPiBKWAVhT1IBqE9OruOpcdA9m7G1T7m8XJCMe/TSQfZcN0wCUoK6Ikbw5cG/a671UTaj5zC",
-	"LOn4A/3xxzExj0FZpcQi7mOfMJqWicRbVHCAR9QFWidZBJbCXUdHMNgNPYJAUIbF7w3We+GE32gfAGe7",
-	"k6Y8ba+axIySyAEWXFLuSKCavMIGY4DfA2+xVHH/Blv+d1q8bVX3KP1IH/R1clnDAS3I0LgUY+nUfyvw",
-	"7jiz1EMqfCRHWuX96PG8Y6sEhVdtoooi8f3JmFSQn3eSMPKsLF6/26cXbIH+1OFlH5J//XFMfq3dvSiJ",
-	"HylUZe4LVSGT4bhW0rPjA32CwaXG+gq7kdh9AHmV7GvbIVLl9UogHffgu34vCqVbcWLaCdtZFotEkD8l",
-	"1soCfEtEDt5h/Yn0FvgwG+mSdPKK1vrRwl3Wu/rYDvB2AFv4H5MgcdqoAzoYewmBWSez7n6Tv5odlT3x",
-	"LwOnZreg5cRNSpchRGh4KxQ72dDG7gJ68y8sj42l4fKnNVDhurU9TRwA52F02LXuOzaQY4gIJ9pghpAk",
-	"1VaZkpqtVV94dEpUHyVE+ivteHn7Uxh7FuFxQqQ7QdFui8jA3Vjnx49wlp4QW4ZjnNGQcb0UxlLp2ARu",
-	"m51AQFQOrCjgt6ZiuuT6KdjR23qRQBRsHJV/ZtmLIpJKZKPwOzP4t43By5LvC9CcIeTQr10k4Vpd4cve",
-	"qWqS4cRY5bWXlvfPj9sOfnbqEzLiZKIbD9MePKJyGb0SfTTQOVzaEMlkj1VOovjG1iF8CF6+tmW0w8rF",
-	"Aq8QJCuSHlg3Sjq8VmAHbAOQ+P4+bZN/jcXb4VCbIhewEFC3A0MHqg8Bl8HuNy/Q75IOy8Si36CQtfXS",
-	"Q0TRajJlrca2LteSWMQvHBYNvYQocNJz1HvtPEom45ka3wRgv/aWDWKKCGsYovZW1pFnduBCtEQhJOxc",
-	"3RZ/lDFA6jSzRvFypTXl0vQY1RjsDiT1EQByuhyh2W0XJPFicfn2dG9CXGXdGOQkvK8xLCbYa523NdmR",
-	"IdAT3txiXUNtf9eGZqJIuCZbxsCo/gC5jszZ1umXYcQbRcuPkJpxTgPvMpT/klyM2xKyX0eAE0TrUawl",
-	"bGyRobGbbHnMMRCDtiN+J9iMOjEUa9Q4tZ1w0XBeFrV9v1yFwg3lf4PX4651RtMi5wk+emZW+sI+uKlc",
-	"vhFYHtrBn48fPXJytbMh0wcv8p4wKVGuciGSjD0radyC5DtryX89hvD58ACIren3+AP98ceD7Q3FvSw+",
-	"GTlbpkxzK0H7t7+fH/4HCdqXRyhqPzvZLZuQ4jzhTmKdLMROJUHNIc4Tj2IIouqL+FwPFY1+RjNVMeY0",
-	"WxMjC0W1eiQeq+4aNv7GVnq8/DQlMdYmOnjuW1EqRHzvC6GN2gsOTpkk/rUj3MtNgsJ27z3CgmHu0isV",
-	"3hBPgHG588Xi6SkDGEKL4dIJhImSZgsQGdCmwrdJjHO8ZWbaYX4qBRTE6OJKm5sWwuSzZ0/zF8YPyjk5",
-	"ZQP7luC5Dyqv/5jm+M5khm4jirPci/kdm6KNQrKbhzHEfYSdIPO2ZGIg9aiSPi1V/095P+HsMaTI/3HM",
-	"lPjnuaNgWFtj+j//a/4iymY4/GRU53JpFsJbcYUbfiWefH6SlJiDrK6T4DB8ygSiXCfTrCqhJaIiQwk9",
-	"d3Jc6QMXz/e1HN9MIJy+PdQvntJ1tZhhfl/jPEG2VJoTBCjy3sXQe2QfZ+TQw3wFHrgUhHkec1FD9Hcw",
-	"h8ZBy1pFrgTWKB7dOnP5kofbOZMPuA5lWWp4JKs3NfTktXKj04msnCpGi+QnaLMxfke2FH+y1/+pxn4f",
-	"Glp3UJjKkcQ0xK6LEdB4sH+vQ34n5Pt3biX55LfMwFc53nfBtw1kVrd7ieF52CLZEK3jvX3iA1G1oeIg",
-	"a9cU2+PsXD0l2khNVviBcFJHJDwftRXuOpLu53AfPThUw90kHU9sMjVkxXTBVmWaupOctD2JBWp88yk4",
-	"Xi9reov2sxXnYMycDZcSCclPJCcXJlk801oaTGTClEI2wikjrytVCje2C1jempDQHSrJbGo5wI9iPOdK",
-	"XhBV80R7FZWZpur8rK+ldBSGOJYGtDvtT2lMqizEXDssHQQs19wYjHt8zRYpWWKm4t1sHQMkIrfVOFhG",
-	"qQVj1FmwXbHdUXNRTq/n3VSqSTD9tYq6dnE8iUmM2XpbeGadN74Covno/qF7WoVY1AxXCO+KdOI/G4a/",
-	"2wdeooxGV+hHrmaytBRRK1lVoPbv5fgGhtEr2P80iZXqMLgTExlRuotoxhPOx6QImbFc0KpNdKUY04sY",
-	"UY3XL9yqXGT9TFwRsVwh6rvDK/5I0I2psL0YKc36wdjWtJIlrOoBWIFLd9oJItbG+boJ5pZBmf+HMPut",
-	"xH6WpraXnooPOwYIff5y60Zo4UbZWLVSenUIB3i0dXN/fpWG/hgMLwrEvKeKX9za/7G6TViAoN584B/g",
-	"San7cycIGwLfCYtIgYDoJCvtnamsLGnVtBeyrrGcZirWU5UnY1klWCq/8ilUvqSAfyUsnPpnJyfiB/1l",
-	"EUprRouBsSF9eSbdeqz93SwL0ivLhPBgsjuRuB175Q+dr5Wcd0k9ntFrbSQewK1CfK+XXrnA4LgIEdLc",
-	"Yi91js5pmdvNIrAVW+MCF+nCI0XHyF9OdAib9Geg9EfShPPN8oo9TMe+x9FEif/QLc34TyV6/4es7AHk",
-	"IlwszTgy0F9H7dn+4i9PT1NlCZ26UoytmWg4GZoTgYNCfoY+4PAc5FYvmgXQIkVwhD5iPZ1EPQ9KmDsQ",
-	"C0nxURLkWDCiO+46lzfslHPgDcQhXsIiQ1ZHFz0SfsVYF/TYQWmwJy9OvmClkCbQqh7WoXs68WyN7VwJ",
-	"Z+Gjk4xhEpYv8p9vajt/A0NZ50HP8w49WtuI+LM/RTNIYa3CyZ53vB9bq+7OoilrUG4v4aRZ0jxntAr2",
-	"laF1OI6PMhiocsd1be8c/ETRRnMJ4i5UJELL8hgWKUQ+8JtoksbXI85M148J5HpGv4UXgv2CqDT46vvC",
-	"B1Z0tiSAwKNT5i4Qm6MwD3ElF4urIplgG1hhQwhLsnLiCai6T+HQzPQc4qA6jteIuCPT5OjT1P8ww9vo",
-	"qnGqvhzbUl2JmRLKwBYF+I4FyvTBMo8rTseF1wLEKrLJcVa+uMDcJgogafsVcuydSPP5Q1QvnlCkvOtl",
-	"h14Z1IzK8SF+UYzBLcLwUg+Eb2oTg1228mmsroWxNM1rxCG8+j2sSrIjY2mYHGeaj9QZfkTaFREC7XeM",
-	"TSbfOfSdMTiqqTbJYC/01Lx+xKgObv9jY3gkva5zvhimY+MJ24OrDZNgoekQABYDcfYdwhH44PEH+OtS",
-	"m1Dl+n5ONzqi//ZWAPHBosClB7JzuC7Jz+uEvLaNZwb+/EQ4NbampEu1UukBTbgVHVZAv4JLtTFU5Cue",
-	"cDrOLacrGZsrsUcCNYOamk1GzVPyJ6Eqnk4adt7UtTIe13VPbjRuMWwW6pthHbURi9pOa+U+VhRxS357",
-	"rCe+PVyWeh8ok2IES5WG+nHU+86Bfq1FFph8DEn0XSwyFS95KmlJMcprQYAR57B77dG1bKwYy6oCe9bp",
-	"+v22Gg+N9yRH6dNcUYJ0qLiGmy50DjnvDq/PItx7LUK/6kYxTlGxNhbeqJWbBazQNXssn9GPdXtQ4694",
-	"hf6PiXEOy9xGZya0GSXHjmCJAk3BCWBAPUBFQfAGWslfMSy1Hka41MFiHj/Q22/iy49pz+v2NWjOo1db",
-	"zFeE44FjC5eOUezDkRwJvacSKi3AbBwAA+JQ/gDiZDxhtcFUy6e84oMlxX9Qj7qmvXWwgQntI9qoBeWb",
-	"y5sgB9QRxQ3njxzucD3gNGd/x3fbCM1tUnO1iw63Isj3yMJBpjF9ybh3M9trsu9Jx13pHRltiUEJwJQh",
-	"/iABvHja1zFWVs1CWADrHhWjkjR6WVU5JIvHNakny79FzCrdMygcol1hZttyLPsgrCT+WLHpGAdYBO1W",
-	"OR9+I/tjl+QCys3wAcR3L8Krj7+8sas+VYWf78lZYctgNrirtSfDg0rgOPGfgszPLsmRWYvgzK3U/iWA",
-	"lV5+XoDP6mMLAh99p97o8Y3w/dvVc5nTMPt9tGjy+b3gCJYUcdDWwtfS0MsRALbPK6rCjm/hDN0Z5eCf",
-	"zOuIazHsbFT7PL/cWofnMa8bUpvS7CtSfzAN6XUbPZsDzy2EsxG3d1GBQgGCeFQoZkq2iVTwBPC2uDKx",
-	"cAslb1TtwiXMxTXBcL5Qajw79PYQXPdnCd8hegdg/RbON0z5IB4wgRXu+UC0H/M4iHexSVski9ZBnZee",
-	"s8YC3V/DgqwR/M/oQ+Bt3o7iwRV2uVMNx5VCHc+2EDfepfsIlsvlIgF5kk2p7fF8oaZnQl47ZXzBXjhv",
-	"q5LC9LV35C7sk0zQMXuJI3mQZASpOxc/iZeffXH4jNXWMM5b3Y6vU65gok3kQFmGIM20kdPuyFbTKD48",
-	"zyZNrA8wGQFREpJWp47cSv/INXflbCvMeGbR7qU7VH5GSYszVS3aMrrhJPWNZqHsolLbQGoNImp9tgao",
-	"lRk1GU4sHn1R6+nMt9tJCdPAG/5T1lPQR8l6zonX3WMfN7t3jVU9dw+e1LOTLWb1bkXwoSTfJ99+/U6s",
-	"SY8IL0TAVk9b6qUaJtUOSHXJHF6c9Aj228hTD4wh+HjlowMTHb4nVxnyQy9NYuBChvYPXMs3W3SqZ8//",
-	"Kn74clisOv7AfwVb+3C5q/bO2K5SZ3JJUcPlPgopshkpNB4N08kaJIIflaLICpjFJpXpI6hKXykvdbWB",
-	"gPYR5bK2XO0aFUFhgpQB11ZdCPUldrWy89Qiem2W2o6R8x1/gP8E6rt3N3lDPje9ixV/CPljVYoCtS2M",
-	"wav542qL0MMn1RRxioPGkn0U6KlvyMkI7aHlSdgaqBP/3oGXHVfaKHf8AfyKJGk8lL6yrjG1CWVxOEl2",
-	"k47Xiw4GXbdoWgHlyyIU2CSVvYKRXYa67bamnB+j7vgDDI7vKwbQGkW+10Zd8FI+kmeEWv8RVu7T0PhW",
-	"zJhDNzH8725f4C9WuIW9IVDrSu9G6si8H0TeA/kk5F17MrZmUumxf8pucZToZa0YGQaUC68M+mrazLbk",
-	"+o8CkCrXieyXWkdO+iNO5nEIbK2fnWqxPP/oUiPc0iTCd1Z5DzgKtU5FqIPQDUbcENAnaw270GGUv/oL",
-	"q4i3mFvPm9sxXjw/eZkwqwVCkQdLjURDDYb/qps8fjev6ds4hk8btJzIoq3AtVwoYB4Uw7mX2MQeDaDt",
-	"47GEt6C+p0B++71d8XI6cBRM1HO7bsZ7S8S7z55vE6SRL2TN8RJUDSt7z4JXaB7DEv2dJRBxi1kR0dON",
-	"UkkqXGM1WutniAaj5gtPTl6OXmhvdTBEEj+I0kb3CMCtGWz6/31L7/2W/hEJgDcjxCDczWyVWLmynBKM",
-	"vxs8wvTKY64b9DBoz8chPHyVOPsFWkv4XrSABn9c+OGAyjvQShlbquGF+hHfeMR1gg6GlgmHuCefB4VX",
-	"cLR03RguF+1Sl8dKoBKGYMAYHy+uFVv/yDY0mlfZdp1f+KQiT+38vio/n5dgR8P207iWFjFQtuQb4UyF",
-	"ZhN3lF/YynSHyH2qcuqMyJ/wHMJuw3dJIE3HO4CzM87Lqgr+n1IxMGdyQI4/wH82Weveqrm9bUllk6mO",
-	"Xt9LKi80FBY0kDZG4X2lHRpSztpldMJ5u0DCB4bdjSvaVWyByQZVZshg85jnx5bq0wAybTo7+9hZEoFo",
-	"ZwmyFiT5WDoh7K+K0JHBHdnZ2DNGci9SMiAwCenjlxDnmSX6Y4rtPkakx91lzpRIsjwWw93hra+wn9Ej",
-	"KoHUw0aul9Qu155TJVi2QbSNCrK79pLkFE6t5cpXWKbWlLXVJXerI3REh1XGsXb4l5o3FSLYxluf2sDs",
-	"SuZ+xMqxO3RVGnFtrXft6yFWnyKLKS3OnYkr9GIRLVxxNhtQoibg+yRlDZjwi5MvOC2tZUs0D2PDgpoS",
-	"yq/ja7Hyuw75ai2u9hBF2sWjEKRd/Dc9wjWxJTnSsEoNdVkT7Io0j8xS7hMHiXxcYqmlNo9AJl9Bu/n7",
-	"/p/plgFqR8s0yASExWIwzrtzO8ARh4frgciry10r11Bw8p7X+y02/M+/4N8jbD9RurxR7dpT7t3mFX70",
-	"i5hj5j/lMpOsEmR4nPFefLLvmhooHLjbQpWxA2vWGFpAzG53BgUrsg+XKnAd17dHj3o1/Ql3yC4WDBTF",
-	"i7u3zUpMF3G/JhNK0IIuw+WzIiK9DjsVU6Tmtla4oWeiXr1/yMUSxegoW+e316t6ro2sHmGLIQEAXnoX",
-	"ung0w0Ps4SMbH0K/7yA8s9fw4/HpPuz11FIof8CdtzddRrLmLyhLH4SgX9T1hcXfro7lQh/fPosk4I4/",
-	"0Ot/XIX6AdrP0J3jZrb2mHF6xgUGklpPhCz7rxc//ViIqw+l9PKPKxxjEJ7AUk4VIq4+zBRFyN3p0s/4",
-	"PSlq5fQ/uIZOrcYq2q/dTFXVAcdlCm0EOVLEBMiQORZO+nCu5owg2heW8xO89wO99qh2Zuyh18A8R9DL",
-	"/YQ+Q1ucghxNx0HroYwQMgziwmLyvvKuPy76HN+hdFHcZdxBaogK0riZbapS3CAkfbdfqI3KvSF+QwcH",
-	"AT8+f/Oa6/+aKQu+d9jcQnL+Hs0I/DZYnjfJ0IQJ0IdtzYgMOh68sLrPjxFVA41/GmvNNuSVgDnTmu3F",
-	"1FkENAVha1GTsc4aJZTx9bL1aOVosre0DBbfD/Eo0lBbZ+zLSvxd/CSErNzpscIAgrKmGxqK/UIILSJa",
-	"DVJSNkrlY5HMO/Xe/zkJhtXZPZj6iERSD1eOIlr8Dsp4yLm/FrWF1IFhv86b8NIjLiH3MeTdCWPdlxuM",
-	"28OA3BQ3gUvudBfo+IORczVYD+88tCiMFe+g2AE5HaJ4iGyegGBQRY4OOO4Ry88q0QEqBTG2hsQU6pXq",
-	"6GgnZroslWmLH2CAeKjPxHXwCPiCBwGaIw4qVBgrohjbDoCK1gf3aWIyJlcBwfTOz6gsfRCnyfCMWs91",
-	"jdHq2pM/HPFHMJCN2m9NOdDFlYaM87kyXtVXAbEYRiSNaMxEG+1mqkwH7VsqKKK3Py46z4t6hf6bBaXF",
-	"wpV74IIDD5cqvt1XIJDpcetI6jCKR4mk5sZ3CZDuHf/ej+yG47oPoTwsbt9B3dkXhbER/dEkdKOXwtmm",
-	"xgDMG7VCyWdtijfV8qU9jyPdcBAKYAXJ6XVyrrg3uGeTN0Mi25dou2zLzukQUEQmU1wWjMRyiDngm0Ur",
-	"BMYag3iwSrtO8+dwnlOSeYSwFJzdx76ZN9Aob7D6vZHsFVmhrSDp43JzQV6gt32quANj7JDCXsy3dcJP",
-	"Dpz4X+c/fH+WKjbM+ufAzYHmYtreGGt8Z67E4zW1cDXnTPpWQ0n4MChBQo5r61wAaYYyhAXKoRpNyEos",
-	"VI1C6pH4OlW27KRtEjUursHZxh8w+GLRxhlFBBpoA37AsttcYZndAwtZx7Iv7SrF+zkX2HgOY/ivovOe",
-	"m7hN1GQh3EzWVDMV8CVggdNImHvy3R7dmHc3aKGxvGNnSJ9O7V3d6v9Wez+S2itXaWDrwqp/Eu33Y1HO",
-	"/znab0ISHSU4hvJGfM2Nym+4yAKb30YZ/vfw7qfVidubaW9SdnLfFetgD/fh97zWW4B9fRSUr23gveJw",
-	"92NGJjkTg8kplDcJOacfqOIKSiQuUicNYVvTA74d8jGurS+4yk7RSnxRq0C1mMExaARwUiSWiXceClmx",
-	"gkzHNg3V4FqMAUNAwZQTEZL5t2PAF67+j6osYcfGkYYX0TVIi+CtHVDI8bNdNHLqRzvuap8BlN240DiD",
-	"hyNgruqmeUWtXYr/QpoaTWrDiYSbxHlbq3Kv+lBwGoNC1BZWI6rUvnMwccU33hP/Ft/aCsDFeembLvLE",
-	"0GqF1i/os14QI0ZuVOWlt1s3fs4fqf5264bhVzu5ssNgMrl2QOPbuaEsBJ8ScV+CAveWvPOp2SREd7Pl",
-	"RZNe24egAc/WRrcjquyjHZhAAkPXWFySh5+VSM+0dqwDFuEasDVdPlD8HivXQQjiynk5/hD+XEGOXtOp",
-	"Q2ejj7B+m9bu4Uv3k2lb2/1CCOOMCX8963lMmQ67R5l0OuiLNKESBZ19eYTKyTSDj3zzbEsI+6+TfM65",
-	"KbGLsyTqmjoRd9q4wXN0PLH1nazLR9r4b6j1/1on8o10Lll2Ea/JANWQ3hk2AjgkumOtFnZYAHiLbzzi",
-	"ckEHQ8wfh6i9rfW+kuLSFkWtptoRNnioK2Ao5zQsT1Zxycn2MJOt5fo4CMQWnNh6aveTdP+NRfVHpjNr",
-	"OzsjcSIidWC1HzRhk+16Zh1hGWEG9J7F/jeNj2v0KOF92PpH5rttn0ObvA+djbZTyKTZDs0WScJULMYK",
-	"D8RcSdODfFrbxgOMOUynbCqKYu/FwgxvYYohVBgNRdLeUjOA/uZC8fkfQyYN+68n+lYdTrSqSjGurRHq",
-	"/aKmOlDtnfT6/MdzDB8U/7AGQcipcmrIolhTq9/U6larO+7/IszicUhstZePTWrd7nnqvV7BuFeGanhG",
-	"Jd+ACRgWeS8Gt039zGqlqLeiQyuECGTsHTs5ZvIW3bzzDmFuuJ3CS9sBnKvQd1SuwDmIf2ondNmnQV3b",
-	"XgDCl59tr9xZx5MOWb0P1No+pp7GCzd0U4e13c8tHVor0praKFMWZGWMPKOSDmPYu3Rz/IH/Ws9iXrU6",
-	"1g1W9dGe7kWyHGJsk3ZtaH/eoMfD3Pre5/cfx5wXGo9LQ5H9fByp6vYu4Te9k9s7XW2gqX3wKW6qCPXp",
-	"qCt2rRQdSuqkCmsXCtQIWd3J5T08xtx11H2zNHpM+7NSriqUo/xASC6DlNxi5IHhgnGW2vCc9o5GxswX",
-	"ZK406629CYT9LQxqa+rGKcCKQQKKoWLTD+cGkDJGAUhG/DqiTeDwPu3CtH4dPdxqnexT8cnqqMpxYpvY",
-	"rt7pBvNdP8lVsjEEYnB/gh7CTmdPHEmn2nfOGjqcg426bqAs6I1aQvBotYxFQJk1J+SLEEiYHcdRD9BY",
-	"QN+nkNHTxP5A5VkCfjvNV9UhTtNiLGtyWBIHeFKYn7DCauVgHbChG8WY8IQ9AQVTnI0sAxtsfUnXCqpM",
-	"uaB/dxiM794JXU7DKcF9qInf42yiVAhL8LiCL3e4C5zdI0i/ME8aSe7WoEAtC6u8BwS7sEWBcChOsuWk",
-	"THhwzwbIbsyZlBsEkuOFbJx6nINHAk2QYkB74lTmjPYEo/gvdMtjZnd3f0g5GVR+V7bmvunc2+wNZGhO",
-	"pK6aWnEx3BoSpGqVmoCKbBr4f6VtutMe687iKShDw5igSNiQKLQYe7fTvjWmv4DLu7bmx/Pi5OSEROP0",
-	"NMfC1lQb8C+ilEuXr+PCX4ApbTu/6EAVlucbq7CsqZPfBTQcvhl5XjgjbylaECK8+lRLO5k45UdZiOCT",
-	"j1wGpl3KQSNws5/goJYxEMfOVoLZ+6H/pV+YSXRNWye1mZNY5qTssQ6F3Cs99q0RFzNABLH966WYkVAl",
-	"PXIaJ7AiJ6bTAM3Ab6rE61G8C72IuVySTIRpJiFenBPD2+MJNxuGTmrPloyc/tCYj8er3jZmgGj2oFs3",
-	"JlkBY++GOBCkJTzWnR6GEKxWtPzRihB2bxtbxpmwSUMhTUS7KL/eScepW0ci7VnSo/CF05j8jQnc1ilS",
-	"n4MBmrO3OG2pGAwt/dmU9uORDPSWv+SiuAcbKUq9B9sMdBYWobNA6dXTc8s1G4Jz3jaPFJfztumE5PTZ",
-	"Uj95YEq+Go167y/HTe1s3eZAqFttG4flhntHg58MVia6V3DQwN3/7JNWYBu4cyHWA9YKFvDtXu7et002",
-	"EHcAghQ4+86Ft0s1X1ivzHj5N7UcbV8KaHdXY2M+NojIwFX3dh9XHS07cKXGnK0cbAIkvVZjO+dY1+Rp",
-	"y66OP1BI3WBYFG3sY5L1MHTzXhbrHJppDe3vyIZkSvJNwD+R33sg9xZYZ2fpsmkDpjrrezyWZqzuAcYT",
-	"Wuw9e9ju42/R41IyToIoua2si7tC6XUMuMcyChYBzxDxMWVv73+Rv8F2/9kXubKOuQXLf3QI0I8LSXa9",
-	"y4oJko9Ausi/cBB/4ouDxvex8aekuxnSr99RymonChatmfuBvibC8FZIgwhTQDNt7oiuRakWQC1mrANW",
-	"ExWcH5Z/L/idRzxE1MXQ0vFA9+P0voXPD1xolNaI4VB0LW5l1fSVMOZPtkiziUCkbJYIeQMF1cRCcwFF",
-	"7LQeq5Av0+cGp3Xa2k9Ig30cJzi33bL9mC0EavEWTsJcfa1NNWlXCqieHH7xG//38LcPJ8XLfD3VPuyG",
-	"X2KGkm8XC/PD2WBFlEAGHPwTltLAdGOCP0EuaCfidgVMhnbxsfSmHuNaEWTgFbZ2Ba+SyOfCNmG+YtlK",
-	"PLAxsPP0huEv3RUG+fw0N7KWB06oMkczbxqfEMyjsFlq/99hTB/bUcVTG+QX7clG4BrczQcfgb8hFAET",
-	"RDcyMEJ38Obbmv+dHI7e0ndd1nKM7Q8a2q1RLdmxkxTJ0sXzeRBmLc5TVeIgqX0QHbGY/VwrWXbwQmLq",
-	"YWyQy+eQRxmbKfhQ+HBOstgHKa08Ol0kJJlJhA1jnCkZ0kxfyfFMHb6i4uIZyyB5iq+MPcSEsqujjq1h",
-	"rYzUw/msLHGDu/v45+KrRLUYW7o5bvuCX9zm8rogeG/b+JVdulD+8JW1N1p1CWLv6w8jgP4LkK/BuUtH",
-	"wIVT7Gex8NkBaukwpMEC9+Fj7ZCXo59AfOf9Ai191EJEyIdq9bW9c6pmOE9rUM2tQ6fo1mQYhAmk8CpZ",
-	"KzYgHIlz9B5AJLC4qy2MHqPw0V4IRMUpDCtOjxfPv6Dj/lb5enmIjWTQLVD+T3dz/zfLq1qVyngtqy1l",
-	"+H4a0uYjk5AaN7X2y9Hp339bIygds0Pu1HWIkGscJpNGtrqQzkGEb7gVfLM4ZMyRDXK6bxav+MUNkbrv",
-	"CJPDJ+AcjnLxqIBobeebzclb1+H9dHmPyZoMaRe8AutBsHuMbYkoSbDCRfTuRBCTEg7yl9aTfSvATdCZ",
-	"pdz8PrEhIZDjD/THkJ8sc0HEj7a9Jcaz6eXfzw//gy6Jy98+PCtenvQK3wPgtrbF5NMZbxtXhhh0nhXk",
-	"+IEfw0pqR0GREUIQfaoxEr3tM/WzWYZbRH9b3nuWkNPo41DtMMUW6ELbR6wIO9Bar1lKsj2Ed6Or6lA2",
-	"pfb9ASEoxyAN4+vuyM2EZIULfxCvvn/NSJTa846G2jOAriS+RvQdxONqmyCbIhWURnRjdIJypmUuluQC",
-	"Pj2nsW7gjThFTErrY4GE0DF4VrbyoeF8wA5RNVNhk/kVHA3nWpAxqrTUOyL4cqcBPSrXjYs9xHSJcvbE",
-	"YePSHThq2NaOatigeISPh8jYKVmPZ71kjEeOdAOQuoyi4NO0V2oBFC3cG+jXgVYkK87XoVgRDdLcRN0R",
-	"+ooRnrQwTIHn6FiUCyj5wtalqNTEkyhKSpd1StTKNRUGsUAkK6LSzi0EXX2O4W5VVWROGRyUHOAUjBu3",
-	"bEs39++byqDfC5GBBxrShL7V/rvmmjaqj+rx4eiTUjmt3qDlkuaF+Lp7iOnD/joLlvCNAQp3A3Wc8QWk",
-	"QiAohMEhEzUikYmLMIN6Lr14IsXF315///3RvAwSbBRdpUiaLqKRgCSZa+U0xjI9LTAAkKG4tBEQN0CQ",
-	"wnhGyJjAkHGhd1ghDKnShkVoLD2glcOIQmM9YvXm4l4i/39cGzb0sJkQ9gVITXsWdxpUOgxP8pwTSLGK",
-	"vLAFmCkp4XpIRa3VhKQvZ6tbym9nG2SaRBBurUAqjoxGkt199DYZTcOrSCCcHEAinWuJCKsjH4lvkEgQ",
-	"XTUoSSuzANZelv24i+dleZHcg3uHOoK2v6ntnFjTR7d34tR6aItOmKxVft3O2o1jiNM76faOTds7QjKI",
-	"h+Hsq84rTYf1o0VzXelxuDXa1G2Mm4tZsmEIQ3zyGBisvt2Qos0vIdNs794fviza+nKVNuDtg2Mzk65L",
-	"83xMa0vqSPAIGhVOFfpUYlK2zoSr/4xF4Xcj+AdWxv9vYv9zEPs/9IJB+f6hsdqYl/U9CP0D/ncLyI2W",
-	"yLbyOgZp4hGcjrSpnI4WJrlTsm3PXD4S6eIE9gIHgCtBmgLKA+1V/7BIexx+gsXZpZVj7Myae+TtpA33",
-	"gulH2jHWB3hdK0KnZAXgZGGQd7LwudjR12GcjygLxD7+TMxxTxT2rU4OXNiClepVyHKw0iSXLtiG2xzH",
-	"U3v8Ifz5R3rnDh7cc35vp9UFLnmP26730t8PyFuYfGKgYAdywtUfdH7zic+h301K/EC09La7urlaEMnU",
-	"j10vKPYypJ7tqVxQbIp9/fl9vl7eE/rpY21vDB7Mmgy+bgM97aQbbha0RHhIa4CFd1o8rGBulxQegZ5K",
-	"TnFJQtVWYnpjs9yOWnK6t/CWCiFBBjosfIUFfaysy2DFpgoORkwqKHWYNw/0hDOuUEmYUjsZMj0IGImq",
-	"aRU4sIvS66mIxDI7aYiSev5CzGxTQ168BaJg0us188I6jYocJyulV4deo6P/3ikTkfIpDyMkUHz+SRMo",
-	"YNm/hA0dDKsMFKLrPaVSJC0zPWFp+oKUvVqNlfFVu7MsbsWzc/yB4WoHg/Shg9Ejr91wmD68sQ+BFNpJ",
-	"wYIeGJIPzcWY/JUFvXdUfmx0OCz/Y2zK425HjMyH5s4oX9GALYEFuDZJcYBuj8m5cNgs3F6WOj9ZyppE",
-	"3Blv0ZLIKbJRl413ACy+Ng3Ha9JUDhxx3VfWQIwdbkcwp2ChLHjN14rs09e1NONZe9EIY70Kr8cGtXG+",
-	"bsY+VNmrlkIK14zHSpWqzF17HJkfW+iOxnF+KL5NAaAUBAg34512qlNoSLbV9yKmEI1bzJaL41+bk5PP",
-	"xrxH+I+Mr/ob3LmfF5GSHyX4M/TysfWfxz8/5+6GanrbydrWx6JUIVirJctQgmicbH/+aNUKiOERONhb",
-	"bPifn4Ox/slp9NAmaptoBJAaq0NQqerKTrUp+NQ4L+vAzKythnWPd/jGY66StdU3cq6r5ZDegQN9+IJ9",
-	"t1zYuVFzibG9toIa3WKCvRcRotR16rkl5S7pCxSh4K9LO5mQZv9EO9co8T8+/+zlU1rYO3V9PFGe8ayy",
-	"vP0HWd+UcBCiYxv2KqAKVszwgNfL60p166jJKQztu3c/fB8Bzvibf9VGircYyBcDRs5a6/sJ4o2MZ7KW",
-	"Yzgr4smVrxszll6VV0+Zj7ObIEA4kxUZGitYKFcUBF3qWo09lhgR73hYMJ5SelmgcapzSawzYFigX9T1",
-	"IzHfX9Q19vCJMKJ+UddvZH9sEqV/7yUCOjp2IF4SN0FSkVsgrzNE2uAI9EDJ2oyrJmbEAbG2oR09uCEg",
-	"DBjbFg1BxOYiAJCpMj5x6wWjbtSSwgZNeL9SDu/39OdXtlTvC/Gqkk1Jksi58Xpay1vtl8I113E8Dhja",
-	"lOp0Wvp4Je6kVhjNi2/4pjZn4krB8rkr4eQSAuQCCCq9xiFVwb9EaitGSqkSwBeAmjFnRc6Tqbbe2mqJ",
-	"3+E5LloJHyYe7bEIFmfnik8qJ12wDxjLleIe4APQxIG5M2oxdBSHgwIP1+Z6cjWW4xmd3ViDORQDcngD",
-	"PKmlVwRxB2OzDbKRMRxfqm+MwX9PO13EIOerJMr5ioYaompgjYHYIn7tnbo+3frsU4jGox5+6uLTnX7q",
-	"P63AkAsmwMXca8gLcIG0oGPnaBy49qBuYg3dQO0PIwqfP2/8DOK2Qbxyqr4NQllTV6PT0bFc6OPbZ6CT",
-	"/j8DAA==",
-}
-
-// decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
-// after base64-decoding and flate-decompressing the embedded blob.
-func decodeSpec() ([]byte, error) {
-	encoded := strings.Join(swaggerSpec, "")
-	compressed, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, fmt.Errorf("error base64 decoding spec: %w", err)
-	}
-	zr := flate.NewReader(bytes.NewReader(compressed))
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(zr); err != nil {
-		return nil, fmt.Errorf("read flate: %w", err)
-	}
-	if err := zr.Close(); err != nil {
-		return nil, fmt.Errorf("close flate reader: %w", err)
-	}
-
-	return buf.Bytes(), nil
-}
-
-var rawSpec = decodeSpecCached()
-
-// a naive cache of the decoded OpenAPI spec
-func decodeSpecCached() func() ([]byte, error) {
-	data, err := decodeSpec()
-	return func() ([]byte, error) {
-		return data, err
-	}
-}
-
-// Constructs a synthetic filesystem for resolving external references when loading openapi specifications.
-func PathToRawSpec(pathToFile string) map[string]func() ([]byte, error) {
-	res := make(map[string]func() ([]byte, error))
-	if len(pathToFile) > 0 {
-		res[pathToFile] = rawSpec
-	}
-
-	return res
-}
-
-// GetSpec returns the OpenAPI specification corresponding to the generated
-// code in this file. External references in the spec are resolved through
-// PathToRawSpec; externally-referenced files must be embedded in their
-// corresponding Go packages (via the import-mapping feature). URL-based
-// external refs are not supported.
-func GetSpec() (swagger *openapi3.T, err error) {
-	resolvePath := PathToRawSpec("")
-
-	loader := openapi3.NewLoader()
-	loader.IsExternalRefsAllowed = true
-	loader.ReadFromURIFunc = func(loader *openapi3.Loader, url *url.URL) ([]byte, error) {
-		pathToFile := url.String()
-		pathToFile = path.Clean(pathToFile)
-		getSpec, ok := resolvePath[pathToFile]
-		if !ok {
-			err1 := fmt.Errorf("path not found: %s", pathToFile)
-			return nil, err1
-		}
-		return getSpec()
-	}
-	var specData []byte
-	specData, err = rawSpec()
-	if err != nil {
-		return
-	}
-	swagger, err = loader.LoadFromData(specData)
-	if err != nil {
-		return
-	}
-	return
-}
-
-// GetSpecJSON returns the raw JSON bytes of the embedded OpenAPI
-// specification: decompressed but not unmarshaled. External references
-// are not resolved here; the bytes are the spec exactly as embedded by
-// codegen. The result is cached at package init time, so repeated calls
-// are cheap.
-func GetSpecJSON() ([]byte, error) {
-	return rawSpec()
-}
-
-// GetSwagger returns the OpenAPI specification corresponding to the
-// generated code in this file.
-//
-// Deprecated: GetSwagger predates kin-openapi renaming openapi3.Swagger
-// to openapi3.T. Use [GetSpec] instead. This wrapper is retained for
-// backwards compatibility.
-func GetSwagger() (*openapi3.T, error) {
-	return GetSpec()
 }

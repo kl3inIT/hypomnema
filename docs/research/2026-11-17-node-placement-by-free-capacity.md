@@ -173,3 +173,190 @@ The one scheduler read that scores by measured load.
   free executors in absolute count, which favours the larger machine.
 
 The design that follows from this is in issue #731.
+
+## Second study: capacity by requests, and sharing room between Bots
+
+Studied on 2026-11-17 for the two parts the owner added to issue #731 that day: a node's room computed from the
+requests of its Dispatches against its allocatable, so that `max_dispatches` becomes an optional cap; and room shared
+between Bots, with a guaranteed share, borrowing of free room, freed room going first to the Bot furthest below its
+guarantee, and no preemption. The scoring above was approved the same day and is built in its own Task; this study
+builds on it.
+
+### What Hypomnema does today (main `03e5c21`)
+
+- **Capacity is reported already.** The hello carries the machine's CPU count (`runtime.NumCPU`) and total memory
+  (`internal/node/system.go:20-32`), stored as `nodes.cpus` and `nodes.memory_bytes` (`nodes.go:500`, columns in
+  `migrations/00016_node_registry.sql:26-27`). The task's premise that nodes do not report their cores is wrong.
+- **What is in use** comes every 10 s and replaces the last measurement (`NodeStats`, `nodes.go:548-575`). No history
+  of it is kept, and nothing records what one Dispatch used.
+- **A node's limit** is `max_dispatches`, `NOT NULL`, default 2 (`limits.go:81-82`), checked in `checkNode`
+  (`placement.go:157`) and `atLimit` (`placement.go:271-276`).
+- **A Bot's limit** (#660) is enforced in `scheduleTask` before any node is looked at: `p.groups[group] >= limit` waits
+  with `bot_at_limit:<bot>` (`scheduler.go:82-85`). The group and its limit come from `runGroup` (`scheduler.go:
+  275-286`): the Bot's `max_dispatches` (`bots.go:108-114`, column from `migrations/00100_limit_per_bot.sql:5`), else
+  `BotDispatchesDefault` 4 (`limits.go:80`), and `""` for the owner's Runs without a Bot. The counts are the unsettled
+  Dispatches per group (`placement.go:58`). The reason is not escalated (`scheduler.go:478`).
+- **Order:** one pass takes every ready Task, oldest Run first, then by position
+  (`ListSchedulableTaskIDs`, `internal/store/nodes.sql.go:727-732`); there is no order between Bots.
+- A Dispatch that waits for an answer is unsettled, so it keeps its place (`activeDispatchStatuses`,
+  `placement.go:473-481`; `transitions.go:49-52`). A Conversation that continues goes to its own node, and waits
+  `nodes_full` when that node is at its limit (`scheduler.go:363-375`).
+- The seeded profiles are `implementer`, `reviewer`, `explorer` and `coordinator`
+  (`migrations/00008_profiles.sql:63-65`); a profile version has a runtime, model and tools but no resources
+  (`internal/store/models.go:622-639`).
+
+### Revisions read
+
+Cloned into `.tmp/` with `--depth 1 --filter=blob:none --sparse` on 2026-11-17.
+
+| Reference | Revision | What was read |
+|---|---|---|
+| Kubernetes | `f9951a0479e3` | `pkg/scheduler/framework/plugins/helper/resource_fit.go`, `noderesources/resource_allocation.go`, `pkg/scheduler/util/pod_resources.go`, `pkg/kubelet/cm/{helpers,node_container_manager_linux}.go`, `pkg/kubelet/nodestatus/setters.go`, `pkg/kubelet/eviction/defaults_linux.go`, `staging/src/k8s.io/kubelet/config/v1beta1/types.go`, `pkg/apis/scheduling/types.go`, `defaultpreemption/default_preemption.go` |
+| Nomad | `359056d76692` | `nomad/structs/{funcs,structs,operator,eval}.go`, `nomad/config.go`, `client/config/config.go`, `client/fingerprint/{cpu,memory}.go`, `command/agent/config.go`, `client/allocrunner/taskrunner/stats_hook.go` |
+| Kueue | `13eb8427416b` | `apis/kueue/v1beta2/clusterqueue_types.go`, `pkg/cache/scheduler/{resource_node,clusterqueue_snapshot,fair_sharing}.go`, `pkg/scheduler/scheduler.go`, `pkg/resources/requests.go` |
+| Hadoop YARN | `aff670a9b190` | Capacity Scheduler: `policy/PriorityUtilizationQueueOrderingPolicy.java`, `AbstractParentQueue.java`, `AbstractLeafQueue.java`, `CapacitySchedulerConfiguration.java`, `conf/QueueProperties.java`; NodeManager `util/NodeManagerHardwareUtils.java`; `yarn-default.xml`, `YarnConfiguration.java` |
+| Slurm | `9adf0e0c479b` | `src/plugins/priority/multifactor/{priority_multifactor,fair_tree}.c`, `doc/man/man5/slurm.conf.5` |
+
+Paths below are relative to each clone; the YARN ones to
+`hadoop-yarn-server-resourcemanager/.../scheduler/capacity/` unless they name another module.
+
+### Capacity and allocatable
+
+- **Kubernetes.** The kubelet's allocatable is capacity minus `system-reserved`, `kube-reserved` and the hard
+  eviction thresholds (`GetNodeAllocatableReservation`, `pkg/kubelet/cm/node_container_manager_linux.go:292-313`;
+  `hardEvictionReservation`, `cm/helpers.go:121-122`), floored at zero (`nodestatus/setters.go:310-320`). Both
+  reserves default to nil (`kubelet/config/v1beta1/types.go:765-782`); the eviction default is `memory.available
+  100Mi` and disk thresholds, with no CPU signal (`eviction/defaults_linux.go:22-28`). So by default a node's
+  allocatable memory is its total less 100 MiB, and its CPU is all of it.
+- **Nomad.** The client fingerprints total memory with gopsutil's `VirtualMemory().Total`, the library Hypomnema's
+  node uses (`client/fingerprint/memory.go:30-50`), and total compute from the CPU topology (`cpu.go:33-49`).
+  `reserved { cpu, memory, ... }` in the client config is subtracted (`command/agent/config.go:347-350`); it defaults
+  to empty (`command/agent/config.go:1840`). `AllocsFit` checks `NodeResources - ReservedResources` against the sum of
+  the allocations (`nomad/structs/funcs.go:192-198`).
+- **YARN.** With hardware detection, the NodeManager offers `0.8 * (physical - 2 * its heap)` of memory, or physical
+  minus `system-reserved-memory-mb` when that is set (`NodeManagerHardwareUtils.java:310-330`), and vcores =
+  physical cores times a multiplier (`:215-235`).
+- **Slurm.** `MemSpecLimit` and `CoreSpecCount` reserve memory and cores for the system; unset by default
+  (`slurm.conf.5:8649-8652`).
+- **Findings.** Kubernetes, Nomad and Slurm reserve nothing by default beyond Kubernetes' 100 MiB eviction floor;
+  YARN alone keeps 20%. All four let the operator set a reserve per node. Kubernetes folds its memory floor into
+  allocatable, which matches the 1 GiB floor already approved for #731.
+
+### Requests
+
+- **Kubernetes.** Requests are declared per container; `FitsRequest` refuses a node when one more pod exceeds the
+  `pods` allocatable ("Too many pods", `helper/resource_fit.go:136-145`) or when the pod's CPU or memory is more than
+  `allocatable - requested` (`:159-178`). A request larger than the whole allocatable is marked `Unresolvable`
+  (`:166`, `:176`): no node change of load can help. `requested` is the sum of the pods' declared requests, not their
+  use; scoring takes the same sums (`noderesources/resource_allocation.go:200-210`). A pod with no request is scored
+  as 0.1 CPU and 200 MiB (`pkg/scheduler/util/pod_resources.go:28-31`).
+- **Nomad.** A task's `resources` default to 100 MHz and 300 MB (`DefaultResources`, `nomad/structs/structs.go:
+  2388-2394`). What was allocated is kept on the allocation and summed (`funcs.go:157-164`), so a later change of the
+  job does not change what a running allocation counts. `node_max_allocs` is an optional count cap, 0 meaning none
+  (`client/config/config.go:400-402`, `structs.go:2128-2129`, checked first in `AllocsFit`, `funcs.go:145-149`).
+  The client samples each task's use (`stats_hook.go:100-117`); the scheduler does not read it.
+- **YARN** and **Slurm** take requests per container or job (Slurm's `DefMemPerCPU` is 0, unlimited, by default:
+  `slurm.conf.5:1421-1426`).
+- **Findings.** Every scheduler fits on declared requests, never on measured use, and keeps the request on the
+  running unit. Nomad has exactly the optional count cap the issue asks for. None derives defaults from history in
+  the scheduler (Kubernetes' Vertical Pod Autoscaler does, as a separate component; not read).
+
+### Guarantees, borrowing and ordering between owners of work
+
+- **Kueue.** A ClusterQueue has a `nominalQuota` per resource, guaranteed (`clusterqueue_types.go:318-329`); it may
+  borrow unused quota of its cohort up to `borrowingLimit`, nil meaning no limit (`:331-341`), and lends up to
+  `lendingLimit`, nil meaning all of it (`:343-353`). `available` adds the queue's local quota to what its parent has
+  left, bounded by the borrowing limit (`pkg/cache/scheduler/resource_node.go:119-134`). Quota may count pods
+  (`pkg/resources/requests.go:35`). Order (classic): workloads that already hold quota, then those that fit under
+  their nominal quota before those that borrow, then priority, then FIFO (`pkg/scheduler/scheduler.go:1277-1345`).
+  With fair sharing, a tournament by dominant resource share, the borrowed part over what the cohort can lend, divided
+  by a weight (`pkg/cache/scheduler/fair_sharing.go:166-194`). `queueingStrategy` defaults to `BestEffortFIFO`: an
+  older workload that cannot be admitted does not block newer ones that fit; `StrictFIFO` blocks
+  (`clusterqueue_types.go:98-110`).
+- **YARN Capacity Scheduler.** Each queue has a `capacity` (guarantee) and a `maximum-capacity`, 100% by default
+  (`conf/QueueProperties.java:255-267`), so a queue may grow to the whole cluster when others are idle. Children are
+  sorted by used capacity relative to their own guarantee, lowest first (`PriorityUtilizationQueueOrderingPolicy.java:
+  69-74`; priorities only matter when both are on the same side of their guarantee, `:75-87`); the sort is redone for
+  every container (`:251-259`), and the parent gives one container to the first child that takes one, then sorts
+  again (`AbstractParentQueue.java:962-990`). A queue with nothing pending is skipped (`AbstractLeafQueue.java:
+  1199-1212`).
+- **Slurm** (fair share between accounts and users). `priority/multifactor` orders jobs by, among other factors,
+  fair share: classic `2^-(usage/shares)` (`priority_multifactor.c:1865-1886`), or Fair Tree's `level_fs = S/U`,
+  highest first (`fair_tree.c:199-210`, `:140-154`), with usage decayed over a 7-day half-life
+  (`slurm.conf.5:3665-3676`). It weighs past use, not what runs now.
+- **Nomad** has no fair share in its open-source code: quotas are an Enterprise feature, with only the fields left
+  (`nomad/structs/structs.go:5587-5589`, `eval.go:200-202`). Searched `nomad/structs` and `scheduler` for quota and
+  share logic; none.
+- **Findings.** "Room goes first to the one furthest below its guarantee" is YARN's rule exactly: lowest used over
+  guarantee first, re-sorted after each placement, queues with nothing pending skipped. Kueue's classic order gives
+  the same split at the guarantee (under nominal before borrowing) and adds FIFO inside. "No cap below the total" is
+  YARN's default `maximum-capacity` and Kueue's nil `borrowingLimit` and `lendingLimit`. Slurm's decayed history
+  answers a different question (fairness over days) and needs usage accounting Hypomnema does not have.
+
+### Preemption
+
+- Kueue: `reclaimWithinCohort` and `withinClusterQueue` default to `Never` (`clusterqueue_types.go:585-628`), as does
+  `borrowWithinCohort` (`:631-653`).
+- YARN: preemption is a monitor, off by default (`yarn.resourcemanager.scheduler.monitor.enable` false,
+  `yarn-default.xml:1038-1043`; `YarnConfiguration.java:348`).
+- Nomad: preemption is on for system jobs only, off for service and batch (`nomad/config.go:709-714`;
+  `nomad/structs/operator.go:339-351`).
+- Slurm: `PreemptType` is unset by default (`slurm.conf.5:3603-3605`).
+- Kubernetes: preemption is on by default, and a pod opts out with `preemptionPolicy: Never` (`pkg/apis/scheduling/
+  types.go:52-59`; `defaultpreemption/default_preemption.go:459`).
+- **Finding.** With preemption off, a guarantee in Kueue and YARN is a first claim on room as it frees, not room kept
+  empty: a queue that lent everything waits for the borrower's work to finish. This is the behaviour the owner asked
+  for.
+
+### Measurements
+
+**History.** The worker that did this study had no client token (no Hypomnema credential among its environment
+variables), so it could not read Dispatches. Even with one, the control plane keeps only each node's latest
+measurement (`nodes.go:548-575`); it records which profile ran on which node and when (`dispatches.node_id`,
+`started_at`, `settled_at`; `tasks.profile`), never the CPU or memory of a Dispatch. The owner can count profile by
+node, read-only, on the control plane's database:
+
+```sql
+SELECT t.profile, d.node_id, count(*) AS n,
+       round(avg((d.settled_at - d.started_at) / 60000.0), 1) AS avg_min
+FROM dispatches d JOIN tasks t ON t.id = d.task_id
+WHERE d.started_at IS NOT NULL AND d.settled_at IS NOT NULL
+GROUP BY 1, 2 ORDER BY 1, 3 DESC;
+```
+
+**Measured here instead.** On `stc-hy-app` (24 CPUs, 31.4 GiB), 2026-11-17, Hypomnema at `03e5c21`, Go 1.27.4: the
+repository's own checks, the work an implementer or a reviewer of this repository runs. A sampler read `MemAvailable`
+and `/proc/stat` every 0.5 s (script `.tmp/scripts/measure.sh`, not kept); memory is the largest drop of
+`MemAvailable` during the command, so it counts the whole process tree. Three other workers (two Codex, one Claude)
+were idle on the machine; the Go build cache was emptied before the cold build.
+
+| Command | Wall | Mean CPUs | Peak CPUs (0.5 s) | Peak memory |
+|---|---|---|---|---|
+| `go build ./...`, empty cache | 70 s | 8.4 | 23.6 | 2.6 GiB |
+| `go build ./...`, warm cache | 8 s | 2.4 | 6.4 | 0.4 GiB |
+| `go test -count=1 ./internal/controlplane/orchestration/...` | 99 s | 5.4 | 19.6 | 0.6 GiB |
+| `go test -count=1 ./...` | 100 s | 7.2 | 22.2 | 1.7 GiB |
+| `golangci-lint run ./...` (`go tool -modfile=tools/ci/go.mod`) | 43 s | 12.4 | 23.2 | 2.7 GiB |
+
+Resident memory of the worker CLIs between commands (`ps`, summed per process group): Claude Code 269 MiB, Codex
+156-172 MiB (and 23 MiB for `codex-code-mode`), the node's shim per worker 10-27 MiB. Not measured: the web client's
+`pnpm check` (this node has Node 22, the client needs 24) and the owner's other repositories (a JDK and Gradle build
+is likely heavier; inferred).
+
+What the numbers say: a worker's memory peaks at about 3 GiB (2.7 GiB of checks plus its CLI) and its CPU use is
+elastic, every core in bursts and a few on average; Go and the linter size their parallelism to the cores they find,
+so the same work on one core is slower, not refused. Memory is the dimension that can break a machine; CPU only slows
+it (inferred from the kubelet having a memory eviction signal and none for CPU, `defaults_linux.go:22-28`).
+
+### Comparison
+
+| | Capacity | Reserved by default | Request default | Count cap | Guarantee | Borrowing | Order of freed room | Preemption by default |
+|---|---|---|---|---|---|---|---|---|
+| Kubernetes | node status capacity | eviction 100 MiB | none (scored as 0.1 CPU, 200 MiB) | `pods` allocatable | — | — | queue priority, FIFO | on; `Never` per pod |
+| Nomad | fingerprint (gopsutil) | none | 100 MHz, 300 MB | `node_max_allocs`, 0 = none | Enterprise quotas | — | eval priority | system jobs only |
+| Kueue | `nominalQuota` (cluster-wide) | — | pod requests | quota on `pods` | `nominalQuota` | up to `borrowingLimit`, nil = none | under nominal first, then FIFO; or lowest DRS | `Never` |
+| YARN | NodeManager detection | 20% (or set) | per container | — | `capacity` | up to `maximum-capacity`, 100% | lowest used / guarantee, re-sorted each container | monitor off |
+| Slurm | `RealMemory`, CPUs | none | `DefMemPerCPU` 0 | — | shares | — | fair share by decayed past use | none |
+| Hypomnema today | `cpus`, `memory_bytes` stored, unused | — | — | `max_dispatches`, required | — (Bot limit is a cap) | no | oldest Run first | none |
+
+The design that follows from this is the second `## Design` comment on issue #731.

@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
 const artifactFileData = `-- name: ArtifactFileData :one
@@ -136,6 +137,20 @@ func (q *Queries) ArtifactsBeforeReply(ctx context.Context, arg ArtifactsBeforeR
 	return items, nil
 }
 
+const countArtifactShareView = `-- name: CountArtifactShareView :exec
+UPDATE artifact_shares SET views = views + 1, last_viewed_at = ?1 WHERE id = ?2
+`
+
+type CountArtifactShareViewParams struct {
+	Now sql.NullInt64
+	ID  string
+}
+
+func (q *Queries) CountArtifactShareView(ctx context.Context, arg CountArtifactShareViewParams) error {
+	_, err := q.db.ExecContext(ctx, countArtifactShareView, arg.Now, arg.ID)
+	return err
+}
+
 const deleteArtifactRevisionsBefore = `-- name: DeleteArtifactRevisionsBefore :exec
 DELETE FROM artifact_revisions WHERE artifact_id = ?1 AND revision < ?2
 `
@@ -149,6 +164,18 @@ type DeleteArtifactRevisionsBeforeParams struct {
 func (q *Queries) DeleteArtifactRevisionsBefore(ctx context.Context, arg DeleteArtifactRevisionsBeforeParams) error {
 	_, err := q.db.ExecContext(ctx, deleteArtifactRevisionsBefore, arg.ArtifactID, arg.Revision)
 	return err
+}
+
+const deleteArtifactShare = `-- name: DeleteArtifactShare :execrows
+DELETE FROM artifact_shares WHERE id = ?1
+`
+
+func (q *Queries) DeleteArtifactShare(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteArtifactShare, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteUnusedArtifactBlobs = `-- name: DeleteUnusedArtifactBlobs :exec
@@ -281,6 +308,32 @@ func (q *Queries) InsertArtifactRevision(ctx context.Context, arg InsertArtifact
 	return err
 }
 
+const insertArtifactShare = `-- name: InsertArtifactShare :exec
+
+INSERT INTO artifact_shares (id, artifact_id, token, label, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5)
+`
+
+type InsertArtifactShareParams struct {
+	ID         string
+	ArtifactID string
+	Token      string
+	Label      string
+	Now        int64
+}
+
+// View-only links to an artifact (issue #745).
+func (q *Queries) InsertArtifactShare(ctx context.Context, arg InsertArtifactShareParams) error {
+	_, err := q.db.ExecContext(ctx, insertArtifactShare,
+		arg.ID,
+		arg.ArtifactID,
+		arg.Token,
+		arg.Label,
+		arg.Now,
+	)
+	return err
+}
+
 const listArtifactBlobsBefore = `-- name: ListArtifactBlobsBefore :many
 SELECT DISTINCT sha256 FROM artifact_files WHERE artifact_id = ?1 AND revision < ?2
 `
@@ -389,6 +442,42 @@ func (q *Queries) ListArtifactRevisions(ctx context.Context, artifactID string) 
 	return items, nil
 }
 
+const listArtifactShares = `-- name: ListArtifactShares :many
+SELECT id, artifact_id, token, label, created_at, views, last_viewed_at FROM artifact_shares WHERE artifact_id = ?1 ORDER BY created_at DESC, id
+`
+
+// Newest first.
+func (q *Queries) ListArtifactShares(ctx context.Context, artifactID string) ([]ArtifactShare, error) {
+	rows, err := q.db.QueryContext(ctx, listArtifactShares, artifactID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ArtifactShare{}
+	for rows.Next() {
+		var i ArtifactShare
+		if err := rows.Scan(
+			&i.ID,
+			&i.ArtifactID,
+			&i.Token,
+			&i.Label,
+			&i.CreatedAt,
+			&i.Views,
+			&i.LastViewedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listArtifacts = `-- name: ListArtifacts :many
 SELECT a.id, a.chat_id, a.bot_id, a.message_seq, a.revision, a.created_at, a.updated_at,
        r.title, r.type, r.entry, r.size
@@ -483,4 +572,41 @@ type SetArtifactMessageParams struct {
 func (q *Queries) SetArtifactMessage(ctx context.Context, arg SetArtifactMessageParams) error {
 	_, err := q.db.ExecContext(ctx, setArtifactMessage, arg.Text, arg.Seq)
 	return err
+}
+
+const sharedArtifact = `-- name: SharedArtifact :one
+SELECT s.id, s.artifact_id, a.revision, a.updated_at, r.title, r.type, r.entry, f.media_type
+FROM artifact_shares s
+JOIN artifacts a ON a.id = s.artifact_id
+JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
+JOIN artifact_files f ON f.artifact_id = a.id AND f.revision = a.revision AND f.path = r.entry
+WHERE s.token = ?1
+`
+
+type SharedArtifactRow struct {
+	ID         string
+	ArtifactID string
+	Revision   int64
+	UpdatedAt  int64
+	Title      string
+	Type       string
+	Entry      string
+	MediaType  string
+}
+
+// What a link shows: its artifact at the newest revision, with the type of the file shown.
+func (q *Queries) SharedArtifact(ctx context.Context, token string) (SharedArtifactRow, error) {
+	row := q.db.QueryRowContext(ctx, sharedArtifact, token)
+	var i SharedArtifactRow
+	err := row.Scan(
+		&i.ID,
+		&i.ArtifactID,
+		&i.Revision,
+		&i.UpdatedAt,
+		&i.Title,
+		&i.Type,
+		&i.Entry,
+		&i.MediaType,
+	)
+	return i, err
 }

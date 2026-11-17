@@ -244,8 +244,8 @@ async function fakeServer(page: Page, w: ReturnType<typeof world>) {
     const json = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
-    // A folder page's files, as the server sends them to the locked frame: sandboxed, readable from its opaque
-    // origin.
+    // A page and its files, as the server sends them to the locked frame: sandboxed, readable from its opaque
+    // origin. What the server's policy lets a page do is tested against the server itself (server.spec.ts).
     const files = /^\/artifact-files\/tok-(\w+)-(\d+)\/(.+)$/.exec(path)
     if (files) {
       const [, id, rev, name] = files
@@ -259,7 +259,9 @@ async function fakeServer(page: Page, w: ReturnType<typeof world>) {
         contentType: f.media_type,
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Content-Security-Policy": "sandbox allow-scripts; default-src 'none'",
+          "Content-Security-Policy": f.media_type.startsWith("text/html")
+            ? "sandbox allow-scripts allow-forms"
+            : "sandbox allow-scripts; default-src 'none'",
         },
         body: f.bytes,
       })
@@ -710,7 +712,7 @@ test("the pages skill's dashboard draws itself in its locked frame", async ({ pa
   // the browser) is not the page's.
   const refused: string[] = []
   page.on("console", (m) => {
-    const inFrame = m.location().url.startsWith("about:srcdoc")
+    const inFrame = m.location().url.includes("/artifact-files/")
     if (m.type() === "error" && (inFrame || m.text().includes("Content Security Policy")))
       refused.push(m.text())
   })

@@ -31,6 +31,12 @@ this LICENSE in the folder). Changed: shown with the show_artifact tool, no
 public link, its data from Superset, and the template drawing its charts as SVG
 with no library or network request.
 
+An artifact page's policy (internal/controlplane/clientapi/artifacts.go,
+pagePolicy, issue #737), from its shared/app-frame/csp.ts (BOT_HTML_CSP and
+folderPageCsp), which web/src/features/artifacts sent as the frame's meta
+until then. Changed: sent as the page's response header, its own files named
+by the page's address, and no base.
+
 From OpenMausBot's own NOTICE, for that code:
 
 The egress gate for the bots' browser (server/browser/egress/) adapts T3 Code's
