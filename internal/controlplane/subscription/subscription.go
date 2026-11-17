@@ -349,6 +349,11 @@ func (s *Service) List(ctx context.Context) ([]Account, error) {
 	out := make([]Account, 0, len(accounts))
 
 	for _, a := range accounts {
+		// A Muse account is the Muse pool's (issue #782), shown on its own page.
+		if a.Runtime == orchestration.MuseRuntime {
+			continue
+		}
+
 		view, err := s.view(ctx, a)
 		if err != nil {
 			return nil, err

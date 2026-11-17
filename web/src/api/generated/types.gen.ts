@@ -872,6 +872,69 @@ export type ImageRequest = {
   image_size?: string;
 };
 
+export type Muse = {
+  /**
+   * Whether workers and Bots' pi get muse_ask, muse_chats and muse_messages.
+   */
+  tools_on: boolean;
+  /**
+   * The Muse accounts in the owner's order.
+   */
+  accounts: Array<MuseAccount>;
+};
+
+export type MuseAccount = {
+  id: string;
+  label: string;
+  position: number;
+  /**
+   * The owner's switch for the account.
+   */
+  on: boolean;
+  /**
+   * What the pool last saw: signed_in, needs_sign_in, refused, workspace_not_ready or page_not_ready. refused: muse.ai answered 403 (region, network or access), tried again later. workspace_not_ready: its Muse session is not assigned or its machine not running.
+   */
+  state: string;
+  /**
+   * The cause observed
+   */
+  cause?: string;
+  /**
+   * Out of quota; used again once Settings → Usage shows room.
+   */
+  resting: boolean;
+  /**
+   * Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
+   */
+  usage: string;
+  usage_read_at?: string;
+  checked_at?: string;
+};
+
+export type MuseSwitch = {
+  on: boolean;
+};
+
+export type MuseSignInCheck = {
+  /**
+   * The account to sign in again; a new account when left out.
+   */
+  account?: string;
+  /**
+   * A new account's name.
+   */
+  label?: string;
+};
+
+export type MuseSignIn = {
+  done: boolean;
+  /**
+   * What is waited for.
+   */
+  waiting?: string;
+  account?: MuseAccount;
+};
+
 export type ImageAnswer = {
   provider: ImageProvider;
   model: string;
@@ -7126,6 +7189,187 @@ export type SetImageOrderResponses = {
 };
 
 export type SetImageOrderResponse = SetImageOrderResponses[keyof SetImageOrderResponses];
+
+export type GetMuseData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/muse';
+};
+
+export type GetMuseErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetMuseError = GetMuseErrors[keyof GetMuseErrors];
+
+export type GetMuseResponses = {
+  /**
+   * The pool.
+   */
+  200: Muse;
+};
+
+export type GetMuseResponse = GetMuseResponses[keyof GetMuseResponses];
+
+export type SetMuseToolsData = {
+  body: MuseSwitch;
+  path?: never;
+  query?: never;
+  url: '/gateway/muse/tools';
+};
+
+export type SetMuseToolsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetMuseToolsError = SetMuseToolsErrors[keyof SetMuseToolsErrors];
+
+export type SetMuseToolsResponses = {
+  /**
+   * The pool after the change.
+   */
+  200: Muse;
+};
+
+export type SetMuseToolsResponse = SetMuseToolsResponses[keyof SetMuseToolsResponses];
+
+export type StartMuseSignInData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/muse/sign-in';
+};
+
+export type StartMuseSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartMuseSignInError = StartMuseSignInErrors[keyof StartMuseSignInErrors];
+
+export type StartMuseSignInResponses = {
+  /**
+   * muse.ai is open in the owner's tab.
+   */
+  204: void;
+};
+
+export type StartMuseSignInResponse = StartMuseSignInResponses[keyof StartMuseSignInResponses];
+
+export type CheckMuseSignInData = {
+  body: MuseSignInCheck;
+  path?: never;
+  query?: never;
+  url: '/gateway/muse/sign-in/check';
+};
+
+export type CheckMuseSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CheckMuseSignInError = CheckMuseSignInErrors[keyof CheckMuseSignInErrors];
+
+export type CheckMuseSignInResponses = {
+  /**
+   * How the sign-in stands.
+   */
+  200: MuseSignIn;
+};
+
+export type CheckMuseSignInResponse = CheckMuseSignInResponses[keyof CheckMuseSignInResponses];
+
+export type RemoveMuseAccountData = {
+  body?: never;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/gateway/muse/accounts/{account_id}';
+};
+
+export type RemoveMuseAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RemoveMuseAccountError = RemoveMuseAccountErrors[keyof RemoveMuseAccountErrors];
+
+export type RemoveMuseAccountResponses = {
+  /**
+   * The pool after the change.
+   */
+  200: Muse;
+};
+
+export type RemoveMuseAccountResponse = RemoveMuseAccountResponses[keyof RemoveMuseAccountResponses];
+
+export type SetMuseAccountData = {
+  body: MuseSwitch;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/gateway/muse/accounts/{account_id}';
+};
+
+export type SetMuseAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetMuseAccountError = SetMuseAccountErrors[keyof SetMuseAccountErrors];
+
+export type SetMuseAccountResponses = {
+  /**
+   * The pool after the change.
+   */
+  200: Muse;
+};
+
+export type SetMuseAccountResponse = SetMuseAccountResponses[keyof SetMuseAccountResponses];
+
+export type MoveMuseAccountData = {
+  body: AccountMove;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/gateway/muse/accounts/{account_id}/move';
+};
+
+export type MoveMuseAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MoveMuseAccountError = MoveMuseAccountErrors[keyof MoveMuseAccountErrors];
+
+export type MoveMuseAccountResponses = {
+  /**
+   * The pool after the change.
+   */
+  200: Muse;
+};
+
+export type MoveMuseAccountResponse = MoveMuseAccountResponses[keyof MoveMuseAccountResponses];
 
 export type GetAudioData = {
   body?: never;

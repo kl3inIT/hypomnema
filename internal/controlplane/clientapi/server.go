@@ -84,6 +84,8 @@ type Server struct {
 	// images makes images and imageSettings are the Images page's (issue #431); nil when the control plane wired none.
 	images        Images
 	imageSettings ImageSettings
+	// muse is the Muse pool (muse.go, issue #782); nil when the control plane has none.
+	muse Muse
 	// audio hears and makes speech, audioSettings is the Audio page (issue #694); nil when the control plane wired none.
 	audio         Audio
 	audioSettings AudioSettings

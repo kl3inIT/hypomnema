@@ -26,7 +26,7 @@ import (
 const sourcesFile = "catalog_sources.json"
 
 // maxDeclaration bounds one download: GitHub's REST description is 14 MB, gh's source 10 MB, client-go's module
-// 5 MB.
+// 5 MB, a Discovery document under 1 MB.
 const maxDeclaration = 128 << 20
 
 // source is one thing fetched: its address, the revision it is at (or the day it was read, for an address that has
@@ -58,10 +58,16 @@ type sources struct {
 		CLI    cli `json:"cli"`
 		Client cli `json:"client"`
 	} `json:"gitlab"`
+	// Google's declaration is the Discovery documents of the APIs gws names (issue #741): the CLI's source is read
+	// for that list (services.rs).
+	Google struct {
+		CLI       cli               `json:"cli"`
+		Discovery []discoverySource `json:"discovery"`
+	} `json:"google"`
 }
 
 func main() {
-	service := flag.String("service", "all", "the catalog to regenerate: github, gitlab, or all")
+	service := flag.String("service", "all", "the catalog to regenerate: github, gitlab, google, or all")
 	dir := flag.String("dir", "internal/controlplane/serviceproxy", "the directory of the catalogs and "+sourcesFile)
 	flag.Parse()
 
@@ -99,21 +105,41 @@ func run(ctx context.Context, service, dir string) error {
 		return generateGitHub(ctx, client, src, root, os.Stdout)
 	case "gitlab":
 		return generateGitLab(ctx, client, src, root, os.Stdout)
+	case "google":
+		return generateGoogle(ctx, client, src, root, os.Stdout)
 	case "all":
-		if err := generateGitHub(ctx, client, src, root, os.Stdout); err != nil {
-			return err
+		for _, generate := range []func(context.Context, *http.Client, sources, *os.Root, io.Writer) error{
+			generateGitHub, generateGitLab, generateGoogle,
+		} {
+			if err := generate(ctx, client, src, root, os.Stdout); err != nil {
+				return err
+			}
 		}
 
-		return generateGitLab(ctx, client, src, root, os.Stdout)
+		return nil
 	}
 
-	return fmt.Errorf("no catalog %q: github and gitlab are the ones generated so far", service)
+	return fmt.Errorf("no catalog %q: github, gitlab and google are the ones generated so far", service)
 }
 
 // fetch downloads a source and checks its SHA-256. A declaration that changed at an address with no revision fails
 // here: the new one is read, then pinned by hand.
 func fetch(ctx context.Context, client *http.Client, s source) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL, nil)
+	body, err := download(ctx, client, s.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := checkSum(body, s); err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
+// download reads what an address serves, up to maxDeclaration.
+func download(ctx context.Context, client *http.Client, address string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -125,20 +151,16 @@ func fetch(ctx context.Context, client *http.Client, s source) ([]byte, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", s.URL, resp.Status)
+		return nil, fmt.Errorf("%s: %s", address, resp.Status)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDeclaration+1))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", s.URL, err)
+		return nil, fmt.Errorf("%s: %w", address, err)
 	}
 
 	if len(body) > maxDeclaration {
-		return nil, fmt.Errorf("%s: larger than %d bytes", s.URL, maxDeclaration)
-	}
-
-	if err := checkSum(body, s); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: larger than %d bytes", address, maxDeclaration)
 	}
 
 	return body, nil

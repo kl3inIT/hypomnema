@@ -267,7 +267,22 @@ func (s *Service) RotateTokenSet(ctx context.Context, name string, login Refresh
 	return s.rotate(ctx, name, login.Payload, knownTime(login.AccessTokenExpiresAt))
 }
 
+// RotateAt stores a new value as the secret's next version only while the
+// secret is still at version, the one its caller read: an older snapshot
+// never overwrites a newer one (issue #782, the Muse cookie jar saved back
+// after use while a new sign-in may have replaced it), as a refresh checks
+// that the secret is still at the version it read (refresh.go, stillOurs).
+// It answers ErrConflict when the secret moved on.
+func (s *Service) RotateAt(ctx context.Context, name string, p Payload, version int) (Secret, error) {
+	return s.rotateAt(ctx, name, p, nil, version)
+}
+
 func (s *Service) rotate(ctx context.Context, name string, p Payload, expires *time.Time) (Secret, error) {
+	return s.rotateAt(ctx, name, p, expires, 0)
+}
+
+// rotateAt rotates a secret; at, when not 0, is the version it must still be at.
+func (s *Service) rotateAt(ctx context.Context, name string, p Payload, expires *time.Time, at int) (Secret, error) {
 	if s.keyring == nil {
 		return Secret{}, ErrNotConfigured
 	}
@@ -276,6 +291,10 @@ func (s *Service) rotate(ctx context.Context, name string, p Payload, expires *t
 		row, current, err := currentVersion(ctx, q, name)
 		if err != nil {
 			return err
+		}
+
+		if at != 0 && int(current.VersionNumber) != at {
+			return fmt.Errorf("%w: secret %q is at version %d, not %d", ErrConflict, name, current.VersionNumber, at)
 		}
 
 		if err := validPayload(Kind(row.Kind), p); err != nil {

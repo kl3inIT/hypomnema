@@ -45,20 +45,25 @@ import (
 //
 // The speech tools, audio_transcribe and audio_speak (issue #723, decision
 // 1.2), go to every runtime and to a Bot's pi, none having a speech tool of
-// its own, as generate_image goes to all.
+// its own, as generate_image goes to all. The Muse tools (muse.go, issue #782)
+// are every runtime's and a Bot's pi's, no CLI having Muse of its own.
 var toolsOf = map[string][]string{
-	"claude":   {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
-	"codex":    {toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
-	"omp":      {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
-	"opencode": {toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
+	"claude": append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
+		museTools...),
+	"codex": append([]string{toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak}, museTools...),
+	"omp": append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
+		museTools...),
+	"opencode": append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
+		museTools...),
 }
 
 // botTools are a Bot's pi's (issue #492): all of them, pi having no web,
-// image or speech tool of its own, as OpenMausBot gives its pi the `agents`
-// server's generate_image (server/drivers/pi-mcp-servers.ts) and
+// image, speech or Muse tool of its own, as OpenMausBot gives its pi the
+// `agents` server's generate_image (server/drivers/pi-mcp-servers.ts) and
 // send_voice_note (agents-catalog.ts:497). A Routine's script, which has no
 // MCP, keeps `hypomnema web`, `hypomnema image` and `hypomnema audio`.
-var botTools = []string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak}
+var botTools = append([]string{toolWebSearch, toolWebFetch, agenttool.ToolGenerateImage, toolTranscribe, toolSpeak},
+	museTools...)
 
 const (
 	toolWebSearch  = agenttool.ToolWebSearch
@@ -105,7 +110,7 @@ func (s *Server) WithWeb(web Web) *Server {
 // agent (the owner's token, the coordinator token, a Routine's script) none,
 // having the CLI's `hypomnema web`, `hypomnema image` and `hypomnema audio`.
 func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
-	if s.web == nil && s.images == nil && s.audio == nil {
+	if s.web == nil && s.images == nil && s.audio == nil && s.muse == nil {
 		return nil
 	}
 
@@ -131,20 +136,24 @@ func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
 
 	var out []string
 
+	museOn := s.museOn(ctx)
+
 	for _, name := range named {
-		switch name {
-		case agenttool.ToolGenerateImage:
+		switch {
+		case slices.Contains(museTools, name):
+			if museOn {
+				out = append(out, name)
+			}
+		case name == agenttool.ToolGenerateImage:
 			if s.images != nil {
 				out = append(out, name)
 			}
-		case toolTranscribe, toolSpeak:
+		case name == toolTranscribe, name == toolSpeak:
 			if s.audio != nil {
 				out = append(out, name)
 			}
-		default:
-			if s.web != nil {
-				out = append(out, name)
-			}
+		case s.web != nil:
+			out = append(out, name)
 		}
 	}
 
@@ -162,7 +171,9 @@ func (s *Server) gatewayToolList(ctx context.Context, a agent) []agenttool.Brows
 		out = append(out, imageTool(a.chatID != ""))
 	}
 
-	return append(out, audioToolList(names, a.chatID != "")...)
+	out = append(out, audioToolList(names, a.chatID != "")...)
+
+	return append(out, museToolList(names)...)
 }
 
 // listGateway lists the gateway's tools alone (PathGatewayTools), for a Bot's
@@ -226,6 +237,12 @@ func (s *Server) gatewayCall(w http.ResponseWriter, r *http.Request, a agent, ca
 	case toolSpeak:
 		s.speakCall(w, r, a, call)
 	default:
+		if slices.Contains(museTools, call.Tool) {
+			s.museCall(w, r, a, call)
+
+			return
+		}
+
 		s.webCall(w, r, a, call)
 	}
 }

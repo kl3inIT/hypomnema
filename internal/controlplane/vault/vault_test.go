@@ -215,6 +215,29 @@ func TestRotateMakesANewVersionTheOneInUse(t *testing.T) {
 	assert.Equal(t, 2, listed[0].Version)
 }
 
+// Scenario: a cookie jar read at version 1 is saved back after a new sign-in
+// made version 2: the older snapshot is refused and the sign-in stays
+// (issue #782).
+func TestRotateAtRefusesAnOlderSnapshot(t *testing.T) {
+	t.Parallel()
+
+	v := newVault(newDB(t), keyring(t, "k1", newKey(t, "k1")), nil)
+
+	_, err := v.Create(t.Context(), generic("jar 1"))
+	require.NoError(t, err)
+
+	s, err := v.RotateAt(t.Context(), "router", vault.Payload{vault.KeyValue: "sign-in"}, 1)
+	require.NoError(t, err)
+	assert.Equal(t, 2, s.Version)
+
+	_, err = v.RotateAt(t.Context(), "router", vault.Payload{vault.KeyValue: "renewed jar 1"}, 1)
+	require.ErrorIs(t, err, vault.ErrConflict)
+
+	p, err := v.Open(t.Context(), "router")
+	require.NoError(t, err)
+	assert.Equal(t, "sign-in", p.Payload[vault.KeyValue])
+}
+
 // Scenario: the owner replaces the root key. Rewrap moves every version,
 // earlier ones included, under the new key without changing a ciphertext,
 // after which the old key can be dropped.

@@ -120,6 +120,8 @@ func gatewayWorld(t *testing.T, withBrowser bool, runtimes map[string]string) (*
 		api.WithBrowser(w.browser)
 	}
 
+	w.api = api
+
 	mux := http.NewServeMux()
 	api.Register(mux)
 

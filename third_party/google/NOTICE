@@ -1,0 +1,28 @@
+Google's API Discovery documents and the Google Workspace CLI (gws)
+
+Discovery documents, https://developers.google.com/discovery
+The machine-readable descriptions Google serves of its APIs, read on
+2026-11-18 where gws reads them (www.googleapis.com/discovery/v1/apis/...,
+or <api>.googleapis.com/$discovery/rest): Gmail, Calendar, Drive, Docs,
+Sheets, Slides, Tasks, People, Chat, Classroom, Forms, Keep, Meet, Admin
+reports, Workspace events, Model Armor, Apps Script and Search Console, each
+at the revision and SHA-256 internal/controlplane/serviceproxy/
+catalog_sources.json pins. The documents state no license of their own; they
+are Google's, published for clients of its APIs.
+
+What is taken from them here: of each method, its id, HTTP method, the host
+and path a request to it has (the base URL and flatPath) and the paths its
+media is uploaded to (internal/controlplane/serviceproxy/google_methods.json,
+written by internal/controlplane/serviceproxy/catalogsgen). Nothing else of the
+documents is kept. The catalog of actions made from that list is Hypomnema's
+own (internal/controlplane/serviceproxy/google.go).
+
+gws, https://github.com/googleworkspace/cli
+Copyright 2026 Google LLC
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Its release files are fetched by the machines that run agents at the version
+and SHA-256 internal/shared/agenttool/catalog.go pins, never redistributed. Of
+its source, read at v0.22.5 (705fb0ecac6f4249679958f6325b809b63fdde17), only
+the list of APIs it names (crates/google-workspace/src/services.rs) is read,
+by catalogsgen; nothing of it is kept.

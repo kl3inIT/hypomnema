@@ -37,6 +37,8 @@ type world struct {
 	whatsapp *ownWhatsApp
 	// judge stands for the service proxy's decision on what the owner approves.
 	judge *ownerJudge
+	// api is the server, for a test to give it more.
+	api *agentapi.Server
 }
 
 // newWorld is a control plane with two accounts of a service that does not go through the service proxy of the owner's: work,

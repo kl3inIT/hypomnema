@@ -116,6 +116,11 @@ const FORMATTERS: Record<string, ArgFormatter> = {
     if (url !== null) return { verb: "Web fetch:", body: url }
     return null
   },
+  // The Muse tools (issue #782).
+  muse_ask: (args) => {
+    const prompt = asString(args.prompt)
+    return prompt === null ? verbOnly("Ask Muse") : { verb: "Ask Muse:", body: firstLine(prompt) }
+  },
   web_read: (args) => {
     const url = asString(args.url)
     return url === null ? null : { verb: "Web read:", body: url }
