@@ -272,6 +272,53 @@ func TestNodeDoesNotLookAtAHelloThatIsNotNewer(t *testing.T) {
 	assert.Equal(t, "the running node", contentOf(t, exe))
 }
 
+// Scenario: the control plane says a newer release whose manifest is not
+// published yet, and the node's link keeps failing, so it says hello again
+// every few seconds, each naming the same release. The node reads its
+// release once per retry wait, not at each hello; a hello naming a newer
+// release still makes it look at once (review of #788).
+func TestHellosNamingTheSameReleaseKeepTheRetryWait(t *testing.T) {
+	t.Parallel()
+
+	var reads atomic.Int32
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, _ *http.Request) {
+		reads.Add(1)
+		http.NotFound(w, nil)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u, exe := installed(t, "v0.4.0", "v0.4.1")
+	cp := newControlPlane(srv.URL, "v0.4.0")
+	done := make(chan error, 1)
+
+	go func() {
+		done <- u.updateLoop(t.Context(), cp, func() bool { return false }, waits(time.Hour), slog.New(slog.DiscardHandler))
+	}()
+
+	for range 5 {
+		cp.hello("v0.4.1")
+		require.Eventually(t, func() bool { return len(cp.hellos) == 0 }, 10*time.Second, time.Millisecond)
+	}
+
+	require.Eventually(t, func() bool { return reads.Load() >= 1 }, 10*time.Second, time.Millisecond)
+
+	select {
+	case err := <-done:
+		t.Fatalf("the loop ended: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	assert.Equal(t, int32(1), reads.Load(), "hellos naming the same release read it again within the retry wait")
+
+	cp.hello("v0.4.2")
+	require.Eventually(t, func() bool { return reads.Load() == 2 }, 10*time.Second, time.Millisecond)
+	assert.Equal(t, "the running node", contentOf(t, exe))
+}
+
 // Scenario: the control plane says a newer release, but the release the node
 // reads is not there yet, or a terminal is open. The node looks again soon,
 // not in a day, and takes the release once it is there and the node is free.

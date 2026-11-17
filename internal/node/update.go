@@ -145,6 +145,12 @@ func (u Updater) behind(cp ControlPlane) bool {
 	return releases.Newer(cp.ControlPlaneVersion(), u.Version)
 }
 
+// newerThanLookedFor says whether the release said is newer than the one the last check was made under; any is
+// newer before the first check.
+func newerThanLookedFor(said, lookedFor string) bool {
+	return lookedFor == "" || releases.Newer(said, lookedFor)
+}
+
 // nextUpdateCheck is the wait to the next check: every, or a random one to two days when it is zero.
 func nextUpdateCheck(every time.Duration) time.Duration {
 	if every > 0 {
@@ -160,20 +166,30 @@ func (u Updater) updateLoop(
 	timer := time.NewTimer(w.first)
 	defer timer.Stop()
 
+	// lookedFor is the control plane's release the last check was made under, "" before one. A node reconnects
+	// within 30 s while its link fails, and each reconnect is a hello: a hello naming the same release leaves the
+	// wait to the timer, so the release is read at most once per wait however often the node reconnects.
+	lookedFor := ""
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timer.C:
 		case <-cp.Hellos():
-			// A hello whose control plane is not newer leaves the timer as it was.
-			if !u.behind(cp) {
+			// A hello whose control plane is not newer than the node, or not newer than the release the node last
+			// looked for, leaves the timer as it was.
+			if !u.behind(cp) || !newerThanLookedFor(cp.ControlPlaneVersion(), lookedFor) {
 				continue
 			}
 
 			logger.InfoContext(ctx, "the control plane runs a newer release; the node looks for it",
 				slog.String("event", "node.update_told"), slog.String("version", u.Version),
 				slog.String("control_plane_version", cp.ControlPlaneVersion()))
+		}
+
+		if said := cp.ControlPlaneVersion(); releases.IsRelease(said) {
+			lookedFor = said
 		}
 
 		version, err := u.check(ctx, cp, busy, logger)

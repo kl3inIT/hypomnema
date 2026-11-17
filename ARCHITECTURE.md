@@ -375,7 +375,9 @@ sequenceDiagram
   after it starts, then at a random interval of one to two days (`update_every_minutes` in its configuration sets
   another), and at once after a hello whose control plane runs a newer release than the node: the control plane
   restarts when it updates itself, so its nodes say hello again and take the release within minutes. While the
-  control plane stays newer, the node looks again every 10 minutes. When the release is newer it
+  control plane stays newer, the node looks again every 10 minutes; a hello naming the release it already looked
+  for, as at each reconnect of a failing link, waits for that, and only a newer one looks at once. When the
+  release is newer it
   downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
   script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
   It does not end while a terminal is open, nor while a start of its phone is asked or under way, which it looks at
