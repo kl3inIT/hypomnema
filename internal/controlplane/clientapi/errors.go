@@ -54,6 +54,10 @@ func codeOf(err error) openapi.ErrorCode {
 		return code
 	}
 
+	if code, ok := audioCode(err); ok {
+		return code
+	}
+
 	switch {
 	case errors.As(err, &locked):
 		return openapi.RateLimited
@@ -109,6 +113,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 
 	if wait, ok := imageWait(err); ok {
+		w.Header().Set("Retry-After", wait)
+	}
+
+	if wait, ok := s.audioWait(err); ok {
 		w.Header().Set("Retry-After", wait)
 	}
 

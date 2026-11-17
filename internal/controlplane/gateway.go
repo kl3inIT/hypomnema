@@ -26,7 +26,7 @@ import (
 // or a login.
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
-	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images|none] | gateway keys list | gateway keys revoke <key id> | " +
+	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none] | gateway keys list | gateway keys revoke <key id> | " +
 	"gateway antigravity-rewrites list | gateway antigravity-rewrites set FILE | " +
 	"gateway usage [--limit N]"
 
@@ -331,7 +331,8 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 
 	models := fs.String("models", "", "the models the key may use, separated by commas (default: every model)")
 	endpoints := fs.String("endpoints", "*",
-		"what the key may use besides chat: search, fetch, images, separated by commas, or none (default: every kind)")
+		"what the key may use besides chat: search, fetch, images, audio, separated by commas, or none (default: "+
+			"every kind)")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)

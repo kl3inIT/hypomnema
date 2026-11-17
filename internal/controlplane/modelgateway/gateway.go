@@ -124,16 +124,18 @@ func (k Key) Allows(model string) bool {
 // endpoint categories (src/shared/constants/endpointCategories.ts) group its routes.
 type Endpoint string
 
-// The kinds: a web search (/v1/search and Codex's /v1/alpha/search), a page read (/v1/web/fetch) and an image made
-// or edited (/v1/images/*).
+// The kinds: a web search (/v1/search and Codex's /v1/alpha/search), a page read (/v1/web/fetch), an image made
+// or edited (/v1/images/*), and speech heard or made with the voices listed (/v1/audio/*, issue #694, as OmniRoute's
+// audio category is /v1/audio: src/shared/constants/endpointCategories.ts:52).
 const (
 	EndpointSearch Endpoint = "search"
 	EndpointFetch  Endpoint = "fetch"
 	EndpointImages Endpoint = "images"
+	EndpointAudio  Endpoint = "audio"
 )
 
 // Endpoints are every kind, in the order shown.
-var Endpoints = []Endpoint{EndpointSearch, EndpointFetch, EndpointImages}
+var Endpoints = []Endpoint{EndpointSearch, EndpointFetch, EndpointImages, EndpointAudio}
 
 // Reaches reports whether the key may make a request of a kind: every key may when it lists none, as OmniRoute's
 // empty allowed_endpoints allows all (src/shared/utils/apiKeyPolicy.ts validateEndpointAccess).
@@ -505,7 +507,7 @@ func (s *Service) AddKey(ctx context.Context, name string, models []string, endp
 
 	for _, e := range endpoints {
 		if !slices.Contains(Endpoints, e) {
-			return Key{}, "", fmt.Errorf("%w: %q is not search, fetch or images", ErrInvalid, e)
+			return Key{}, "", fmt.Errorf("%w: %q is not search, fetch, images or audio", ErrInvalid, e)
 		}
 	}
 

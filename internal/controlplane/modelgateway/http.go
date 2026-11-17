@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/cloudcode"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
@@ -39,6 +40,9 @@ type Config struct {
 	// Web searches the web and reads pages for /v1/search and /v1/web/fetch
 	// (issue #354); nil: those routes answer that there is none.
 	Web *websearch.Service
+	// Speech hears and makes speech for /v1/audio/* (issue #694); nil: those
+	// routes answer that there is none.
+	Speech *speech.Service
 }
 
 // Server serves the gateway's HTTP API.
@@ -63,6 +67,8 @@ type Server struct {
 	// of accounts that rest.
 	imageClient *http.Client
 	imageRests  *imageRests
+	// speech serves /v1/audio/*; nil when the control plane gave none.
+	speech *speech.Service
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
@@ -102,6 +108,7 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		web:            cfg.Web,
 		imageClient:    &http.Client{Transport: imageTransport},
 		imageRests:     newImageRests(),
+		speech:         cfg.Speech,
 	}
 }
 
@@ -121,6 +128,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	// Images (issue #431): one is made in a minute or more, longer than the write timeout.
 	mux.HandleFunc("POST /v1/images/generations", longAnswer(s.imageGenerations))
 	mux.HandleFunc("POST /v1/images/edits", longAnswer(s.imageEdits))
+	// Audio (issue #694): a Soniox transcription is one request that polls its job up to 30 minutes.
+	mux.HandleFunc("POST /v1/audio/transcriptions", longAnswer(s.audioTranscriptions))
+	mux.HandleFunc("POST /v1/audio/speech", longAnswer(s.audioSpeech))
+	mux.HandleFunc("GET /v1/audio/voices", s.audioVoices)
 }
 
 // longAnswer lifts the server's write timeout for a model's answer, which streams for as long as the model works:

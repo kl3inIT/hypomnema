@@ -10,6 +10,57 @@ import (
 	"database/sql"
 )
 
+const countGatewayAudioCalls = `-- name: CountGatewayAudioCalls :many
+SELECT provider, model,
+       CAST(SUM(outcome = 'ok') AS INTEGER) AS answered,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(COALESCE(SUM(audio_ms), 0) AS INTEGER) AS audio_ms,
+       CAST(COALESCE(SUM(characters), 0) AS INTEGER) AS characters
+FROM gateway_usage WHERE model LIKE 'audio/%' AND created_at >= ?1
+GROUP BY provider, model ORDER BY provider, model
+`
+
+type CountGatewayAudioCallsRow struct {
+	Provider   string
+	Model      string
+	Answered   int64
+	Failed     int64
+	AudioMs    int64
+	Characters int64
+}
+
+// Each audio provider's requests since a moment, by the model it was asked with (one model a provider and kind):
+// what answered, what failed, the milliseconds transcribed and the characters spoken, for the Audio page.
+func (q *Queries) CountGatewayAudioCalls(ctx context.Context, since int64) ([]CountGatewayAudioCallsRow, error) {
+	rows, err := q.db.QueryContext(ctx, countGatewayAudioCalls, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountGatewayAudioCallsRow{}
+	for rows.Next() {
+		var i CountGatewayAudioCallsRow
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Model,
+			&i.Answered,
+			&i.Failed,
+			&i.AudioMs,
+			&i.Characters,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countGatewayImageCalls = `-- name: CountGatewayImageCalls :many
 SELECT provider,
        CAST(SUM(outcome = 'ok') AS INTEGER) AS answered,
@@ -336,10 +387,11 @@ const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           created_at)
+                           audio_ms, characters, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
         ?10, ?11, ?12, ?13, ?14, ?15,
-        ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+        ?16, ?17, ?18, ?19, ?20, ?21,
+        ?22, ?23, ?24)
 `
 
 type InsertGatewayUsageParams struct {
@@ -364,6 +416,8 @@ type InsertGatewayUsageParams struct {
 	CacheWrite1hTokens int64
 	CostMicros         sql.NullInt64
 	PricedModel        string
+	AudioMs            int64
+	Characters         int64
 	Now                int64
 }
 
@@ -390,6 +444,8 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.CacheWrite1hTokens,
 		arg.CostMicros,
 		arg.PricedModel,
+		arg.AudioMs,
+		arg.Characters,
 		arg.Now,
 	)
 	return err
@@ -445,6 +501,40 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 			return nil, err
 		}
 		items = append(items, dispatch_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGatewayAudioProviders = `-- name: ListGatewayAudioProviders :many
+SELECT provider, off, stt_position, tts_position, updated_at FROM gateway_audio_providers ORDER BY provider
+`
+
+// What the owner set on Settings, Gateway, Audio (issue #694).
+func (q *Queries) ListGatewayAudioProviders(ctx context.Context) ([]GatewayAudioProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayAudioProviders)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GatewayAudioProvider{}
+	for rows.Next() {
+		var i GatewayAudioProvider
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Off,
+			&i.SttPosition,
+			&i.TtsPosition,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -692,7 +782,7 @@ func (q *Queries) ListGatewaySearchUsage(ctx context.Context, since string) ([]G
 }
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?1
 `
 
@@ -719,6 +809,8 @@ type ListGatewayUsageRow struct {
 	CostMicros         sql.NullInt64
 	PricedModel        string
 	CacheWrite1hTokens int64
+	AudioMs            int64
+	Characters         int64
 	KeyName            string
 }
 
@@ -754,6 +846,8 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 			&i.CostMicros,
 			&i.PricedModel,
 			&i.CacheWrite1hTokens,
+			&i.AudioMs,
+			&i.Characters,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -770,7 +864,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 }
 
 const listUsageRequests = `-- name: ListUsageRequests :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= ?1
   AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?4 OFFSET ?3
@@ -806,6 +900,8 @@ type ListUsageRequestsRow struct {
 	CostMicros         sql.NullInt64
 	PricedModel        string
 	CacheWrite1hTokens int64
+	AudioMs            int64
+	Characters         int64
 	KeyName            string
 }
 
@@ -846,6 +942,8 @@ func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsPa
 			&i.CostMicros,
 			&i.PricedModel,
 			&i.CacheWrite1hTokens,
+			&i.AudioMs,
+			&i.Characters,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -948,6 +1046,54 @@ func (q *Queries) RevokeGatewayKeysOfDispatch(ctx context.Context, arg RevokeGat
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setGatewayAudioOff = `-- name: SetGatewayAudioOff :exec
+INSERT INTO gateway_audio_providers (provider, off, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioOffParams struct {
+	Provider string
+	Off      int64
+	Now      int64
+}
+
+func (q *Queries) SetGatewayAudioOff(ctx context.Context, arg SetGatewayAudioOffParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioOff, arg.Provider, arg.Off, arg.Now)
+	return err
+}
+
+const setGatewayAudioSTTPosition = `-- name: SetGatewayAudioSTTPosition :exec
+INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioSTTPositionParams struct {
+	Provider string
+	Position sql.NullInt64
+	Now      int64
+}
+
+func (q *Queries) SetGatewayAudioSTTPosition(ctx context.Context, arg SetGatewayAudioSTTPositionParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioSTTPosition, arg.Provider, arg.Position, arg.Now)
+	return err
+}
+
+const setGatewayAudioTTSPosition = `-- name: SetGatewayAudioTTSPosition :exec
+INSERT INTO gateway_audio_providers (provider, tts_position, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET tts_position = excluded.tts_position, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioTTSPositionParams struct {
+	Provider string
+	Position sql.NullInt64
+	Now      int64
+}
+
+func (q *Queries) SetGatewayAudioTTSPosition(ctx context.Context, arg SetGatewayAudioTTSPositionParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioTTSPosition, arg.Provider, arg.Position, arg.Now)
+	return err
 }
 
 const setGatewayImageOff = `-- name: SetGatewayImageOff :exec

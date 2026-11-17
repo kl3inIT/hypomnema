@@ -259,6 +259,15 @@ var policies = map[string]policy{
 	"GetImages":        {},
 	"SetImageProvider": {scope: scopeOwner},
 	"SetImageOrder":    {scope: scopeOwner},
+	// Audio (issue #694): any token hears or makes speech, a Bot's above all; a Soniox transcription waits for its
+	// job. Every token reads the providers, as it reads the image providers; only the owner changes them.
+	"TranscribeAudio":  {long: true},
+	"SpeakAudio":       {long: true},
+	"GetAudio":         {},
+	"SetAudioProvider": {scope: scopeOwner},
+	"SetAudioOrder":    {scope: scopeOwner},
+	"AddAudioKey":      {scope: scopeOwner},
+	"RemoveAudioKey":   {scope: scopeOwner},
 }
 
 var (
