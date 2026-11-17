@@ -515,9 +515,12 @@ sequenceDiagram
     card under its work (`browser-tab-card.tsx`): the icon, title and address of the chat's Bot's tab as it is now,
     and "Open the tab", which opens it there too; once the tab is closed the card names the address it opened. A
     browser tab in front has a strip of the browser's tabs over it (`browser-strip.tsx`, as OpenClaw's
-    `PanelTabStrip`): the owner's tab, then the tabs of the pane's chats and of the chats whose tab is open in the
-    pane, each with its page's icon, title and whose it is; a click brings a tab open in the pane in front, or
-    shows another in the place of the one shown. The tab is shown as `BrowserView`, one piece that holds the address
+    `PanelTabStrip`, `workbench/strip.ts`): the owner's tab, then the tabs of the pane's chats and of the chats
+    whose tab is open in the pane, each with its page's icon, title and whose it is; a click brings a tab open in
+    the pane in front, or shows another in the place of the one shown. A pane's browser tab keeps the chat whose
+    tabs its strip lists (`chat`), so that the owner's tab shown in place of a Bot's still lists the chat's. Panes
+    of the grid that open a tab beside them in one update each build on the grid as kept now (`latestBench`), so
+    that one does not undo the other's. The tab is shown as `BrowserView`, one piece that holds the address
     row, the control button and the picture. While the owner holds the browser the sidebar says so on every
     page, since every agent's browser tools wait meanwhile. It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;

@@ -15,7 +15,15 @@ import { gridAreas, gridPanes } from "./grid-layout"
 import { alone, dropTab, openBeside, withoutPane, type Bench } from "./moves"
 import { frontOf, hasTab, tabKey, type Pane } from "./pane"
 import { PaneView, type Beside } from "./pane-view"
-import { newPaneId, setBench, setPane, soloId, useBench, useGridOffered } from "./use-grid"
+import {
+  latestBench,
+  newPaneId,
+  setBench,
+  setPane,
+  soloId,
+  useBench,
+  useGridOffered,
+} from "./use-grid"
 
 // GridScreen is several panes on one screen (issue #235), as Omnigent's grid of sessions (web/src/grid, Apache
 // License 2.0): up to four, two rows by two columns. A pane is a group of tabs, as in Orca: a tab dropped on a
@@ -81,7 +89,8 @@ export function GridScreen() {
       onRemove={() => commit(withoutPane(bench, node))}
       beside={{
         open: (tab) => {
-          const next = openBeside(bench, node, tab, newPaneId())
+          // From the grid as kept now: another pane may have opened a tab beside it in this same update.
+          const next = openBeside(latestBench() ?? bench, node, tab, newPaneId())
           // A pane filling the screen gives way to the pane the tab opened in, so that it is seen.
           const at = gridPanes(next.layout).find((id) => next.panes[id]?.active === tabKey(tab))
           if (full !== null && at !== full) setFull(null)

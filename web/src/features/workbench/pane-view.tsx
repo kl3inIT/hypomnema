@@ -38,14 +38,7 @@ import {
 import { AgentAvatar } from "@/components/agent-avatar"
 import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBotName, useBots } from "@/features/bots/use-bots"
-import {
-  chatTabs,
-  ownerTab,
-  stripTabs,
-  tabName,
-  useBrowser,
-  whose,
-} from "@/features/browser/browser-state"
+import { chatTabs, ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserStrip } from "@/features/browser/browser-strip"
 import { BrowserView } from "@/features/browser/browser-view"
 import { TabIcon } from "@/features/browser/tab-icon"
@@ -61,6 +54,7 @@ import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
 import { useFollowTabs } from "./follow-tabs"
+import { browserTab, paneStrip, pickFromStrip } from "./strip"
 import {
   closeTab,
   frontOf,
@@ -129,24 +123,16 @@ export function PaneView({
   const frontKey = front === undefined ? "" : tabKey(front)
   const open = (tab: PaneTab) => onChange(openTab(pane, tab))
   // A browser tab of a chat opens beside it, or in the pane on a phone (issue #703).
-  const showTab = (tab: string) =>
-    beside ? beside.open({ kind: "browser", tab }) : open({ kind: "browser", tab })
-  useFollowTabs(browser.data?.tabs, paneChats(pane), showTab)
-  // The strip over a browser tab, and a click on it: a tab open in the pane comes in front, another takes the place
-  // of the one shown, as OpenClaw's panel shows one tab at a time.
-  const strip = stripTabs(
-    browser.data?.tabs,
-    paneChats(pane),
-    pane.tabs.flatMap((tab) => (tab.kind === "browser" ? [tab.tab] : [])),
-  )
-  const pickBrowser = (from: string, tab: string) => {
-    const key = `browser:${tab}`
-    onChange(
-      hasTab(pane, key)
-        ? { ...pane, active: key }
-        : replaceTab(pane, from, { kind: "browser", tab }),
-    )
+  const showTab = (tab: string) => {
+    const shown = browserTab(tab, browser.data?.tabs)
+    if (beside) beside.open(shown)
+    else open(shown)
   }
+  useFollowTabs(browser.data?.tabs, paneChats(pane), showTab)
+  // The strip over a browser tab, and a click on it (./strip.ts).
+  const strip = paneStrip(pane, browser.data?.tabs)
+  const pickBrowser = (from: string, tab: string) =>
+    onChange(pickFromStrip(pane, from, tab, browser.data?.tabs))
   const newChat = (bot: string) => open({ kind: "draft", id: crypto.randomUUID().slice(0, 8), bot })
   // The Files panel shows the folders of the chat in front, or of the pane's first chat (issue #255).
   const filesOf =

@@ -14,6 +14,9 @@ const chat = {
   updated_at: "2026-11-09T10:00:00Z",
 }
 
+// Another chat, whose Bot's tab is b-cht_9.
+const other = { ...chat, id: "cht_9", title: "slow setup" }
+
 const tabs = [
   {
     id: "owner",
@@ -133,6 +136,14 @@ async function fakeServer(
         return json({ data: [chat] })
       case "GET /chats/cht_1":
         return json(chat)
+      case "GET /chats/cht_9":
+        return json(other)
+      case "GET /chats/cht_9/stream":
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: `id: 1\nevent: message\ndata: ${JSON.stringify({ seq: 1, chat_id: other.id, role: "owner", text: "speed up the setup", created_at: other.created_at })}\n\n`,
+        })
       case "GET /chats/cht_1/stream": {
         const said = {
           seq: 1,
@@ -484,10 +495,63 @@ test("a tab the chat's Bot opens shows beside the chat once, with the browser's 
   await expect(paneTab(page, /Maps search/)).toHaveCount(0)
   await shots(page, "browser-strip-switched")
 
+  // The owner's own tab, picked on the strip, takes the place too; the strip still lists the chat's tabs, and
+  // the Bot's is picked again from it.
+  await strip(page)
+    .getByRole("tab", { name: /My browser/ })
+    .click()
+  await expect(paneTab(page, "My browser")).toHaveAttribute("aria-selected", "true")
+  await expect(strip(page).getByRole("tab")).toHaveText([
+    /^My browser\s*you$/,
+    /^Example Domain\s*worker$/,
+    /^Maps search\s*Atlas$/,
+  ])
+  await strip(page)
+    .getByRole("tab", { name: /Example Domain/ })
+    .click()
+  await expect(paneTab(page, /Example Domain/)).toHaveAttribute("aria-selected", "true")
+
   // Closed, it is not opened again while the browser keeps the tab.
   await page.getByRole("button", { name: "Close Example Domain" }).click()
   await page.waitForTimeout(6_000)
   await expect(paneTab(page, /Example Domain|Maps search/)).toHaveCount(0)
+})
+
+// Scenario: two chats are on the grid, one above the other, and both their Bots open a tab at once (issue #703).
+// Each tab shows beside its own chat: the one opened first is not lost to the second.
+test("the tabs two chats of the grid open at once both show beside their chats", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "phone", "a phone shows one chat: there is no grid")
+  const server = await fakeServer(page, {
+    tabs: tabs.filter((t) => t.id !== "b-cht_1" && t.id !== "b-cht_9"),
+  })
+  await page.addInitScript({
+    content: `localStorage.setItem("hypomnema.grid", ${JSON.stringify(
+      JSON.stringify({ axis: "rows", children: ["p1", "p2"] }),
+    )})
+    localStorage.setItem("hypomnema.panes", ${JSON.stringify(
+      JSON.stringify({
+        p1: { tabs: [{ kind: "chat", chat: "cht_1" }], active: "chat:cht_1" },
+        p2: { tabs: [{ kind: "chat", chat: "cht_9" }], active: "chat:cht_9" },
+      }),
+    )})`,
+  })
+  await page.goto("/grid")
+  await expect(page.getByText("add a health page")).toBeVisible()
+  await expect(page.getByText("speed up the setup")).toBeVisible()
+  await page.waitForTimeout(500)
+
+  server.setTabs(tabs)
+  await expect(paneTab(page, /Maps search/)).toHaveAttribute("aria-selected", "true", {
+    timeout: 10_000,
+  })
+  await expect(paneTab(page, /Another chat's Bot's page/)).toHaveAttribute("aria-selected", "true")
+  // A later read of the tabs keeps them both.
+  await page.waitForTimeout(6_000)
+  await expect(paneTab(page, /Maps search/)).toHaveCount(1)
+  await expect(paneTab(page, /Another chat's Bot's page/)).toHaveCount(1)
+  await expect(page.getByRole("main", { name: "Grid of chats" }).getByRole("region")).toHaveCount(4)
 })
 
 // Scenario: the Bot opened a page with agent_browser_open (issue #703). The call shows in the chat as a card with
