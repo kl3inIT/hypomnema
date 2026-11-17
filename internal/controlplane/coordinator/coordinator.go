@@ -118,6 +118,16 @@ func New(svc *orchestration.Service, cfg Config) *Supervisor {
 // updating says an update runs, during which no pi starts and no new turn begins.
 func (s *Supervisor) updating() bool { return s.cfg.Updating != nil && s.cfg.Updating() }
 
+// BeginUpdate runs mark, which names the update in its marker (selfupdate), under the lock every pi start holds from
+// its last look for an update until pi has its token (issue #716): a start that looked before the update began
+// finishes first, and every start after it sees the marker. So no pi starts once the update has begun.
+func (s *Supervisor) BeginUpdate(mark func() error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return mark()
+}
+
 // errUpdating refuses to start pi while the control plane is updated.
 var errUpdating = fmt.Errorf("%w: the control plane is being updated; pi starts again after it",
 	orchestration.ErrConflict)
@@ -451,8 +461,9 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		}
 	}
 
-	// An update that began while the key and the token were made is seen here, before pi starts (issue #716). The
-	// update asks WorkingChats, under s.mu, right after it named itself, so once it is answered every procFor sees it.
+	// An update that began while the key and the token were made is seen here, before pi starts (issue #716). From
+	// this look until pi has its token s.mu is held, which BeginUpdate takes to name the update: it cannot begin in
+	// between.
 	if s.updating() {
 		s.revoke(ctx, chatID, key)
 
@@ -466,7 +477,8 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		return nil, fmt.Errorf("starting pi for chat %s: %w", chatID, err)
 	}
 
-	// One that began while pi started: the pi is stopped before it is given anything.
+	// One that did not begin through BeginUpdate (a control plane whose control socket did not answer the update,
+	// which then names itself) and began while pi started: the pi is stopped before it is given anything.
 	if s.updating() {
 		p.stop()
 

@@ -17,3 +17,6 @@ func Install(context.Context, Options, string) error { return errUnix }
 
 // Updating is false: no update runs here.
 func Updating(string) bool { return false }
+
+// WriteMarker is not built for this platform.
+func WriteMarker(string, Begin) error { return errUnix }

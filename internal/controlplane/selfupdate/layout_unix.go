@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -118,16 +119,49 @@ func (o Options) waitTurns(ctx context.Context) {
 
 // turns asks the control socket which chats' turns run.
 func (o Options) turns(ctx context.Context) ([]string, error) {
-	path := o.control()
+	resp, err := o.ask(ctx, http.MethodGet, PathTurns, nil, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck // read only
+
+	var t Turns
+	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+		return nil, fmt.Errorf("reading the answer of %s: %w", o.control(), err)
+	}
+
+	return t.Chats, nil
+}
+
+// begin has the control plane mark the update (PathUpdate). It answers once no pi start is under way, which takes
+// at most as long as pi takes to start.
+func (o Options) begin(ctx context.Context, b Begin) error {
+	body, err := json.Marshal(b)
+	if err != nil {
+		return err
+	}
+
+	resp, err := o.ask(ctx, http.MethodPost, PathUpdate, body, 2*time.Minute)
+	if err != nil {
+		return err
+	}
+
+	return resp.Body.Close()
+}
+
+// ask sends one request to the control socket and returns a 2xx answer.
+func (o Options) ask(ctx context.Context, method, path string, body []byte, within time.Duration,
+) (*http.Response, error) {
+	socket := o.control()
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: within,
 		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", path)
+			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		}},
 	}
 	defer client.CloseIdleConnections()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://control"+PathTurns, nil)
+	req, err := http.NewRequestWithContext(ctx, method, "http://control"+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -136,16 +170,12 @@ func (o Options) turns(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close() //nolint:errcheck // read only
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s answered %s", path, resp.Status)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		_ = resp.Body.Close()
+
+		return nil, fmt.Errorf("%s answered %s", socket, resp.Status)
 	}
 
-	var t Turns
-	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
-		return nil, fmt.Errorf("reading the answer of %s: %w", path, err)
-	}
-
-	return t.Chats, nil
+	return resp, nil
 }

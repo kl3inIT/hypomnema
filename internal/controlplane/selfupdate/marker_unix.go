@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -19,16 +20,25 @@ import (
 // pi in place. It is Hermes's live update marker (hermes_cli/update_lock.py read_live_update): the owner's process
 // is named, and a marker whose process is gone, an update killed before it removed it, is no update.
 
-// writeMarker names this process in the marker; the returned func removes it.
-func (o Options) writeMarker() (func(), error) {
-	path := filepath.Join(o.Home, "data", UpdatingFile)
+// writeMarker names this process in the marker; the returned func removes it. The control plane writes it, under the
+// lock each pi start holds from its last look for an update until pi has its token, so no pi starts once it is there
+// (coordinator BeginUpdate). When the control plane does not answer (one from before this, or one that is down), the
+// marker is written here, and a pi that started meanwhile is stopped before it is given anything.
+func (o Options) writeMarker(ctx context.Context) (func(), error) {
+	dir := filepath.Join(o.Home, "data")
 	pid := os.Getpid()
 	start, _ := startTime(pid)
+	b := Begin{PID: pid, Start: start}
 
-	//nolint:gosec // read by the control plane's user; it names a process, nothing secret
-	if err := os.WriteFile(path, fmt.Appendf(nil, "%d %s\n", pid, start), 0o644); err != nil {
-		return nil, fmt.Errorf("writing %s: %w", path, err)
+	if err := o.begin(ctx, b); err != nil {
+		o.printf("the control plane did not mark the update (%v); marking it here\n", err)
+
+		if err := WriteMarker(dir, b); err != nil {
+			return nil, err
+		}
 	}
+
+	path := filepath.Join(dir, UpdatingFile)
 
 	return func() {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -36,6 +46,24 @@ func (o Options) writeMarker() (func(), error) {
 		}
 	}, nil
 }
+
+// WriteMarker names the update's process in the marker in dir.
+func WriteMarker(dir string, b Begin) error {
+	if b.PID <= 0 || strings.Trim(b.Start, "0123456789") != "" {
+		return fmt.Errorf("%w: an update is named by its process id and start time", errBadBegin)
+	}
+
+	path := filepath.Join(dir, UpdatingFile)
+
+	//nolint:gosec // read by the control plane's user and root; it names a process, nothing secret
+	if err := os.WriteFile(path, fmt.Appendf(nil, "%d %s\n", b.PID, b.Start), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+
+	return nil
+}
+
+var errBadBegin = errors.New("bad update")
 
 // Updating says whether an update runs on the control plane whose data folder is dir: its marker is there and names
 // a process that runs, the same one (its start time, when the system tells it).

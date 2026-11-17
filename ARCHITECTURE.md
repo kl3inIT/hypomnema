@@ -153,9 +153,9 @@ more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_gu
 marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
 turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
 (`selfupdate.Updating`, below) it starts no pi and gives an idle pi no new turn (compactions included); a running
-turn goes on, and what is written waits for the update to end. A pi start looks for the update before and after it
-makes the pi's key and token and after pi runs, under the lock `WorkingChats` takes, so once the update's first
-`GET /turns` is answered no pi starts. Whether the control plane stops is read from `Run`'s context, not the one pi
+turn goes on, and what is written waits for the update to end. A pi start holds the supervisor's lock from its last look for
+the update until pi has its token, and the update is marked under that same lock (`BeginUpdate`, below): a start
+that looked before the update began finishes first, and none starts after. Whether the control plane stops is read from `Run`'s context, not the one pi
 reads with (a pi a compaction started reads with its own). An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
@@ -3413,7 +3413,11 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
     still running at the bound is cut, and continues when the control plane starts again (above). From before
     that wait until the release's coordinator is set up, `update install` names its process (pid and start time
-    from `/proc`) in `data/updating`, which it removes when it returns, as Hermes's updater holds a live update
+    from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
+    (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for
+    an update until pi has its token; when the control plane does not answer (one from before this, or one that is
+    down) the update writes the marker itself, and a pi that started meanwhile is stopped before it is given
+    anything, as Hermes's updater holds a live update
     marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
     starts no pi, so none starts while the old control plane stops nor in the new one before
     `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.

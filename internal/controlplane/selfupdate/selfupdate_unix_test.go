@@ -370,6 +370,19 @@ func controlPlane(t *testing.T, home string, log *events, busy func(n int) []str
 		log.add(fmt.Sprintf("turns: %v", chats))
 		_ = json.NewEncoder(w).Encode(selfupdate.Turns{Chats: chats})
 	})
+	// The control plane marks the update itself, as the real one does under its coordinator's lock.
+	mux.HandleFunc("POST "+selfupdate.PathUpdate, func(w http.ResponseWriter, r *http.Request) {
+		var b selfupdate.Begin
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil ||
+			selfupdate.WriteMarker(filepath.Join(home, "data"), b) != nil {
+			w.WriteHeader(http.StatusBadRequest)
+
+			return
+		}
+
+		log.add(fmt.Sprintf("update began: %v", b.PID == os.Getpid()))
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}
 
@@ -417,10 +430,11 @@ func TestInstallWaitsForBotsTurnsBeforeItStops(t *testing.T) {
 	require.NoError(t, selfupdate.Install(t.Context(), o, from))
 
 	got := log.all()
-	require.GreaterOrEqual(t, len(got), 5)
+	require.GreaterOrEqual(t, len(got), 6)
 	assert.Equal(t, []string{
+		"update began: true",
 		"turns: [cht_a]", "turns: [cht_a]", "turns: [cht_a]", "turns: []", "systemctl stop hypomnema-cp.service",
-	}, got[:5])
+	}, got[:6])
 	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns to end, in chats cht_a")
 }
 
@@ -452,7 +466,9 @@ func TestInstallStopsWhenTheWaitForTurnsRunsOut(t *testing.T) {
 	stop := slices.Index(got, "systemctl stop hypomnema-cp.service")
 	require.Positive(t, stop)
 
-	for _, e := range got[:stop] {
+	assert.Equal(t, "update began: true", got[0], "the control plane marks the update first")
+
+	for _, e := range got[1:stop] {
 		assert.Equal(t, "turns: [cht_a cht_b]", e)
 	}
 
@@ -475,6 +491,7 @@ func TestInstallDoesNotWaitForAControlPlaneThatDoesNotSay(t *testing.T) {
 
 	assert.Equal(t, "systemctl stop hypomnema-cp.service", log.all()[0])
 	assert.Contains(t, out.String(), "not waiting for Bots' turns")
+	assert.Contains(t, out.String(), "the control plane did not mark the update", "the update marks itself then")
 }
 
 // Scenario (review of #725, finding 4): from before the update waits for Bots' turns until the release's coordinator

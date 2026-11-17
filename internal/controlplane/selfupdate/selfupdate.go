@@ -67,7 +67,16 @@ const (
 	PathTurns     = "/turns"
 	// UpdatingFile, in the same folder, names the process of a running update (marker_unix.go).
 	UpdatingFile = "updating"
+	// PathUpdate, POSTed a Begin, has the control plane write UpdatingFile itself, under the lock its pi starts take,
+	// so that no pi starts once the update has begun.
+	PathUpdate = "/update"
 )
+
+// Begin names the process of an update that begins: its id and its start time (marker_unix.go).
+type Begin struct {
+	PID   int    `json:"pid"`
+	Start string `json:"start"`
+}
 
 // Turns is the control socket's answer to GET PathTurns.
 type Turns struct {

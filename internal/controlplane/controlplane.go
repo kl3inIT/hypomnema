@@ -693,7 +693,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	go func() {
 		defer close(controlDone)
 
-		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, logger)
+		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, sup.BeginUpdate, logger)
 	}()
 
 	serveErr := platform.Serve(ctx, ln, mux, logger)

@@ -3,11 +3,14 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,10 +33,25 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 
+	// The update is marked inside the coordinator's lock: here, the call records that it went through it.
+	var (
+		mu     sync.Mutex
+		locked bool
+	)
+
+	begin := func(mark func() error) error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		locked = true
+
+		return mark()
+	}
+
 	go func() {
 		defer close(done)
 
-		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, slog.New(slog.DiscardHandler))
+		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, begin, slog.New(slog.DiscardHandler))
 	}()
 
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
@@ -61,6 +79,30 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	assert.Equal(t, []string{"cht_a"}, got.Chats)
+
+	// The update names itself: the control plane writes the marker, through the coordinator's lock.
+	body := strings.NewReader(fmt.Sprintf(`{"pid":%d,"start":""}`, os.Getpid()))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://control"+selfupdate.PathUpdate, body)
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	assert.True(t, selfupdate.Updating(dir), "the marker names a process that runs")
+
+	mu.Lock()
+	assert.True(t, locked)
+	mu.Unlock()
+
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodPost, "http://control"+selfupdate.PathUpdate,
+		strings.NewReader(`{"pid":0}`))
+	require.NoError(t, err)
+
+	resp, err = client.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode, "an update with no process is refused")
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
