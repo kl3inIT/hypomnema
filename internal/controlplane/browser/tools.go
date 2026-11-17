@@ -46,9 +46,24 @@ var withheld = []string{
 }
 
 // withheldOf are a tool's own arguments an agent may not set: where a
-// screenshot is written on the engine's machine.
+// screenshot is written on the engine's machine, and whether open shows a
+// window there. Every agent's tab is in the one Chrome the engine launched
+// headless; a window on the control plane's machine is not how the owner sees
+// a tab (issue #704).
 var withheldOf = map[string][]string{
 	"agent_browser_screenshot": {"path", "screenshotDir"},
+	toolOpen:                   {"headed"},
+}
+
+// added is what Hypomnema adds to a tool's own description: where the tab
+// is, how the owner sees it and signs in there (issue #704). agent-browser's
+// own text speaks of a browser it launches, which an agent here never does.
+var added = map[string]string{
+	toolOpen: "In Hypomnema the page opens in your own tab of the browser every agent shares. The owner sees " +
+		"that tab in the web client, beside the chat it belongs to, and can take control of it there; it is not " +
+		"his own tab \"My browser\". When a page needs a sign-in, open it and ask the owner to sign in in your " +
+		"tab, then hand it back: the browser keeps one sign-in for every agent. Never ask for or use a password " +
+		"in the chat. Hypomnema launches the browser itself, so a window is not how the owner sees a page.",
 }
 
 // catalog is the tools offered and the arguments each takes.
@@ -114,6 +129,10 @@ func trim(tool Tool) (Tool, []string, error) {
 
 	if tool.InputSchema, err = json.Marshal(schema); err != nil {
 		return Tool{}, nil, err
+	}
+
+	if text, ok := added[tool.Name]; ok {
+		tool.Description = strings.TrimSpace(tool.Description + "\n\n" + text)
 	}
 
 	return tool, takes, nil

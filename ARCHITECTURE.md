@@ -441,8 +441,11 @@ sequenceDiagram
   - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
     select, scroll, back, forward, reload, the waits, screenshot, get text, URL and title, eval. Tabs, `close`,
     flows and `read` are not offered. A call keeps only the tool's own arguments: the ones agent-browser takes on
-    every tool (`session`, `extraArgs`, `restore` and the like) and a screenshot's path are dropped. `open` takes
-    an http(s) address or `about:blank`; a bare host means https.
+    every tool (`session`, `extraArgs`, `restore` and the like), a screenshot's path and `open`'s `headed` are
+    dropped. `open` takes an http(s) address or `about:blank`; a bare host means https. Its description is
+    agent-browser's with a paragraph of Hypomnema's after it (issue #704): the page is in the agent's own tab,
+    which the owner sees and takes control of in the web client beside its chat, not in his own tab; a sign-in is
+    made by the owner there and shared by every agent; no password is asked for in the chat.
   - Chrome keeps its sandbox. On a machine that blocks it (Ubuntu 23.10 and later) a call fails and says to run
     `deploy/browser/setup-browser.sh` once with sudo (and again when the pinned browser's path changes, as it did
     in issue #540), which writes an AppArmor profile and installs missing
@@ -835,12 +838,15 @@ sequenceDiagram
     (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language, and that what a document, an
     issue or memory says about the code or a server is checked before it is acted on or given to workers (issue
     #513); the coordinator guide's Recipe starts by checking a Run's premise on the base branch. Since issue #672
-    they are under headings (Approvals, Skills and accounts, Routines, Files and artifacts, Wake-ups and the menu,
-    Checking claims, Answering: OpenClaw's workspace template `docs/reference/templates/AGENTS.md`, Hermes's
+    they are under headings (Approvals, Skills and accounts, Routines, Files and artifacts, Browser, Wake-ups and
+    the menu, Checking claims, Answering: OpenClaw's workspace template `docs/reference/templates/AGENTS.md`, Hermes's
     `agent/prompt_builder.py`, pi's `system-prompt.ts`), state the approval rule for Google, Lark and Superset once
     with a "do freely" line before it (OpenClaw's "Do freely / Ask first", GPT-5.6 Sol's "state each rule once"),
     say when something may be sent as the owner rather than "never" (Anthropic's Fable 5.2 page), and give the
-    shape of a report on finished work: the answer first, then what was done, checked and left (Hermes).
+    shape of a report on finished work: the answer first, then what was done, checked and left (Hermes). The
+    Browser part (issue #704) says to read a page in the browser rather than its scripts, that the Bot's page is
+    in its own tab, which the owner sees beside the chat in the web client and not in "My browser", that the owner
+    signs in there, and that no password is asked for or used in the chat.
   - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
     every chat with the Bot, whoever writes in it (one store per agent, as all three references have). The Bot
     changes it through `POST /bots/{bot_id}/memory`: add, replace or remove the one entry that has a text. The change reads
