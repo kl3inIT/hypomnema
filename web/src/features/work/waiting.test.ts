@@ -20,6 +20,9 @@ test("why a queued Task waits is said in one sentence", () => {
     "Waiting: your Runs without a Bot already run as many workers as they may",
   )
   expect(waitingText("nodes_full")).toBe("Waiting: every machine that can run it is busy")
+  expect(waitingText("nodes_low_memory")).toBe(
+    "Waiting: every machine that can run it is low on memory",
+  )
   expect(waitingText("no_node_reaches:git.vmaps.example")).toBe(
     "Waiting: no machine reaches git.vmaps.example",
   )
