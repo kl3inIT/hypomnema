@@ -190,9 +190,9 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	for _, want := range []string{
 		"never merge it directly",
 		"When the task says a review comes first, that the owner merges, or to ask before merging, skip this",
-		"`gh api repos/kl3inIT/second-bite --jq .allow_auto_merge`: prints true",
-		"`gh api repos/kl3inIT/second-bite/rules/branches/main` and " +
-			"`gh api repos/kl3inIT/second-bite/branches/main/protection/required_status_checks`: " +
+		"`gh api --hostname github.com repos/kl3inIT/second-bite --jq .allow_auto_merge`: prints true",
+		"`gh api --hostname github.com repos/kl3inIT/second-bite/rules/branches/main` and " +
+			"`gh api --hostname github.com repos/kl3inIT/second-bite/branches/main/protection/required_status_checks`: " +
 			"the first lists a rule of type required_status_checks",
 		"if one does not hold, do not turn auto-merge on and do not merge: leave the pull request open and say " +
 			"in the summary's first line what the repository lacks (\"auto-merge is off in the repository's " +
@@ -231,6 +231,6 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	assert.NotContains(t, p, "gh pr merge")
 
 	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "kl3inIT/second-bite", "github.example.com", "github"
-	assert.Contains(t, Prompt(d), "`gh api repos/kl3inIT/second-bite --jq .allow_auto_merge`",
+	assert.Contains(t, Prompt(d), "`gh api --hostname github.example.com repos/kl3inIT/second-bite --jq .allow_auto_merge`",
 		"a GitHub Enterprise host is named apart too")
 }

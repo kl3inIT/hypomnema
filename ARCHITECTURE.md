@@ -3717,7 +3717,7 @@ Node (`internal/node`):
       before merging:
       1. read-only checks that the repository waits for its checks, since `gh` and `glab` merge at once otherwise:
          on GitHub `allow_auto_merge` is true and the base branch requires a status check (a
-         `required_status_checks` rule in `gh api repos/<path>/rules/branches/<base>`, or a check listed by
+         `required_status_checks` rule in `gh api --hostname <host> repos/<path>/rules/branches/<base>`, every check naming the host, or a check listed by
          `…/branches/<base>/protection/required_status_checks`); on GitLab the project has
          `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
          line says what the repository lacks, and no Gate is opened only to ask to merge;

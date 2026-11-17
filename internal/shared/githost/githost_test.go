@@ -243,11 +243,11 @@ func TestEachKindOfHostTurnsOnItsOwnAutoMerge(t *testing.T) {
 	m := gh.AutoMerge(Repo{GitHubHost, "kl3inIT/hypomnema"}, "main")
 
 	require.Len(t, m.Ready, 2)
-	assert.Equal(t, []string{"gh api repos/kl3inIT/hypomnema --jq .allow_auto_merge"}, m.Ready[0].Commands)
+	assert.Equal(t, []string{"gh api --hostname github.com repos/kl3inIT/hypomnema --jq .allow_auto_merge"}, m.Ready[0].Commands)
 	assert.Equal(t, "auto-merge is off in the repository's settings", m.Ready[0].Lacks)
 	assert.Equal(t, []string{
-		"gh api repos/kl3inIT/hypomnema/rules/branches/main",
-		"gh api repos/kl3inIT/hypomnema/branches/main/protection/required_status_checks",
+		"gh api --hostname github.com repos/kl3inIT/hypomnema/rules/branches/main",
+		"gh api --hostname github.com repos/kl3inIT/hypomnema/branches/main/protection/required_status_checks",
 	}, m.Ready[1].Commands)
 	assert.Equal(t, "no required check on main", m.Ready[1].Lacks)
 	assert.Equal(t, "gh pr view <url> --json isDraft,mergeStateStatus", m.View)
@@ -262,4 +262,32 @@ func TestEachKindOfHostTurnsOnItsOwnAutoMerge(t *testing.T) {
 	assert.Contains(t, m.Ready[0].Shows, "only_allow_merge_if_pipeline_succeeds: true")
 	assert.Equal(t, "glab mr merge <iid> --auto-merge --yes --sha <sha>", m.Enable)
 	assert.Contains(t, m.Before, "pipeline is not null", "glab merges at once without a pipeline")
+}
+
+// Scenario: a repository on a GitHub Enterprise host, worked on without a
+// token, so gh has no GH_HOST (github.Env gives nothing). Every read-only
+// check names the host, or gh would read github.com's repository of the same
+// path; the pull request's own commands name it by its URL.
+func TestEnterpriseReadinessUsesTheOffersHost(t *testing.T) {
+	t.Parallel()
+
+	gh, _ := For(GitHub)
+	m := gh.AutoMerge(Repo{"github.company.example", "team/api"}, "main")
+
+	assert.Empty(t, gh.Env("github.company.example", ""), "no token: gh is given no host")
+
+	var commands []string
+	for _, c := range m.Ready {
+		commands = append(commands, c.Commands...)
+	}
+
+	assert.Equal(t, []string{
+		"gh api --hostname github.company.example repos/team/api --jq .allow_auto_merge",
+		"gh api --hostname github.company.example repos/team/api/rules/branches/main",
+		"gh api --hostname github.company.example repos/team/api/branches/main/protection/required_status_checks",
+	}, commands)
+
+	for _, cmd := range []string{m.View, m.Enable, m.Watch, m.Merged} {
+		assert.Contains(t, cmd, "<url>", "%s names the pull request by its URL, which holds the host", cmd)
+	}
 }

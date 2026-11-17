@@ -235,8 +235,13 @@ func (github) RequestURL(r Repo, n int) string {
 // commit, as t3code's (GitHubPullRequestApi.ts:2841) and GitHub's Dependabot
 // workflow (fetch-metadata README.md:167-170), pinned to the pushed commit
 // with --match-head-commit (merge.go:184).
+//
+// Every check names the host with --hostname: without a token the worker's
+// gh has no GH_HOST (Env), and `gh api` would read github.com's repository
+// of the same path. The request's own commands take its URL, which holds the
+// host.
 func (github) AutoMerge(r Repo, base string) AutoMerge {
-	api := "gh api repos/" + r.Path
+	api := "gh api --hostname " + r.Host + " repos/" + r.Path
 
 	return AutoMerge{
 		Ready: []ReadyCheck{
