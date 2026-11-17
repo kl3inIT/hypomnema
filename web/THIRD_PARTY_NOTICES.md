@@ -135,9 +135,9 @@ Each adapted file names its source.
   OpenMausBot contributors: the pan, zoom and fit of one CSS transform, the column of Bots joined to the machines by
   polylines, a Bot's status in its order, the list of who hands work to whom and its edges. Each file says what
   was changed.
-- Artifacts (`src/features/artifacts`): the locked frame's policy and document (`frame-document.ts`) are adapted
-  from OpenMausBot's shared/app-frame/csp.ts and document.ts (Apache License 2.0, Copyright 2026 Milind Soni and
-  OpenMausBot contributors); the panel's header (`artifact-panel.tsx`) from AI Elements' packages/elements/src/
+- Artifacts (`src/features/artifacts`): the locked frame's sandbox (`frame.ts`) is OpenMausBot's
+  src/components/app/app-frame-host.ts (Apache License 2.0, Copyright 2026 Milind Soni and OpenMausBot
+  contributors), its policy now the server's (third_party/openmausbot/NOTICE); the panel's header (`artifact-panel.tsx`) from AI Elements' packages/elements/src/
   artifact.tsx (https://github.com/vercel/ai-elements, Apache License 2.0, Copyright 2023 Vercel, Inc.).
 - The file preview of Artifacts and the Files panel (`src/features/preview`) is copied from MemoryOS, the owner's
   own project (web/src/features/preview), itself after Onyx's web/src/sections/modals/PreviewModal and its variants
