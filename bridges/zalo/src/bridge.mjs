@@ -10,6 +10,8 @@
 //   groupHistory {group, lastMsgId, isOld}   one page (50) of a group's past: {messages, lastMsgId, isOld, more}
 //   oldMessages {lastId}  one page of Zalo's queue of every direct chat's past: {messages, next}
 //   users {ids}           people's names: [{id, name}]
+//   send {chat, group, text, path, quote}    a message as the owner, a file at path with text as its caption,
+//                         replying to quote (a kept message): {id}
 //   groups {}             every group the account is in: [{id, name}]
 //   stop {}               ends the listener and the process
 // Events: qr {image, code}, scanned {name}, declined, expired, credentials {imei, cookie, userAgent},
@@ -20,12 +22,13 @@ import { createInterface } from "node:readline";
 
 import { LoginQRCallbackEventType, Zalo } from "zca-js";
 
+import { imageMeta } from "./imagemeta.mjs";
 import { answer, closed, event, failure, message, older, parseRequest, rejected } from "./protocol.mjs";
 import { ThreadType } from "zca-js";
 
 // The listener reconnects a socket Zalo closed (zlog's zalo-client.ts starts it so); a session another Zalo Web took
 // over is told as replaced and not fought for (zca-js README: one web listener an account).
-const zalo = new Zalo({ selfListen: true, checkUpdate: false, logging: false });
+const zalo = new Zalo({ selfListen: true, checkUpdate: false, logging: false, imageMetadataGetter: imageMeta });
 
 // maxQR is how many QR codes are shown before the link gives up, as WhatsApp's linking ends after its codes.
 const maxQR = 5;
@@ -208,9 +211,54 @@ async function users(p) {
   return ids.map((id) => ({ id, name: str(profiles[id]?.displayName) || str(profiles[id]?.zaloName) }));
 }
 
+// send sends as the owner with zca-js's sendMessage (src/apis/sendMessage.ts). zca-js sends a text and a file as
+// two messages, the text first; so the file goes first, alone, by its path as the Hermes Zalo plugin sends one
+// (sidecar/server.js), then the text, and each answers its own id. A text that fails after its file went is said:
+// {fileId, error}, so that the file is not sent again.
+async function send(p) {
+  const thread = String(p.chat);
+  const type = p.group ? ThreadType.Group : ThreadType.User;
+  const out = { fileId: "", textId: "" };
+
+  if (p.path) {
+    const r = await api.sendMessage({ msg: "", attachments: [String(p.path)] }, thread, type);
+    out.fileId = idOf(r?.attachment?.[0]?.msgId ?? r?.message?.msgId);
+  }
+
+  const text = str(p.text);
+  if (text === "") return out;
+
+  const content = { msg: text };
+  const q = p.quote;
+  if (q) {
+    content.quote = {
+      content: str(q.text),
+      msgType: str(q.kind) || "webchat",
+      propertyExt: undefined,
+      uidFrom: String(q.from),
+      msgId: String(q.id),
+      cliMsgId: String(q.cliId),
+      ts: String(q.at),
+      ttl: 0,
+    };
+  }
+
+  try {
+    const r = await api.sendMessage(content, thread, type);
+    out.textId = idOf(r?.message?.msgId);
+  } catch (err) {
+    if (!out.fileId) throw err;
+    out.error = String(err?.message ?? err);
+  }
+
+  return out;
+}
+
+const idOf = (v) => (v == null ? "" : String(v));
+
 const str = (v) => (typeof v === "string" ? v : "");
 
-const methods = { loginQR, login, listen, groups, groupHistory, oldMessages, users, stop };
+const methods = { loginQR, login, listen, groups, groupHistory, oldMessages, users, send, stop };
 
 const lines = createInterface({ input: process.stdin });
 

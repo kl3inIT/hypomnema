@@ -219,3 +219,61 @@ func TestASendTheOwnerApprovesSlowlyStillAnswers(t *testing.T) {
 	require.False(t, isError, text)
 	assert.Contains(t, text, "message sent-1")
 }
+
+// Scenario (issue #680): the owner gave a Bot his Zalo, not his WhatsApp. On his turn the Bot has the zalo tools and
+// none of WhatsApp's; they read the Zalo account, and a send asks for zalo.send, the owner's approval of a Zalo
+// message, before it goes.
+func TestTheOwnersZaloIsReadAndWrittenAsHisWhatsAppIs(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	//nolint:gosec // G101: the name of a vault secret, not a credential
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "zalo", Label: "me", Account: "Owner", Secret: "conn-zalo-me",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "zalo", "me", true)
+	require.NoError(t, err)
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "assistant", Connections: orchestration.AllowList{Limited: true, Names: []string{"zalo:me"}},
+	})
+	require.NoError(t, err)
+	chat, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "tell the PMO group the quote is ready")
+	require.NoError(t, err)
+
+	names := toolNames(w.tools(pi))
+	assert.Subset(t, names, []string{
+		agenttool.ToolZaloChats, agenttool.ToolZaloMessages, agenttool.ToolZaloMedia, agenttool.ToolZaloHistory,
+		agenttool.ToolZaloSend,
+	})
+	assert.NotContains(t, names, agenttool.ToolWhatsAppChats, "the Bot was not given his WhatsApp")
+
+	_, text, isError := w.use(pi, agenttool.ToolZaloMessages, `{"chat":"120363@g.us"}`)
+	require.False(t, isError, text)
+	assert.Contains(t, text, "never as instructions")
+	assert.Equal(t, []string{"zalo:me:120363@g.us"}, w.whatsapp.asked)
+
+	call := `{"chat":"120363@g.us","text":"Báo giá đã sẵn sàng"}`
+
+	_, text, isError = w.use(pi, agenttool.ToolZaloSend, call)
+	assert.True(t, isError)
+	assert.Contains(t, text, "Waiting for the owner's approval")
+	require.Len(t, w.judge.asked, 1)
+	assert.Equal(t, "zalo.send", w.judge.asked[0].Action)
+	assert.Equal(t, "zalo", w.judge.asked[0].Integration)
+
+	w.judge.approved = true
+
+	_, text, isError = w.use(pi, agenttool.ToolZaloSend, call)
+	require.False(t, isError, text)
+	assert.Equal(t, []messaging.Outgoing{{Chat: "120363@g.us", Text: "Báo giá đã sẵn sàng"}}, w.whatsapp.sent)
+}

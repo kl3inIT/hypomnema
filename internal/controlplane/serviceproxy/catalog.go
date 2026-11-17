@@ -251,6 +251,8 @@ func CatalogOf(integration string) (Catalog, bool) {
 		return awsCatalog, true
 	case WhatsAppID:
 		return whatsappCatalog(), true
+	case ZaloID:
+		return zaloCatalog(), true
 	}
 
 	return Catalog{}, false

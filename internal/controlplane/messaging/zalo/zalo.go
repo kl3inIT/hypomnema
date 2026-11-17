@@ -20,7 +20,6 @@ import (
 
 	zalobridge "github.com/kl3inIT/hypomnema/bridges/zalo"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
@@ -493,24 +492,27 @@ func (a *account) nameGroups(ctx context.Context, b *bridge) {
 
 // incoming is a message as the bridge gives it (bridges/zalo/src/protocol.mjs, message).
 type incoming struct {
-	ID       string `json:"id"`
-	CliID    string `json:"cliId"`
-	ActionID string `json:"actionId"`
-	Chat     string `json:"chat"`
-	Group    bool   `json:"group"`
-	From     string `json:"from"`
-	FromName string `json:"fromName"`
-	FromMe   bool   `json:"fromMe"`
-	At       int64  `json:"at"`
-	Kind     string `json:"kind"`
-	Text     string `json:"text"`
-	QuoteID  string `json:"quoteId"`
-	Media    *struct {
-		Type     string `json:"type"`
-		URL      string `json:"url"`
-		FileName string `json:"fileName"`
-		Size     int64  `json:"size"`
-	} `json:"media"`
+	ID       string   `json:"id"`
+	CliID    string   `json:"cliId"`
+	ActionID string   `json:"actionId"`
+	Chat     string   `json:"chat"`
+	Group    bool     `json:"group"`
+	From     string   `json:"from"`
+	FromName string   `json:"fromName"`
+	FromMe   bool     `json:"fromMe"`
+	At       int64    `json:"at"`
+	Kind     string   `json:"kind"`
+	Text     string   `json:"text"`
+	QuoteID  string   `json:"quoteId"`
+	Media    *mediaOf `json:"media"`
+}
+
+// mediaOf is a message's file as the bridge gives it (protocol.mjs, media).
+type mediaOf struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	FileName string `json:"fileName"`
+	Size     int64  `json:"size"`
 }
 
 // keep keeps a live message; a direct chat it opens with no name is named.
@@ -566,7 +568,8 @@ func (a *account) keepMessage(ctx context.Context, m incoming) (bool, error) {
 		return false, err
 	}
 
-	if added && k.mediaURL != "" && k.mediaType != "sticker" {
+	// Queued whenever its link is known, new or filled in later; a file kept already is not downloaded again.
+	if k.mediaURL != "" && k.mediaType != "sticker" {
 		a.queueMedia(mediaJob{account: a.uid, chat: k.chat, id: k.id})
 	}
 
@@ -606,10 +609,4 @@ func (a *account) Chats(ctx context.Context, limit int) ([]messaging.Chat, error
 
 func (a *account) Messages(ctx context.Context, q messaging.Query) ([]messaging.Message, error) {
 	return a.svc.mirror.messages(ctx, a.uid, q)
-}
-
-// Send is step 3 of #613.
-func (a *account) Send(context.Context, messaging.Outgoing) (messaging.Message, error) {
-	return messaging.Message{}, fmt.Errorf("%w: sending in Zalo comes in a later step of issue #613",
-		orchestration.ErrUnavailable)
 }

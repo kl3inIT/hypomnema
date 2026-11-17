@@ -1146,10 +1146,10 @@ function LinkDeviceDialog({
   )
 }
 
-// introHow says what linking gives, for a service whose Bot tools are not there yet: Zalo keeps the chats first and
-// gets the Bot's tools in a later step (issue #613).
+// introHow says what linking gives, for a service whose words differ from WhatsApp's: Zalo keeps only the chats from
+// the link on, as its servers give no past (issues #669, #680).
 const introHow: Record<string, string> = {
-  zalo: "Your phone logs Hypomnema in, as Zalo Web is, and every chat is kept from then on. The main Bot reads and writes in them in a later step. Zalo forbids clients it did not make, so an account can be locked; Hypomnema never sends in bulk.",
+  zalo: "Your phone logs Hypomnema in, as Zalo Web is, and every chat is kept from then on. The main Bot can then read and write in them as you, each message it sends after your approval. Zalo forbids clients it did not make, so an account can be locked; Hypomnema never sends in bulk.",
 }
 
 // forgetHow says what disconnecting does, for a service whose phone cannot be told to drop the login: Zalo has no

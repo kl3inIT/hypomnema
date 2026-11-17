@@ -77,14 +77,14 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 				}
 
 				return agent.ArtifactCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
-			case c.Name == agenttool.ToolWhatsAppSend:
-				// The file it sends is one of the Bot's folder, read here as show_artifact's path is (issue #645).
+			case agenttool.SendsAFile(c.Name):
+				// The file it sends is one of the Bot's folder, read here as show_artifact's path is (#645, #680).
 				dir, err := os.Getwd()
 				if err != nil {
 					return nil, fmt.Errorf("reading the working folder: %w", err)
 				}
 
-				return agent.WhatsAppSendCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
+				return agent.SendCall(ctx, agenttool.PathToolsCall, c.Name, c.Arguments, dir)
 			case c.Name == agenttool.ToolRoutines:
 				// A Routine's script is a file of the Bot's folder, read here as show_artifact's path is.
 				dir, err := os.Getwd()

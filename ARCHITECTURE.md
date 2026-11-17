@@ -92,7 +92,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_* on the owner's turn"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -1928,7 +1928,7 @@ flowchart LR
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
       its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
-      coordinator token and a Routine never. Built as Superset's tools (`agentapi/whatsapp.go`); each read says
+      coordinator token and a Routine never. Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
     - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
@@ -1988,7 +1988,15 @@ flowchart LR
       the past (Zalo's CDN links expire), by four workers, a plain GET of at most 100 MiB that dials only public
       addresses, redirects included (the browser's egress policy, `egress.Public`: a link is its sender's), into
       `zalo-media/<account>/<chat>/` beside `zalo.db`, private; one the CDN no longer has (403, 404, 410) is said
-      once. `…/media` answers one; disconnecting removes them. The Bot's tools and sending are step 3.
+      once. `…/media` answers one; disconnecting removes them.
+    - **A Bot reads and writes in it** ([issue #680](https://github.com/kl3inIT/hypomnema/issues/680), step 3):
+      WhatsApp's tools became one family per service (`agentapi/messaging_tools.go`, `messagingServices`): a Bot
+      given a Zalo Connection, on the owner's turn, has `zalo_chats`, `zalo_messages`, `zalo_media`,
+      `zalo_history` and `zalo_send`. `zalo_send` is the action `zalo.send` of the service proxy's catalog
+      (NeedsCare: it asks the owner); the bridge sends with zca-js's `sendMessage`, a file by a path written for the
+      call under `zalo-outgoing/` and removed after, an image with the size read from its header (adapted from the
+      Hermes Zalo plugin, `third_party/hermes-zalo-plugin`), a reply quoting the kept message. What is sent is kept
+      as the owner's.
   - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136),
     [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
