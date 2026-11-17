@@ -351,6 +351,12 @@ func (p *placement) availability(runtime string, gateway bool, accounts string) 
 	}
 
 	if gateway {
+		if first, cooling := p.gatewayCooling(accounts); cooling {
+			at := millis(first)
+
+			return Availability{Reason: ReasonAccountsCooling, At: &at}
+		}
+
 		return Availability{Available: true}
 	}
 
@@ -626,8 +632,8 @@ const TokenRuntime = "claude"
 func runsOnNode(a store.Account) bool { return !a.SecretRef.Valid }
 
 // gatewayHasAccount reports whether the control plane keeps an active account of the runtime for the gateway to
-// serve a subscription under; a model of the gateway's own table (no runtime) needs none here. Whether that account
-// cools down is the gateway's to find.
+// serve a subscription under; a model of the gateway's own table (no runtime) needs none here. Which of them serves
+// a request is the gateway's to choose; when every one cools, gatewayCooling says so.
 func (p *placement) gatewayHasAccount(runtime string) bool {
 	if runtime == "" {
 		return true
@@ -636,6 +642,38 @@ func (p *placement) gatewayHasAccount(runtime string) bool {
 	return slices.ContainsFunc(p.accounts, func(a store.Account) bool {
 		return a.Runtime == runtime && AccountStatus(a.Status) == AccountActive && !runsOnNode(a)
 	})
+}
+
+// gatewayCooling reports whether every active account of the runtime the control plane keeps for the gateway
+// cools down after a limit, and when the first is free again (issue #756). The gateway cools its own accounts
+// (modelgateway accounts.go, cool) in the table node accounts cool in, and answers a worker's every call with a
+// usage limit until one is free: a worker started then ends at once. So a Task waits for the reset, or goes to a
+// backup of its profile, as for the accounts a node holds (pickAccount), and as OpenClaw skips a model whose auth
+// profiles all cool (src/agents/model-fallback-runner.ts:411-439). false for a model of the gateway's own table,
+// and when the control plane keeps no account of the runtime.
+func (p *placement) gatewayCooling(runtime string) (int64, bool) {
+	if runtime == "" {
+		return 0, false
+	}
+
+	var first int64
+
+	for _, a := range p.accounts {
+		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || runsOnNode(a) {
+			continue
+		}
+
+		until, ok := p.cooling[[2]string{runtime, a.ID}]
+		if !ok {
+			return 0, false
+		}
+
+		if first == 0 || until < first {
+			first = until
+		}
+	}
+
+	return first, first != 0
 }
 
 // pickAccount is the first active account of the runtime a node holds, by

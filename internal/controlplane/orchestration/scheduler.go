@@ -408,6 +408,10 @@ func placeHandoff(p *placement, conv store.Conversation, b resolved, host where)
 		return nil
 	}
 
+	if _, cooling := p.gatewayCooling(b.accounts); b.gateway && cooling {
+		return nil
+	}
+
 	return &DispatchSpec{NodeID: conv.NodeID, Worktree: conv.Worktree, Runtime: b.runtime, AccountRef: account}
 }
 
@@ -491,6 +495,12 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNoAccount, nil
 		}
 
+		// Through the gateway, the accounts of the runtime the Conversation's profile runs under (issue #756).
+		if _, cooling := p.gatewayCooling(r.accounts); conv.AccountRef == GatewayAccountRef && r.gateway &&
+			r.runtime == conv.Runtime && cooling {
+			return nil, "", nil
+		}
+
 		return &DispatchSpec{Continue: true}, "", nil
 	}
 
@@ -544,6 +554,10 @@ func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchS
 		return nil, ""
 	case account == "", r.gateway && !p.gatewayHasAccount(r.accounts):
 		return nil, ReasonNoAccount
+	}
+
+	if _, cooling := p.gatewayCooling(r.accounts); r.gateway && cooling {
+		return nil, ""
 	}
 
 	return &DispatchSpec{
