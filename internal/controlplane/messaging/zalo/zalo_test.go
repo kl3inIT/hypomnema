@@ -592,3 +592,61 @@ func TestAFileIsCappedByItsType(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, doc.Path)
 }
+
+// Scenario (issue #761): Zalo's phone sends an image as JPEG XL, which a model cannot read. Its link is fetched as the
+// JPG copy the CDN keeps, and an image kept as JPEG XL before is fetched again as JPG when it is next opened.
+func TestAJPEGXLImageIsKeptAsItsJPGCopy(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+
+	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 'j', 'p', 'g'}
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/jpg/a/1.jpg" && r.URL.Query().Get("jxlstatus") == "":
+			_, _ = w.Write(jpeg)
+		case r.URL.Path == "/jxl/a/1.jxl":
+			_, _ = w.Write([]byte{0xFF, 0x0A, 'j', 'x', 'l'})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(cdn.Close)
+	svc.http = cdn.Client()
+
+	acc := svc.newAccount(func() {}, whoAmI{UID: "100"}, nil)
+	for i, id := range []string{"new", "old"} {
+		_, err := acc.keepMessage(ctx, incoming{ID: id, Chat: "u9", From: "u9", At: int64(i + 1), Kind: "chat.photo",
+			Media: &mediaOf{Type: "image", URL: cdn.URL + "/jxl/a/1.jxl?jxlstatus=1"}})
+		require.NoError(t, err)
+	}
+
+	got, err := acc.Media(ctx, "u9", "new")
+	require.NoError(t, err)
+	data, err := os.ReadFile(got.Path)
+	require.NoError(t, err)
+	assert.Equal(t, jpeg, data, "the JPG copy is kept")
+
+	// An image kept as JPEG XL before this fix.
+	old := filepath.Join(t.TempDir(), "old.jfif")
+	require.NoError(t, os.WriteFile(old, []byte{0xFF, 0x0A, 'j', 'x', 'l'}, 0o600))
+	require.NoError(t, svc.mirror.keptMedia(ctx, "100", "u9", "old", old, "", "image/jpeg"))
+
+	got, err = acc.Media(ctx, "u9", "old")
+	require.NoError(t, err)
+	data, err = os.ReadFile(got.Path)
+	require.NoError(t, err)
+	assert.Equal(t, jpeg, data, "fetched again as JPG")
+	assert.Equal(t, "image/jpeg", got.MimeType)
+}
+
+func TestOnlyAZaloJPEGXLLinkIsTurnedToJPG(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://photo-stal-7.zdn.vn/jxl/x/y/1.jxl":           "https://photo-stal-7.zdn.vn/jpg/x/y/1.jpg",
+		"https://photo-stal-7.zdn.vn/jxl/x/1.JXL?jxlstatus=1": "https://photo-stal-7.zdn.vn/jpg/x/1.jpg",
+		"https://photo-stal-7.zdn.vn/jpg/x/1.jpg":             "https://photo-stal-7.zdn.vn/jpg/x/1.jpg",
+		"https://f.zdn.vn/jxl/x/1.jxl?e2esession=s":           "https://f.zdn.vn/jxl/x/1.jxl?e2esession=s",
+		"https://f.zdn.vn/doc/jxl/notes.pdf":                  "https://f.zdn.vn/doc/jxl/notes.pdf",
+	} {
+		assert.Equal(t, want, jpgURL(in), in)
+	}
+}
