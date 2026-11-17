@@ -153,7 +153,10 @@ more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_gu
 marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
 turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
 (`selfupdate.Updating`, below) it starts no pi and gives an idle pi no new turn (compactions included); a running
-turn goes on, and what is written waits for the update to end. An owner message may carry files (issue #343): each is kept on the
+turn goes on, and what is written waits for the update to end. A pi start looks for the update before and after it
+makes the pi's key and token and after pi runs, under the lock `WorkingChats` takes, so once the update's first
+`GET /turns` is answered no pi starts. Whether the control plane stops is read from `Run`'s context, not the one pi
+reads with (a pi a compaction started reads with its own). An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a

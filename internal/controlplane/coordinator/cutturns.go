@@ -52,13 +52,22 @@ func (s *Supervisor) turnSettled(ctx context.Context, p *proc) {
 // exitedMidTurn is called when a chat's pi exits. While the control plane runs, a pi that exits ended its turn,
 // which the next message starts again; its mark is cleared, and only its own. When the control plane stops it, the
 // mark stays: that is the cut turn the next start continues. pi gets the same SIGTERM as the control plane on
-// `systemctl stop`, so both the stop and the signal's context say it is stopping.
+// `systemctl stop`, so both the stop and the signal's context (Run's, whatever context pi reads with) say it is
+// stopping.
 func (s *Supervisor) exitedMidTurn(ctx context.Context, p *proc) {
-	if ctx.Err() != nil || s.stopping.Load() {
+	if ctx.Err() != nil || s.stopping.Load() || s.shuttingDown() {
 		return
 	}
 
 	s.turnSettled(ctx, p)
+}
+
+// shuttingDown says Run's context ended: the control plane stops. The context pi reads with is not always Run's: one
+// a compaction started has a context of its own, which the stop does not end.
+func (s *Supervisor) shuttingDown() bool {
+	ctx := s.running.Load()
+
+	return ctx != nil && (*ctx).Err() != nil
 }
 
 // continueCutTurns runs once, as the supervisor starts. A start that finds no cut turn records nothing. One that

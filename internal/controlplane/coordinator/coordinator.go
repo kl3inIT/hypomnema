@@ -94,6 +94,9 @@ type Supervisor struct {
 	kick     chan struct{}
 	// stopping says the control plane stops every pi: a turn cut now keeps its mark (cutturns.go).
 	stopping atomic.Bool
+	// running is Run's context, which ends when the control plane stops (SIGTERM): a pi started for a request, such
+	// as a compaction, reads with a context of its own, which does not (cutturns.go exitedMidTurn).
+	running atomic.Pointer[context.Context]
 }
 
 // New returns a Supervisor; Run starts it.
@@ -202,6 +205,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	wake := s.svc.Subscribe(ctx)
 	t := time.NewTicker(tick)
 
+	s.running.Store(&ctx)
 	s.continueCutTurns(ctx)
 
 	defer t.Stop()
@@ -447,11 +451,26 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		}
 	}
 
+	// An update that began while the key and the token were made is seen here, before pi starts (issue #716). The
+	// update asks WorkingChats, under s.mu, right after it named itself, so once it is answered every procFor sees it.
+	if s.updating() {
+		s.revoke(ctx, chatID, key)
+
+		return nil, errUpdating
+	}
+
 	p, err := start(ctx, s, chatID, args, key)
 	if err != nil {
 		s.revoke(ctx, chatID, key)
 
 		return nil, fmt.Errorf("starting pi for chat %s: %w", chatID, err)
+	}
+
+	// One that began while pi started: the pi is stopped before it is given anything.
+	if s.updating() {
+		p.stop()
+
+		return nil, errUpdating
 	}
 
 	p.model = model

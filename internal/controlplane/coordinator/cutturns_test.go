@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -442,4 +443,100 @@ func TestNoPiStartsWhileTheControlPlaneIsUpdated(t *testing.T) {
 
 	hold(false)
 	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: again")
+}
+
+// Scenario (review round 2 of #725, finding 1): a chat's pi was started by a compaction, so it reads with a context
+// of its own, which the control plane's stop does not end, and it runs the owner's turn. On `systemctl stop` pi gets
+// the SIGTERM too and may exit before the supervisor stops every pi. Its exit keeps the mark: the control plane is
+// stopping, as Run's context says.
+func TestAPiOfACompactionKeepsTheMarkOfATurnTheStopCut(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newStore(t)
+	ctx := t.Context()
+	sup := New(svc, Config{})
+
+	running, stop := context.WithCancel(context.WithoutCancel(ctx))
+	sup.running.Store(&running)
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	p := &proc{s: sup, chatID: chat.ID, token: "compacted"}
+	sup.turnStarted(ctx, p)
+
+	stop()
+	sup.exitedMidTurn(context.WithoutCancel(ctx), p)
+
+	assert.Equal(t, []string{chat.ID}, marked(t, svc), "the cut turn keeps its mark")
+}
+
+// blockingKeys holds the making of a chat's key until it is let go.
+type blockingKeys struct {
+	fakeKeys
+
+	asked, release chan struct{}
+}
+
+func (b *blockingKeys) AddChatKey(ctx context.Context, chatID, model string) (string, string, error) {
+	select {
+	case b.asked <- struct{}{}:
+	default:
+	}
+
+	<-b.release
+
+	return b.fakeKeys.AddChatKey(ctx, chatID, model)
+}
+
+// Scenario (review round 2 of #725, finding 2): the update begins while a pi is being started, after the supervisor
+// looked for one and before pi runs. No pi starts: the key made for it ends, and the message waits.
+func TestNoPiStartsWhenTheUpdateBeginsWhileItIsStarted(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu   sync.Mutex
+		held bool
+	)
+
+	keys := &blockingKeys{asked: make(chan struct{}, 1), release: make(chan struct{})}
+	log := &lockedBuffer{}
+	svc, _ := newStore(t)
+	ctx := t.Context()
+
+	runSupervisor(t, svc, Config{
+		Keys: keys, Logger: slog.New(slog.NewTextHandler(log, nil)),
+		Updating: func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+
+			return held
+		},
+	})
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
+	require.NoError(t, err)
+
+	<-keys.asked
+
+	mu.Lock()
+	held = true
+	mu.Unlock()
+
+	close(keys.release)
+
+	require.Eventually(t, func() bool { return keys.ended("gwk_1") }, 10*time.Second, 10*time.Millisecond,
+		"the key made for the pi ends")
+
+	// Two passes later, still no pi.
+	<-time.After(2*tick + time.Second)
+
+	assert.NotContains(t, log.String(), "event=coordinator.started", "no pi starts")
+
+	undelivered, err := svc.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Len(t, undelivered, 1, "the message waits")
 }
