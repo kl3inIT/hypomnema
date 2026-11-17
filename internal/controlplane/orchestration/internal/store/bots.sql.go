@@ -214,7 +214,7 @@ func (q *Queries) InsertSetupChange(ctx context.Context, arg InsertSetupChangePa
 }
 
 const lastSetupChangeOf = `-- name: LastSetupChangeOf :one
-SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE kind = ?1 AND name = ?2 ORDER BY created_at DESC, id DESC LIMIT 1
+SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE kind = ?1 AND name = ?2 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 type LastSetupChangeOfParams struct {
@@ -352,9 +352,10 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 }
 
 const listSetupChangesOfChat = `-- name: ListSetupChangesOfChat :many
-SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE chat_id = ?1 ORDER BY created_at, id
+SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE chat_id = ?1 ORDER BY created_at, rowid
 `
 
+// In the order they were made: rowid orders the changes made in one millisecond, whose ids are random (issue #758).
 func (q *Queries) ListSetupChangesOfChat(ctx context.Context, chatID string) ([]SetupChange, error) {
 	rows, err := q.db.QueryContext(ctx, listSetupChangesOfChat, chatID)
 	if err != nil {

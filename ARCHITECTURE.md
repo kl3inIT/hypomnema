@@ -227,10 +227,13 @@ sequenceDiagram
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, follow one up, finish or
   cancel a Run. A Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every
   Task downstream of it; reopening a failed Task resets its failure count and unblocks them.
-- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task of an open
-  Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
+- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task, or of one
+  blocked at a Gate (issue #714), of an open Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
   who asked: the owner or the coordinator, by the token), the failure count is reset, and the Task goes from
-  succeeded back to ready, the one transition from succeeded. Its next Dispatch continues the Conversation, and
+  succeeded (or blocked) back to ready, the one transition from succeeded. A follow-up to a Task blocked at a Gate
+  replaces the Gate: the Gate is canceled with the reason `superseded` (migration 00110), its `question.canceled`
+  event names the follow-up, and the next Dispatch carries the note and no Gate, as Omnara cancels open questions
+  on new input with the reason `superseded_by_input` (`commands_interactions.go:340-362`). Its next Dispatch continues the Conversation, and
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
@@ -265,7 +268,12 @@ sequenceDiagram
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
   resumes the Conversation with the question and answer. The first answer wins; the coordinator answers only what
   is addressed to it and can forward a question to the owner. Open questions close when their Dispatch settles (a
-  `wait` question) or their Task is canceled (a Gate); a Gate never expires.
+  `wait` question) or their Task is canceled (a Gate); a Gate never expires, but a follow-up replaces it (below).
+  A worker's options (`ask`, and `finish`'s Gate) are each a label or `{label, allows_text}`, so a "change first"
+  carries what to change; every question with options ends with an "Other" that takes text (a worker's own "Other"
+  is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
+  to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
+  `internal/node/workertools`).
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
@@ -1318,7 +1326,9 @@ flowchart LR
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
-    runs. A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
+    runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
+    at a file under `scripts/`; the Bot's instructions say so and that the owner then reads only the stub (issue
+    #769). A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
@@ -1990,18 +2000,45 @@ flowchart LR
       and a Dispatch given a `github.com` Connection gets no `gh` script before the worker's own `gh`, which keeps
       its `GH_TOKEN` (#44). `hypomnema tool run github.com -- curl …` runs another command through the same
       account.
-    - **Its catalog** (`serviceproxy/github.go`) is Onyx's GitHub list (`providers/github.py`, MIT; notice in
-      `third_party/onyx/NOTICE`): REST routes on `api.github.com`, and a POST to `/graphql` matched by each
-      operation's type and root field (gqlparser parses the query; fragments at the root are followed), the action
-      that needs the most care governing a request with several. Reads run: the connected user, repositories,
-      issues, pull requests with their files and reviews, Actions runs, jobs and logs, check runs and statuses,
-      search, refs, contents, commits, releases, and the GraphQL queries `repository`, `repositoryOwner`, `node`,
-      `nodes`, `viewer`, `search`, and a query that asks only the schema (`__type`, `__schema`, `__typename`, which
-      `gh` sends to detect features; beside another field, that field's action names it). Opening an issue, commenting, opening a pull request, writing a file and writing
-      a ref ask; anything else (merge, close, labels, a rerun, a mutation it does not name, a body that is not
-      GraphQL) asks as `github.unlisted`. A log's download, which GitHub redirects to
+    - **Its catalog** (`serviceproxy/github.go`) is generated ([issue #739](https://github.com/kl3inIT/hypomnema/issues/739),
+      step 1 of [#713](https://github.com/kl3inIT/hypomnema/issues/713)): `github_operations.json` holds every
+      operation of GitHub's REST description (`github/rest-api-description`, 1281: method, host, path, `x-github`
+      category, `operationId`) and every query and mutation of the public GraphQL schema (316, with
+      `@docsCategory`, read from `github/docs` at a pinned commit), for gh 2.103.3; notice in `third_party/github/NOTICE`. The categories fold into 13 services
+      (Repositories, Issues, Pull requests, Actions and checks, Releases, Search, Projects, Discussions, Gists,
+      Security, Organizations and teams, Account, Copilot and agents) and Everything else (the queries, which have
+      no category of their own), each with `github.<service>.read`, `.write` and `.delete`: a GET or a query
+      reads, a DELETE or a mutation named `delete…` deletes, anything else writes. Reads run; the rest asks. A table
+      (`githubNamed`) keeps the ids the hand-written list had (Onyx's GitHub list, `providers/github.py`, MIT; notice
+      in `third_party/onyx/NOTICE`) for the operations it named: `github.user.read`, `.refs.read`,
+      `.contents.read`, `.git_data.read`, `.graphql.repo.read` (`repository`, `repositoryOwner`, `node`, `nodes`),
+      `.issues.create`, `.comments.create`, `.contents.write`, `.refs.write`, `.pulls.create`; its GET routes stay
+      for a request the description does not have. **Merge and auto-merge are actions of their own** and ask:
+      `github.pulls.merge` (REST `PUT …/pulls/{n}/merge` and `…/merge-async`, GraphQL `mergePullRequest`) and
+      `github.pulls.automerge` (`enablePullRequestAutoMerge`, `disablePullRequestAutoMerge`). A trailing `path`,
+      `ref`, `branch` or `basehead` takes its slashes. A POST to `/graphql` is matched by each operation's type and
+      root field (gqlparser parses the query; fragments at the root are followed); the action that needs the most
+      care names the request and the others it names go with it (`Action.With`), and the proxy lets the strictest
+      of the owner's answers govern (refused, never, ask, allow; Onyx's `AllMatchedActions`). When several ask,
+      each needs its own answer: those allowed for the session or the Routine are set aside
+      (`orchestration.StandingGrant`), and the request asks as the first of the others, the owner shown them all;
+      when that ask finds a standing grant made meanwhile, the others are decided again, so that a granted comment
+      never carries a merge. A query that asks
+      only the schema (`__type`, `__schema`, `__typename`, which `gh` sends to detect features) is
+      `github.schema.read`; beside another field, that field's action names it. A root field the schema does not
+      have, a subscription or a body that is not GraphQL asks as `github.unlisted`. A release's asset upload goes
+      to `uploads.github.com`, also reached. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
       plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.
+    - **Regenerating it**: `make catalogs-generate SERVICE=github` runs `serviceproxy/catalogsgen`, which fetches the
+      REST description, the schema and gh's source at what `serviceproxy/catalog_sources.json` pins (URL, revision,
+      SHA-256, gh's version), fails on a changed SHA-256 or on a root field gh's source sends that the schema lacks
+      (the structs it gives `Query` and `Mutate` or its own wrappers of them, the queries it writes, the fields
+      it calls with an input),
+      writes the file and prints the operations added, removed or moved to another action. `make verify` runs only
+      the offline tests: every operation of the file is a named action (a GET or a query a read, nothing else), every
+      category is in a service, and the file's gh version is `agenttool.GitHubCLI`'s, so bumping gh fails until the
+      catalog is regenerated.
     - **Its skill** is the store skill `github` (`clientcli/skills/github`, requiring `integration:github.com`; a
       skill's integration requirement may be a host's name), from Onyx's and OpenClaw's github skills (MIT).
     - Not built: GitHub Enterprise Server and GitLab hosts (the proxy picks a catalog by the Integration's name);
@@ -3759,11 +3796,12 @@ Node (`internal/node`):
     Anthropic's Fable 5.2 page):
     - the rules, the same for every worker:
       - one decision boundary, within what the task and the worker's instruction allow: it decides how to build
-        it, which tests to add, running the checks, committing and pushing its branch, and opening or updating the
-        Task's pull request; it asks first, with `ask`, before changing the scope, merging, deploying or changing a
-        server, deleting what its change did not make, or acting outside its directory and pull request (the
-        owner's list, 2026-11-17, issue #672; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do
-        freely / Ask first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
+        it, which tests to add, running the checks, committing and pushing its branch, opening or updating the
+        Task's pull request and turning on its auto-merge (below); it never merges directly; it asks first, with
+        `ask`, before changing the scope, deploying or changing a server, deleting what its change did not make, or
+        acting outside its directory and pull request (the owner's list, 2026-11-17, issue #672, with merging taken
+        off it by issue #714; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask
+        first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
         omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
@@ -3786,8 +3824,25 @@ Node (`internal/node`):
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
       of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+    - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
+      `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
+      before merging:
+      1. read-only checks that the repository waits for its checks, since `gh` and `glab` merge at once otherwise:
+         on GitHub `allow_auto_merge` is true and the base branch requires a status check (a
+         `required_status_checks` rule in `gh api --hostname <host> repos/<path>/rules/branches/<base>`, or a check
+         listed by
+         `…/branches/<base>/protection/required_status_checks`); on GitLab the project has
+         `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
+         line says what the repository lacks, and no Gate is opened only to ask to merge;
+      2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
+         sides' intent, running the checks again and pushing; on GitLab the merge request must have a pipeline;
+      3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
+         `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
+      4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),
+         fixing red ones, then `finish`, saying whether it merged or that auto-merge is on;
     - `Task (<profile>):` and the Task's spec;
-    - the recovery note, a follow-up ("You finished this task before, and more is asked of it now: …", then to
+    - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
+      replaces the answer to any question you asked at `finish`): …", then to
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into

@@ -8627,18 +8627,18 @@ type ClientInterface interface {
 	// Corresponds with POST /tasks/{task_id}/cancel (the `CancelTask` operationId).
 	CancelTask(ctx context.Context, taskId TaskID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// FollowUpTaskWithBody Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTaskWithBody Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /tasks/{task_id}/follow-ups (the `FollowUpTask` operationId).
 	FollowUpTaskWithBody(ctx context.Context, taskId TaskID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -13754,9 +13754,9 @@ func (c *Client) CancelTask(ctx context.Context, taskId TaskID, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// FollowUpTaskWithBody Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTaskWithBody Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes any type of body and a specified content type.
 //
@@ -13773,9 +13773,9 @@ func (c *Client) FollowUpTaskWithBody(ctx context.Context, taskId TaskID, conten
 	return c.Client.Do(req)
 }
 
-// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -26722,18 +26722,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /tasks/{task_id}/cancel (the `CancelTask` operationId).
 	CancelTaskWithResponse(ctx context.Context, taskId TaskID, reqEditors ...RequestEditorFn) (*CancelTaskResponse, error)
 
-	// FollowUpTaskWithBodyWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTaskWithBodyWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /tasks/{task_id}/follow-ups (the `FollowUpTask` operationId).
 	FollowUpTaskWithBodyWithResponse(ctx context.Context, taskId TaskID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FollowUpTaskResponse, error)
 
-	// FollowUpTaskWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTaskWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -41504,9 +41504,9 @@ func (c *ClientWithResponses) CancelTaskWithResponse(ctx context.Context, taskId
 	return ParseCancelTaskResponse(rsp)
 }
 
-// FollowUpTaskWithBodyWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTaskWithBodyWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -41519,9 +41519,9 @@ func (c *ClientWithResponses) FollowUpTaskWithBodyWithResponse(ctx context.Conte
 	return ParseFollowUpTaskResponse(rsp)
 }
 
-// FollowUpTaskWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTaskWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -49576,7 +49576,7 @@ type ServerInterface interface {
 	// CancelTask Cancel a Task; a running worker is stopped first
 	// (POST /tasks/{task_id}/cancel)
 	CancelTask(w http.ResponseWriter, r *http.Request, taskId TaskID)
-	// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	// (POST /tasks/{task_id}/follow-ups)
 	FollowUpTask(w http.ResponseWriter, r *http.Request, taskId TaskID)
 	// ReopenTask Give a failed Task, or one waiting for a login, a new start
@@ -66549,7 +66549,7 @@ type StrictServerInterface interface {
 	// CancelTask Cancel a Task; a running worker is stopped first
 	// (POST /tasks/{task_id}/cancel)
 	CancelTask(ctx context.Context, request CancelTaskRequestObject) (CancelTaskResponseObject, error)
-	// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	// (POST /tasks/{task_id}/follow-ups)
 	FollowUpTask(ctx context.Context, request FollowUpTaskRequestObject) (FollowUpTaskResponseObject, error)
 	// ReopenTask Give a failed Task, or one waiting for a login, a new start

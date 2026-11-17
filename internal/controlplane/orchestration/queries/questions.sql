@@ -32,6 +32,12 @@ UPDATE questions SET updated_at = @now, status = 'canceled', cancel_reason = 'ta
 WHERE task_id = @task_id AND mode = 'gate' AND status = 'open'
 RETURNING id, task_id, run_id, dispatch_id, mode, addressed_to;
 
+-- name: SupersedeOpenGatesOfTask :many
+-- A follow-up replaces the Task's open Gate (issue #714).
+UPDATE questions SET updated_at = @now, status = 'canceled', cancel_reason = 'superseded', remind_at = NULL
+WHERE task_id = @task_id AND mode = 'gate' AND status = 'open'
+RETURNING id, task_id, run_id, dispatch_id, mode, addressed_to;
+
 -- name: ListUndeliveredAnswers :many
 SELECT * FROM questions
 WHERE dispatch_id = @dispatch_id AND mode = 'wait' AND status = 'answered' AND delivered_at IS NULL
