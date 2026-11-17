@@ -885,8 +885,8 @@ sequenceDiagram
     extension replaced by the image's own and numbered when several, as opencode's tool) and print each absolute
     path, then who made them; `--json` prints the paths instead of the images. "Images" (above), recorded on the
     key of the chat's running pi when a pi's token asks. A Bot sends an image it made with a `MEDIA:<path>` line,
-    which a Lark chat delivers as a file (#312); the web chat shows the line as text (it is not turned into a
-    picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request no provider takes), 429
+    which a Lark chat delivers as a file (#312); the web chat shows it as a file to download in the message (#699,
+    not drawn as a picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request no provider takes), 429
     `rate_limited` with `Retry-After`, 503 `unavailable`.
   - Audio from the client API (issue #694), for the owner, a Routine's script and a Bot: `POST
     /audio/transcriptions` `{audio (base64, at most 128 MiB), file_name?, mime_type?, language?, speakers?,
@@ -3728,6 +3728,12 @@ Node (`internal/node`):
     opening large in a dialog, and its other files as chips that open in the pane beside the Files panel. Not
     built: a Lark message's files, retrying a failed upload in place. Files attached and never sent stay
     in the folder.
+  - A reply's files (issue #699, `features/chat/media.ts`, `reply-files.tsx`, after OpenClaw's web chat,
+    `splitMediaFromOutput` and `stripAssistantMediaDirectivesForDisplay`): each `MEDIA:<path>` line of a Bot's
+    reply, read by the rules of `channels/media.go` (one per line, any case, never in a fenced code block), leaves
+    the text shown and is a chip under it with the file's name and its kind's icon. The chip reads the file from the
+    Bot's folder with `/raw` and saves it under its name; a file the server refuses (not there, outside the folder)
+    turns the chip red with the server's message. The reply being written shows its files once it is done. A fence opened in one text part of a message goes on in the next, as a Channel reads the parts joined, and a Routine run's report card gives its `MEDIA:` files the same way, from the Bot's folder of the run's chat.
   - Attaching on the New chat page and in a new chat's tab (issue #357, `features/chat/chat-id.ts`): the page
     chooses its chat's id when it opens and keeps it while it lives; the files go into `attachments/<that id>/` in
     the picked Bot's folder (the folder calls name the Bot), and the first message makes the chat under that id

@@ -3,6 +3,8 @@ import { ArrowRight, Loader2, Repeat2 } from "lucide-react"
 import { useState } from "react"
 
 import type { RoutineRun } from "@/api/generated/types.gen"
+import { mediaOf } from "@/features/chat/media"
+import { ReplyFiles } from "@/features/chat/reply-files"
 import { cn } from "@/lib/utils"
 
 import { RoutineForm } from "./routine-form"
@@ -129,22 +131,25 @@ export function RunCard({
   runId,
   text,
   createdAt,
+  chat,
 }: {
   routineId: string
   runId: string
   // text is what the message says, for when the run is no longer kept.
   text: string
   createdAt: string
+  // chat is the chat the card is in: the files a report names are its Bot's when the run has no chat of its own.
+  chat: string
 }) {
   const routine = useRoutine(routineId)
   const runs = useRoutineRuns(routineId)
   const run = runs.data?.pages.flatMap((p) => p.data).find((x) => x.id === runId)
   const name = routine.data?.name ?? "A Routine"
-  const said = (
-    run?.output ||
-    run?.error ||
-    text.replace(/^Routine "[^"]*" ran \([^)]*\):\s*/, "")
-  ).trim()
+  // A report's MEDIA: lines are files to download under it, as in a reply (issue #699), read from the Bot's folder
+  // of the chat the run worked in.
+  const { shown: said, paths } = mediaOf(
+    (run?.output || run?.error || text.replace(/^Routine "[^"]*" ran \([^)]*\):\s*/, "")).trim(),
+  )
   const copy = run ? runCopy[run.state] : runCopy.succeeded
   const at = run?.started_at ?? createdAt
 
@@ -182,6 +187,7 @@ export function RunCard({
               <p className="mt-2 leading-relaxed whitespace-pre-wrap">{said}</p>
             </details>
           )}
+          {paths.length > 0 && <ReplyFiles chat={run?.chat_id || chat} paths={paths} />}
         </div>
         {run?.chat_id && (
           <Link

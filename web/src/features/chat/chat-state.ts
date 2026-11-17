@@ -10,6 +10,8 @@ import type {
   SetupChange,
 } from "@/api/generated/types.gen"
 
+import { mediaOf } from "./media"
+
 // What a chat shows, from its stream (GET /chats/{id}/stream): the kept messages, and what pi is doing that is not
 // kept yet. As Omnara's delta previews (.tmp/omnara/frontend/packages/react/src/domains/agent-chat-messages.ts),
 // the live text is shown until the kept reply that ends it arrives, and a tool shows as running until its kept
@@ -136,7 +138,18 @@ export type ChatItem =
   | { kind: "artifact"; key: string; artifact: ArtifactCard }
   // An Approval the owner answered, where he answered it (issue #465).
   | { kind: "approval"; key: string; approval: ChatApproval }
-  | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
+  // chat is the reply's chat, whose Bot's folder holds the files its MEDIA: lines name (issue #699); the reply
+  // being written has none yet.
+  | {
+      kind: "reply"
+      key: string
+      text: string
+      streaming: boolean
+      createdAt?: string
+      chat?: string
+      // fence is the code fence an earlier text part of the same message left open, in which a MEDIA: line is text.
+      fence?: string
+    }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
   // A Routine the Bot set up from this chat, where it was set up (issue #211).
   | { kind: "routine-setup"; key: string; routineId: string }
@@ -150,6 +163,8 @@ export type ChatItem =
       routineId: string
       text: string
       createdAt: string
+      // chat is the chat the card is in, whose Bot's folder holds the files the report's MEDIA: lines name.
+      chat: string
     }
 
 // Setup is a Routine the Bot set up from the chat, or a change of a Bot or profile it made there, and when: its
@@ -252,6 +267,8 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
         break
       case "coordinator": {
         const parts = m.parts ?? [{ type: "text", text: m.text }]
+        // The fence open at the end of each text part, as the parts are one text joined (issue #699).
+        let fence = ""
         parts.forEach((p, i) => {
           if (p.type === "thinking" && p.text) {
             step({ kind: "thinking", key: `${key}-${i}`, text: p.text }, `a${key}`)
@@ -264,15 +281,20 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
               routineId: p.routine_id,
               text: m.text,
               createdAt: m.created_at,
+              chat: m.chat_id,
             })
           } else if (p.type === "text" && p.text) {
             close()
+            const from = fence
+            fence = mediaOf(p.text, from).fence
             items.push({
               kind: "reply",
               key: `${key}-${i}`,
               text: p.text,
               streaming: false,
               createdAt: m.created_at,
+              chat: m.chat_id,
+              ...(from && { fence: from }),
             })
           }
         })
