@@ -3722,7 +3722,7 @@ Node (`internal/node`):
     reply, read by the rules of `channels/media.go` (one per line, any case, never in a fenced code block), leaves
     the text shown and is a chip under it with the file's name and its kind's icon. The chip reads the file from the
     Bot's folder with `/raw` and saves it under its name; a file the server refuses (not there, outside the folder)
-    turns the chip red with the server's message. The reply being written shows its files once it is done.
+    turns the chip red with the server's message. The reply being written shows its files once it is done. A fence opened in one text part of a message goes on in the next, as a Channel reads the parts joined, and a Routine run's report card gives its `MEDIA:` files the same way, from the Bot's folder of the run's chat.
   - Attaching on the New chat page and in a new chat's tab (issue #357, `features/chat/chat-id.ts`): the page
     chooses its chat's id when it opens and keeps it while it lives; the files go into `attachments/<that id>/` in
     the picked Bot's folder (the folder calls name the Bot), and the first message makes the chat under that id

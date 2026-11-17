@@ -71,6 +71,7 @@ export function ChatItemView({
           streaming={item.streaming}
           createdAt={item.createdAt}
           chat={item.chat}
+          fence={item.fence}
           botName={botName}
         />
       )
@@ -87,6 +88,7 @@ export function ChatItemView({
           runId={item.runId}
           text={item.text}
           createdAt={item.createdAt}
+          chat={item.chat}
         />
       )
   }
@@ -165,17 +167,19 @@ function Reply({
   streaming,
   createdAt,
   chat,
+  fence,
   botName,
 }: {
   text: string
   streaming: boolean
   createdAt?: string
   chat?: string
+  fence?: string
   botName: string
 }) {
   // Its MEDIA: lines leave the text and become files to download (issue #699); the reply being written shows its
   // files once it is done, as a Channel sends them after the reply.
-  const { shown, paths } = mediaOf(text)
+  const { shown, paths } = mediaOf(text, fence)
 
   return (
     <div

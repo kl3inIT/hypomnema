@@ -9,24 +9,27 @@
 const mediaLine = /^\s*MEDIA:\s*(.*?)\s*$/i
 
 // mediaOf splits a reply into the text shown and the paths of the files it asks for. A line in a fenced code block
-// is text. A reply that asks for none is as it was.
-export function mediaOf(text: string): { shown: string; paths: string[] } {
-  if (!text.toLowerCase().includes("media:")) return { shown: text, paths: [] }
-
+// is text. A reply that asks for none is as it was. fence is the fence open where the text starts: a message the
+// server keeps in several text parts is one text to a Channel, which reads them joined (coordinator/activity.go), so
+// a fence opened in one part goes on in the next; the fence open where the text ends is returned for the next part.
+export function mediaOf(
+  text: string,
+  fence = "",
+): { shown: string; paths: string[]; fence: string } {
   const kept: string[] = []
   const paths: string[] = []
-  let fence = ""
+  let open = fence
   let asked = false
 
   for (const line of text.split("\n")) {
     const trimmed = line.trim()
 
-    if (fence !== "") {
-      if (trimmed.startsWith(fence)) fence = ""
+    if (open !== "") {
+      if (trimmed.startsWith(open)) open = ""
     } else if (trimmed.startsWith("```")) {
-      fence = "```"
+      open = "```"
     } else if (trimmed.startsWith("~~~")) {
-      fence = "~~~"
+      open = "~~~"
     } else {
       const m = mediaLine.exec(line)
       if (m) {
@@ -40,9 +43,9 @@ export function mediaOf(text: string): { shown: string; paths: string[] } {
     kept.push(line)
   }
 
-  if (!asked) return { shown: text, paths: [] }
+  if (!asked) return { shown: text, paths: [], fence: open }
 
-  return { shown: kept.join("\n").trim(), paths }
+  return { shown: kept.join("\n").trim(), paths, fence: open }
 }
 
 // cleanPath is a path without the quotes, backticks and brackets a model wraps it in, and without file://

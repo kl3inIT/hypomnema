@@ -14,17 +14,26 @@ vi.mock("@/api/generated/sdk.gen", async (actual) => ({
   readWorkspaceRaw,
 }))
 
-const reply = (text: string) => {
+// reply draws a Bot's message, given as its text or as the text parts the server keeps.
+const reply = (text: string | string[]) => {
+  const parts = typeof text === "string" ? undefined : text
   const message: ChatMessage = {
     seq: 3,
     chat_id: "cht_1",
     role: "coordinator",
-    text,
+    text: parts ? parts.join("\n\n") : (text as string),
+    ...(parts && { parts: parts.map((t) => ({ type: "text" as const, text: t })) }),
     created_at: "2026-11-17T09:30:00Z",
   }
-  const item = chatItems(chatReducer(emptyChat, { type: "message", message }))[0]
-  if (!item) throw new Error("nothing drawn")
-  render(<ChatItemView item={item} working={false} botName="reporter" />)
+  const items = chatItems(chatReducer(emptyChat, { type: "message", message }))
+  if (items.length === 0) throw new Error("nothing drawn")
+  render(
+    <>
+      {items.map((item) => (
+        <ChatItemView key={item.key} item={item} working={false} botName="reporter" />
+      ))}
+    </>,
+  )
 }
 
 // link is the Files panel's download of a file of the Bot's folder, after the client's base address.
@@ -38,7 +47,7 @@ const link = (path: string) =>
 // The lines are read by the rules a Channel reads them by (internal/controlplane/channels/media.go).
 describe("mediaOf", () => {
   test("takes MEDIA: lines out, in any case, and keeps the text around them", () => {
-    expect(mediaOf("Here it is.\nMEDIA:out/a.xlsx\n  media: `out/b.zip`\nTell me.")).toEqual({
+    expect(mediaOf("Here it is.\nMEDIA:out/a.xlsx\n  media: `out/b.zip`\nTell me.")).toMatchObject({
       shown: "Here it is.\nTell me.",
       paths: ["out/a.xlsx", "out/b.zip"],
     })
@@ -46,12 +55,12 @@ describe("mediaOf", () => {
 
   test("leaves a line in a fenced code block as text", () => {
     const text = "Write:\n```\nMEDIA:out/a.xlsx\n```\n~~~\nMEDIA:out/b.xlsx\n~~~"
-    expect(mediaOf(text)).toEqual({ shown: text, paths: [] })
+    expect(mediaOf(text)).toMatchObject({ shown: text, paths: [] })
   })
 
   test("leaves MEDIA: in the middle of a line as text", () => {
     const text = "Put MEDIA:out/a.xlsx on its own line."
-    expect(mediaOf(text)).toEqual({ shown: text, paths: [] })
+    expect(mediaOf(text)).toMatchObject({ shown: text, paths: [] })
   })
 
   test("cleans the quotes, brackets and file:// a model wraps a path in", () => {
@@ -59,8 +68,17 @@ describe("mediaOf", () => {
     expect(mediaOf("MEDIA:<out/a.xlsx>,").paths).toEqual(["out/a.xlsx"])
   })
 
+  test("a fence open where the text starts goes on, and the fence open at its end is returned", () => {
+    expect(mediaOf("MEDIA:out/a.xlsx\n```", "```")).toEqual({
+      shown: "MEDIA:out/a.xlsx\n```",
+      paths: [],
+      fence: "",
+    })
+    expect(mediaOf("Example:\n~~~").fence).toBe("~~~")
+  })
+
   test("drops an empty MEDIA: line without a file", () => {
-    expect(mediaOf("Done.\nMEDIA:  ")).toEqual({ shown: "Done.", paths: [] })
+    expect(mediaOf("Done.\nMEDIA:  ")).toMatchObject({ shown: "Done.", paths: [] })
   })
 })
 
@@ -92,6 +110,14 @@ describe("a reply's files", () => {
 
     expect(screen.queryByRole("list", { name: "Files" })).not.toBeInTheDocument()
     expect(screen.getByText(/MEDIA:out\/a\.xlsx/)).toBeInTheDocument()
+  })
+
+  test("a line in a fence another text part of the message opened stays text", () => {
+    reply(["Example:\n```", "MEDIA:out/sample.xlsx\n```", "MEDIA:out/real.xlsx"])
+
+    const files = within(screen.getByRole("list", { name: "Files" })).getAllByRole("link")
+    expect(files.map((a) => a.getAttribute("href"))).toEqual([link("out/real.xlsx")])
+    expect(screen.getByText(/MEDIA:out\/sample\.xlsx/)).toBeInTheDocument()
   })
 
   test("a file the server refuses says the server's message", async () => {

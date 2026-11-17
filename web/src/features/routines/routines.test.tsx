@@ -270,6 +270,7 @@ function open(path: string) {
             runId="rrn_7"
             text={'Routine "brief" ran (rrn_7):\n\nTwo pull requests were merged overnight.'}
             createdAt={minutes(-5)}
+            chat="cht_1"
           />
         </>
       ),
@@ -547,6 +548,29 @@ test("a chat's Routine cards undo the Bot's setup and open a run", async () => {
   expect(changes(calls)).toContainEqual(
     expect.objectContaining({ call: "POST /routines/rtn_brief/undo" }),
   )
+})
+
+// A run's report that names a file with a MEDIA: line (issue #699): the line leaves the report shown, and the file
+// is a download from the Bot's folder of the chat the run worked in.
+test("a run's report gives its MEDIA: files as downloads", async () => {
+  server([routine("rtn_brief", { kind: "prompt", chat_id: "cht_1" })], {
+    runs: [
+      run("rrn_7", {
+        routine_id: "rtn_brief",
+        chat_id: "cht_run",
+        output: "Two pull requests.\nMEDIA:out/brief.xlsx",
+      }),
+    ],
+  })
+  open("/cards")
+
+  const card = await screen.findByRole("region", { name: "brief: Done" })
+  const file = await within(card).findByRole("link", { name: "Download brief.xlsx" })
+  expect(file.getAttribute("href")).toMatch(
+    /\/chats\/cht_run\/workspaces\/bot\/raw\?path=out%2Fbrief\.xlsx$/,
+  )
+  expect(card).toHaveTextContent("Two pull requests.")
+  expect(card).not.toHaveTextContent("MEDIA:")
 })
 
 // The conversation puts a setup's card among the messages at the moment it was made, and a result's part as the
