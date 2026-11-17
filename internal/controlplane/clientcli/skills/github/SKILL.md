@@ -52,9 +52,9 @@ gh api repos/OWNER/REPO/contents/README.md --jq '.content' | base64 -d
 
 ## Writing waits for the owner
 
-- Opening an issue, commenting, opening a pull request, writing a file or a branch, and anything the control plane
-  does not name (merge, close, labels, rerun, workflow dispatch) waits for the owner's approval: the command answers
-  that it waits and was not run. Say so in one line and end your turn; run the same command again, unchanged, once
+- Reading runs. Anything that changes or deletes (opening an issue, commenting, opening or merging a pull request,
+  turning auto-merge on, writing a file or a branch, closing, labels, a rerun, a workflow dispatch) waits for the
+  owner's approval unless he allowed it: the command answers that it waits and was not run. Say so in one line and end your turn; run the same command again, unchanged, once
   he approves.
 - Write only what the owner asked for in this chat. Use `--body-file` for a body with backticks or code.
 - A `403` or `Resource not accessible` means the account's token does not reach that repository or action: report

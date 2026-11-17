@@ -468,3 +468,54 @@ func (q *Queries) SetRemindAt(ctx context.Context, arg SetRemindAtParams) error 
 	_, err := q.db.ExecContext(ctx, setRemindAt, arg.Now, arg.RemindAt, arg.ID)
 	return err
 }
+
+const supersedeOpenGatesOfTask = `-- name: SupersedeOpenGatesOfTask :many
+UPDATE questions SET updated_at = ?1, status = 'canceled', cancel_reason = 'superseded', remind_at = NULL
+WHERE task_id = ?2 AND mode = 'gate' AND status = 'open'
+RETURNING id, task_id, run_id, dispatch_id, mode, addressed_to
+`
+
+type SupersedeOpenGatesOfTaskParams struct {
+	Now    int64
+	TaskID string
+}
+
+type SupersedeOpenGatesOfTaskRow struct {
+	ID          string
+	TaskID      string
+	RunID       string
+	DispatchID  string
+	Mode        string
+	AddressedTo string
+}
+
+// A follow-up replaces the Task's open Gate (issue #714).
+func (q *Queries) SupersedeOpenGatesOfTask(ctx context.Context, arg SupersedeOpenGatesOfTaskParams) ([]SupersedeOpenGatesOfTaskRow, error) {
+	rows, err := q.db.QueryContext(ctx, supersedeOpenGatesOfTask, arg.Now, arg.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SupersedeOpenGatesOfTaskRow{}
+	for rows.Next() {
+		var i SupersedeOpenGatesOfTaskRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.RunID,
+			&i.DispatchID,
+			&i.Mode,
+			&i.AddressedTo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

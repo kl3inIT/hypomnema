@@ -105,7 +105,8 @@ func TestPromptCarriesTheFollowUp(t *testing.T) {
 	d.Accepted = &nodeproto.Accepted{Epoch: 1, FollowUp: "  The review found: the button has no test.\n"}
 
 	p := Prompt(d)
-	assert.Contains(t, p, "You finished this task before, and more is asked of it now:\n"+
+	assert.Contains(t, p, "You called `finish` on this task before, and more is asked of it now (this replaces "+
+		"the answer to any question you asked at `finish`):\n"+
 		"The review found: the button has no test.\n"+
 		"Continue in this worktree and on this branch; update the same pull request, then call `finish` again.\n")
 	assert.Contains(t, p, "Task (implementer):\nadd the Google login button", "the spec is still given")
@@ -153,7 +154,8 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 	// The decision boundary the owner set (issue #672): what the worker decides itself, then what it asks first.
 	assert.Contains(t, p, "Decide yourself, within what the task and your instructions allow")
 	assert.Contains(t, p, "Ask first, with the `ask` tool, and wait for the answer: before changing the task's scope, "+
-		"merging, deploying or changing a server")
+		"deploying or changing a server", "merging is not asked: auto-merge is turned on (issue #714)")
+	assert.Contains(t, p, "turning on its auto-merge as said below. Never merge it directly.")
 	assert.NotContains(t, p, "When a decision is not yours to make")
 
 	order := []string{
@@ -164,4 +166,72 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 		assert.Greater(t, strings.Index(p, order[i]), strings.Index(p, order[i-1]),
 			"%q comes after %q", order[i], order[i-1])
 	}
+}
+
+// Scenario: the worker's pull request merges by itself once green (issue
+// #714). On GitHub it checks, read-only, that the repository allows
+// auto-merge and that the base branch requires a check, by ruleset or branch
+// protection; a draft stays open; a conflict is resolved by merging the base;
+// auto-merge is pinned to the pushed commit; it waits for the required checks
+// and no longer. A repository lacking a setting gets the pull request left
+// open, with what it lacks said first, and no gate. A task that says a review
+// comes first or to ask before merging skips it. GitLab has its own commands
+// and waits for a pipeline; a Task without a repository has none of this.
+func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	assert.NotContains(t, Prompt(d), "auto-merge on", "no repository, no pull request")
+
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	p := Prompt(d)
+
+	for _, want := range []string{
+		"never merge it directly",
+		"When the task says a review comes first, that the owner merges, or to ask before merging, skip this",
+		"`gh api --hostname github.com repos/kl3inIT/second-bite --jq .allow_auto_merge`: prints true",
+		"`gh api --hostname github.com repos/kl3inIT/second-bite/rules/branches/main` and " +
+			"`gh api --hostname github.com repos/kl3inIT/second-bite/branches/main/protection/required_status_checks`: " +
+			"the first lists a rule of type required_status_checks",
+		"if one does not hold, do not turn auto-merge on and do not merge: leave the pull request open and say " +
+			"in the summary's first line what the repository lacks (\"auto-merge is off in the repository's " +
+			"settings\" or \"no required check on main\")",
+		"do not open a gate only to ask whether to merge",
+		"`gh pr view <url> --json isDraft,mergeStateStatus`. A draft (isDraft is true) is left open",
+		"On a conflict (mergeStateStatus is DIRTY), merge main into your branch, resolve it keeping the intent " +
+			"of both sides, run the repository's checks again and push",
+		"`gh pr merge <url> --auto --merge --match-head-commit <sha>`, where <sha> is the commit you pushed",
+		"`gh pr checks <url> --required --watch`; fix a red one at its cause and push",
+		"Once they are green, call `finish` without waiting longer",
+	} {
+		assert.Contains(t, p, want)
+	}
+
+	assert.Less(t, strings.Index(p, "gh pr create"), strings.Index(p, "gh pr merge"),
+		"auto-merge follows the pull request it is for")
+	assert.Less(t, strings.Index(p, "gh pr merge"), strings.Index(p, "Task (implementer):"),
+		"the task's own word on merging, after the rules, wins")
+
+	// The offer names the repository by its path and the host apart (orchestration's Offer, connect.go), as
+	// the control plane sends it; a GitLab subgroup has more than two names.
+	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "team/platform/api", "gitlab.company.example", "gitlab"
+	p = Prompt(d)
+
+	for _, want := range []string{
+		"`glab api projects/team%2Fplatform%2Fapi`: has only_allow_merge_if_pipeline_succeeds: true",
+		"\"\"Pipelines must succeed\" is off in the project's settings\"",
+		"Before step 3, check that its pipeline is not null",
+		"`glab mr merge <iid> --auto-merge --yes --sha <sha>`",
+		"`glab ci status --live --branch hyp/tsk_1`",
+	} {
+		assert.Contains(t, p, want)
+	}
+
+	assert.NotContains(t, p, "gh pr merge")
+
+	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "kl3inIT/second-bite", "github.example.com", "github"
+	assert.Contains(t, Prompt(d),
+		"`gh api --hostname github.example.com repos/kl3inIT/second-bite --jq .allow_auto_merge`",
+		"a GitHub Enterprise host is named apart too")
 }

@@ -112,11 +112,8 @@ func tools() []map[string]any {
 				"type": "object",
 				"properties": map[string]any{
 					"question": map[string]any{"type": "string", "description": "The question, with what is needed to answer it."},
-					"options": map[string]any{
-						"type": "array", "items": map[string]any{"type": "string"},
-						"description": "Choices to pick from; leave empty for a free answer.",
-					},
-					"to": map[string]any{"type": "string", "enum": []string{"owner", "coordinator"}, "default": "owner"},
+					"options":  optionsSchema("Choices to pick from; leave empty for a free answer. " + optionsHelp),
+					"to":       map[string]any{"type": "string", "enum": []string{"owner", "coordinator"}, "default": "owner"},
 				},
 				"required": []string{"question"},
 			},
@@ -142,10 +139,10 @@ func tools() []map[string]any {
 					},
 					"gate": map[string]any{
 						"type":        "object",
-						"description": "A decision the owner must make before the task can go on, such as whether to merge.",
+						"description": "A decision the owner must make before the task can go on, such as a choice between designs.",
 						"properties": map[string]any{
 							"question": map[string]any{"type": "string"},
-							"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+							"options":  optionsSchema("Choices to pick from. " + optionsHelp),
 						},
 						"required": []string{"question"},
 					},
@@ -207,22 +204,92 @@ func (s *server) workFolder() (string, error) {
 	return dir, nil
 }
 
-func options(labels []string) []nodeproto.Option {
-	out := make([]nodeproto.Option, 0, len(labels))
-	for _, l := range labels {
-		if l = strings.TrimSpace(l); l != "" {
-			out = append(out, nodeproto.Option{Label: l})
+// optionsHelp says how an option takes text (issue #714, decision 8).
+const optionsHelp = "An option is its label, or {label, allows_text} when the answer may add text to it " +
+	"(such as \"Change first\", with what to change). At most 9: a last option \"Other\", with text, is added."
+
+// optionsSchema is the schema of a question's options: a label, or a label
+// with allows_text, so that a plain string, which workers sent before issue
+// #714, is still accepted.
+func optionsSchema(description string) map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{"anyOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"label":       map[string]any{"type": "string"},
+					"allows_text": map[string]any{"type": "boolean"},
+				},
+				"required": []string{"label"},
+			},
+		}},
+		"description": description,
+	}
+}
+
+// option is one choice as the worker gives it: a label, or a label with
+// allows_text.
+type option nodeproto.Option
+
+func (o *option) UnmarshalJSON(b []byte) error {
+	var label string
+	if err := json.Unmarshal(b, &label); err == nil {
+		*o = option{Label: label}
+
+		return nil
+	}
+
+	var full nodeproto.Option
+	if err := json.Unmarshal(b, &full); err != nil {
+		return fmt.Errorf("an option is a label or {label, allows_text}: %w", err)
+	}
+
+	*o = option(full)
+
+	return nil
+}
+
+// otherLabel is the last option of every question with options, which takes
+// text: Omnara adds "Other" with AllowsText to every question
+// (interaction_tools.go:66-72).
+const otherLabel = "Other"
+
+// maxOptions is the control plane's MaxOptions, "Other" included.
+const maxOptions = 10
+
+// options keeps the options that have a label, each with its AllowsText, and
+// ends them with "Other", which takes text (issue #714, decision 8): added
+// when the worker gave none, moved last and made to take text when it gave
+// one. A question with more options than fit beside "Other" is refused, so
+// the worker cuts one, rather than one of them, or "Other", being dropped.
+func options(given []option) ([]nodeproto.Option, error) {
+	out := make([]nodeproto.Option, 0, len(given)+1)
+
+	for _, o := range given {
+		if o.Label = strings.TrimSpace(o.Label); o.Label != "" && !strings.EqualFold(o.Label, otherLabel) {
+			out = append(out, nodeproto.Option(o))
 		}
 	}
 
-	return out
+	if len(out) == 0 {
+		return nil, nil
+	}
+
+	if len(out) > maxOptions-1 {
+		return nil, fmt.Errorf("a question offers at most %d options, then \"Other\" with text; give fewer",
+			maxOptions-1)
+	}
+
+	return append(out, nodeproto.Option{Label: otherLabel, AllowsText: true}), nil
 }
 
 func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int, message string),
 ) (map[string]any, error) {
 	var a struct {
 		Question string   `json:"question"`
-		Options  []string `json:"options"`
+		Options  []option `json:"options"`
 		To       string   `json:"to"`
 	}
 
@@ -234,7 +301,12 @@ func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int
 		a.To = "owner"
 	}
 
-	seq, err := bridge.Ask(s.dir, nodeproto.Ask{Text: a.Question, Options: options(a.Options), To: a.To})
+	opts, err := options(a.Options)
+	if err != nil {
+		return nil, err
+	}
+
+	seq, err := bridge.Ask(s.dir, nodeproto.Ask{Text: a.Question, Options: opts, To: a.To})
 	if err != nil {
 		return nil, fmt.Errorf("recording the question: %w", err)
 	}
@@ -273,7 +345,7 @@ func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
 		Evidence []nodeproto.Evidence `json:"evidence"`
 		Gate     *struct {
 			Question string   `json:"question"`
-			Options  []string `json:"options"`
+			Options  []option `json:"options"`
 		} `json:"gate"`
 	}
 
@@ -283,7 +355,12 @@ func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
 
 	final := bridge.Final{Summary: f.Summary, Evidence: f.Evidence}
 	if f.Gate != nil && strings.TrimSpace(f.Gate.Question) != "" {
-		final.Gate = &nodeproto.Ask{Text: f.Gate.Question, Options: options(f.Gate.Options), To: "owner"}
+		opts, err := options(f.Gate.Options)
+		if err != nil {
+			return nil, err
+		}
+
+		final.Gate = &nodeproto.Ask{Text: f.Gate.Question, Options: opts, To: "owner"}
 	}
 
 	if err := bridge.Finish(s.dir, final); err != nil {

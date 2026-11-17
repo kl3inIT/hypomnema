@@ -62,11 +62,12 @@ VALUES (@id, @chat_id, @kind, @name, @action, @before, @after, @now);
 SELECT * FROM setup_changes WHERE id = @id;
 
 -- name: ListSetupChangesOfChat :many
-SELECT * FROM setup_changes WHERE chat_id = @chat_id ORDER BY created_at, id;
+-- In the order they were made: rowid orders the changes made in one millisecond, whose ids are random (issue #758).
+SELECT * FROM setup_changes WHERE chat_id = @chat_id ORDER BY created_at, rowid;
 
 -- name: LastSetupChangeOf :one
 -- The newest change of a Bot or a profile: an undo applies to that one only.
-SELECT * FROM setup_changes WHERE kind = @kind AND name = @name ORDER BY created_at DESC, id DESC LIMIT 1;
+SELECT * FROM setup_changes WHERE kind = @kind AND name = @name ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
 -- name: MarkSetupChangeUndone :exec
 UPDATE setup_changes SET undone_at = @now WHERE id = @id AND undone_at IS NULL;
