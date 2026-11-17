@@ -39,6 +39,8 @@ type subject struct {
 	People   []string
 	Language string
 	Format   Format
+	// Names are the dictionary: names and jargon to write exactly as spelled there.
+	Names []string
 }
 
 // languageName names the language the notes are written in.
@@ -145,6 +147,13 @@ func transcript(s subject, lines []meetingstore.Line, shown map[string]string) s
 
 	if len(s.People) > 0 {
 		b.WriteString("Participants: " + strings.Join(s.People, ", ") + "\n")
+	}
+
+	if len(s.Names) > 0 {
+		// The dictionary, as Hyprnote appends its Preferred Names to the notes prompt
+		// (store/zustand/ai-task/task-configs/preferred-names.ts): speech recognition may still spell them otherwise.
+		b.WriteString("Names and terms, written exactly so wherever they appear, even when the transcript spells " +
+			"them otherwise: " + strings.Join(s.Names, ", ") + "\n")
 	}
 
 	var body strings.Builder

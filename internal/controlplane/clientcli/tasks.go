@@ -168,7 +168,8 @@ func tasksReopen(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printf("task %s is %s\n", resp.JSON200.Id, resp.JSON200.Status) })
 }
 
-// tasksFollowUp asks more of a succeeded Task's worker (issue #666), as the
+// tasksFollowUp asks more of the worker of a Task that succeeded or waits at a
+// Gate (issues #666, #714), as the
 // token's holder: the owner, or the Run's coordinator.
 func tasksFollowUp(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	note := strings.Join(fs.Args()[1:], " ")

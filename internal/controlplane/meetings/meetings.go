@@ -547,9 +547,16 @@ func (s *Service) writeNotes(ctx context.Context, id string) {
 		shown[sp.Label] = sp.Shown()
 	}
 
+	names, err := s.sentWords(ctx)
+	if err != nil {
+		s.failed(ctx, "reading the dictionary", id, err)
+
+		return
+	}
+
 	body, err := request(set.NotesModel, subject{
 		Title: d.Meeting.Title, Titled: d.Meeting.Titled, When: d.Meeting.CreatedAt, People: d.Meeting.People,
-		Language: d.Meeting.Language, Format: format,
+		Language: d.Meeting.Language, Format: format, Names: names,
 	}, d.Lines, shown)
 	if err != nil {
 		s.failed(ctx, "asking for notes", id, err)

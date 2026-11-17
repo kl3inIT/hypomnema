@@ -38,7 +38,7 @@ import { useMeetingSettings, useUploadMeeting } from "./use-meetings"
 // UploadMeeting is the "Upload recording" button and its dialog (issue #721): the file and its language, as
 // Fireflies, Meetily and Nojoin ask; then, behind one "More details" control as Nojoin and MemoryOS keep them, the
 // title (written from the meeting when empty), the people and the notes format (Otter, Hyprnote). The words to hear
-// right are not asked here: they are one list on Settings → Meetings, given to every recording (issue #747, as
+// right are not asked here: they are one list on Settings → Dictionary, given to every recording (issue #747, as
 // Nojoin's glossary and OpenNoteTaker's key terms are set once). The meeting's page opens once it is sent.
 
 const schema = z.object({
@@ -241,12 +241,12 @@ function Body({ onDone }: { onDone: () => void }) {
               </div>
             </Collapsible>
             <p className="text-xs text-muted-foreground">
-              Names and jargon are heard right from your words on{" "}
+              Names and jargon are heard right from your{" "}
               <Link
-                to="/settings/meetings"
+                to="/settings/dictionary"
                 className="underline underline-offset-2 hover:text-foreground"
               >
-                Settings → Meetings
+                Dictionary
               </Link>
               .
             </p>
