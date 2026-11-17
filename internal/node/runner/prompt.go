@@ -19,11 +19,17 @@ const recoveryNote = "Your previous attempt at this task was interrupted and its
 // for every worker (Orca's preamble forbids AskUserQuestion and subagents and
 // requires worker_done exactly once).
 const rules = "\nRules:\n" +
-	// Issue #672 planned a decision boundary in place of this line: what a worker decides itself and what needs
-	// `ask` (GPT-5.6 Sol's prompt guidance, "Require confirmation for external writes, destructive actions ... or a
-	// material expansion of scope"; OpenClaw's template "Do freely / Ask first", docs/reference/templates/AGENTS.md
-	// L19-23). Its list waits for the owner's yes; until then the line stays as it was.
-	"- When a decision is not yours to make, call the `ask` tool and wait for the answer. " +
+	// Issue #672: one decision boundary, stated once, in place of "when a decision is not yours to make": what a
+	// worker decides itself and what needs `ask` (GPT-5.6 Sol's prompt guidance, "Require confirmation for external
+	// writes, destructive actions ... or a material expansion of scope"; OpenAI's GPT-6 guide, "replacing blanket
+	// 'always ask' rules with clear boundaries"; OpenClaw's template "Do freely / Ask first",
+	// docs/reference/templates/AGENTS.md L19-23). The list is the owner's (2026-11-17). "Within what the task and
+	// your instructions allow" keeps an explorer's or a reviewer's own instruction, which changes nothing.
+	"- Decide yourself, within what the task and your instructions allow: how to build it and where the code " +
+	"goes, which tests to add or change, running the repository's checks, committing and pushing your branch, " +
+	"opening or updating this task's pull request. Ask first, with the `ask` tool, and wait for the answer: " +
+	"before changing the task's scope, merging, deploying or changing a server, deleting what your change did " +
+	"not make, or acting outside this directory and this task's pull request. " +
 	"Never use AskUserQuestion; no one reads it.\n" +
 	// Issue #672: Orca's worker "needs no progress updates unless the task asks"
 	// (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts:71-73); omp's subagent, "No TODO
