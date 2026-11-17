@@ -26,8 +26,11 @@ import (
 const (
 	// SetupFile is the file at a repository's root that declares the script.
 	SetupFile = "hypomnema.yaml"
-	// setupTimeout is how long the script may run (Orca: HOOK_TIMEOUT).
-	setupTimeout = 120 * time.Second
+	// setupTimeout is how long the script may run. Orca's HOOK_TIMEOUT is two
+	// minutes, for a hook on a machine a person set up; on a bare node this
+	// repository's script installs Go, Node and pnpm first, which took 90
+	// seconds on one (issue #718), so a slower link gets more.
+	setupTimeout = 5 * time.Minute
 	// setupOutputKept is how much of the end of the script's output is logged
 	// when it fails.
 	setupOutputKept = 4 << 10
