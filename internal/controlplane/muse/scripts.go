@@ -71,7 +71,7 @@ const softNewThread = `(() => {
   return true;
 })()`
 
-// composerRect is the centre of the composer, or null (czg's engine.py:1131-1141).
+// composerRect is the center of the composer, or null (czg's engine.py:1131-1141).
 var composerRect = fmt.Sprintf(`(() => {
   const t = document.querySelector(%s);
   if (!t) return null;
@@ -159,7 +159,10 @@ var readAnswer = fmt.Sprintf(`(() => {
   const b = answers[answers.length - 1];
   const links = [], media = [], seen = new Set();
   b.querySelectorAll('a[href]').forEach(a => {
-    if (/^https?:/i.test(a.href) && !seen.has(a.href)) { seen.add(a.href); links.push({url: a.href, text: (a.innerText || '').trim().slice(0, 300)}); }
+    if (/^https?:/i.test(a.href) && !seen.has(a.href)) {
+      seen.add(a.href);
+      links.push({url: a.href, text: (a.innerText || '').trim().slice(0, 300)});
+    }
   });
   b.querySelectorAll('img, video, source').forEach(m => {
     const u = m.currentSrc || m.src || '';
@@ -198,7 +201,8 @@ var (
 	settingsEntry = fmt.Sprintf(`(() => {
   const visible = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const b = [...document.querySelectorAll(%s)].find(visible)
-    || [...document.querySelectorAll('button,[role=button]')].find(e => visible(e) && (e.getAttribute('aria-label') || '').trim() === 'Settings');
+    || [...document.querySelectorAll('button,[role=button]')]
+      .find(e => visible(e) && (e.getAttribute('aria-label') || '').trim() === 'Settings');
   if (!b) return null;
   const r = b.getBoundingClientRect();
   return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
@@ -206,13 +210,15 @@ var (
 	settingsItem = `(() => {
   const visible = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const exact = e => (e.textContent || '').trim() === 'Settings';
-  const b = [...document.querySelectorAll('[role=menuitem]')].find(e => visible(e) && (exact(e) || [...e.querySelectorAll('span,div')].some(exact)));
+  const b = [...document.querySelectorAll('[role=menuitem]')]
+    .find(e => visible(e) && (exact(e) || [...e.querySelectorAll('span,div')].some(exact)));
   if (!b) return null;
   const r = b.getBoundingClientRect();
   return {x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2)};
 })()`
 	dialogText = fmt.Sprintf(`(() => {
-  const d = [...document.querySelectorAll(%s)].find(e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden');
+  const d = [...document.querySelectorAll(%s)]
+    .find(e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden');
   return d ? (d.innerText || '') : '';
 })()`, q(selDialog))
 )

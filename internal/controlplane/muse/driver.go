@@ -45,8 +45,8 @@ var (
 	ErrSendFailed     = errors.New("the prompt could not be sent")
 	ErrInterrupted    = errors.New("interrupted by the owner, who took the browser")
 	ErrUnknown        = errors.New("the prompt was sent and its result is unknown")
-	ErrAsksPermission = errors.New("Muse asks for permission")
-	ErrAnswerError    = errors.New("Muse answered with an error")
+	ErrAsksPermission = errors.New("muse asks for permission")
+	ErrAnswerError    = errors.New("muse answered with an error")
 )
 
 // timings are how long each wait lasts.
@@ -106,7 +106,8 @@ type answer struct {
 	Error string
 }
 
-var threadPattern = regexp.MustCompile(`^/thread/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/?$`)
+var threadPattern = regexp.MustCompile(
+	`^/thread/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/?$`)
 
 // ThreadID is the id of a thread's path or address; empty when it is none.
 func ThreadID(s string) string {

@@ -3,7 +3,6 @@ package muse
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -335,7 +334,7 @@ type pool struct {
 
 func secretName(id string) string { return "muse-" + id }
 
-// newPool is a pool with accounts labelled as given, in that order, each
+// newPool is a pool with accounts labeled as given, in that order, each
 // signed in.
 func newPool(t *testing.T, labels ...string) *pool {
 	t.Helper()
@@ -610,11 +609,17 @@ func TestAUsageReadWaitsForTheQuestion(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		p.ask(t, "")
+		_, err := p.Ask(t.Context(), Question{Prompt: "hello"})
+		assert.NoError(t, err)
 	}()
 
-	for p.browser.site("acc_1").shown == 0 && !p.browser.site("acc_1").sent {
+	first := p.browser.site("acc_1")
+
+	for sent := false; !sent; {
 		time.Sleep(time.Millisecond)
+		first.mu.Lock()
+		sent = first.sent
+		first.mu.Unlock()
 	}
 
 	p.clock.add(7 * time.Hour)
@@ -799,5 +804,5 @@ func TestABadQuestionIsRefused(t *testing.T) {
 	_, err := p.Ask(t.Context(), Question{Prompt: "x"})
 	require.ErrorIs(t, err, ErrNoAccount)
 	assert.Contains(t, err.Error(), "no Muse account was added")
-	assert.False(t, errors.Is(err, ErrInvalid))
+	assert.NotErrorIs(t, err, ErrInvalid)
 }

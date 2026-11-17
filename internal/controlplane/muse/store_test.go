@@ -39,7 +39,8 @@ func TestQuestionsAreKeptAndSearched(t *testing.T) {
 	ctx := t.Context()
 	at := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
 
-	_, err := s.keep(ctx, Asked{Account: "acc_1", Thread: aThread, Agent: "worker dsp_1", Prompt: "Who makes rice cookers?",
+	_, err := s.keep(ctx, Asked{
+		Account: "acc_1", Thread: aThread, Agent: "worker dsp_1", Prompt: "Who makes rice cookers?",
 		Answer: "Several makers [1]", Links: []Link{{URL: "https://example.com"}}, Outcome: OutcomeAnswered,
 		Files: []File{{URL: "https://muse.ai/files/x.png", Path: "/m/x.png", Size: 3}}, At: at, Finished: at})
 	require.NoError(t, err)
@@ -54,7 +55,8 @@ func TestQuestionsAreKeptAndSearched(t *testing.T) {
 	chats, err := s.chats(ctx, "", 0)
 	require.NoError(t, err)
 	require.Len(t, chats, 1, "a question with no thread is no chat")
-	assert.Equal(t, Chat{Thread: aThread, Account: "acc_1", Asks: 2, Last: "And in Vietnam?", At: at.Add(time.Minute)}, chats[0])
+	assert.Equal(t,
+		Chat{Thread: aThread, Account: "acc_1", Asks: 2, Last: "And in Vietnam?", At: at.Add(time.Minute)}, chats[0])
 
 	found, err := s.chats(ctx, `rice "cookers`, 0)
 	require.NoError(t, err)

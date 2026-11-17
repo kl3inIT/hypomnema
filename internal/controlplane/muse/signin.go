@@ -97,7 +97,8 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 	if again.ID != "" {
 		// A sign-in is the newest jar: it replaces whatever version is there, and the context made from the
 		// old one is closed.
-		if _, err := s.cfg.Secrets.Rotate(ctx, s.cfg.SecretName(again.ID), vault.Payload{vault.KeyValue: string(raw)}); err != nil {
+		_, err := s.cfg.Secrets.Rotate(ctx, s.cfg.SecretName(again.ID), vault.Payload{vault.KeyValue: string(raw)})
+		if err != nil {
 			return SignIn{}, err
 		}
 
@@ -188,7 +189,7 @@ func checkSignIn(ctx context.Context, client *http.Client, site string, cookies 
 	req.Header.Set("Content-Type", "application/json")
 
 	for _, c := range cookies {
-		req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+		req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value}) //nolint:gosec // A request header, not a cookie set.
 	}
 
 	resp, err := client.Do(req)

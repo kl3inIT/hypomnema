@@ -154,7 +154,7 @@ func (m *media) fetch(ctx context.Context, address string, cookies []browser.Coo
 
 	if host := u.Hostname(); host == "muse.ai" || strings.HasSuffix(host, ".muse.ai") {
 		for _, c := range cookies {
-			req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+			req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value}) //nolint:gosec // A request header, not a cookie set.
 		}
 	}
 

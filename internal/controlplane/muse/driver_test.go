@@ -297,7 +297,7 @@ func TestAnAnswerThatNeverEndsMeetsTheDeadline(t *testing.T) {
 	assert.True(t, sent)
 }
 
-// The caller's cancelling ends the wait; what was sent is unknown.
+// The caller's canceling ends the wait; what was sent is unknown.
 func TestTheCallerCancelling(t *testing.T) {
 	t.Parallel()
 
@@ -443,15 +443,17 @@ func TestSlowHydrationIsWaitedFor(t *testing.T) {
 func TestTheAccountsCheck(t *testing.T) {
 	t.Parallel()
 
+	signed := map[string]any{"status": 200, "ok": true, "viewer": "v1"}
+
 	for _, c := range []struct {
 		auth, session map[string]any
 		want          error
 	}{
 		{map[string]any{"status": 401}, nil, ErrNeedsSignIn},
 		{map[string]any{"status": 403}, nil, ErrRefused},
-		{map[string]any{"status": 200, "ok": true, "viewer": "v1"}, map[string]any{"status": 200, "session": "pending"}, ErrWorkspace},
-		{map[string]any{"status": 200, "ok": true, "viewer": "v1"}, map[string]any{"status": 200, "session": "assigned", "vm": "STOPPED"}, ErrWorkspace},
-		{map[string]any{"status": 200, "ok": true, "viewer": "v1"}, map[string]any{"status": 200, "session": "assigned", "vm": "RUNNING"}, nil},
+		{signed, map[string]any{"status": 200, "session": "pending"}, ErrWorkspace},
+		{signed, map[string]any{"status": 200, "session": "assigned", "vm": "STOPPED"}, ErrWorkspace},
+		{signed, map[string]any{"status": 200, "session": "assigned", "vm": "RUNNING"}, nil},
 	} {
 		m := site()
 		m.auth, m.session = c.auth, c.session
@@ -479,7 +481,8 @@ func TestUsageIsReadFromSettings(t *testing.T) {
 
 	u, err := newDriver(page).usage(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, Usage{Plan: "Free plan", UsedPercent: 62, Reset: "Sep 30", ExtraLeft: "2B tokens left", Found: true}, u)
+	assert.Equal(t,
+		Usage{Plan: "Free plan", UsedPercent: 62, Reset: "Sep 30", ExtraLeft: "2B tokens left", Found: true}, u)
 	assert.Equal(t, "62% used · resets Sep 30", u.Text())
 	assert.True(t, u.Room())
 }

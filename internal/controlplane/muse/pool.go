@@ -41,10 +41,8 @@ const (
 
 // requiredCookies make a signed-in session; optionalCookies are kept when
 // there (www's upstream/muse.py:27-31).
-var (
-	requiredCookies = []string{"hatch_sess", "hatch_native_auth_device"}
-	optionalCookies = []string{"hatch_gw", "hatch_vml"}
-)
+// The optional ones are kept as every other muse.ai cookie is (museCookies).
+var requiredCookies = []string{"hatch_sess", "hatch_native_auth_device"}
 
 // Errors of the pool, said to the caller as they are.
 var (
