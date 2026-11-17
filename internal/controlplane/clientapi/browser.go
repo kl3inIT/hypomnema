@@ -149,6 +149,9 @@ func (s *Server) GetBrowser(ctx context.Context, _ openapi.GetBrowserRequestObje
 // and its chat, is that chat's.
 func (s *Server) browserTab(ctx context.Context, t shared.Tab) openapi.BrowserTab {
 	tab := openapi.BrowserTab{Id: t.ID, Kind: openapi.BrowserTabKindToken, Url: t.URL, Title: t.Title, Views: t.Views}
+	if t.Favicon != "" {
+		tab.Favicon = &t.Favicon
+	}
 
 	switch {
 	case t.ID == shared.OwnerTab:

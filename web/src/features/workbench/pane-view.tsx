@@ -38,8 +38,17 @@ import {
 import { AgentAvatar } from "@/components/agent-avatar"
 import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBotName, useBots } from "@/features/bots/use-bots"
-import { chatTabs, ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
+import {
+  chatTabs,
+  ownerTab,
+  stripTabs,
+  tabName,
+  useBrowser,
+  whose,
+} from "@/features/browser/browser-state"
+import { BrowserStrip } from "@/features/browser/browser-strip"
 import { BrowserView } from "@/features/browser/browser-view"
+import { TabIcon } from "@/features/browser/tab-icon"
 import { ChatBody } from "@/features/chat/chat-body"
 import { hasPhone, useDevice } from "@/features/device/device-state"
 import { PhoneView } from "@/features/device/phone-view"
@@ -51,6 +60,7 @@ import { useChat } from "@/features/shell/chats"
 import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
+import { useFollowTabs } from "./follow-tabs"
 import {
   closeTab,
   frontOf,
@@ -76,7 +86,9 @@ export type Beside = { open: (tab: PaneTab) => void; has: (key: string) => boole
 // side of a pane, as Orca's are. `start` and `end` are what the place showing the pane puts at the strip's ends:
 // the menu on a phone, a grid pane's buttons. Every tab can be closed, as in Orca; a chat's own page decides where
 // it goes when its chat's tab is (./solo-pane.tsx). The phone opens beside the chat, in the pane to its right or a
-// new one split off there, as Orca opens its emulator (issue #528, `openBeside` in ./moves.ts).
+// new one split off there, as Orca opens its emulator (issue #528, `openBeside` in ./moves.ts), and so does a browser
+// tab a chat's Bot or worker just opened, or one its card in the chat asks for (issue #703). A browser tab in front
+// has a strip of the browser's tabs over it (./browser-strip.tsx).
 export function PaneView({
   id,
   pane,
@@ -116,6 +128,25 @@ export function PaneView({
   const [closing, setClosing] = useState<string | null>(null)
   const frontKey = front === undefined ? "" : tabKey(front)
   const open = (tab: PaneTab) => onChange(openTab(pane, tab))
+  // A browser tab of a chat opens beside it, or in the pane on a phone (issue #703).
+  const showTab = (tab: string) =>
+    beside ? beside.open({ kind: "browser", tab }) : open({ kind: "browser", tab })
+  useFollowTabs(browser.data?.tabs, paneChats(pane), showTab)
+  // The strip over a browser tab, and a click on it: a tab open in the pane comes in front, another takes the place
+  // of the one shown, as OpenClaw's panel shows one tab at a time.
+  const strip = stripTabs(
+    browser.data?.tabs,
+    paneChats(pane),
+    pane.tabs.flatMap((tab) => (tab.kind === "browser" ? [tab.tab] : [])),
+  )
+  const pickBrowser = (from: string, tab: string) => {
+    const key = `browser:${tab}`
+    onChange(
+      hasTab(pane, key)
+        ? { ...pane, active: key }
+        : replaceTab(pane, from, { kind: "browser", tab }),
+    )
+  }
   const newChat = (bot: string) => open({ kind: "draft", id: crypto.randomUUID().slice(0, 8), bot })
   // The Files panel shows the folders of the chat in front, or of the pane's first chat (issue #255).
   const filesOf =
@@ -205,7 +236,7 @@ export function PaneView({
                     closeLabel={`Close ${label(shown)}`}
                     {...common}
                   >
-                    <Globe className="size-3.5 shrink-0" aria-hidden />
+                    <TabIcon tab={shown} />
                     <span className="truncate">{label(shown)}</span>
                     {shown.id !== ownerTab && (
                       <span className="text-xs text-secondary-label">
@@ -314,11 +345,15 @@ export function PaneView({
             if (tab.kind === "browser") {
               return (
                 shown && (
-                  <BrowserView
-                    key={key}
-                    tab={tab.tab}
-                    label={`The page of ${label(known(tab.tab))}`}
-                  />
+                  <div key={key} className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <BrowserStrip
+                      tabs={strip}
+                      shown={tab.tab}
+                      botName={botName}
+                      onPick={(next) => pickBrowser(key, next)}
+                    />
+                    <BrowserView tab={tab.tab} label={`The page of ${label(known(tab.tab))}`} />
+                  </div>
                 )
               )
             }
@@ -369,6 +404,7 @@ export function PaneView({
                     }
                     // An artifact opens in the panel beside the chat, in the place of the Files panel (issue #402).
                     onOpenArtifact={(artifact) => onChange({ ...pane, artifact, files: false })}
+                    onOpenBrowserTab={showTab}
                   />
                 ) : (
                   <DraftChat

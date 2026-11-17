@@ -497,14 +497,27 @@ sequenceDiagram
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
     say whether it is installed and running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
-    Run), the chat it belongs to (`chat_id`, issue #557), and its address and title as Chrome's own DevTools port lists them. A tab's
+    Run), the chat it belongs to (`chat_id`, issue #557), its address and title as Chrome's own DevTools port lists them,
+    and its page's icon (`favicon`, issue #703): a `data:` address of an image of 64 KiB at most, which the
+    engine has the page read in a world of the engine's own beside the page's (`browser/favicon.go`, OpenClaw's
+    script), once per site and in the background, so that a tab has its icon from the next list on. A tab's
     chat is named whichever agent opened it: a worker's is its Run's chat, when the Run has one; a Bot's pi's
     (`b-<chat>`) is that chat, with the chat's Bot (`bot_id`); the owner's own tab, a coordinator token's and a
     worker's of a Run with no chat belong to none.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
     `GET /api/v1/browser`, read again every five seconds, whose `chat_id` is a chat of the pane, its Bot's and its
-    workers' alike, each named by its page's title with a mark of whose it is (a Bot's tab carries its Bot's name). The tab is shown as `BrowserView`, one piece that holds the address
+    workers' alike, each named by its page's title with a mark of whose it is (a Bot's tab carries its Bot's name).
+    A tab of a pane's chat that is new since the list the pane saw before opens by itself beside the chat, where
+    the phone opens (issue #528), or in the pane on a phone, once (issue #703, `workbench/follow-tabs.ts`): the
+    tabs already there when the pane is first shown are left alone, and a tab the owner closed is not opened again
+    until its agent closes it and opens a new one. A Bot's call of `agent_browser_open` shows in the chat as a
+    card under its work (`browser-tab-card.tsx`): the icon, title and address of the chat's Bot's tab as it is now,
+    and "Open the tab", which opens it there too; once the tab is closed the card names the address it opened. A
+    browser tab in front has a strip of the browser's tabs over it (`browser-strip.tsx`, as OpenClaw's
+    `PanelTabStrip`): the owner's tab, then the tabs of the pane's chats and of the chats whose tab is open in the
+    pane, each with its page's icon, title and whose it is; a click brings a tab open in the pane in front, or
+    shows another in the place of the one shown. The tab is shown as `BrowserView`, one piece that holds the address
     row, the control button and the picture. While the owner holds the browser the sidebar says so on every
     page, since every agent's browser tools wait meanwhile. It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
