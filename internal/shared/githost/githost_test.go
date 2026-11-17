@@ -243,7 +243,8 @@ func TestEachKindOfHostTurnsOnItsOwnAutoMerge(t *testing.T) {
 	m := gh.AutoMerge(Repo{GitHubHost, "kl3inIT/hypomnema"}, "main")
 
 	require.Len(t, m.Ready, 2)
-	assert.Equal(t, []string{"gh api --hostname github.com repos/kl3inIT/hypomnema --jq .allow_auto_merge"}, m.Ready[0].Commands)
+	assert.Equal(t, []string{"gh api --hostname github.com repos/kl3inIT/hypomnema --jq .allow_auto_merge"},
+		m.Ready[0].Commands)
 	assert.Equal(t, "auto-merge is off in the repository's settings", m.Ready[0].Lacks)
 	assert.Equal(t, []string{
 		"gh api --hostname github.com repos/kl3inIT/hypomnema/rules/branches/main",
