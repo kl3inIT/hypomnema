@@ -244,6 +244,8 @@ function JumpToLatest() {
 
 function statusText(card: Card) {
   if (card.question) return "Waiting for you"
+  // A cancel asked for and not yet done: the chip says so, as the line under it does (issue #687).
+  if (stopping(card.task)) return "Stopping"
 
   return {
     pending: "Waiting for the Tasks it needs",
