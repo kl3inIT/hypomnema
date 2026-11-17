@@ -3174,12 +3174,12 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
   `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
   the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
-  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, written `auto` since 00107, `state` waiting,
+  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, written `auto` since 00111, `state` waiting,
   writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
   hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
-  `meeting_formats`, the owner's notes formats, was dropped by 00107 with the formats (issue #771).
+  `meeting_formats`, the owner's notes formats, was dropped by 00111 with the formats (issue #771).
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
