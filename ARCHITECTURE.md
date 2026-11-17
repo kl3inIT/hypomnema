@@ -137,7 +137,7 @@ row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, a
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
 `agent_settled`, where the mark clears. A turn that a restart cuts continues by itself (issue #716, after Hermes's
 interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continue.py`): pi's `agent_start` marks the
-chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 105) and
+chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 109) and
 `agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
 with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
 clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
@@ -721,7 +721,7 @@ sequenceDiagram
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
   owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
-  (a restart cut the turn and it continues, or not; issue #716, migration 105); the API sends it as
+  (a restart cut the turn and it continues, or not; issue #716, migration 109); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
