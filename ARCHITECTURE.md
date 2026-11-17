@@ -3284,8 +3284,11 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
   standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only; findings that make a change incorrect are reported with an offer to send them to the change's
-  worker as a follow-up, two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  the spec only in the first round; findings that make a change incorrect are reported with an offer to send them
+  to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
+  author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
+  or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
