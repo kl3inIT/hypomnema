@@ -131,3 +131,64 @@ func TestTheOwnerUploadsAMeetingAndPlaysItBack(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.NotFound, errorCode(t, after.Body, after.StatusCode(), http.StatusNotFound))
 }
+
+// Scenario: a page uploaded as a recording, declared text/html. It is kept as application/octet-stream, and played
+// back with nosniff, a sandboxing policy and an inline disposition with its name, so that the control plane's origin
+// never renders it as a page; a real recording keeps the sound type its bytes show.
+func TestARecordingIsNeverServedAsAPage(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	work, err := meetings.New(meetings.Config{
+		Dir: filepath.Join(t.TempDir(), "meetings"), Store: w.svc.Meetings(), Speech: twoVoices{}, Models: noModel{},
+		Usage: noUsage{},
+	})
+	require.NoError(t, err)
+	w.srv.WithMeetings(work)
+
+	_, secret, err := w.svc.AddToken(ctx, "web", bearertoken.Owner)
+	require.NoError(t, err)
+
+	owner := w.client(secret)
+	page := "<html><script>alert(document.cookie)</script></html>"
+
+	up, err := owner.UploadMeetingWithBodyWithResponse(ctx, &openapi.UploadMeetingParams{
+		FileName: "x\".html", MediaType: ptr("text/html"),
+	}, "application/octet-stream", strings.NewReader(page))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, up.StatusCode(), string(up.Body))
+	assert.Equal(t, "application/octet-stream", up.JSON201.MediaType)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		w.url+BasePath+"/meetings/"+up.JSON201.Id+"/recording", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+secret)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, page, string(body))
+	assert.Equal(t, "application/octet-stream", resp.Header.Get("Content-Type"))
+	assert.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"))
+	assert.Equal(t, "sandbox; default-src 'none'", resp.Header.Get("Content-Security-Policy"))
+	assert.Equal(t, `inline; filename="x\".html"`, resp.Header.Get("Content-Disposition"))
+
+	for declared, want := range map[string]string{
+		"audio/mp4":                "audio/mp4",
+		"text/html; charset=utf-8": "audio/mpeg",
+		"":                         "audio/mpeg",
+		"video/webm; codecs=opus":  "video/webm",
+		"image/svg+xml":            "audio/mpeg",
+		"application/octet-stream": "audio/mpeg",
+	} {
+		assert.Equal(t, want, meetings.MediaType(declared, "audio/mpeg"), declared)
+	}
+
+	assert.Equal(t, "application/octet-stream", meetings.MediaType("audio/mpeg", "text/html; charset=utf-8"),
+		"a page named a sound is not one")
+}

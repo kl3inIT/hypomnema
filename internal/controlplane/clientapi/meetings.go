@@ -3,6 +3,7 @@ package clientapi
 import (
 	"context"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"slices"
@@ -186,11 +187,15 @@ func (r recordingResponse) VisitGetMeetingRecordingResponse(w http.ResponseWrite
 		}
 	}
 
-	if r.meeting.MediaType != "" {
-		w.Header().Set("Content-Type", r.meeting.MediaType)
-	}
-
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	// Shown inline for the player, never as a page of this origin: sound or video only (meetings.MediaType, read
+	// again for a row kept before the rule), nosniff and a sandboxing policy, as a workspace's /raw and an
+	// artifact's download are sent (workspaces.go rawFile, artifacts.go download).
+	h := w.Header()
+	h.Set("Content-Type", meetings.MediaType(r.meeting.MediaType, r.meeting.MediaType))
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	h.Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": r.meeting.FileName}))
+	h.Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, req, r.meeting.FileName, r.meeting.CreatedAt, r.file)
 
 	return nil

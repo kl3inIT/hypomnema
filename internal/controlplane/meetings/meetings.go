@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -141,14 +142,9 @@ func (s *Service) Upload(ctx context.Context, u Upload) (meetingstore.Meeting, e
 		return meetingstore.Meeting{}, err
 	}
 
-	mediaType := strings.TrimSpace(u.MediaType)
-	if mediaType == "" || mediaType == "application/octet-stream" {
-		mediaType = sniffed
-	}
-
 	m, err := s.cfg.Store.Create(ctx, meetingstore.NewMeeting{
 		ID: id, Title: u.Title, Language: u.Language, People: u.People, Terms: u.Terms, Format: u.Format,
-		FileName: name, MediaType: mediaType, Size: size,
+		FileName: name, MediaType: MediaType(u.MediaType, sniffed), Size: size,
 	})
 	if err != nil {
 		_ = os.Remove(s.path(id))
@@ -157,6 +153,40 @@ func (s *Service) Upload(ctx context.Context, u Upload) (meetingstore.Meeting, e
 	}
 
 	return m, nil
+}
+
+// opaque is the type of a recording that is neither sound nor video by its bytes.
+const opaque = "application/octet-stream"
+
+// MediaType is the type a recording is kept and served as: only sound or video, since the recording is served on
+// the control plane's own origin and a page there would run as the owner. The type the upload declares is kept
+// when it is audio/* or video/* and the bytes, as http.DetectContentType reads them, are not something else; the
+// type read from the bytes is kept when it is sound or video; anything else is application/octet-stream. The
+// player still plays such a file, and nothing renders it as a page.
+func MediaType(declared, sniffed string) string {
+	declared = strings.ToLower(strings.TrimSpace(declared))
+	if base, _, err := mime.ParseMediaType(declared); err == nil {
+		declared = base
+	} else {
+		declared = ""
+	}
+
+	sniffed, _, _ = strings.Cut(strings.ToLower(sniffed), ";")
+	sniffed = strings.TrimSpace(sniffed)
+
+	switch {
+	case playable(declared) && (playable(sniffed) || sniffed == opaque):
+		return declared
+	case playable(sniffed):
+		return sniffed
+	default:
+		return opaque
+	}
+}
+
+// playable is a type the player takes: sound, video, or Ogg, which http.DetectContentType names as an application.
+func playable(t string) bool {
+	return strings.HasPrefix(t, "audio/") || strings.HasPrefix(t, "video/") || t == "application/ogg"
 }
 
 // keep writes a recording to its file, refusing an empty one and one past MaxRecording, and tells its type from
