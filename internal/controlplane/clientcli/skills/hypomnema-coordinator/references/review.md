@@ -12,8 +12,9 @@ How a pull request is reviewed by another worker. Whether to review is the owner
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
-   Its spec has the pull request's URL and the spec the change was made from, and nothing else: not the author's
-   report and not its transcript. How the reviewer reports is in its own profile.
+   In the first round its spec has the pull request's URL and the spec the change was made from, and nothing
+   else: not the author's report and not its transcript, so the reviewer judges the change itself. How the
+   reviewer reports is in its own profile.
 4. Wait as for any Run. The review is the summary in `hypomnema tasks show <task_id> --json`: a verdict and
    findings with a priority each.
 5. A verdict of correct, with green checks: report the pull request as reviewed and ready for the owner. The owner
@@ -25,8 +26,15 @@ How a pull request is reviewed by another worker. Whether to review is the owner
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```
    The worker fixes them on its own branch and pull request, which keeps what it knew of the change. When the
-   follow-up is refused, create a fix Task whose spec starts from the branch `hyp/<task_id>` and lists them. Have the
-   updated pull request reviewed the same way, by a new review Task. After two rounds that still leave such
-   findings, stop and tell the owner what does not converge.
+   follow-up is refused, create a fix Task whose spec starts from the branch `hyp/<task_id>` and lists them.
+7. Have the updated pull request reviewed by a new review Task. Unlike the first round, its spec carries what the
+   rounds before found, so it can tell what was fixed: the pull request's URL and the spec as before, then
+   - `## Earlier review (Task <review_task_id>)`: that review's verdict and findings, pasted word for word;
+   - `## The author's answer (Task <task_id>)`: the report the worker gave after the follow-up, word for word;
+   - `## Still disputed`: each finding the author did not fix and said why, or none.
+
+   Ask the reviewer to say, for each earlier finding, whether it is fixed, still open or disputed, and to report
+   new findings as before. After two rounds that still leave findings that make the change incorrect, stop and tell
+   the owner what does not converge.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.
