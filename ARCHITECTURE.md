@@ -3204,12 +3204,12 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
   `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
   the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
-  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, `state` waiting,
+  `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, written `auto` since 00113, `state` waiting,
   writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
-  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there);
-  `meeting_formats` (the owner's notes formats: `id` `mtf_…`, `name`, `sections` as JSON `[{title, about}]`).
+  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771).
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3231,39 +3231,35 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
 - The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
   of Settings → Notes model and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
   `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the words sent to the
-  transcription as names to spell exactly (Hyprnote's preferred names, `preferred-names.ts`), the format's sections
-  (built in, `meetings/formats.go`: General, Team meeting, Client call from Meetily, Hyprnote's 17 default
-  templates and Meetily's Retrospective (start, stop, continue) and Psychiatric Session Note, MIT, cut to the
-  sections the summary, decisions and actions do not already hold; or one of the owner's, a format deleted since
-  falling back to General), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
+  transcription as names to spell exactly (Hyprnote's preferred names, `preferred-names.ts`), a section for each
+  main topic the meeting discussed, titled by its topic, with points on specific details (Hyprnote's Auto, its notes
+  when no template is picked, `crates/template-app/assets/enhance.format.md.jinja`; there are no formats to pick
+  since issue #771, the owner's choice), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
   is checked as MemoryOS's `MinutesChecks` (`meetings/checks.go`) before it is kept: an owner is one voice of the
   transcript or nobody (a group, several people or an unknown label is none); a quote is looked for on its line or
   up to two lines away, a shortened quote given the line's own words, and a quote nowhere near dropped; an action
-  said twice is kept once with what only the repeat said; a decision that restates an action on its line is
+  said twice is kept once with what only the repeat said; a section without a title or a point is dropped and one
+  whose title came already joins it; a decision that restates an action on its line is
   dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
   one the owner did not give.
 - Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
   has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
-  body; `file_name`, `media_type`, `language`, `title`, `people`, `format` in the query), `GET`
+  body; `file_name`, `media_type`, `language`, `title`, `people` in the query), `GET`
   and `DELETE /meetings/{id}` (a meeting with its lines, items and suggestions; deleting cancels its work and
-  removes the file), `POST /meetings/{id}/notes` `{format}` (write again, 202), `PATCH
+  removes the file), `POST /meetings/{id}/notes` (write again, 202), `PATCH
   /meetings/{id}/items/{item}` `{done}`, `GET /meeting-actions?who=&state=open|done|all` and `GET`/`PUT
-  /meeting-settings` `{notes_model}` (with the formats, each `builtin` or the owner's), `POST /meeting-formats`,
-  `PUT`/`DELETE /meeting-formats/{id}` `{name, sections}` (a built-in one is refused), `GET`/`PUT /meeting-words`
+  /meeting-settings` `{notes_model}`, `GET`/`PUT /meeting-words`
   (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
   /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
-  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix` and `meetings format
-  add|edit|rm`.
+  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix`.
 - On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
-  meetings filtered by who and state, and a Formats tab (as Hyprnote's templates are a page of its main sidebar):
-  the owner's formats with Edit and Delete, the built-in ones with Copy to edit, in an editor after Hyprnote's (a
-  section's menu inserts, moves or deletes it). Upload recording asks the file and language, and behind More details the
-  title, people and format (the owner's formats first); it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
+  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
-  failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
+  failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
   word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
   offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
@@ -4519,7 +4515,7 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, the formats, speaker suggestions
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores

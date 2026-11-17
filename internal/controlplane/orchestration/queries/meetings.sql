@@ -4,7 +4,8 @@ INSERT INTO meetings (id, title, titled, language, people, file_name, media_type
 VALUES (@id, @title, @titled, @language, @people, @file_name, @media_type, @size, 'transcribing', @now, @now);
 
 -- name: InsertMeetingNotes :exec
-INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (@meeting_id, @format, 'waiting', @now);
+-- The notes are sectioned by the meeting's topics since issue #771; the format column keeps 'auto'.
+INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (@meeting_id, 'auto', 'waiting', @now);
 
 -- name: GetMeeting :one
 SELECT * FROM meetings WHERE id = @id;
@@ -14,7 +15,7 @@ SELECT * FROM meeting_notes WHERE meeting_id = @meeting_id;
 
 -- name: ListMeetings :many
 -- The newest first; with a query, those whose title or a line holds it.
-SELECT m.*, n.state AS notes_state, n.format AS notes_format, n.summary AS notes_summary,
+SELECT m.*, n.state AS notes_state, n.summary AS notes_summary,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action') AS actions,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action' AND i.done = 0)
            AS open_actions
@@ -97,8 +98,8 @@ DELETE FROM meeting_speakers WHERE meeting_id = @meeting_id;
 UPDATE meeting_notes SET state = @state, failure = @failure, updated_at = @now WHERE meeting_id = @meeting_id;
 
 -- name: WriteNotesAgain :execrows
--- The owner asks for the notes again, in a format; not while they are being written or the transcript is not there.
-UPDATE meeting_notes SET format = @format, state = 'writing', failure = '', attempts = 0, updated_at = @now
+-- The owner asks for the notes again; not while they are being written or the transcript is not there.
+UPDATE meeting_notes SET state = 'writing', failure = '', attempts = 0, updated_at = @now
 WHERE meeting_id = @meeting_id AND state IN ('ready', 'failed');
 
 -- name: ClaimNotes :execrows
@@ -184,21 +185,3 @@ SELECT name FROM bots ORDER BY position, created_at, name;
 -- name: MeetingRepoNames :many
 -- The registered repositories' names, read as words to hear right; the repos table is the Runs' own.
 SELECT name FROM repos ORDER BY created_at, name;
-
--- name: ListMeetingFormats :many
-SELECT * FROM meeting_formats ORDER BY created_at, id;
-
--- name: GetMeetingFormat :one
-SELECT * FROM meeting_formats WHERE id = @id;
-
--- name: InsertMeetingFormat :exec
-INSERT INTO meeting_formats (id, name, sections, created_at, updated_at) VALUES (@id, @name, @sections, @now, @now);
-
--- name: UpdateMeetingFormat :execrows
-UPDATE meeting_formats SET name = @name, sections = @sections, updated_at = @now WHERE id = @id;
-
--- name: DeleteMeetingFormat :execrows
-DELETE FROM meeting_formats WHERE id = @id;
-
--- name: CountMeetingFormats :one
-SELECT count(*) FROM meeting_formats;

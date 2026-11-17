@@ -1,4 +1,4 @@
-import type { Meeting, MeetingFormat, MeetingSpeaker, MeetingWord } from "@/api/generated/types.gen"
+import type { Meeting, MeetingSpeaker, MeetingWord } from "@/api/generated/types.gen"
 
 // What the Meetings pages compute from a meeting (issue #721), kept apart from the screens so that it is tested
 // without them.
@@ -220,11 +220,6 @@ export function listOf(text: string) {
     .split(/[,\n]/)
     .map((s) => s.trim())
     .filter(Boolean)
-}
-
-// formatName is a notes format's name, or what to say for one the owner deleted (issue #747).
-export function formatName(formats: MeetingFormat[], id: string) {
-  return formats.find((f) => f.id === id)?.name ?? (formats.length ? "A deleted format" : "")
 }
 
 // ownWords are the owner's words to hear right, in their order (issue #747).

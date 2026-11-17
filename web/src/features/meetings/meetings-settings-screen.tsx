@@ -14,8 +14,7 @@ import { useMeetingSettings, useSetMeetingSettings } from "./use-meetings"
 
 // The group Meetings of Settings (issue #762), out of Gateway, which holds the gateway's models, keys and providers:
 // what is set up once for every meeting, a page each, as Hyprnote's Settings has Dictionary
-// (apps/desktop/src/settings/dictionary/index.tsx) and its LLM under AI (settings/ai/llm). The notes formats are a
-// tab of the Meetings page (formats-tab.tsx).
+// (apps/desktop/src/settings/dictionary/index.tsx) and its LLM under AI (settings/ai/llm).
 
 // DictionarySettingsScreen is Settings → Dictionary (issues #747, #762): one list of names and jargon given to every
 // transcription (Nojoin's glossary setting) and to the model that writes the notes (Hyprnote's preferred names),

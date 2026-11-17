@@ -511,14 +511,6 @@ type Meeting struct {
 	UpdatedAt  int64
 }
 
-type MeetingFormat struct {
-	ID        string
-	Name      string
-	Sections  string
-	CreatedAt int64
-	UpdatedAt int64
-}
-
 type MeetingItem struct {
 	ID           string
 	MeetingID    string

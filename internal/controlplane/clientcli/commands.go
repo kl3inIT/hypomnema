@@ -867,7 +867,6 @@ var commands = []command{
 			fs.String("language", "", "the meeting's language, an ISO-639-1 code such as vi (default: found)")
 			fs.String("title", "", "the meeting's title (default: written from the meeting)")
 			fs.String("people", "", "who was there, separated by commas; they help name the speakers")
-			fs.String("format", "", "the notes format, as `meetings settings` lists them (default: general)")
 			jsonFlag(fs)
 		},
 		run: meetingsUpload,
@@ -879,11 +878,7 @@ var commands = []command{
 	},
 	{
 		name: "meetings notes", args: "<meeting_id>", min: 1, max: 1,
-		summary: "write a meeting's notes again in a format (owner)",
-		flags: func(fs *flag.FlagSet) {
-			fs.String("format", "", "the notes format, as `meetings settings` lists them (required)")
-			jsonFlag(fs)
-		},
+		summary: "write a meeting's notes again (owner)", flags: jsonFlag,
 		run: meetingsNotes,
 	},
 	{
@@ -923,7 +918,7 @@ var commands = []command{
 		run: meetingsRecording,
 	},
 	{
-		name: "meetings settings", summary: "the model that writes notes and the notes formats; --notes-model sets it",
+		name: "meetings settings", summary: "the model that writes notes; --notes-model sets it",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("notes-model", "", "the gateway chat model that writes notes; \"\" for none (owner)")
 			jsonFlag(fs)
@@ -948,29 +943,6 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: meetingsFix,
-	},
-	{
-		name: "meetings format add", args: "<name>", min: 1, max: 1,
-		summary: "make a notes format of your own (owner)",
-		flags: func(fs *flag.FlagSet) {
-			fs.Var(&sectionsFlag{}, "section", "a section as \"Title: what it holds\"; repeat for each (required)")
-			jsonFlag(fs)
-		},
-		run: meetingsFormatAdd,
-	},
-	{
-		name: "meetings format edit", args: "<format_id>", min: 1, max: 1,
-		summary: "change a notes format of your own; a built-in one is copied with `format add` (owner)",
-		flags: func(fs *flag.FlagSet) {
-			fs.String("name", "", "its new name (default: kept)")
-			fs.Var(&sectionsFlag{}, "section", "a section as \"Title: what it holds\"; repeat for each (default: kept)")
-			jsonFlag(fs)
-		},
-		run: meetingsFormatEdit,
-	},
-	{
-		name: "meetings format rm", args: "<format_id>", min: 1, max: 1,
-		summary: "delete a notes format of your own (owner)", flags: jsonFlag, run: meetingsFormatRemove,
 	},
 	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
