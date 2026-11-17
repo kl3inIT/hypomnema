@@ -760,8 +760,9 @@ func TestAPisTokenAsksInItsOwnChatOnly(t *testing.T) {
 
 // Scenario: the owner's answers for an account's actions. Set to never,
 // sending is refused at once and asks nobody. Set to ask, a draft, which runs
-// on its own by default, waits. A request to the service that is none of the
-// listed actions asks whatever was set.
+// on its own by default, waits. Adding a forwarding address, a write of Gmail
+// (unlisted before the catalog was generated, #741), asks by default, and the
+// owner is shown where mail would go.
 func TestTheOwnersAnswerForAnActionDecidesWhatARequestDoes(t *testing.T) {
 	t.Parallel()
 
@@ -792,7 +793,7 @@ func TestTheOwnersAnswerForAnActionDecidesWhatARequestDoes(t *testing.T) {
 
 	pending := w.approvals(orchestration.ApprovalPending)
 	require.Len(t, pending, 2)
-	assert.Equal(t, "google.unlisted", pending[0].Action, "what the list does not name asks")
+	assert.Equal(t, "gmail.write", pending[0].Action, "a write of Gmail asks by default")
 	assert.Contains(t, pending[0].Payload, orchestration.Field{Label: "forwardingEmail", Value: "elsewhere@example.net"})
 	assert.Len(t, w.service.received(), 1, "only the first draft reached the service")
 }
@@ -963,7 +964,9 @@ func TestAnAddressThatCouldReadAsTwoOrNotAtAllIsShownForWhatItIs(t *testing.T) {
 // Scenario: the owner reads what agents may do with an account. Each
 // service's actions come from what only looks to what needs care, and what a
 // tool needs to run at all is not among them. A request is still matched to
-// the most specific action: sending is not taken for reading.
+// the most specific action: sending is not taken for reading. Since the
+// catalog is generated from Discovery (#741), a mail filter's creation is a
+// write of Gmail; a path no method has asks as unlisted.
 func TestAnAccountsActionsAreListedFromReadingToWhatNeedsCare(t *testing.T) {
 	t.Parallel()
 
@@ -980,15 +983,21 @@ func TestAnAccountsActionsAreListedFromReadingToWhatNeedsCare(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, []string{"gmail.read", "gmail.draft", "gmail.send", "gmail.trash", "gmail.label"}, gmail)
+	assert.Equal(t, []string{"gmail.read", "gmail.draft", "gmail.send", "gmail.trash", "gmail.label", "gmail.write",
+		"gmail.delete"}, gmail)
 	assert.Equal(t, "Gmail", catalog.Listed()[0].Service)
 
-	assert.Equal(t, "gmail.send",
-		catalog.Match(http.MethodPost, "gmail.googleapis.com", "/upload/gmail/v1/users/me/messages/send").ID)
-	assert.Equal(t, "gmail.read",
-		catalog.Match(http.MethodGet, "gmail.googleapis.com", "/gmail/v1/users/me/messages/1a2b").ID)
-	assert.Equal(t, "google.unlisted",
-		catalog.Match(http.MethodPost, "gmail.googleapis.com", "/gmail/v1/users/me/settings/filters").ID)
+	of := func(method, path string) string {
+		r := httptest.NewRequestWithContext(t.Context(), method, "https://gmail.googleapis.com"+path, nil)
+
+		return catalog.Of(r, nil, "gmail.googleapis.com").ID
+	}
+
+	assert.Equal(t, "gmail.send", of(http.MethodPost, "/upload/gmail/v1/users/me/messages/send"))
+	assert.Equal(t, "gmail.read", of(http.MethodGet, "/gmail/v1/users/me/messages/1a2b"))
+	// Unlisted before #741, so no answer was kept for it.
+	assert.Equal(t, "gmail.write", of(http.MethodPost, "/gmail/v1/users/me/settings/filters"))
+	assert.Equal(t, "google.unlisted", of(http.MethodPost, "/gmail/v1/users/me/settings/nothing"))
 }
 
 // Scenario (issue #609): a Bot looks into why a page of a site is not on Google. Listing the sites, reading the

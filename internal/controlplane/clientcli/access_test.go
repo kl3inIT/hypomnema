@@ -60,7 +60,9 @@ func TestTheActionsSayWhatTheAccountCanDo(t *testing.T) {
 
 // Scenario (issue #567, rule 6): the owner checks his Google account again.
 // The command reads it at the service and lists what it cannot do; the
-// account's line in the list counts them. Only the owner may check.
+// account's line in the list counts them: Gmail's writes and the parts of
+// Calendar, Drive, Docs and Search Console, the services the sign-in asks for
+// (the other APIs of the catalog, #741, are unknown). Only the owner may check.
 func TestTheOwnerChecksAnAccountAgain(t *testing.T) {
 	t.Parallel()
 
@@ -79,7 +81,7 @@ func TestTheOwnerChecksAnAccountAgain(t *testing.T) {
 
 	out, err := w.cmd(t, "integrations", "check", "google:work")
 	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(out, "google:work: the account cannot do 17 actions; a request for one is "+
+	assert.True(t, strings.HasPrefix(out, "google:work: the account cannot do 20 actions; a request for one is "+
 		"refused before it is sent\n"), out)
 	assert.Contains(t, out, "gmail.send         Gmail: Send mail  cannot: gmail granted read only\n")
 	assert.Contains(t, out, "drive.read         Drive: Read files  cannot: drive not granted at sign-in\n")
@@ -90,12 +92,12 @@ func TestTheOwnerChecksAnAccountAgain(t *testing.T) {
 
 	var checked openapi.IntegrationConnection
 	require.NoError(t, json.Unmarshal([]byte(raw), &checked))
-	assert.Len(t, checked.Cannot, 17)
+	assert.Len(t, checked.Cannot, 20)
 	assert.NotNil(t, checked.AccessCheckedAt)
 
 	listed, err := w.cmd(t, "integrations", "list")
 	require.NoError(t, err)
-	assert.Contains(t, listed, "work (owner@example.com: gmail:read) cannot 17")
+	assert.Contains(t, listed, "work (owner@example.com: gmail:read) cannot 20")
 
 	_, err = w.cmd(t, "integrations", "check", "google:other")
 	require.Error(t, err)
