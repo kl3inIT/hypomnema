@@ -4,8 +4,8 @@
 // the owner picked writes the notes in the meeting's format. The rows are orchestration/meetingstore's.
 //
 // What it does is learned from the references the issue compares: an upload of at most 128 MB with a language and,
-// behind "More details", a title, the people, the words to hear right and the notes format (Fireflies, Meetily,
-// Nojoin; MemoryOS's terms); the recording kept on the server and deleted with the meeting (Fireflies, Otter,
+// behind "More details", a title, the people and the notes format (Fireflies, Meetily, Nojoin); the words to hear
+// right are one list given to every transcription (words.go, issue #747); the recording kept on the server and deleted with the meeting (Fireflies, Otter,
 // Nojoin, Hyprnote, OpenNoteTaker); the steps uploaded → transcribed → writing notes, and a failure that says why
 // and where to fix it (Nojoin backend/worker/tasks/pipeline.py stage texts, Meetily, MemoryOS); one model call for
 // the summary, decisions and actions (notes.go), checked after (checks.go); a run the control plane was stopped in
@@ -108,7 +108,6 @@ type Upload struct {
 	Language  string
 	Title     string
 	People    []string
-	Terms     []string
 	Format    string
 }
 
@@ -120,8 +119,8 @@ func (s *Service) Upload(ctx context.Context, u Upload) (meetingstore.Meeting, e
 		u.Format = DefaultFormat
 	}
 
-	if _, ok := FormatOf(u.Format); !ok {
-		return meetingstore.Meeting{}, fmt.Errorf("%w: no notes format %q", ErrInvalid, u.Format)
+	if err := s.checkFormat(ctx, u.Format); err != nil {
+		return meetingstore.Meeting{}, err
 	}
 
 	u.Language = strings.ToLower(strings.TrimSpace(u.Language))
@@ -143,7 +142,7 @@ func (s *Service) Upload(ctx context.Context, u Upload) (meetingstore.Meeting, e
 	}
 
 	m, err := s.cfg.Store.Create(ctx, meetingstore.NewMeeting{
-		ID: id, Title: u.Title, Language: u.Language, People: u.People, Terms: u.Terms, Format: u.Format,
+		ID: id, Title: u.Title, Language: u.Language, People: u.People, Format: u.Format,
 		FileName: name, MediaType: MediaType(u.MediaType, sniffed), Size: size,
 	})
 	if err != nil {
@@ -277,8 +276,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 
 // WriteAgain asks for the notes again, in format.
 func (s *Service) WriteAgain(ctx context.Context, id, format string) error {
-	if _, ok := FormatOf(format); !ok {
-		return fmt.Errorf("%w: no notes format %q", ErrInvalid, format)
+	if err := s.checkFormat(ctx, format); err != nil {
+		return err
 	}
 
 	return s.cfg.Store.WriteAgain(ctx, id, format)
@@ -418,6 +417,13 @@ func (s *Service) transcribe(ctx context.Context, id string) {
 		return
 	}
 
+	words, err := s.sentWords(ctx)
+	if err != nil {
+		s.failed(ctx, "reading the words to hear right", id, err)
+
+		return
+	}
+
 	started := time.Now()
 	t, err := s.cfg.Speech.Transcribe(ctx, speech.TranscribeRequest{
 		Audio: speech.Audio{
@@ -426,7 +432,7 @@ func (s *Service) transcribe(ctx context.Context, id string) {
 				return os.Open(path) //nolint:gosec // the meeting's own file in the recordings' folder
 			},
 		},
-		Language: m.Language, Speakers: true, Terms: m.Terms,
+		Language: m.Language, Speakers: true, Terms: words,
 	})
 
 	s.record(ctx, modelgateway.AudioCall{
@@ -524,9 +530,16 @@ func (s *Service) writeNotes(ctx context.Context, id string) {
 		return
 	}
 
-	format, ok := FormatOf(d.Meeting.Notes.Format)
+	format, ok, err := s.FormatOf(ctx, d.Meeting.Notes.Format)
+	if err != nil {
+		s.failed(ctx, "reading a notes format", id, err)
+
+		return
+	}
+
 	if !ok {
-		format, _ = FormatOf(DefaultFormat)
+		// The owner deleted the format the notes were asked in.
+		format, _ = builtin(DefaultFormat)
 	}
 
 	shown := map[string]string{}

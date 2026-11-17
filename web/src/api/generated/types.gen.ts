@@ -3602,7 +3602,6 @@ export type Meeting = {
   titled: boolean;
   language?: string;
   people: Array<string>;
-  terms: Array<string>;
   file_name: string;
   media_type: string;
   size: number;
@@ -3705,6 +3704,33 @@ export type WriteMeetingNotesRequest = {
   format: string;
 };
 
+export type MeetingWordFix = {
+  /**
+   * The word as the transcript says it.
+   */
+  from: string;
+  /**
+   * The word as it was said.
+   */
+  to: string;
+  /**
+   * Only this line; absent
+   */
+  line?: number;
+};
+
+export type MeetingWordFixed = {
+  detail: MeetingDetail;
+  /**
+   * How many times the word was replaced.
+   */
+  replaced: number;
+  /**
+   * The right word is in the owner's words to hear right; false when the list is full.
+   */
+  learned: boolean;
+};
+
 export type SpeakerName = {
   name: string;
 };
@@ -3746,6 +3772,56 @@ export type MeetingFormat = {
   id: string;
   name: string;
   sections: Array<MeetingFormatSection>;
+  /**
+   * Shipped with the control plane; copied rather than changed.
+   */
+  builtin: boolean;
+};
+
+export type MeetingFormatInput = {
+  name: string;
+  sections: Array<MeetingFormatSectionInput>;
+};
+
+export type MeetingFormatSectionInput = {
+  title: string;
+  /**
+   * A short instruction of what the section holds.
+   */
+  about?: string;
+};
+
+/**
+ * Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a registered repository's.
+ */
+export type MeetingWordSource = 'owner' | 'speaker' | 'bot' | 'repository';
+
+export type MeetingWord = {
+  word: string;
+  from: MeetingWordSource;
+  /**
+   * A transcription is given it; false past max_sent.
+   */
+  sent: boolean;
+};
+
+export type MeetingWords = {
+  data: Array<MeetingWord>;
+  /**
+   * How many words the owner may keep.
+   */
+  max_own: number;
+  /**
+   * How many words a transcription is given.
+   */
+  max_sent: number;
+};
+
+export type MeetingWordsUpdate = {
+  /**
+   * The owner's words, in their order.
+   */
+  words: Array<string>;
 };
 
 export type MeetingSettings = {
@@ -8942,10 +9018,6 @@ export type UploadMeetingData = {
      */
     people?: Array<string>;
     /**
-     * Words to hear right, such as names and jargon, given to the speech-to-text provider.
-     */
-    terms?: Array<string>;
-    /**
      * The notes format's id (GET /meeting-settings lists them); absent, general.
      */
     format?: string;
@@ -9078,6 +9150,33 @@ export type WriteMeetingNotesResponses = {
 };
 
 export type WriteMeetingNotesResponse = WriteMeetingNotesResponses[keyof WriteMeetingNotesResponses];
+
+export type FixMeetingWordData = {
+  body: MeetingWordFix;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/fix';
+};
+
+export type FixMeetingWordErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type FixMeetingWordError = FixMeetingWordErrors[keyof FixMeetingWordErrors];
+
+export type FixMeetingWordResponses = {
+  /**
+   * The meeting as it is now, and what the fix did.
+   */
+  200: MeetingWordFixed;
+};
+
+export type FixMeetingWordResponse = FixMeetingWordResponses[keyof FixMeetingWordResponses];
 
 export type NameMeetingSpeakerData = {
   body: SpeakerName;
@@ -9252,6 +9351,135 @@ export type SetMeetingSettingsResponses = {
 };
 
 export type SetMeetingSettingsResponse = SetMeetingSettingsResponses[keyof SetMeetingSettingsResponses];
+
+export type CreateMeetingFormatData = {
+  body: MeetingFormatInput;
+  path?: never;
+  query?: never;
+  url: '/meeting-formats';
+};
+
+export type CreateMeetingFormatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateMeetingFormatError = CreateMeetingFormatErrors[keyof CreateMeetingFormatErrors];
+
+export type CreateMeetingFormatResponses = {
+  /**
+   * The format.
+   */
+  201: MeetingFormat;
+};
+
+export type CreateMeetingFormatResponse = CreateMeetingFormatResponses[keyof CreateMeetingFormatResponses];
+
+export type DeleteMeetingFormatData = {
+  body?: never;
+  path: {
+    format_id: string;
+  };
+  query?: never;
+  url: '/meeting-formats/{format_id}';
+};
+
+export type DeleteMeetingFormatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteMeetingFormatError = DeleteMeetingFormatErrors[keyof DeleteMeetingFormatErrors];
+
+export type DeleteMeetingFormatResponses = {
+  /**
+   * The format is deleted.
+   */
+  204: void;
+};
+
+export type DeleteMeetingFormatResponse = DeleteMeetingFormatResponses[keyof DeleteMeetingFormatResponses];
+
+export type UpdateMeetingFormatData = {
+  body: MeetingFormatInput;
+  path: {
+    format_id: string;
+  };
+  query?: never;
+  url: '/meeting-formats/{format_id}';
+};
+
+export type UpdateMeetingFormatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateMeetingFormatError = UpdateMeetingFormatErrors[keyof UpdateMeetingFormatErrors];
+
+export type UpdateMeetingFormatResponses = {
+  /**
+   * The format.
+   */
+  200: MeetingFormat;
+};
+
+export type UpdateMeetingFormatResponse = UpdateMeetingFormatResponses[keyof UpdateMeetingFormatResponses];
+
+export type ListMeetingWordsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/meeting-words';
+};
+
+export type ListMeetingWordsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMeetingWordsError = ListMeetingWordsErrors[keyof ListMeetingWordsErrors];
+
+export type ListMeetingWordsResponses = {
+  /**
+   * The words.
+   */
+  200: MeetingWords;
+};
+
+export type ListMeetingWordsResponse = ListMeetingWordsResponses[keyof ListMeetingWordsResponses];
+
+export type SetMeetingWordsData = {
+  body: MeetingWordsUpdate;
+  path?: never;
+  query?: never;
+  url: '/meeting-words';
+};
+
+export type SetMeetingWordsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetMeetingWordsError = SetMeetingWordsErrors[keyof SetMeetingWordsErrors];
+
+export type SetMeetingWordsResponses = {
+  /**
+   * The words.
+   */
+  200: MeetingWords;
+};
+
+export type SetMeetingWordsResponse = SetMeetingWordsResponses[keyof SetMeetingWordsResponses];
 
 export type ListChatsData = {
   body?: never;

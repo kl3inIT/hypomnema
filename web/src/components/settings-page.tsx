@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { HypomnemaIcon } from "@/components/icons/brand-icons"
 import {
   ArrowLeft,
@@ -22,6 +22,7 @@ import {
 import type { ReactNode } from "react"
 
 import { PageHeader, PageHeading } from "@/components/page-header"
+import { appPage } from "@/lib/back-from-settings"
 import { cn } from "@/lib/utils"
 
 // Settings is what the owner sets up once, kept apart from the places of daily work. The references whose sidebar
@@ -93,8 +94,12 @@ const groups: { heading: string; sections: Section[] }[] = [
 const rowClass =
   "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-foreground [&.active]:bg-sidebar-row-active [&.active]:text-foreground"
 
-// SettingsSidebar stands where the app's sidebar stands while the owner is in Settings.
+// SettingsSidebar stands where the app's sidebar stands while the owner is in Settings. "Back to app" returns to the
+// page the owner came from (lib/back-from-settings.ts, issue #747), else home.
 export function SettingsSidebar() {
+  const navigate = useNavigate()
+  const back = appPage()
+
   return (
     <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
       <div className="flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-3.5">
@@ -105,10 +110,19 @@ export function SettingsSidebar() {
         aria-label="Settings"
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2"
       >
-        <Link to="/" className={rowClass}>
+        <a
+          href={back}
+          className={rowClass}
+          onClick={(e) => {
+            // A plain click stays in the app; a click asking for a new tab or window gets one.
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+            e.preventDefault()
+            void navigate({ href: back })
+          }}
+        >
           <ArrowLeft className="size-4" />
           Back to app
-        </Link>
+        </a>
         {groups.map((group) => (
           <div key={group.heading} className="flex flex-col gap-px">
             <p className="px-2.5 pb-1 text-xs font-medium text-muted-foreground">{group.heading}</p>

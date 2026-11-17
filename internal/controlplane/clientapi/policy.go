@@ -283,6 +283,13 @@ var policies = map[string]policy{
 	"ListMeetingActions":    {},
 	"GetMeetingSettings":    {},
 	"SetMeetingSettings":    {scope: scopeOwner},
+	// The words to hear right and the owner's notes formats (issue #747), read and changed as the settings are.
+	"FixMeetingWord":      {scope: scopeOwner},
+	"ListMeetingWords":    {},
+	"SetMeetingWords":     {scope: scopeOwner},
+	"CreateMeetingFormat": {scope: scopeOwner},
+	"UpdateMeetingFormat": {scope: scopeOwner},
+	"DeleteMeetingFormat": {scope: scopeOwner},
 }
 
 var (
