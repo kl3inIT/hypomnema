@@ -48,6 +48,10 @@ func TestMain(m *testing.M) {
 			os.Getenv("LARKSUITE_CLI_DEFAULT_AS"))
 	}
 
+	if def.HostEnv != "" {
+		fmt.Printf("host=%s access=%q\n", os.Getenv(def.HostEnv), os.Getenv("GITLAB_ACCESS_TOKEN"))
+	}
+
 	if def.CAEnv != "" {
 		_, bundleErr := os.Stat(os.Getenv(def.CAEnv)) //nolint:gosec // G703: a stand-in reads what it was given.
 		profile, hasProfile := os.LookupEnv("AWS_PROFILE")
@@ -269,7 +273,7 @@ func TestTheLauncherRunsACommandThroughAnIntegrationsProxy(t *testing.T) {
 	assert.Equal(t, 3, exit.Code)
 
 	for _, args := range [][]string{
-		nil, {"google"}, {"google", "curl"}, {"google", "--"}, {"google", "curl", "--", "x"}, {"gitlab", "--", "curl"},
+		nil, {"google"}, {"google", "curl"}, {"google", "--"}, {"google", "curl", "--", "x"}, {"bitbucket", "--", "curl"},
 	} {
 		c.calls = nil
 
@@ -495,4 +499,77 @@ func TestAWorkerKeepsItsOwnGhForAGitHostsConnection(t *testing.T) {
 	assert.Empty(t, env)
 	assert.NoFileExists(t, filepath.Join(Place{Home: home}.Bin(), "gh"))
 	assert.NotContains(t, Brief([]string{"github.com:default"}, ""), "`gh` command")
+}
+
+// Scenario: a Bot given accounts of two GitLab hosts, gitlab.com and a company's server (issue #740), runs glab.
+// glab is for every GitLab host: the launcher asks for the accounts of all of them, and runs glab on the host of
+// the account named, as host:label or as a label only one host has, with GITLAB_HOST set to it, the placeholder as
+// GITLAB_TOKEN, and its stream opened for that host's Connection. The agent's own GitLab variables are taken away.
+// With several and none named, or a label two hosts have, nothing runs and the agent is told the accounts.
+func TestGlabActsOnTheHostOfTheAccountItIsGiven(t *testing.T) {
+	home := installedAs(t, GitLabCLI())
+	c := newControlPlane(t,
+		Connection{Label: "default", Account: "bot", Host: "git.example.com"},
+		Connection{Label: "default", Account: "bot", Host: "gitlab.com"},
+		Connection{Label: "work", Account: "bot", Host: "gitlab.com"})
+
+	t.Setenv("GITLAB_ACCESS_TOKEN", "glpat-left-behind")
+	t.Setenv("GITLAB_HOST", "elsewhere.example")
+
+	var out bytes.Buffer
+
+	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "glab",
+		[]string{"--account", "git.example.com:default", "mr", "list"}))
+	assert.Equal(t, "token="+Placeholder+" key=\"\" args=mr list\nhost=git.example.com access=\"\"\n"+
+		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
+	assert.Equal(t, []string{
+		"connections gitlab", "certificate", "tunnel git.example.com:default gmail.googleapis.com:443",
+	}, c.calls)
+
+	out.Reset()
+	c.calls = nil
+
+	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "glab", []string{"--account", "work", "issue", "list"}))
+	assert.Contains(t, out.String(), "host=gitlab.com")
+	assert.Contains(t, c.calls, "tunnel gitlab.com:work gmail.googleapis.com:443")
+
+	for _, args := range [][]string{{"mr", "list"}, {"--account", "default", "mr", "list"}} {
+		c.calls = nil
+
+		err := c.launcher(home, &out).Run(t.Context(), "glab", args)
+		require.Error(t, err, "%q", args)
+		assert.Contains(t, err.Error(), "git.example.com:default, gitlab.com:default", "%q", args)
+		assert.Equal(t, []string{"connections gitlab"}, c.calls, "%q runs nothing", args)
+	}
+
+	err := c.launcher(home, &out).Run(t.Context(), "glab", []string{"--account", "gitlab.com:nobody", "mr", "list"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "was not given gitlab.com:nobody")
+}
+
+// Scenario: glab is pinned as gh is (issue #740): for Bots only, a release with its checksum for each system, the
+// token as a placeholder and every other way to a credential or another host taken away.
+func TestGlabIsPinnedForBotsOnly(t *testing.T) {
+	t.Parallel()
+
+	def, ok := Named("glab")
+	require.True(t, ok)
+	assert.Equal(t, "1.130.0", def.Version)
+	assert.True(t, def.BotsOnly)
+	assert.Equal(t, "gitlab", def.HostKind)
+	assert.Equal(t, "GITLAB_TOKEN", def.TokenEnv)
+	assert.Equal(t, "GITLAB_HOST", def.HostEnv)
+	assert.Contains(t, def.Env, "GLAB_CHECK_UPDATE=false")
+	assert.Contains(t, def.Env, "GLAB_SEND_TELEMETRY=false")
+	assert.Subset(t, def.Unset, []string{"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GITLAB_HOST"})
+
+	for _, system := range []string{"linux/amd64", "linux/arm64"} {
+		release, ok := def.Releases[system]
+		require.True(t, ok, system)
+		assert.Len(t, release.SHA256, 64, system)
+		assert.Equal(t, "bin/glab", release.Binary, system)
+	}
+
+	// A worker reaches a GitLab host with its own token: it is given no glab script (#44).
+	assert.NotContains(t, Brief([]string{"git.example.com:default"}, ""), "glab")
 }

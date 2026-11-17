@@ -2041,8 +2041,52 @@ flowchart LR
       catalog is regenerated.
     - **Its skill** is the store skill `github` (`clientcli/skills/github`, requiring `integration:github.com`; a
       skill's integration requirement may be a host's name), from Onyx's and OpenClaw's github skills (MIT).
-    - Not built: GitHub Enterprise Server and GitLab hosts (the proxy picks a catalog by the Integration's name);
-      the web page's "Use in chats" switch for a git host's Connection.
+    - Not built: GitHub Enterprise Server (a host of kind github other than github.com has no catalog); the web
+      page's "Use in chats" switch for a git host's Connection.
+  - **A Bot reads a GitLab host through the service proxy** ([issue #740](https://github.com/kl3inIT/hypomnema/issues/740),
+    step 2 of [#713](https://github.com/kl3inIT/hypomnema/issues/713); what
+    [#705](https://github.com/kl3inIT/hypomnema/issues/705) asked). A GitLab host is gitlab.com or a server the owner
+    declared with `hosts add <host> --kind gitlab`; each is an Integration of its own, named by its host, whose
+    Connections are the host's (`integrations connect <host>`, `integrations chats <host>:default on`,
+    `bots set <bot> --connections …,<host>:default`). `serviceproxy.CatalogIn` gives a host whose kind is gitlab
+    (`orchestration`'s `KindOfHost`) GitLab's catalog, which reaches that host only; the tunnel, the agent API's
+    refusal to hand a proxied token to an agent and the client API's `…/actions` use it. The token is opened as
+    github.com's is (`connections.Of`) and sent as `Authorization: Bearer`; what a tool sends as a credential
+    (`Authorization`, glab's `Private-Token`, `Job-Token`) is never passed on.
+    - **Its tool is `glab` 1.130.0** (`agenttool.GitLabCLI`, `gitlab.com/gitlab-org/cli`, pinned by the release's
+      `checksums.txt`), `BotsOnly` as gh is. It is for every GitLab host (`HostKind`): its launcher asks the agent API
+      for the accounts of `gitlab`, which lists those the agent may use on every host of that kind, each with its
+      host, and runs glab for the one named (`--account <host>:<label>`, or a label only one host has, or the only
+      one) with `GITLAB_HOST` set to that host, a placeholder `GITLAB_TOKEN`, update checks, telemetry and prompts
+      off, and `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `CI_JOB_TOKEN` and the other names of a host taken away; its
+      stream is opened for that host's Connection. `hypomnema tool run gitlab --account <host>:<label> -- curl …`
+      runs another command the same way. A Bot given a Connection of a GitLab host has the requirement
+      `integration:gitlab` (as well as its host's), so it gets the store skill `gitlab` (`clientcli/skills/gitlab`).
+      Large clones stay a worker's job over SSH.
+    - **Its catalog** (`serviceproxy/gitlab.go`) is generated from the route table of client-go
+      (`gitlab.com/gitlab-org/api/client-go`, Apache-2.0; notice in `third_party/gitlab/NOTICE`), the client glab
+      is built on, at the version glab requires (v3.46.1 for glab 1.130.0, not the newer one the design read on
+      trunk): `gitlab_operations.json` holds each method and route the client calls (1131: the routes it registers
+      with `route("…")`, named by `withPath` beside `withMethod`, GET when none, options gathered in a slice, and the
+      few requests it builds with `NewRequest`). GitLab's own OpenAPI is not used: it lacks notes, discussions,
+      labels and `/user`. A request is listed when its method and its path under `/api/v4/`, each segment decoded,
+      match a route; anything else asks as `gitlab.unlisted`. Its action is a service, then read, write or delete,
+      the service read off the request's own path (the resource after `projects/:id`, `groups/:id` or `users/:id`,
+      else the first segment): Repositories, Issues, Merge requests, CI/CD, Releases and packages, Search, Security,
+      Groups and members, Account, Administration and Everything else, each `gitlab.<service>.read|write|delete`; a
+      GET or a HEAD reads, a DELETE deletes, anything else writes. **Merge and auto-merge are actions of their own**
+      and ask: `gitlab.merge_requests.merge` is `PUT …/merge_requests/:iid/merge`; `gitlab.merge_requests.automerge`
+      is the same request with `auto_merge` or `merge_when_pipeline_succeeds` true in the query or a JSON or form
+      body (and neither anything else), and `POST …/cancel_auto_merge` or `…/cancel_merge_when_pipeline_succeeds`; a
+      body that cannot be read is a merge. A note on a merge request is a write of merge requests. A GraphQL query on
+      `/api/graphql` is `gitlab.graphql.read`; a mutation asks as unlisted. A project's path is one segment with its
+      slashes encoded (`group%2Fproject`), allowed on the host (`SlashInSegment`).
+    - **Regenerating it**: `make catalogs-generate SERVICE=gitlab` fetches glab's `go.mod` and client-go's module
+      from the Go module proxy at what `catalog_sources.json` pins (URL, revision, SHA-256, version), fails when
+      glab requires another client-go than the one pinned, writes the file and prints the routes registered that no
+      call names and the operations added, removed or moved. `make verify` runs only the offline tests: every
+      operation is a named action (a GET or a HEAD a read, nothing else), every resource is in a service, and the
+      file's glab version is `agenttool.GitLabCLI`'s.
   - WhatsApp is an Integration of kind `device` ([issue #615](https://github.com/kl3inIT/hypomnema/issues/615),
     step 1 of [#612](https://github.com/kl3inIT/hypomnema/issues/612); `internal/controlplane/integration/device.go`,
     `internal/controlplane/messaging`, `messaging/whatsapp`;

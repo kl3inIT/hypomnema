@@ -48,10 +48,10 @@ deps-check: ## Fail when a binary links a tree or driver it must not
 	check hypomnema '^$(MODULE)/internal/node(/|$$)'
 
 # Fetches each declaration at the revision catalog_sources.json pins, checks its SHA-256 and what the pinned CLI sends,
-# and prints what changed (issue #739). Run by hand with a CLI's bump; CI runs only the catalogs' offline tests.
+# and prints what changed (issues #739, #740). Run by hand with a CLI's bump; CI runs only the catalogs' offline tests.
 SERVICE ?= all
 
-catalogs-generate: ## Regenerate the service proxy's catalogs from their declarations (SERVICE=github; needs network)
+catalogs-generate: ## Regenerate the service proxy's catalogs from their declarations (SERVICE=github|gitlab|all; needs network)
 	$(GO) run ./internal/controlplane/serviceproxy/catalogsgen -service $(SERVICE)
 
 sqlc-generate: ## Regenerate the typed queries from the migrations and queries

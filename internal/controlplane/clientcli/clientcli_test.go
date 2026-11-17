@@ -1766,3 +1766,36 @@ func TestTheOwnerSetsActionsAndAnswersApprovals(t *testing.T) {
 		require.Error(t, err, "only the owner: %v", args)
 	}
 }
+
+// Scenario: the owner declares his company's GitLab server, connects its token and allows it for chats (issue
+// #740). Its actions are GitLab's: reads run, merge and auto-merge ask, each its own, and he allows auto-merge
+// alone.
+func TestAGitLabHostsActionsFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	_, err := w.cmd(t, "hosts", "add", "git.company.example", "--kind", "gitlab")
+	require.NoError(t, err)
+
+	_, err = w.cmdIn(t, "glpat_default\n", "integrations", "connect", "git.company.example", "--token-file", "-")
+	require.NoError(t, err)
+
+	_, err = w.cmd(t, "integrations", "chats", "git.company.example:default", "on")
+	require.NoError(t, err)
+
+	out, err := w.cmd(t, "integrations", "actions", "git.company.example:default")
+	require.NoError(t, err)
+	assert.Contains(t, out, "gitlab.merge_requests.read")
+	assert.Contains(t, out, "gitlab.merge_requests.merge")
+	assert.Contains(t, out, "gitlab.merge_requests.automerge")
+
+	out, err = w.cmd(t, "integrations", "actions", "set", "git.company.example:default",
+		"gitlab.merge_requests.automerge", "allow")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "gitlab.merge_requests.automerge allow")
+
+	_, err = w.cmd(t, "integrations", "actions", "set", "git.company.example:default", "github.pulls.merge", "allow")
+	require.Error(t, err, "a GitLab host has no GitHub action")
+}

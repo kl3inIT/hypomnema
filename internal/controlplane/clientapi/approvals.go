@@ -146,7 +146,7 @@ func (s *Server) ListConnectionActions(ctx context.Context, req openapi.ListConn
 ) (openapi.ListConnectionActionsResponseObject, error) {
 	out := openapi.ListConnectionActions200JSONResponse{Data: []openapi.ConnectionAction{}}
 
-	catalog, ok := serviceproxy.CatalogOf(req.Integration)
+	catalog, ok := serviceproxy.CatalogIn(ctx, s.svc, req.Integration)
 	if !ok {
 		// An Integration that does not go through the proxy has no actions to answer for.
 		return out, nil
@@ -182,7 +182,7 @@ func (s *Server) ListConnectionActions(ctx context.Context, req openapi.ListConn
 // SetConnectionAction sets the answer of one action of a Connection.
 func (s *Server) SetConnectionAction(ctx context.Context, req openapi.SetConnectionActionRequestObject,
 ) (openapi.SetConnectionActionResponseObject, error) {
-	catalog, ok := serviceproxy.CatalogOf(req.Integration)
+	catalog, ok := serviceproxy.CatalogIn(ctx, s.svc, req.Integration)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s does not go through the service proxy", orchestration.ErrInvalid, req.Integration)
 	}

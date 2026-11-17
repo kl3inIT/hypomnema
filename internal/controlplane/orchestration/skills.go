@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
@@ -355,6 +356,8 @@ func workerHas(ctx context.Context, q *store.Queries, run store.Run) (map[string
 // which it may use a Connection now (Bot.MayUse: switched on for chats and
 // on its list; the owner's own sign-in among them, though it is used only on
 // his turn), as the agent API reads them at each call, and the phone while a node holds one.
+// A Connection of a git host is of its kind too: a Bot given one of a GitLab
+// host has gitlab, whose tool acts on any of them (issue #740).
 func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, error) {
 	conns, err := q.ListConnections(ctx)
 	if err != nil {
@@ -364,8 +367,19 @@ func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, erro
 	has := map[string]bool{}
 
 	for _, row := range conns {
-		if c := connectionFromRow(row); b.MayUse(c) {
-			has[skillpack.Requirement(skillpack.RequiresIntegration, c.Integration)] = true
+		c := connectionFromRow(row)
+		if !b.MayUse(c) {
+			continue
+		}
+
+		has[skillpack.Requirement(skillpack.RequiresIntegration, c.Integration)] = true
+
+		if !githost.ValidHost(c.Integration) {
+			continue
+		}
+
+		if h, err := gitHostOf(ctx, q, c.Integration); err == nil {
+			has[skillpack.Requirement(skillpack.RequiresIntegration, string(h.Kind))] = true
 		}
 	}
 

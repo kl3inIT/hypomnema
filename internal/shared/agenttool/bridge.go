@@ -58,12 +58,12 @@ func (r *refusal) said() string {
 	return r.reason
 }
 
-// bridge starts the loopback proxy and returns the tool's variables. stop
+// bridge starts the loopback proxy for the account integration:label and returns the tool's variables. stop
 // ends it and removes the certificate file; refused holds why the control
 // plane opened no stream, if it did not. user says the account is the
 // owner's own sign-in: the tool is given the placeholder as a person's token
 // and held to acting as one.
-func (l Launcher) bridge(ctx context.Context, def Def, label string, user bool,
+func (l Launcher) bridge(ctx context.Context, def Def, integration, label string, user bool,
 ) (env []string, refused *refusal, stop func(), err error) {
 	ca, err := l.certificate(ctx)
 	if err != nil {
@@ -90,7 +90,7 @@ func (l Launcher) bridge(ctx context.Context, def Def, label string, user bool,
 				return
 			}
 
-			go l.carry(bridgeCtx, conn, target, def.Integration, label, refused)
+			go l.carry(bridgeCtx, conn, target, integration, label, refused)
 		}
 	}()
 

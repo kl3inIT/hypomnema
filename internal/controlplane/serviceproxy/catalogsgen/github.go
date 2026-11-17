@@ -104,7 +104,7 @@ func generateGitHub(ctx context.Context, client *http.Client, src sources, root 
 		"in the schema\n",
 		githubFile, len(declaration.REST), len(declaration.GraphQL), len(sent), gh.CLI.Version)
 
-	if err := printChanges(&report, before, written); err != nil {
+	if err := printChanges(&report, serviceproxy.GitHubActionIDs, before, written); err != nil {
 		return err
 	}
 
@@ -282,7 +282,7 @@ func ghFields(tarball []byte) ([]graphqlField, error) {
 			return nil, err
 		}
 
-		if h.Typeflag != tar.TypeReg || !strings.HasSuffix(h.Name, ".go") || strings.HasSuffix(h.Name, "_test.go") {
+		if h.Typeflag != tar.TypeReg || !goSource(h.Name) {
 			continue
 		}
 
@@ -304,6 +304,11 @@ func ghFields(tarball []byte) ([]graphqlField, error) {
 	}
 
 	return found, nil
+}
+
+// goSource is whether a file of a source archive is Go that is built: tests are left out.
+func goSource(name string) bool {
+	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
 }
 
 // lacks names the root fields gh sends that are no root field of the schema of their operation's type.
@@ -377,13 +382,14 @@ func lines[T any](b *bytes.Buffer, items []T) error {
 }
 
 // printChanges says what a regeneration changed: operations added and removed with their action, and the
-// operations whose action moved.
-func printChanges(out *strings.Builder, before, after []byte) error {
+// operations whose action moved. actionIDs names the action of every operation of a declaration.
+func printChanges(out *strings.Builder, actionIDs func([]byte) (map[string]string, error), before, after []byte,
+) error {
 	old := map[string]string{}
 
 	if len(before) > 0 {
 		var err error
-		if old, err = serviceproxy.GitHubActionIDs(before); err != nil {
+		if old, err = actionIDs(before); err != nil {
 			// The file before may be from an older layout: everything is then new.
 			fmt.Fprintf(out, "the file before could not be read (%v); every operation is listed as added\n", err)
 
@@ -391,7 +397,7 @@ func printChanges(out *strings.Builder, before, after []byte) error {
 		}
 	}
 
-	now, err := serviceproxy.GitHubActionIDs(after)
+	now, err := actionIDs(after)
 	if err != nil {
 		return err
 	}
