@@ -117,7 +117,7 @@ func (rt *ClaudeRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.
 			argv = append(argv, "--plugin-dir", plugin)
 		}
 
-		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey)
+		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey, runner.Path())
 		if err != nil {
 			return shim.Spec{}, err
 		}
@@ -215,11 +215,7 @@ func (rt *ClaudeRuntime) env(configDir string, credentials []string) []string {
 	out = append(out, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
 		"LANG=C.UTF-8", "MCP_TOOL_TIMEOUT="+strconv.FormatInt(toolTimeout.Milliseconds(), 10))
 
-	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP"} {
-		if v, ok := os.LookupEnv(name); ok {
-			out = append(out, name+"="+v)
-		}
-	}
+	out = append(out, runner.HostEnv()...)
 
 	return append(out, rt.Env...)
 }

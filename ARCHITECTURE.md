@@ -1545,7 +1545,7 @@ flowchart LR
   on, keeps P0 for what breaks whatever the inputs, and calls a change `correct` when existing code and tests will
   not break and no finding is P0 or P1 (Codex's review rubric, omp's reviewer); the explorer checks callers, tries
   another search before saying something is not there, says how the pieces connect and runs no command that
-  changes state (omp's scout, gemini-cli's investigator). Both are told to change nothing;
+  changes state (omp's scout, gemini-cli's investigator). The reviewer and the explorer are told to change nothing;
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
@@ -1558,6 +1558,10 @@ flowchart LR
   first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
   and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
   `reviewer-codex.yaml` carries the same text, and a reviewer the owner applied gets it by applying that file again.
+  Migration 00115 (issue #718) makes the next version from that one (`pfv_seed8_reviewer`, where
+  `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
+  repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
+  this text.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
@@ -3814,7 +3818,7 @@ Node (`internal/node`):
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
     and `--effort` when set).
-  - The worker gets a clean environment: PATH, HOME and the locale, and runs only through the model gateway (issue
+  - The worker gets a clean environment: PATH (with `$HOME/.local/bin` first, below), HOME and the locale, and runs only through the model gateway (issue
     #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md),
     [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). It gets no subscription token: an offer that names an account fails to start, saying so.
     `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
@@ -3950,15 +3954,26 @@ Node (`internal/node`):
   t3code's `t3.json` do. The node runs it in a shell (bash, else sh) in a worktree it has just made, with
   `HYPOMNEMA_WORKTREE_PATH` set and git's prompts off, and starts the worker when it has ended (Orca's
   `wait-for-setup`, here always: nobody watches a headless worker that starts before its tools exist). It may run
-  120 seconds, then its process group is killed. A script that fails, runs out of time or cannot be read is written
+  five minutes (Orca's two, raised because this repository's script installs toolchains on a bare node: 90 s on
+  one, issue #718), then its process group is killed. A script that fails, runs out of time or cannot be read is written
   to the node's log with the end of its output, and the worker starts all the same, as in Orca. A worktree that is
   reused (a continued Conversation) is not set up again. The daemon starts an accepted worker, fetch and setup
   included, on a goroutine of its own, so the session keeps reading, beating and renewing leases while a script runs
   (issue #218; Omnara's `launchWorker`); it runs under the daemon's context, so a reconnect does not cut it short.
-  This repository's script (`deploy/worker/setup.sh`) puts
-  Go at the version `go.mod` names under `$HOME/.local/go` on a Linux machine that lacks it, checked against the
-  SHA-256 Go publishes. Not built: the script's failure in the transcript, asking the owner before a script runs
-  the first time (Orca), and putting what it installed on the worker's `PATH`.
+  It runs for every Dispatch with a repository, whatever its profile, reviewers included. This repository's script
+  (`deploy/worker/setup.sh`, issue #718) installs, for the node's user and without sudo, what a Linux machine lacks:
+  Go at the version `go.mod` names under `$HOME/.local/go`, checked against the SHA-256 Go publishes; the latest
+  Node 24 under `$HOME/.local/node`, checked against the release's `SHASUMS256.txt`; and pnpm at the version
+  `web/package.json` names, through Node's corepack (from the npm registry, checked against its SHA-512, where that
+  Node has none). It links their commands into `$HOME/.local/bin`, and a run that finds them in place ends in under
+  a second. It leaves out what needs sudo (gcc, make, Chromium's system
+  libraries) and Playwright's Chromium, which comes with the web client's packages (AGENTS.md says how).
+- The worker's `PATH` (`internal/node/runner/env.go`, issue #718): the node runs as a systemd user service, which
+  reads no shell profile, so its own `PATH` lacks `$HOME/.local/bin`. Every runtime (Claude Code, Codex, ACP)
+  gives its worker the node's `PATH` with that directory first when it exists, as Debian's `~/.profile` does for a
+  login shell and as Orca adds it for its agents, so what the setup installed wins over an older copy on the
+  machine; a Dispatch's Connections put their tools' directory before it. Not built: the script's failure in the
+  transcript, and asking the owner before a script runs the first time (Orca).
 
 ## Web client
 

@@ -1109,15 +1109,15 @@ func TestProfilesFromTheCLI(t *testing.T) {
 
 	out, err := w.cmd(t, "profiles", "apply", file)
 	require.NoError(t, err)
-	assert.Contains(t, out, "profile reviewer: new version v7")
+	assert.Contains(t, out, "profile reviewer: new version v8")
 
 	out, err = w.cmd(t, "profiles", "apply", file)
 	require.NoError(t, err)
-	assert.Contains(t, out, "unchanged, still v7")
+	assert.Contains(t, out, "unchanged, still v8")
 
 	var versions openapi.ProfileList
 	w.jsonCmd(t, &versions, "", "profiles", "versions", "reviewer")
-	assert.Len(t, versions.Data, 7)
+	assert.Len(t, versions.Data, 8)
 
 	coordinator := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
 	coordinator.login(t, bearertoken.Coordinator)

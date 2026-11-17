@@ -42,9 +42,9 @@ func TestMigrationGivesTheSeedsTheirNewInstructions(t *testing.T) {
 
 // Scenario: the seeded reviewer answers CodeRabbit's findings (issue #766). A
 // reviewer the owner applied keeps its own version; the seed the owner left
-// gets the new text, the same version ApplyProfile makes from that YAML, and
-// the same instruction deploy/profiles/reviewer-codex.yaml carries; going
-// down takes it back.
+// gets the new text, the same version ApplyProfile makes from that YAML;
+// going down takes it back. (The sample YAML now carries 00115's text, which
+// the next test checks.)
 func TestMigrationTellsTheSeededReviewerToAnswerCodeRabbit(t *testing.T) {
 	t.Parallel()
 
@@ -79,6 +79,56 @@ func TestMigrationTellsTheSeededReviewerToAnswerCodeRabbit(t *testing.T) {
 		assert.Contains(t, instruction, "List every finding that meets these rules", "the rest stays")
 		assert.Equal(t, sourceDigest(source), digest, "what ApplyProfile writes for that YAML")
 
+		var seeded profileSource
+		require.NoError(t, decodeStrict(source, &seeded))
+		assert.Equal(t, seeded.Instruction, instruction, "the instruction is the source's")
+
+		_, err = p.DownTo(ctx, 110)
+		require.NoError(t, err)
+		assert.Equal(t, "pfv_seed5_reviewer", currentVersions(ctx, t, db)["reviewer"])
+	}
+}
+
+// Scenario: the seeded reviewer runs the repository's checks (issue #718),
+// starting from the version 00111 made, so it keeps answering CodeRabbit. A
+// reviewer the owner applied keeps its own version; the seed the owner left
+// gets the new text, the same version ApplyProfile makes from that YAML, and
+// the same instruction deploy/profiles/reviewer-codex.yaml carries; going
+// down takes it back.
+func TestMigrationTellsTheSeededReviewerToRunTheChecks(t *testing.T) {
+	t.Parallel()
+
+	for _, owned := range []bool{false, true} {
+		_, db := migratedTo(t, 114)
+		ctx := t.Context()
+
+		want := "pfv_seed8_reviewer"
+		if owned {
+			putVersion(ctx, t, db, "pfv_owner", "reviewer", "name: reviewer", "claude-subscription",
+				"claude-opus-5-5", "high")
+
+			want = "pfv_owner"
+		}
+
+		p, err := provider(db)
+		require.NoError(t, err)
+		_, err = p.UpTo(ctx, 115)
+		require.NoError(t, err)
+		assert.Equal(t, want, currentVersions(ctx, t, db)["reviewer"], "owned: %v", owned)
+
+		if owned {
+			continue
+		}
+
+		var source, digest, instruction string
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT source, digest, instruction FROM profile_versions WHERE id = 'pfv_seed8_reviewer'`).
+			Scan(&source, &digest, &instruction))
+		assert.Contains(t, instruction, "Run the repository's checks on the pull request's code")
+		assert.Contains(t, instruction, "say in the report which one and why")
+		assert.Contains(t, instruction, "still open (then it is a P1 finding of yours)", "00111's text stays")
+		assert.Equal(t, sourceDigest(source), digest, "what ApplyProfile writes for that YAML")
+
 		var seeded, sample profileSource
 		require.NoError(t, decodeStrict(source, &seeded))
 		assert.Equal(t, seeded.Instruction, instruction, "the instruction is the source's")
@@ -88,8 +138,8 @@ func TestMigrationTellsTheSeededReviewerToAnswerCodeRabbit(t *testing.T) {
 		require.NoError(t, decodeStrict(string(yaml), &sample))
 		assert.Equal(t, sample.Instruction, instruction, "deploy/profiles/reviewer-codex.yaml carries the same text")
 
-		_, err = p.DownTo(ctx, 110)
+		_, err = p.DownTo(ctx, 114)
 		require.NoError(t, err)
-		assert.Equal(t, "pfv_seed5_reviewer", currentVersions(ctx, t, db)["reviewer"])
+		assert.Equal(t, "pfv_seed7_reviewer", currentVersions(ctx, t, db)["reviewer"])
 	}
 }

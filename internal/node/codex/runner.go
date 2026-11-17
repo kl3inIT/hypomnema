@@ -151,7 +151,7 @@ func (rt *CodexRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.L
 	}
 
 	write := func(dir string, hostEnv []string) (shim.Spec, error) {
-		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey)
+		toolEnv, err := agenttool.ForDispatch(rt.Home, rt.Exe, rt.URL, o.Uses, o.AgentKey, runner.Path())
 		if err != nil {
 			return shim.Spec{}, err
 		}
@@ -196,11 +196,11 @@ type saved struct {
 func (rt *CodexRuntime) env(codexHome, key string) []string {
 	out := []string{"CODEX_HOME=" + codexHome, keyVariable + "=" + key, "LANG=C.UTF-8"}
 
+	out = append(out, runner.HostEnv()...)
+
 	// TZ too: the CLI writes a limit's reset in its local time, which the daemon reads in its own (resetOf).
-	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "TZ", "SystemRoot", "TEMP", "TMP"} {
-		if v, ok := os.LookupEnv(name); ok {
-			out = append(out, name+"="+v)
-		}
+	if tz, ok := os.LookupEnv("TZ"); ok {
+		out = append(out, "TZ="+tz)
 	}
 
 	return append(out, rt.Env...)
