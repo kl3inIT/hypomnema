@@ -123,7 +123,7 @@ func (m *museSite) eval(script string) (any, error) {
 		}, nil
 	case script == softNewThread:
 		if m.routerWorks {
-			m.path = "/thread/new"
+			m.newThread()
 		}
 
 		return true, nil
@@ -171,6 +171,11 @@ func (m *museSite) eval(script string) (any, error) {
 	}
 
 	return nil, errors.New("an unknown script")
+}
+
+// newThread is a blank thread: nothing sent in it yet.
+func (m *museSite) newThread() {
+	m.path, m.sent, m.shown = "/thread/new", false, 0
 }
 
 func answered(text string) []chat {
@@ -226,7 +231,9 @@ type navigating struct {
 
 func (n *navigating) Navigate(ctx context.Context, address string) error {
 	n.site.mu.Lock()
-	n.site.path = strings.TrimPrefix(address, Site)
+	if n.site.path = strings.TrimPrefix(address, Site); n.site.path == "/thread/new" {
+		n.site.newThread()
+	}
 	n.site.mu.Unlock()
 
 	return n.fakePage.Navigate(ctx, address)

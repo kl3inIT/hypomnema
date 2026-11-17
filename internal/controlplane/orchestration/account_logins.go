@@ -210,7 +210,8 @@ func (s *Service) RemoveAccountLogin(ctx context.Context, id string) error {
 	})
 }
 
-// AddTokenAccount records an account whose token the owner pasted. The
+// AddTokenAccount records an account whose token the owner pasted, or a
+// Muse account whose cookie jar a sign-in captured (MuseRuntime). The
 // control plane keeps it and the model gateway serves the account; it is
 // never sent to a node (issue #381). secretRef names the vault's secret for
 // the new account's id; the caller stores the token there.
@@ -220,8 +221,9 @@ func (s *Service) AddTokenAccount(
 	label = strings.TrimSpace(label)
 
 	switch {
-	case runtime != TokenRuntime:
-		return Account{}, fmt.Errorf("%w: only a %s account is a pasted token", ErrInvalid, TokenRuntime)
+	case runtime != TokenRuntime && runtime != MuseRuntime:
+		return Account{}, fmt.Errorf("%w: only a %s or a %s account is a secret kept here", ErrInvalid, TokenRuntime,
+			MuseRuntime)
 	case label == "":
 		return Account{}, fmt.Errorf("%w: an account needs a label", ErrInvalid)
 	}

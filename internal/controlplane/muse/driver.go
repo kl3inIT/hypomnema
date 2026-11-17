@@ -74,8 +74,9 @@ var defaultTimings = timings{
 	undelivered: 30 * time.Second, total: 300 * time.Second, threadID: 2 * time.Second,
 }
 
-// MaxDeadline bounds the deadline a caller may give a question.
-const MaxDeadline = 15 * time.Minute
+// MaxDeadline bounds the deadline a caller may give a question: within the
+// seven minutes the tools server waits for a call (toolsmcp.CallTimeout).
+const MaxDeadline = 6 * time.Minute
 
 // driver asks muse.ai in one tab.
 type driver struct {
