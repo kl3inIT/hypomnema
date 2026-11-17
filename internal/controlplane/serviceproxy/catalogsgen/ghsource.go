@@ -120,7 +120,7 @@ func structCalls(body *ast.BlockStmt, dir string, types map[string]*ast.StructTy
 			return true
 		}
 
-		typ := ""
+		var typ string
 
 		switch sel.Sel.Name {
 		case "Query", "QueryWithContext":

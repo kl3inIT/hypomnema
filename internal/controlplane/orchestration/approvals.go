@@ -270,8 +270,6 @@ func (s *Service) ExpireApproval(ctx context.Context, id string) (Approval, erro
 	return out, nil
 }
 
-// runOfDispatch returns a Dispatch's Task and Run; both empty for no
-// Dispatch, or one that is gone.
 // StandingGrant reports whether the owner allowed an action for the rest of the Run or chat that asks, or for its
 // Routine, without recording anything: of a request that names several actions, each needs its own answer, and one
 // action's grant never carries another (review of #746).
@@ -314,6 +312,8 @@ func standingGrant(ctx context.Context, q *store.Queries, n NewApproval, runID, 
 	return sessions > 0, nil
 }
 
+// runOfDispatch returns a Dispatch's Task and Run; both empty for no
+// Dispatch, or one that is gone.
 func runOfDispatch(ctx context.Context, q *store.Queries, dispatchID string) (taskID, runID string, err error) {
 	if dispatchID == "" {
 		return "", "", nil
