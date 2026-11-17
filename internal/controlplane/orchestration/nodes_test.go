@@ -132,7 +132,7 @@ func TestMigrationKeepsNodeTokens(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "nod_old", n.ID)
 	assert.Equal(t, NodeDrained, n.Status)
-	assert.Equal(t, 0, n.MaxDispatches, "00107 cleared every node's cap (issue #731)")
+	assert.Equal(t, 0, n.MaxDispatches, "00114 cleared every node's cap (issue #731)")
 }
 
 // Scenario: a node sends what it measured. The registry shows the latest
@@ -244,7 +244,7 @@ func TestNodeStatsKeepTheLatestGPUs(t *testing.T) {
 	}
 }
 
-// Scenario: migration 00107 on a database with a capped node, a Bot with its
+// Scenario: migration 00114 on a database with a capped node, a Bot with its
 // own limit and the seeded profiles (issue #731). The node's cap is cleared, a
 // cap can be set on it again, and the Bot keeps its number as its guarantee;
 // the seeded explorer asks for half a core and 512 MiB, and a reserve starts
@@ -259,7 +259,7 @@ func TestMigrationClearsCapsAndKeepsBotsNumbers(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 106)
+	_, err = p.UpTo(ctx, 113)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `INSERT INTO nodes (id, name, status, max_dispatches, runtimes, created_at, updated_at)

@@ -1000,7 +1000,7 @@ sequenceDiagram
     calls in chats", saved on change), in `PUT /bots/{name}` `tool_display` (left out, kept) and `hypomnema bots
     set --tool-display off|on|full`; a change from the coordinator's chat is undone with the rest of the Bot's
     settings.
-  - A Bot's guaranteed share of the room (issue #731, migration 00107; its limit, `max_dispatches`, from issue #660
+  - A Bot's guaranteed share of the room (issue #731, migration 00114; its limit, `max_dispatches`, from issue #660
     and migration 00100 until 2026-11-17): `bots.guaranteed_dispatches`, 1 to 64, NULL for the default 4 (the
     scheduler, below). It is set on the Bot's page ("Guaranteed workers", saved with its button), in
     `PUT /bots/{name}` `guaranteed_dispatches` (left out, kept; the Bot's answer has the number in force) and
@@ -1553,7 +1553,7 @@ flowchart LR
   and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
   `reviewer-codex.yaml` carries the same text, and a reviewer the owner applied gets it by applying that file again.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
-  commit signal. Room is computed, not set (issue #731, migration 00107): a node takes a Dispatch while the
+  commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
   one, fit its **allocatable** in CPU and in memory both (Kubernetes' `NodeResourcesFit`, Nomad's `AllocsFit`):
   - a node's capacity is what its hello says, `nodes.cpus` and `nodes.memory_bytes`; its allocatable is
@@ -1567,9 +1567,9 @@ flowchart LR
   - a Dispatch's request is its profile version's `cpu_request_millis` and `memory_request_bytes` (the YAML's
     `requests: {cpu: 500m, memory: 512Mi}`), each the default for building work when unset
     (`DefaultCPURequestMillis` 1000, `DefaultMemoryRequest` 3 GiB, from the repository's checks measured on
-    stc-hy-app); migration 00107 gives the seeded `explorer` 0.5 core and 512 MiB. The request is copied onto the
+    stc-hy-app); migration 00114 gives the seeded `explorer` 0.5 core and 512 MiB. The request is copied onto the
     Dispatch (`dispatches.cpu_millis`, `memory_bytes`), so editing a profile does not change what runs;
-  - `nodes.max_dispatches` is an optional cap, NULL for none (Nomad's `node_max_allocs`); migration 00107 cleared
+  - `nodes.max_dispatches` is an optional cap, NULL for none (Nomad's `node_max_allocs`); migration 00114 cleared
     every node's, and the owner sets one again with `PATCH /nodes/{node_id}` `max_dispatches` (0 clears it),
     `hypomnema nodes set <node> --max N|none`, or Change cap in a machine's menu on the Machines page. The next pass
     places by it, and Dispatches running over a smaller room go on.
