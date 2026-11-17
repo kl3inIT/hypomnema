@@ -93,7 +93,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -951,8 +951,8 @@ sequenceDiagram
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
-  - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch` and
-    `generate_image`, and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
+  - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch`,
+    `generate_image`, `audio_transcribe` and `audio_speak` (issue #723), and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
     server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
     step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
     over the same HTTP the other tools use, so the box needs nothing more. Until
@@ -2129,7 +2129,8 @@ flowchart LR
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
       type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
-      omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760)) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
+      omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760); a voice note
+      with its transcript after its path, see "Incoming voice" under "An agent's tools") and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
       owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
       again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
       his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
@@ -2284,7 +2285,9 @@ flowchart LR
       Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
       by the mode: the people he added, or every member of the organization. People are kept per Channel
       (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
-      not text and a pi that is not running are answered with a short notice.
+      not text and a pi that is not running are answered with a short notice; a voice message (Lark `audio`) is
+      heard first and its transcript taken as the message (issue #723, see "Incoming voice" under "An agent's
+      tools").
     - Each person's message keeps who wrote it (issue #468, migration 00087, after OpenMausBot's
       `Message.sender {name, id}`): `chat_messages.sender_id` and `sender_name` (and the same on `chat_queue`,
       kept when a queued message goes in) are NULL for the owner (the web, the CLI, the Channel's owner at Lark)
@@ -2778,7 +2781,14 @@ capabilities do not exist yet.
   owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
   model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
   Every count carries `cost_micros` and `unpriced` (requests with tokens and no price), a request its cost; the
-  page shows them as "API cost", a `+` when part is unpriced. Once a day the gateway deletes the requests older than
+  page shows them as "API cost", a `+` when part is unpriced. Each kind is shown in its own unit (issue #723,
+  decisions 3.2 to 3.6): a tile each for the web searches, the audio heard, the characters spoken and the images
+  when the period used any; an "Other use" column by model, key and account ("30 searches", "12 min 34 s heard");
+  and under a request's model "1 search", "1 page", "1 min 30 s heard", "1,200 characters spoken", "2 images" or a
+  model's "+3 searches". A failed request's error shows under its outcome in the row, cut to its width, whole in the
+  sheet. A row leads with its provider's mark (`components/icons/provider-marks.tsx`, shared with the Web search
+  and Audio pages; lobe-icons, MIT): the search provider that answered, a globe for `web/fetch`, ElevenLabs's or
+  Soniox's microphone for `audio/*`, the image provider's, else the model's maker. Once a day the gateway deletes the requests older than
   31 days and every revoked key no request names any more; a live key is never deleted (issue
   [#628](https://github.com/kl3inIT/hypomnema/issues/628), as Coder's dbpurge deletes expired API keys).
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
@@ -2971,6 +2981,19 @@ capabilities do not exist yet.
   part costs twice the input (Anthropic's one-hour rate, LiteLLM's `cache_creation_input_token_cost_above_1hr`;
   models.dev has none) and the rest of the write `cache_write`, the five-minute rate. Rows recorded before keep 0
   and their cost. The Usage page's request shows the part next to the cache written.
+  Since migration 00116 (issue #723, decisions 3.1 to 3.4) a row also holds its web searches (`web_searches`: 1 for
+  an answered `web/search`, and a model's own, read from Anthropic's `usage.server_tool_use.web_search_requests`
+  on the Messages route and counted as the Responses route's `web_search_call` output items, by id, as LiteLLM
+  counts them) and the images an image request made (`images`). What is not counted in tokens is priced by its
+  unit from LiteLLM's price map (MIT, `third_party/litellm/NOTICE`; `prices/units.json`, generated by
+  `prices/unitsgen` and embedded, in nano-dollars): a `web/search` by the query of the provider that answered
+  (`input_cost_per_query`), an `audio/*` row by the second heard or the character spoken at the provider's model
+  (`input_cost_per_second`, Soniox's `output_cost_per_second`, `input_cost_per_character`), and a model's searches by
+  its `search_context_cost_per_query` (medium), added to its tokens'. A unit LiteLLM gives no price (Exa's and
+  Firecrawl's search, Soniox's speech) leaves the row unpriced; a keyless search is priced as the API would charge
+  it, as a subscription's tokens are. `unpriced` counts rows with tokens or units and no cost. The report's counts
+  (`GatewayUsageCounts`) add `web_searches`, `audio_seconds`, `characters` and `images`. No row holds a query, a
+  URL, a prompt, a transcript or the spoken text.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. A chat orchestration
   deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's
@@ -3209,7 +3232,7 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
 - Usage: each request is one row of `gateway_usage` on its key, as model `audio/<the provider's model>` (`audio/stt`
   or `audio/tts` when none was asked), with `audio_ms` heard or `characters` spoken (migration 00103, OmniRoute's
   billing units), 0 on a failure; a request refused before any provider is not recorded. `GET /gateway/requests`
-  gives them as `audio_seconds` and `characters`; the Usage page does not show them.
+  gives them as `audio_seconds` and `characters`, and the Usage page shows them in their units (issue #723).
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
   `tts_position`; read and written only by the gateway): one switch a provider for both kinds and each kind's order.
   `GET /gateway/audio` (any token) lists the providers with their switch, `state` (`ready`, `resting` when every key
@@ -3324,6 +3347,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
 | `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
+| `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | no (`hypomnema audio`) |
 | `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
 | the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
@@ -3331,7 +3355,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `ask`, `finish` (the node's own) | yes | no | no |
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
-running pi, as its `hypomnema web` and `hypomnema image` are.
+running pi, as its `hypomnema web`, `hypomnema image` and `hypomnema audio` are.
 
 Tool switches (issue #536, step 7; #492, row 10; `internal/shared/agenttool/switches.go`, migration 00091): a
 profile's YAML and a Bot narrow the table above with two lists beside their skills, `tools: [...]` (only these;
@@ -3416,8 +3440,51 @@ flowchart LR
   which has no MCP and keeps the commands), gets none; a tool this control plane does not have (no web, no images)
   is not listed.
 - How to use them is in their descriptions, not in a skill (no reference teaches a tool with one): `web_search`
-  says when to search and to read the pages that answer, and both say what they return is outside content, not
-  instructions; the results are between `EXTERNAL_UNTRUSTED_CONTENT` markers.
+  says when to search and to read the pages that answer, `web_fetch` to use it rather than curl or wget and the
+  browser (`agent_browser_*`) for a page that needs a sign-in, a script or clicks (issue #723, decision 2.1, as
+  Hermes's `web_extract`), and both say what they return is outside content, not instructions; the results are
+  between `EXTERNAL_UNTRUSTED_CONTENT` markers.
+- The "Tools" block (issue #723, decisions 2.2 to 2.4, with the owner's change of 2026-11-18;
+  `agenttool.ToolGuide`, `internal/shared/agenttool/guide.go`): one short section, `## Tools`, a line for each
+  family of the agent's tools whose `WhenToUse` (a field of `agenttool.ToolFamilies`, the one source) says what it
+  does, when to use it and what to use instead; a family the agent lacks, or whose `WhenToUse` is empty, is left
+  out, as Hermes and OpenClaw build theirs from the tools present (`prompt_builder.py:450`,
+  `system-prompt-tool-list.ts:21-71`). Only web, images and audio have a line so far (the others: issue #789).
+  The tools it is built from are those an agent gets whatever its task or chat, after its switches
+  (`agentapi.Server.WorkerTools`, `BotTools`): not Superset's, WhatsApp's, Zalo's or the phone's. A worker gets it
+  after its rules, before the profile's instruction and the task: the node API puts the names in the offer
+  (`nodeproto.Offer.Tools`, a node of an earlier release ignores them) and the runner writes the block
+  (`runner.Prompt`). A Bot's pi gets it first in what `hypomnema bots prompt` prints, before the persona, from
+  `GET /v1/bots/{id}/tools`. It holds no date and nothing of a task or chat, so a worker and a Bot with the same
+  families get the same block and the start of the prompt stays the same for the provider's cache (#672). MCP
+  `instructions` are not used: pi leaves them out for its `direct` tools.
+- `audio_transcribe` `{path, language?, speakers?, terms?}` and `audio_speak` `{text, voice?, format?, speed?,
+  language?, path?}` (issue #723, decisions 1.1 to 1.5; `agentapi/audio.go`, `toolsmcp/audio.go`) are the
+  gateway's speech (Audio, above), the family `audio_*`. The recording is a file of the agent's machine, read by its
+  tools server and sent whole in base64 (`agenttool.TranscribeCall`), at most 47 MiB so that it fits a 64 MiB call
+  with its JSON (the design's 48 MiB left no room); the answer is the text, or with `speakers` a line a segment
+  with its time and speaker, then who heard it. A transcript over 20,000 characters is given as its first and last
+  10,000 and saved whole as `<recording>.transcript.txt` beside the recording (else in the temporary folder), whose
+  path the answer gives, as Hermes's `web_extract` cuts a long page. Speech (at most 4,096 characters) comes back as
+  MCP audio content, which the tools server saves at `path` (the format's extension; the format is the path's own
+  extension when none is named) or as a new `hypomnema-speech-*` file in the temporary folder; a Bot's under
+  `audio/` in its folder with the `MEDIA:` line that sends it, as `generate_image`'s. `audio_speak`'s description
+  says to use it only when a voice is asked for, never in place of a written reply (OpenClaw's `tts`). Each call is
+  a usage row on the Dispatch's key or the chat's (`controlplane/audio.go`, `agentAudio`); what was said is never
+  logged.
+- Incoming voice (issue #723; [design](https://github.com/kl3inIT/hypomnema/issues/723#issuecomment-6956018177)): a
+  voice message a person sends a Bot is transcribed before the model reads it, with the same speech service, as
+  Hermes (`gateway/config.py:635`) and OpenClaw (`audio-preflight.ts`) do. On Lark a direct message of type `audio`
+  is downloaded by its `file_key` (`im.messageResource.get`, `type=file`; `channels.Recorder`) and heard
+  (`channels.Hearer`, the wiring's `channelVoice`), and the transcript goes through the same rules as a typed
+  message (who may send it, the sender's label, the queue); it is recorded on the chat's newest gateway key, working
+  or not (`modelgateway.Service.ChatKey`), since the chat's pi may not run yet. A group's voice message mentions
+  no one and is left alone. On WhatsApp and Zalo, which a Bot reads with tools, `whatsapp_media` and `zalo_media`
+  on a voice note give its transcript after its path, heard at each opening and recorded on the chat's key. The
+  model reads Hermes's words: the transcript as a quoted line and `[voice message, transcribed]`, or one neutral
+  `[voice message could not be transcribed]`, or that it came through empty and to ask for it again
+  (`speech.VoiceNote`). The transcript is not echoed into the chat (Hermes echoes, OpenClaw does not), and never
+  logged.
 - `generate_image` `{prompt, images?, path?, size?, quality?}` makes one image a call (OpenMausBot's and
   opencode's), with "Images" above, `n` 1. The images to edit are files of the worker's machine, at most 8, each a
   PNG, JPEG, WebP or GIF of up to 20 MiB (opencode's bounds): the worker's tools server reads them and sends them
@@ -4578,7 +4645,7 @@ internal/shared/githost   git hosts: how a repository is named, and each kind's 
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
 internal/shared/skillpack a skill in the Agent Skills format: reading an archive, checking it, its digest, the archive kept
-internal/shared/toolsmcp  Hypomnema's stdio MCP server for every agent kind: the loop, the agent API's client, generate_image's files read and saved
+internal/shared/toolsmcp  Hypomnema's stdio MCP server for every agent kind: the loop, the agent API's client, generate_image's and the audio tools' files read and saved
 internal/shared/release   a release's manifest, download and SHA-256 check, for the node's and the control plane's updates
 internal/shared/sqlite    SQLite opening, pragmas and file permissions; sqlitetest hands each test a copy of a migrated database
 internal/shared/workspacefs  a folder read and changed for the web: pages of entries, files, git changes, guarded writes

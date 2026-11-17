@@ -114,6 +114,7 @@ type Server struct {
 	// and a Bot's pi (issues #354, #492); nil when the control plane gave none.
 	web       Web
 	images    Images
+	audio     Audio
 	runtimeOf RuntimeOf
 	// device is the phone a node holds (issue #417); nil when the control plane gave none.
 	device Device

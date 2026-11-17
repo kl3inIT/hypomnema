@@ -32,14 +32,6 @@ import type {
   WebSearchLink,
   WebSearchOrder,
 } from "@/api/generated/types.gen"
-import {
-  ExaIcon,
-  FirecrawlIcon,
-  ParallelIcon,
-  TavilyIcon,
-  TinyFishIcon,
-  YouIcon,
-} from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -65,7 +57,7 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ProviderMark } from "@/components/icons/model-mark"
+import { SearchProviderMark } from "@/components/icons/provider-marks"
 import { Meter } from "@/components/meter"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorAlert } from "@/components/error-alert"
@@ -289,7 +281,7 @@ function KeyedRow({
         >
           #{order}
         </span>
-        <Mark provider={link.provider} />
+        <SearchProviderMark provider={link.provider} className="size-5 shrink-0 self-start" />
         <ItemContent>
           <ItemTitle>{name}</ItemTitle>
           <ItemDescription>
@@ -533,7 +525,7 @@ function LinkRow({ link }: { link: WebSearchLink }) {
   return (
     <div className={link.on ? undefined : "opacity-70"}>
       <Item variant="muted" size="sm" aria-label={`${name}, ${sourceText(link)}`}>
-        <Mark provider={link.provider} />
+        <SearchProviderMark provider={link.provider} className="size-5 shrink-0 self-start" />
         <ItemContent>
           <ItemTitle>{name}</ItemTitle>
           <ItemDescription>
@@ -617,34 +609,6 @@ function StateBadge({
       {state.label}
     </Badge>
   )
-}
-
-// Mark is the maker's mark of a provider, in its colours: Exa's, Tavily's and Firecrawl's as LobeHub's colour icons
-// draw them, Parallel's, TinyFish's and You.com's as their websites serve them, and the subscriptions' as the Models
-// page draws them.
-function Mark({ provider }: { provider: WebSearchLink["provider"] }) {
-  const className = "size-5 shrink-0 self-start"
-
-  switch (provider) {
-    case "exa":
-      return <ExaIcon className={className} />
-    case "tavily":
-      return <TavilyIcon className={className} />
-    case "firecrawl":
-      return <FirecrawlIcon className={className} />
-    case "parallel":
-      return <ParallelIcon className={`${className} text-foreground`} />
-    case "tinyfish":
-      return <TinyFishIcon className={className} />
-    case "you":
-      return <YouIcon className={className} />
-    case "codex":
-    case "claude":
-    case "antigravity":
-      return <ProviderMark kind={`${provider}_subscription`} className={className} />
-    default:
-      return <Globe className={`${className} text-muted-foreground`} aria-hidden />
-  }
 }
 
 // stateIcon says what kind of state a badge is, as the Models page's badges do.

@@ -89,18 +89,56 @@ type lark struct {
 	hold chan struct{}
 	// holdCards, when set, keeps every card that opens waiting until it is closed.
 	holdCards chan struct{}
+	// recordings are the voice messages' recordings, by their key; another key cannot be downloaded.
+	recordings map[string][]byte
+}
+
+// Recording downloads a voice message's recording (issue #723).
+func (l *lark) Recording(_ context.Context, _, key string, limit int64) ([]byte, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	data, ok := l.recordings[key]
+	if !ok || int64(len(data)) > limit {
+		return nil, errors.New("Lark refused it with code 234003: file not found")
+	}
+
+	return data, nil
+}
+
+// hearing stands in for the speech service: what it hears of a recording is the recording's own bytes, on the chat
+// it is told of.
+type hearing struct {
+	mu    sync.Mutex
+	heard []string
+}
+
+func (h *hearing) Hear(_ context.Context, chatID string, recording []byte, err error) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if err != nil {
+		h.heard = append(h.heard, chatID+": failed")
+
+		return "[voice message could not be transcribed]"
+	}
+
+	h.heard = append(h.heard, chatID+": "+string(recording))
+
+	return `"` + string(recording) + `"` + "\n[voice message, transcribed]"
 }
 
 // newLark is an app at Lark in which the owner and Linh have these ids.
 func newLark(owner, linh string) *lark {
 	return &lark{
-		owner:  owner,
-		cards:  map[string]*card{},
-		asked:  map[string]channels.Card{},
-		marks:  map[string][]string{},
-		bytes:  map[string][]byte{},
-		emails: map[string]string{"owner@example.com": owner, "linh@example.com": linh},
-		names:  map[string]string{linh: "Linh"},
+		owner:      owner,
+		cards:      map[string]*card{},
+		asked:      map[string]channels.Card{},
+		marks:      map[string][]string{},
+		bytes:      map[string][]byte{},
+		emails:     map[string]string{"owner@example.com": owner, "linh@example.com": linh},
+		names:      map[string]string{linh: "Linh"},
+		recordings: map[string][]byte{},
 	}
 }
 
@@ -575,6 +613,7 @@ type world struct {
 	lark     *lark
 	larkMaps *lark
 	pi       *pi
+	hearing  *hearing
 	channels *channels.Channels
 	// running says the Channels of this start are being run.
 	running bool
@@ -599,6 +638,7 @@ func newWorld(t *testing.T) *world {
 		t: t, path: path, bots: folders{root: t.TempDir()}, clock: &later{}, lark: newLark(ownerID, linhID),
 		larkMaps: newLark(mapsOwner, mapsLinh),
 		pi:       &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}},
+		hearing:  &hearing{},
 	}
 	w.orch = orchestration.New(db, w.clock, platform.NewID)
 	w.asks = &asking{Service: w.orch, Store: w.orch.Channels(), questions: map[string]orchestration.Question{}}
@@ -649,7 +689,7 @@ func (w *world) start() {
 	require.NoError(w.t, err)
 
 	w.channels = channels.New(w.asks, w.pi, registry, w.vault, logger).WithWebURL(w.web).WithClock(w.clock).
-		WithFiles(w.bots)
+		WithFiles(w.bots).WithHearer(w.hearing)
 	w.running = false
 	w.svc = larkchannel.NewService(channels.NewService(w.asks, w.vault, w.channels))
 }
@@ -1999,4 +2039,60 @@ func TestTheRestartLinesReachTheChannel(t *testing.T) {
 			ownerDM + ": " + orchestration.CutText,
 		}, w.lark.sent())
 	}, eventual, tick, "both lines reach Lark")
+}
+
+// Scenario (issue #723, incoming voice): the owner sends his Channel a voice
+// message. Its recording is downloaded and heard, on his chat with the Bot,
+// before the Bot reads it: the chat holds the transcript as his message. A
+// voice message from Linh, whom the owner let in, carries her label as a
+// typed one does. One whose recording cannot be downloaded reaches the Bot
+// as one line saying it could not be heard, and a voice message in a group,
+// which mentions no one, is left alone as any message that does not mention
+// the bot.
+func TestAVoiceMessageIsHeardBeforeTheBotReadsIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(channelstore.ChannelAllowlist)
+
+	_, err := w.svc.AddPerson(t.Context(), main, "linh@example.com")
+	require.NoError(t, err)
+
+	w.lark.mu.Lock()
+	w.lark.recordings["file_v1"] = []byte("Gặp nhau lúc 3 giờ")
+	w.lark.recordings["file_v2"] = []byte("Em gửi báo giá")
+	w.lark.mu.Unlock()
+
+	voice := func(id, chat, sender, key string) channels.Message {
+		m := direct(id, chat, sender, "")
+		m.IsText, m.Voice = false, key
+
+		return m
+	}
+
+	w.lark.say(voice("om_1", ownerDM, ownerID, "file_v1"))
+	mine := w.chatOf(ownerDM)
+	require.Eventually(t, func() bool { return len(w.texts(mine)) == 1 }, eventual, tick)
+	assert.Equal(t, []string{"owner: \"Gặp nhau lúc 3 giờ\"\n[voice message, transcribed]"}, w.texts(mine))
+
+	w.lark.say(voice("om_2", linhDM, linhID, "file_v2"))
+	hers := w.chatOf(linhDM)
+	require.Eventually(t, func() bool { return len(w.texts(hers)) == 1 }, eventual, tick)
+	assert.Equal(t, "owner: [Lark message from Linh, who is not the owner. Questions for approval go to the owner.]\n"+
+		"\"Em gửi báo giá\"\n[voice message, transcribed]", w.texts(hers)[0])
+
+	w.lark.say(voice("om_3", ownerDM, ownerID, "file_gone"))
+	require.Eventually(t, func() bool { return len(w.texts(mine)) == 2 }, eventual, tick)
+	assert.Equal(t, "owner: [voice message could not be transcribed]", w.texts(mine)[1])
+
+	group := voice("om_4", "oc_group", ownerID, "file_v1")
+	group.Direct = false
+	w.lark.say(group)
+
+	w.hearing.mu.Lock()
+	defer w.hearing.mu.Unlock()
+
+	assert.Equal(t, []string{mine + ": Gặp nhau lúc 3 giờ", hers + ": Em gửi báo giá", mine + ": failed"},
+		w.hearing.heard, "each heard on its own chat; the group's is not heard")
+	assert.Empty(t, w.lark.noticed(), "a voice message is no longer refused as not text")
 }

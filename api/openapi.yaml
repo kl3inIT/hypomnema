@@ -2267,6 +2267,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SkillRefList" }
         default: { $ref: "#/components/responses/Error" }
+  /bots/{bot_id}/tools:
+    parameters:
+      - $ref: "#/components/parameters/BotID"
+    get:
+      operationId: ListBotTools
+      summary: The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+      description: >-
+        Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's.
+        `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its
+        offer's tools.
+      responses:
+        "200":
+          description: The tools' names.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ToolNames" }
+        default: { $ref: "#/components/responses/Error" }
   /bots/{bot_id}/memory:
     parameters:
       - $ref: "#/components/parameters/BotID"
@@ -6546,9 +6563,26 @@ components:
     GatewayUsageCounts:
       type: object
       required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cost_micros,
-        unpriced]
+        unpriced, web_searches, audio_seconds, characters, images]
       properties:
         requests: { type: integer, format: int64 }
+        web_searches:
+          type: integer
+          format: int64
+          description: >-
+            The web searches: each web/search answered, and the searches models made themselves (Anthropic's
+            server_tool_use.web_search_requests, the Responses API's web_search_call items).
+        audio_seconds:
+          type: number
+          description: The seconds of recordings transcriptions heard.
+        characters:
+          type: integer
+          format: int64
+          description: The characters speech spoke.
+        images:
+          type: integer
+          format: int64
+          description: The images image requests made.
         cost_micros:
           type: integer
           format: int64
@@ -6558,7 +6592,8 @@ components:
         unpriced:
           type: integer
           format: int64
-          description: The requests with tokens whose model the price book has no price for.
+          description: >-
+            The requests with tokens, searches, seconds or characters that the price book has no price for.
         failed:
           type: integer
           format: int64
@@ -6659,7 +6694,9 @@ components:
         cost_micros:
           type: integer
           format: int64
-          description: The cost at the vendor's API price, in micro-dollars; absent when the model has no price.
+          description: >-
+            The cost at the vendor's API price, in micro-dollars: its tokens, searches, seconds or characters, at
+            the price of each (LiteLLM's price map for those not counted in tokens); absent when there is none.
         priced_model:
           type: string
           description: The model the cost was priced as.
@@ -6674,6 +6711,16 @@ components:
           type: integer
           format: int64
           description: The characters an audio speech request spoke; absent for other requests.
+        web_searches:
+          type: integer
+          format: int64
+          description: >-
+            The web searches the request made: 1 for an answered web/search, and a model's own searches beside its
+            tokens; absent when none.
+        images:
+          type: integer
+          format: int64
+          description: The images an image request made; absent for other requests.
     GatewayRequestList:
       type: object
       required: [data, has_more]
@@ -7102,6 +7149,13 @@ components:
       required: [everyone]
       properties:
         everyone: { type: boolean }
+    ToolNames:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { type: string }
     Bot:
       type: object
       required:

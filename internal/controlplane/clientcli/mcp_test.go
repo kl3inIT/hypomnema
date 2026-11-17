@@ -61,6 +61,14 @@ func (g *gatewayAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if call.Tool == agenttool.ToolAudioSpeak {
+			spoken := base64.StdEncoding.EncodeToString([]byte("ID3 hello"))
+			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"Spoken by soniox with tts-rt-v2."},`+
+				`{"type":"audio","data":"`+spoken+`","mimeType":"audio/mpeg"}],"isError":false}`)
+
+			return
+		}
+
 		if call.Tool == agenttool.ToolRoutines {
 			// The arguments as the server sent them, for the test to read.
 			text, err := json.Marshal(string(call.Arguments))
@@ -223,7 +231,7 @@ func TestABotsPiSetsARoutineWithAScriptOfItsFolder(t *testing.T) {
 // phone's route, as a worker's server does. An image is saved under images/
 // in the Bot's folder, where pi works, and the answer gives the MEDIA line
 // that sends it into the chat; one saved outside the folder says it cannot
-// be sent.
+// be sent. Speech is saved under audio/ the same way.
 func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
 	api := &gatewayAPI{}
 	srv := httptest.NewServer(api)
@@ -263,6 +271,21 @@ func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "\x89PNG\r\n\x1a\nfox", string(saved))
 	assert.Equal(t, "Saved to "+filepath.Join(work, filepath.FromSlash(media)), lines[1])
+
+	// Speech is saved under audio/ in the Bot's folder, with the MEDIA line that sends it (issue #723).
+	answer = m.text(6, "audio_speak", map[string]any{"text": "hello"})
+	lines = strings.Split(answer, "\n")
+	require.Len(t, lines, 3, answer)
+	assert.Equal(t, "Spoken by soniox with tts-rt-v2.", lines[0])
+
+	media, ok = strings.CutPrefix(lines[2], "To send it into the chat, put this line on a line of its own in "+
+		"your reply, outside a code block: MEDIA:")
+	require.True(t, ok, lines[2])
+	assert.True(t, strings.HasPrefix(media, "audio/speech-") && strings.HasSuffix(media, ".mp3"), media)
+
+	saved, err = os.ReadFile(filepath.Join(work, filepath.FromSlash(media))) //nolint:gosec // the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, "ID3 hello", string(saved))
 
 	outside := filepath.Join(t.TempDir(), "fox.png")
 	answer = m.text(5, "generate_image", map[string]any{"prompt": "a fox", "path": outside})

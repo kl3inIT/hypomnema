@@ -95,3 +95,32 @@ func TestAFileIsFiledUnderTheKindItsBytesAre(t *testing.T) {
 	assert.Equal(t, "pdf", fileType("Report.PDF", []byte("%PDF-1.7")))
 	assert.Equal(t, "stream", fileType("notes.txt", []byte("%PDF-1.7")), "a name alone makes nothing a PDF")
 }
+
+// Scenario (issue #723): a Lark voice message is read as its recording's
+// file_key, which the Channels download and hear; a text message keeps its
+// text and has no recording.
+func TestAVoiceMessageIsReadAsItsRecordingsKey(t *testing.T) {
+	t.Parallel()
+
+	event := func(kind, content string) *larkim.P2MessageReceiveV1 {
+		return &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+			Message: &larkim.EventMessage{
+				MessageId: ptr("om_1"), ChatId: ptr("oc_1"), ChatType: ptr("p2p"), MessageType: ptr(kind),
+				Content: ptr(content),
+			},
+			Sender: &larkim.EventSender{SenderType: ptr("user"), SenderId: &larkim.UserId{OpenId: ptr("ou_1")}},
+		}}
+	}
+
+	voice := messageOf(event("audio", `{"file_key":"file_v3_abc","duration":4000}`))
+	assert.Equal(t, "file_v3_abc", voice.Voice)
+	assert.False(t, voice.IsText)
+	assert.Empty(t, voice.Text)
+
+	text := messageOf(event("text", `{"text":"hello"}`))
+	assert.Equal(t, "hello", text.Text)
+	assert.True(t, text.IsText)
+	assert.Empty(t, text.Voice)
+}
+
+func ptr(s string) *string { return &s }

@@ -72,10 +72,62 @@ export function cost(c: GatewayUsageCounts): string {
   return c.unpriced > 0 ? `${money(c.cost_micros)}+` : money(c.cost_micros)
 }
 
+// counted says a number with its unit: 1 search, 3 searches, 1,200 characters.
+function counted(n: number, one: string, many: string): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`
+}
+
+// units says what a request used that is not tokens, each kind in its own unit (issue #723, decision 3.2), as
+// OmniRoute bills a second, a character and an image and LiteLLM a query: a search, a page read, the seconds a
+// transcription heard, the characters speech spoke, the images made, and a model's own searches beside its
+// tokens. Nothing for a model that searched nothing, or a call that failed before any was used.
+export function units(
+  r: Pick<
+    GatewayRequest,
+    "model" | "outcome" | "web_searches" | "audio_seconds" | "characters" | "images"
+  >,
+): string {
+  const searches = r.web_searches ?? 0
+
+  if (r.model === "web/search") return searches > 0 ? counted(searches, "search", "searches") : ""
+  if (r.model === "web/fetch") return r.outcome === "ok" ? "1 page" : ""
+  if (r.model.startsWith("audio/")) {
+    if (r.audio_seconds) return `${duration(Math.round(r.audio_seconds * 1000))} heard`
+    if (r.characters) return `${counted(r.characters, "character", "characters")} spoken`
+    return ""
+  }
+  if (r.model.startsWith("image/")) return r.images ? counted(r.images, "image", "images") : ""
+
+  return searches > 0 ? `+${counted(searches, "search", "searches")}` : ""
+}
+
+// unitsOf says what a set of requests used that is not tokens, each kind that is there in its unit.
+export function unitsOf(c: GatewayUsageCounts): string {
+  const out: string[] = []
+
+  if (c.web_searches > 0) out.push(counted(c.web_searches, "search", "searches"))
+  if (c.audio_seconds > 0) out.push(`${duration(Math.round(c.audio_seconds * 1000))} heard`)
+  if (c.characters > 0) out.push(`${counted(c.characters, "character", "characters")} spoken`)
+  if (c.images > 0) out.push(counted(c.images, "image", "images"))
+
+  return out.join(", ")
+}
+
 export type Tile = { label: string; value: string; detail?: string }
 
-// tiles are the period's totals, as T3 Code's Totals row and Omnara's tiles.
+// tiles are the period's totals, as T3 Code's Totals row and Omnara's tiles; the units that are not tokens each
+// have a tile when the period used any (issue #723, decision 3.2).
 export function tiles(c: GatewayUsageCounts): Tile[] {
+  const used: Tile[] = []
+
+  if (c.web_searches > 0)
+    used.push({ label: "Web searches", value: c.web_searches.toLocaleString() })
+  if (c.audio_seconds > 0) {
+    used.push({ label: "Audio heard", value: duration(Math.round(c.audio_seconds * 1000)) })
+  }
+  if (c.characters > 0) used.push({ label: "Characters spoken", value: tokens(c.characters) })
+  if (c.images > 0) used.push({ label: "Images", value: c.images.toLocaleString() })
+
   return [
     { label: "Requests", value: c.requests.toLocaleString() },
     {
@@ -91,6 +143,7 @@ export function tiles(c: GatewayUsageCounts): Tile[] {
     },
     { label: "Tokens out", value: tokens(c.completion_tokens) },
     { label: "Reasoning", value: tokens(c.reasoning_tokens) },
+    ...used,
     {
       label: "API cost",
       value: cost(c),

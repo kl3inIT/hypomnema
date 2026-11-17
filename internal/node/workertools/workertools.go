@@ -171,6 +171,15 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 			return s.agent.ImageCall(ctx, c.Arguments, toolsmcp.Images{Path: agenttool.PathToolsCall})
 		}
 
+		// The speech tools' recording is read here and their speech saved here (issue #723).
+		if s.agent != nil && c.Name == agenttool.ToolAudioTranscribe {
+			return s.agent.TranscribeCall(ctx, c.Arguments, toolsmcp.Audio{Path: agenttool.PathToolsCall})
+		}
+
+		if s.agent != nil && c.Name == agenttool.ToolAudioSpeak {
+			return s.agent.SpeakCall(ctx, c.Arguments, toolsmcp.Audio{Path: agenttool.PathToolsCall})
+		}
+
 		if s.agent != nil && c.Name == agenttool.ToolShowArtifact {
 			dir, err := s.workFolder()
 			if err != nil {

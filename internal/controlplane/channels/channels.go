@@ -174,6 +174,8 @@ type Channels struct {
 	// files reads the Bots' folders, for the files a Bot sends; nil when
 	// they cannot be read.
 	files Files
+	// hearer hears a voice message; nil refuses one (issue #723).
+	hearer Hearer
 	// look asks Run to look at the Channels now: one was set up or changed.
 	look chan struct{}
 
@@ -217,6 +219,28 @@ func (c *Channels) WithWebURL(url string) *Channels {
 // refused.
 func (c *Channels) WithFiles(files Files) *Channels {
 	c.files = files
+
+	return c
+}
+
+// Hearer turns a voice message's recording into what the Bot reads of it
+// (issue #723): its transcript, recorded on the chat's gateway key, or why
+// there is none. err, when set, is why the recording could not be read, and
+// the Hearer says only that the message could not be heard.
+type Hearer interface {
+	Hear(ctx context.Context, chatID string, recording []byte, err error) string
+}
+
+// MaxVoiceBytes bounds a voice message's recording: the speech service's
+// own bound (speech.MaxAudioBytes).
+const MaxVoiceBytes = 128 << 20
+
+// WithHearer sets how a voice message is heard, as Hermes and OpenClaw
+// transcribe one before the turn (gateway/config.py:635;
+// src/media-understanding/audio-preflight.ts). Without it a voice message is
+// refused as any message that is not text is.
+func (c *Channels) WithHearer(h Hearer) *Channels {
+	c.hearer = h
 
 	return c
 }
@@ -623,14 +647,16 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 		return nil
 	}
 
-	if !m.IsText || strings.TrimSpace(m.Text) == "" {
+	recorder, voice := cn.voice(m)
+
+	if !voice && (!m.IsText || strings.TrimSpace(m.Text) == "") {
 		cn.notice(ctx, m.ChatID, noticeTextOnly)
 
 		return nil
 	}
 
 	// The owner's reply to a question's card is his answer in his own words, not a message for the Bot.
-	if m.Sender == ch.OwnerID && m.ReplyTo != "" {
+	if !voice && m.Sender == ch.OwnerID && m.ReplyTo != "" {
 		if card, err := store.QuestionCardByMessage(ctx, cn.name, m.ReplyTo); err == nil {
 			cn.notice(ctx, m.ChatID, cn.answer(ctx, card.QuestionID, orchestration.Answer{Text: m.Text}))
 
@@ -645,18 +671,13 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 		return cn.stop(ctx, m)
 	}
 
-	text, title := m.Text, ""
+	title, name := "", ""
 
 	var sender *orchestration.ChatSender
 
 	if m.Sender != ch.OwnerID {
-		// Someone the owner let in may give work, and is named: the name is a label of the message, not an
-		// instruction, as OpenClaw and MemoryOS fence a sender's name.
-		name := cn.nameOf(ctx, m.Sender)
-		platform := cn.caps.Platform
-		text = fmt.Sprintf("[%s message from %s, who is not the owner. Questions for approval go to the owner.]\n%s",
-			platform, name, defuseLabels(m.Text, platform))
-		title = platform + ": " + name
+		name = cn.nameOf(ctx, m.Sender)
+		title = cn.caps.Platform + ": " + name
 		sender = &orchestration.ChatSender{ID: m.Sender, Name: name}
 	}
 
@@ -665,7 +686,52 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 		return err
 	}
 
+	body := m.Text
+	if voice {
+		// A voice message is heard before the Bot reads it (issue #723), on the chat's key.
+		body = cn.heard(ctx, recorder, chat.ChatID, m)
+	}
+
+	text := body
+
+	if sender != nil {
+		// Someone the owner let in may give work, and is named: the name is a label of the message, not an
+		// instruction, as OpenClaw and MemoryOS fence a sender's name.
+		platform := cn.caps.Platform
+		text = fmt.Sprintf("[%s message from %s, who is not the owner. Questions for approval go to the owner.]\n%s",
+			platform, name, defuseLabels(body, platform))
+	}
+
 	return cn.deliver(ctx, m, chat, text, sender)
+}
+
+// voice says whether a message is a voice message the Channels can hear:
+// its Conn reads recordings and a Hearer was given.
+func (cn *conn) voice(m Message) (Recorder, bool) {
+	if m.Voice == "" || cn.all.hearer == nil {
+		return nil, false
+	}
+
+	recorder, ok := cn.conn.(Recorder)
+
+	return recorder, ok
+}
+
+// heard is what the Bot reads of a voice message: its transcript, or why
+// there is none, in the Hearer's words.
+func (cn *conn) heard(ctx context.Context, recorder Recorder, chatID string, m Message) string {
+	ctx, cancel := context.WithTimeout(ctx, mediaTimeout)
+	recording, err := recorder.Recording(ctx, m.ID, m.Voice, MaxVoiceBytes)
+
+	cancel()
+
+	if err != nil {
+		cn.all.logger.WarnContext(ctx, "a voice message could not be downloaded",
+			slog.String("event", "channels.voice_failed"), slog.String("channel", cn.name),
+			slog.String("message_id", m.ID), slog.Any("error", err))
+	}
+
+	return cn.all.hearer.Hear(ctx, chatID, recording, err)
 }
 
 // inGroup handles a message in a group (issue #246). It is served only when

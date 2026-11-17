@@ -56,6 +56,11 @@ SELECT * FROM gateway_keys WHERE id = @id;
 SELECT * FROM gateway_keys WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT 1;
 
+-- The newest key of a chat, working or not (issue #723): a voice message heard before the chat's pi starts is
+-- recorded on it.
+-- name: GetLatestGatewayKeyOfChat :one
+SELECT * FROM gateway_keys WHERE chat_id = @chat_id ORDER BY created_at DESC, id DESC LIMIT 1;
+
 -- name: GetGatewayKeyByHash :one
 SELECT * FROM gateway_keys WHERE key_hash = @key_hash;
 
@@ -72,11 +77,11 @@ UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           audio_ms, characters, created_at)
+                           audio_ms, characters, web_searches, images, created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
         @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model,
-        @audio_ms, @characters, @now);
+        @audio_ms, @characters, @web_searches, @images, @now);
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
@@ -92,8 +97,12 @@ SELECT CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
        CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
        CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(web_searches), 0) AS INTEGER) AS web_searches,
+       CAST(COALESCE(SUM(audio_ms), 0) AS INTEGER) AS audio_ms,
+       CAST(COALESCE(SUM(characters), 0) AS INTEGER) AS characters,
+       CAST(COALESCE(SUM(images), 0) AS INTEGER) AS images,
        CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
-       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens + web_searches + audio_ms + characters > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @since;
 
 -- name: UsageBuckets :many
@@ -104,8 +113,12 @@ SELECT CAST((created_at - @origin) / @bucket_ms AS INTEGER) AS bucket,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(SUM(web_searches) AS INTEGER) AS web_searches,
+       CAST(SUM(audio_ms) AS INTEGER) AS audio_ms,
+       CAST(SUM(characters) AS INTEGER) AS characters,
+       CAST(SUM(images) AS INTEGER) AS images,
        CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
-       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens + web_searches + audio_ms + characters > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @origin
 GROUP BY bucket ORDER BY bucket;
 
@@ -117,8 +130,12 @@ SELECT model AS name,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(SUM(web_searches) AS INTEGER) AS web_searches,
+       CAST(SUM(audio_ms) AS INTEGER) AS audio_ms,
+       CAST(SUM(characters) AS INTEGER) AS characters,
+       CAST(SUM(images) AS INTEGER) AS images,
        CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
-       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens + web_searches + audio_ms + characters > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @since
 GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model;
 
@@ -142,8 +159,12 @@ SELECT CAST(CASE
        CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(SUM(u.web_searches) AS INTEGER) AS web_searches,
+       CAST(SUM(u.audio_ms) AS INTEGER) AS audio_ms,
+       CAST(SUM(u.characters) AS INTEGER) AS characters,
+       CAST(SUM(u.images) AS INTEGER) AS images,
        CAST(COALESCE(SUM(u.cost_micros), 0) AS INTEGER) AS cost_micros,
-       CAST(COALESCE(SUM(u.cost_micros IS NULL AND u.prompt_tokens + u.completion_tokens > 0), 0) AS INTEGER) AS unpriced
+       CAST(COALESCE(SUM(u.cost_micros IS NULL AND u.prompt_tokens + u.completion_tokens + u.web_searches + u.audio_ms + u.characters > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id WHERE u.created_at >= @since
 GROUP BY 1, 2 ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, 2, 1;
 
@@ -155,8 +176,12 @@ SELECT account_id AS id,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(SUM(web_searches) AS INTEGER) AS web_searches,
+       CAST(SUM(audio_ms) AS INTEGER) AS audio_ms,
+       CAST(SUM(characters) AS INTEGER) AS characters,
+       CAST(SUM(images) AS INTEGER) AS images,
        CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
-       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens + web_searches + audio_ms + characters > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @since AND account_id != ''
 GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, account_id;
 

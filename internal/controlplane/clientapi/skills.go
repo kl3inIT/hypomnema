@@ -290,6 +290,35 @@ func (s *Server) ListBotSkills(ctx context.Context, req openapi.ListBotSkillsReq
 	return out, nil
 }
 
+// WithBotTools sets where the tools a Bot's pi gets come from, for the
+// "Tools" block `hypomnema bots prompt` writes (issue #723).
+func (s *Server) WithBotTools(tools func(ctx context.Context, bot orchestration.Bot) []string) *Server {
+	s.botTools = tools
+
+	return s
+}
+
+// ListBotTools returns the names of the tools a Bot's pi gets in any chat,
+// after the Bot's switches.
+func (s *Server) ListBotTools(ctx context.Context, req openapi.ListBotToolsRequestObject,
+) (openapi.ListBotToolsResponseObject, error) {
+	if err := botAllowed(principal(ctx), req.BotId); err != nil {
+		return nil, err
+	}
+
+	bot, err := s.svc.GetBot(ctx, req.BotId)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListBotTools200JSONResponse{Data: []string{}}
+	if s.botTools != nil {
+		out.Data = append(out.Data, s.botTools(ctx, bot)...)
+	}
+
+	return out, nil
+}
+
 // GetSkillArchive returns one revision of a skill as its archive.
 func (s *Server) GetSkillArchive(ctx context.Context, req openapi.GetSkillArchiveRequestObject,
 ) (openapi.GetSkillArchiveResponseObject, error) {

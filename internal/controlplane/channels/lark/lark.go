@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"regexp"
 	"strings"
@@ -39,7 +40,10 @@ import (
 // LarkChannel is the Channel of kind lark: a Lark app.
 type LarkChannel struct{}
 
-var _ channels.Channel = LarkChannel{}
+var (
+	_ channels.Channel  = LarkChannel{}
+	_ channels.Recorder = (*sdk)(nil)
+)
 
 // Kind is lark.
 func (LarkChannel) Kind() channels.Kind { return channelstore.KindLark }
@@ -211,8 +215,12 @@ func messageOf(e *larkim.P2MessageReceiveV1) channels.Message {
 	m.Direct = deref(msg.ChatType) == "p2p"
 	m.IsText = deref(msg.MessageType) == "text"
 
-	if m.IsText {
+	switch deref(msg.MessageType) {
+	case "text":
 		m.Text = textOf(deref(msg.Content))
+	case "audio":
+		// A voice message: its recording's file_key, which Recording downloads (issue #723).
+		m.Voice = fileKeyOf(deref(msg.Content))
 	}
 
 	for _, mention := range msg.Mentions {
@@ -312,6 +320,52 @@ func textOf(content string) string {
 	}
 
 	return parsed.Text
+}
+
+// fileKeyOf is the file_key of a Lark audio message's content, which is
+// JSON: {"file_key": "…", "duration": ms}.
+func fileKeyOf(content string) string {
+	var parsed struct {
+		FileKey string `json:"file_key"`
+	}
+
+	if json.Unmarshal([]byte(content), &parsed) != nil {
+		return ""
+	}
+
+	return parsed.FileKey
+}
+
+// Recording downloads a voice message's recording (GET
+// /open-apis/im/v1/messages/:message_id/resources/:file_key, type file), as
+// OpenClaw downloads a Feishu audio message's (extensions/feishu/src/
+// bot-content.ts:297, media.ts:207-210). It needs the scope im:resource,
+// which SendFile needs too.
+func (s *sdk) Recording(ctx context.Context, messageID, key string, limit int64) ([]byte, error) {
+	resp, err := s.media.Im.V1.MessageResource.Get(ctx, larkim.NewGetMessageResourceReqBuilder().
+		MessageId(messageID).FileKey(key).Type("file").Build())
+	if err != nil {
+		return nil, fmt.Errorf("downloading a voice message from Lark: %w", err)
+	}
+
+	if err := refused("downloading a voice message from Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
+		return nil, err
+	}
+
+	if resp.File == nil {
+		return nil, errors.New("downloading a voice message from Lark: Lark sent no file")
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.File, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("downloading a voice message from Lark: %w", err)
+	}
+
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("the voice message is larger than %d MiB", limit>>20)
+	}
+
+	return data, nil
 }
 
 // inert writes Lark's mention tags out instead of letting them act: an <at>

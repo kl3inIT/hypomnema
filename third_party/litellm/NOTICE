@@ -1,0 +1,35 @@
+LiteLLM's price map
+Copyright (c) 2023 Berri AI
+
+Used under the MIT License. Source: https://github.com/BerriAI/litellm at
+7b88d94d615fe2259f6e7a675f8b678137c3f2cd, model_prices_and_context_window.json
+(LICENSE: the content outside litellm/enterprise/ is MIT, Copyright (c) 2023
+Berri AI).
+
+What is taken from it here (issue #723): of the web search, speech-to-text
+and text-to-speech entries of the providers the model gateway asks, and of the
+Anthropic and OpenAI models, the price of a query, a second heard, a
+character spoken and a model's own web search
+(internal/controlplane/modelgateway/prices/units.json, written by
+internal/controlplane/modelgateway/prices/unitsgen). Nothing else of it is
+kept.
+
+The MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

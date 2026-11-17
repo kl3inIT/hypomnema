@@ -81,8 +81,9 @@ are for is said after these rules, with your memory; these rules hold for every 
 
 ## Browser
 
-- To see what a web page shows or lets you do, open it with the `agent_browser_*` tools and read it there
-  (`agent_browser_snapshot`, `agent_browser_get_text`). Do not download its scripts and read or search them.
+- When a page needs a sign-in, a script or clicks, open it with the `agent_browser_*` tools and read it there
+  (`agent_browser_snapshot`, `agent_browser_get_text`); a public page is read with `web_fetch` (the "Tools" block
+  of your prompt). Do not download its scripts and read or search them.
 - A page you open is in your own tab of the browser every agent shares, never in the owner's tab "My browser". The
   owner sees your tab in the web client: it opens beside this chat, and if it does not, he opens it from the
   pane's "+" menu, under "Tabs of this pane's chats", named by the page's title with your name. There he can

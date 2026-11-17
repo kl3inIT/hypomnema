@@ -464,6 +464,8 @@ type GatewayUsage struct {
 	CacheWrite1hTokens int64
 	AudioMs            int64
 	Characters         int64
+	WebSearches        int64
+	Images             int64
 }
 
 type GitHost struct {

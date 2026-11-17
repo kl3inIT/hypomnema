@@ -300,7 +300,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 		msgs, err := s.messaging.Messages(ctx, m.integration, label, q)
 		s.answerJSON(w, r, map[string]any{"note": untrusted, "messages": msgs}, err)
 	case m.media:
-		s.messagingMedia(w, r, m, label, in)
+		s.messagingMedia(w, r, a, m, label, in)
 	case m.send:
 		s.messagingSend(w, r, a, m, label, call.Arguments, onTurn)
 	case m.history:
@@ -322,7 +322,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 	}
 }
 
-func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, m messagingService, label string,
+func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, a agent, m messagingService, label string,
 	in messagingArgs,
 ) {
 	media, err := s.messaging.Media(r.Context(), m.integration, label, strings.TrimSpace(in.Chat),
@@ -343,6 +343,13 @@ func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, m messag
 	about := fmt.Sprintf("path: %s\ntype: %s\nsize: %d bytes", media.Path, media.MimeType, info.Size())
 	if media.FileName != "" {
 		about += "\nname: " + media.FileName
+	}
+
+	if strings.HasPrefix(media.MimeType, "audio/") && s.audio != nil {
+		// A voice note is heard before the model reads it (issue #723, incoming voice).
+		answerTool(w, about+"\n"+s.heard(r.Context(), a, media.Path, media.MimeType, info.Size()), false)
+
+		return
 	}
 
 	if !strings.HasPrefix(media.MimeType, "image/") || info.Size() > maxInlineImage {

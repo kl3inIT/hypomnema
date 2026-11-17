@@ -51,12 +51,17 @@ type WebCall struct {
 }
 
 // RecordWebCall records a web call on its key, as a request the gateway
-// served: a failure is an upstream error, a search refused because every
+// served, a search answered counting one search: a failure is an upstream error, a search refused because every
 // provider rests is a 429, and a caller that left is a client gone.
 func (s *Service) RecordWebCall(ctx context.Context, c WebCall) error {
 	u := Usage{
 		KeyID: c.KeyID, Model: c.Model, Provider: c.Provider, Attempts: max(c.Attempts, 1), Outcome: OutcomeOK,
 		Status: http.StatusOK, Duration: c.Duration,
+	}
+
+	if c.Model == ModelWebSearch && c.Err == nil {
+		// A search answered is one search, priced by the provider's query (issue #723).
+		u.WebSearches = 1
 	}
 
 	if c.Err != nil {
@@ -86,6 +91,22 @@ func (s *Service) DispatchKey(ctx context.Context, dispatchID string) (Key, erro
 
 	if err != nil {
 		return Key{}, fmt.Errorf("reading the key of dispatch %s: %w", dispatchID, err)
+	}
+
+	return keyFromRow(row)
+}
+
+// ChatKey is the newest key of a chat's pi, working or not (issue #723): a
+// voice message a Channel hears before the chat's pi starts is recorded on
+// it. An error wrapping ErrNotFound when the chat never had one.
+func (s *Service) ChatKey(ctx context.Context, chatID string) (Key, error) {
+	row, err := store.New(s.db).GetLatestGatewayKeyOfChat(ctx, sql.NullString{String: chatID, Valid: true})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Key{}, fmt.Errorf("%w: chat %s has no gateway key", ErrNotFound, chatID)
+	}
+
+	if err != nil {
+		return Key{}, fmt.Errorf("reading the key of chat %s: %w", chatID, err)
 	}
 
 	return keyFromRow(row)
