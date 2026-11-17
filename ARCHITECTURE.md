@@ -1340,7 +1340,9 @@ flowchart LR
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
-    runs. A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
+    runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
+    at a file under `scripts/`; the Bot's instructions say so and that the owner then reads only the stub (issue
+    #769). A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
@@ -3184,8 +3186,9 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   (`POST /meetings/{id}/fix`; silent-notetaker's corrections, Lark Minutes' word replace); the right word joins
   the owner's words unless the list is full, and the notes are not written again until the owner asks.
 - The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
-  of Settings → Meetings and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
-  `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the format's sections
+  of Settings → Notes model and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
+  `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the words sent to the
+  transcription as names to spell exactly (Hyprnote's preferred names, `preferred-names.ts`), the format's sections
   (built in, `meetings/formats.go`: General, Team meeting, Client call from Meetily, Hyprnote's 17 default
   templates and Meetily's Retrospective (start, stop, continue) and Psychiatric Session Note, MIT, cut to the
   sections the summary, decisions and actions do not already hold; or one of the owner's, a format deleted since
@@ -3212,16 +3215,18 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   add|edit|rm`.
 - On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
-  meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title, people and format (the owner's formats first); it points to Settings → Meetings for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  meetings filtered by who and state, and a Formats tab (as Hyprnote's templates are a page of its main sidebar):
+  the owner's formats with Edit and Delete, the built-in ones with Copy to edit, in an editor after Hyprnote's (a
+  section's menu inserts, moves or deletes it). Upload recording asks the file and language, and behind More details the
+  title, people and format (the owner's formats first); it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
   failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
   word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
-  offers Write again. Settings → Meetings picks the notes model with the single-model picker the Bots use
-  (`features/agents/model-picker.tsx`), keeps the words (the owner's as chips to remove, the found ones marked
-  speaker, Bot or repository) and lists the formats: the owner's with Edit and Delete, the built-in ones with Copy
-  to edit, in an editor after Hyprnote's (a section's menu inserts, moves or deletes it). Settings' "Back to app"
+  offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
+  Dictionary and AI) has Dictionary, the words (the owner's as chips to remove, the found ones marked speaker, Bot or
+  repository), and Notes model, picked with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
 - Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
   editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
