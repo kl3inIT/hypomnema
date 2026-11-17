@@ -544,8 +544,8 @@ test("the owner signs accounts in from the page", async ({ page }) => {
   await expect(dialog.getByRole("alert")).toContainText("did not complete")
   await shot(page, "models-sign-in-refused")
 
-  // A sign-in is completed once, so the owner starts it again with a new link.
-  await dialog.getByRole("button", { name: "Start again" }).click()
+  // A refused paste can be corrected and sent again on the same link (issue #749); Start again stays offered.
+  await expect(dialog.getByRole("button", { name: "Start again" })).toBeVisible()
   await dialog.getByLabel("2. Paste what the page gives back").fill("xyz#abc")
   await dialog.getByRole("button", { name: "Sign in" }).click()
 
@@ -563,7 +563,7 @@ test("the owner signs accounts in from the page", async ({ page }) => {
   await dialog.getByRole("button", { name: "Sign in" }).click()
   await expect(page.getByText("Codex account owner@example.com is signed in")).toBeVisible()
   await expect(dialog).toHaveCount(0)
-  expect(calls.filter((c) => c === "POST /account-sign-ins")).toHaveLength(3)
+  expect(calls.filter((c) => c === "POST /account-sign-ins")).toHaveLength(2)
 })
 
 // Scenario: the owner adds a Claude account with the token `claude setup-token` prints, which lasts a year. A token

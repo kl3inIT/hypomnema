@@ -1,7 +1,7 @@
 -- name: InsertMeeting :exec
-INSERT INTO meetings (id, title, titled, language, people, terms, file_name, media_type, size, state, created_at,
-                      updated_at)
-VALUES (@id, @title, @titled, @language, @people, @terms, @file_name, @media_type, @size, 'transcribing', @now, @now);
+-- The words to hear right are the shared list's since issue #747; the meeting's own terms are left empty.
+INSERT INTO meetings (id, title, titled, language, people, file_name, media_type, size, state, created_at, updated_at)
+VALUES (@id, @title, @titled, @language, @people, @file_name, @media_type, @size, 'transcribing', @now, @now);
 
 -- name: InsertMeetingNotes :exec
 INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (@meeting_id, @format, 'waiting', @now);
@@ -153,3 +153,51 @@ SELECT * FROM meeting_settings WHERE id = 1;
 -- name: SetMeetingSettings :exec
 INSERT INTO meeting_settings (id, notes_model, updated_at) VALUES (1, @notes_model, @now)
 ON CONFLICT (id) DO UPDATE SET notes_model = excluded.notes_model, updated_at = excluded.updated_at;
+
+-- name: SetMeetingLineText :execrows
+-- The owner's fix of what a line says (issue #747).
+UPDATE meeting_lines SET text = @text WHERE meeting_id = @meeting_id AND n = @n;
+
+-- name: ListMeetingWords :many
+-- The owner's words to hear right, in the order they were added (issue #747).
+SELECT word FROM meeting_words ORDER BY created_at, word;
+
+-- name: InsertMeetingWord :exec
+INSERT OR IGNORE INTO meeting_words (word, created_at) VALUES (@word, @now);
+
+-- name: DeleteMeetingWord :exec
+DELETE FROM meeting_words WHERE word = @word;
+
+-- name: MeetingSpeakerNames :many
+-- The names the owner gave voices, the most recently heard first: words to hear right in the next meetings, as
+-- Nojoin's people library carries names across recordings.
+SELECT CAST(s.name AS TEXT) AS name FROM meeting_speakers s JOIN meetings m ON m.id = s.meeting_id
+WHERE s.name IS NOT NULL
+GROUP BY s.name
+ORDER BY max(m.created_at) DESC, s.name;
+
+-- name: MeetingBotNames :many
+-- The Bots' names, read as words to hear right; the bots table is the Bots' own.
+SELECT name FROM bots ORDER BY position, created_at, name;
+
+-- name: MeetingRepoNames :many
+-- The registered repositories' names, read as words to hear right; the repos table is the Runs' own.
+SELECT name FROM repos ORDER BY created_at, name;
+
+-- name: ListMeetingFormats :many
+SELECT * FROM meeting_formats ORDER BY created_at, id;
+
+-- name: GetMeetingFormat :one
+SELECT * FROM meeting_formats WHERE id = @id;
+
+-- name: InsertMeetingFormat :exec
+INSERT INTO meeting_formats (id, name, sections, created_at, updated_at) VALUES (@id, @name, @sections, @now, @now);
+
+-- name: UpdateMeetingFormat :execrows
+UPDATE meeting_formats SET name = @name, sections = @sections, updated_at = @now WHERE id = @id;
+
+-- name: DeleteMeetingFormat :execrows
+DELETE FROM meeting_formats WHERE id = @id;
+
+-- name: CountMeetingFormats :one
+SELECT count(*) FROM meeting_formats;

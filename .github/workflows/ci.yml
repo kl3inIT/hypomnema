@@ -143,6 +143,19 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
+      # The browser tests run the control plane itself for what only its answers show, the headers of a page's
+      # frame among them (issue #737; web/tests/server).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-web-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-web-${{ runner.os }}-
       - name: make web-install
         run: make web-install
       - name: make web-check
@@ -175,7 +188,7 @@ jobs:
             pnpm --dir web exec playwright install-deps chromium
           fi
       - name: make web-e2e
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: make web-e2e
 
   # The one check to wait for: it passes when no job failed, the skipped ones of a documentation change

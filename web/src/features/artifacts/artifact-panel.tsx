@@ -9,6 +9,7 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  Share2,
   X,
 } from "lucide-react"
 import { useState, type ReactNode } from "react"
@@ -30,6 +31,7 @@ import { since } from "@/lib/time"
 import { ArtifactIcon } from "./artifact-icon"
 import { downloadURL, pageURL, revisionOf, useArtifact } from "./artifact-state"
 import { ArtifactView, type ArtifactMode } from "./artifact-view"
+import { ShareDialog } from "./share-dialog"
 
 // ArtifactPanel is an artifact opened beside the chat, over the whole screen, or on its own page (issue #402, rows
 // 5-7). Its header is AI Elements' Artifact header (Apache-2.0, Copyright 2023 Vercel, Inc.;
@@ -275,7 +277,8 @@ function Action({
   )
 }
 
-// More holds what is done with the artifact rather than to the view: download it, copy its link.
+// More holds what is done with the artifact rather than to the view: download it, copy its link, share a view-only
+// link (issue #745).
 function More({
   artifact,
   revision,
@@ -286,38 +289,46 @@ function More({
   rev?: number
 }) {
   const folder = revision.files.length > 1
+  const [sharing, setSharing] = useState(false)
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="More" />}>
-        <MoreHorizontal />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" width="content">
-        <DropdownMenuItem
-          render={
-            // The server sends it as an attachment, so it is saved, never opened as a page of this origin.
-            <a
-              href={downloadURL(artifact.id, revision)}
-              download={folder ? `${artifact.id}.zip` : revision.entry}
-              aria-label={folder ? "Download as zip" : `Download ${revision.entry}`}
-            />
-          }
-        >
-          <Download />
-          {folder ? "Download as zip" : `Download ${revision.entry}`}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() =>
-            void navigator.clipboard
-              ?.writeText(pageURL(artifact.id, rev))
-              .then(() => toast.add({ title: "Link copied", type: "success" }))
-              .catch(() => toast.add({ title: "The link could not be copied", type: "error" }))
-          }
-        >
-          <Link2 />
-          Copy link
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="More" />}>
+          <MoreHorizontal />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" width="content">
+          <DropdownMenuItem
+            render={
+              // The server sends it as an attachment, so it is saved, never opened as a page of this origin.
+              <a
+                href={downloadURL(artifact.id, revision)}
+                download={folder ? `${artifact.id}.zip` : revision.entry}
+                aria-label={folder ? "Download as zip" : `Download ${revision.entry}`}
+              />
+            }
+          >
+            <Download />
+            {folder ? "Download as zip" : `Download ${revision.entry}`}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              void navigator.clipboard
+                ?.writeText(pageURL(artifact.id, rev))
+                .then(() => toast.add({ title: "Link copied", type: "success" }))
+                .catch(() => toast.add({ title: "The link could not be copied", type: "error" }))
+            }
+          >
+            <Link2 />
+            Copy link
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setSharing(true)}>
+            <Share2 />
+            Share link…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ShareDialog artifactId={artifact.id} open={sharing} onOpenChange={setSharing} />
+    </>
   )
 }

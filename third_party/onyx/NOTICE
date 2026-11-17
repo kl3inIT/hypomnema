@@ -15,6 +15,11 @@ What is adapted from it here:
   action names asks.
 - The github skill (internal/controlplane/clientcli/skills/github/SKILL.md), from
   backend/onyx/skills/builtin/github/SKILL.md.template, with OpenClaw's (third_party/openclaw/NOTICE).
+- How an artifact page is loaded in its frame (internal/controlplane/clientapi/artifacts.go, issue #737): by the
+  address of its short-lived token, its policy in the answer's header with `sandbox allow-scripts`, its own files
+  named by http and https and the request's host, `frame-ancestors 'self'`, as
+  backend/onyx/server/features/build/static_preview.py's PREVIEW_HEADERS. Changed: OpenMausBot's directives for
+  the rest of the policy, and `allow-forms` with the frame's sandbox attribute.
 
 The MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction, including without

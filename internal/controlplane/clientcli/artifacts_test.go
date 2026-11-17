@@ -107,6 +107,61 @@ func TestABotShowsAnArtifactFromItsDirectory(t *testing.T) { //nolint:parallelte
 	assert.Contains(t, out, "as "+pdf+"-r1-report.pdf ")
 }
 
+// Scenario: the owner sends Laura a view-only link to a Bot's dashboard from the terminal (issue #745): the link is
+// printed whole, the list shows it with its views, and revoking it leaves none. A Bot's pi makes no link, and a
+// link needs a label.
+func TestTheOwnerSharesAnArtifactFromTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	_, _, err := w.svc.AddToken(t.Context(), "pi-coordinator", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(t.Context(), "", "")
+	require.NoError(t, err)
+
+	secret, err := w.svc.AddBotToken(t.Context(), "pi-coordinator", chat.ID, chat.Bot)
+	require.NoError(t, err)
+
+	pi := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "pi")}
+	pi.loginWith(t, secret)
+
+	page := filepath.Join(t.TempDir(), "page.html")
+	require.NoError(t, os.WriteFile(page, []byte("<h1>Sales</h1>"), 0o600))
+
+	out, err := pi.cmd(t, "artifact", "show", "--title", "Sales", "--html-file", page)
+	require.NoError(t, err)
+	id := regexp.MustCompile(`^art_[a-z2-7]{26}`).FindString(out)
+	require.NotEmpty(t, id, out)
+
+	_, err = w.cmd(t, "artifact", "share", id)
+	require.ErrorIs(t, err, ErrUsage)
+
+	_, err = pi.cmd(t, "artifact", "share", id, "--label", "Laura")
+	require.ErrorContains(t, err, "only the owner")
+
+	out, err = w.cmd(t, "artifact", "share", id, "--label", "Laura")
+	require.NoError(t, err)
+	link := regexp.MustCompile(`(?m)^(shr_[a-z2-7]{26})  Laura\n(\S+)$`).FindStringSubmatch(out)
+	require.Len(t, link, 3, out)
+	assert.Regexp(t, `^`+regexp.QuoteMeta(w.url)+`/s/[A-Za-z0-9_-]{43}$`, link[2])
+
+	out, err = w.cmd(t, "artifact", "shares", id)
+	require.NoError(t, err)
+	assert.Contains(t, out, link[1]+"  ")
+	assert.Contains(t, out, "0 views, never viewed  Laura\n  "+link[2]+"\n")
+
+	out, err = w.cmd(t, "artifact", "unshare", link[1])
+	require.NoError(t, err)
+	assert.Equal(t, "revoked "+link[1]+"\n", out)
+
+	out, err = w.cmd(t, "artifact", "shares", id)
+	require.NoError(t, err)
+	assert.Equal(t, "no links\n", out)
+}
+
 // Scenario: the name a download is saved under comes from the server, so it only ever names a file of this
 // directory: its last part, after the artifact's id and revision, and nothing of it when it is not a plain name
 // here (a way up, a drive, a device of Windows, a control character).

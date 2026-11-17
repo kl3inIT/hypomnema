@@ -602,6 +602,23 @@ var commands = []command{
 		run: artifactDownload,
 	},
 	{
+		name: "artifact share", args: "<artifact_id>", min: 1, max: 1,
+		summary: "make a view-only link that always shows the artifact's newest revision, no sign-in needed (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("label", "", "whom the link is for, such as Laura")
+			jsonFlag(fs)
+		},
+		run: artifactShare,
+	},
+	{
+		name: "artifact shares", args: "<artifact_id>", min: 1, max: 1,
+		summary: "an artifact's view-only links, with their views (owner)", flags: jsonFlag, run: artifactShares,
+	},
+	{
+		name: "artifact unshare", args: "<share_id>", min: 1, max: 1,
+		summary: "revoke a view-only link at once (owner)", flags: jsonFlag, run: artifactUnshare,
+	},
+	{
 		name: "memory show", summary: "a memory: a bot's, an agent's (--agent) or the one about the owner (--owner)",
 		flags: memoryFlags, run: memoryShow,
 	},
@@ -850,7 +867,6 @@ var commands = []command{
 			fs.String("language", "", "the meeting's language, an ISO-639-1 code such as vi (default: found)")
 			fs.String("title", "", "the meeting's title (default: written from the meeting)")
 			fs.String("people", "", "who was there, separated by commas; they help name the speakers")
-			fs.String("words", "", "words to hear right, such as names and jargon, separated by commas")
 			fs.String("format", "", "the notes format, as `meetings settings` lists them (default: general)")
 			jsonFlag(fs)
 		},
@@ -913,6 +929,48 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: meetingsSettings,
+	},
+	{
+		name:    "meetings words",
+		summary: "the words to hear right every transcription is given; --add and --remove change yours",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("add", "", "words to add, separated by commas (owner)")
+			fs.String("remove", "", "words to remove, separated by commas (owner)")
+			jsonFlag(fs)
+		},
+		run: meetingsWords,
+	},
+	{
+		name: "meetings fix", args: "<meeting_id> <heard> <said>", min: 3, max: 3,
+		summary: "replace a word heard wrong in a meeting's transcript; the right word joins your words (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.Int("line", 0, "only this line (default: the whole meeting)")
+			jsonFlag(fs)
+		},
+		run: meetingsFix,
+	},
+	{
+		name: "meetings format add", args: "<name>", min: 1, max: 1,
+		summary: "make a notes format of your own (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.Var(&sectionsFlag{}, "section", "a section as \"Title: what it holds\"; repeat for each (required)")
+			jsonFlag(fs)
+		},
+		run: meetingsFormatAdd,
+	},
+	{
+		name: "meetings format edit", args: "<format_id>", min: 1, max: 1,
+		summary: "change a notes format of your own; a built-in one is copied with `format add` (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("name", "", "its new name (default: kept)")
+			fs.Var(&sectionsFlag{}, "section", "a section as \"Title: what it holds\"; repeat for each (default: kept)")
+			jsonFlag(fs)
+		},
+		run: meetingsFormatEdit,
+	},
+	{
+		name: "meetings format rm", args: "<format_id>", min: 1, max: 1,
+		summary: "delete a notes format of your own (owner)", flags: jsonFlag, run: meetingsFormatRemove,
 	},
 	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",

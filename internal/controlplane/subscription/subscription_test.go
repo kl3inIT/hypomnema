@@ -525,3 +525,25 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 	_, err = w.subs.Token(t.Context(), "codex", "")
 	require.NoError(t, err)
 }
+
+// Scenario: the owner copies the address the browser ended on from its address bar, which drops "http://" (issue
+// #749), or pastes only part of it. Every form gives the code; another login's state is still refused.
+func TestThePastedCallbackIsReadWithOrWithoutItsScheme(t *testing.T) {
+	const query = "code=ac.1.abc&state=st_1"
+
+	for _, pasted := range []string{
+		"http://localhost:1455/auth/callback?" + query,
+		"localhost:1455/auth/callback?" + query,
+		"127.0.0.1:1455/auth/callback?" + query,
+		"  ?" + query + "\n",
+		query,
+	} {
+		code, err := subscription.CallbackCode(pasted, "st_1")
+		require.NoError(t, err, pasted)
+		assert.Equal(t, "ac.1.abc", code, pasted)
+	}
+
+	_, err := subscription.CallbackCode("localhost:1455/auth/callback?"+query, "st_2")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "another login")
+}

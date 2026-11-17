@@ -202,7 +202,7 @@ func meetingsUpload(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	params := &openapi.UploadMeetingParams{
 		FileName: filepath.Base(path), Language: optional(fs, "language"), Title: optional(fs, "title"),
-		People: commaList(str(fs, "people")), Terms: commaList(str(fs, "words")), Format: optional(fs, "format"),
+		People: commaList(str(fs, "people")), Format: optional(fs, "format"),
 	}
 
 	if kind := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); kind != "" {
@@ -467,9 +467,250 @@ func meetingsSettings(ctx context.Context, e *env, fs *flag.FlagSet) error {
 				titles = append(titles, s.Title)
 			}
 
-			e.printf("  %-12s %s: %s\n", f.Id, f.Name, strings.Join(titles, ", "))
+			mine := ""
+			if !f.Builtin {
+				mine = " (yours)"
+			}
+
+			e.printf("  %-24s %s%s: %s\n", f.Id, f.Name, mine, strings.Join(titles, ", "))
 		}
 	})
+}
+
+// The words to hear right and the owner's notes formats (issue #747), as Settings → Meetings has them.
+
+func meetingsWords(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	add, remove := commaList(str(fs, "add")), commaList(str(fs, "remove"))
+
+	read, err := e.api.ListMeetingWordsWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the words to hear right: %w", err)
+	}
+
+	if read.JSON200 == nil {
+		return apiError("reading the words to hear right", read.StatusCode(), read.JSONDefault)
+	}
+
+	out := read.JSON200
+
+	if add != nil || remove != nil {
+		own := []string{}
+
+		for _, w := range out.Data {
+			if w.From == openapi.MeetingWordSourceOwner && !holds(remove, w.Word) {
+				own = append(own, w.Word)
+			}
+		}
+
+		if add != nil {
+			for _, w := range *add {
+				if !holds(&own, w) {
+					own = append(own, w)
+				}
+			}
+		}
+
+		set, err := e.api.SetMeetingWordsWithResponse(ctx, openapi.MeetingWordsUpdate{Words: own})
+		if err != nil {
+			return fmt.Errorf("setting the words to hear right: %w", err)
+		}
+
+		if set.JSON200 == nil {
+			return apiError("setting the words to hear right", set.StatusCode(), set.JSONDefault)
+		}
+
+		out = set.JSON200
+	}
+
+	return e.print(fs, out, func() {
+		if len(out.Data) == 0 {
+			e.printf("No words yet.\n")
+
+			return
+		}
+
+		for _, w := range out.Data {
+			sent := ""
+			if !w.Sent {
+				sent = " (not sent: past the first " + strconv.Itoa(out.MaxSent) + ")"
+			}
+
+			e.printf("%-12s %s%s\n", w.From, w.Word, sent)
+		}
+	})
+}
+
+// holds says whether a list holds a word, in any case.
+func holds(list *[]string, word string) bool {
+	if list == nil {
+		return false
+	}
+
+	for _, w := range *list {
+		if strings.EqualFold(strings.TrimSpace(w), strings.TrimSpace(word)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func meetingsFix(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	body := openapi.MeetingWordFix{From: fs.Arg(1), To: fs.Arg(2)}
+	if n := number(fs, "line"); n > 0 {
+		body.Line = &n
+	}
+
+	resp, err := e.api.FixMeetingWordWithResponse(ctx, id, body)
+	if err != nil {
+		return fmt.Errorf("fixing a word of %s: %w", id, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("fixing a word of "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	fixed := resp.JSON200
+
+	return e.print(fs, fixed, func() {
+		e.printf("Replaced %d times.\n", fixed.Replaced)
+
+		if fixed.Learned {
+			e.printf("%q is in your words to hear right.\n", fs.Arg(2))
+		} else {
+			e.printf("%q is not in your words to hear right: the list is full or the words too long.\n", fs.Arg(2))
+		}
+
+		e.printf("The notes are as they were; `hypomnema meetings notes %s --format %s` writes them again.\n", id,
+			fixed.Detail.Meeting.Notes.Format)
+	})
+}
+
+// sectionsFlag is --section, given once a section as "Title: what it holds".
+type sectionsFlag struct {
+	list []openapi.MeetingFormatSectionInput
+}
+
+func (f *sectionsFlag) String() string {
+	if f == nil {
+		return ""
+	}
+
+	titles := make([]string, 0, len(f.list))
+	for _, s := range f.list {
+		titles = append(titles, s.Title)
+	}
+
+	return strings.Join(titles, ", ")
+}
+
+func (f *sectionsFlag) Set(v string) error {
+	title, about, _ := strings.Cut(v, ": ")
+
+	sec := openapi.MeetingFormatSectionInput{Title: strings.TrimSpace(title)}
+	if about = strings.TrimSpace(about); about != "" {
+		sec.About = &about
+	}
+
+	f.list = append(f.list, sec)
+
+	return nil
+}
+
+func sectionsOf(fs *flag.FlagSet) []openapi.MeetingFormatSectionInput {
+	if f, ok := fs.Lookup("section").Value.(*sectionsFlag); ok {
+		return f.list
+	}
+
+	return nil
+}
+
+func meetingsFormatAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	sections := sectionsOf(fs)
+	if len(sections) == 0 {
+		return fmt.Errorf("%w: meetings format add <name> --section \"Title: what it holds\" …", ErrUsage)
+	}
+
+	resp, err := e.api.CreateMeetingFormatWithResponse(ctx, openapi.MeetingFormatInput{
+		Name: fs.Arg(0), Sections: sections,
+	})
+	if err != nil {
+		return fmt.Errorf("making a notes format: %w", err)
+	}
+
+	if resp.JSON201 == nil {
+		return apiError("making a notes format", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	f := resp.JSON201
+
+	return e.print(fs, f, func() { e.printf("Made %s %s.\n", f.Id, f.Name) })
+}
+
+func meetingsFormatEdit(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	read, err := e.api.GetMeetingSettingsWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the notes formats: %w", err)
+	}
+
+	if read.JSON200 == nil {
+		return apiError("reading the notes formats", read.StatusCode(), read.JSONDefault)
+	}
+
+	var had *openapi.MeetingFormat
+
+	for i := range read.JSON200.Formats {
+		if read.JSON200.Formats[i].Id == id {
+			had = &read.JSON200.Formats[i]
+		}
+	}
+
+	if had == nil {
+		return fmt.Errorf("%w: no notes format %s", ErrUsage, id)
+	}
+
+	in := openapi.MeetingFormatInput{Name: had.Name, Sections: sectionsOf(fs)}
+	if name := str(fs, "name"); name != "" {
+		in.Name = name
+	}
+
+	if len(in.Sections) == 0 {
+		for _, s := range had.Sections {
+			in.Sections = append(in.Sections, openapi.MeetingFormatSectionInput{Title: s.Title, About: &s.About})
+		}
+	}
+
+	resp, err := e.api.UpdateMeetingFormatWithResponse(ctx, id, in)
+	if err != nil {
+		return fmt.Errorf("changing notes format %s: %w", id, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("changing notes format "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	f := resp.JSON200
+
+	return e.print(fs, f, func() { e.printf("Changed %s %s.\n", f.Id, f.Name) })
+}
+
+func meetingsFormatRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	resp, err := e.api.DeleteMeetingFormatWithResponse(ctx, id)
+	if err != nil {
+		return fmt.Errorf("deleting notes format %s: %w", id, err)
+	}
+
+	if resp.StatusCode() != http.StatusNoContent {
+		return apiError("deleting notes format "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, map[string]string{"deleted": id}, func() { e.printf("Deleted %s.\n", id) })
 }
 
 func isSet(fs *flag.FlagSet, name string) bool {
