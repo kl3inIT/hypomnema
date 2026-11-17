@@ -200,16 +200,75 @@ export const pull = (api, publicKey) =>
 export const cancel = (api, publicKey) =>
   call(api, "cancel_pull_mobile_msg", { pc_name: "Hypomnema", public_key: publicKey });
 
-// download writes the backup the phone uploaded to path, with the session's cookies (softtyos getSyncData).
+// zaloHost is a host of Zalo's, the only ones the session's cookie goes to (deplao-builder ZALO_HOST_RE).
+const zaloHost = /(^|\.)(zalo\.me|zaloapp\.com|zdn\.vn|zadn\.vn)$/i;
+
+// downloadHeaders are Zalo Web's for the backup (softtyos getSyncData, deplao-builder zaloDownloadHeaders):
+// zca-js's request adds none in raw mode, and without them Zalo answers 400 (issue #726).
+export function downloadHeaders(userAgent, cookie) {
+  const headers = {
+    "User-Agent": userAgent,
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "en-US",
+    "Cache-Control": "no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "no-cors",
+    "Sec-Fetch-Site": "none",
+  };
+  if (cookie) headers.Cookie = cookie;
+
+  return headers;
+}
+
+// serverWords is what a refusal's body says, short (deplao-builder serverMessage).
+async function serverWords(res) {
+  let text = "";
+  try {
+    text = (await res.text()).slice(0, 1024);
+  } catch {
+    return "";
+  }
+  try {
+    const json = JSON.parse(text);
+    const msg = json?.error_message || json?.message || json?.error;
+    if (msg) return `: ${String(msg).slice(0, 120)}`;
+  } catch {
+    // Not JSON.
+  }
+
+  return text ? `: ${text.replace(/\s+/g, " ").trim().slice(0, 120)}` : "";
+}
+
+// download writes the backup the phone uploaded to path: with the session's cookie for chat.zalo.me when the host
+// is Zalo's, then without it after a 4xx (deplao-builder downloadBackupFile; softtyos getSyncData).
 export async function download(api, url, path) {
   const name = "hypomnema_download_backup";
   if (typeof api[name] !== "function") {
-    api.custom(name, async ({ utils, props }) => {
-      const res = await utils.request(props.url, { method: "GET" }, true);
-      if (!res.ok || !res.body) throw new Error(`the backup could not be downloaded: HTTP ${res.status}`);
-      await pipeline(Readable.fromWeb(res.body), createWriteStream(props.path, { mode: 0o600 }));
+    api.custom(name, async ({ ctx, utils, props }) => {
+      const target = new URL(props.url);
+      if (target.protocol !== "https:") throw new Error("the backup's link is not https");
 
-      return {};
+      const cookie = zaloHost.test(target.hostname) && ctx.cookie
+        ? await ctx.cookie.getCookieString("https://chat.zalo.me/")
+        : "";
+
+      let refused = "";
+      for (const c of cookie ? [cookie, ""] : [""]) {
+        const res = await utils.request(props.url, { method: "GET", headers: downloadHeaders(ctx.userAgent ?? "", c) }, true);
+        if (res.ok && res.body) {
+          await pipeline(Readable.fromWeb(res.body), createWriteStream(props.path, { mode: 0o600 }));
+
+          return {};
+        }
+
+        refused = `HTTP ${res.status}${await serverWords(res)}`;
+        console.error(`phone sync: the backup's download ${c ? "with" : "without"} the session's cookie: ${refused}`);
+        if (res.status < 400 || res.status >= 500) break;
+      }
+
+      throw new Error(`the backup could not be downloaded: ${refused}`);
     });
   }
 
