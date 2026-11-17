@@ -907,7 +907,15 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			return err
 		}
 
-		if !may {
+		hold := !may
+
+		if conv.AccountRef == GatewayAccountRef {
+			if until, hold, err = gatewayHold(ctx, q, now, task, until, hold); err != nil {
+				return err
+			}
+		}
+
+		if hold {
 			if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
 				NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
 			}); err != nil {
@@ -929,6 +937,45 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 
 		return s.countFailure(ctx, q, now, d.TaskID, class)
 	}
+}
+
+// gatewayHold is how long a Task waits after its worker met a limit through
+// the gateway (issue #756, review of PR #786), which cools its own accounts
+// (coolAccount). The scheduler sees that cooling only for a subscription the
+// control plane keeps accounts of (gatewayCooling), and a worker the gateway
+// refuses ends at once, so a Task the scheduler would start again at once is
+// held:
+//   - every account of the subscription cools: until the first is free, not
+//     the reset the worker named, which is the last refusal of the accounts
+//     its request tried (modelgateway underAccounts); a Task that may be
+//     handed off is not held, as the scheduler hands it off or waits;
+//   - one of them is free: RateLimitCooldown, then it runs again;
+//   - the scheduler cannot see the accounts (a model of the gateway's own
+//     table, whose targets may be any provider's): until the reset the
+//     worker named, else RateLimitCooldown, hand-off or not.
+//
+// A wait then a retry, not counted, as for an account a node holds.
+func gatewayHold(ctx context.Context, q *store.Queries, now int64, task store.Task, until int64, hold bool,
+) (int64, bool, error) {
+	r, err := resolve(ctx, q, task)
+	if err != nil {
+		return 0, false, err
+	}
+
+	if !r.gateway || r.accounts == "" {
+		return until, true, nil
+	}
+
+	p, err := loadPlacement(ctx, q, now)
+	if err != nil {
+		return 0, false, err
+	}
+
+	if first, cooling := p.gatewayCooling(r.accounts); cooling {
+		return max(first, now), hold, nil
+	}
+
+	return now + RateLimitCooldown.Milliseconds(), true, nil
 }
 
 // stalledAttempts reports whether the Task's last StalledAttempts Dispatches

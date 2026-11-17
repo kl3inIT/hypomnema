@@ -35,11 +35,18 @@ type Scheduled struct {
 func (s *Service) Schedule(ctx context.Context) (Scheduled, error) {
 	out := Scheduled{Created: []string{}, Escalations: []Escalation{}}
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
+	unusable, err := s.unusableLogins(ctx)
+	if err != nil {
+		return Scheduled{}, fmt.Errorf("scheduling: %w", err)
+	}
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		p, err := loadPlacement(ctx, q, now)
 		if err != nil {
 			return err
 		}
+
+		p.unusable = unusable
 
 		ids, err := q.ListSchedulableTaskIDs(ctx, now)
 		if err != nil {

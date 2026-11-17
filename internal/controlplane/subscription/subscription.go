@@ -410,6 +410,27 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 	return s.Get(ctx, id)
 }
 
+// Unusable returns the accounts kept here that Token never gives: those
+// whose tokens are gone or whose login was refused for good. The scheduler
+// leaves them out when it asks whether every account of a runtime cools
+// (orchestration.GatewayLogins, issue #756).
+func (s *Service) Unusable(ctx context.Context) (map[string]bool, error) {
+	accounts, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := map[string]bool{}
+
+	for _, a := range accounts {
+		if a.SecretRef != "" && a.State != StateActive {
+			out[a.ID] = true
+		}
+	}
+
+	return out, nil
+}
+
 // Token returns a valid access token of an account of a runtime that can be
 // used: active, logged in here, not cooling, and not among skip. The accounts
 // are ordered so one conversation keeps one account and its prompt cache stays

@@ -25,6 +25,8 @@ type placement struct {
 	cooling  map[[2]string]int64
 	// reasons says why each cooling account cools.
 	reasons map[[2]string]string
+	// unusable are the accounts the control plane keeps that the gateway cannot serve under (GatewayLogins).
+	unusable map[string]bool
 }
 
 type nodeLoad struct {
@@ -649,8 +651,10 @@ func (p *placement) gatewayHasAccount(runtime string) bool {
 // (modelgateway accounts.go, cool) in the table node accounts cool in, and answers a worker's every call with a
 // usage limit until one is free: a worker started then ends at once. So a Task waits for the reset, or goes to a
 // backup of its profile, as for the accounts a node holds (pickAccount), and as OpenClaw skips a model whose auth
-// profiles all cool (src/agents/model-fallback-runner.ts:411-439). false for a model of the gateway's own table,
-// and when the control plane keeps no account of the runtime.
+// profiles all cool (src/agents/model-fallback-runner.ts:411-439). The accounts are those the gateway can serve
+// under: an active one with tokens whose login was not refused (unusable, subscription.Service.Token), so one that
+// cannot sign in does not hide that the rest cool. false for a model of the gateway's own table, and when the
+// control plane keeps no such account.
 func (p *placement) gatewayCooling(runtime string) (int64, bool) {
 	if runtime == "" {
 		return 0, false
@@ -659,7 +663,7 @@ func (p *placement) gatewayCooling(runtime string) (int64, bool) {
 	var first int64
 
 	for _, a := range p.accounts {
-		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || runsOnNode(a) {
+		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || runsOnNode(a) || p.unusable[a.ID] {
 			continue
 		}
 
