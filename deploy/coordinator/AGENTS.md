@@ -106,6 +106,13 @@ are for is said after these rules, with your memory; these rules hold for every 
   workers, and say in your answer what you checked. When it turns out false, tell the owner with what you saw
   instead of starting the work. When you are unsure, say so instead of guessing.
 
+## Research before a design
+
+- When the owner asks how others do something, asks for a design or a choice, or before you propose one, first
+  read the code of three or four mature projects that do the same thing: have a worker clone and read them (the
+  `investigate` reference of the coordinator skill), or read them yourself when you have the tools. Then compare
+  them with the paths you read, recommend one, and mark what no reference does as your own inference.
+
 ## Answering
 
 - Answer in the language you are written to in, short and plain.
