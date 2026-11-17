@@ -3433,6 +3433,59 @@ export type ArtifactFrame = {
   url: string;
 };
 
+export type NewArtifactShare = {
+  /**
+   * Whom the link is for, one line of at most 80 characters, such as "Laura".
+   */
+  label: string;
+};
+
+export type ArtifactShare = {
+  id: string;
+  artifact_id: string;
+  label: string;
+  /**
+   * The link's secret, 32 random bytes in base64url.
+   */
+  token: string;
+  /**
+   * The link's path on this server, /s/<token>.
+   */
+  path: string;
+  created_at: string;
+  /**
+   * How many times its page was opened.
+   */
+  views: number;
+  last_viewed_at?: string;
+};
+
+export type ArtifactShareList = {
+  data: Array<ArtifactShare>;
+};
+
+export type SharedArtifact = {
+  title: string;
+  type: ArtifactType;
+  /**
+   * The file shown, index.html of a folder or the one file.
+   */
+  entry: string;
+  /**
+   * The type of the file shown.
+   */
+  media_type: string;
+  /**
+   * The newest revision; the page reloads when it changes.
+   */
+  revision: number;
+  updated_at: string;
+  /**
+   * The path its files load from, ending in "/".
+   */
+  files: string;
+};
+
 /**
  * A file the owner attached to a message (issue #343): uploaded into the chat's Bot's folder, where pi reads it.
  */
@@ -7653,6 +7706,114 @@ export type OpenArtifactFrameResponses = {
 };
 
 export type OpenArtifactFrameResponse = OpenArtifactFrameResponses[keyof OpenArtifactFrameResponses];
+
+export type ListArtifactSharesData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+  };
+  query?: never;
+  url: '/artifacts/{artifact_id}/shares';
+};
+
+export type ListArtifactSharesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListArtifactSharesError = ListArtifactSharesErrors[keyof ListArtifactSharesErrors];
+
+export type ListArtifactSharesResponses = {
+  /**
+   * The links.
+   */
+  200: ArtifactShareList;
+};
+
+export type ListArtifactSharesResponse = ListArtifactSharesResponses[keyof ListArtifactSharesResponses];
+
+export type CreateArtifactShareData = {
+  body: NewArtifactShare;
+  path: {
+    artifact_id: string;
+  };
+  query?: never;
+  url: '/artifacts/{artifact_id}/shares';
+};
+
+export type CreateArtifactShareErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateArtifactShareError = CreateArtifactShareErrors[keyof CreateArtifactShareErrors];
+
+export type CreateArtifactShareResponses = {
+  /**
+   * The link.
+   */
+  201: ArtifactShare;
+};
+
+export type CreateArtifactShareResponse = CreateArtifactShareResponses[keyof CreateArtifactShareResponses];
+
+export type DeleteArtifactShareData = {
+  body?: never;
+  path: {
+    share_id: string;
+  };
+  query?: never;
+  url: '/artifact-shares/{share_id}';
+};
+
+export type DeleteArtifactShareErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteArtifactShareError = DeleteArtifactShareErrors[keyof DeleteArtifactShareErrors];
+
+export type DeleteArtifactShareResponses = {
+  /**
+   * Revoked; the link and its files answer 404 from now on.
+   */
+  204: void;
+};
+
+export type DeleteArtifactShareResponse = DeleteArtifactShareResponses[keyof DeleteArtifactShareResponses];
+
+export type GetShareData = {
+  body?: never;
+  path: {
+    token: string;
+  };
+  query?: never;
+  url: '/shares/{token}';
+};
+
+export type GetShareErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetShareError = GetShareErrors[keyof GetShareErrors];
+
+export type GetShareResponses = {
+  /**
+   * The artifact the link shows.
+   */
+  200: SharedArtifact;
+};
+
+export type GetShareResponse = GetShareResponses[keyof GetShareResponses];
 
 export type ListSkillsData = {
   body?: never;

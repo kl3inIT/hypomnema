@@ -2456,6 +2456,77 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ArtifactFrame" }
         default: { $ref: "#/components/responses/Error" }
+  /artifacts/{artifact_id}/shares:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: ListArtifactShares
+      summary: An artifact's view-only links, newest first (owner only)
+      responses:
+        "200":
+          description: The links.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactShareList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateArtifactShare
+      summary: Make a view-only link to an artifact that always shows its newest revision (owner only)
+      description: >-
+        Anyone who has the link sees the artifact at /s/<token> without
+        signing in, until the link is revoked or the artifact deleted with
+        its chat (issue #745).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewArtifactShare" }
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactShare" }
+        default: { $ref: "#/components/responses/Error" }
+  /artifact-shares/{share_id}:
+    parameters:
+      - name: share_id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^shr_[a-z2-7]{26}$" }
+    delete:
+      operationId: DeleteArtifactShare
+      summary: Revoke a view-only link at once (owner only)
+      responses:
+        "204":
+          description: Revoked; the link and its files answer 404 from now on.
+        default: { $ref: "#/components/responses/Error" }
+  /shares/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" }
+    get:
+      operationId: GetShare
+      summary: What a view-only link shows, without signing in
+      description: >-
+        The artifact at its newest revision. Its files load from the address
+        in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the
+        contract and needing no sign-in: each answer is checked against the
+        link and the newest revision, and carries the frame's headers (a page
+        its policy). Every answer under /shares carries X-Robots-Tag noindex,
+        no-referrer, no-store and frame-ancestors 'none'. After five unknown
+        tokens from one address within an hour the answer is 429 with
+        Retry-After.
+      security: []
+      responses:
+        "200":
+          description: The artifact the link shows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharedArtifact" }
+        default: { $ref: "#/components/responses/Error" }
   /skills:
     get:
       operationId: ListSkills
@@ -8038,6 +8109,60 @@ components:
         url:
           type: string
           description: The folder's path on this server, ending in "/".
+    NewArtifactShare:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 400
+          description: Whom the link is for, one line of at most 80 characters, such as "Laura".
+    ArtifactShare:
+      type: object
+      required: [id, artifact_id, label, token, path, created_at, views]
+      properties:
+        id: { type: string }
+        artifact_id: { type: string }
+        label: { type: string }
+        token:
+          type: string
+          description: The link's secret, 32 random bytes in base64url.
+        path:
+          type: string
+          description: The link's path on this server, /s/<token>.
+        created_at: { type: string, format: date-time }
+        views:
+          type: integer
+          format: int64
+          description: How many times its page was opened.
+        last_viewed_at: { type: string, format: date-time }
+    ArtifactShareList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ArtifactShare" }
+    SharedArtifact:
+      type: object
+      required: [title, type, entry, media_type, revision, updated_at, files]
+      properties:
+        title: { type: string }
+        type: { $ref: "#/components/schemas/ArtifactType" }
+        entry:
+          type: string
+          description: The file shown, index.html of a folder or the one file.
+        media_type:
+          type: string
+          description: The type of the file shown.
+        revision:
+          type: integer
+          description: The newest revision; the page reloads when it changes.
+        updated_at: { type: string, format: date-time }
+        files:
+          type: string
+          description: The path its files load from, ending in "/".
     ChatAttachment:
       type: object
       description: >-

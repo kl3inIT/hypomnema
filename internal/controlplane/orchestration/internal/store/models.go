@@ -118,6 +118,16 @@ type ArtifactRevision struct {
 	CreatedAt  int64
 }
 
+type ArtifactShare struct {
+	ID           string
+	ArtifactID   string
+	Token        string
+	Label        string
+	CreatedAt    int64
+	Views        int64
+	LastViewedAt sql.NullInt64
+}
+
 type Bot struct {
 	ID               string
 	Provider         sql.NullString
