@@ -22,7 +22,7 @@ const source: Record<Exclude<MeetingWordSource, "owner">, string> = {
   repository: "repository",
 }
 
-// MeetingWordsField is the words to hear right on Settings → Meetings (issue #747): one list kept once and given to
+// MeetingWordsField is the words to hear right on Settings → Dictionary (issues #747, #762): one list kept once and given to
 // every transcription, as Nojoin keeps its glossary in its settings and OpenNoteTaker its DEEPGRAM_KEYTERMS. The
 // owner's words are chips with a remove button, added by typing (several at once, separated by commas), as Hyprnote's
 // template targets are badges added from one input (apps/desktop/src/templates/template-form.tsx,

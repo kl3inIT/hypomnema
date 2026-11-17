@@ -58,8 +58,8 @@ export function WordFix({
           toast.add({
             title: `Replaced ${done.replaced === 1 ? "once" : `${done.replaced} times`}`,
             description: done.learned
-              ? `“${to}” is in your words to hear right.`
-              : "Your words to hear right are full, so it was not added.",
+              ? `“${to}” is in your dictionary.`
+              : "Your dictionary is full, so it was not added.",
             type: "success",
           })
           onFixed()
@@ -123,7 +123,7 @@ export function WordFix({
               onFocus={(e) => e.currentTarget.select()}
               onChange={(e) => setSaid(e.target.value)}
             />
-            <FieldDescription>It joins your words to hear right.</FieldDescription>
+            <FieldDescription>It joins your dictionary.</FieldDescription>
           </Field>
           <ToggleGroup
             aria-label="Replace in"

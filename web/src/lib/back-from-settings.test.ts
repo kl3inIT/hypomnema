@@ -15,7 +15,7 @@ describe("back from settings", () => {
   it("returns to the last page outside Settings", async () => {
     const { appPage, rememberAppPage } = await import("./back-from-settings")
     rememberAppPage("/meetings/mtg_1?tab=transcript")
-    rememberAppPage("/settings/meetings")
+    rememberAppPage("/settings/dictionary")
     rememberAppPage("/settings")
     expect(appPage()).toBe("/meetings/mtg_1?tab=transcript")
   })
