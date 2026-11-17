@@ -13,9 +13,10 @@
       "sha256": "ab00ead2266c291448d68e092f2d72e099233265e4073abe0f77c34f2d570fc6"
     },
     "graphql": {
-      "url": "https://docs.github.com/public/fpt/schema.docs.graphql",
+      "url": "https://raw.githubusercontent.com/github/docs/1589ab68fbcc39c64c676b35089db9c0c8a38985/src/graphql/data/fpt/schema.docs.graphql",
+      "revision": "1589ab68fbcc39c64c676b35089db9c0c8a38985",
       "fetched": "2026-11-17",
-      "sha256": "d928ebbb2d08cba348c0c5713ab3c8756a39e838324089ff66fcddf1bab2c496"
+      "sha256": "46c7f19cfed49694b9c05c6844bbda9f501726b56e63c3af8bfa0f4c96637ed1"
     }
   }
 }

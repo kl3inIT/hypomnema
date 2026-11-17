@@ -1977,7 +1977,7 @@ flowchart LR
       step 1 of [#713](https://github.com/kl3inIT/hypomnema/issues/713)): `github_operations.json` holds every
       operation of GitHub's REST description (`github/rest-api-description`, 1281: method, host, path, `x-github`
       category, `operationId`) and every query and mutation of the public GraphQL schema (316, with
-      `@docsCategory`), for gh 2.103.3; notice in `third_party/github/NOTICE`. The categories fold into 13 services
+      `@docsCategory`, read from `github/docs` at a pinned commit), for gh 2.103.3; notice in `third_party/github/NOTICE`. The categories fold into 13 services
       (Repositories, Issues, Pull requests, Actions and checks, Releases, Search, Projects, Discussions, Gists,
       Security, Organizations and teams, Account, Copilot and agents) and Everything else (the queries, which have
       no category of their own), each with `github.<service>.read`, `.write` and `.delete`: a GET or a query
@@ -1994,8 +1994,9 @@ flowchart LR
       care names the request and the others it names go with it (`Action.With`), and the proxy lets the strictest
       of the owner's answers govern (refused, never, ask, allow; Onyx's `AllMatchedActions`). When several ask,
       each needs its own answer: those allowed for the session or the Routine are set aside
-      (`orchestration.StandingGrant`), and the request asks as the first of the others, the owner shown them all,
-      so that a granted comment never carries a merge. A query that asks
+      (`orchestration.StandingGrant`), and the request asks as the first of the others, the owner shown them all;
+      when that ask finds a standing grant made meanwhile, the others are decided again, so that a granted comment
+      never carries a merge. A query that asks
       only the schema (`__type`, `__schema`, `__typename`, which `gh` sends to detect features) is
       `github.schema.read`; beside another field, that field's action names it. A root field the schema does not
       have, a subscription or a body that is not GraphQL asks as `github.unlisted`. A release's asset upload goes
@@ -2005,7 +2006,8 @@ flowchart LR
     - **Regenerating it**: `make catalogs-generate SERVICE=github` runs `serviceproxy/catalogsgen`, which fetches the
       REST description, the schema and gh's source at what `serviceproxy/catalog_sources.json` pins (URL, revision,
       SHA-256, gh's version), fails on a changed SHA-256 or on a root field gh's source sends that the schema lacks
-      (the structs it gives `Query` and `Mutate`, the queries it writes, the fields it calls with an input),
+      (the structs it gives `Query` and `Mutate` or its own wrappers of them, the queries it writes, the fields
+      it calls with an input),
       writes the file and prints the operations added, removed or moved to another action. `make verify` runs only
       the offline tests: every operation of the file is a named action (a GET or a query a read, nothing else), every
       category is in a service, and the file's gh version is `agenttool.GitHubCLI`'s, so bumping gh fails until the

@@ -427,49 +427,55 @@ func (p *Proxy) decide(ctx context.Context, action Action, s session, describe f
 	}
 
 	if len(asks) == 1 {
-		verdict, message, err = p.ask(ctx, action, s, describe(action))
+		verdict, message, _, err = p.ask(ctx, action, s, describe(action))
 
 		return action, verdict, message, err
 	}
 
-	// Several actions ask: those the owner allowed for the session or the Routine are set aside, and the request
-	// is asked for as the first of the others, the owner shown all of them. Approved once, the request runs once;
-	// approved for the session, only that action is allowed from then on, and the next asks again.
-	var waiting []Action
+	// Several actions ask, and each needs its own answer (review of #746). Those the owner allowed for the session
+	// or the Routine are set aside, and the request is asked for as the first of the others, the owner shown all
+	// of them: approved, once or for the session, the request runs, since he saw what it does; for the session,
+	// only that action is allowed from then on. When the ask finds the first allowed by a standing grant instead
+	// (one made since the check, by another request), that grant says nothing of the others: they are decided
+	// again, until one is refused or waits, or the owner has answered for all.
+	for {
+		var waiting []Action
 
-	for _, a := range asks {
-		granted, err := p.cfg.Store.StandingGrant(ctx, orchestration.NewApproval{
-			Integration: s.integration, Label: s.label, Action: a.ID, DispatchID: s.caller.DispatchID,
-			ChatID: s.chatID, RunKey: s.runKey,
-		})
-		if err != nil {
-			return a, "", "", err
+		for _, a := range asks {
+			granted, err := p.cfg.Store.StandingGrant(ctx, orchestration.NewApproval{
+				Integration: s.integration, Label: s.label, Action: a.ID, DispatchID: s.caller.DispatchID,
+				ChatID: s.chatID, RunKey: s.runKey,
+			})
+			if err != nil {
+				return a, "", "", err
+			}
+
+			if !granted {
+				waiting = append(waiting, a)
+			}
 		}
 
-		if !granted {
-			waiting = append(waiting, a)
-		}
-	}
-
-	if len(waiting) == 0 {
-		return asks[0], "approved before", "", nil
-	}
-
-	action = waiting[0]
-	q := describe(action)
-
-	if len(waiting) > 1 {
-		names := make([]string, 0, len(waiting)-1)
-		for _, a := range waiting[1:] {
-			names = append(names, a.Name)
+		if len(waiting) == 0 {
+			return asks[0], "approved before", "", nil
 		}
 
-		q.fields = append([]orchestration.Field{{Label: "Also", Value: strings.Join(names, "; ")}}, q.fields...)
+		action = waiting[0]
+		q := describe(action)
+
+		if len(waiting) > 1 {
+			names := make([]string, 0, len(waiting)-1)
+			for _, a := range waiting[1:] {
+				names = append(names, a.Name)
+			}
+
+			q.fields = append([]orchestration.Field{{Label: "Also", Value: strings.Join(names, "; ")}}, q.fields...)
+		}
+
+		verdict, message, standing, err := p.ask(ctx, action, s, q)
+		if err != nil || message != "" || !standing {
+			return action, verdict, message, err
+		}
 	}
-
-	verdict, message, err = p.ask(ctx, action, s, q)
-
-	return action, verdict, message, err
 }
 
 // answered is what an action is for a Connection: the owner's Policy, or what refuses it whatever he set.
@@ -564,7 +570,11 @@ func httpAsking(req *http.Request, body []byte, action Action, s session) asking
 }
 
 // ask holds a request for the owner's Approval.
-func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (verdict, message string, err error) {
+//
+// standing is true when the action was allowed by a grant for the session or the Routine, not by an answer to this
+// request.
+func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking,
+) (verdict, message string, standing bool, err error) {
 
 	askedBy := "worker"
 	if s.caller.Coordinator {
@@ -580,11 +590,11 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (ve
 		MatchHash: q.hash,
 	})
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if granted {
-		return "approved before", "", nil
+		return "approved before", "", approval.ID == "", nil
 	}
 
 	// A request of a Routine's run waits where it is, for as long as a run waits, and is then refused: nobody is
@@ -596,18 +606,18 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (ve
 
 	decided, answered, err := p.wait(ctx, approval.ID, hold)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if !answered && approval.RoutineRunID != "" {
 		decided, err = p.cfg.Store.ExpireApproval(ctx, approval.ID)
 		if err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 
 		if decided.Expired {
 			return "expired", fmt.Sprintf("Refused: nobody answered the approval of %q in %s. It was not run and "+
-				"this run fails; do not try another way.", approval.Title, hold), nil
+				"this run fails; do not try another way.", approval.Title, hold), false, nil
 		}
 
 		// He answered as the wait ran out.
@@ -616,28 +626,28 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking) (ve
 
 	switch {
 	case !answered:
-		return "waiting", p.waitingMessage(approval, s), nil
+		return "waiting", p.waitingMessage(approval, s), false, nil
 	case decided.Status == orchestration.ApprovalRejected:
 		return "rejected", fmt.Sprintf("Rejected by the owner: %q was not run. Do not try another way; say so in "+
-			"your answer.", approval.Title), nil
+			"your answer.", approval.Title), false, nil
 	case decided.Scope == orchestration.ScopeSession:
-		return "approved for the session", "", nil
+		return "approved for the session", "", false, nil
 	case decided.Scope == orchestration.ScopeRoutine:
-		return "approved for the routine", "", nil
+		return "approved for the routine", "", false, nil
 	}
 
 	// An approval for one request runs once, whoever waited for it.
 	used, err := p.cfg.Store.UseApproval(ctx, approval.ID)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if !used {
 		return "used", fmt.Sprintf("%q was approved once and has run. Run the command again to ask for it again.",
-			approval.Title), nil
+			approval.Title), false, nil
 	}
 
-	return "approved", "", nil
+	return "approved", "", false, nil
 }
 
 // waitingMessage tells an agent what a held request needs of it.

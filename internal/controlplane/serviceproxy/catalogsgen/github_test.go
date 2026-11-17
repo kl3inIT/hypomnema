@@ -122,18 +122,54 @@ func repo(c Client, fields string) error {
 }
 `
 
+// ghProjects is gh's projects client (pkg/cmd/project/shared/queries at v2.103.3): a query sent through its own
+// wrapper, doQueryWithProgressIndicator, which passes its query, of type any, on to Query (queries.go:94-97;
+// resolve.go:119-165), and a function that only passes a host on, which is no wrapper.
+const ghProjects = `package queries
+
+type projectItemByURL struct {
+	Resource struct {
+		Typename string ` + "`graphql:\"__typename\"`" + `
+	} ` + "`graphql:\"resource(url: $url)\"`" + `
+}
+
+type options struct{ IO string }
+
+func (c *Client) doQueryWithProgressIndicator(name string, query any, variables map[string]any) error {
+	err := c.apiClient.Query(name, query, variables)
+	return handleError(err)
+}
+
+func (c *Client) ProjectItemIDByURL(rawURL string) error {
+	var query projectItemByURL
+	return c.doQueryWithProgressIndicator("GetProjectItemByURL", &query, nil)
+}
+
+func fetch(host string) error {
+	var q struct{ License struct{} }
+	return client.Query(host, "License", &q, nil)
+}
+
+func run() error {
+	opts := &options{}
+	return fetch(opts)
+}
+`
+
 // Scenario: the generator reads every root field gh sends (decision 9c of #713): the mutations it gives Mutate, the
 // queries it gives Query (a field's tag past its alias, or its name), the queries it writes itself, fmt verbs and
 // all, and any field called with an input; its tests and what is not Go are left out. A query root field the schema
-// lacks, as a mutation, fails the generator (review of #746: `repository` was not checked).
+// lacks, as a mutation, fails the generator (review of #746: `repository` was not checked; second review:
+// `resource`, sent through the projects' wrapper, was not either).
 func TestTheGeneratorFailsOnAFieldGhSendsThatTheSchemaLacks(t *testing.T) {
 	t.Parallel()
 
 	tarball := gzipTar(t, map[string]string{
-		"cli-2.103.3/pkg/cmd/pr/merge/http.go": ghMerge,
-		"cli-2.103.3/api/queries_repo.go":      ghRepo,
-		"cli-2.103.3/api/queries_test.go":      "package api\n\nvar q = `query { onlyInATest }`\n",
-		"cli-2.103.3/README.md":                "notInGo(input: x)",
+		"cli-2.103.3/pkg/cmd/pr/merge/http.go":                  ghMerge,
+		"cli-2.103.3/api/queries_repo.go":                       ghRepo,
+		"cli-2.103.3/pkg/cmd/project/shared/queries/queries.go": ghProjects,
+		"cli-2.103.3/api/queries_test.go":                       "package api\n\nvar q = `query { onlyInATest }`\n",
+		"cli-2.103.3/README.md":                                 "notInGo(input: x)",
 	})
 
 	sent, err := ghFields(tarball)
@@ -142,14 +178,17 @@ func TestTheGeneratorFailsOnAFieldGhSendsThatTheSchemaLacks(t *testing.T) {
 		{Type: "mutation", Field: "addProjectV2ItemById"},
 		{Type: "mutation", Field: "deleteIssue"},
 		{Type: "mutation", Field: "mergePullRequest"},
+		{Type: "query", Field: "license"},
 		{Type: "query", Field: "organization"},
 		{Type: "query", Field: "repository"},
+		{Type: "query", Field: "resource"},
 		{Type: "query", Field: "viewer"},
-	}, sent)
+	}, sent, "the projects' resource is read through their wrapper; a host passed on is no query")
 
 	d, err := githubOperations("2.103.3", []byte(restFixture), []byte(schemaFixture))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"mutation addProjectV2ItemById", "query organization"}, lacks(d, sent))
+	assert.Equal(t, []string{"mutation addProjectV2ItemById", "query license", "query organization",
+		"query resource"}, lacks(d, sent), "a declaration without resource reports it missing (second review of #746)")
 
 	withoutRepository := strings.Replace(schemaFixture, "  repository(owner: String!, name: String!): Repository\n",
 		"", 1)

@@ -19,9 +19,9 @@ import (
 // GitHub's REST description and every root field of its GraphQL schema is an action, so that nothing gh sends is
 // unlisted. github_operations.json keeps, of github/rest-api-description (descriptions/api.github.com, MIT), each
 // operation's method, host, path, x-github category and operationId, and of the public schema
-// (docs.github.com/public/fpt/schema.docs.graphql) each query and mutation with its @docsCategory, as Superset's
-// catalog keeps three fields of its description; catalogsgen writes it from the sources catalog_sources.json pins,
-// and the notice is in third_party/github/NOTICE.
+// (docs.github.com/public/fpt/schema.docs.graphql, read from github/docs at a commit) each query and mutation with
+// its @docsCategory, as Superset's catalog keeps three fields of its description; catalogsgen writes it from the
+// sources catalog_sources.json pins, and the notice is in third_party/github/NOTICE.
 //
 // The categories fold into the services the owner reads (github-mcp-server's toolsets), each with a read, a write
 // and a delete: a GET or a query reads, a DELETE or a mutation named delete… deletes, anything else writes

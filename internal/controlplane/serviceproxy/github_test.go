@@ -2,10 +2,12 @@ package serviceproxy_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -497,4 +499,90 @@ func TestASessionGrantOfACommentDoesNotCarryAMerge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, (<-merged).Status)
 	assert.Len(t, w.service.received(), 2, "approved once, the merge runs with the comment")
+}
+
+// grantBetween is the store with one thing done between the proxy's reads: right after it has read that the merge
+// has no standing grant, the owner approves another request's comment for the session, as he may at any time.
+type grantBetween struct {
+	serviceproxy.Store
+
+	svc  *orchestration.Service
+	once sync.Once
+	err  error
+}
+
+func (g *grantBetween) StandingGrant(ctx context.Context, n orchestration.NewApproval) (bool, error) {
+	granted, err := g.Store.StandingGrant(ctx, n)
+
+	if n.Action == "github.pulls.merge" {
+		g.once.Do(func() {
+			comment := n
+			comment.Action, comment.ActionName, comment.Title = "github.comments.create", "Comment", "Comment"
+			comment.AskedBy, comment.MatchHash = "pi", "another request"
+
+			asked, _, err := g.svc.AskApproval(ctx, comment)
+			if err == nil {
+				_, err = g.svc.DecideApproval(ctx, asked.ID, true, orchestration.ScopeSession)
+			}
+
+			g.err = err
+		})
+	}
+
+	return granted, err
+}
+
+// Scenario (second review of #746): the owner approves a comment for the session while a request that comments and
+// merges is being decided, between the proxy's check of each action's grant and its ask. The comment's grant does
+// not carry the merge: the request waits for an approval of the merge, is refused while it waits, and reaches
+// GitHub only once the merge itself is approved.
+func TestACommentGrantedWhileARequestIsDecidedDoesNotCarryItsMerge(t *testing.T) {
+	t.Parallel()
+
+	var between *grantBetween
+
+	w := newWorldWith(t, time.Minute, func(s serviceproxy.Store) serviceproxy.Store {
+		svc, ok := s.(*orchestration.Service)
+		require.True(t, ok)
+
+		between = &grantBetween{Store: s, svc: svc}
+
+		return between
+	})
+	ctx := t.Context()
+
+	_, err := w.svc.SetConnection(ctx, serviceproxy.GitHubID, "default", "", "conn-github-com-default")
+	require.NoError(t, err)
+
+	_, err = w.svc.SetConnectionChats(ctx, serviceproxy.GitHubID, "default", true)
+	require.NoError(t, err)
+
+	gh, refused := w.openTo(serviceproxy.GitHubID, w.pi, "default", "api.github.com", w.chat)
+	require.Zero(t, refused)
+
+	both := graphqlBody(t, `mutation { addComment(input: {subjectId: "I_1", body: "hi"}) { clientMutationId } `+
+		`mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }`)
+	merged := make(chan answer, 1)
+
+	go func() { merged <- gh.do(http.MethodPost, "/graphql", "application/json", both) }()
+
+	merge := w.pending()
+	require.NoError(t, between.err)
+	assert.Equal(t, "github.pulls.merge", merge.Action, "the merge asks, though the comment was granted meanwhile")
+	assert.Empty(t, w.service.received(), "nothing is sent while the merge waits")
+
+	_, err = w.proxy.Decide(ctx, merge.ID, false, "")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, (<-merged).Status)
+	assert.Empty(t, w.service.received(), "a refused merge sends nothing")
+
+	go func() { merged <- gh.do(http.MethodPost, "/graphql", "application/json", both) }()
+
+	again := w.pending()
+	assert.Equal(t, "github.pulls.merge", again.Action)
+
+	_, err = w.proxy.Decide(ctx, again.ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, (<-merged).Status)
+	assert.Len(t, w.service.received(), 1, "approved, the merge runs with the comment")
 }

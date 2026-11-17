@@ -8,8 +8,8 @@ descriptions/api.github.com/api.github.com.json (LICENSE.md, MIT, Copyright
 (c) 2020 GitHub).
 
 The GraphQL schema is the public one GitHub serves at
-https://docs.github.com/public/fpt/schema.docs.graphql (read on 2026-11-17),
-kept in https://github.com/github/docs as
+https://docs.github.com/public/fpt/schema.docs.graphql, read from
+https://github.com/github/docs at 1589ab68fbcc39c64c676b35089db9c0c8a38985,
 src/graphql/data/fpt/schema.docs.graphql (code under LICENSE-CODE, MIT,
 Copyright GitHub).
 
