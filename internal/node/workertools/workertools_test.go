@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/toolsmcp"
 )
 
@@ -124,7 +125,9 @@ func TestFinishIsRecordedInTheBridge(t *testing.T) {
 		"name": "finish", "arguments": map[string]any{
 			"summary":  "added the button; PR #7 is green",
 			"evidence": []map[string]string{{"kind": "pull_request", "ref": "kl3inIT/second-bite#7"}},
-			"gate":     map[string]any{"question": "Merge PR #7?", "options": []string{"merge", "change first"}},
+			"gate": map[string]any{"question": "Merge PR #7?", "options": []any{
+				"merge", map[string]any{"label": "change first", "allows_text": true},
+			}},
 		},
 	}})
 	assert.Contains(t, text(t, c.read()), "End your turn now")
@@ -136,7 +139,9 @@ func TestFinishIsRecordedInTheBridge(t *testing.T) {
 	require.NotNil(t, final.Gate)
 	assert.Equal(t, "Merge PR #7?", final.Gate.Text)
 	assert.Equal(t, "owner", final.Gate.To)
-	assert.Len(t, final.Gate.Options, 2)
+	assert.Equal(t, []nodeproto.Option{
+		{Label: "merge"}, {Label: "change first", AllowsText: true}, {Label: "Other", AllowsText: true},
+	}, final.Gate.Options, "an option keeps its text, and Other takes text")
 
 	c.send(map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{
 		"name": "finish", "arguments": map[string]any{},
@@ -193,4 +198,31 @@ func TestCancelledAskEnds(t *testing.T) {
 	c.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": map[string]any{"requestId": 9}})
 
 	assert.Equal(t, "The question was withdrawn.", text(t, c.read()))
+}
+
+// Scenario: a worker's options, as the ask tool takes them (issue #714,
+// decision 8). A plain label and {label, allows_text} are both read; a blank
+// label is dropped; "Other" with text is added last unless the worker gave
+// one, or the question already has the most options the control plane takes;
+// a question without options stays a free answer.
+func TestOptionsCarryText(t *testing.T) {
+	t.Parallel()
+
+	read := func(raw string) []nodeproto.Option {
+		var given []option
+		require.NoError(t, json.Unmarshal([]byte(raw), &given))
+
+		return options(given)
+	}
+
+	assert.Equal(t, []nodeproto.Option{
+		{Label: "merge"}, {Label: "change first", AllowsText: true}, {Label: "Other", AllowsText: true},
+	}, read(`["merge", " ", {"label": "change first", "allows_text": true}]`))
+	assert.Equal(t, []nodeproto.Option{{Label: "a"}, {Label: "other"}}, read(`["a", "other"]`),
+		"the worker's own Other is kept as it gave it")
+	assert.Empty(t, read(`[]`), "no options: a free answer")
+	assert.Len(t, read(`["1","2","3","4","5","6","7","8","9","10"]`), maxOptions)
+
+	var bad []option
+	require.Error(t, json.Unmarshal([]byte(`[3]`), &bad))
 }

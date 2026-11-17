@@ -231,3 +231,35 @@ func TestAnSSHAddressIsCheckedBeforeGitSeesIt(t *testing.T) {
 		assert.False(t, ValidSSHURL(bad), bad)
 	}
 }
+
+// Each kind of host has its own way to have a pull request merged by itself
+// (issue #714): GitHub's checks read both a ruleset and branch protection, and
+// the merge is pinned to the pushed commit; GitLab's project path is one
+// escaped segment of the API's path, and the merge request needs a pipeline.
+func TestEachKindOfHostTurnsOnItsOwnAutoMerge(t *testing.T) {
+	t.Parallel()
+
+	gh, _ := For(GitHub)
+	m := gh.AutoMerge(Repo{GitHubHost, "kl3inIT/hypomnema"}, "main")
+
+	require.Len(t, m.Ready, 2)
+	assert.Equal(t, []string{"gh api repos/kl3inIT/hypomnema --jq .allow_auto_merge"}, m.Ready[0].Commands)
+	assert.Equal(t, "auto-merge is off in the repository's settings", m.Ready[0].Lacks)
+	assert.Equal(t, []string{
+		"gh api repos/kl3inIT/hypomnema/rules/branches/main",
+		"gh api repos/kl3inIT/hypomnema/branches/main/protection/required_status_checks",
+	}, m.Ready[1].Commands)
+	assert.Equal(t, "no required check on main", m.Ready[1].Lacks)
+	assert.Equal(t, "gh pr view <url> --json isDraft,mergeStateStatus", m.View)
+	assert.Equal(t, "gh pr merge <url> --auto --merge --match-head-commit <sha>", m.Enable)
+	assert.Equal(t, "gh pr checks <url> --required --watch", m.Watch)
+
+	gl, _ := For(GitLab)
+	m = gl.AutoMerge(Repo{"gitlab.company.example", "team/platform/api"}, "develop")
+
+	require.Len(t, m.Ready, 1)
+	assert.Equal(t, []string{"glab api projects/team%2Fplatform%2Fapi"}, m.Ready[0].Commands)
+	assert.Contains(t, m.Ready[0].Shows, "only_allow_merge_if_pipeline_succeeds: true")
+	assert.Equal(t, "glab mr merge <iid> --auto-merge --yes --sha <sha>", m.Enable)
+	assert.Contains(t, m.Before, "pipeline is not null", "glab merges at once without a pipeline")
+}

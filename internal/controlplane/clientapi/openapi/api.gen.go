@@ -7977,18 +7977,18 @@ type ClientInterface interface {
 	// Corresponds with POST /tasks/{task_id}/cancel (the `CancelTask` operationId).
 	CancelTask(ctx context.Context, taskId TaskID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// FollowUpTaskWithBody Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTaskWithBody Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /tasks/{task_id}/follow-ups (the `FollowUpTask` operationId).
 	FollowUpTaskWithBody(ctx context.Context, taskId TaskID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -12652,9 +12652,9 @@ func (c *Client) CancelTask(ctx context.Context, taskId TaskID, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// FollowUpTaskWithBody Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTaskWithBody Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes any type of body and a specified content type.
 //
@@ -12671,9 +12671,9 @@ func (c *Client) FollowUpTaskWithBody(ctx context.Context, taskId TaskID, conten
 	return c.Client.Do(req)
 }
 
-// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -24546,18 +24546,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /tasks/{task_id}/cancel (the `CancelTask` operationId).
 	CancelTaskWithResponse(ctx context.Context, taskId TaskID, reqEditors ...RequestEditorFn) (*CancelTaskResponse, error)
 
-	// FollowUpTaskWithBodyWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTaskWithBodyWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /tasks/{task_id}/follow-ups (the `FollowUpTask` operationId).
 	FollowUpTaskWithBodyWithResponse(ctx context.Context, taskId TaskID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FollowUpTaskResponse, error)
 
-	// FollowUpTaskWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTaskWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	//
-	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+	// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -38067,9 +38067,9 @@ func (c *ClientWithResponses) CancelTaskWithResponse(ctx context.Context, taskId
 	return ParseCancelTaskResponse(rsp)
 }
 
-// FollowUpTaskWithBodyWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTaskWithBodyWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -38082,9 +38082,9 @@ func (c *ClientWithResponses) FollowUpTaskWithBodyWithResponse(ctx context.Conte
 	return ParseFollowUpTaskResponse(rsp)
 }
 
-// FollowUpTaskWithResponse Ask more of a succeeded Task's worker, which continues its own conversation
+// FollowUpTaskWithResponse Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 //
-// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+// The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -45470,7 +45470,7 @@ type ServerInterface interface {
 	// CancelTask Cancel a Task; a running worker is stopped first
 	// (POST /tasks/{task_id}/cancel)
 	CancelTask(w http.ResponseWriter, r *http.Request, taskId TaskID)
-	// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	// (POST /tasks/{task_id}/follow-ups)
 	FollowUpTask(w http.ResponseWriter, r *http.Request, taskId TaskID)
 	// ReopenTask Give a failed Task, or one waiting for a login, a new start
@@ -61053,7 +61053,7 @@ type StrictServerInterface interface {
 	// CancelTask Cancel a Task; a running worker is stopped first
 	// (POST /tasks/{task_id}/cancel)
 	CancelTask(ctx context.Context, request CancelTaskRequestObject) (CancelTaskResponseObject, error)
-	// FollowUpTask Ask more of a succeeded Task's worker, which continues its own conversation
+	// FollowUpTask Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
 	// (POST /tasks/{task_id}/follow-ups)
 	FollowUpTask(ctx context.Context, request FollowUpTaskRequestObject) (FollowUpTaskResponseObject, error)
 	// ReopenTask Give a failed Task, or one waiting for a login, a new start
@@ -67755,19 +67755,20 @@ var swaggerSpec = []string{
 	"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",
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

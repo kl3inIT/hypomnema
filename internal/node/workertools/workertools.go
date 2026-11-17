@@ -112,11 +112,8 @@ func tools() []map[string]any {
 				"type": "object",
 				"properties": map[string]any{
 					"question": map[string]any{"type": "string", "description": "The question, with what is needed to answer it."},
-					"options": map[string]any{
-						"type": "array", "items": map[string]any{"type": "string"},
-						"description": "Choices to pick from; leave empty for a free answer.",
-					},
-					"to": map[string]any{"type": "string", "enum": []string{"owner", "coordinator"}, "default": "owner"},
+					"options":  optionsSchema("Choices to pick from; leave empty for a free answer. " + optionsHelp),
+					"to":       map[string]any{"type": "string", "enum": []string{"owner", "coordinator"}, "default": "owner"},
 				},
 				"required": []string{"question"},
 			},
@@ -142,10 +139,10 @@ func tools() []map[string]any {
 					},
 					"gate": map[string]any{
 						"type":        "object",
-						"description": "A decision the owner must make before the task can go on, such as whether to merge.",
+						"description": "A decision the owner must make before the task can go on, such as a choice between designs.",
 						"properties": map[string]any{
 							"question": map[string]any{"type": "string"},
-							"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+							"options":  optionsSchema("Choices to pick from. " + optionsHelp),
 						},
 						"required": []string{"question"},
 					},
@@ -207,12 +204,78 @@ func (s *server) workFolder() (string, error) {
 	return dir, nil
 }
 
-func options(labels []string) []nodeproto.Option {
-	out := make([]nodeproto.Option, 0, len(labels))
-	for _, l := range labels {
-		if l = strings.TrimSpace(l); l != "" {
-			out = append(out, nodeproto.Option{Label: l})
+// optionsHelp says how an option takes text (issue #714, decision 8).
+const optionsHelp = "An option is its label, or {label, allows_text} when the answer may add text to it " +
+	"(such as \"Change first\", with what to change). A last option \"Other\", with text, is added."
+
+// optionsSchema is the schema of a question's options: a label, or a label
+// with allows_text, so that a plain string, which workers sent before issue
+// #714, is still accepted.
+func optionsSchema(description string) map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{"anyOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"label":       map[string]any{"type": "string"},
+					"allows_text": map[string]any{"type": "boolean"},
+				},
+				"required": []string{"label"},
+			},
+		}},
+		"description": description,
+	}
+}
+
+// option is one choice as the worker gives it: a label, or a label with
+// allows_text.
+type option nodeproto.Option
+
+func (o *option) UnmarshalJSON(b []byte) error {
+	var label string
+	if err := json.Unmarshal(b, &label); err == nil {
+		*o = option{Label: label}
+
+		return nil
+	}
+
+	var full nodeproto.Option
+	if err := json.Unmarshal(b, &full); err != nil {
+		return fmt.Errorf("an option is a label or {label, allows_text}: %w", err)
+	}
+
+	*o = option(full)
+
+	return nil
+}
+
+// otherLabel is the last option of every question with options, which takes
+// text: Omnara adds "Other" with AllowsText to every question
+// (interaction_tools.go:66-72).
+const otherLabel = "Other"
+
+// maxOptions is the control plane's MaxOptions: "Other" is added only while
+// it fits.
+const maxOptions = 10
+
+// options keeps the options that have a label, each with its AllowsText,
+// and adds "Other" with text when there is any option and none is "Other"
+// already (issue #714, decision 8).
+func options(given []option) []nodeproto.Option {
+	out := make([]nodeproto.Option, 0, len(given)+1)
+	hasOther := false
+
+	for _, o := range given {
+		if o.Label = strings.TrimSpace(o.Label); o.Label != "" {
+			out = append(out, nodeproto.Option(o))
+			hasOther = hasOther || strings.EqualFold(o.Label, otherLabel)
 		}
+	}
+
+	if len(out) > 0 && !hasOther && len(out) < maxOptions {
+		out = append(out, nodeproto.Option{Label: otherLabel, AllowsText: true})
 	}
 
 	return out
@@ -222,7 +285,7 @@ func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int
 ) (map[string]any, error) {
 	var a struct {
 		Question string   `json:"question"`
-		Options  []string `json:"options"`
+		Options  []option `json:"options"`
 		To       string   `json:"to"`
 	}
 
@@ -273,7 +336,7 @@ func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
 		Evidence []nodeproto.Evidence `json:"evidence"`
 		Gate     *struct {
 			Question string   `json:"question"`
-			Options  []string `json:"options"`
+			Options  []option `json:"options"`
 		} `json:"gate"`
 	}
 

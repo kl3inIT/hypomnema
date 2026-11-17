@@ -25,10 +25,13 @@ const rules = "\nRules:\n" +
 	// 'always ask' rules with clear boundaries"; OpenClaw's template "Do freely / Ask first",
 	// docs/reference/templates/AGENTS.md L19-23). The list is the owner's (2026-11-17). "Within what the task and
 	// your instructions allow" keeps an explorer's or a reviewer's own instruction, which changes nothing.
+	// Issue #714, decision 1: merging left the list; the worker turns on the host's auto-merge where the
+	// repository waits for its required checks (pullRequest), and never merges directly.
 	"- Decide yourself, within what the task and your instructions allow: how to build it and where the code " +
 	"goes, which tests to add or change, running the repository's checks, committing and pushing your branch, " +
-	"opening or updating this task's pull request. Ask first, with the `ask` tool, and wait for the answer: " +
-	"before changing the task's scope, merging, deploying or changing a server, deleting what your change did " +
+	"opening or updating this task's pull request and turning on its auto-merge as said below. Never merge it " +
+	"directly. Ask first, with the `ask` tool, and wait for the answer: " +
+	"before changing the task's scope, deploying or changing a server, deleting what your change did " +
 	"not make, or acting outside this directory and this task's pull request. " +
 	"Never use AskUserQuestion; no one reads it.\n" +
 	// Issue #672: Orca's worker "needs no progress updates unless the task asks"
@@ -54,7 +57,7 @@ const rules = "\nRules:\n" +
 	"when the work is not done, say so in its first line; then what you did, what you found and what is left; " +
 	"which checks you ran and which you skipped; then the evidence (paths with lines, commands with their " +
 	"output, the pull request as its URL).\n" +
-	"- If the owner must decide before the work goes on (such as whether to merge), " +
+	"- If the owner must decide before the work goes on (such as a choice between designs), " +
 	"pass that question as `gate` to `finish` instead of waiting.\n" +
 	"- Do not start subagents, and do not work outside this directory.\n" +
 	// Issue #513, after OpenClaw's and Hermes's AGENTS.md (verify the claim against source and observed
@@ -105,6 +108,7 @@ func Prompt(d statedb.Dispatch) string {
 		// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
 		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
 			openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
+		b.WriteString(autoMerge(o.RepoKind, o.Repo, o.Base, worktree.Branch(o.TaskID)))
 	} else {
 		b.WriteString("\nWork only in this directory.\n")
 	}
@@ -138,8 +142,82 @@ func openCommand(kind, base, branch string) string {
 	return adapter.OpenCommand(base, branch)
 }
 
-// followUp tells the worker of a Task that had succeeded what more is asked
-// of it (issue #666), as a resolved Gate is told. The Conversation goes on in
+// autoMerge tells the worker how the host merges its pull request by itself
+// (issue #714): the decisions of the issue's design, in the host's commands
+// (githost.AutoMerge). The worker turns auto-merge on, instead of asking,
+// only when the request is not a draft, has no conflict, the task does not
+// say a review or the owner comes first, and the repository waits for its
+// required checks; t3code and Orca offer auto-merge only when the repository
+// allows it and never on a draft or a conflict (PullRequestDetailPanel.tsx:
+// 1303-1312; pull-request-auto-merge-availability.ts:13-34). Without a
+// required check or with auto-merge off, the request stays open and the
+// summary says what is missing, as Kodiak and bors refuse
+// (evaluation.py:718-723; bors_toml.ex:157-158); no gate is opened only to ask
+// to merge. A conflict is resolved keeping both sides' intent and checked
+// again, after t3code's prompt (pullRequestDetail.logic.ts:1172-1189), by
+// merging the base, as this repository's AGENTS.md does. The worker stays
+// until the required checks are green, as OpenClaw's agent stays "until
+// verified merge" (landing.md:82), and no longer.
+func autoMerge(kind, repo, base, branch string) string {
+	r, err := githost.Parse(repo)
+	adapter, ok := githost.For(githost.Kind(kind))
+
+	if err != nil || !ok {
+		return ""
+	}
+
+	m := adapter.AutoMerge(r, base)
+
+	var b strings.Builder
+
+	b.WriteString("Then have the host merge it by itself once its required checks pass; never merge it directly. " +
+		"When the task says a review comes first, that the owner merges, or to ask before merging, skip this: " +
+		"leave the pull request open and say so in the summary. Otherwise:\n")
+
+	b.WriteString("1. Check, read-only, that the repository waits for its checks (auto-merge without them merges " +
+		"at once, before CI):")
+
+	lacks := make([]string, 0, len(m.Ready))
+
+	for _, c := range m.Ready {
+		cmds := make([]string, 0, len(c.Commands))
+		for _, cmd := range c.Commands {
+			cmds = append(cmds, "`"+cmd+"`")
+		}
+
+		fmt.Fprintf(&b, " %s: %s;", strings.Join(cmds, " and "), c.Shows)
+		lacks = append(lacks, "\""+c.Lacks+"\"")
+	}
+
+	fmt.Fprintf(&b, " if one does not hold, do not turn auto-merge on and do not merge: leave the pull request "+
+		"open and say in the summary's first line what the repository lacks (%s), so the owner can change the "+
+		"setting or merge; do not open a gate only to ask whether to merge.\n", strings.Join(lacks, " or "))
+
+	fmt.Fprintf(&b, "2. Read the pull request with `%s`. A draft (%s) is left open. On a conflict (%s), merge %s "+
+		"into your branch, resolve it keeping the intent of both sides, run the repository's checks again and "+
+		"push; if you cannot tell what one side meant, ask.", m.View, m.Draft, m.Conflict, base)
+
+	if m.Before != "" {
+		fmt.Fprintf(&b, " Before step 3, check that %s.", m.Before)
+	}
+
+	fmt.Fprintf(&b, "\n3. Turn auto-merge on with `%s`, where <sha> is the commit you pushed", m.Enable)
+
+	if m.Method != "" {
+		b.WriteString("; " + m.Method)
+	}
+
+	fmt.Fprintf(&b, ".\n4. Wait for the required checks with `%s`; fix a red one at its cause and push, and do "+
+		"step 2 again if a conflict appears. Once they are green, call `finish` without waiting longer, saying "+
+		"whether the pull request merged (`%s`) or that auto-merge is on.\n",
+		strings.ReplaceAll(m.Watch, "<branch>", branch), m.Merged)
+
+	return b.String()
+}
+
+// followUp tells the worker of a Task that had succeeded, or had stopped at a
+// Gate, what more is asked of it (issues #666, #714), as a resolved Gate is
+// told. A follow-up to a Gate replaces the Gate, so it is the only answer. The Conversation goes on in
 // the same worktree, so the worker updates its own pull request (Polly sends
 // fixes "to the SAME implementer conversation ... so the worker keeps its
 // worktree/branch context and updates its existing PR", omnigent
@@ -154,7 +232,8 @@ func followUp(d statedb.Dispatch) string {
 		next = "Continue in this worktree and on this branch; update the same pull request, then call `finish` again.\n"
 	}
 
-	return "You finished this task before, and more is asked of it now:\n" +
+	return "You called `finish` on this task before, and more is asked of it now (this replaces the answer to " +
+		"any question you asked at `finish`):\n" +
 		strings.TrimSpace(d.Accepted.FollowUp) + "\n" + next
 }
 
