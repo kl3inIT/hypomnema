@@ -11,6 +11,8 @@ at a file or two to scope the question is yours; a read across the repository is
    ```
    Each spec has the question, the exact scope (directories, a commit, a failing command), and what to bring back:
    file paths with lines, commands with their output, URLs. It says to change nothing and open no pull request.
+   A research Task (how others do it, a design, a choice) names the references to clone and read, three or four
+   mature projects, never a single one, and asks for their code with paths and lines, not their documents alone.
 3. Wait as for any Run. Each worker's report is the summary in `hypomnema tasks show <task_id> --json`.
 4. Answer the owner from those reports, and say which Task each part comes from. When reports disagree or leave a
    gap, ask the worker that left it with `hypomnema tasks follow-up <task_id> --note-file <file> --json`, which
