@@ -15,9 +15,11 @@ import (
 )
 
 var build = fstest.MapFS{
-	"index.html":         {Data: []byte("<!doctype html><title>Hypomnema</title>")},
-	"assets/index-a1.js": {Data: []byte("console.log(1)")},
-	".gitkeep":           {},
+	"index.html":           {Data: []byte("<!doctype html><title>Hypomnema</title>")},
+	"assets/index-a1.js":   {Data: []byte("console.log(1)")},
+	"manifest.webmanifest": {Data: []byte(`{"name":"Hypomnema","start_url":"/"}`)},
+	"apple-touch-icon.png": {Data: []byte("\x89PNG\r\n\x1a\n")},
+	".gitkeep":             {},
 }
 
 func get(t *testing.T, method, target string) *httptest.ResponseRecorder {
@@ -58,6 +60,24 @@ func TestHandlerServesTheClient(t *testing.T) {
 	head := get(t, http.MethodHead, "/chats/cht_1")
 	assert.Equal(t, http.StatusOK, head.Code)
 	assert.Empty(t, head.Body.String())
+}
+
+// Scenario: a phone adds the client to its home screen, and reads the web
+// manifest and the touch icon with their types, whatever the host's mime
+// database holds (issue #728).
+func TestHandlerServesTheHomeScreenIcon(t *testing.T) {
+	t.Parallel()
+
+	types := map[string]string{
+		"/manifest.webmanifest": "application/manifest+json; charset=utf-8",
+		"/apple-touch-icon.png": "image/png",
+	}
+	for target, contentType := range types {
+		rec := get(t, http.MethodGet, target)
+		require.Equal(t, http.StatusOK, rec.Code, target)
+		assert.Equal(t, contentType, rec.Header().Get("Content-Type"), target)
+		assert.Equal(t, string(build[target[1:]].Data), rec.Body.String(), target)
+	}
 }
 
 // Scenario: a binary built before `pnpm build` holds only dist/.gitkeep, and
