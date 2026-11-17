@@ -306,6 +306,8 @@ func waitingLine(code string) string {
 		return "bot " + arg + " already runs as many workers as its limit"
 	case "nodes_full":
 		return "every node that can run it runs as many workers as its limit"
+	case "nodes_low_memory":
+		return "every node that can run it is low on memory"
 	case "accounts_cooling":
 		return "every account of its agent waits for its limit to reset"
 	case "no_node":

@@ -412,6 +412,10 @@ func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchS
 			return nil, ReasonNodesFull
 		}
 
+		if runtime != "" && p.anyLowMemory(runtime, host) {
+			return nil, ReasonNodesLowMemory
+		}
+
 		return nil, ReasonNoNode
 	}
 

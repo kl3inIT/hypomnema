@@ -49,6 +49,10 @@ var (
 	ErrNoTokens = errors.New("the account was not logged in on the control plane")
 	// ErrLoginFailed is returned when the vendor did not complete a login.
 	ErrLoginFailed = errors.New("the login did not complete")
+	// ErrBadPaste is wrapped by a paste that cannot be read (no code, not an
+	// address, another login's state): nothing reached the vendor, so the
+	// attempt stays open for a corrected paste (issue #749).
+	ErrBadPaste = errors.New("the paste cannot be read")
 	// ErrNoAccount is returned when no account of a runtime can be used:
 	// none was logged in here, or every one is disabled or needs a new login.
 	ErrNoAccount = errors.New("no account logged in here can be used")
@@ -824,3 +828,11 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 
 	return nil
 }
+
+// pasteError is a paste that cannot be read: its own words, and ErrBadPaste
+// for errors.Is.
+type pasteError string
+
+func (e pasteError) Error() string { return string(e) }
+
+func (pasteError) Is(target error) bool { return target == ErrBadPaste }

@@ -203,8 +203,9 @@ func TestContinuingWaitsForItsNode(t *testing.T) {
 }
 
 // Scenario: several nodes for new Conversations. Drained, offline,
-// unavailable and full nodes and those without the runtime are skipped; the
-// least loaded wins, ties by id; the worktree is under the node's root.
+// unavailable and full nodes and those without the runtime are skipped; with
+// no stats the higher free share of slots wins, then more free slots by count
+// (issue #731); the worktree is under the node's root.
 func TestPlacementPicksTheLeastLoadedNodeThatCanRun(t *testing.T) {
 	t.Parallel()
 
@@ -224,7 +225,8 @@ func TestPlacementPicksTheLeastLoadedNodeThatCanRun(t *testing.T) {
 	tasks := w.tasks(specs(4)...)
 	created := w.schedule().Created
 
-	assert.Equal(t, map[string]string{"a": small.ID, "b": big.ID, "c": big.ID}, w.placed(created))
+	// Neither reports stats, so the free share of slots decides: both are free, and node_big has more free slots.
+	assert.Equal(t, map[string]string{"a": big.ID, "b": small.ID, "c": big.ID}, w.placed(created))
 	assert.NotContains(t, w.placed(created), "d", "every node that can run is full")
 	assert.NotEqual(t, offline.ID, w.dispatchOf(created[0]).NodeID)
 

@@ -202,7 +202,7 @@ sequenceDiagram
     participant W as Worker
     participant G as Git host
     C->>CP: create a Run (repository, base branch), then Tasks with dependencies
-    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the least loaded node with the runtime, a worktree root and room under its own limit,<br/>an account or a gateway model, while its Bot runs fewer workers than its limit (4 by default)
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room under its own limit and 1 GiB of memory available,<br/>an account or a gateway model, while its Bot runs fewer workers than its limit (4 by default)
     CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
     N->>CP: accept (new epoch, 90 s lease)
     N->>N: fetch the skills, add the Task's worktree, start the shim
@@ -768,12 +768,18 @@ sequenceDiagram
     row, 64 MiB unpacked by the sizes the zip declares (refused before a part is inflated; every part kept in
     memory), two workbooks read at once, and 20 seconds a read, which the request stops waiting for when its
     context ends. What is not a workbook is refused as invalid.
-    `POST .../revisions/{n}/frame` (owner only) gives the address a folder page's files load from in its frame,
+    `POST .../revisions/{n}/frame` (owner only) gives the address a page and its files load from in its frame,
     `/api/v1/artifact-files/<token>/<path>`, outside the contract and needing no sign-in, as a terminal's ticket:
     a random token kept in memory for an hour after its last use (Onyx's preview token lasts an hour; at most
     5000), serving only that revision's files by exact path, read only, with OpenMausBot's headers
     (`Content-Security-Policy: sandbox allow-scripts; default-src 'none'`, `nosniff`, `Access-Control-Allow-Origin:
-    *`, `no-referrer`, `no-store`).
+    *`, `no-referrer`, `no-store`). An HTML file is sent with the page's own policy in that header instead
+    (`pagePolicy`, issue #737, as Onyx's static preview sends one): `sandbox allow-scripts allow-forms`, the frame's
+    flags; OpenMausBot's directives (scripts, styles and fonts inline or from cdnjs, jsdelivr and unpkg, Google
+    Fonts; images from `data:`, `blob:` and those CDNs; connections to them and DuckDB's extensions; no frame,
+    object, form target or base); its own files by the token's address under the request's host, by http and
+    https, never the rest of this origin; `frame-ancestors 'self'`. A Host a policy could not name as one source
+    (LibreChat's check of frame ancestors) is refused.
   - CLI: `artifact show`, `artifact list [--chat]`, `artifact info <id>`, `artifact download <id> [--rev] [--out]`.
     A download is saved as `<id>-r<rev>-<name>` (a folder as `<id>-r<rev>.zip`), the name only the last part of
     what the server gave and left out when it is no plain file name here (`..`, a drive's colon, a device of
@@ -1482,8 +1488,14 @@ flowchart LR
   The coordinator's `CreateDispatch` meets both and checks. Ready Tasks of open Runs go oldest Run first, then
   by position, and the pass goes through every one of them; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
   records the model, the effort and that version; its worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node, once that node is active, connected, not
-  unavailable and below its limit; a new one goes to the least loaded such node that has the runtime and a worktree
-  root, ties by id, with the first active account of the runtime that is not cooling down (none for a model the
+  unavailable and below its limit; a new one goes to the node of those with the most free capacity that has the
+  runtime and a worktree root (issue #731): its score is the mean of its free shares of slots (`1 - active/max_dispatches`),
+  CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated averages
+  free shares; the highest wins, ties go to more free slots by count, then the smaller id, and each Dispatch a pass
+  places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`), or never reported, count 0
+  for CPU and memory: the node ranks last but is not refused (Trimaran). A node whose fresh stats show less than
+  1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
+  continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
@@ -1491,8 +1503,9 @@ flowchart LR
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
   cleared when its Dispatch is made: `bot_at_limit:<bot id>` (nothing after the colon for the owner's Runs),
-  `nodes_full` (a node could run it but every such node is at its limit), `accounts_cooling`, `no_node`,
-  `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first three resolve by
+  `nodes_full` (a node could run it but every such node is at its limit), `accounts_cooling`, `nodes_low_memory`
+  (a node could run it but every such node not at its limit has under 1 GiB available; escalated like `no_node`),
+  `no_node`, `no_account`, `needs_gateway`, `no_node_reaches:<host>` or `no_node_has_tool:<tool>`. The first three resolve by
   themselves and are never escalated. The API's Task has it as `waiting_reason` while the Task is ready;
   `hypomnema tasks show` and `runs show` print it as a sentence, and the web says it under a queued Task in a
   chat's docked Run and on the Task's panel ("Waiting: vmap already runs 4 of 4 workers", "Waiting: every machine
@@ -3533,7 +3546,8 @@ The owner's commands:
   compares the tiles with the sums of their charts and tables and sets `data-check` on `<html>`; its charts are SVG
   its own script draws, its sums are computed in the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
   beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
-  artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
+  artifact's locked frame (a Playwright test in `web/tests/server.spec.ts` shows it there, under the control plane's
+  own headers, with no refusal).
   OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
   a page kept current is a folder page a Routine's script shows again with `hypomnema artifact show --id`.
 - The slides skill (`internal/controlplane/clientcli/skills/slides`, issue #479) is built in the same way, and since
@@ -3993,11 +4007,12 @@ Node (`internal/node`):
     steps back), ⤢ full screen (Esc or ⤡ back), ↗ a new tab, ⋯ Download (the file, or a folder as a zip) and Copy
     link, ✕. The new tab is the app's page `/artifacts/$id?rev=N` (signed in), a thin header with the way back to
     the chat and who made it over the same view, never a `blob:` or `data:` address (Omnigent's
-    `codeViewerHelpers.ts`). A page is an iframe `srcdoc`, `sandbox="allow-scripts allow-forms"`, never
-    `allow-same-origin`, `referrerpolicy="no-referrer"`, on a white canvas; its document starts with OpenMausBot's
-    CSP meta (`frame-document.ts`: scripts and styles inline or from cdnjs, jsdelivr and unpkg, Google Fonts,
-    images from `data:`, `blob:` and those CDNs, no other connection, frame, form target or base), and a folder
-    page's base and policy add its frame's address. Any other file opens in the file preview
+    `codeViewerHelpers.ts`). A page is an iframe loaded by `src` from its frame's address (`useFramePage`, the
+    file shown under the token's folder, its other files beside it by their relative paths), with
+    `sandbox="allow-scripts allow-forms"` (`frame.ts`), never `allow-same-origin`, `referrerpolicy="no-referrer"`,
+    on a white canvas; its policy is the server's header (above), as Onyx's `HtmlFilePreview.tsx` loads its preview.
+    It was a `srcdoc` with OpenMausBot's CSP meta until issue #737: a srcdoc document takes the web client's own
+    policy on top of its own, which refused its inline and CDN scripts and its base. Any other file opens in the file preview
     (`web/src/features/preview`, issue #422), copied from MemoryOS's `web/src/features/preview` (the owner's code,
     after Onyx's `PreviewModal`), one view a kind in Onyx's order, the PDF reader loaded only with a PDF: a PDF drawn
     by pdf.js through react-pdf 11 (pdfjs-dist 6.3.289, its worker and image decoders self-hosted under
@@ -4396,10 +4411,15 @@ and the node in the control plane binary.
   `web/src/components`. Oxlint also fails an import cycle (`import/no-cycle`) and an import of a feature or a
   route from `web/src/{components,lib,hooks}` (`no-restricted-imports`).
 - `make web-check`: oxlint, knip (`web/knip.jsonc`: unused files, exports and dependencies), oxfmt, `tsc -b` and
-  vitest for the web client; `make web-e2e`: Playwright on the production build, at a phone's and a desktop's size.
+  vitest for the web client; `make web-e2e`: Playwright on the production build, at a phone's and a desktop's size,
+  with a fake client API in the browser on Vite's preview, and `web/tests/server.spec.ts` on the control plane
+  itself for what only its answers show (issue #737): `web/tests/server` (`go run`, after the build, so that it
+  embeds it) migrates a temporary database, adds an owner, a chat and the artifacts of its `pages/` folder as a Bot
+  shows them, then runs `controlplane.Serve`. A CDN a page loads is answered in the browser by the test.
 - CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
   and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
-  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). `Unit` first sets the runner up as the
+  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`, with Go for the control plane its browser tests
+  run). `Unit` first sets the runner up as the
   coordinator's machine is (`deploy/coordinator/setup-box.sh`) and sets `HYPOMNEMA_BOX_TEST=required`, so the Bots'
   box tests fail rather than skip when a box cannot be made. Each Go job keeps its own build cache. A first
   job, `Changes`, finds whether anything but documentation changed (`docs/**`, `*.md`); when nothing did, the four

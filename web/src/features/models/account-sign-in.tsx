@@ -146,8 +146,9 @@ export function AccountSignInDialog({
   }
 
   const minutes = started ? Math.round(started.expires_in_seconds / 60) : 0
-  // A pasted answer is used once: after a refusal only a new link can complete the sign-in.
-  const spent = complete.isError || begin.isError
+  // A link that could not be made is begun again. After a refused paste the paste can be corrected and sent again:
+  // the server keeps a sign-in whose paste it could not read (issue #749), and answers that a used one has ended.
+  const spent = begin.isError
   const busy = complete.isPending || addToken.isPending
 
   return (
@@ -272,8 +273,8 @@ export function AccountSignInDialog({
         </DialogPanel>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          {way === "sign-in" && spent && (
-            <Button type="button" onClick={startAgain}>
+          {way === "sign-in" && (spent || complete.isError) && (
+            <Button type="button" variant={spent ? "default" : "outline"} onClick={startAgain}>
               <RotateCcw data-icon="inline-start" />
               Start again
             </Button>

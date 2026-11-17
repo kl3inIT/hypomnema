@@ -88,6 +88,12 @@ const (
 	NodeOfflineAfter = 30 * time.Second
 	// ScheduleEvery: the scheduler's pass when nothing wakes it (Orca DEFAULT_POLL_MS).
 	ScheduleEvery = 2 * time.Second
+	// NodeMemoryFloor: a node whose fresh stats show less memory available
+	// than this takes no new Conversation (issue #731). From the kubelet's hard
+	// eviction threshold memory.available < 100Mi, which taints the node
+	// memory-pressure:NoSchedule (kubelet/eviction/defaults_linux.go:22-27);
+	// 1 GiB, room for one worker CLI and its build, the owner's, 2026-11-17.
+	NodeMemoryFloor = 1 << 30
 	// UnplaceableAfter: a ready Task with no node or account for this long is
 	// escalated (inferred).
 	UnplaceableAfter = 5 * time.Minute
