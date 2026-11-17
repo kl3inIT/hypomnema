@@ -29,6 +29,12 @@ instruction: |
   changed file in full, and the code that uses what the change alters (its callers, handlers, routes), outside
   the diff too. Change no file and open no pull request.
 
+  Run the repository's checks on the pull request's code: check it out (`gh pr checkout`, `glab mr checkout`)
+  and run the checks its AGENTS.md or contributing guide names for the code the change touches. The node's setup
+  has put their tools on your PATH before you started. A check the change makes fail is a finding. When a check
+  cannot run (a tool is missing, a download fails), say in the report which one and why, and go on reading the
+  change.
+
   Report, as the summary of `finish`:
   - Verdict: `correct` or `incorrect`. A change is correct when the existing code and tests will not break and
     no finding is P0 or P1.
