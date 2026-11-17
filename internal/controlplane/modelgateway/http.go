@@ -127,9 +127,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/alpha/search", longAnswer(s.alphaSearch))
 	// Images (issue #431): one is made in a minute or more, longer than the write timeout.
 	mux.HandleFunc("POST /v1/images/generations", longAnswer(s.imageGenerations))
-	mux.HandleFunc("POST /v1/images/edits", longAnswer(s.imageEdits))
+	mux.HandleFunc("POST /v1/images/edits", fileBody(s.imageEdits))
 	// Audio (issue #694): a Soniox transcription is one request that polls its job up to 30 minutes.
-	mux.HandleFunc("POST /v1/audio/transcriptions", longAnswer(s.audioTranscriptions))
+	mux.HandleFunc("POST /v1/audio/transcriptions", fileBody(s.audioTranscriptions))
 	mux.HandleFunc("POST /v1/audio/speech", longAnswer(s.audioSpeech))
 	mux.HandleFunc("GET /v1/audio/voices", s.audioVoices)
 }
@@ -140,6 +140,18 @@ func (s *Server) Register(mux *http.ServeMux) {
 func longAnswer(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		h(w, r)
+	}
+}
+
+// fileBody is longAnswer for a request whose body is a file (an image to edit, a recording to transcribe): the
+// body may take longer to arrive than the server's read timeout, counted from the request's start, so the read
+// deadline is moved too, by an hour (issue #779, as clientapi's uploads).
+func fileBody(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rc := http.NewResponseController(w)
+		_ = rc.SetReadDeadline(time.Now().Add(time.Hour))
+		_ = rc.SetWriteDeadline(time.Time{})
 		h(w, r)
 	}
 }

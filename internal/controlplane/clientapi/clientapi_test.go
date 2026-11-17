@@ -34,6 +34,8 @@ type world struct {
 	// srv is the server under test, for a test that wires more into it.
 	srv *Server
 	url string
+	// mux is the client API's routes, for a test that serves them another way.
+	mux *http.ServeMux
 	// stop is the server's shutdown signal.
 	stop chan struct{}
 	// workers are the Dispatches a test drives, by the id of a question they asked.
@@ -69,7 +71,7 @@ func newWorld(t *testing.T) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, srv: srv, url: hs.URL, stop: stop, workers: map[string]*worker{}, pi: pi}
+	return &world{t: t, svc: svc, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
 }
 
 // token adds a token and returns a client that sends it.
