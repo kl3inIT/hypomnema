@@ -72,10 +72,11 @@ UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           created_at)
+                           audio_ms, characters, created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
-        @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model, @now);
+        @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model,
+        @audio_ms, @characters, @now);
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
@@ -210,6 +211,33 @@ SELECT provider,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed
 FROM gateway_usage WHERE model LIKE 'image/%' AND created_at >= @since
 GROUP BY provider ORDER BY provider;
+
+-- What the owner set on Settings, Gateway, Audio (issue #694).
+-- name: ListGatewayAudioProviders :many
+SELECT * FROM gateway_audio_providers ORDER BY provider;
+
+-- name: SetGatewayAudioOff :exec
+INSERT INTO gateway_audio_providers (provider, off, updated_at) VALUES (@provider, @off, @now)
+ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at;
+
+-- name: SetGatewayAudioSTTPosition :exec
+INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (@provider, @position, @now)
+ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updated_at = excluded.updated_at;
+
+-- name: SetGatewayAudioTTSPosition :exec
+INSERT INTO gateway_audio_providers (provider, tts_position, updated_at) VALUES (@provider, @position, @now)
+ON CONFLICT (provider) DO UPDATE SET tts_position = excluded.tts_position, updated_at = excluded.updated_at;
+
+-- Each audio provider's requests since a moment, by the model it was asked with (one model a provider and kind):
+-- what answered, what failed, the milliseconds transcribed and the characters spoken, for the Audio page.
+-- name: CountGatewayAudioCalls :many
+SELECT provider, model,
+       CAST(SUM(outcome = 'ok') AS INTEGER) AS answered,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(COALESCE(SUM(audio_ms), 0) AS INTEGER) AS audio_ms,
+       CAST(COALESCE(SUM(characters), 0) AS INTEGER) AS characters
+FROM gateway_usage WHERE model LIKE 'audio/%' AND created_at >= @since
+GROUP BY provider, model ORDER BY provider, model;
 
 -- name: ListAntigravityRewrites :many
 SELECT position, find, replacement FROM antigravity_prompt_rewrites ORDER BY position;

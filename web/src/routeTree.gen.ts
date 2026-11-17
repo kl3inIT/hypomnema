@@ -24,6 +24,7 @@ import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
+import { Route as SettingsAudioRouteImport } from './routes/settings.audio'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsImagesRouteImport } from './routes/settings.images'
@@ -112,6 +113,11 @@ const SettingsAboutYouRoute = SettingsAboutYouRouteImport.update({
   path: '/settings/about-you',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsAudioRoute = SettingsAudioRouteImport.update({
+  id: '/settings/audio',
+  path: '/settings/audio',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsChannelsRoute = SettingsChannelsRouteImport.update({
   id: '/settings/channels',
   path: '/settings/channels',
@@ -186,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
+  '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
+  '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
@@ -245,6 +253,7 @@ export interface FileRoutesById {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
+  '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
@@ -276,6 +285,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/settings/about-you'
+    | '/settings/audio'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/images'
@@ -305,6 +315,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/settings/about-you'
+    | '/settings/audio'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/images'
@@ -334,6 +345,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/settings/about-you'
+    | '/settings/audio'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/images'
@@ -364,6 +376,7 @@ export interface RootRouteChildren {
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
+  SettingsAudioRoute: typeof SettingsAudioRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsImagesRoute: typeof SettingsImagesRoute
@@ -488,6 +501,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAboutYouRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/audio': {
+      id: '/settings/audio'
+      path: '/settings/audio'
+      fullPath: '/settings/audio'
+      preLoaderRoute: typeof SettingsAudioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/channels': {
       id: '/settings/channels'
       path: '/settings/channels'
@@ -588,6 +608,7 @@ const rootRouteChildren: RootRouteChildren = {
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   SettingsAboutYouRoute: SettingsAboutYouRoute,
+  SettingsAudioRoute: SettingsAudioRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsImagesRoute: SettingsImagesRoute,

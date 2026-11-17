@@ -558,6 +558,16 @@ export function YouIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+// ElevenLabs's mark, its two bars, in the text's colour: LobeHub's mono icon (src/ElevenLabs/components/Mono.tsx of
+// @lobehub/icons 6.15.1; MIT, Copyright (c) 2023 LobeHub, https://github.com/lobehub/lobe-icons).
+export function ElevenLabsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path fillRule="evenodd" d="M5 0h5v24H5V0zM14 0h5v24h-5V0z" />
+    </svg>
+  )
+}
+
 // Apache Superset's mark, the loop, in its teal. The path is Simple Icons' (apachesuperset.svg, CC0 1.0).
 export function SupersetIcon(props: SVGProps<SVGSVGElement>) {
   return (

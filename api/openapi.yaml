@@ -2016,6 +2016,112 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Images" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/audio:
+    get:
+      operationId: GetAudio
+      summary: >-
+        The audio providers with their switches, keys and state, and the order speech-to-text and text-to-speech
+        each ask them in, with each one's model and usage
+      description: >-
+        Soniox and ElevenLabs, each with its keys in the vault, least recently used first, and one switch for both
+        kinds. Speech-to-text and text-to-speech each ask the providers that are on in the owner's order, by default
+        Soniox first. A provider can be asked while it has a key. A key's value is never in this answer.
+      responses:
+        "200":
+          description: The providers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Audio" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/providers/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/AudioProvider" }
+    put:
+      operationId: SetAudioProvider
+      summary: Switch an audio provider on or off, for both kinds; only the owner
+      description: A provider that is off is neither asked nor may be named, from the next request on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AudioProviderChange" }
+      responses:
+        "200":
+          description: The providers after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Audio" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/providers/{provider}/keys:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/AudioProvider" }
+    post:
+      operationId: AddAudioKey
+      summary: Keep one more API key of an audio provider in the vault; only the owner
+      description: >-
+        The key is kept as the secret `speech-<provider>` when the provider has none, else `speech-<provider>-<n>`
+        with the lowest free number, and never returned. A request uses it from the next one on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AudioNewKey" }
+      responses:
+        "201":
+          description: The name the key is kept under, and the providers with it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioKeyAdded" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/providers/{provider}/keys/{name}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/AudioProvider" }
+      - name: name
+        in: path
+        required: true
+        description: The key's secret name, such as speech-soniox-2.
+        schema: { type: string, maxLength: 200 }
+    delete:
+      operationId: RemoveAudioKey
+      summary: Remove one of an audio provider's keys from the vault; only the owner
+      description: A key that is not there is removed already.
+      responses:
+        "200":
+          description: The providers without the key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Audio" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/order/{kind}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/AudioKind" }
+    put:
+      operationId: SetAudioOrder
+      summary: Set the order speech-to-text (stt) or text-to-speech (tts) asks the providers in; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AudioOrder" }
+      responses:
+        "200":
+          description: The providers in their new order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Audio" }
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -3139,6 +3245,46 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ImageAnswer" }
+        default: { $ref: "#/components/responses/Error" }
+  /audio/transcriptions:
+    post:
+      operationId: TranscribeAudio
+      summary: Turn a recording into text, with who spoke when if asked; any token, a Bot's included
+      description: >-
+        The audio providers that are on are asked in the owner's order for speech-to-text, each with its keys; the
+        first that answers wins and `errors` says why those before it did not. A Soniox transcription is one
+        request that waits for its job, up to 30 minutes. Every provider resting is answered 429 with
+        `Retry-After`; none with a key, 503.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TranscribeRequest" }
+      responses:
+        "200":
+          description: The transcript.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioTranscript" }
+        default: { $ref: "#/components/responses/Error" }
+  /audio/speech:
+    post:
+      operationId: SpeakAudio
+      summary: Turn text into speech; any token, a Bot's included
+      description: >-
+        The audio providers that are on are asked in the owner's order for text-to-speech, each with its keys; the
+        first that answers wins and `errors` says why those before it did not.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpeakRequest" }
+      responses:
+        "200":
+          description: The speech.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AudioSpeech" }
         default: { $ref: "#/components/responses/Error" }
   /chats:
     get:
@@ -4470,6 +4616,203 @@ components:
       properties:
         provider: { type: string }
         message: { type: string }
+    AudioProvider:
+      type: string
+      enum: [soniox, elevenlabs]
+    AudioKind:
+      type: string
+      enum: [stt, tts]
+      description: stt is speech-to-text, tts text-to-speech.
+    Audio:
+      type: object
+      required: [providers, stt, tts]
+      properties:
+        providers:
+          type: array
+          description: The audio providers, each with its switch and keys.
+          items: { $ref: "#/components/schemas/AudioProviderLink" }
+        stt:
+          type: array
+          description: The providers in the order speech-to-text asks them.
+          items: { $ref: "#/components/schemas/AudioKindLink" }
+        tts:
+          type: array
+          description: The providers in the order text-to-speech asks them.
+          items: { $ref: "#/components/schemas/AudioKindLink" }
+    AudioProviderLink:
+      type: object
+      required: [provider, "on", state, keys]
+      properties:
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+        "on":
+          type: boolean
+          description: The owner's switch for the provider, for both kinds.
+        state:
+          type: string
+          enum: [ready, resting, not_set_up, "off"]
+          description: >-
+            ready: it is asked in its turn. resting: each of its keys rests until `resting_until`, for `rest`.
+            not_set_up: no key in the vault. off: the owner switched it off.
+        resting_until: { type: string, format: date-time }
+        rest: { $ref: "#/components/schemas/WebSearchRest" }
+        keys:
+          type: array
+          description: Its keys, in the order a request asks them now.
+          items: { $ref: "#/components/schemas/AudioKey" }
+    AudioKey:
+      type: object
+      required: [name, state]
+      properties:
+        name: { type: string, description: The vault secret that holds the key. }
+        state:
+          type: string
+          enum: [ready, resting]
+        resting_until: { type: string, format: date-time }
+        rest: { $ref: "#/components/schemas/WebSearchRest" }
+        last_used_at: { type: string, format: date-time }
+    AudioKindLink:
+      type: object
+      required: [provider, "on", model, usage]
+      properties:
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+        "on":
+          type: boolean
+          description: The owner's switch for the provider.
+        model:
+          type: string
+          description: The one model it is asked with for this kind, as usage rows name it (audio/<model>).
+        usage: { $ref: "#/components/schemas/AudioUsage" }
+    AudioUsage:
+      type: object
+      required: [today, month]
+      description: This control plane's requests, by UTC day and month.
+      properties:
+        today: { $ref: "#/components/schemas/AudioTally" }
+        month: { $ref: "#/components/schemas/AudioTally" }
+    AudioTally:
+      type: object
+      required: [answered, failed, seconds, characters]
+      properties:
+        answered: { type: integer }
+        failed: { type: integer }
+        seconds:
+          type: number
+          description: The seconds of recordings transcribed.
+        characters:
+          type: integer
+          format: int64
+          description: The characters spoken.
+    AudioProviderChange:
+      type: object
+      additionalProperties: false
+      required: ["on"]
+      properties:
+        "on": { type: boolean }
+    AudioNewKey:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+    AudioKeyAdded:
+      type: object
+      required: [name, audio]
+      properties:
+        name: { type: string, description: The vault secret the key is kept under. }
+        audio: { $ref: "#/components/schemas/Audio" }
+    AudioOrder:
+      type: object
+      additionalProperties: false
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { $ref: "#/components/schemas/AudioProvider" }
+    TranscribeRequest:
+      type: object
+      additionalProperties: false
+      required: [audio]
+      properties:
+        audio: { type: string, format: byte, description: "The recording's bytes, base64; at most 128 MiB." }
+        file_name: { type: string, maxLength: 255, description: "The recording's file name, such as call.mp3." }
+        mime_type: { type: string, maxLength: 100, description: Read from the bytes when left out. }
+        language: { type: string, maxLength: 20, description: "An ISO-639-1 hint, such as vi; left out, found." }
+        speakers: { type: boolean, description: Tell who spoke when. }
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+    AudioTranscript:
+      type: object
+      required: [provider, model, text, duration, segments, words]
+      properties:
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+        model: { type: string }
+        text: { type: string }
+        language: { type: string }
+        duration: { type: number, description: The recording's length in seconds. }
+        segments:
+          type: array
+          description: >-
+            One speaker's words a segment, cut at a speaker change, a pause over 800 ms or 400 characters.
+          items: { $ref: "#/components/schemas/TranscriptSegment" }
+        words:
+          type: array
+          items: { $ref: "#/components/schemas/TranscriptWord" }
+        errors:
+          type: array
+          description: The providers asked before the one that answered, and why each did not.
+          items: { $ref: "#/components/schemas/WebSearchError" }
+    TranscriptSegment:
+      type: object
+      required: [start, end, text]
+      properties:
+        start: { type: number, description: Seconds from the start. }
+        end: { type: number }
+        text: { type: string }
+        speaker:
+          type: string
+          description: The provider's label for who said it; absent unless speakers were asked.
+    TranscriptWord:
+      type: object
+      required: [word, start, end]
+      properties:
+        word: { type: string }
+        start: { type: number }
+        end: { type: number }
+        speaker: { type: string }
+    SpeakRequest:
+      type: object
+      additionalProperties: false
+      required: [input]
+      properties:
+        input: { type: string, minLength: 1, maxLength: 4096 }
+        voice:
+          type: string
+          maxLength: 120
+          description: >-
+            A voice of the provider (the gateway's GET /v1/audio/voices) or one of OpenAI's names; left out, each
+            provider's default.
+        format:
+          type: string
+          enum: [mp3, wav, pcm, opus]
+          description: mp3 when left out.
+        speed: { type: number, minimum: 0.25, maximum: 4, description: "ElevenLabs's voice speed." }
+        language: { type: string, maxLength: 20, description: "The text's language for Soniox; en when left out." }
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+    AudioSpeech:
+      type: object
+      required: [provider, model, format, mime_type, audio, characters]
+      properties:
+        provider: { $ref: "#/components/schemas/AudioProvider" }
+        model: { type: string }
+        format: { type: string }
+        mime_type: { type: string }
+        audio: { type: string, format: byte, description: "The speech's bytes, base64." }
+        characters: { type: integer, description: The characters spoken. }
+        errors:
+          type: array
+          description: The providers asked before the one that answered, and why each did not.
+          items: { $ref: "#/components/schemas/WebSearchError" }
     ImageProvider:
       type: string
       enum: [codex, antigravity]
@@ -5789,10 +6132,11 @@ components:
             kind should leave it out, so a kind added later is given too.
     GatewayEndpoint:
       type: string
-      enum: [search, fetch, images]
+      enum: [search, fetch, images, audio]
       description: >-
         A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images
-        is /v1/images/generations and /v1/images/edits.
+        is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and
+        /v1/audio/voices.
     CreatedGatewayKey:
       type: object
       required: [key, secret]
@@ -5925,6 +6269,13 @@ components:
           type: boolean
           description: The provider reported no usage; the counts are the sizes divided by four.
         duration_ms: { type: integer, format: int64 }
+        audio_seconds:
+          type: number
+          description: The seconds of the recording an audio transcription heard; absent for other requests.
+        characters:
+          type: integer
+          format: int64
+          description: The characters an audio speech request spoke; absent for other requests.
     GatewayRequestList:
       type: object
       required: [data, has_more]

@@ -81,6 +81,9 @@ type Server struct {
 	// images makes images and imageSettings are the Images page's (issue #431); nil when the control plane wired none.
 	images        Images
 	imageSettings ImageSettings
+	// audio hears and makes speech, audioSettings is the Audio page (issue #694); nil when the control plane wired none.
+	audio         Audio
+	audioSettings AudioSettings
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
 	now    func() time.Time
@@ -324,6 +327,10 @@ func bodyLimit(r *http.Request) int64 {
 
 	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/images/generations" {
 		return modelgateway.MaxImageRequestBytes
+	}
+
+	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/audio/transcriptions" {
+		return maxTranscribeBody
 	}
 
 	return maxBodyBytes

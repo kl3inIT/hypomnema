@@ -558,6 +558,218 @@ export type WebSearchError = {
   message: string;
 };
 
+export type AudioProvider = 'soniox' | 'elevenlabs';
+
+/**
+ * stt is speech-to-text, tts text-to-speech.
+ */
+export type AudioKind = 'stt' | 'tts';
+
+export type Audio = {
+  /**
+   * The audio providers, each with its switch and keys.
+   */
+  providers: Array<AudioProviderLink>;
+  /**
+   * The providers in the order speech-to-text asks them.
+   */
+  stt: Array<AudioKindLink>;
+  /**
+   * The providers in the order text-to-speech asks them.
+   */
+  tts: Array<AudioKindLink>;
+};
+
+export type AudioProviderLink = {
+  provider: AudioProvider;
+  /**
+   * The owner's switch for the provider, for both kinds.
+   */
+  on: boolean;
+  /**
+   * ready: it is asked in its turn. resting: each of its keys rests until `resting_until`, for `rest`. not_set_up: no key in the vault. off: the owner switched it off.
+   */
+  state: 'ready' | 'resting' | 'not_set_up' | 'off';
+  resting_until?: string;
+  rest?: WebSearchRest;
+  /**
+   * Its keys, in the order a request asks them now.
+   */
+  keys: Array<AudioKey>;
+};
+
+export type AudioKey = {
+  /**
+   * The vault secret that holds the key.
+   */
+  name: string;
+  state: 'ready' | 'resting';
+  resting_until?: string;
+  rest?: WebSearchRest;
+  last_used_at?: string;
+};
+
+export type AudioKindLink = {
+  provider: AudioProvider;
+  /**
+   * The owner's switch for the provider.
+   */
+  on: boolean;
+  /**
+   * The one model it is asked with for this kind, as usage rows name it (audio/<model>).
+   */
+  model: string;
+  usage: AudioUsage;
+};
+
+/**
+ * This control plane's requests, by UTC day and month.
+ */
+export type AudioUsage = {
+  today: AudioTally;
+  month: AudioTally;
+};
+
+export type AudioTally = {
+  answered: number;
+  failed: number;
+  /**
+   * The seconds of recordings transcribed.
+   */
+  seconds: number;
+  /**
+   * The characters spoken.
+   */
+  characters: number;
+};
+
+export type AudioProviderChange = {
+  on: boolean;
+};
+
+export type AudioNewKey = {
+  key: string;
+};
+
+export type AudioKeyAdded = {
+  /**
+   * The vault secret the key is kept under.
+   */
+  name: string;
+  audio: Audio;
+};
+
+export type AudioOrder = {
+  providers: [
+    AudioProvider,
+    AudioProvider
+  ];
+};
+
+export type TranscribeRequest = {
+  /**
+   * The recording's bytes, base64; at most 128 MiB.
+   */
+  audio: string;
+  /**
+   * The recording's file name, such as call.mp3.
+   */
+  file_name?: string;
+  /**
+   * Read from the bytes when left out.
+   */
+  mime_type?: string;
+  /**
+   * An ISO-639-1 hint, such as vi; left out, found.
+   */
+  language?: string;
+  /**
+   * Tell who spoke when.
+   */
+  speakers?: boolean;
+  provider?: AudioProvider;
+};
+
+export type AudioTranscript = {
+  provider: AudioProvider;
+  model: string;
+  text: string;
+  language?: string;
+  /**
+   * The recording's length in seconds.
+   */
+  duration: number;
+  /**
+   * One speaker's words a segment, cut at a speaker change, a pause over 800 ms or 400 characters.
+   */
+  segments: Array<TranscriptSegment>;
+  words: Array<TranscriptWord>;
+  /**
+   * The providers asked before the one that answered, and why each did not.
+   */
+  errors?: Array<WebSearchError>;
+};
+
+export type TranscriptSegment = {
+  /**
+   * Seconds from the start.
+   */
+  start: number;
+  end: number;
+  text: string;
+  /**
+   * The provider's label for who said it; absent unless speakers were asked.
+   */
+  speaker?: string;
+};
+
+export type TranscriptWord = {
+  word: string;
+  start: number;
+  end: number;
+  speaker?: string;
+};
+
+export type SpeakRequest = {
+  input: string;
+  /**
+   * A voice of the provider (the gateway's GET /v1/audio/voices) or one of OpenAI's names; left out, each provider's default.
+   */
+  voice?: string;
+  /**
+   * mp3 when left out.
+   */
+  format?: 'mp3' | 'wav' | 'pcm' | 'opus';
+  /**
+   * ElevenLabs's voice speed.
+   */
+  speed?: number;
+  /**
+   * The text's language for Soniox; en when left out.
+   */
+  language?: string;
+  provider?: AudioProvider;
+};
+
+export type AudioSpeech = {
+  provider: AudioProvider;
+  model: string;
+  format: string;
+  mime_type: string;
+  /**
+   * The speech's bytes, base64.
+   */
+  audio: string;
+  /**
+   * The characters spoken.
+   */
+  characters: number;
+  /**
+   * The providers asked before the one that answered, and why each did not.
+   */
+  errors?: Array<WebSearchError>;
+};
+
 export type ImageProvider = 'codex' | 'antigravity';
 
 export type Images = {
@@ -1776,9 +1988,9 @@ export type NewGatewayKey = {
 };
 
 /**
- * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits.
+ * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
  */
-export type GatewayEndpoint = 'search' | 'fetch' | 'images';
+export type GatewayEndpoint = 'search' | 'fetch' | 'images' | 'audio';
 
 export type CreatedGatewayKey = {
   key: GatewayKey;
@@ -1901,6 +2113,14 @@ export type GatewayRequest = {
    */
   estimated: boolean;
   duration_ms: number;
+  /**
+   * The seconds of the recording an audio transcription heard; absent for other requests.
+   */
+  audio_seconds?: number;
+  /**
+   * The characters an audio speech request spoke; absent for other requests.
+   */
+  characters?: number;
 };
 
 export type GatewayRequestList = {
@@ -6487,6 +6707,143 @@ export type SetImageOrderResponses = {
 
 export type SetImageOrderResponse = SetImageOrderResponses[keyof SetImageOrderResponses];
 
+export type GetAudioData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/audio';
+};
+
+export type GetAudioErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetAudioError = GetAudioErrors[keyof GetAudioErrors];
+
+export type GetAudioResponses = {
+  /**
+   * The providers.
+   */
+  200: Audio;
+};
+
+export type GetAudioResponse = GetAudioResponses[keyof GetAudioResponses];
+
+export type SetAudioProviderData = {
+  body: AudioProviderChange;
+  path: {
+    provider: AudioProvider;
+  };
+  query?: never;
+  url: '/gateway/audio/providers/{provider}';
+};
+
+export type SetAudioProviderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetAudioProviderError = SetAudioProviderErrors[keyof SetAudioProviderErrors];
+
+export type SetAudioProviderResponses = {
+  /**
+   * The providers after the change.
+   */
+  200: Audio;
+};
+
+export type SetAudioProviderResponse = SetAudioProviderResponses[keyof SetAudioProviderResponses];
+
+export type AddAudioKeyData = {
+  body: AudioNewKey;
+  path: {
+    provider: AudioProvider;
+  };
+  query?: never;
+  url: '/gateway/audio/providers/{provider}/keys';
+};
+
+export type AddAudioKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AddAudioKeyError = AddAudioKeyErrors[keyof AddAudioKeyErrors];
+
+export type AddAudioKeyResponses = {
+  /**
+   * The name the key is kept under, and the providers with it.
+   */
+  201: AudioKeyAdded;
+};
+
+export type AddAudioKeyResponse = AddAudioKeyResponses[keyof AddAudioKeyResponses];
+
+export type RemoveAudioKeyData = {
+  body?: never;
+  path: {
+    provider: AudioProvider;
+    /**
+     * The key's secret name, such as speech-soniox-2.
+     */
+    name: string;
+  };
+  query?: never;
+  url: '/gateway/audio/providers/{provider}/keys/{name}';
+};
+
+export type RemoveAudioKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RemoveAudioKeyError = RemoveAudioKeyErrors[keyof RemoveAudioKeyErrors];
+
+export type RemoveAudioKeyResponses = {
+  /**
+   * The providers without the key.
+   */
+  200: Audio;
+};
+
+export type RemoveAudioKeyResponse = RemoveAudioKeyResponses[keyof RemoveAudioKeyResponses];
+
+export type SetAudioOrderData = {
+  body: AudioOrder;
+  path: {
+    kind: AudioKind;
+  };
+  query?: never;
+  url: '/gateway/audio/order/{kind}';
+};
+
+export type SetAudioOrderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetAudioOrderError = SetAudioOrderErrors[keyof SetAudioOrderErrors];
+
+export type SetAudioOrderResponses = {
+  /**
+   * The providers in their new order.
+   */
+  200: Audio;
+};
+
+export type SetAudioOrderResponse = SetAudioOrderResponses[keyof SetAudioOrderResponses];
+
 export type ListBotsData = {
   body?: never;
   path?: never;
@@ -8258,6 +8615,56 @@ export type GenerateImagesResponses = {
 };
 
 export type GenerateImagesResponse = GenerateImagesResponses[keyof GenerateImagesResponses];
+
+export type TranscribeAudioData = {
+  body: TranscribeRequest;
+  path?: never;
+  query?: never;
+  url: '/audio/transcriptions';
+};
+
+export type TranscribeAudioErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type TranscribeAudioError = TranscribeAudioErrors[keyof TranscribeAudioErrors];
+
+export type TranscribeAudioResponses = {
+  /**
+   * The transcript.
+   */
+  200: AudioTranscript;
+};
+
+export type TranscribeAudioResponse = TranscribeAudioResponses[keyof TranscribeAudioResponses];
+
+export type SpeakAudioData = {
+  body: SpeakRequest;
+  path?: never;
+  query?: never;
+  url: '/audio/speech';
+};
+
+export type SpeakAudioErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SpeakAudioError = SpeakAudioErrors[keyof SpeakAudioErrors];
+
+export type SpeakAudioResponses = {
+  /**
+   * The speech.
+   */
+  200: AudioSpeech;
+};
+
+export type SpeakAudioResponse = SpeakAudioResponses[keyof SpeakAudioResponses];
 
 export type ListChatsData = {
   body?: never;

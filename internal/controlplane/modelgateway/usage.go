@@ -70,8 +70,12 @@ type Usage struct {
 	CostMicros  *int64
 	PricedModel string
 	Tokens      Tokens
-	Duration    time.Duration
-	CreatedAt   time.Time
+	// Audio is the length of the recording a transcription heard, and
+	// Characters what speech spoke (issue #694); zero for every other request.
+	Audio      time.Duration
+	Characters int64
+	Duration   time.Duration
+	CreatedAt  time.Time
 }
 
 func flag(b bool) int64 {
@@ -98,7 +102,8 @@ func (s *Service) recordUsage(ctx context.Context, u Usage) error {
 			ReasoningTokens: u.Tokens.Reasoning, Estimated: flag(u.Tokens.Estimated),
 			DurationMs: u.Duration.Milliseconds(), AccountID: u.AccountID, Error: clip(u.Error, maxErrorText),
 			CacheWriteTokens: u.Tokens.CacheWrite, CacheWrite1hTokens: u.Tokens.CacheWrite1h,
-			CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, Now: now,
+			CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, AudioMs: u.Audio.Milliseconds(),
+			Characters: u.Characters, Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording usage: %w", err)
 		}
@@ -138,8 +143,10 @@ func usageOf(r store.ListGatewayUsageRow) Usage {
 			CacheWrite: r.CacheWriteTokens, CacheWrite1h: r.CacheWrite1hTokens, Reasoning: r.ReasoningTokens,
 			Estimated: r.Estimated == 1,
 		},
-		Duration:  time.Duration(r.DurationMs) * time.Millisecond,
-		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
+		Audio:      time.Duration(r.AudioMs) * time.Millisecond,
+		Characters: r.Characters,
+		Duration:   time.Duration(r.DurationMs) * time.Millisecond,
+		CreatedAt:  time.UnixMilli(r.CreatedAt).UTC(),
 	}
 }
 

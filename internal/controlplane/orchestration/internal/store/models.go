@@ -364,6 +364,14 @@ type Event struct {
 	CreatedAt  int64
 }
 
+type GatewayAudioProvider struct {
+	Provider    string
+	Off         int64
+	SttPosition sql.NullInt64
+	TtsPosition sql.NullInt64
+	UpdatedAt   int64
+}
+
 type GatewayImageProvider struct {
 	Provider  string
 	Off       int64
@@ -439,6 +447,8 @@ type GatewayUsage struct {
 	CostMicros         sql.NullInt64
 	PricedModel        string
 	CacheWrite1hTokens int64
+	AudioMs            int64
+	Characters         int64
 }
 
 type GitHost struct {
