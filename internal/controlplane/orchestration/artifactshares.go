@@ -19,7 +19,7 @@ import (
 // signing in, until the owner revokes it. A link is a row with a random token, as open-webui's shared_chat,
 // LibreChat's SharedLink and Grafana's public dashboard are; it names the artifact, not a revision, so it follows
 // the newest as OpenMausBot's published pages and Claude's do. Revoking deletes the row (open-webui, LibreChat), and
-// deleting the artifact with its chat deletes its links (ON DELETE CASCADE, migration 00105).
+// deleting the artifact with its chat deletes its links (ON DELETE CASCADE, migration 00106).
 
 // ArtifactShareIDPrefix starts every link's id.
 const ArtifactShareIDPrefix = "shr"

@@ -788,7 +788,7 @@ sequenceDiagram
   - View-only links (issue #745, `clientapi/artifactshares.go`, `orchestration/artifactshares.go`): the owner
     sends an artifact to someone with no account; the link always shows the newest revision (it names the
     artifact, not a revision, as OpenMausBot's published pages and Claude's do) until he revokes it. A link is a row
-    of `artifact_shares` (migration 105: artifact, token, label, created, views, last viewed), as open-webui's
+    of `artifact_shares` (migration 106: artifact, token, label, created, views, last viewed), as open-webui's
     `shared_chat`, LibreChat's `SharedLink` and Grafana's public dashboards are; several to one artifact, each
     labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32 random bytes
     in base64url, kept as it is so the link can be copied again (open-webui, LibreChat, Grafana; it shows one

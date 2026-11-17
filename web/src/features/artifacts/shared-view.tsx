@@ -1,12 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
+import { Download } from "lucide-react"
 import { useEffect } from "react"
 
 import { getShareOptions, getShareQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import type { SharedArtifact } from "@/api/generated/types.gen"
+import { buttonVariants } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { problemOf } from "@/lib/server-error"
 import { since } from "@/lib/time"
+import { DownloadView } from "@/features/preview/download-view"
 import { FileView, type PreviewReader } from "@/features/preview/preview-loader"
+import { previewKind } from "@/features/preview/preview-kind"
 
 import { ArtifactIcon } from "./artifact-icon"
 import { frameSandbox } from "./frame"
@@ -51,6 +55,17 @@ export function SharedArtifactView({ token }: { token: string }) {
             <p className="truncate text-xs text-muted-foreground">Updated {since(a.updated_at)}</p>
           )}
         </div>
+        {a && a.type !== "html" && (
+          // A drawn PDF or image can be saved too, and one that fails to draw says to download it.
+          <a
+            href={`${a.files}${encodeURIComponent(a.entry)}`}
+            download={a.entry}
+            aria-label={`Download ${a.entry}`}
+            className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+          >
+            <Download />
+          </a>
+        )}
       </header>
       <div className="flex min-h-0 flex-1 flex-col bg-background">
         {gone ? (
@@ -82,6 +97,18 @@ function Shown({ token, artifact }: { token: string; artifact: SharedArtifact })
         src={src}
         style={{ colorScheme: "light", background: "white" }}
         className="min-h-0 w-full flex-1 border-0"
+      />
+    )
+  }
+
+  // Only a PDF and an image are drawn here, as in the app; any other file is the download (issue #745).
+  const kind = previewKind(artifact.entry, artifact.media_type)
+  if (kind !== "pdf" && kind !== "image" && kind !== "svg") {
+    return (
+      <DownloadView
+        href={src}
+        filename={artifact.entry}
+        message="This file is not shown here. Download it to open it in an app that reads it."
       />
     )
   }

@@ -8116,7 +8116,7 @@ components:
         label:
           type: string
           minLength: 1
-          maxLength: 400
+          maxLength: 80
           description: Whom the link is for, one line of at most 80 characters, such as "Laura".
     ArtifactShare:
       type: object

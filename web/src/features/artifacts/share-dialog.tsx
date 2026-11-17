@@ -44,6 +44,8 @@ export function ShareDialog({
   const queryClient = useQueryClient()
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: listArtifactSharesQueryKey(options) })
+  // uncopied is the new link that could not be copied: its row shows it to select.
+  const [uncopied, setUncopied] = useState<string>()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -57,7 +59,14 @@ export function ShareDialog({
         </DialogHeader>
         <DialogPanel>
           <div className="flex flex-col gap-4">
-            <NewLink artifactId={artifactId} onMade={refresh} />
+            <NewLink
+              artifactId={artifactId}
+              onMade={(share, copied) => {
+                setUncopied(copied ? undefined : share.id)
+
+                return refresh()
+              }}
+            />
             {shares.isPending && (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner /> Loading…
@@ -70,7 +79,12 @@ export function ShareDialog({
             {shares.data && shares.data.data.length > 0 && (
               <ul aria-label="Links" className="flex flex-col divide-y rounded-xl border">
                 {shares.data.data.map((share) => (
-                  <ShareRow key={share.id} share={share} onRevoked={refresh} />
+                  <ShareRow
+                    key={share.id}
+                    share={share}
+                    uncopied={share.id === uncopied}
+                    onRevoked={refresh}
+                  />
                 ))}
               </ul>
             )}
@@ -84,24 +98,34 @@ export function ShareDialog({
 // shareURL is a link as it is sent: this page's own origin and the link's path.
 const shareURL = (share: ArtifactShare) => `${window.location.origin}${share.path}`
 
+// copyLink copies a link and says whether it could: without a clipboard (an insecure page) the row shows the link
+// to select instead.
 async function copyLink(share: ArtifactShare) {
   try {
     await navigator.clipboard.writeText(shareURL(share))
     said(`The link for ${share.label} was copied`)
+
+    return true
   } catch {
-    // No clipboard (an insecure page): the link stays selectable in its field.
+    return false
   }
 }
 
-function NewLink({ artifactId, onMade }: { artifactId: string; onMade: () => Promise<unknown> }) {
+function NewLink({
+  artifactId,
+  onMade,
+}: {
+  artifactId: string
+  // onMade is told the new link and whether it was copied.
+  onMade: (share: ArtifactShare, copied: boolean) => Promise<unknown>
+}) {
   const id = useId()
   const [label, setLabel] = useState("")
   const create = useMutation({
     ...createArtifactShareMutation(),
     onSuccess: async (share) => {
       setLabel("")
-      await onMade()
-      await copyLink(share)
+      await onMade(share, await copyLink(share))
     },
   })
 
@@ -142,47 +166,65 @@ function NewLink({ artifactId, onMade }: { artifactId: string; onMade: () => Pro
 
 function ShareRow({
   share,
+  uncopied = false,
   onRevoked,
 }: {
   share: ArtifactShare
+  // uncopied is a new link that could not be copied.
+  uncopied?: boolean
   onRevoked: () => Promise<unknown>
 }) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<boolean | undefined>(uncopied ? false : undefined)
 
   return (
-    <li aria-label={share.label} className="flex items-center gap-2 px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{share.label}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          Made {since(share.created_at)} · {share.views === 1 ? "1 view" : `${share.views} views`}
-          {share.last_viewed_at ? ` · last viewed ${since(share.last_viewed_at)}` : ""}
-        </p>
+    <li aria-label={share.label} className="flex flex-col gap-2 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{share.label}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            Made {since(share.created_at)} · {share.views === 1 ? "1 view" : `${share.views} views`}
+            {share.last_viewed_at ? ` · last viewed ${since(share.last_viewed_at)}` : ""}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Copy the link for ${share.label}`}
+          onClick={() => void copyLink(share).then(setCopied)}
+        >
+          {copied ? <Check /> : <Copy />}
+        </Button>
+        <ConfirmDialog
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Revoke the link for ${share.label}`}
+            >
+              <Trash2 />
+            </Button>
+          }
+          title={`Revoke the link for ${share.label}?`}
+          consequence="The link stops working at once, also on a page that is open. This cannot be undone."
+          action="Revoke link"
+          run={() => deleteArtifactShare({ path: { share_id: share.id } })}
+          onDone={onRevoked}
+          done={`The link for ${share.label} was revoked`}
+        />
       </div>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Copy the link for ${share.label}`}
-        onClick={() =>
-          void copyLink(share).then(() => {
-            setCopied(true)
-          })
-        }
-      >
-        {copied ? <Check /> : <Copy />}
-      </Button>
-      <ConfirmDialog
-        trigger={
-          <Button variant="ghost" size="icon-sm" aria-label={`Revoke the link for ${share.label}`}>
-            <Trash2 />
-          </Button>
-        }
-        title={`Revoke the link for ${share.label}?`}
-        consequence="The link stops working at once, also on a page that is open. This cannot be undone."
-        action="Revoke link"
-        run={() => deleteArtifactShare({ path: { share_id: share.id } })}
-        onDone={onRevoked}
-        done={`The link for ${share.label} was revoked`}
-      />
+      {copied === false && (
+        <Field>
+          <Input
+            readOnly
+            aria-label={`The link for ${share.label}`}
+            value={shareURL(share)}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <FieldDescription>
+            The link could not be copied here. Select it and copy it.
+          </FieldDescription>
+        </Field>
+      )}
     </li>
   )
 }
