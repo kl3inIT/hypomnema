@@ -116,7 +116,7 @@ export type Task = {
   not_before?: string;
   cancel_requested_at?: string;
   /**
-   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of bot_at_limit:<bot id> (the Bot's Runs already run as many workers as its limit; nothing after the colon for the owner's Runs without a Bot), nodes_full (every node that could run it runs as many as its own limit), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
 };
