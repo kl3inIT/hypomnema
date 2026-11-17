@@ -4,8 +4,9 @@ package zalo
 // without a file when the session connects, by a few workers: WhatsApp's media.go (#634, after wacli's media
 // backfill). Zalo's files are plain links on its CDN, read without the session's cookies as the Hermes Zalo plugin
 // reads them (sidecar/media-contract.js, downloadMediaStreamed), and they expire, as zaloclaw notes
-// (channel/monitor.ts): so they are taken at once. A file over 100 MiB is not downloaded (WhatsApp's and wacli's
-// cap). The files live beside zalo.db, private as it is.
+// (channel/monitor.ts): so they are taken at once. An image over 20 MiB and another file over 50 MiB is not
+// downloaded, as zaloclaw caps them (channel/image-downloader.ts, file-downloader.ts; issue #743). The files live
+// beside zalo.db, private as it is.
 
 import (
 	"context"
@@ -29,13 +30,29 @@ import (
 )
 
 const (
-	maxMediaBytes  = 100 << 20
+	// maxImageBytes and maxFileBytes cap an image's download and any other file's (zaloclaw).
+	maxImageBytes  = 20 << 20
+	maxFileBytes   = 50 << 20
 	mediaWorkers   = 4
 	mediaQueueSize = 1024
 	mediaTimeout   = 5 * time.Minute
 	// mediaBatch is how many kept messages without a file a connection queues.
 	mediaBatch = 500
 )
+
+// capOf is the most a file of a type is downloaded up to.
+func capOf(mediaType string) int64 {
+	if mediaType == "image" {
+		return maxImageBytes
+	}
+
+	return maxFileBytes
+}
+
+// tooLargeError is a file over its cap, said once and not tried again.
+type tooLargeError struct{ limit int64 }
+
+func (e tooLargeError) Error() string { return fmt.Sprintf("larger than %d MiB", e.limit>>20) }
 
 // errNoMessage is a message not kept, or one with no file.
 var errNoMessage = errors.New("zalo: no such message")
@@ -153,17 +170,21 @@ func (a *account) download(ctx context.Context, job mediaJob) (messaging.Media, 
 		return out, fmt.Errorf("%w: message %s has no file", errNoMessage, job.id)
 	}
 
-	if row.size > maxMediaBytes {
-		why := fmt.Sprintf("larger than %d MiB", maxMediaBytes>>20)
+	limit := capOf(row.mediaType)
+	if row.size > limit {
+		why := tooLargeError{limit: limit}.Error()
 		_ = a.svc.mirror.keptMedia(ctx, job.account, job.chat, job.id, "", why, "")
 
 		return out, fmt.Errorf("zalo: the file of message %s is %s", job.id, why)
 	}
 
-	data, contentType, err := a.svc.fetch(ctx, row.url)
+	data, contentType, err := a.svc.fetch(ctx, row.url, limit)
 	if err != nil {
-		var gone goneError
-		if errors.As(err, &gone) {
+		var (
+			gone  goneError
+			large tooLargeError
+		)
+		if errors.As(err, &gone) || errors.As(err, &large) {
 			// Zalo no longer serves it: said once, not tried again.
 			_ = a.svc.mirror.keptMedia(ctx, job.account, job.chat, job.id, "", err.Error(), "")
 		}
@@ -200,8 +221,8 @@ type goneError struct{ status int }
 
 func (e goneError) Error() string { return fmt.Sprintf("Zalo no longer has it (HTTP %d)", e.status) }
 
-// fetch reads a file of Zalo's CDN, at most maxMediaBytes, and answers its type.
-func (s *Service) fetch(ctx context.Context, url string) ([]byte, string, error) {
+// fetch reads a file of Zalo's CDN, at most limit bytes, and answers its type.
+func (s *Service) fetch(ctx context.Context, url string, limit int64) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err
@@ -225,13 +246,13 @@ func (s *Service) fetch(ctx context.Context, url string) ([]byte, string, error)
 		return nil, "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxMediaBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return nil, "", err
 	}
 
-	if len(data) > maxMediaBytes {
-		return nil, "", fmt.Errorf("larger than %d MiB", maxMediaBytes>>20)
+	if int64(len(data)) > limit {
+		return nil, "", tooLargeError{limit: limit}
 	}
 
 	return data, strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]), nil

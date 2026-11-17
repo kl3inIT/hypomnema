@@ -343,24 +343,115 @@ func (p *placement) accountUsable(runtime, id string) (usable, cooling bool) {
 	return err == nil, errors.Is(err, ErrCoolingDown)
 }
 
-// pickNode is the least loaded node that can take a new Conversation of the
-// runtime on the git host, ties by id (inferred: Coder does no balancing, Orca
-// takes the first free terminal; no reference places work by git host).
+// pickNode is the node with the most free capacity that can take a new
+// Conversation of the runtime on the git host (issue #731): it filters, then
+// scores, as Kubernetes filters with NodeResourcesFit before scoring
+// (helper/resource_fit.go:136-145) and Nomad ranks only Ready() nodes
+// (structs.go:2168-2170). A node low on memory is skipped (lowMemory). The
+// highest score wins (better); equal scores go to the node with more free slots
+// by count, as Jenkins Least Load takes the most idle executors
+// (LeastLoadBalancer.java:443-470), then to the smaller id, as Orca's relay
+// does (assignment-store.ts:8164), to keep placement reproducible.
 func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 	var best *nodeLoad
 
 	for _, n := range p.order {
-		if !p.nodeReady(n.row.ID, runtime, host) || !n.row.WorktreeRoot.Valid || n.row.WorktreeRoot.String == "" {
+		if !p.nodeReady(n.row.ID, runtime, host) || !n.row.WorktreeRoot.Valid || n.row.WorktreeRoot.String == "" ||
+			p.lowMemory(n) {
 			continue
 		}
 
-		if best == nil || n.active < best.active || (n.active == best.active && n.row.ID < best.row.ID) {
+		if best == nil || p.better(n, best) {
 			best = n
 		}
 	}
 
 	return best
 }
+
+// better reports whether node a goes before node b: a higher score, then more
+// free slots by count, then the smaller id.
+//
+// A node's score is its free capacity, 0 to 1: the mean of its free shares of
+// slots, CPU and memory. From Kubernetes LeastAllocated, each resource's
+// (capacity - requested) / capacity averaged with weights, CPU and memory
+// weight 1 (least_allocated.go:30-62, apis/config/v1/defaults.go:34-35), and
+// Nomad's spread over free CPU and memory shares (structs/funcs.go:234-250);
+// the slots share as Orca's relay loadRatio = load / capacity
+// (assignment-store.ts:8156-8165); measured CPU as Trimaran's
+// TargetLoadPacking reads it (targetloadpacking.go:131-144). The slot shares
+// are compared exactly, as fractions, so two nodes whose measured shares are
+// equal (none fresh, for one) are ordered by their slots alone.
+func (p *placement) better(a, b *nodeLoad) bool {
+	freeA, maxA := a.free(), a.row.MaxDispatches
+	freeB, maxB := b.free(), b.row.MaxDispatches
+
+	// The sum of the three shares orders as their mean does.
+	slots := float64(freeA*maxB-freeB*maxA) / float64(maxA*maxB)
+
+	if d := slots + p.measured(a) - p.measured(b); d != 0 {
+		return d > 0
+	}
+
+	if freeA != freeB {
+		return freeA > freeB
+	}
+
+	return a.row.ID < b.row.ID
+}
+
+// free is how many more Dispatches the node may run under its own limit.
+func (n *nodeLoad) free() int64 { return max(n.row.MaxDispatches-int64(n.active), 0) }
+
+// measured is the sum of a node's free CPU and memory shares, each 0 to 1. A
+// node without fresh stats, or that never said its memory, counts 0 for what
+// it lacks: it ranks below any node that reports room and is still used when
+// it is the only one, as Trimaran scores a node without metrics at the
+// minimum (targetloadpacking.go:107-117).
+func (p *placement) measured(n *nodeLoad) float64 {
+	if !p.freshStats(n) {
+		return 0
+	}
+
+	var sum float64
+
+	if n.row.CpuPercent.Valid {
+		sum += clamp01(1 - n.row.CpuPercent.Float64/100)
+	}
+
+	if total := n.row.MemoryBytes.Int64; n.row.MemoryBytes.Valid && total > 0 && n.row.MemoryUsedBytes.Valid {
+		sum += clamp01(1 - float64(n.row.MemoryUsedBytes.Int64)/float64(total))
+	}
+
+	return sum
+}
+
+// freshStats reports whether the node's last measurement is younger than
+// NodeOfflineAfter, three heartbeats.
+func (p *placement) freshStats(n *nodeLoad) bool {
+	return n.row.StatsAt.Valid && p.now-n.row.StatsAt.Int64 < NodeOfflineAfter.Milliseconds()
+}
+
+// lowMemory reports whether a node's fresh stats say it has less than
+// NodeMemoryFloor available: it takes no new Conversation, as a kubelet under
+// MemoryPressure is tainted NoSchedule for new pods only
+// (kubelet/eviction/defaults_linux.go:22-27, node_lifecycle_controller.go:95-96).
+// A Conversation that continues keeps its node. A node without fresh stats or
+// without its memory size is not refused.
+func (p *placement) lowMemory(n *nodeLoad) bool {
+	return p.freshStats(n) && n.row.MemoryBytes.Valid && n.row.MemoryBytes.Int64 > 0 &&
+		n.row.MemoryUsedBytes.Valid && n.row.MemoryBytes.Int64-n.row.MemoryUsedBytes.Int64 < NodeMemoryFloor
+}
+
+// anyLowMemory reports whether a node with a worktree root could take a new
+// Conversation of the runtime but for its memory.
+func (p *placement) anyLowMemory(runtime string, w where) bool {
+	return slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
+		return n.row.WorktreeRoot.String != "" && p.nodeReady(n.row.ID, runtime, w) && p.lowMemory(n)
+	})
+}
+
+func clamp01(x float64) float64 { return min(max(x, 0), 1) }
 
 // TokenRuntime is the runtime whose account can be a token the owner pastes:
 // Claude Code's `claude setup-token`, long-lived and with no refresh to share

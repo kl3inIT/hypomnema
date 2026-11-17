@@ -231,13 +231,20 @@ func (c *Codex) beginPaste() (*Attempt, error) {
 func CallbackCode(pasted, state string) (string, error) {
 	pasted = strings.TrimSpace(pasted)
 
+	// An address copied from the address bar may lack its scheme
+	// (localhost:1455/auth/callback?code=…); its query is what follows the
+	// first "?". A paste with neither a scheme nor a "?" is the query itself.
 	if !strings.Contains(pasted, "://") {
-		pasted = "http://localhost/?" + strings.TrimPrefix(pasted, "?")
+		if _, query, found := strings.Cut(pasted, "?"); found {
+			pasted = query
+		}
+
+		pasted = "http://localhost/?" + pasted
 	}
 
 	u, err := url.Parse(pasted)
 	if err != nil {
-		return "", errors.New("what was pasted is not an address")
+		return "", pasteError("what was pasted is not an address")
 	}
 
 	q := u.Query()
@@ -246,9 +253,9 @@ func CallbackCode(pasted, state string) (string, error) {
 	case q.Get("error") != "":
 		return "", fmt.Errorf("the vendor refused the login: %s", clip(q.Get("error")+" "+q.Get("error_description")))
 	case q.Get("code") == "":
-		return "", errors.New("the pasted address has no code; copy the whole address the browser ended on")
+		return "", pasteError("the pasted address has no code; copy the whole address the browser ended on")
 	case q.Get("state") != state:
-		return "", errors.New("the pasted address belongs to another login; start again and use the new link")
+		return "", pasteError("the pasted address belongs to another login; start again and use the new link")
 	}
 
 	return q.Get("code"), nil

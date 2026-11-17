@@ -121,16 +121,17 @@ func (c *Claude) Begin(context.Context) (*Attempt, error) {
 func claudeCode(pasted, state string) (string, error) {
 	pasted = strings.TrimSpace(pasted)
 
-	if strings.Contains(pasted, "://") {
+	// A callback address, with or without its scheme, is read as Codex's is.
+	if strings.Contains(pasted, "://") || strings.Contains(pasted, "code=") {
 		return CallbackCode(pasted, state)
 	}
 
 	code, gotState, found := strings.Cut(pasted, "#")
 	switch {
 	case code == "":
-		return "", errors.New("the paste has no code; copy the whole value the page showed")
+		return "", pasteError("the paste has no code; copy the whole value the page showed")
 	case found && gotState != state:
-		return "", errors.New("the paste belongs to another login; start again and use the new link")
+		return "", pasteError("the paste belongs to another login; start again and use the new link")
 	}
 
 	return code, nil

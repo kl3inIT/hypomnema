@@ -28,6 +28,9 @@ var contentSecurityPolicy = strings.Join([]string{
 	"frame-ancestors 'none'",
 }, "; ")
 
+// sharedPage starts the path of a view-only link's page, /s/<token>.
+const sharedPage = "/s/"
+
 // reserved are the server's own paths: an unknown path under them is a 404,
 // never the client.
 var reserved = []string{"api", "node", "livez", "readyz"}
@@ -48,6 +51,15 @@ const compressionLevel = 5
 // other than SVG are compressed already.
 var compressed = []string{
 	"text/html", "text/css", "text/javascript", "application/javascript", "application/json", "image/svg+xml",
+	"application/manifest+json",
+}
+
+// contentTypes are the build's types Go's mime package may not know: it reads
+// them from the host's mime database, which a slim image lacks, and has no
+// built-in type for .webmanifest (issue #728). The type is OpenClaw's
+// (src/gateway/control-ui-static.ts).
+var contentTypes = map[string]string{
+	".webmanifest": "application/manifest+json; charset=utf-8",
 }
 
 // Handler serves assets. A file is served as it is, with a year's cache under
@@ -81,6 +93,10 @@ func serve(assets fs.FS) http.Handler {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
 
+			if contentType, ok := contentTypes[path.Ext(name)]; ok {
+				w.Header().Set("Content-Type", contentType)
+			}
+
 			files.ServeHTTP(w, r)
 		case name == "assets" || strings.HasPrefix(name, "assets/") || path.Ext(name) != "":
 			http.NotFound(w, r)
@@ -103,6 +119,13 @@ func serveIndex(w http.ResponseWriter, r *http.Request, assets fs.FS) {
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Content-Security-Policy", contentSecurityPolicy)
+
+	// A view-only link's page (issue #745) is opened without signing in by whoever has the link: it is never
+	// indexed (LibreChat's X-Robots-Tag) nor kept (LibreChat's no-store), as the client API's answers for it.
+	if strings.HasPrefix(path.Clean(r.URL.Path), sharedPage) {
+		h.Set("X-Robots-Tag", "noindex, nofollow")
+		h.Set("Cache-Control", "private, no-store")
+	}
 
 	if r.Method == http.MethodHead {
 		return

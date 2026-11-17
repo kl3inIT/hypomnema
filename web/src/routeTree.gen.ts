@@ -24,6 +24,7 @@ import { Route as BotsIdRouteImport } from './routes/bots.$id'
 import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as MeetingsMeetingIdRouteImport } from './routes/meetings_.$meetingId'
+import { Route as STokenRouteImport } from './routes/s.$token'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
 import { Route as SettingsAudioRouteImport } from './routes/settings.audio'
@@ -114,6 +115,11 @@ const ChatsChatIdRoute = ChatsChatIdRouteImport.update({
 const MeetingsMeetingIdRoute = MeetingsMeetingIdRouteImport.update({
   id: '/meetings_/$meetingId',
   path: '/meetings/$meetingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const STokenRoute = STokenRouteImport.update({
+  id: '/s/$token',
+  path: '/s/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
@@ -211,6 +217,7 @@ export interface FileRoutesByFullPath {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
+  '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
@@ -244,6 +251,7 @@ export interface FileRoutesByTo {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
+  '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
@@ -278,6 +286,7 @@ export interface FileRoutesById {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings_/$meetingId': typeof MeetingsMeetingIdRoute
+  '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
@@ -313,6 +322,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings/$meetingId'
+    | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
@@ -346,6 +356,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings/$meetingId'
+    | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
@@ -379,6 +390,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings_/$meetingId'
+    | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
@@ -413,6 +425,7 @@ export interface RootRouteChildren {
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   MeetingsMeetingIdRoute: typeof MeetingsMeetingIdRoute
+  STokenRoute: typeof STokenRoute
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
   SettingsAudioRoute: typeof SettingsAudioRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
@@ -538,6 +551,13 @@ declare module '@tanstack/react-router' {
       path: '/meetings/$meetingId'
       fullPath: '/meetings/$meetingId'
       preLoaderRoute: typeof MeetingsMeetingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$token': {
+      id: '/s/$token'
+      path: '/s/$token'
+      fullPath: '/s/$token'
+      preLoaderRoute: typeof STokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/': {
@@ -669,6 +689,7 @@ const rootRouteChildren: RootRouteChildren = {
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   MeetingsMeetingIdRoute: MeetingsMeetingIdRoute,
+  STokenRoute: STokenRoute,
   SettingsAboutYouRoute: SettingsAboutYouRoute,
   SettingsAudioRoute: SettingsAudioRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,

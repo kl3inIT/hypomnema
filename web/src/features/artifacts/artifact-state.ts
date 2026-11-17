@@ -29,7 +29,7 @@ export function revisionOf(a: Artifact, rev?: number): ArtifactRevision | undefi
 
 // useArtifactFile is a file of a revision as bytes, the file shown when path is absent. A revision never changes,
 // so what was read is kept. The bytes are read as a blob whatever the file's type, which the key does not name.
-export function useArtifactFile(id: string, rev: number, path?: string, enabled = true) {
+function useArtifactFile(id: string, rev: number, path?: string, enabled = true) {
   return useQuery({
     ...readArtifactFileOptions({
       path: { artifact_id: id, revision: rev },
@@ -54,15 +54,26 @@ export function usePageText(id: string, rev: number) {
   })
 }
 
-// useFrameFiles is the absolute address a folder page's files load from: an hour after its last use it lapses,
-// so it is asked again after half that.
-export function useFrameFiles(id: string, rev: number, enabled: boolean) {
+// useFrameFiles is the absolute address a revision's files load from in its frame: an hour after its last use it
+// lapses, so it is asked again after half that.
+function useFrameFiles(id: string, rev: number, enabled: boolean) {
   return useQuery({
     ...openArtifactFrameOptions({ path: { artifact_id: id, revision: rev } }),
     select: ({ url }) => new URL(url, window.location.origin).href,
     enabled,
     staleTime: 30 * 60_000,
   })
+}
+
+// useFramePage is the address a page is loaded from in its frame (issue #737): the file shown, under its frame's
+// address, beside the files it loads by relative paths.
+export function useFramePage(id: string, revision: ArtifactRevision) {
+  const files = useFrameFiles(id, revision.revision, true)
+
+  return {
+    src: files.data && `${files.data}${encodeURIComponent(revision.entry)}`,
+    error: files.error,
+  }
 }
 
 // downloadURL is where a revision is downloaded from: its one file, or a folder as a zip. The server sends it as an

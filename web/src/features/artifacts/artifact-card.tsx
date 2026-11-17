@@ -16,11 +16,10 @@ import {
   revisionOf,
   typeLabel,
   useArtifact,
-  useArtifactFile,
+  useFramePage,
   useImageSource,
-  useFrameFiles,
 } from "./artifact-state"
-import { frameDocument, frameSandbox } from "./frame-document"
+import { frameSandbox } from "./frame"
 import { useOpenArtifact } from "./open-artifact-context"
 
 // ArtifactCard is an artifact in the chat (issue #402, row 4): a compact card with a small live thumbnail of a page
@@ -103,23 +102,9 @@ const pageHeight = 853
 const thumbScale = 96 / pageWidth
 
 function PageThumbnail({ id, revision }: { id: string; revision: ArtifactRevision }) {
-  const file = useArtifactFile(id, revision.revision)
-  const folder = revision.files.length > 1
-  const files = useFrameFiles(id, revision.revision, folder)
-  const [text, setText] = useState<string>()
+  const page = useFramePage(id, revision)
 
-  useEffect(() => {
-    let live = true
-    void file.data?.text().then((t) => live && setText(t))
-
-    return () => {
-      live = false
-    }
-  }, [file.data])
-
-  if (text === undefined || (folder && !files.data)) {
-    return <ArtifactIcon type="html" className="size-6 text-muted-foreground" />
-  }
+  if (!page.src) return <ArtifactIcon type="html" className="size-6 text-muted-foreground" />
 
   return (
     <iframe
@@ -129,7 +114,7 @@ function PageThumbnail({ id, revision }: { id: string; revision: ArtifactRevisio
       sandbox={frameSandbox}
       referrerPolicy="no-referrer"
       loading="lazy"
-      srcDoc={frameDocument(text, folder ? files.data : undefined)}
+      src={page.src}
       style={{
         width: pageWidth,
         height: pageHeight,
