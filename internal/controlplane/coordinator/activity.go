@@ -91,7 +91,7 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 		}
 	case "agent_start":
 		p.setWorking(true)
-		p.s.turnStarted(ctx, p.chatID)
+		p.s.turnStarted(ctx, p)
 	case "agent_settled":
 		// A stopped turn whose end said neither error nor aborted is said stopped here.
 		if p.stopping() {
@@ -102,7 +102,7 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 
 		p.stopSettled()
 		p.setWorking(false)
-		p.s.turnSettled(ctx, p.chatID)
+		p.s.turnSettled(ctx, p)
 		p.s.settled()
 	case "turn_end":
 		p.refreshUsage(ctx)

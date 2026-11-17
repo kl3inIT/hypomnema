@@ -137,16 +137,23 @@ row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, a
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
 `agent_settled`, where the mark clears. A turn that a restart cuts continues by itself (issue #716, after Hermes's
 interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continue.py`): pi's `agent_start` marks the
-chat in the store (`chats.turn_started_at`, `turn_attempts`, migration 104) and `agent_settled` clears the mark, as
-does a pi that exits while the control plane runs; a pi the control plane stops keeps it. As the supervisor starts,
-a chat whose mark is at most 15 minutes old and was continued fewer than 2 times gets the line "Restarted for an
-update; continuing." (a kind-less system row given to pi, which pi reads as "the control plane restarted for an
-update and cut your previous turn … check the current state before redoing anything, then finish the task"), one
-attempt more and its mark from now; any other mark is cleared with the line "A restart cut this turn; send a message
-to continue.", not given to pi. The partial transcript stays as kept. A start that finds marks is recorded
-(`restart_boots`); when it is the third of starts no more than 5 minutes apart (Hermes's restart-loop guard,
-`gateway/restart_loop_guard.py`), nothing is continued and the marks stay. The supervisor lists the chats whose pi
-works on a turn (`WorkingChats`), which the control socket gives `hypomnema update`. An owner message may carry files (issue #343): each is kept on the
+chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 104) and
+`agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
+with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
+clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
+and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
+`continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
+check the current state before redoing anything, then finish the task"; it is no turn input of its own, so a turn
+that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
+with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
+line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
+for the chat or holds the cut turns. The partial transcript stays as kept; both lines reach a Channel's chat as a
+message of their own. A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
+more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_guard.py`), nothing is continued, the
+marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
+turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
+(`selfupdate.Updating`, below) it starts no pi and gives an idle pi no new turn (compactions included); a running
+turn goes on, and what is written waits for the update to end. An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
@@ -710,7 +717,8 @@ sequenceDiagram
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
+  owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
+  (a restart cut the turn and it continues, or not; issue #716, migration 104); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -3278,7 +3286,12 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
     TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
     `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
-    still running at the bound is cut, and continues when the control plane starts again (above).
+    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    that wait until the release's coordinator is set up, `update install` names its process (pid and start time
+    from `/proc`) in `data/updating`, which it removes when it returns, as Hermes's updater holds a live update
+    marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
+    starts no pi, so none starts while the old control plane stops nor in the new one before
+    `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
   - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
     binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
     migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for

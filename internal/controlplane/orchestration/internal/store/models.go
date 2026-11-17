@@ -211,6 +211,7 @@ type Chat struct {
 	ContextWindow  sql.NullInt64
 	ContextPercent sql.NullFloat64
 	TurnStartedAt  sql.NullInt64
+	TurnToken      sql.NullString
 	TurnAttempts   int64
 }
 
@@ -225,10 +226,10 @@ type ChatMessage struct {
 	CreatedAt     int64
 	ToCoordinator int64
 	Attachments   sql.NullString
-	Kind          string
 	ApprovalID    sql.NullString
 	SenderID      sql.NullString
 	SenderName    sql.NullString
+	Kind          string
 }
 
 type ChatQueue struct {

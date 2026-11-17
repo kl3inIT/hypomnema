@@ -177,8 +177,18 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const clearChatTurn = `-- name: ClearChatTurn :exec
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0 WHERE id = ?1
+`
+
+// The chat's cut turn is not continued: no mark, no attempts, whoever marked it.
+func (q *Queries) ClearChatTurn(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, clearChatTurn, id)
+	return err
+}
+
 const continueChatTurn = `-- name: ContinueChatTurn :exec
-UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1 WHERE id = ?2
+UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1, turn_token = NULL WHERE id = ?2
 `
 
 type ContinueChatTurnParams struct {
@@ -186,7 +196,7 @@ type ContinueChatTurnParams struct {
 	ID  string
 }
 
-// The chat is woken to continue its cut turn: one attempt more, and the mark starts again now.
+// The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet.
 func (q *Queries) ContinueChatTurn(ctx context.Context, arg ContinueChatTurnParams) error {
 	_, err := q.db.ExecContext(ctx, continueChatTurn, arg.Now, arg.ID)
 	return err
@@ -345,7 +355,7 @@ func (q *Queries) DetachRunsFromChat(ctx context.Context, chatID string) error {
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_attempts FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_token, turn_attempts FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -365,6 +375,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.ContextWindow,
 		&i.ContextPercent,
 		&i.TurnStartedAt,
+		&i.TurnToken,
 		&i.TurnAttempts,
 	)
 	return i, err
@@ -483,32 +494,6 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 	return seq, err
 }
 
-const insertChatNotice = `-- name: InsertChatNotice :one
-INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
-VALUES (?1, 'system', '', ?2, ?3, ?4)
-RETURNING seq
-`
-
-type InsertChatNoticeParams struct {
-	ChatID        string
-	Text          string
-	ToCoordinator int64
-	Now           int64
-}
-
-// A line of the control plane in the chat, kind-less, given to pi too when to_coordinator is 1.
-func (q *Queries) InsertChatNotice(ctx context.Context, arg InsertChatNoticeParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertChatNotice,
-		arg.ChatID,
-		arg.Text,
-		arg.ToCoordinator,
-		arg.Now,
-	)
-	var seq int64
-	err := row.Scan(&seq)
-	return seq, err
-}
-
 const insertChatQueued = `-- name: InsertChatQueued :one
 INSERT INTO chat_queue (chat_id, text, attachments, sender_id, sender_name, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -546,6 +531,34 @@ func (q *Queries) InsertChatQueued(ctx context.Context, arg InsertChatQueuedPara
 	return i, err
 }
 
+const insertChatRestartLine = `-- name: InsertChatRestartLine :one
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (?1, 'system', ?2, ?3, ?4, ?5)
+RETURNING seq
+`
+
+type InsertChatRestartLineParams struct {
+	ChatID        string
+	Kind          string
+	Text          string
+	ToCoordinator int64
+	Now           int64
+}
+
+// A line of the control plane about a restart: continued, given to pi too, or cut, not given to pi.
+func (q *Queries) InsertChatRestartLine(ctx context.Context, arg InsertChatRestartLineParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertChatRestartLine,
+		arg.ChatID,
+		arg.Kind,
+		arg.Text,
+		arg.ToCoordinator,
+		arg.Now,
+	)
+	var seq int64
+	err := row.Scan(&seq)
+	return seq, err
+}
+
 const insertRestartBoot = `-- name: InsertRestartBoot :exec
 INSERT INTO restart_boots (at) VALUES (?1)
 `
@@ -557,7 +570,7 @@ func (q *Queries) InsertRestartBoot(ctx context.Context, at int64) error {
 
 const lastTurnInput = `-- name: LastTurnInput :one
 SELECT role, sender_id FROM chat_messages
-WHERE chat_id = ?1 AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
+WHERE chat_id = ?1 AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1) AND kind <> 'continued'
 ORDER BY seq DESC
 LIMIT 1
 `
@@ -569,7 +582,8 @@ type LastTurnInputRow struct {
 
 // The chat's last message of those pi is given as a turn (UndeliveredChatMessages says which): a person's message,
 // a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
-// message, given to pi or about to be, ends his turn (issue #468).
+// message, given to pi or about to be, ends his turn (issue #468). The line that wakes pi to continue a turn a
+// restart cut is no input of its own: the continued turn is the cut one's (issue #716).
 func (q *Queries) LastTurnInput(ctx context.Context, chatID string) (LastTurnInputRow, error) {
 	row := q.db.QueryRowContext(ctx, lastTurnInput, chatID)
 	var i LastTurnInputRow
@@ -606,7 +620,7 @@ func (q *Queries) ListArtifactBlobsOfChat(ctx context.Context, chatID string) ([
 }
 
 const listChatArtifactMessages = `-- name: ListChatArtifactMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind,
        artifacts.id         AS artifact_id,
        artifacts.revision   AS artifact_revision,
        artifacts.updated_at AS artifact_updated_at,
@@ -651,10 +665,10 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 			&i.ChatMessage.CreatedAt,
 			&i.ChatMessage.ToCoordinator,
 			&i.ChatMessage.Attachments,
-			&i.ChatMessage.Kind,
 			&i.ChatMessage.ApprovalID,
 			&i.ChatMessage.SenderID,
 			&i.ChatMessage.SenderName,
+			&i.ChatMessage.Kind,
 			&i.ArtifactID,
 			&i.ArtifactRevision,
 			&i.ArtifactUpdatedAt,
@@ -702,7 +716,7 @@ func (q *Queries) ListChatIDsOfBot(ctx context.Context, bot string) ([]string, e
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind,
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
@@ -786,10 +800,10 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ChatMessage.CreatedAt,
 			&i.ChatMessage.ToCoordinator,
 			&i.ChatMessage.Attachments,
-			&i.ChatMessage.Kind,
 			&i.ChatMessage.ApprovalID,
 			&i.ChatMessage.SenderID,
 			&i.ChatMessage.SenderName,
+			&i.ChatMessage.Kind,
 			&i.EventKind,
 			&i.EventRunID,
 			&i.EventTaskID,
@@ -856,7 +870,7 @@ func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_attempts FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_token, turn_attempts FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -882,6 +896,7 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.ContextWindow,
 			&i.ContextPercent,
 			&i.TurnStartedAt,
+			&i.TurnToken,
 			&i.TurnAttempts,
 		); err != nil {
 			return nil, err
@@ -956,17 +971,19 @@ func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMes
 }
 
 const markChatTurn = `-- name: MarkChatTurn :exec
-UPDATE chats SET turn_started_at = ?1 WHERE id = ?2
+UPDATE chats SET turn_started_at = ?1, turn_token = ?2 WHERE id = ?3
 `
 
 type MarkChatTurnParams struct {
-	Now sql.NullInt64
-	ID  string
+	Now   sql.NullInt64
+	Token sql.NullString
+	ID    string
 }
 
-// A Bot's turn started in the chat (issue #716); the attempts stay, so a continued turn keeps its count.
+// A Bot's turn started in the chat (issue #716), in the pi process the token names; the attempts stay, so a
+// continued turn keeps its count.
 func (q *Queries) MarkChatTurn(ctx context.Context, arg MarkChatTurnParams) error {
-	_, err := q.db.ExecContext(ctx, markChatTurn, arg.Now, arg.ID)
+	_, err := q.db.ExecContext(ctx, markChatTurn, arg.Now, arg.Token, arg.ID)
 	return err
 }
 
@@ -1017,12 +1034,19 @@ func (q *Queries) SetChatModel(ctx context.Context, arg SetChatModelParams) erro
 }
 
 const settleChatTurn = `-- name: SettleChatTurn :exec
-UPDATE chats SET turn_started_at = NULL, turn_attempts = 0 WHERE id = ?1
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0
+WHERE id = ?1 AND turn_token = ?2
 `
 
-// The chat's turn ended: no mark, no attempts.
-func (q *Queries) SettleChatTurn(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, settleChatTurn, id)
+type SettleChatTurnParams struct {
+	ID    string
+	Token sql.NullString
+}
+
+// The turn of the pi process the token names ended: no mark, no attempts. A newer turn's mark, of another pi
+// process, stays (Hermes's compare-and-swap clear).
+func (q *Queries) SettleChatTurn(ctx context.Context, arg SettleChatTurnParams) error {
+	_, err := q.db.ExecContext(ctx, settleChatTurn, arg.ID, arg.Token)
 	return err
 }
 
@@ -1070,7 +1094,7 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, kind, approval_id, sender_id, sender_name FROM chat_messages
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind FROM chat_messages
 WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
@@ -1096,10 +1120,10 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.CreatedAt,
 			&i.ToCoordinator,
 			&i.Attachments,
-			&i.Kind,
 			&i.ApprovalID,
 			&i.SenderID,
 			&i.SenderName,
+			&i.Kind,
 		); err != nil {
 			return nil, err
 		}
@@ -1112,4 +1136,30 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const voidChatContinuations = `-- name: VoidChatContinuations :exec
+UPDATE chat_messages SET delivered_at = ?1 WHERE chat_id = ?2 AND kind = 'continued' AND delivered_at IS NULL
+`
+
+type VoidChatContinuationsParams struct {
+	Now    sql.NullInt64
+	ChatID string
+}
+
+// A line that woke pi to continue a cut turn and was never given to it goes to pi no more (issue #716): a later
+// start continues the turn again with a line of its own, or does not continue it.
+func (q *Queries) VoidChatContinuations(ctx context.Context, arg VoidChatContinuationsParams) error {
+	_, err := q.db.ExecContext(ctx, voidChatContinuations, arg.Now, arg.ChatID)
+	return err
+}
+
+const voidContinuations = `-- name: VoidContinuations :exec
+UPDATE chat_messages SET delivered_at = ?1 WHERE kind = 'continued' AND delivered_at IS NULL
+`
+
+// VoidChatContinuations for every chat, when restarts are in a loop.
+func (q *Queries) VoidContinuations(ctx context.Context, now sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, voidContinuations, now)
+	return err
 }

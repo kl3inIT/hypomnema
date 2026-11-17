@@ -476,3 +476,61 @@ func TestInstallDoesNotWaitForAControlPlaneThatDoesNotSay(t *testing.T) {
 	assert.Equal(t, "systemctl stop hypomnema-cp.service", log.all()[0])
 	assert.Contains(t, out.String(), "not waiting for Bots' turns")
 }
+
+// Scenario (review of #725, finding 4): from before the update waits for Bots' turns until the release's coordinator
+// is set up, the control plane is told an update runs, so it starts no pi: the old one while it is stopped, the new
+// one before setup-coordinator.sh has put pi in place. After the update, nothing says so.
+func TestTheControlPlaneKnowsAnUpdateRunsUntilItsCoordinatorIsSetUp(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	o.Ready = ready(t, http.StatusNoContent)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	data := filepath.Join(o.Home, "data")
+	assert.False(t, selfupdate.Updating(data))
+
+	seen := &events{}
+
+	o.Run = func(_ context.Context, name string, _ ...string) error {
+		seen.add(fmt.Sprintf("%s %v", name, selfupdate.Updating(data)))
+
+		return nil
+	}
+
+	controlPlane(t, o.Home, &events{}, func(int) []string {
+		seen.add(fmt.Sprintf("turns %v", selfupdate.Updating(data)))
+
+		return nil
+	})
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	assert.Equal(t, []string{
+		"turns true", "systemctl true", "runuser true", "systemctl true", "sh true",
+	}, seen.all(), "while it waits, stops, migrates, starts and sets up the coordinator")
+	assert.False(t, selfupdate.Updating(data), "not after it")
+}
+
+// Scenario: an update was killed and left its marker; the process it names is gone, so no update runs.
+func TestAMarkerOfAnUpdateThatIsGoneIsNoUpdate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	marker := filepath.Join(dir, selfupdate.UpdatingFile)
+
+	write(t, marker, fmt.Sprintf("%d\n", os.Getpid()))
+	assert.True(t, selfupdate.Updating(dir), "a process that runs")
+
+	if _, err := os.Stat("/proc/self/stat"); err == nil {
+		write(t, marker, fmt.Sprintf("%d 1\n", os.Getpid()))
+		assert.False(t, selfupdate.Updating(dir), "a process of that id that started at another time")
+	}
+
+	write(t, marker, "2147483646 1\n")
+	assert.False(t, selfupdate.Updating(dir), "no such process")
+
+	write(t, marker, "nonsense")
+	assert.False(t, selfupdate.Updating(dir))
+}

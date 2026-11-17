@@ -16,9 +16,9 @@ import (
 // continue its turn with one line the owner sees, and clears the others with a line that says the turn was cut. The
 // partial transcript stays as it was kept.
 
-// Lines a chat gets when the control plane starts and finds its turn cut.
+// Lines a chat gets when the control plane starts and finds its turn cut, of kinds ChatContinued and ChatCut.
 const (
-	// ContinuedText is the line of a chat woken to continue its turn; pi is given it too, as a wake-up.
+	// ContinuedText is the line of a chat woken to continue its turn; pi is given it too.
 	ContinuedText = "Restarted for an update; continuing."
 	// CutText is the line of a chat whose cut turn is not continued; the owner's next message goes on from there.
 	CutText = "A restart cut this turn; send a message to continue."
@@ -33,10 +33,12 @@ type CutTurn struct {
 	Attempts int
 }
 
-// MarkChatTurn marks that a Bot's turn started in the chat.
-func (s *Service) MarkChatTurn(ctx context.Context, chatID string) error {
+// MarkChatTurn marks that a Bot's turn started in the chat, in the pi process token names.
+func (s *Service) MarkChatTurn(ctx context.Context, chatID, token string) error {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.MarkChatTurn(ctx, store.MarkChatTurnParams{ID: chatID, Now: sql.NullInt64{Int64: now, Valid: true}})
+		return q.MarkChatTurn(ctx, store.MarkChatTurnParams{
+			ID: chatID, Now: sql.NullInt64{Int64: now, Valid: true}, Token: nullString(token),
+		})
 	}); err != nil {
 		return fmt.Errorf("marking the turn of chat %s: %w", chatID, err)
 	}
@@ -44,10 +46,12 @@ func (s *Service) MarkChatTurn(ctx context.Context, chatID string) error {
 	return nil
 }
 
-// SettleChatTurn clears the chat's mark: its turn ended.
-func (s *Service) SettleChatTurn(ctx context.Context, chatID string) error {
+// SettleChatTurn clears the chat's mark when it is the turn of the pi process token names: that turn ended. A
+// newer turn's mark, of another pi, stays, as Hermes clears a turn marker by compare-and-swap
+// (gateway/session_lifecycle.py clear_active_turn_marker).
+func (s *Service) SettleChatTurn(ctx context.Context, chatID, token string) error {
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
-		return q.SettleChatTurn(ctx, chatID)
+		return q.SettleChatTurn(ctx, store.SettleChatTurnParams{ID: chatID, Token: nullString(token)})
 	}); err != nil {
 		return fmt.Errorf("clearing the turn mark of chat %s: %w", chatID, err)
 	}
@@ -75,7 +79,7 @@ func (s *Service) CutTurns(ctx context.Context) ([]CutTurn, error) {
 }
 
 // ContinueCutTurn wakes the chat to continue its cut turn: one attempt more, the mark from now, and ContinuedText in
-// the chat for pi, in one write.
+// the chat for pi, in one write. A line of an earlier start that pi never had goes to pi no more.
 func (s *Service) ContinueCutTurn(ctx context.Context, chatID string) error {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.ContinueChatTurn(ctx, store.ContinueChatTurnParams{
@@ -84,7 +88,7 @@ func (s *Service) ContinueCutTurn(ctx context.Context, chatID string) error {
 			return err
 		}
 
-		return notice(ctx, q, chatID, ContinuedText, true, now)
+		return restartLine(ctx, q, chatID, ChatContinued, ContinuedText, now)
 	}); err != nil {
 		return fmt.Errorf("waking chat %s to continue its turn: %w", chatID, err)
 	}
@@ -92,14 +96,15 @@ func (s *Service) ContinueCutTurn(ctx context.Context, chatID string) error {
 	return nil
 }
 
-// EndCutTurn clears the chat's mark and says in the chat that a restart cut its turn, in one write.
+// EndCutTurn clears the chat's mark and says in the chat that a restart cut its turn, in one write. A line of an
+// earlier start that woke pi to continue it, and that pi never had, goes to pi no more.
 func (s *Service) EndCutTurn(ctx context.Context, chatID string) error {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := q.SettleChatTurn(ctx, chatID); err != nil {
+		if err := q.ClearChatTurn(ctx, chatID); err != nil {
 			return err
 		}
 
-		return notice(ctx, q, chatID, CutText, false, now)
+		return restartLine(ctx, q, chatID, ChatCut, CutText, now)
 	}); err != nil {
 		return fmt.Errorf("ending the cut turn of chat %s: %w", chatID, err)
 	}
@@ -107,14 +112,32 @@ func (s *Service) EndCutTurn(ctx context.Context, chatID string) error {
 	return nil
 }
 
-func notice(ctx context.Context, q *store.Queries, chatID, text string, forPi bool, now int64) error {
-	var to int64
-	if forPi {
-		to = 1
+// HoldCutTurns keeps every cut turn as it is and wakes none, when restarts are in a loop: a line of an earlier start
+// that woke pi to continue one, and that pi never had, goes to pi no more.
+func (s *Service) HoldCutTurns(ctx context.Context) error {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.VoidContinuations(ctx, sql.NullInt64{Int64: now, Valid: true})
+	}); err != nil {
+		return fmt.Errorf("holding the cut turns: %w", err)
 	}
 
-	if _, err := q.InsertChatNotice(ctx, store.InsertChatNoticeParams{
-		ChatID: chatID, Text: text, ToCoordinator: to, Now: now,
+	return nil
+}
+
+func restartLine(ctx context.Context, q *store.Queries, chatID string, kind ChatKind, text string, now int64) error {
+	if err := q.VoidChatContinuations(ctx, store.VoidChatContinuationsParams{
+		ChatID: chatID, Now: sql.NullInt64{Int64: now, Valid: true},
+	}); err != nil {
+		return err
+	}
+
+	var forPi int64
+	if kind == ChatContinued {
+		forPi = 1
+	}
+
+	if _, err := q.InsertChatRestartLine(ctx, store.InsertChatRestartLineParams{
+		ChatID: chatID, Kind: string(kind), Text: text, ToCoordinator: forPi, Now: now,
 	}); err != nil {
 		return err
 	}

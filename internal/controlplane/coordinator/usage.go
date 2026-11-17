@@ -118,6 +118,11 @@ func (s *Supervisor) Compact(ctx context.Context, chatID string) error {
 		return ErrDisabled
 	}
 
+	// A compaction is a turn of its own: none begins while the control plane is updated (issue #716).
+	if s.updating() {
+		return errUpdating
+	}
+
 	// A pi started here outlives the request: it keeps what it does with the context it is started with.
 	p, err := s.procFor(context.WithoutCancel(ctx), chatID)
 	if err != nil {

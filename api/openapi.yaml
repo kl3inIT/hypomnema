@@ -7514,8 +7514,10 @@ components:
         chat's Runs; failed, pi's model call failed; stopped, the owner stopped
         the turn; approval, the coordinator is told the owner answered an
         Approval; artifact, an artifact a Bot showed, which its next
-        revision updates.
-      enum: [wake, failed, stopped, approval, artifact]
+        revision updates; continued, the control plane restarted and woke
+        the Bot to continue the turn the restart cut; cut, a restart cut the
+        turn and it is not continued.
+      enum: [wake, failed, stopped, approval, artifact, continued, cut]
     ChatPart:
       type: object
       description: >-

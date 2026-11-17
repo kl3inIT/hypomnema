@@ -37,6 +37,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/selfupdate"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
@@ -467,6 +468,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sup := coordinator.New(svc, coordinator.Config{
 		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
+		Updating: func() bool { return selfupdate.Updating(filepath.Dir(cfg.Database.Path)) },
 	})
 
 	// Every worker's and every Bot's pi's web tools and generate_image (issues #354, #492), each call recorded on

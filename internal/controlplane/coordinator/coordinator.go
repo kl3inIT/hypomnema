@@ -51,7 +51,11 @@ type Config struct {
 	// Tokens makes the token each pi calls the control plane with (issue
 	// #260); nil when pi is given none, as in tests that play pi.
 	Tokens Tokens
-	Logger *slog.Logger
+	// Updating says an update of the control plane runs (issue #716,
+	// selfupdate.Updating): no pi is started and an idle pi is given no new
+	// turn until it ends; a turn that runs goes on, steers included. Nil: none.
+	Updating func() bool
+	Logger   *slog.Logger
 }
 
 // Tokens makes and ends the token of one pi process (issue #260): bound to
@@ -107,6 +111,13 @@ func New(svc *orchestration.Service, cfg Config) *Supervisor {
 		kick: make(chan struct{}, 1),
 	}
 }
+
+// updating says an update runs, during which no pi starts and no new turn begins.
+func (s *Supervisor) updating() bool { return s.cfg.Updating != nil && s.cfg.Updating() }
+
+// errUpdating refuses to start pi while the control plane is updated.
+var errUpdating = fmt.Errorf("%w: the control plane is being updated; pi starts again after it",
+	orchestration.ErrConflict)
 
 // Enabled reports whether a command to start pi is configured.
 func (s *Supervisor) Enabled() bool { return len(s.cfg.Command) > 0 }
@@ -253,6 +264,12 @@ func (s *Supervisor) pass(ctx context.Context) {
 // the chat first (issue #497), so it goes with the wake-ups as one prompt.
 func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 	working := s.Working(chatID)
+
+	// While the control plane is updated, what is written waits for the update to end, except what the owner sends a
+	// turn that runs (issue #716, as Hermes's update drain refuses new turns and lets the running ones finish).
+	if !working && s.updating() {
+		return nil
+	}
 
 	if !working {
 		if _, err := s.svc.TakeChatQueue(ctx, chatID); err != nil {
@@ -401,6 +418,10 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 
 	if p := s.procs[chatID]; p != nil && !p.exited() {
 		return p, nil
+	}
+
+	if s.updating() {
+		return nil, errUpdating
 	}
 
 	args, bot, model, err := s.botArgs(ctx, chatID)

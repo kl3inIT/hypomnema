@@ -57,6 +57,11 @@ const (
 	ChatApproval ChatKind = "approval"
 	// ChatArtifact shows an artifact a Bot made (issue #402, artifacts.go).
 	ChatArtifact ChatKind = "artifact"
+	// ChatContinued says the control plane restarted and woke the Bot to continue the turn the restart cut (issue
+	// #716, cutturns.go); pi is given it.
+	ChatContinued ChatKind = "continued"
+	// ChatCut says a restart cut the turn and it is not continued.
+	ChatCut ChatKind = "cut"
 )
 
 // Limits on chats.

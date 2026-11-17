@@ -30,34 +30,35 @@ const continuedPrompt = "The control plane restarted for an update and cut your 
 	"finish. Some of the work may already be complete; check the current state before redoing anything, then " +
 	"finish the task."
 
-// turnStarted marks the chat's turn in the store. The write outlives the request that runs it: a turn that starts
-// as the control plane stops is still marked.
-func (s *Supervisor) turnStarted(ctx context.Context, chatID string) {
-	if err := s.svc.MarkChatTurn(context.WithoutCancel(ctx), chatID); err != nil {
+// turnStarted marks the chat's turn in the store as p's. The write outlives the request that runs it: a turn that
+// starts as the control plane stops is still marked.
+func (s *Supervisor) turnStarted(ctx context.Context, p *proc) {
+	if err := s.svc.MarkChatTurn(context.WithoutCancel(ctx), p.chatID, p.token); err != nil {
 		s.cfg.Logger.ErrorContext(ctx, "marking a turn failed", slog.String("event", "coordinator.turn_mark_failed"),
-			slog.String("chat_id", chatID), slog.Any("error", err))
+			slog.String("chat_id", p.chatID), slog.Any("error", err))
 	}
 }
 
-// turnSettled clears the chat's mark: its turn ended, however it ended.
-func (s *Supervisor) turnSettled(ctx context.Context, chatID string) {
-	if err := s.svc.SettleChatTurn(context.WithoutCancel(ctx), chatID); err != nil {
+// turnSettled clears the chat's mark if it is p's turn: it ended, however it ended. The mark of a newer turn, of
+// another pi of the chat, stays.
+func (s *Supervisor) turnSettled(ctx context.Context, p *proc) {
+	if err := s.svc.SettleChatTurn(context.WithoutCancel(ctx), p.chatID, p.token); err != nil {
 		s.cfg.Logger.ErrorContext(ctx, "clearing a turn mark failed",
-			slog.String("event", "coordinator.turn_mark_failed"), slog.String("chat_id", chatID),
+			slog.String("event", "coordinator.turn_mark_failed"), slog.String("chat_id", p.chatID),
 			slog.Any("error", err))
 	}
 }
 
 // exitedMidTurn is called when a chat's pi exits. While the control plane runs, a pi that exits ended its turn,
-// which the next message starts again; its mark is cleared. When the control plane stops it, the mark stays: that
-// is the cut turn the next start continues. pi gets the same SIGTERM as the control plane on `systemctl stop`, so
-// both the stop and the signal's context say it is stopping.
-func (s *Supervisor) exitedMidTurn(ctx context.Context, chatID string) {
+// which the next message starts again; its mark is cleared, and only its own. When the control plane stops it, the
+// mark stays: that is the cut turn the next start continues. pi gets the same SIGTERM as the control plane on
+// `systemctl stop`, so both the stop and the signal's context say it is stopping.
+func (s *Supervisor) exitedMidTurn(ctx context.Context, p *proc) {
 	if ctx.Err() != nil || s.stopping.Load() {
 		return
 	}
 
-	s.turnSettled(ctx, chatID)
+	s.turnSettled(ctx, p)
 }
 
 // continueCutTurns runs once, as the supervisor starts. A start that finds no cut turn records nothing. One that
@@ -91,6 +92,12 @@ func (s *Supervisor) continueCutTurns(ctx context.Context) {
 			slog.String("event", "coordinator.restart_loop"), slog.Int("chained_starts", chained),
 			slog.Int("cut_turns", len(cut)))
 
+		// A line an earlier start wrote to continue a turn, which pi never had, is not given now either.
+		if err := s.svc.HoldCutTurns(ctx); err != nil {
+			log.ErrorContext(ctx, "holding the cut turns failed",
+				slog.String("event", "coordinator.cut_turns_failed"), slog.Any("error", err))
+		}
+
 		return
 	}
 
@@ -117,5 +124,5 @@ func (s *Supervisor) continueCutTurns(ctx context.Context) {
 
 // continued says whether a message is the line that wakes a chat to continue its cut turn.
 func continued(m orchestration.ChatMessage) bool {
-	return m.Role == orchestration.ChatSystem && m.Kind == "" && m.Text == orchestration.ContinuedText
+	return m.Kind == orchestration.ChatContinued
 }

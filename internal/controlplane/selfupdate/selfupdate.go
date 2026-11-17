@@ -65,6 +65,8 @@ const DefaultTurnsWithin = 5 * time.Minute
 const (
 	ControlSocket = "control.sock"
 	PathTurns     = "/turns"
+	// UpdatingFile, in the same folder, names the process of a running update (marker_unix.go).
+	UpdatingFile = "updating"
 )
 
 // Turns is the control socket's answer to GET PathTurns.

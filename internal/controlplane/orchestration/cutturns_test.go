@@ -19,7 +19,7 @@ func TestACutTurnIsMarkedContinuedAndEnded(t *testing.T) {
 	chat, err := s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	require.NoError(t, s.MarkChatTurn(ctx, chat.ID))
+	require.NoError(t, s.MarkChatTurn(ctx, chat.ID, "pi-1"))
 
 	clock.now = t0.Add(3 * time.Minute)
 
@@ -38,9 +38,10 @@ func TestACutTurnIsMarkedContinuedAndEnded(t *testing.T) {
 	require.Len(t, undelivered, 1)
 	assert.Equal(t, ContinuedText, undelivered[0].Text)
 	assert.Equal(t, ChatSystem, undelivered[0].Role)
+	assert.Equal(t, ChatContinued, undelivered[0].Kind)
 
 	// The turn that continues it starts: the attempts stay until it settles.
-	require.NoError(t, s.MarkChatTurn(ctx, chat.ID))
+	require.NoError(t, s.MarkChatTurn(ctx, chat.ID, "pi-1"))
 
 	cut, err = s.CutTurns(ctx)
 	require.NoError(t, err)
@@ -56,18 +57,19 @@ func TestACutTurnIsMarkedContinuedAndEnded(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, CutText, msgs[1].Text)
+	assert.Equal(t, ChatCut, msgs[1].Kind)
 
 	undelivered, err = s.Undelivered(ctx, chat.ID)
 	require.NoError(t, err)
-	assert.Len(t, undelivered, 1, "the line that ends the turn is not for pi")
+	assert.Empty(t, undelivered, "the line that ends the turn is not for pi, nor the one that pi never had")
 
-	require.NoError(t, s.MarkChatTurn(ctx, chat.ID))
+	require.NoError(t, s.MarkChatTurn(ctx, chat.ID, "pi-1"))
 
 	cut, err = s.CutTurns(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []CutTurn{{ChatID: chat.ID}}, cut, "a turn after an ended one starts with no attempts")
 
-	require.NoError(t, s.SettleChatTurn(ctx, chat.ID))
+	require.NoError(t, s.SettleChatTurn(ctx, chat.ID, "pi-1"))
 
 	cut, err = s.CutTurns(ctx)
 	require.NoError(t, err)
@@ -129,4 +131,88 @@ func TestABootAfterNowIsInTheChain(t *testing.T) {
 	assert.Equal(t, []int64{50, 200}, chainEndingAt([]int64{200, 50, -10}, 100, 50),
 		"a start after now (the clock went back) is adjacent; one 60 before the next is not")
 	assert.Equal(t, []int64{200}, chainEndingAt([]int64{200, 10}, 100, 50))
+}
+
+// Review of #725, finding 1: a line that woke pi to continue a turn, left undelivered by a start that stopped, goes
+// to pi no more once a later start continues the turn again (with its own line), ends it, or holds every cut turn.
+func TestALineToContinueThatPiNeverHadIsVoided(t *testing.T) {
+	t.Parallel()
+
+	s, _, _ := newTestService(t)
+	ctx := t.Context()
+
+	chat, err := s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	require.NoError(t, s.ContinueCutTurn(ctx, chat.ID))
+	require.NoError(t, s.ContinueCutTurn(ctx, chat.ID))
+
+	undelivered, err := s.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Len(t, undelivered, 1, "one line for pi, the newest")
+
+	require.NoError(t, s.HoldCutTurns(ctx))
+
+	undelivered, err = s.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, undelivered)
+
+	cut, err := s.CutTurns(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []CutTurn{{ChatID: chat.ID, Attempts: 2}}, cut, "holding keeps the mark")
+}
+
+// Review of #725, finding 3: a pi clears only the mark of its own turn (Hermes's compare-and-swap clear).
+func TestASettleClearsOnlyItsOwnTurnsMark(t *testing.T) {
+	t.Parallel()
+
+	s, _, _ := newTestService(t)
+	ctx := t.Context()
+
+	chat, err := s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	require.NoError(t, s.MarkChatTurn(ctx, chat.ID, "old"))
+	require.NoError(t, s.MarkChatTurn(ctx, chat.ID, "new"))
+	require.NoError(t, s.SettleChatTurn(ctx, chat.ID, "old"))
+
+	cut, err := s.CutTurns(ctx)
+	require.NoError(t, err)
+	assert.Len(t, cut, 1, "the newer turn keeps its mark")
+
+	require.NoError(t, s.SettleChatTurn(ctx, chat.ID, "new"))
+
+	cut, err = s.CutTurns(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, cut)
+}
+
+// Review of #725, finding 2: the line that wakes pi to continue a cut turn is no input of its own: a turn that was
+// the owner's stays his, and one that was not stays not his (issue #468).
+func TestAContinuedTurnIsWhoseTheCutTurnWas(t *testing.T) {
+	t.Parallel()
+
+	s, _, _ := newTestService(t)
+	ctx := t.Context()
+
+	chat, err := s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = s.AddChatMessage(ctx, chat.ID, ChatOwner, "search Lark for the contract")
+	require.NoError(t, err)
+	require.NoError(t, s.ContinueCutTurn(ctx, chat.ID))
+
+	mine, err := s.OwnerTurn(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.True(t, mine, "the owner's cut turn goes on as his")
+
+	_, err = s.AddChatMessages(ctx, chat.ID, NewChatMessage{
+		Role: ChatOwner, Text: "and from me", Sender: &ChatSender{ID: "ou_linh", Name: "Linh"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.ContinueCutTurn(ctx, chat.ID))
+
+	mine, err = s.OwnerTurn(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.False(t, mine, "a turn of someone else's goes on as theirs")
 }
