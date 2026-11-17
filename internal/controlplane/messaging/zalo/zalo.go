@@ -20,7 +20,6 @@ import (
 
 	zalobridge "github.com/kl3inIT/hypomnema/bridges/zalo"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
@@ -606,10 +605,4 @@ func (a *account) Chats(ctx context.Context, limit int) ([]messaging.Chat, error
 
 func (a *account) Messages(ctx context.Context, q messaging.Query) ([]messaging.Message, error) {
 	return a.svc.mirror.messages(ctx, a.uid, q)
-}
-
-// Send is step 3 of #613.
-func (a *account) Send(context.Context, messaging.Outgoing) (messaging.Message, error) {
-	return messaging.Message{}, fmt.Errorf("%w: sending in Zalo comes in a later step of issue #613",
-		orchestration.ErrUnavailable)
 }

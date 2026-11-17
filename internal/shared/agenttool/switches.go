@@ -48,6 +48,15 @@ const (
 	ToolWhatsAppHistory  = "whatsapp_history"
 )
 
+// Zalo's tools (issue #680): the owner's own Zalo, read and written by a Bot on his turn, as WhatsApp's.
+const (
+	ToolZaloChats    = "zalo_chats"
+	ToolZaloMessages = "zalo_messages"
+	ToolZaloMedia    = "zalo_media"
+	ToolZaloHistory  = "zalo_history"
+	ToolZaloSend     = "zalo_send"
+)
+
 // BrowserTools are the browser's tools an agent is offered, out of
 // agent-browser's `core` set (cli/src/mcp.rs, CORE_PROFILE_TOOLS). Each agent
 // has one tab, which the engine opens and closes, so the tab tools and
@@ -112,6 +121,9 @@ var ToolFamilies = []ToolFamily{
 		Pattern: "whatsapp_*",
 		Tools: []string{ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory,
 			ToolWhatsAppSend}},
+	{Name: "zalo", Description: "The owner's own Zalo, read on his turn, with a Zalo Connection",
+		Pattern: "zalo_*",
+		Tools:   []string{ToolZaloChats, ToolZaloMessages, ToolZaloMedia, ToolZaloHistory, ToolZaloSend}},
 	{Name: "nodes", Description: "Run commands on the nodes' machines", Pattern: "node_*",
 		Tools: []string{ToolNodeExec, ToolNodeProcess, ToolNodeProcessKill}},
 	{Name: "browser", Description: "The browser every agent shares, in a tab of its own", Pattern: "agent_browser_*",

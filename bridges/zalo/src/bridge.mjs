@@ -10,6 +10,8 @@
 //   groupHistory {group, lastMsgId, isOld}   one page (50) of a group's past: {messages, lastMsgId, isOld, more}
 //   oldMessages {lastId}  one page of Zalo's queue of every direct chat's past: {messages, next}
 //   users {ids}           people's names: [{id, name}]
+//   send {chat, group, text, path, quote}    a message as the owner, a file at path with text as its caption,
+//                         replying to quote (a kept message): {id}
 //   groups {}             every group the account is in: [{id, name}]
 //   stop {}               ends the listener and the process
 // Events: qr {image, code}, scanned {name}, declined, expired, credentials {imei, cookie, userAgent},
@@ -20,12 +22,13 @@ import { createInterface } from "node:readline";
 
 import { LoginQRCallbackEventType, Zalo } from "zca-js";
 
+import { imageMeta } from "./imagemeta.mjs";
 import { answer, closed, event, failure, message, older, parseRequest, rejected } from "./protocol.mjs";
 import { ThreadType } from "zca-js";
 
 // The listener reconnects a socket Zalo closed (zlog's zalo-client.ts starts it so); a session another Zalo Web took
 // over is told as replaced and not fought for (zca-js README: one web listener an account).
-const zalo = new Zalo({ selfListen: true, checkUpdate: false, logging: false });
+const zalo = new Zalo({ selfListen: true, checkUpdate: false, logging: false, imageMetadataGetter: imageMeta });
 
 // maxQR is how many QR codes are shown before the link gives up, as WhatsApp's linking ends after its codes.
 const maxQR = 5;
@@ -208,9 +211,35 @@ async function users(p) {
   return ids.map((id) => ({ id, name: str(profiles[id]?.displayName) || str(profiles[id]?.zaloName) }));
 }
 
+// send sends as the owner with zca-js's sendMessage (src/apis/sendMessage.ts): the text, the file by its path as
+// the Hermes Zalo plugin sends one (sidecar/server.js), and the quote of the message it answers.
+async function send(p) {
+  const content = { msg: str(p.text) };
+  if (p.path) content.attachments = [String(p.path)];
+
+  const q = p.quote;
+  if (q) {
+    content.quote = {
+      content: str(q.text),
+      msgType: str(q.kind) || "webchat",
+      propertyExt: undefined,
+      uidFrom: String(q.from),
+      msgId: String(q.id),
+      cliMsgId: String(q.cliId),
+      ts: String(q.at),
+      ttl: 0,
+    };
+  }
+
+  const r = await api.sendMessage(content, String(p.chat), p.group ? ThreadType.Group : ThreadType.User);
+  const id = r?.message?.msgId ?? r?.attachment?.[0]?.msgId;
+
+  return { id: id == null ? "" : String(id) };
+}
+
 const str = (v) => (typeof v === "string" ? v : "");
 
-const methods = { loginQR, login, listen, groups, groupHistory, oldMessages, users, stop };
+const methods = { loginQR, login, listen, groups, groupHistory, oldMessages, users, send, stop };
 
 const lines = createInterface({ input: process.stdin });
 

@@ -27,8 +27,8 @@ import (
 //     superset_filter_values,
 //     superset_api (superset.go): a worker given a Superset Connection by its
 //     Run, a Bot's pi one switched on for chats and on its Bot's list;
-//   - whatsapp_chats, whatsapp_messages, whatsapp_media, whatsapp_history
-//     (whatsapp.go, issue #638): a Bot's pi given the owner's WhatsApp, on
+//   - whatsapp_* and zalo_* (messaging_tools.go, issues #638, #680): a
+//     Bot's pi given the owner's WhatsApp or Zalo, on
 //     his turn only; a worker never;
 //   - routines (routines.go): a Bot's pi only, its own Bot's; a worker never,
 //     as Hermes keeps cronjob_manage from its sub-agents;
@@ -64,7 +64,7 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
-	out = append(out, s.whatsappToolList(ctx, a)...)
+	out = append(out, s.messagingToolList(ctx, a)...)
 
 	if s.hasNodeTools(a) {
 		out = append(out, nodeToolList()...)
@@ -155,9 +155,9 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if slices.Contains(whatsappTools, asked.Tool) {
+	if m, ok := messagingServiceOf(asked.Tool); ok {
 		// Read again at each call: the owner's turn may have ended since the list (issue #618).
-		labels, err := s.whatsappLabels(r.Context(), a)
+		labels, err := s.messagingLabels(r.Context(), a, m)
 		if err != nil {
 			s.fail(w, r, err)
 
@@ -170,7 +170,7 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.whatsappCall(w, r, a, labels, asked)
+		s.messagingCall(w, r, a, m, labels, asked)
 
 		return
 	}

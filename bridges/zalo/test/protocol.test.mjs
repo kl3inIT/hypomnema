@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { imageSize } from "../src/imagemeta.mjs";
 import { closed, failure, media, message, older, parseRequest, rejected } from "../src/protocol.mjs";
 
 test("a line that is no request is said so, and a request keeps its id", () => {
@@ -61,4 +62,17 @@ test("a message's content is read as its text and its file", () => {
 test("the next page of the direct chats' queue starts at the oldest actionId", () => {
   assert.equal(older(["7300000000000000123", "730000000000000099", "x", ""]), "730000000000000099");
   assert.equal(older([]), "");
+});
+
+// zca-js needs an image's size to send it: a PNG's and a GIF's headers say it (the Hermes Zalo plugin's imageMeta).
+test("an image's size is read from its header", () => {
+  const png = Buffer.alloc(32);
+  png.set([0x89, 0x50, 0x4e, 0x47]);
+  png.writeUInt32BE(640, 16);
+  png.writeUInt32BE(480, 20);
+  assert.deepEqual(imageSize(png), { width: 640, height: 480 });
+
+  const gif = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x20, 0x00, 0x10, 0x00, 0x00]);
+  assert.deepEqual(imageSize(gif), { width: 32, height: 16 });
+  assert.equal(imageSize(Buffer.from("not an image")), null);
 });

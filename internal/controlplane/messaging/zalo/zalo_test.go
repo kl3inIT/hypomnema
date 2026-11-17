@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // The bridge is played by this test binary (TestFakeBridge), as os/exec's own tests run a helper process: it speaks
@@ -114,6 +115,31 @@ func TestFakeBridge(t *testing.T) {
 			}
 
 			write(map[string]any{"id": req.ID, "result": map[string]any{"next": "", "messages": []any{}}})
+		// A send answers an id that says what it was given: a quote, and a file there at the time.
+		case "send":
+			var p struct {
+				Params struct {
+					Path  string          `json:"path"`
+					Quote json.RawMessage `json:"quote"`
+					Group bool            `json:"group"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(in.Bytes(), &p)
+
+			id := "s"
+			if p.Params.Group {
+				id += "-group"
+			}
+
+			if len(p.Params.Quote) > 0 {
+				id += "-quote"
+			}
+
+			if _, err := os.Stat(p.Params.Path); p.Params.Path != "" && err == nil {
+				id += "-file"
+			}
+
+			write(map[string]any{"id": req.ID, "result": map[string]any{"id": id}})
 		case "users":
 			write(map[string]any{"id": req.ID, "result": []any{map[string]any{"id": "u9", "name": "Minh"}}})
 		case "listen":
@@ -402,4 +428,40 @@ func TestTheFilesLeftAreListedBatchAfterBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rest, 1)
 	assert.Equal(t, "a", rest[0].id)
+}
+
+// Scenario (issue #680): once connected, the account sends as the owner: a reply in a group quotes the kept
+// message, and a file is written for the bridge to send and removed after. What is sent is kept as the owner's.
+func TestTheAccountSendsAsTheOwnerAndKeepsIt(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	require.NoError(t, svc.mirror.saveSession(ctx, "100", "Owner", []byte(`{"imei":"i1"}`)))
+
+	acc, err := svc.Open(ctx, "100")
+	require.NoError(t, err)
+	t.Cleanup(acc.Close)
+
+	eventually(t, "the live message kept", func() bool {
+		found, err := acc.Messages(ctx, messaging.Query{Search: "giúp em"})
+
+		return err == nil && len(found) == 1
+	})
+
+	sent, err := acc.Send(ctx, messaging.Outgoing{Chat: "g1", Text: "Đây ạ", ReplyTo: "m1",
+		File: []byte("%PDF"), FileName: "bao-gia.pdf"})
+	require.NoError(t, err)
+	assert.Equal(t, "s-group-quote-file", sent.ID, "a group, the quote and the file reached the bridge")
+
+	mine, err := acc.Messages(ctx, messaging.Query{Chat: "g1", Search: "bao-gia.pdf"})
+	require.NoError(t, err)
+	require.Len(t, mine, 1)
+	assert.True(t, mine[0].FromMe)
+	assert.Equal(t, "m1", mine[0].QuotedID)
+
+	left, err := os.ReadDir(filepath.Join(filepath.Dir(svc.mediaDir), "zalo-outgoing"))
+	require.NoError(t, err)
+	assert.Empty(t, left, "the file sent is not kept on disk")
+
+	_, err = acc.Send(ctx, messaging.Outgoing{Chat: "nobody", Text: "hi"})
+	require.ErrorIs(t, err, orchestration.ErrNotFound, "a chat not kept is said so")
 }

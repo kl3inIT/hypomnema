@@ -1285,8 +1285,8 @@ test("the owner links his Zalo by its QR picture", async ({ page }) => {
   await expect(zalo).toContainText("Not linked")
   await zalo.getByRole("button", { name: "Link phone" }).click()
   const dialog = page.locator("[data-slot=dialog-content]")
-  // Step 1 keeps the chats; the Bot's tools come later, and the dialog says so.
-  await expect(dialog).toContainText("reads and writes in them in a later step")
+  // Zalo keeps the chats from the link on; the Bot writes in them only after the owner's approval.
+  await expect(dialog).toContainText("each message it sends after your approval")
   await shot(page, "integrations-zalo-link")
   await dialog.getByRole("button", { name: "Show the code" }).click()
 
