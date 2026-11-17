@@ -283,7 +283,9 @@ type phoneRow struct {
 
 // eachRow reads a chat database's messages, the oldest first.
 func eachRow(ctx context.Context, path string, fn func(phoneRow) error) error {
-	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro")
+	// immutable: nothing else writes it, so SQLite reads a database in WAL mode, as the phone's are, without
+	// making a -shm and a -wal beside it (issue #733).
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&immutable=1")
 	if err != nil {
 		return fmt.Errorf("zalo: opening a chat of the backup: %w", err)
 	}
