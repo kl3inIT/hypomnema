@@ -212,7 +212,7 @@ The design is in issue #714's `## Design` comment; in short:
    Omnara does; the merge gate's "change first" carries what to change.
 7. **A follow-up to a Task blocked at a gate supersedes the gate**: the gate closes as superseded and the Task
    continues with the note, as Omnara cancels open questions on new input.
-8. **A Bot's merge is two catalog actions**, `github.pulls.merge` and `github.pulls.auto_merge`, both "needs care"
+8. **A Bot's merge is two catalog actions**, `github.pulls.merge` and `github.pulls.automerge` (the names of #713's design; GitLab: `gitlab.merge_requests.merge` and `.automerge`), both "needs care"
    (ask by default) until the owner allows them; they belong to issue #713's catalog work.
 
 Not found in any reference: a check that the base branch's required checks include the repository's CI job by name
