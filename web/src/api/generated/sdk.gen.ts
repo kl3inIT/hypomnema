@@ -151,9 +151,9 @@ export const reopenTask = <ThrowOnError extends boolean = true>(options: Options
 });
 
 /**
- * Ask more of a succeeded Task's worker, which continues its own conversation
+ * Ask more of a Task's worker that finished or waits at a gate, which continues its own conversation
  *
- * The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>.
+ * The Task goes back to ready, and its next Dispatch continues the worker's open Conversation in the same worktree and branch, with the note in the worker's instructions. Only a succeeded Task, or one blocked at a gate, of an open Run whose worker's Conversation is still open takes one; otherwise the work is a new Task from the branch hyp/<task_id>. A follow-up to a Task blocked at a gate replaces the gate, which is closed with the reason superseded.
  */
 export const followUpTask = <ThrowOnError extends boolean = true>(options: Options<FollowUpTaskData, ThrowOnError>): RequestResult<FollowUpTaskResponses, FollowUpTaskErrors, ThrowOnError> => (options.client ?? client).post<FollowUpTaskResponses, FollowUpTaskErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

@@ -151,6 +151,10 @@ type Adapter interface {
 	OpenCommand(base, branch string) string
 	// RequestURL is the page of the repository's pull request number n.
 	RequestURL(r Repo, n int) string
+	// AutoMerge is how a worker has the host merge the pull request of
+	// repository r into base by itself once its required checks pass (issue
+	// #714): what it checks first, read-only, and the commands it runs.
+	AutoMerge(r Repo, base string) AutoMerge
 	// Env is the environment that lets git and the host's CLI act on host
 	// with token: nothing is written to disk, and nothing is in a command's
 	// arguments. It is empty for an empty token.
@@ -172,6 +176,44 @@ func For(k Kind) (Adapter, bool) {
 	}
 }
 
+// AutoMerge is what a worker reads and runs to have the host merge its pull
+// request by itself (issue #714). In the commands, <url> is the pull
+// request's URL, <iid> its number on GitLab, and <sha> the commit the worker
+// pushed.
+//
+// gh and glab merge at once, without waiting for any check, when the host
+// says the request can be merged now: gh on CLEAN, HAS_HOOKS and UNSTABLE
+// (cli/cli pkg/cmd/pr/merge/merge.go:593, 826-832), glab when the merge
+// request has no pipeline yet (gitlab-org/cli mr_merge.go:223-230). So every
+// Ready check must hold before Enable is run, as Kodiak and bors refuse to
+// work without required checks (evaluation.py:718-723; bors_toml.ex:157-158).
+type AutoMerge struct {
+	// Ready are the repository's settings without which auto-merge would
+	// not wait for the checks.
+	Ready []ReadyCheck
+	// View reads the request's state; Draft and Conflict say how it shows a
+	// draft and a conflict.
+	View, Draft, Conflict string
+	// Before is a condition on the request before Enable, empty when there
+	// is none.
+	Before string
+	// Enable turns auto-merge on, pinned to the commit pushed.
+	Enable string
+	// Method says when another merge method than Enable's is used, empty
+	// when there is no choice.
+	Method string
+	// Watch waits for the required checks; Merged says whether it merged.
+	Watch, Merged string
+}
+
+// ReadyCheck is one read-only check: the commands, what they must show, and
+// what the repository lacks when they do not, as the worker says it.
+type ReadyCheck struct {
+	Commands []string
+	Shows    string
+	Lacks    string
+}
+
 type github struct{}
 
 func (github) CloneURL(r Repo) string { return "https://" + r.Host + "/" + r.Path + ".git" }
@@ -184,6 +226,48 @@ func (github) OpenCommand(base, branch string) string {
 
 func (github) RequestURL(r Repo, n int) string {
 	return "https://" + r.Host + "/" + r.Path + "/pull/" + strconv.Itoa(n)
+}
+
+// AutoMerge on GitHub needs "Allow auto-merge" (allow_auto_merge, read as
+// Renovate does, platform/github/index.ts:1957-1963) and a required status
+// check on the base branch, from a ruleset or from branch protection, both
+// read as Kodiak reads them (evaluation.py:513-528). The merge is a merge
+// commit, as t3code's (GitHubPullRequestApi.ts:2841) and GitHub's Dependabot
+// workflow (fetch-metadata README.md:167-170), pinned to the pushed commit
+// with --match-head-commit (merge.go:184).
+//
+// Every check names the host with --hostname: without a token the worker's
+// gh has no GH_HOST (Env), and `gh api` would read github.com's repository
+// of the same path. The request's own commands take its URL, which holds the
+// host.
+func (github) AutoMerge(r Repo, base string) AutoMerge {
+	api := "gh api --hostname " + r.Host + " repos/" + r.Path
+
+	return AutoMerge{
+		Ready: []ReadyCheck{
+			{
+				Commands: []string{api + " --jq .allow_auto_merge"},
+				Shows:    "prints true",
+				Lacks:    "auto-merge is off in the repository's settings",
+			},
+			{
+				Commands: []string{
+					api + "/rules/branches/" + base,
+					api + "/branches/" + base + "/protection/required_status_checks",
+				},
+				Shows: "the first lists a rule of type required_status_checks, or the second lists a check " +
+					"(a 404 means none)",
+				Lacks: "no required check on " + base,
+			},
+		},
+		View:     "gh pr view <url> --json isDraft,mergeStateStatus",
+		Draft:    "isDraft is true",
+		Conflict: "mergeStateStatus is DIRTY",
+		Enable:   "gh pr merge <url> --auto --merge --match-head-commit <sha>",
+		Method:   "use --squash or --rebase in place of --merge only when the repository allows only that",
+		Watch:    "gh pr checks <url> --required --watch",
+		Merged:   "gh pr view <url> --json state,mergedAt",
+	}
 }
 
 // Env gives gh its token (GH_TOKEN on github.com, GH_ENTERPRISE_TOKEN with
@@ -216,6 +300,30 @@ func (gitlab) OpenCommand(base, branch string) string {
 
 func (gitlab) RequestURL(r Repo, n int) string {
 	return "https://" + r.Host + "/" + r.Path + "/-/merge_requests/" + strconv.Itoa(n)
+}
+
+// AutoMerge on GitLab needs "Pipelines must succeed"
+// (only_allow_merge_if_pipeline_succeeds) and a pipeline on the merge
+// request: glab sends auto_merge only when there is one, and merges at once
+// otherwise (mr_merge.go:223-230, 286-289), so the worker waits for it, as
+// Renovate does (platform/gitlab/index.ts:641-700). Enable is t3code's
+// (GitLabPullRequestCli.ts:1018-1023), pinned with --sha (mr_merge.go:91).
+// Not tried on a live GitLab project.
+func (gitlab) AutoMerge(r Repo, _ string) AutoMerge {
+	return AutoMerge{
+		Ready: []ReadyCheck{{
+			Commands: []string{"glab api projects/" + url.PathEscape(r.Path)},
+			Shows:    "has only_allow_merge_if_pipeline_succeeds: true",
+			Lacks:    "\"Pipelines must succeed\" is off in the project's settings",
+		}},
+		View:     "glab mr view <iid> --output json",
+		Draft:    "draft is true",
+		Conflict: "has_conflicts is true",
+		Before:   "its pipeline is not null; while it is, wait and read it again",
+		Enable:   "glab mr merge <iid> --auto-merge --yes --sha <sha>",
+		Watch:    "glab ci status --live --branch <branch>",
+		Merged:   "glab mr view <iid> --output json",
+	}
 }
 
 // Env gives glab its token and host (GITLAB_TOKEN, GITLAB_HOST) and git the

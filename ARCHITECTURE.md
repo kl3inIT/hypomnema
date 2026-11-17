@@ -227,10 +227,13 @@ sequenceDiagram
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, follow one up, finish or
   cancel a Run. A Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every
   Task downstream of it; reopening a failed Task resets its failure count and unblocks them.
-- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task of an open
-  Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
+- A follow-up (issue #666, `orchestration/followups.go`, migration 00101) asks more of a succeeded Task, or of one
+  blocked at a Gate (issue #714), of an open Run whose worker's Conversation is still open: the note is kept in `task_follow_ups` (every one, in order, with
   who asked: the owner or the coordinator, by the token), the failure count is reset, and the Task goes from
-  succeeded back to ready, the one transition from succeeded. Its next Dispatch continues the Conversation, and
+  succeeded (or blocked) back to ready, the one transition from succeeded. A follow-up to a Task blocked at a Gate
+  replaces the Gate: the Gate is canceled with the reason `superseded` (migration 00110), its `question.canceled`
+  event names the follow-up, and the next Dispatch carries the note and no Gate, as Omnara cancels open questions
+  on new input with the reason `superseded_by_input` (`commands_interactions.go:340-362`). Its next Dispatch continues the Conversation, and
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
@@ -265,7 +268,12 @@ sequenceDiagram
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
   resumes the Conversation with the question and answer. The first answer wins; the coordinator answers only what
   is addressed to it and can forward a question to the owner. Open questions close when their Dispatch settles (a
-  `wait` question) or their Task is canceled (a Gate); a Gate never expires.
+  `wait` question) or their Task is canceled (a Gate); a Gate never expires, but a follow-up replaces it (below).
+  A worker's options (`ask`, and `finish`'s Gate) are each a label or `{label, allows_text}`, so a "change first"
+  carries what to change; every question with options ends with an "Other" that takes text (a worker's own "Other"
+  is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
+  to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
+  `internal/node/workertools`).
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
@@ -3765,11 +3773,12 @@ Node (`internal/node`):
     Anthropic's Fable 5.2 page):
     - the rules, the same for every worker:
       - one decision boundary, within what the task and the worker's instruction allow: it decides how to build
-        it, which tests to add, running the checks, committing and pushing its branch, and opening or updating the
-        Task's pull request; it asks first, with `ask`, before changing the scope, merging, deploying or changing a
-        server, deleting what its change did not make, or acting outside its directory and pull request (the
-        owner's list, 2026-11-17, issue #672; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do
-        freely / Ask first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
+        it, which tests to add, running the checks, committing and pushing its branch, opening or updating the
+        Task's pull request and turning on its auto-merge (below); it never merges directly; it asks first, with
+        `ask`, before changing the scope, deploying or changing a server, deleting what its change did not make, or
+        acting outside its directory and pull request (the owner's list, 2026-11-17, issue #672, with merging taken
+        off it by issue #714; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask
+        first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
         omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
@@ -3792,8 +3801,25 @@ Node (`internal/node`):
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
       of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+    - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
+      `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
+      before merging:
+      1. read-only checks that the repository waits for its checks, since `gh` and `glab` merge at once otherwise:
+         on GitHub `allow_auto_merge` is true and the base branch requires a status check (a
+         `required_status_checks` rule in `gh api --hostname <host> repos/<path>/rules/branches/<base>`, or a check
+         listed by
+         `…/branches/<base>/protection/required_status_checks`); on GitLab the project has
+         `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
+         line says what the repository lacks, and no Gate is opened only to ask to merge;
+      2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
+         sides' intent, running the checks again and pushing; on GitLab the merge request must have a pipeline;
+      3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
+         `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
+      4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),
+         fixing red ones, then `finish`, saying whether it merged or that auto-merge is on;
     - `Task (<profile>):` and the Task's spec;
-    - the recovery note, a follow-up ("You finished this task before, and more is asked of it now: …", then to
+    - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
+      replaces the answer to any question you asked at `finish`): …", then to
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
