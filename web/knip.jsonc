@@ -8,6 +8,8 @@
     "src/api/generated/**",
     // shadcn's primitives, kept whole even where unused, as the CLI installs them.
     "src/components/ui/**",
+    // The pages the control plane of the browser tests shows (tests/server), files of an artifact, not modules.
+    "tests/server/pages/**",
   ],
   // Runtime packages of the vendored shadcn primitives (carousel, input-otp, calendar, resizable,
   // message-scroller, questionnaire), kept with them.
