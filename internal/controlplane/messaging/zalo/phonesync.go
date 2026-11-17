@@ -105,7 +105,8 @@ func (a *account) onPhoneSync(ctx context.Context, b *bridge, raw json.RawMessag
 
 	switch e.Stage {
 	case "confirmed":
-		a.setSync(messaging.PhoneSync{Stage: messaging.SyncSending})
+		// The phone's own word on where it is, when it gave one: preparing, or paused (bridge.mjs, onSync).
+		a.setSync(messaging.PhoneSync{Stage: messaging.SyncSending, Reason: e.Message})
 	case "refused":
 		a.setSync(messaging.PhoneSync{Stage: messaging.SyncFailed, Reason: "it was refused on the phone"})
 	case "failed":

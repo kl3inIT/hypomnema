@@ -104,7 +104,10 @@ export function decode(body, cipherKey) {
     buf = Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - 16)), decipher.final()]);
   }
 
-  return JSON.parse((type === 3 ? buf : zlib.inflateSync(buf)).toString("utf8"));
+  // gzip or zlib, as zca-js's pako.inflate detects (deplao-builder decodeWsEventData: zlib.unzipSync).
+  const text = (type === 3 ? buf : zlib.unzipSync(buf)).toString("utf8");
+
+  return text ? JSON.parse(text) : null;
 }
 
 // syncEvents are the sync's controls of one decoded cmd 601 body: [{act, data}] (softtyos control.handler.ts).
@@ -121,6 +124,56 @@ export function syncEvents(decoded) {
   return out;
 }
 
+// step is what one of the phone's events means for the sync (deplao-builder MobileSyncService.onSyncEvent):
+//   wait     confirmed, preparing (transfer_error status 1) or idle (status 2): wait for the backup
+//   refused  the owner refused on the phone (user_action 0)
+//   failed   the phone is restoring (user_action 2), or could not make the backup (error_code not 0)
+//   ready    the backup was uploaded (syncmsg_info)
+//   none     nothing to do (transfer_error with error_code 0 and no status)
+export function step(act, data) {
+  if (act === "syncmsg_info") return { next: "ready" };
+
+  if (act === "user_confirm") {
+    const action = Number(data?.user_action);
+    if (action === 1 || action === 3) return { next: "wait" };
+    if (action === 0) return { next: "refused" };
+    if (action === 2) return { next: "failed", message: "the phone is restoring its data; try again later" };
+
+    return { next: "none" };
+  }
+
+  if (act === "transfer_error") {
+    const status = Number(data?.status);
+    if (status === 1) return { next: "wait", note: "the phone is preparing its messages" };
+    if (status === 2) return { next: "wait", note: "Zalo is paused on the phone; open it to go on" };
+    if (Number(data?.error_code || 0) !== 0) {
+      const why = typeof data?.error_msg === "string" && data.error_msg ? `: ${data.error_msg}` : "";
+
+      return { next: "failed", message: `the phone could not make its backup (code ${data.error_code}${why})` };
+    }
+  }
+
+  return { next: "none" };
+}
+
+// lenient answers a sync request whose answer has no data, which zca-js's resolve may refuse (deplao-builder
+// resolveLenient: Zalo took it when the outer error_code is 0).
+async function lenient(utils, response) {
+  const copy = typeof response?.clone === "function" ? response.clone() : null;
+  try {
+    return await utils.resolve(response);
+  } catch (err) {
+    let json = null;
+    try {
+      json = copy ? await copy.json() : null;
+    } catch {
+      // Not JSON.
+    }
+    if (json && Number(json.error_code) === 0) return null;
+    throw err;
+  }
+}
+
 // call sends one of the sync's requests with zca-js's encrypted params (softtyos pullMobile, cancelPullMobile).
 async function call(api, path, payload) {
   const name = `hypomnema_${path}`;
@@ -131,7 +184,7 @@ async function call(api, path, payload) {
       const url = utils.makeURL(`${api.zpwServiceMap.file[0]}/api/message/${path}`,
         { zpw_ver: ctx.API_VERSION, zpw_type: ctx.API_TYPE, params, nretry: 0 }, false);
 
-      return utils.resolve(await utils.request(url, { method: "GET" }));
+      return lenient(utils, await utils.request(url, { method: "GET" }));
     });
   }
 
