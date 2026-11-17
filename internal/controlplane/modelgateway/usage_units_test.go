@@ -151,3 +151,32 @@ func TestAChatsNewestKeyIsFoundWorkingOrNot(t *testing.T) {
 	assert.Equal(t, second.ID, k.ID, "the newest, revoked when its pi ended")
 	assert.NotEqual(t, first.ID, k.ID)
 }
+
+// Scenario (review of #792): a chat's use outside its pi is recorded on the chat's newest key, live or not, and a
+// chat that never had one gets one made for it, revoked at once and named for its Bot; the same one is found
+// again. No live key is revoked by it, so a running pi keeps its key.
+func TestAChatsUsageKeyIsItsNewestOrOneMadeForIt(t *testing.T) {
+	t.Parallel()
+
+	g, _ := webGateway(t, exaFound)
+	ctx := t.Context()
+
+	made, err := g.svc.ChatUsageKey(ctx, "cht_new", "bot_1")
+	require.NoError(t, err)
+	assert.Equal(t, "cht_new", made.ChatID)
+	assert.NotNil(t, made.RevokedAt, "never usable")
+
+	again, err := g.svc.ChatUsageKey(ctx, "cht_new", "bot_1")
+	require.NoError(t, err)
+	assert.Equal(t, made.ID, again.ID, "made once")
+
+	live, secret, err := g.svc.AddChatKey(ctx, "cht_live", "bot_1", "")
+	require.NoError(t, err)
+
+	k, err := g.svc.ChatUsageKey(ctx, "cht_live", "bot_1")
+	require.NoError(t, err)
+	assert.Equal(t, live.ID, k.ID)
+
+	_, err = g.svc.Authenticate(ctx, secret)
+	require.NoError(t, err, "the pi's key still works")
+}

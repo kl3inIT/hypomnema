@@ -113,9 +113,14 @@ type hearing struct {
 	heard []string
 }
 
-func (h *hearing) Hear(_ context.Context, chatID string, recording []byte, err error) string {
+func (h *hearing) Hear(ctx context.Context, chatID string, recording []byte, err error) string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// The speech service is asked with this context: one already ended hears nothing (review of #792).
+	if err == nil {
+		err = ctx.Err()
+	}
 
 	if err != nil {
 		h.heard = append(h.heard, chatID+": failed")
@@ -2048,7 +2053,8 @@ func TestTheRestartLinesReachTheChannel(t *testing.T) {
 // typed one does. One whose recording cannot be downloaded reaches the Bot
 // as one line saying it could not be heard, and a voice message in a group,
 // which mentions no one, is left alone as any message that does not mention
-// the bot.
+// the bot. The recording is heard with a context still live once it is
+// downloaded.
 func TestAVoiceMessageIsHeardBeforeTheBotReadsIt(t *testing.T) {
 	t.Parallel()
 

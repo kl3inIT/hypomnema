@@ -9,6 +9,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
@@ -191,12 +192,20 @@ func (a agentAudio) Speak(ctx context.Context, who agentapi.Who, req speech.Spea
 // channelVoice hears the voice messages a Channel takes (issue #723,
 // incoming voice): transcribed with the same speech service as
 // audio_transcribe, and recorded on the newest key of the chat, the one its
-// pi has or last had, since a message may come before the pi starts. Lark
+// pi has or last had, or on one made for a chat whose pi never ran, since a
+// message may come before the pi starts (modelgateway.ChatUsageKey). Lark
 // sends its voice messages as Opus.
 type channelVoice struct {
 	speech  *speech.Service
 	gateway *modelgateway.Service
-	logger  *slog.Logger
+	// chats names a chat's Bot, which a key made for the chat counts under.
+	chats  chatReader
+	logger *slog.Logger
+}
+
+// chatReader reads a chat (orchestration.Service).
+type chatReader interface {
+	GetChat(ctx context.Context, id string) (orchestration.Chat, error)
 }
 
 func (c channelVoice) Hear(ctx context.Context, chatID string, recording []byte, err error) string {
@@ -213,10 +222,18 @@ func (c channelVoice) Hear(ctx context.Context, chatID string, recording []byte,
 
 	ctx = context.WithoutCancel(ctx)
 
-	k, kerr := c.gateway.ChatKey(ctx, chatID)
+	bot := ""
+	if c.chats != nil {
+		if chat, cerr := c.chats.GetChat(ctx, chatID); cerr == nil {
+			bot = chat.Bot
+		}
+	}
+
+	// Each transcription is a usage row (incoming voice's design): on the chat's newest key, or on one made for a
+	// chat whose pi never ran, since the first message may come before it (review of #792).
+	k, kerr := c.gateway.ChatUsageKey(ctx, chatID, bot)
 
 	switch {
-	case errors.Is(kerr, modelgateway.ErrNotFound):
 	case kerr != nil:
 		c.logger.ErrorContext(ctx, "reading a chat's gateway key", slog.String("event", "controlplane.voice_key_failed"),
 			slog.String("chat_id", chatID), slog.String("error", kerr.Error()))

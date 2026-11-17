@@ -507,7 +507,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	channelData := channelStore{Service: svc, Store: svc.Channels()}
 
 	runtime := channels.New(channelData, sup, registry, secrets, logger).WithWebURL(cfg.PublicURL).
-		WithHearer(channelVoice{speech: voice, gateway: gateway, logger: logger})
+		WithHearer(channelVoice{speech: voice, gateway: gateway, chats: svc, logger: logger})
 	if bots != nil {
 		runtime.WithFiles(bots)
 	}

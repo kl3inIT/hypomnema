@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
@@ -110,6 +111,67 @@ func (s *Service) ChatKey(ctx context.Context, chatID string) (Key, error) {
 	}
 
 	return keyFromRow(row)
+}
+
+// ChatUsageKey is the key a chat's use outside its pi is recorded on (issue
+// #723): its newest, working or not, as ChatKey; or, for a chat that never had
+// one, a key made for the chat and its Bot and revoked at once, so that the
+// use counts under the Bot and the key is never usable. Neither is made while
+// another is: the chat's keys are read and the key made in one transaction,
+// and no live key is revoked, so a pi starting meanwhile keeps its own.
+func (s *Service) ChatUsageKey(ctx context.Context, chatID, botID string) (Key, error) {
+	if chatID == "" {
+		return Key{}, fmt.Errorf("%w: a chat's key needs the chat", ErrInvalid)
+	}
+
+	secret, err := bearertoken.Generate(bearertoken.Gateway)
+	if err != nil {
+		return Key{}, err
+	}
+
+	models, err := json.Marshal([]string{AllModels})
+	if err != nil {
+		return Key{}, fmt.Errorf("encoding the key's models: %w", err)
+	}
+
+	var id string
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		row, err := q.GetLatestGatewayKeyOfChat(ctx, sql.NullString{String: chatID, Valid: true})
+
+		switch {
+		case err == nil:
+			id = row.ID
+
+			return nil
+		case !errors.Is(err, sql.ErrNoRows):
+			return fmt.Errorf("reading the key of chat %s: %w", chatID, err)
+		}
+
+		id = s.newID("gwk")
+
+		if err := q.InsertGatewayKey(ctx, store.InsertGatewayKeyParams{
+			ID: id, Name: strings.ToLower(strings.ReplaceAll(s.newID("chat"), "_", "-")),
+			KeyHash: bearertoken.Hash(secret), KeyPrefix: secret[:keyPrefixLength], Models: string(models),
+			ChatID: sql.NullString{String: chatID, Valid: true},
+			BotID:  sql.NullString{String: botID, Valid: botID != ""}, Now: now,
+		}); err != nil {
+			return fmt.Errorf("storing a key of chat %s: %w", chatID, err)
+		}
+
+		if _, err := q.RevokeGatewayKey(ctx, store.RevokeGatewayKeyParams{
+			ID: id, Now: sql.NullInt64{Int64: now, Valid: true},
+		}); err != nil {
+			return fmt.Errorf("revoking the key made for chat %s: %w", chatID, err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return Key{}, err
+	}
+
+	return s.getKey(ctx, id)
 }
 
 type webSearchRequest struct {

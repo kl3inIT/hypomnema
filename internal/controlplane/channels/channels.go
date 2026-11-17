@@ -719,9 +719,13 @@ func (cn *conn) voice(m Message) (Recorder, bool) {
 
 // heard is what the Bot reads of a voice message: its transcript, or why
 // there is none, in the Hearer's words.
+// The download has its own bound, mediaTimeout; the transcription is heard
+// with the message's own context, which the speech service bounds itself
+// (speech.Service.Transcribe, 35 minutes), not the download's, which has
+// ended by then (review of #792).
 func (cn *conn) heard(ctx context.Context, recorder Recorder, chatID string, m Message) string {
-	ctx, cancel := context.WithTimeout(ctx, mediaTimeout)
-	recording, err := recorder.Recording(ctx, m.ID, m.Voice, MaxVoiceBytes)
+	download, cancel := context.WithTimeout(ctx, mediaTimeout)
+	recording, err := recorder.Recording(download, m.ID, m.Voice, MaxVoiceBytes)
 
 	cancel()
 
