@@ -89,7 +89,9 @@ type Server struct {
 	audioSettings AudioSettings
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
-	now    func() time.Time
+	// shareGuesses counts unknown link tokens per address (issue #745), as logins counts wrong passwords.
+	shareGuesses *loginLimiter
+	now          func() time.Time
 	// hostTokens keeps git hosts' tokens; nil when the control plane wired none.
 	hostTokens HostTokens
 	// gitSSHKey is the control plane's SSH key for git (issue #625); nil when the control plane wired none.
@@ -261,7 +263,8 @@ func (s *Server) WithCoordinator(c Coordinator) *Server {
 // does not wait for them.
 func New(svc *orchestration.Service, logger *slog.Logger, stop <-chan struct{}) *Server {
 	return &Server{
-		svc: svc, logger: logger, stop: stop, heartbeat: heartbeatEvery, logins: newLoginLimiter(), now: time.Now,
+		svc: svc, logger: logger, stop: stop, heartbeat: heartbeatEvery, logins: newLoginLimiter(),
+		shareGuesses: newLoginLimiter(), now: time.Now,
 	}
 }
 
@@ -310,10 +313,17 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	// permission (issue #402).
 	mux.HandleFunc(artifactFilesPath+"{token}/{path...}", s.artifactFiles)
 
-	mux.Handle(BasePath+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// A view-only link's files (issue #745), checked against the link on every request, as a frame's are.
+	mux.HandleFunc(sharesPath+"{token}/files/{rev}/{path...}", s.shareFiles)
+
+	contract := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit(r))
 		validate(api).ServeHTTP(w, r)
-	}))
+	})
+
+	mux.Handle(BasePath+"/", contract)
+	// What a link shows is read without sign-in, never indexed, cached or framed (shareHeaders).
+	mux.Handle(sharesPath, withShareHeaders(contract))
 
 	return nil
 }

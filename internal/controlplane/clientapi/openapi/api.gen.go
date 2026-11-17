@@ -1043,6 +1043,30 @@ func (e MeetingState) Valid() bool {
 	}
 }
 
+// Defines values for MeetingWordSource.
+const (
+	MeetingWordSourceBot        MeetingWordSource = "bot"
+	MeetingWordSourceOwner      MeetingWordSource = "owner"
+	MeetingWordSourceRepository MeetingWordSource = "repository"
+	MeetingWordSourceSpeaker    MeetingWordSource = "speaker"
+)
+
+// Valid indicates whether the value is a known member of the MeetingWordSource enum.
+func (e MeetingWordSource) Valid() bool {
+	switch e {
+	case MeetingWordSourceBot:
+		return true
+	case MeetingWordSourceOwner:
+		return true
+	case MeetingWordSourceRepository:
+		return true
+	case MeetingWordSourceSpeaker:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MemoryChangeKind.
 const (
 	Add     MemoryChangeKind = "add"
@@ -2294,6 +2318,29 @@ type ArtifactRevision struct {
 
 	// Type How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
 	Type ArtifactType `json:"type"`
+}
+
+// ArtifactShare defines model for ArtifactShare.
+type ArtifactShare struct {
+	ArtifactId   string     `json:"artifact_id"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Id           string     `json:"id"`
+	Label        string     `json:"label"`
+	LastViewedAt *time.Time `json:"last_viewed_at,omitempty"`
+
+	// Path The link's path on this server, /s/<token>.
+	Path string `json:"path"`
+
+	// Token The link's secret, 32 random bytes in base64url.
+	Token string `json:"token"`
+
+	// Views How many times its page was opened.
+	Views int64 `json:"views"`
+}
+
+// ArtifactShareList defines model for ArtifactShareList.
+type ArtifactShareList struct {
+	Data []ArtifactShare `json:"data"`
 }
 
 // ArtifactType How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
@@ -3672,7 +3719,6 @@ type Meeting struct {
 
 	// State Where the meeting's transcription stands.
 	State MeetingState `json:"state"`
-	Terms []string     `json:"terms"`
 	Title string       `json:"title"`
 
 	// Titled The owner gave the title; otherwise the notes wrote it.
@@ -3716,15 +3762,30 @@ type MeetingDetail struct {
 
 // MeetingFormat defines model for MeetingFormat.
 type MeetingFormat struct {
+	// Builtin Shipped with the control plane; copied rather than changed.
+	Builtin  bool                   `json:"builtin"`
 	Id       string                 `json:"id"`
 	Name     string                 `json:"name"`
 	Sections []MeetingFormatSection `json:"sections"`
+}
+
+// MeetingFormatInput defines model for MeetingFormatInput.
+type MeetingFormatInput struct {
+	Name     string                      `json:"name"`
+	Sections []MeetingFormatSectionInput `json:"sections"`
 }
 
 // MeetingFormatSection defines model for MeetingFormatSection.
 type MeetingFormatSection struct {
 	About string `json:"about"`
 	Title string `json:"title"`
+}
+
+// MeetingFormatSectionInput defines model for MeetingFormatSectionInput.
+type MeetingFormatSectionInput struct {
+	// About A short instruction of what the section holds.
+	About *string `json:"about,omitempty"`
+	Title string  `json:"title"`
 }
 
 // MeetingItem defines model for MeetingItem.
@@ -3840,6 +3901,59 @@ type MeetingSpeaker struct {
 
 // MeetingState Where the meeting's transcription stands.
 type MeetingState string
+
+// MeetingWord defines model for MeetingWord.
+type MeetingWord struct {
+	// From Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a registered repository's.
+	From MeetingWordSource `json:"from"`
+
+	// Sent A transcription is given it; false past max_sent.
+	Sent bool   `json:"sent"`
+	Word string `json:"word"`
+}
+
+// MeetingWordFix defines model for MeetingWordFix.
+type MeetingWordFix struct {
+	// From The word as the transcript says it.
+	From string `json:"from"`
+
+	// Line Only this line; absent
+	Line *int `json:"line,omitempty"`
+
+	// To The word as it was said.
+	To string `json:"to"`
+}
+
+// MeetingWordFixed defines model for MeetingWordFixed.
+type MeetingWordFixed struct {
+	Detail MeetingDetail `json:"detail"`
+
+	// Learned The right word is in the owner's words to hear right; false when the list is full.
+	Learned bool `json:"learned"`
+
+	// Replaced How many times the word was replaced.
+	Replaced int `json:"replaced"`
+}
+
+// MeetingWordSource Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a registered repository's.
+type MeetingWordSource string
+
+// MeetingWords defines model for MeetingWords.
+type MeetingWords struct {
+	Data []MeetingWord `json:"data"`
+
+	// MaxOwn How many words the owner may keep.
+	MaxOwn int `json:"max_own"`
+
+	// MaxSent How many words a transcription is given.
+	MaxSent int `json:"max_sent"`
+}
+
+// MeetingWordsUpdate defines model for MeetingWordsUpdate.
+type MeetingWordsUpdate struct {
+	// Words The owner's words, in their order.
+	Words []string `json:"words"`
+}
 
 // Memory defines model for Memory.
 type Memory struct {
@@ -3973,6 +4087,12 @@ type NewAccountSignIn struct {
 
 // NewAccountSignInRuntime The kind of subscription.
 type NewAccountSignInRuntime string
+
+// NewArtifactShare defines model for NewArtifactShare.
+type NewArtifactShare struct {
+	// Label Whom the link is for, one line of at most 80 characters, such as "Laura".
+	Label string `json:"label"`
+}
 
 // NewBot defines model for NewBot.
 type NewBot struct {
@@ -4786,6 +4906,26 @@ type SetupChangeKind string
 // SetupChangeList defines model for SetupChangeList.
 type SetupChangeList struct {
 	Data []SetupChange `json:"data"`
+}
+
+// SharedArtifact defines model for SharedArtifact.
+type SharedArtifact struct {
+	// Entry The file shown, index.html of a folder or the one file.
+	Entry string `json:"entry"`
+
+	// Files The path its files load from, ending in "/".
+	Files string `json:"files"`
+
+	// MediaType The type of the file shown.
+	MediaType string `json:"media_type"`
+
+	// Revision The newest revision; the page reloads when it changes.
+	Revision int    `json:"revision"`
+	Title    string `json:"title"`
+
+	// Type How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
+	Type      ArtifactType `json:"type"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 // Sheet defines model for Sheet.
@@ -6006,9 +6146,6 @@ type UploadMeetingParams struct {
 	// People Who was in the meeting; they help name the speakers.
 	People *[]string `form:"people,omitempty" json:"people,omitempty"`
 
-	// Terms Words to hear right, such as names and jargon, given to the speech-to-text provider.
-	Terms *[]string `form:"terms,omitempty" json:"terms,omitempty"`
-
 	// Format The notes format's id (GET /meeting-settings lists them); absent, general.
 	Format *string `form:"format,omitempty" json:"format,omitempty"`
 }
@@ -6112,6 +6249,9 @@ type MoveAccountJSONRequestBody = AccountMove
 
 // DecideApprovalJSONRequestBody defines body for DecideApproval for application/json ContentType.
 type DecideApprovalJSONRequestBody = ApprovalDecision
+
+// CreateArtifactShareJSONRequestBody defines body for CreateArtifactShare for application/json ContentType.
+type CreateArtifactShareJSONRequestBody = NewArtifactShare
 
 // SpeakAudioJSONRequestBody defines body for SpeakAudio for application/json ContentType.
 type SpeakAudioJSONRequestBody = SpeakRequest
@@ -6245,8 +6385,20 @@ type BeginIntegrationSignInJSONRequestBody = NewSignIn
 // CompleteIntegrationSignInJSONRequestBody defines body for CompleteIntegrationSignIn for application/json ContentType.
 type CompleteIntegrationSignInJSONRequestBody = SignInCallback
 
+// CreateMeetingFormatJSONRequestBody defines body for CreateMeetingFormat for application/json ContentType.
+type CreateMeetingFormatJSONRequestBody = MeetingFormatInput
+
+// UpdateMeetingFormatJSONRequestBody defines body for UpdateMeetingFormat for application/json ContentType.
+type UpdateMeetingFormatJSONRequestBody = MeetingFormatInput
+
 // SetMeetingSettingsJSONRequestBody defines body for SetMeetingSettings for application/json ContentType.
 type SetMeetingSettingsJSONRequestBody = MeetingSettingsUpdate
+
+// SetMeetingWordsJSONRequestBody defines body for SetMeetingWords for application/json ContentType.
+type SetMeetingWordsJSONRequestBody = MeetingWordsUpdate
+
+// FixMeetingWordJSONRequestBody defines body for FixMeetingWord for application/json ContentType.
+type FixMeetingWordJSONRequestBody = MeetingWordFix
 
 // UpdateMeetingItemJSONRequestBody defines body for UpdateMeetingItem for application/json ContentType.
 type UpdateMeetingItemJSONRequestBody = MeetingItemUpdate
@@ -6536,6 +6688,11 @@ type ClientInterface interface {
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteArtifactShare Revoke a view-only link at once (owner only)
+	//
+	// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+	DeleteArtifactShare(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListArtifacts Artifacts at their newest revision, the latest changed first
 	//
 	// Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -6580,6 +6737,29 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /artifacts/{artifact_id}/revisions/{revision}/sheets (the `ReadArtifactSheets` operationId).
 	ReadArtifactSheets(ctx context.Context, artifactId ArtifactID, revision ArtifactRevisionNumber, params *ReadArtifactSheetsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListArtifactShares An artifact's view-only links, newest first (owner only)
+	//
+	// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+	ListArtifactShares(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateArtifactShareWithBody Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShareWithBody(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShare(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SpeakAudioWithBody Turn text into speech; any token, a Bot's included
 	//
@@ -7727,7 +7907,46 @@ type ClientInterface interface {
 	// Corresponds with GET /meeting-actions (the `ListMeetingActions` operationId).
 	ListMeetingActions(ctx context.Context, params *ListMeetingActionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetMeetingSettings The model that writes notes, and the notes formats
+	// CreateMeetingFormatWithBody Make a notes format of the owner's; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateMeetingFormat Make a notes format of the owner's; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormat(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+	//
+	// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+	//
+	// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+	DeleteMeetingFormat(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateMeetingFormatWithBody Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormatWithBody(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormat(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 	//
 	// Corresponds with GET /meeting-settings (the `GetMeetingSettings` operationId).
 	GetMeetingSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -7746,6 +7965,31 @@ type ClientInterface interface {
 	// Corresponds with PUT /meeting-settings (the `SetMeetingSettings` operationId).
 	SetMeetingSettings(ctx context.Context, body SetMeetingSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListMeetingWords The words to hear right, given to every transcription
+	//
+	// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+	//
+	// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+	ListMeetingWords(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMeetingWordsWithBody Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWordsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetMeetingWords Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWords(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListMeetings The meetings, the newest first
 	//
 	// With q, those whose title or transcript holds it.
@@ -7755,7 +7999,7 @@ type ClientInterface interface {
 
 	// UploadMeetingWithBody Upload a meeting's recording, at most 128 MB; only the owner
 	//
-	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -7771,6 +8015,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FixMeetingWordWithBody Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWordWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWord(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateMeetingItemWithBody Mark an action done or not done; only the owner
 	//
@@ -8352,6 +8614,13 @@ type ClientInterface interface {
 	// Corresponds with POST /setup-changes/{change_id}/undo (the `UndoSetupChange` operationId).
 	UndoSetupChange(ctx context.Context, changeId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetShare What a view-only link shows, without signing in
+	//
+	// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+	//
+	// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+	GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 	//
 	// Read from skills.sh as the skills CLI reads it before installing. Empty when skills.sh has none or does not answer.
@@ -8836,6 +9105,21 @@ func (c *Client) DecideApproval(ctx context.Context, approvalId string, body Dec
 	return c.Client.Do(req)
 }
 
+// DeleteArtifactShare Revoke a view-only link at once (owner only)
+//
+// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+func (c *Client) DeleteArtifactShare(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteArtifactShareRequest(c.Server, shareId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListArtifacts Artifacts at their newest revision, the latest changed first
 //
 // Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -8941,6 +9225,59 @@ func (c *Client) OpenArtifactFrame(ctx context.Context, artifactId ArtifactID, r
 // Corresponds with GET /artifacts/{artifact_id}/revisions/{revision}/sheets (the `ReadArtifactSheets` operationId).
 func (c *Client) ReadArtifactSheets(ctx context.Context, artifactId ArtifactID, revision ArtifactRevisionNumber, params *ReadArtifactSheetsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReadArtifactSheetsRequest(c.Server, artifactId, revision, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListArtifactShares An artifact's view-only links, newest first (owner only)
+//
+// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+func (c *Client) ListArtifactShares(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListArtifactSharesRequest(c.Server, artifactId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateArtifactShareWithBody Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *Client) CreateArtifactShareWithBody(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateArtifactShareRequestWithBody(c.Server, artifactId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *Client) CreateArtifactShare(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateArtifactShareRequest(c.Server, artifactId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11637,7 +11974,96 @@ func (c *Client) ListMeetingActions(ctx context.Context, params *ListMeetingActi
 	return c.Client.Do(req)
 }
 
-// GetMeetingSettings The model that writes notes, and the notes formats
+// CreateMeetingFormatWithBody Make a notes format of the owner's; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *Client) CreateMeetingFormatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateMeetingFormatRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateMeetingFormat Make a notes format of the owner's; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *Client) CreateMeetingFormat(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateMeetingFormatRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+//
+// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+//
+// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+func (c *Client) DeleteMeetingFormat(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteMeetingFormatRequest(c.Server, formatId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateMeetingFormatWithBody Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *Client) UpdateMeetingFormatWithBody(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateMeetingFormatRequestWithBody(c.Server, formatId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *Client) UpdateMeetingFormat(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateMeetingFormatRequest(c.Server, formatId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 //
 // Corresponds with GET /meeting-settings (the `GetMeetingSettings` operationId).
 func (c *Client) GetMeetingSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -11686,6 +12112,61 @@ func (c *Client) SetMeetingSettings(ctx context.Context, body SetMeetingSettings
 	return c.Client.Do(req)
 }
 
+// ListMeetingWords The words to hear right, given to every transcription
+//
+// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+//
+// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+func (c *Client) ListMeetingWords(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListMeetingWordsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMeetingWordsWithBody Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *Client) SetMeetingWordsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMeetingWordsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetMeetingWords Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *Client) SetMeetingWords(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetMeetingWordsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListMeetings The meetings, the newest first
 //
 // With q, those whose title or transcript holds it.
@@ -11705,7 +12186,7 @@ func (c *Client) ListMeetings(ctx context.Context, params *ListMeetingsParams, r
 
 // UploadMeetingWithBody Upload a meeting's recording, at most 128 MB; only the owner
 //
-// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 //
 // Takes any type of body and a specified content type.
 //
@@ -11742,6 +12223,44 @@ func (c *Client) DeleteMeeting(ctx context.Context, meetingId MeetingID, reqEdit
 // Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 func (c *Client) GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMeetingRequest(c.Server, meetingId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FixMeetingWordWithBody Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *Client) FixMeetingWordWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFixMeetingWordRequestWithBody(c.Server, meetingId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *Client) FixMeetingWord(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewFixMeetingWordRequest(c.Server, meetingId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -13172,6 +13691,23 @@ func (c *Client) UndoSetupChange(ctx context.Context, changeId string, reqEditor
 	return c.Client.Do(req)
 }
 
+// GetShare What a view-only link shows, without signing in
+//
+// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+//
+// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+func (c *Client) GetShare(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetShareRequest(c.Server, token)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 //
 // Read from skills.sh as the skills CLI reads it before installing. Empty when skills.sh has none or does not answer.
@@ -14117,6 +14653,40 @@ func NewDecideApprovalRequestWithBody(server string, approvalId string, contentT
 	return req, nil
 }
 
+// NewDeleteArtifactShareRequest constructs an http.Request for the DeleteArtifactShare method
+func NewDeleteArtifactShareRequest(server string, shareId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "share_id", shareId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/artifact-shares/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListArtifactsRequest constructs an http.Request for the ListArtifacts method
 func NewListArtifactsRequest(server string, params *ListArtifactsParams) (*http.Request, error) {
 	var err error
@@ -14499,6 +15069,87 @@ func NewReadArtifactSheetsRequest(server string, artifactId ArtifactID, revision
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListArtifactSharesRequest constructs an http.Request for the ListArtifactShares method
+func NewListArtifactSharesRequest(server string, artifactId ArtifactID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "artifact_id", artifactId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/artifacts/%s/shares", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateArtifactShareRequest calls the generic CreateArtifactShare builder with application/json body
+func NewCreateArtifactShareRequest(server string, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateArtifactShareRequestWithBody(server, artifactId, "application/json", bodyReader)
+}
+
+// NewCreateArtifactShareRequestWithBody constructs an http.Request for the CreateArtifactShare method, with any body, and a specified content type
+func NewCreateArtifactShareRequestWithBody(server string, artifactId ArtifactID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "artifact_id", artifactId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/artifacts/%s/shares", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -20063,6 +20714,127 @@ func NewListMeetingActionsRequest(server string, params *ListMeetingActionsParam
 	return req, nil
 }
 
+// NewCreateMeetingFormatRequest calls the generic CreateMeetingFormat builder with application/json body
+func NewCreateMeetingFormatRequest(server string, body CreateMeetingFormatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateMeetingFormatRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateMeetingFormatRequestWithBody constructs an http.Request for the CreateMeetingFormat method, with any body, and a specified content type
+func NewCreateMeetingFormatRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-formats")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteMeetingFormatRequest constructs an http.Request for the DeleteMeetingFormat method
+func NewDeleteMeetingFormatRequest(server string, formatId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "format_id", formatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-formats/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateMeetingFormatRequest calls the generic UpdateMeetingFormat builder with application/json body
+func NewUpdateMeetingFormatRequest(server string, formatId string, body UpdateMeetingFormatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateMeetingFormatRequestWithBody(server, formatId, "application/json", bodyReader)
+}
+
+// NewUpdateMeetingFormatRequestWithBody constructs an http.Request for the UpdateMeetingFormat method, with any body, and a specified content type
+func NewUpdateMeetingFormatRequestWithBody(server string, formatId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "format_id", formatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-formats/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetMeetingSettingsRequest constructs an http.Request for the GetMeetingSettings method
 func NewGetMeetingSettingsRequest(server string) (*http.Request, error) {
 	var err error
@@ -20111,6 +20883,73 @@ func NewSetMeetingSettingsRequestWithBody(server string, contentType string, bod
 	}
 
 	operationPath := fmt.Sprintf("/meeting-settings")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListMeetingWordsRequest constructs an http.Request for the ListMeetingWords method
+func NewListMeetingWordsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-words")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetMeetingWordsRequest calls the generic SetMeetingWords builder with application/json body
+func NewSetMeetingWordsRequest(server string, body SetMeetingWordsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetMeetingWordsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSetMeetingWordsRequestWithBody constructs an http.Request for the SetMeetingWords method, with any body, and a specified content type
+func NewSetMeetingWordsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meeting-words")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -20280,18 +21119,6 @@ func NewUploadMeetingRequestWithBody(server string, params *UploadMeetingParams,
 
 		}
 
-		if params.Terms != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "terms", *params.Terms, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
 		if params.Format != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "format", *params.Format, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
@@ -20384,6 +21211,53 @@ func NewGetMeetingRequest(server string, meetingId MeetingID) (*http.Request, er
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewFixMeetingWordRequest calls the generic FixMeetingWord builder with application/json body
+func NewFixMeetingWordRequest(server string, meetingId MeetingID, body FixMeetingWordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewFixMeetingWordRequestWithBody(server, meetingId, "application/json", bodyReader)
+}
+
+// NewFixMeetingWordRequestWithBody constructs an http.Request for the FixMeetingWord method, with any body, and a specified content type
+func NewFixMeetingWordRequestWithBody(server string, meetingId MeetingID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "meeting_id", meetingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/%s/fix", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -22988,6 +23862,40 @@ func NewUndoSetupChangeRequest(server string, changeId string) (*http.Request, e
 	return req, nil
 }
 
+// NewGetShareRequest constructs an http.Request for the GetShare method
+func NewGetShareRequest(server string, token string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "token", token, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/shares/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListSkillAuditsRequest constructs an http.Request for the ListSkillAudits method
 func NewListSkillAuditsRequest(server string, params *ListSkillAuditsParams) (*http.Request, error) {
 	var err error
@@ -23915,6 +24823,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
 
+	// DeleteArtifactShareWithResponse Revoke a view-only link at once (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+	DeleteArtifactShareWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*DeleteArtifactShareResponse, error)
+
 	// ListArtifactsWithResponse Artifacts at their newest revision, the latest changed first
 	//
 	// Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -23971,6 +24886,31 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /artifacts/{artifact_id}/revisions/{revision}/sheets (the `ReadArtifactSheets` operationId).
 	ReadArtifactSheetsWithResponse(ctx context.Context, artifactId ArtifactID, revision ArtifactRevisionNumber, params *ReadArtifactSheetsParams, reqEditors ...RequestEditorFn) (*ReadArtifactSheetsResponse, error)
+
+	// ListArtifactSharesWithResponse An artifact's view-only links, newest first (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+	ListArtifactSharesWithResponse(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*ListArtifactSharesResponse, error)
+
+	// CreateArtifactShareWithBodyWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShareWithBodyWithResponse(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error)
+
+	// CreateArtifactShareWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+	//
+	// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+	CreateArtifactShareWithResponse(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error)
 
 	// SpeakAudioWithBodyWithResponse Turn text into speech; any token, a Bot's included
 	//
@@ -25250,7 +26190,48 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /meeting-actions (the `ListMeetingActions` operationId).
 	ListMeetingActionsWithResponse(ctx context.Context, params *ListMeetingActionsParams, reqEditors ...RequestEditorFn) (*ListMeetingActionsResponse, error)
 
-	// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats
+	// CreateMeetingFormatWithBodyWithResponse Make a notes format of the owner's; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error)
+
+	// CreateMeetingFormatWithResponse Make a notes format of the owner's; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+	CreateMeetingFormatWithResponse(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error)
+
+	// DeleteMeetingFormatWithResponse Delete a notes format of the owner's; only the owner
+	//
+	// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+	DeleteMeetingFormatWithResponse(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*DeleteMeetingFormatResponse, error)
+
+	// UpdateMeetingFormatWithBodyWithResponse Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormatWithBodyWithResponse(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error)
+
+	// UpdateMeetingFormatWithResponse Change a notes format of the owner's; only the owner
+	//
+	// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+	UpdateMeetingFormatWithResponse(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error)
+
+	// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats, built-in and the owner's
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -25271,6 +26252,33 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /meeting-settings (the `SetMeetingSettings` operationId).
 	SetMeetingSettingsWithResponse(ctx context.Context, body SetMeetingSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMeetingSettingsResponse, error)
 
+	// ListMeetingWordsWithResponse The words to hear right, given to every transcription
+	//
+	// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+	ListMeetingWordsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMeetingWordsResponse, error)
+
+	// SetMeetingWordsWithBodyWithResponse Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWordsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error)
+
+	// SetMeetingWordsWithResponse Set the owner's words to hear right; only the owner
+	//
+	// The words found elsewhere are not the owner's to set; they follow where they are kept.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+	SetMeetingWordsWithResponse(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error)
+
 	// ListMeetingsWithResponse The meetings, the newest first
 	//
 	// With q, those whose title or transcript holds it.
@@ -25282,7 +26290,7 @@ type ClientWithResponsesInterface interface {
 
 	// UploadMeetingWithBodyWithResponse Upload a meeting's recording, at most 128 MB; only the owner
 	//
-	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+	// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -25302,6 +26310,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*GetMeetingResponse, error)
+
+	// FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWordWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error)
+
+	// FixMeetingWordWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+	//
+	// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+	FixMeetingWordWithResponse(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error)
 
 	// UpdateMeetingItemWithBodyWithResponse Mark an action done or not done; only the owner
 	//
@@ -25966,6 +26992,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /setup-changes/{change_id}/undo (the `UndoSetupChange` operationId).
 	UndoSetupChangeWithResponse(ctx context.Context, changeId string, reqEditors ...RequestEditorFn) (*UndoSetupChangeResponse, error)
+
+	// GetShareWithResponse What a view-only link shows, without signing in
+	//
+	// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+	GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error)
 
 	// ListSkillAuditsWithResponse What skills.sh's auditors said of a skill; only the owner
 	//
@@ -26728,6 +27763,47 @@ func (r DecideApprovalResponse) ContentType() string {
 	return ""
 }
 
+type DeleteArtifactShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteArtifactShareResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteArtifactShareResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteArtifactShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteArtifactShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteArtifactShareResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListArtifactsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -27051,6 +28127,102 @@ func (r ReadArtifactSheetsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ReadArtifactSheetsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListArtifactSharesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ArtifactShareList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListArtifactSharesResponse) GetJSON200() *ArtifactShareList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListArtifactSharesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListArtifactSharesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListArtifactSharesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListArtifactSharesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListArtifactSharesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateArtifactShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ArtifactShare
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateArtifactShareResponse) GetJSON201() *ArtifactShare {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateArtifactShareResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateArtifactShareResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateArtifactShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateArtifactShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateArtifactShareResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -32252,6 +33424,143 @@ func (r ListMeetingActionsResponse) ContentType() string {
 	return ""
 }
 
+type CreateMeetingFormatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *MeetingFormat
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateMeetingFormatResponse) GetJSON201() *MeetingFormat {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateMeetingFormatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateMeetingFormatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateMeetingFormatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateMeetingFormatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateMeetingFormatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteMeetingFormatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteMeetingFormatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteMeetingFormatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteMeetingFormatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteMeetingFormatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteMeetingFormatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateMeetingFormatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingFormat
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateMeetingFormatResponse) GetJSON200() *MeetingFormat {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateMeetingFormatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateMeetingFormatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateMeetingFormatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateMeetingFormatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateMeetingFormatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetMeetingSettingsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -32342,6 +33651,102 @@ func (r SetMeetingSettingsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetMeetingSettingsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListMeetingWordsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingWords
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListMeetingWordsResponse) GetJSON200() *MeetingWords {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListMeetingWordsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListMeetingWordsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListMeetingWordsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListMeetingWordsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListMeetingWordsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetMeetingWordsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingWords
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetMeetingWordsResponse) GetJSON200() *MeetingWords {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetMeetingWordsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetMeetingWordsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetMeetingWordsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetMeetingWordsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetMeetingWordsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -32527,6 +33932,54 @@ func (r GetMeetingResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetMeetingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type FixMeetingWordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeetingWordFixed
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r FixMeetingWordResponse) GetJSON200() *MeetingWordFixed {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r FixMeetingWordResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r FixMeetingWordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r FixMeetingWordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r FixMeetingWordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r FixMeetingWordResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -35515,6 +36968,54 @@ func (r UndoSetupChangeResponse) ContentType() string {
 	return ""
 }
 
+type GetShareResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SharedArtifact
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetShareResponse) GetJSON200() *SharedArtifact {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetShareResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetShareResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetShareResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetShareResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetShareResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListSkillAuditsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -36635,6 +38136,19 @@ func (c *ClientWithResponses) DecideApprovalWithResponse(ctx context.Context, ap
 	return ParseDecideApprovalResponse(rsp)
 }
 
+// DeleteArtifactShareWithResponse Revoke a view-only link at once (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /artifact-shares/{share_id} (the `DeleteArtifactShare` operationId).
+func (c *ClientWithResponses) DeleteArtifactShareWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*DeleteArtifactShareResponse, error) {
+	rsp, err := c.DeleteArtifactShare(ctx, shareId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteArtifactShareResponse(rsp)
+}
+
 // ListArtifactsWithResponse Artifacts at their newest revision, the latest changed first
 //
 // Every token reads them; a Bot's token reads its own chat's, or its Bot's for a Routine's script.
@@ -36732,6 +38246,49 @@ func (c *ClientWithResponses) ReadArtifactSheetsWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseReadArtifactSheetsResponse(rsp)
+}
+
+// ListArtifactSharesWithResponse An artifact's view-only links, newest first (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /artifacts/{artifact_id}/shares (the `ListArtifactShares` operationId).
+func (c *ClientWithResponses) ListArtifactSharesWithResponse(ctx context.Context, artifactId ArtifactID, reqEditors ...RequestEditorFn) (*ListArtifactSharesResponse, error) {
+	rsp, err := c.ListArtifactShares(ctx, artifactId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListArtifactSharesResponse(rsp)
+}
+
+// CreateArtifactShareWithBodyWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *ClientWithResponses) CreateArtifactShareWithBodyWithResponse(ctx context.Context, artifactId ArtifactID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error) {
+	rsp, err := c.CreateArtifactShareWithBody(ctx, artifactId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateArtifactShareResponse(rsp)
+}
+
+// CreateArtifactShareWithResponse Make a view-only link to an artifact that always shows its newest revision (owner only)
+//
+// Anyone who has the link sees the artifact at /s/<token> without signing in, until the link is revoked or the artifact deleted with its chat (issue #745).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /artifacts/{artifact_id}/shares (the `CreateArtifactShare` operationId).
+func (c *ClientWithResponses) CreateArtifactShareWithResponse(ctx context.Context, artifactId ArtifactID, body CreateArtifactShareJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateArtifactShareResponse, error) {
+	rsp, err := c.CreateArtifactShare(ctx, artifactId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateArtifactShareResponse(rsp)
 }
 
 // SpeakAudioWithBodyWithResponse Turn text into speech; any token, a Bot's included
@@ -38936,7 +40493,78 @@ func (c *ClientWithResponses) ListMeetingActionsWithResponse(ctx context.Context
 	return ParseListMeetingActionsResponse(rsp)
 }
 
-// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats
+// CreateMeetingFormatWithBodyWithResponse Make a notes format of the owner's; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *ClientWithResponses) CreateMeetingFormatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error) {
+	rsp, err := c.CreateMeetingFormatWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateMeetingFormatResponse(rsp)
+}
+
+// CreateMeetingFormatWithResponse Make a notes format of the owner's; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meeting-formats (the `CreateMeetingFormat` operationId).
+func (c *ClientWithResponses) CreateMeetingFormatWithResponse(ctx context.Context, body CreateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMeetingFormatResponse, error) {
+	rsp, err := c.CreateMeetingFormat(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateMeetingFormatResponse(rsp)
+}
+
+// DeleteMeetingFormatWithResponse Delete a notes format of the owner's; only the owner
+//
+// Notes written in it keep their sections; written again without another format, they are in the general one. A built-in format is refused (bad request).
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /meeting-formats/{format_id} (the `DeleteMeetingFormat` operationId).
+func (c *ClientWithResponses) DeleteMeetingFormatWithResponse(ctx context.Context, formatId string, reqEditors ...RequestEditorFn) (*DeleteMeetingFormatResponse, error) {
+	rsp, err := c.DeleteMeetingFormat(ctx, formatId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteMeetingFormatResponse(rsp)
+}
+
+// UpdateMeetingFormatWithBodyWithResponse Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *ClientWithResponses) UpdateMeetingFormatWithBodyWithResponse(ctx context.Context, formatId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error) {
+	rsp, err := c.UpdateMeetingFormatWithBody(ctx, formatId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateMeetingFormatResponse(rsp)
+}
+
+// UpdateMeetingFormatWithResponse Change a notes format of the owner's; only the owner
+//
+// A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-formats/{format_id} (the `UpdateMeetingFormat` operationId).
+func (c *ClientWithResponses) UpdateMeetingFormatWithResponse(ctx context.Context, formatId string, body UpdateMeetingFormatJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateMeetingFormatResponse, error) {
+	rsp, err := c.UpdateMeetingFormat(ctx, formatId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateMeetingFormatResponse(rsp)
+}
+
+// GetMeetingSettingsWithResponse The model that writes notes, and the notes formats, built-in and the owner's
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -38975,6 +40603,51 @@ func (c *ClientWithResponses) SetMeetingSettingsWithResponse(ctx context.Context
 	return ParseSetMeetingSettingsResponse(rsp)
 }
 
+// ListMeetingWordsWithResponse The words to hear right, given to every transcription
+//
+// The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the registered repositories' names, each once; a transcription is given the first max_sent.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /meeting-words (the `ListMeetingWords` operationId).
+func (c *ClientWithResponses) ListMeetingWordsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMeetingWordsResponse, error) {
+	rsp, err := c.ListMeetingWords(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListMeetingWordsResponse(rsp)
+}
+
+// SetMeetingWordsWithBodyWithResponse Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *ClientWithResponses) SetMeetingWordsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error) {
+	rsp, err := c.SetMeetingWordsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMeetingWordsResponse(rsp)
+}
+
+// SetMeetingWordsWithResponse Set the owner's words to hear right; only the owner
+//
+// The words found elsewhere are not the owner's to set; they follow where they are kept.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /meeting-words (the `SetMeetingWords` operationId).
+func (c *ClientWithResponses) SetMeetingWordsWithResponse(ctx context.Context, body SetMeetingWordsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMeetingWordsResponse, error) {
+	rsp, err := c.SetMeetingWords(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetMeetingWordsResponse(rsp)
+}
+
 // ListMeetingsWithResponse The meetings, the newest first
 //
 // With q, those whose title or transcript holds it.
@@ -38992,7 +40665,7 @@ func (c *ClientWithResponses) ListMeetingsWithResponse(ctx context.Context, para
 
 // UploadMeetingWithBodyWithResponse Upload a meeting's recording, at most 128 MB; only the owner
 //
-// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
+// The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the background with speakers by the gateway's speech-to-text, given the words to hear right (GET /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked. The meeting is answered at once, transcribing.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -39029,6 +40702,36 @@ func (c *ClientWithResponses) GetMeetingWithResponse(ctx context.Context, meetin
 		return nil, err
 	}
 	return ParseGetMeetingResponse(rsp)
+}
+
+// FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *ClientWithResponses) FixMeetingWordWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error) {
+	rsp, err := c.FixMeetingWordWithBody(ctx, meetingId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFixMeetingWordResponse(rsp)
+}
+
+// FixMeetingWordWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
+//
+// Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that. Refused (bad request) when the line or meeting does not say the word.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/fix (the `FixMeetingWord` operationId).
+func (c *ClientWithResponses) FixMeetingWordWithResponse(ctx context.Context, meetingId MeetingID, body FixMeetingWordJSONRequestBody, reqEditors ...RequestEditorFn) (*FixMeetingWordResponse, error) {
+	rsp, err := c.FixMeetingWord(ctx, meetingId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseFixMeetingWordResponse(rsp)
 }
 
 // UpdateMeetingItemWithBodyWithResponse Mark an action done or not done; only the owner
@@ -40199,6 +41902,21 @@ func (c *ClientWithResponses) UndoSetupChangeWithResponse(ctx context.Context, c
 	return ParseUndoSetupChangeResponse(rsp)
 }
 
+// GetShareWithResponse What a view-only link shows, without signing in
+//
+// The artifact at its newest revision. Its files load from the address in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the contract and needing no sign-in: each answer is checked against the link and the newest revision, and carries the frame's headers (a page its policy). Every answer under /shares carries X-Robots-Tag noindex, no-referrer, no-store and frame-ancestors 'none'. After five unknown tokens from one address within an hour the answer is 429 with Retry-After.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /shares/{token} (the `GetShare` operationId).
+func (c *ClientWithResponses) GetShareWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetShareResponse, error) {
+	rsp, err := c.GetShare(ctx, token, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetShareResponse(rsp)
+}
+
 // ListSkillAuditsWithResponse What skills.sh's auditors said of a skill; only the owner
 //
 // Read from skills.sh as the skills CLI reads it before installing. Empty when skills.sh has none or does not answer.
@@ -40920,6 +42638,35 @@ func ParseDecideApprovalResponse(rsp *http.Response) (*DecideApprovalResponse, e
 	return response, nil
 }
 
+// ParseDeleteArtifactShareResponse parses an HTTP response from a DeleteArtifactShareWithResponse call
+func ParseDeleteArtifactShareResponse(rsp *http.Response) (*DeleteArtifactShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteArtifactShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListArtifactsResponse parses an HTTP response from a ListArtifactsWithResponse call
 func ParseListArtifactsResponse(rsp *http.Response) (*ListArtifactsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -41131,6 +42878,72 @@ func ParseReadArtifactSheetsResponse(rsp *http.Response) (*ReadArtifactSheetsRes
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListArtifactSharesResponse parses an HTTP response from a ListArtifactSharesWithResponse call
+func ParseListArtifactSharesResponse(rsp *http.Response) (*ListArtifactSharesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListArtifactSharesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ArtifactShareList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateArtifactShareResponse parses an HTTP response from a CreateArtifactShareWithResponse call
+func ParseCreateArtifactShareResponse(rsp *http.Response) (*CreateArtifactShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateArtifactShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ArtifactShare
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -44728,6 +46541,101 @@ func ParseListMeetingActionsResponse(rsp *http.Response) (*ListMeetingActionsRes
 	return response, nil
 }
 
+// ParseCreateMeetingFormatResponse parses an HTTP response from a CreateMeetingFormatWithResponse call
+func ParseCreateMeetingFormatResponse(rsp *http.Response) (*CreateMeetingFormatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateMeetingFormatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest MeetingFormat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteMeetingFormatResponse parses an HTTP response from a DeleteMeetingFormatWithResponse call
+func ParseDeleteMeetingFormatResponse(rsp *http.Response) (*DeleteMeetingFormatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteMeetingFormatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateMeetingFormatResponse parses an HTTP response from a UpdateMeetingFormatWithResponse call
+func ParseUpdateMeetingFormatResponse(rsp *http.Response) (*UpdateMeetingFormatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateMeetingFormatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingFormat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMeetingSettingsResponse parses an HTTP response from a GetMeetingSettingsWithResponse call
 func ParseGetMeetingSettingsResponse(rsp *http.Response) (*GetMeetingSettingsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -44777,6 +46685,72 @@ func ParseSetMeetingSettingsResponse(rsp *http.Response) (*SetMeetingSettingsRes
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest MeetingSettings
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListMeetingWordsResponse parses an HTTP response from a ListMeetingWordsWithResponse call
+func ParseListMeetingWordsResponse(rsp *http.Response) (*ListMeetingWordsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListMeetingWordsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingWords
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetMeetingWordsResponse parses an HTTP response from a SetMeetingWordsWithResponse call
+func ParseSetMeetingWordsResponse(rsp *http.Response) (*SetMeetingWordsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetMeetingWordsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingWords
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -44905,6 +46879,39 @@ func ParseGetMeetingResponse(rsp *http.Response) (*GetMeetingResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest MeetingDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseFixMeetingWordResponse parses an HTTP response from a FixMeetingWordWithResponse call
+func ParseFixMeetingWordResponse(rsp *http.Response) (*FixMeetingWordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &FixMeetingWordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeetingWordFixed
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -47004,6 +49011,39 @@ func ParseUndoSetupChangeResponse(rsp *http.Response) (*UndoSetupChangeResponse,
 	return response, nil
 }
 
+// ParseGetShareResponse parses an HTTP response from a GetShareWithResponse call
+func ParseGetShareResponse(rsp *http.Response) (*GetShareResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetShareResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SharedArtifact
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListSkillAuditsResponse parses an HTTP response from a ListSkillAuditsWithResponse call
 func ParseListSkillAuditsResponse(rsp *http.Response) (*ListSkillAuditsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -47639,6 +49679,9 @@ type ServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string)
+	// DeleteArtifactShare Revoke a view-only link at once (owner only)
+	// (DELETE /artifact-shares/{share_id})
+	DeleteArtifactShare(w http.ResponseWriter, r *http.Request, shareId string)
 	// ListArtifacts Artifacts at their newest revision, the latest changed first
 	// (GET /artifacts)
 	ListArtifacts(w http.ResponseWriter, r *http.Request, params ListArtifactsParams)
@@ -47660,6 +49703,12 @@ type ServerInterface interface {
 	// ReadArtifactSheets A workbook of a revision read as CSV text a sheet, for its preview (owner only)
 	// (GET /artifacts/{artifact_id}/revisions/{revision}/sheets)
 	ReadArtifactSheets(w http.ResponseWriter, r *http.Request, artifactId ArtifactID, revision ArtifactRevisionNumber, params ReadArtifactSheetsParams)
+	// ListArtifactShares An artifact's view-only links, newest first (owner only)
+	// (GET /artifacts/{artifact_id}/shares)
+	ListArtifactShares(w http.ResponseWriter, r *http.Request, artifactId ArtifactID)
+	// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+	// (POST /artifacts/{artifact_id}/shares)
+	CreateArtifactShare(w http.ResponseWriter, r *http.Request, artifactId ArtifactID)
 	// SpeakAudio Turn text into speech; any token, a Bot's included
 	// (POST /audio/speech)
 	SpeakAudio(w http.ResponseWriter, r *http.Request)
@@ -47990,12 +50039,27 @@ type ServerInterface interface {
 	// ListMeetingActions The actions of every meeting, the newest meeting first
 	// (GET /meeting-actions)
 	ListMeetingActions(w http.ResponseWriter, r *http.Request, params ListMeetingActionsParams)
-	// GetMeetingSettings The model that writes notes, and the notes formats
+	// CreateMeetingFormat Make a notes format of the owner's; only the owner
+	// (POST /meeting-formats)
+	CreateMeetingFormat(w http.ResponseWriter, r *http.Request)
+	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+	// (DELETE /meeting-formats/{format_id})
+	DeleteMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string)
+	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+	// (PUT /meeting-formats/{format_id})
+	UpdateMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string)
+	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 	// (GET /meeting-settings)
 	GetMeetingSettings(w http.ResponseWriter, r *http.Request)
 	// SetMeetingSettings Pick the model that writes notes; only the owner
 	// (PUT /meeting-settings)
 	SetMeetingSettings(w http.ResponseWriter, r *http.Request)
+	// ListMeetingWords The words to hear right, given to every transcription
+	// (GET /meeting-words)
+	ListMeetingWords(w http.ResponseWriter, r *http.Request)
+	// SetMeetingWords Set the owner's words to hear right; only the owner
+	// (PUT /meeting-words)
+	SetMeetingWords(w http.ResponseWriter, r *http.Request)
 	// ListMeetings The meetings, the newest first
 	// (GET /meetings)
 	ListMeetings(w http.ResponseWriter, r *http.Request, params ListMeetingsParams)
@@ -48008,6 +50072,9 @@ type ServerInterface interface {
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
+	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+	// (POST /meetings/{meeting_id}/fix)
+	FixMeetingWord(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// UpdateMeetingItem Mark an action done or not done; only the owner
 	// (PATCH /meetings/{meeting_id}/items/{item_id})
 	UpdateMeetingItem(w http.ResponseWriter, r *http.Request, meetingId MeetingID, itemId string)
@@ -48197,6 +50264,9 @@ type ServerInterface interface {
 	// UndoSetupChange Undo a change of the main Bot; only the owner
 	// (POST /setup-changes/{change_id}/undo)
 	UndoSetupChange(w http.ResponseWriter, r *http.Request, changeId string)
+	// GetShare What a view-only link shows, without signing in
+	// (GET /shares/{token})
+	GetShare(w http.ResponseWriter, r *http.Request, token string)
 	// ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 	// (GET /skill-audits)
 	ListSkillAudits(w http.ResponseWriter, r *http.Request, params ListSkillAuditsParams)
@@ -48600,6 +50670,32 @@ func (siw *ServerInterfaceWrapper) DecideApproval(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteArtifactShare operation middleware
+func (siw *ServerInterfaceWrapper) DeleteArtifactShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "share_id" -------------
+	var shareId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "share_id", r.PathValue("share_id"), &shareId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "share_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteArtifactShare(w, r, shareId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListArtifacts operation middleware
 func (siw *ServerInterfaceWrapper) ListArtifacts(w http.ResponseWriter, r *http.Request) {
 
@@ -48881,6 +50977,58 @@ func (siw *ServerInterfaceWrapper) ReadArtifactSheets(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReadArtifactSheets(w, r, artifactId, revision, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListArtifactShares operation middleware
+func (siw *ServerInterfaceWrapper) ListArtifactShares(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "artifact_id" -------------
+	var artifactId ArtifactID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "artifact_id", r.PathValue("artifact_id"), &artifactId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "artifact_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListArtifactShares(w, r, artifactId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateArtifactShare operation middleware
+func (siw *ServerInterfaceWrapper) CreateArtifactShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "artifact_id" -------------
+	var artifactId ArtifactID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "artifact_id", r.PathValue("artifact_id"), &artifactId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "artifact_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateArtifactShare(w, r, artifactId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -52734,6 +54882,72 @@ func (siw *ServerInterfaceWrapper) ListMeetingActions(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// CreateMeetingFormat operation middleware
+func (siw *ServerInterfaceWrapper) CreateMeetingFormat(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMeetingFormat(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMeetingFormat operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMeetingFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "format_id" -------------
+	var formatId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "format_id", r.PathValue("format_id"), &formatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMeetingFormat(w, r, formatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMeetingFormat operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMeetingFormat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "format_id" -------------
+	var formatId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "format_id", r.PathValue("format_id"), &formatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMeetingFormat(w, r, formatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMeetingSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetMeetingSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -52753,6 +54967,34 @@ func (siw *ServerInterfaceWrapper) SetMeetingSettings(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetMeetingSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMeetingWords operation middleware
+func (siw *ServerInterfaceWrapper) ListMeetingWords(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMeetingWords(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetMeetingWords operation middleware
+func (siw *ServerInterfaceWrapper) SetMeetingWords(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetMeetingWords(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -52882,19 +55124,6 @@ func (siw *ServerInterfaceWrapper) UploadMeeting(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// ------------- Optional query parameter "terms" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "terms", r.URL.Query(), &params.Terms, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "terms"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "terms", Err: err})
-		}
-		return
-	}
-
 	// ------------- Optional query parameter "format" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "format", r.URL.Query(), &params.Format, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -52962,6 +55191,32 @@ func (siw *ServerInterfaceWrapper) GetMeeting(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMeeting(w, r, meetingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FixMeetingWord operation middleware
+func (siw *ServerInterfaceWrapper) FixMeetingWord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meeting_id" -------------
+	var meetingId MeetingID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meeting_id", r.PathValue("meeting_id"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meeting_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FixMeetingWord(w, r, meetingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -54707,6 +56962,32 @@ func (siw *ServerInterfaceWrapper) UndoSetupChange(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// GetShare operation middleware
+func (siw *ServerInterfaceWrapper) GetShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", r.PathValue("token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetShare(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSkillAudits operation middleware
 func (siw *ServerInterfaceWrapper) ListSkillAudits(w http.ResponseWriter, r *http.Request) {
 
@@ -55428,6 +57709,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}/revisions/{revision}/sheets", wrapper.ReadArtifactSheets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}/revisions/{revision}/archive", wrapper.GetArtifactArchive)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts/{artifact_id}/revisions/{revision}/frame", wrapper.OpenArtifactFrame)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}/shares", wrapper.ListArtifactShares)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts/{artifact_id}/shares", wrapper.CreateArtifactShare)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/artifact-shares/{share_id}", wrapper.DeleteArtifactShare)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/shares/{token}", wrapper.GetShare)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/skills", wrapper.ListSkills)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/skills", wrapper.AddSkill)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/skills/archive", wrapper.UploadSkill)
@@ -55482,12 +57767,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meetings/{meeting_id}", wrapper.GetMeeting)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meetings/{meeting_id}/recording", wrapper.GetMeetingRecording)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/notes", wrapper.WriteMeetingNotes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/fix", wrapper.FixMeetingWord)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/speakers/{label}", wrapper.NameMeetingSpeaker)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/lines/{n}/speaker", wrapper.SetMeetingLineSpeaker)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/meetings/{meeting_id}/items/{item_id}", wrapper.UpdateMeetingItem)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-actions", wrapper.ListMeetingActions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-settings", wrapper.GetMeetingSettings)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-settings", wrapper.SetMeetingSettings)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meeting-formats", wrapper.CreateMeetingFormat)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/meeting-formats/{format_id}", wrapper.DeleteMeetingFormat)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-formats/{format_id}", wrapper.UpdateMeetingFormat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-words", wrapper.ListMeetingWords)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-words", wrapper.SetMeetingWords)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats", wrapper.ListChats)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats", wrapper.CreateChat)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/chats/{chat_id}", wrapper.DeleteChat)
@@ -55989,6 +58280,39 @@ func (response DecideApprovaldefaultJSONResponse) VisitDecideApprovalResponse(w 
 	return err
 }
 
+type DeleteArtifactShareRequestObject struct {
+	ShareId string `json:"share_id"`
+}
+
+type DeleteArtifactShareResponseObject interface {
+	VisitDeleteArtifactShareResponse(w http.ResponseWriter) error
+}
+
+type DeleteArtifactShare204Response struct {
+}
+
+func (response DeleteArtifactShare204Response) VisitDeleteArtifactShareResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteArtifactSharedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteArtifactSharedefaultJSONResponse) VisitDeleteArtifactShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListArtifactsRequestObject struct {
 	Params ListArtifactsParams
 }
@@ -56284,6 +58608,85 @@ type ReadArtifactSheetsdefaultJSONResponse struct {
 }
 
 func (response ReadArtifactSheetsdefaultJSONResponse) VisitReadArtifactSheetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListArtifactSharesRequestObject struct {
+	ArtifactId ArtifactID `json:"artifact_id"`
+}
+
+type ListArtifactSharesResponseObject interface {
+	VisitListArtifactSharesResponse(w http.ResponseWriter) error
+}
+
+type ListArtifactShares200JSONResponse ArtifactShareList
+
+func (response ListArtifactShares200JSONResponse) VisitListArtifactSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListArtifactSharesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListArtifactSharesdefaultJSONResponse) VisitListArtifactSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateArtifactShareRequestObject struct {
+	ArtifactId ArtifactID `json:"artifact_id"`
+	Body       *CreateArtifactShareJSONRequestBody
+}
+
+type CreateArtifactShareResponseObject interface {
+	VisitCreateArtifactShareResponse(w http.ResponseWriter) error
+}
+
+type CreateArtifactShare201JSONResponse ArtifactShare
+
+func (response CreateArtifactShare201JSONResponse) VisitCreateArtifactShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateArtifactSharedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateArtifactSharedefaultJSONResponse) VisitCreateArtifactShareResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -60722,6 +63125,118 @@ func (response ListMeetingActionsdefaultJSONResponse) VisitListMeetingActionsRes
 	return err
 }
 
+type CreateMeetingFormatRequestObject struct {
+	Body *CreateMeetingFormatJSONRequestBody
+}
+
+type CreateMeetingFormatResponseObject interface {
+	VisitCreateMeetingFormatResponse(w http.ResponseWriter) error
+}
+
+type CreateMeetingFormat201JSONResponse MeetingFormat
+
+func (response CreateMeetingFormat201JSONResponse) VisitCreateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMeetingFormatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateMeetingFormatdefaultJSONResponse) VisitCreateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMeetingFormatRequestObject struct {
+	FormatId string `json:"format_id"`
+}
+
+type DeleteMeetingFormatResponseObject interface {
+	VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error
+}
+
+type DeleteMeetingFormat204Response struct {
+}
+
+func (response DeleteMeetingFormat204Response) VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMeetingFormatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteMeetingFormatdefaultJSONResponse) VisitDeleteMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMeetingFormatRequestObject struct {
+	FormatId string `json:"format_id"`
+	Body     *UpdateMeetingFormatJSONRequestBody
+}
+
+type UpdateMeetingFormatResponseObject interface {
+	VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error
+}
+
+type UpdateMeetingFormat200JSONResponse MeetingFormat
+
+func (response UpdateMeetingFormat200JSONResponse) VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMeetingFormatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateMeetingFormatdefaultJSONResponse) VisitUpdateMeetingFormatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMeetingSettingsRequestObject struct {
 }
 
@@ -60788,6 +63303,83 @@ type SetMeetingSettingsdefaultJSONResponse struct {
 }
 
 func (response SetMeetingSettingsdefaultJSONResponse) VisitSetMeetingSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeetingWordsRequestObject struct {
+}
+
+type ListMeetingWordsResponseObject interface {
+	VisitListMeetingWordsResponse(w http.ResponseWriter) error
+}
+
+type ListMeetingWords200JSONResponse MeetingWords
+
+func (response ListMeetingWords200JSONResponse) VisitListMeetingWordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeetingWordsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListMeetingWordsdefaultJSONResponse) VisitListMeetingWordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMeetingWordsRequestObject struct {
+	Body *SetMeetingWordsJSONRequestBody
+}
+
+type SetMeetingWordsResponseObject interface {
+	VisitSetMeetingWordsResponse(w http.ResponseWriter) error
+}
+
+type SetMeetingWords200JSONResponse MeetingWords
+
+func (response SetMeetingWords200JSONResponse) VisitSetMeetingWordsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMeetingWordsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetMeetingWordsdefaultJSONResponse) VisitSetMeetingWordsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -60939,6 +63531,46 @@ type GetMeetingdefaultJSONResponse struct {
 }
 
 func (response GetMeetingdefaultJSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FixMeetingWordRequestObject struct {
+	MeetingId MeetingID `json:"meeting_id"`
+	Body      *FixMeetingWordJSONRequestBody
+}
+
+type FixMeetingWordResponseObject interface {
+	VisitFixMeetingWordResponse(w http.ResponseWriter) error
+}
+
+type FixMeetingWord200JSONResponse MeetingWordFixed
+
+func (response FixMeetingWord200JSONResponse) VisitFixMeetingWordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FixMeetingWorddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response FixMeetingWorddefaultJSONResponse) VisitFixMeetingWordResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -63415,6 +66047,45 @@ func (response UndoSetupChangedefaultJSONResponse) VisitUndoSetupChangeResponse(
 	return err
 }
 
+type GetShareRequestObject struct {
+	Token string `json:"token"`
+}
+
+type GetShareResponseObject interface {
+	VisitGetShareResponse(w http.ResponseWriter) error
+}
+
+type GetShare200JSONResponse SharedArtifact
+
+func (response GetShare200JSONResponse) VisitGetShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSharedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSharedefaultJSONResponse) VisitGetShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSkillAuditsRequestObject struct {
 	Params ListSkillAuditsParams
 }
@@ -64185,6 +66856,9 @@ type StrictServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(ctx context.Context, request DecideApprovalRequestObject) (DecideApprovalResponseObject, error)
+	// DeleteArtifactShare Revoke a view-only link at once (owner only)
+	// (DELETE /artifact-shares/{share_id})
+	DeleteArtifactShare(ctx context.Context, request DeleteArtifactShareRequestObject) (DeleteArtifactShareResponseObject, error)
 	// ListArtifacts Artifacts at their newest revision, the latest changed first
 	// (GET /artifacts)
 	ListArtifacts(ctx context.Context, request ListArtifactsRequestObject) (ListArtifactsResponseObject, error)
@@ -64206,6 +66880,12 @@ type StrictServerInterface interface {
 	// ReadArtifactSheets A workbook of a revision read as CSV text a sheet, for its preview (owner only)
 	// (GET /artifacts/{artifact_id}/revisions/{revision}/sheets)
 	ReadArtifactSheets(ctx context.Context, request ReadArtifactSheetsRequestObject) (ReadArtifactSheetsResponseObject, error)
+	// ListArtifactShares An artifact's view-only links, newest first (owner only)
+	// (GET /artifacts/{artifact_id}/shares)
+	ListArtifactShares(ctx context.Context, request ListArtifactSharesRequestObject) (ListArtifactSharesResponseObject, error)
+	// CreateArtifactShare Make a view-only link to an artifact that always shows its newest revision (owner only)
+	// (POST /artifacts/{artifact_id}/shares)
+	CreateArtifactShare(ctx context.Context, request CreateArtifactShareRequestObject) (CreateArtifactShareResponseObject, error)
 	// SpeakAudio Turn text into speech; any token, a Bot's included
 	// (POST /audio/speech)
 	SpeakAudio(ctx context.Context, request SpeakAudioRequestObject) (SpeakAudioResponseObject, error)
@@ -64536,12 +67216,27 @@ type StrictServerInterface interface {
 	// ListMeetingActions The actions of every meeting, the newest meeting first
 	// (GET /meeting-actions)
 	ListMeetingActions(ctx context.Context, request ListMeetingActionsRequestObject) (ListMeetingActionsResponseObject, error)
-	// GetMeetingSettings The model that writes notes, and the notes formats
+	// CreateMeetingFormat Make a notes format of the owner's; only the owner
+	// (POST /meeting-formats)
+	CreateMeetingFormat(ctx context.Context, request CreateMeetingFormatRequestObject) (CreateMeetingFormatResponseObject, error)
+	// DeleteMeetingFormat Delete a notes format of the owner's; only the owner
+	// (DELETE /meeting-formats/{format_id})
+	DeleteMeetingFormat(ctx context.Context, request DeleteMeetingFormatRequestObject) (DeleteMeetingFormatResponseObject, error)
+	// UpdateMeetingFormat Change a notes format of the owner's; only the owner
+	// (PUT /meeting-formats/{format_id})
+	UpdateMeetingFormat(ctx context.Context, request UpdateMeetingFormatRequestObject) (UpdateMeetingFormatResponseObject, error)
+	// GetMeetingSettings The model that writes notes, and the notes formats, built-in and the owner's
 	// (GET /meeting-settings)
 	GetMeetingSettings(ctx context.Context, request GetMeetingSettingsRequestObject) (GetMeetingSettingsResponseObject, error)
 	// SetMeetingSettings Pick the model that writes notes; only the owner
 	// (PUT /meeting-settings)
 	SetMeetingSettings(ctx context.Context, request SetMeetingSettingsRequestObject) (SetMeetingSettingsResponseObject, error)
+	// ListMeetingWords The words to hear right, given to every transcription
+	// (GET /meeting-words)
+	ListMeetingWords(ctx context.Context, request ListMeetingWordsRequestObject) (ListMeetingWordsResponseObject, error)
+	// SetMeetingWords Set the owner's words to hear right; only the owner
+	// (PUT /meeting-words)
+	SetMeetingWords(ctx context.Context, request SetMeetingWordsRequestObject) (SetMeetingWordsResponseObject, error)
 	// ListMeetings The meetings, the newest first
 	// (GET /meetings)
 	ListMeetings(ctx context.Context, request ListMeetingsRequestObject) (ListMeetingsResponseObject, error)
@@ -64554,6 +67249,9 @@ type StrictServerInterface interface {
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(ctx context.Context, request GetMeetingRequestObject) (GetMeetingResponseObject, error)
+	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
+	// (POST /meetings/{meeting_id}/fix)
+	FixMeetingWord(ctx context.Context, request FixMeetingWordRequestObject) (FixMeetingWordResponseObject, error)
 	// UpdateMeetingItem Mark an action done or not done; only the owner
 	// (PATCH /meetings/{meeting_id}/items/{item_id})
 	UpdateMeetingItem(ctx context.Context, request UpdateMeetingItemRequestObject) (UpdateMeetingItemResponseObject, error)
@@ -64743,6 +67441,9 @@ type StrictServerInterface interface {
 	// UndoSetupChange Undo a change of the main Bot; only the owner
 	// (POST /setup-changes/{change_id}/undo)
 	UndoSetupChange(ctx context.Context, request UndoSetupChangeRequestObject) (UndoSetupChangeResponseObject, error)
+	// GetShare What a view-only link shows, without signing in
+	// (GET /shares/{token})
+	GetShare(ctx context.Context, request GetShareRequestObject) (GetShareResponseObject, error)
 	// ListSkillAudits What skills.sh's auditors said of a skill; only the owner
 	// (GET /skill-audits)
 	ListSkillAudits(ctx context.Context, request ListSkillAuditsRequestObject) (ListSkillAuditsResponseObject, error)
@@ -65187,6 +67888,32 @@ func (sh *strictHandler) DecideApproval(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// DeleteArtifactShare operation middleware
+func (sh *strictHandler) DeleteArtifactShare(w http.ResponseWriter, r *http.Request, shareId string) {
+	var request DeleteArtifactShareRequestObject
+
+	request.ShareId = shareId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteArtifactShare(ctx, request.(DeleteArtifactShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteArtifactShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteArtifactShareResponseObject); ok {
+		if err := validResponse.VisitDeleteArtifactShareResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListArtifacts operation middleware
 func (sh *strictHandler) ListArtifacts(w http.ResponseWriter, r *http.Request, params ListArtifactsParams) {
 	var request ListArtifactsRequestObject
@@ -65370,6 +68097,65 @@ func (sh *strictHandler) ReadArtifactSheets(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReadArtifactSheetsResponseObject); ok {
 		if err := validResponse.VisitReadArtifactSheetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListArtifactShares operation middleware
+func (sh *strictHandler) ListArtifactShares(w http.ResponseWriter, r *http.Request, artifactId ArtifactID) {
+	var request ListArtifactSharesRequestObject
+
+	request.ArtifactId = artifactId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListArtifactShares(ctx, request.(ListArtifactSharesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListArtifactShares")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListArtifactSharesResponseObject); ok {
+		if err := validResponse.VisitListArtifactSharesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateArtifactShare operation middleware
+func (sh *strictHandler) CreateArtifactShare(w http.ResponseWriter, r *http.Request, artifactId ArtifactID) {
+	var request CreateArtifactShareRequestObject
+
+	request.ArtifactId = artifactId
+
+	var body CreateArtifactShareJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateArtifactShare(ctx, request.(CreateArtifactShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateArtifactShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateArtifactShareResponseObject); ok {
+		if err := validResponse.VisitCreateArtifactShareResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -68568,6 +71354,96 @@ func (sh *strictHandler) ListMeetingActions(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// CreateMeetingFormat operation middleware
+func (sh *strictHandler) CreateMeetingFormat(w http.ResponseWriter, r *http.Request) {
+	var request CreateMeetingFormatRequestObject
+
+	var body CreateMeetingFormatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateMeetingFormat(ctx, request.(CreateMeetingFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateMeetingFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateMeetingFormatResponseObject); ok {
+		if err := validResponse.VisitCreateMeetingFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMeetingFormat operation middleware
+func (sh *strictHandler) DeleteMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string) {
+	var request DeleteMeetingFormatRequestObject
+
+	request.FormatId = formatId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMeetingFormat(ctx, request.(DeleteMeetingFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMeetingFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMeetingFormatResponseObject); ok {
+		if err := validResponse.VisitDeleteMeetingFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMeetingFormat operation middleware
+func (sh *strictHandler) UpdateMeetingFormat(w http.ResponseWriter, r *http.Request, formatId string) {
+	var request UpdateMeetingFormatRequestObject
+
+	request.FormatId = formatId
+
+	var body UpdateMeetingFormatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMeetingFormat(ctx, request.(UpdateMeetingFormatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMeetingFormat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMeetingFormatResponseObject); ok {
+		if err := validResponse.VisitUpdateMeetingFormatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMeetingSettings operation middleware
 func (sh *strictHandler) GetMeetingSettings(w http.ResponseWriter, r *http.Request) {
 	var request GetMeetingSettingsRequestObject
@@ -68616,6 +71492,61 @@ func (sh *strictHandler) SetMeetingSettings(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetMeetingSettingsResponseObject); ok {
 		if err := validResponse.VisitSetMeetingSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMeetingWords operation middleware
+func (sh *strictHandler) ListMeetingWords(w http.ResponseWriter, r *http.Request) {
+	var request ListMeetingWordsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMeetingWords(ctx, request.(ListMeetingWordsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMeetingWords")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMeetingWordsResponseObject); ok {
+		if err := validResponse.VisitListMeetingWordsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetMeetingWords operation middleware
+func (sh *strictHandler) SetMeetingWords(w http.ResponseWriter, r *http.Request) {
+	var request SetMeetingWordsRequestObject
+
+	var body SetMeetingWordsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetMeetingWords(ctx, request.(SetMeetingWordsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetMeetingWords")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetMeetingWordsResponseObject); ok {
+		if err := validResponse.VisitSetMeetingWordsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -68722,6 +71653,39 @@ func (sh *strictHandler) GetMeeting(w http.ResponseWriter, r *http.Request, meet
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeetingResponseObject); ok {
 		if err := validResponse.VisitGetMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// FixMeetingWord operation middleware
+func (sh *strictHandler) FixMeetingWord(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
+	var request FixMeetingWordRequestObject
+
+	request.MeetingId = meetingId
+
+	var body FixMeetingWordJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.FixMeetingWord(ctx, request.(FixMeetingWordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FixMeetingWord")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(FixMeetingWordResponseObject); ok {
+		if err := validResponse.VisitFixMeetingWordResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -70489,6 +73453,32 @@ func (sh *strictHandler) UndoSetupChange(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UndoSetupChangeResponseObject); ok {
 		if err := validResponse.VisitUndoSetupChangeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetShare operation middleware
+func (sh *strictHandler) GetShare(w http.ResponseWriter, r *http.Request, token string) {
+	var request GetShareRequestObject
+
+	request.Token = token
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetShare(ctx, request.(GetShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetShareResponseObject); ok {
+		if err := validResponse.VisitGetShareResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

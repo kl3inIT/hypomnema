@@ -118,6 +118,16 @@ type ArtifactRevision struct {
 	CreatedAt  int64
 }
 
+type ArtifactShare struct {
+	ID           string
+	ArtifactID   string
+	Token        string
+	Label        string
+	CreatedAt    int64
+	Views        int64
+	LastViewedAt sql.NullInt64
+}
+
 type Bot struct {
 	ID               string
 	Provider         sql.NullString
@@ -498,6 +508,14 @@ type Meeting struct {
 	UpdatedAt  int64
 }
 
+type MeetingFormat struct {
+	ID        string
+	Name      string
+	Sections  string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type MeetingItem struct {
 	ID           string
 	MeetingID    string
@@ -547,6 +565,11 @@ type MeetingSpeaker struct {
 	Label     string
 	Position  int64
 	Name      sql.NullString
+}
+
+type MeetingWord struct {
+	Word      string
+	CreatedAt int64
 }
 
 type Memory struct {

@@ -44,7 +44,7 @@ type noUsage struct{}
 func (noUsage) MeetingsKey(context.Context) (string, error)                   { return "gwk_x", nil }
 func (noUsage) RecordAudioCall(context.Context, modelgateway.AudioCall) error { return nil }
 
-// Scenario: the owner uploads a recording over the API with its people and words; a coordinator's token may read
+// Scenario: the owner uploads a recording over the API with its people; a coordinator's token may read
 // meetings but not upload one. Once heard, the meeting answers its transcript with the voices' shares and the name
 // a voice gave itself; the recording plays back, a Range answered 206 with that part so that the player seeks; the
 // owner names a voice; deleting the meeting makes it gone.
@@ -65,7 +65,7 @@ func TestTheOwnerUploadsAMeetingAndPlaysItBack(t *testing.T) {
 	pi, _ := w.token("pi", bearertoken.Coordinator)
 
 	params := &openapi.UploadMeetingParams{
-		FileName: "sync.mp3", Language: ptr("en"), People: &[]string{"Laura", "Kai"}, Terms: &[]string{"MapOps"},
+		FileName: "sync.mp3", Language: ptr("en"), People: &[]string{"Laura", "Kai"},
 	}
 
 	refused, err := pi.UploadMeetingWithBodyWithResponse(ctx, params, "application/octet-stream",
@@ -82,7 +82,6 @@ func TestTheOwnerUploadsAMeetingAndPlaysItBack(t *testing.T) {
 	assert.Equal(t, openapi.MeetingStateTranscribing, m.State)
 	assert.Equal(t, "audio/mpeg", m.MediaType, "told from the file's bytes")
 	assert.Equal(t, []string{"Laura", "Kai"}, m.People)
-	assert.Equal(t, []string{"MapOps"}, m.Terms)
 
 	work.Work(ctx)
 

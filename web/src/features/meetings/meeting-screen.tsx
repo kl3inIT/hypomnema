@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router"
 import { Check, ChevronRight, CircleAlert, LoaderCircle, Search, Sparkles } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { Meeting, MeetingDetail, MeetingItem } from "@/api/generated/types.gen"
 import { deleteMeeting } from "@/api/generated/sdk.gen"
@@ -13,21 +13,17 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 
+import { FormatItems } from "./format-items"
 import { PlayerProvider, TimeLink } from "./meeting-player"
 import { usePlayingAt } from "./player-context"
 import {
   clock,
+  formatName,
   percent,
   providerName,
   speakerTone,
@@ -38,6 +34,7 @@ import {
   type Step,
 } from "./meetings-state"
 import { SpeakerPicker } from "./speaker-picker"
+import { WordFix } from "./word-fix"
 import {
   recordingUrl,
   useMarkDone,
@@ -192,6 +189,8 @@ type Tab = "summary" | "transcript"
 
 function Body({ detail }: { detail: MeetingDetail }) {
   const [tab, setTab] = useState<Tab>("summary")
+  // fixed: a word was fixed in the transcript since the page opened, and the notes are as they were (issue #747).
+  const [fixed, setFixed] = useState(false)
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
@@ -202,13 +201,58 @@ function Body({ detail }: { detail: MeetingDetail }) {
         </TabsList>
         <WriteAgain meeting={detail.meeting} />
       </div>
+      {fixed && detail.meeting.notes.state !== "writing" && (
+        <NotesBehind meeting={detail.meeting} onDone={() => setFixed(false)} />
+      )}
       <TabsContent value="summary">
         <Summary detail={detail} />
       </TabsContent>
       <TabsContent value="transcript">
-        <Transcript detail={detail} />
+        <Transcript detail={detail} onFixed={() => setFixed(true)} />
       </TabsContent>
     </Tabs>
+  )
+}
+
+// NotesBehind says the notes were written before a word was fixed and offers to write them again in their format;
+// the fix never rewrites them by itself, as MemoryOS keeps the minutes when a line is corrected.
+function NotesBehind({ meeting, onDone }: { meeting: Meeting; onDone: () => void }) {
+  const write = useWriteNotes(meeting.id)
+
+  return (
+    <div className="pt-3">
+      <Alert data-testid="notes-behind">
+        <Sparkles />
+        <AlertTitle>The notes were written before your fix</AlertTitle>
+        <AlertDescription>
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Write them again to use the fixed words.</span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={write.isPending}
+              onClick={() =>
+                write.mutate(
+                  { path: { meeting_id: meeting.id }, body: { format: meeting.notes.format } },
+                  {
+                    onSuccess: () => {
+                      toast.add({ title: "Writing the notes again", type: "success" })
+                      onDone()
+                    },
+                  },
+                )
+              }
+            >
+              Write again
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onDone}>
+              Not now
+            </Button>
+          </div>
+          <ErrorAlert error={write.error} />
+        </AlertDescription>
+      </Alert>
+    </div>
   )
 }
 
@@ -225,14 +269,10 @@ function WriteAgain({ meeting }: { meeting: Meeting }) {
       <Select value={format} onValueChange={(v) => v && setFormat(v)}>
         <SelectTrigger size="sm" aria-label="Notes format">
           <Sparkles className="size-3.5" aria-hidden />
-          <SelectValue>{(v: string) => formats.find((f) => f.id === v)?.name ?? v}</SelectValue>
+          <SelectValue>{(v: string) => formatName(formats, v)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {formats.map((f) => (
-            <SelectItem key={f.id} value={f.id}>
-              {f.name}
-            </SelectItem>
-          ))}
+          <FormatItems formats={formats} />
         </SelectContent>
       </Select>
       <Button
@@ -362,9 +402,11 @@ function ActionRow({ meetingId, action }: { meetingId: string; action: MeetingIt
 
 // Transcript is the lines with their voices' colors and their share of the talk (Otter's %), each voice's name a
 // picker that says who spoke the line (speaker-picker.tsx), each time a way to play from there; the line being
-// played is marked.
-function Transcript({ detail }: { detail: MeetingDetail }) {
+// played is marked. Each line has a way to fix a word heard wrong (word-fix.tsx), opened with what the owner selected
+// in that line.
+function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () => void }) {
   const [find, setFind] = useState("")
+  const picked = usePickedWords()
   const speakers = detail.meeting.speakers
   const at = usePlayingAt()
   const needle = find.trim().toLowerCase()
@@ -451,7 +493,12 @@ function Transcript({ detail }: { detail: MeetingDetail }) {
                 </SpeakerPicker>
                 <TimeLink ms={l.start_ms} quiet />
               </div>
-              <p className="text-sm leading-relaxed">{l.text}</p>
+              <div className="flex min-w-0 items-start gap-1">
+                <p className="min-w-0 flex-1 text-sm leading-relaxed" data-line={l.n}>
+                  {l.text}
+                </p>
+                <WordFix meeting={detail} line={l} selected={() => picked(l.n)} onFixed={onFixed} />
+              </div>
             </li>
           )
         })}
@@ -462,4 +509,34 @@ function Transcript({ detail }: { detail: MeetingDetail }) {
       </p>
     </div>
   )
+}
+
+// usePickedWords keeps the last words the owner selected inside one line of the transcript, as the selection is gone
+// by the time the line's fix button is pressed on some browsers; picked(n) gives them once for line n, else "".
+function usePickedWords() {
+  const last = useRef<{ line: number; text: string } | null>(null)
+
+  useEffect(() => {
+    const keep = () => {
+      const sel = document.getSelection()
+      const text = sel?.toString().trim() ?? ""
+      if (!sel || !text || sel.rangeCount === 0) return
+
+      const start = sel.anchorNode?.parentElement?.closest("[data-line]")
+      const end = sel.focusNode?.parentElement?.closest("[data-line]")
+      if (start && start === end)
+        last.current = { line: Number(start.getAttribute("data-line")), text }
+    }
+
+    document.addEventListener("selectionchange", keep)
+
+    return () => document.removeEventListener("selectionchange", keep)
+  }, [])
+
+  return (n: number) => {
+    const text = last.current?.line === n ? last.current.text.slice(0, 200) : ""
+    last.current = null
+
+    return text
+  }
 }

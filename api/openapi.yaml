@@ -2456,6 +2456,77 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ArtifactFrame" }
         default: { $ref: "#/components/responses/Error" }
+  /artifacts/{artifact_id}/shares:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: ListArtifactShares
+      summary: An artifact's view-only links, newest first (owner only)
+      responses:
+        "200":
+          description: The links.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactShareList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateArtifactShare
+      summary: Make a view-only link to an artifact that always shows its newest revision (owner only)
+      description: >-
+        Anyone who has the link sees the artifact at /s/<token> without
+        signing in, until the link is revoked or the artifact deleted with
+        its chat (issue #745).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewArtifactShare" }
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactShare" }
+        default: { $ref: "#/components/responses/Error" }
+  /artifact-shares/{share_id}:
+    parameters:
+      - name: share_id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^shr_[a-z2-7]{26}$" }
+    delete:
+      operationId: DeleteArtifactShare
+      summary: Revoke a view-only link at once (owner only)
+      responses:
+        "204":
+          description: Revoked; the link and its files answer 404 from now on.
+        default: { $ref: "#/components/responses/Error" }
+  /shares/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" }
+    get:
+      operationId: GetShare
+      summary: What a view-only link shows, without signing in
+      description: >-
+        The artifact at its newest revision. Its files load from the address
+        in files, /api/v1/shares/<token>/files/<revision>/<path>, outside the
+        contract and needing no sign-in: each answer is checked against the
+        link and the newest revision, and carries the frame's headers (a page
+        its policy). Every answer under /shares carries X-Robots-Tag noindex,
+        no-referrer, no-store and frame-ancestors 'none'. After five unknown
+        tokens from one address within an hour the answer is 429 with
+        Retry-After.
+      security: []
+      responses:
+        "200":
+          description: The artifact the link shows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharedArtifact" }
+        default: { $ref: "#/components/responses/Error" }
   /skills:
     get:
       operationId: ListSkills
@@ -3310,8 +3381,9 @@ paths:
       summary: Upload a meeting's recording, at most 128 MB; only the owner
       description: >-
         The body is the recording. It is kept on the control plane, so that it plays back, and is heard in the
-        background with speakers by the gateway's speech-to-text; the notes model picked on the meetings' settings
-        then writes the notes in the format asked. The meeting is answered at once, transcribing.
+        background with speakers by the gateway's speech-to-text, given the words to hear right (GET
+        /meeting-words); the notes model picked on the meetings' settings then writes the notes in the format asked.
+        The meeting is answered at once, transcribing.
       parameters:
         - name: file_name
           in: query
@@ -3333,14 +3405,10 @@ paths:
           in: query
           description: Who was in the meeting; they help name the speakers.
           schema: { type: array, maxItems: 30, items: { type: string, maxLength: 100 } }
-        - name: terms
-          in: query
-          description: Words to hear right, such as names and jargon, given to the speech-to-text provider.
-          schema: { type: array, maxItems: 100, items: { type: string, maxLength: 100 } }
         - name: format
           in: query
           description: The notes format's id (GET /meeting-settings lists them); absent, general.
-          schema: { type: string, maxLength: 40 }
+          schema: { type: string, maxLength: 64 }
       requestBody:
         required: true
         content:
@@ -3404,6 +3472,28 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Meeting" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/fix:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+    post:
+      operationId: FixMeetingWord
+      summary: Replace a word heard wrong in one line or the whole meeting; only the owner
+      description: >-
+        Every whole-word occurrence, in any case, is replaced, and the right word joins the owner's words to hear
+        right (unless the list is full). The notes are not written again; POST /meetings/{id}/notes does that.
+        Refused (bad request) when the line or meeting does not say the word.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingWordFix" }
+      responses:
+        "200":
+          description: The meeting as it is now, and what the fix did.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingWordFixed" }
         default: { $ref: "#/components/responses/Error" }
   /meetings/{meeting_id}/speakers/{label}:
     parameters:
@@ -3500,7 +3590,7 @@ paths:
   /meeting-settings:
     get:
       operationId: GetMeetingSettings
-      summary: The model that writes notes, and the notes formats
+      summary: The model that writes notes, and the notes formats, built-in and the owner's
       responses:
         "200":
           description: The settings.
@@ -3522,6 +3612,83 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MeetingSettings" }
+        default: { $ref: "#/components/responses/Error" }
+  /meeting-formats:
+    post:
+      operationId: CreateMeetingFormat
+      summary: Make a notes format of the owner's; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingFormatInput" }
+      responses:
+        "201":
+          description: The format.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingFormat" }
+        default: { $ref: "#/components/responses/Error" }
+  /meeting-formats/{format_id}:
+    parameters:
+      - name: format_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    put:
+      operationId: UpdateMeetingFormat
+      summary: Change a notes format of the owner's; only the owner
+      description: A built-in format is refused (bad request); copy it with POST /meeting-formats instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingFormatInput" }
+      responses:
+        "200":
+          description: The format.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingFormat" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteMeetingFormat
+      summary: Delete a notes format of the owner's; only the owner
+      description: >-
+        Notes written in it keep their sections; written again without another format, they are in the general one.
+        A built-in format is refused (bad request).
+      responses:
+        "204": { description: The format is deleted. }
+        default: { $ref: "#/components/responses/Error" }
+  /meeting-words:
+    get:
+      operationId: ListMeetingWords
+      summary: The words to hear right, given to every transcription
+      description: >-
+        The owner's words first, then the names the owner gave speakers in earlier meetings, the Bots' and the
+        registered repositories' names, each once; a transcription is given the first max_sent.
+      responses:
+        "200":
+          description: The words.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingWords" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: SetMeetingWords
+      summary: Set the owner's words to hear right; only the owner
+      description: The words found elsewhere are not the owner's to set; they follow where they are kept.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingWordsUpdate" }
+      responses:
+        "200":
+          description: The words.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeetingWords" }
         default: { $ref: "#/components/responses/Error" }
   /chats:
     get:
@@ -7942,6 +8109,60 @@ components:
         url:
           type: string
           description: The folder's path on this server, ending in "/".
+    NewArtifactShare:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Whom the link is for, one line of at most 80 characters, such as "Laura".
+    ArtifactShare:
+      type: object
+      required: [id, artifact_id, label, token, path, created_at, views]
+      properties:
+        id: { type: string }
+        artifact_id: { type: string }
+        label: { type: string }
+        token:
+          type: string
+          description: The link's secret, 32 random bytes in base64url.
+        path:
+          type: string
+          description: The link's path on this server, /s/<token>.
+        created_at: { type: string, format: date-time }
+        views:
+          type: integer
+          format: int64
+          description: How many times its page was opened.
+        last_viewed_at: { type: string, format: date-time }
+    ArtifactShareList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ArtifactShare" }
+    SharedArtifact:
+      type: object
+      required: [title, type, entry, media_type, revision, updated_at, files]
+      properties:
+        title: { type: string }
+        type: { $ref: "#/components/schemas/ArtifactType" }
+        entry:
+          type: string
+          description: The file shown, index.html of a folder or the one file.
+        media_type:
+          type: string
+          description: The type of the file shown.
+        revision:
+          type: integer
+          description: The newest revision; the page reloads when it changes.
+        updated_at: { type: string, format: date-time }
+        files:
+          type: string
+          description: The path its files load from, ending in "/".
     ChatAttachment:
       type: object
       description: >-
@@ -8099,7 +8320,6 @@ components:
         - title
         - titled
         - people
-        - terms
         - file_name
         - media_type
         - size
@@ -8116,7 +8336,6 @@ components:
         titled: { type: boolean, description: The owner gave the title; otherwise the notes wrote it. }
         language: { type: string }
         people: { type: array, items: { type: string } }
-        terms: { type: array, items: { type: string } }
         file_name: { type: string }
         media_type: { type: string }
         size: { type: integer, format: int64 }
@@ -8190,7 +8409,24 @@ components:
       required: [format]
       additionalProperties: false
       properties:
-        format: { type: string, minLength: 1, maxLength: 40 }
+        format: { type: string, minLength: 1, maxLength: 64 }
+    MeetingWordFix:
+      type: object
+      required: [from, to]
+      additionalProperties: false
+      properties:
+        from: { type: string, minLength: 1, maxLength: 200, description: The word as the transcript says it. }
+        to: { type: string, minLength: 1, maxLength: 200, description: The word as it was said. }
+        line: { type: integer, minimum: 1, description: Only this line; absent, the whole meeting. }
+    MeetingWordFixed:
+      type: object
+      required: [detail, replaced, learned]
+      properties:
+        detail: { $ref: "#/components/schemas/MeetingDetail" }
+        replaced: { type: integer, description: How many times the word was replaced. }
+        learned:
+          type: boolean
+          description: The right word is in the owner's words to hear right; false when the list is full.
     SpeakerName:
       type: object
       required: [name]
@@ -8236,11 +8472,60 @@ components:
         about: { type: string }
     MeetingFormat:
       type: object
-      required: [id, name, sections]
+      required: [id, name, sections, builtin]
       properties:
         id: { type: string }
         name: { type: string }
         sections: { type: array, items: { $ref: "#/components/schemas/MeetingFormatSection" } }
+        builtin: { type: boolean, description: Shipped with the control plane; copied rather than changed. }
+    MeetingFormatInput:
+      type: object
+      required: [name, sections]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        sections:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: "#/components/schemas/MeetingFormatSectionInput" }
+    MeetingFormatSectionInput:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 100 }
+        about: { type: string, maxLength: 500, description: A short instruction of what the section holds. }
+    MeetingWordSource:
+      type: string
+      description: >-
+        Where a word comes from: the owner's list, a name the owner gave a speaker in a meeting, a Bot's name or a
+        registered repository's.
+      enum: [owner, speaker, bot, repository]
+    MeetingWord:
+      type: object
+      required: [word, from, sent]
+      properties:
+        word: { type: string }
+        from: { $ref: "#/components/schemas/MeetingWordSource" }
+        sent: { type: boolean, description: A transcription is given it; false past max_sent. }
+    MeetingWords:
+      type: object
+      required: [data, max_own, max_sent]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/MeetingWord" } }
+        max_own: { type: integer, description: How many words the owner may keep. }
+        max_sent: { type: integer, description: How many words a transcription is given. }
+    MeetingWordsUpdate:
+      type: object
+      required: [words]
+      additionalProperties: false
+      properties:
+        words:
+          type: array
+          maxItems: 100
+          description: The owner's words, in their order.
+          items: { type: string, minLength: 1, maxLength: 100 }
     MeetingSettings:
       type: object
       required: [notes_model, formats]

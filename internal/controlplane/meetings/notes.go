@@ -64,7 +64,14 @@ func instructions(s subject) string {
 	var sections strings.Builder
 
 	for i, sec := range s.Format.Sections {
-		fmt.Fprintf(&sections, "%d. %s: %s\n", i+1, sec.Title, sec.About)
+		if sec.About == "" {
+			// A section of the owner's or Hyprnote's may say nothing more than its title.
+			fmt.Fprintf(&sections, "%d. %s\n", i+1, sec.Title)
+
+			continue
+		}
+
+		fmt.Fprintf(&sections, "%d. %s: %s\n", i+1, sec.Title, strings.ReplaceAll(sec.About, "\n", " "))
 	}
 
 	title := ""

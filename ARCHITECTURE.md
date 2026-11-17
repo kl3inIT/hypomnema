@@ -785,8 +785,35 @@ sequenceDiagram
     what the server gave and left out when it is no plain file name here (`..`, a drive's colon, a device of
     Windows, a control character); a file that is there is never replaced.
     Every Bot's `AGENTS.md` says when to show one, with the tool, and that a Routine's script uses the command.
-  - Not built: JSX pages, a public link (OpenMausBot's `publish_page`), pinning to a board, the page calling back
-    into the chat, the dashboard skill (row 13); a pptx or an old .doc is a download.
+  - View-only links (issue #745, `clientapi/artifactshares.go`, `orchestration/artifactshares.go`): the owner
+    sends an artifact to someone with no account; the link always shows the newest revision (it names the
+    artifact, not a revision, as OpenMausBot's published pages and Claude's do) until he revokes it. A link is a row
+    of `artifact_shares` (migration 106: artifact, token, label, created, views, last viewed), as open-webui's
+    `shared_chat`, LibreChat's `SharedLink` and Grafana's public dashboards are; several to one artifact, each
+    labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32 random bytes
+    in base64url, kept as it is so the link can be copied again (open-webui, LibreChat, Grafana; it shows one
+    artifact whose bytes are in the same database unencrypted). Only the owner makes, lists and revokes links
+    (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has no tool for it). Revoking
+    deletes the row, and deleting the artifact with its chat deletes its links (`ON DELETE CASCADE`); no expiry,
+    password or pause. `GET /api/v1/shares/{token}` is public, as `CreateSession` is: the title, type, file
+    shown and its media type, newest revision, when it was updated and where its files load from,
+    `/api/v1/shares/<token>/files/<rev>/<path>` (outside the contract, no sign-in). That route checks the link and
+    that `rev` is the newest on every request (OpenMausBot's `server/page-files.ts`), so a revoke takes effect at
+    once and a file of a replaced revision answers 404; it mints no frame token and serves as the frame's route
+    does (the same headers, a page with `pagePolicy` naming the link's folder). Opening the page itself counts a
+    view and sets the last view (Grafana's request count, Metabase's anonymous view event); reading the link does
+    not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
+    `/s/<token>` carry `X-Robots-Tag: noindex, nofollow` (LibreChat), `Referrer-Policy: no-referrer`,
+    `Cache-Control: private, no-store` (LibreChat) and `frame-ancestors 'none'` (Grafana). An address that sends
+    five unknown tokens within an hour is locked as a wrong password locks it (`session.go`'s limiter, its own
+    instance; LibreChat limits its share route per address), for the link and its files alike, 429 with
+    Retry-After. CLI: `artifact share <id> --label L` prints the link, `artifact shares <id>` lists them with their
+    views, `artifact unshare <share_id>`.
+  - Not built: JSX pages, pinning to a board, the page calling back into the chat, the dashboard skill (row 13); a
+    pptx or an old .doc is a download. For a view-only link: a separate origin for shared pages (OpenMausBot's
+    `*.mausbot.page`; the opaque-origin sandbox keeps the page from the app's session), a password, expiry or
+    pause, a Bot tool to publish (OpenMausBot's `publish_page`), live data at view time, and a Share item on the
+    chat's artifact card (it is on the artifact's view).
 - The chat's work docked above its composer (issue #314, `web/src/features/chat/docked-work.tsx`), beside the
   pending Approval cards and in their scrolling box:
   - Each open question to the owner from the chat's Runs, with the Task it comes from, answered with the
@@ -3081,17 +3108,20 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   whether the public proxy cuts a long blocking transcription from a tool outside.
 
 Meetings (`internal/controlplane/meetings`, `orchestration/meetingstore`, `modelgateway/complete.go`,
-`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issue #721,
+`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues #721 and #747,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a meeting's recording; it is
 heard with who spoke when (Audio, above) and a gateway chat model writes its summary, decisions and actions.
-- Data (migration 00104): `meetings` (title and whether the owner gave it, language, people and terms as JSON, the
+- Data (migrations 00104, 00105): `meetings` (title and whether the owner gave it, language, people as JSON (a
+  `terms` column is left from before #747, no longer written or read), the
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
   `attempts`, the provider and model that heard it); `meeting_speakers` (a voice's `label`, its position and
   the `name` the owner gave it, none shown as "Speaker N"); `meeting_lines` (`n`, start and end in ms, the
   `speaker` and the voice `heard`, the text); `meeting_notes` (one a meeting: `format`, `state` waiting,
   writing, ready or failed, `attempts`, the model, `summary`, `sections` as JSON `[{title, points}]`);
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
-  line and that line's start); `meeting_settings` (one row: `notes_model`).
+  line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
+  hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there);
+  `meeting_formats` (the owner's notes formats: `id` `mtf_…`, `name`, `sections` as JSON `[{title, about}]`).
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3103,11 +3133,20 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   so a restart mid-job takes it again (MemoryOS `minutes_attempts`). Transcribing sends the language and the words
   to hear right (Soniox `context.terms`, MemoryOS; ElevenLabs gets none, no reference sends any) and saves voices
   and lines; a voice that says no line is dropped.
+- The words to hear right (`meetings/words.go`, `meetingstore/words.go`): one list for every transcription
+  (Nojoin's glossary, OpenNoteTaker's key terms): the owner's words, then the names the owner gave voices in earlier
+  meetings (the most recent first), the Bots' names and the registered repositories' names, each once in any case;
+  the first 100 are sent (MemoryOS `MAX_TERMS`, inside Soniox's 10,000-character context) and the rest are listed
+  as not sent. A word heard wrong is replaced in one line or the whole meeting, as a whole word in any case
+  (`POST /meetings/{id}/fix`; silent-notetaker's corrections, Lark Minutes' word replace); the right word joins
+  the owner's words unless the list is full, and the notes are not written again until the owner asks.
 - The notes: one chat completion through the gateway in process (`modelgateway.Server.Complete`), with the model
   of Settings → Meetings and its usage on a gateway key named `meetings`. The prompt is adapted from MemoryOS's
   `TranscriptSummarizer`: the transcript as numbered lines with speakers, the people, the format's sections
-  (Hyprnote's and Meetily's templates, MIT, `meetings/formats.go`: General, Team meeting, 1:1, Stand-up, Client
-  call), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
+  (built in, `meetings/formats.go`: General, Team meeting, Client call from Meetily, Hyprnote's 17 default
+  templates and Meetily's Retrospective (start, stop, continue) and Psychiatric Session Note, MIT, cut to the
+  sections the summary, decisions and actions do not already hold; or one of the owner's, a format deleted since
+  falling back to General), and a JSON answer `{title, summary, sections, decisions, actions}` each item citing its line. The answer
   is checked as MemoryOS's `MinutesChecks` (`meetings/checks.go`) before it is kept: an owner is one voice of the
   transcript or nobody (a group, several people or an unknown label is none); a quote is looked for on its line or
   up to two lines away, a shortened quote given the line's own words, and a quote nowhere near dropped; an action
@@ -3118,22 +3157,31 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
-  body; `file_name`, `media_type`, `language`, `title`, `people`, `terms`, `format` in the query), `GET`
+  body; `file_name`, `media_type`, `language`, `title`, `people`, `format` in the query), `GET`
   and `DELETE /meetings/{id}` (a meeting with its lines, items and suggestions; deleting cancels its work and
   removes the file), `POST /meetings/{id}/notes` `{format}` (write again, 202), `PATCH
   /meetings/{id}/items/{item}` `{done}`, `GET /meeting-actions?who=&state=open|done|all` and `GET`/`PUT
-  /meeting-settings` `{notes_model}` (with the formats). Changes are the owner's; reads are any token's. The CLI:
-  `hypomnema meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings`.
+  /meeting-settings` `{notes_model}` (with the formats, each `builtin` or the owner's), `POST /meeting-formats`,
+  `PUT`/`DELETE /meeting-formats/{id}` `{name, sections}` (a built-in one is refused), `GET`/`PUT /meeting-words`
+  (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
+  /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
+  meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix` and `meetings format
+  add|edit|rm`.
 - On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title, people, words to hear right and format. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  title, people and format (the owner's formats first); it points to Settings → Meetings for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
   failed, and Summary and Transcript tabs with the format and Write again; the transcript colours each voice, shows
-  its share of the talk and opens the speaker picker (this line or the whole meeting). Settings → Meetings picks
-  the notes model with the gateway keys' model picker and lists the formats.
+  its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
+  word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
+  offers Write again. Settings → Meetings picks the notes model with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`), keeps the words (the owner's as chips to remove, the found ones marked
+  speaker, Bot or repository) and lists the formats: the owner's with Edit and Delete, the built-in ones with Copy
+  to edit, in an editor after Hyprnote's (a section's menu inserts, moves or deletes it). Settings' "Back to app"
+  returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
 - Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
-  editing a line's text, sharing a meeting.
+  editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -3984,7 +4032,13 @@ Node (`internal/node`):
     Elements' `Artifact` header: its type, title, "vN · Updated …", Preview / Code for a page (Code is `index.html`
     in the Files panel's read-only Monaco), ‹ › through the revisions kept (the newest followed until the owner
     steps back), ⤢ full screen (Esc or ⤡ back), ↗ a new tab, ⋯ Download (the file, or a folder as a zip) and Copy
-    link, ✕. The new tab is the app's page `/artifacts/$id?rev=N` (signed in), a thin header with the way back to
+    link, Share link (issue #745: a dialog that makes a link for a label and copies it, lists the links with when
+    each was made, its views and last view, with Copy and Revoke, asked first), ✕. A view-only link opens the
+    app's page `/s/$token` (`features/artifacts/shared-view.tsx`), which the root layout shows with no session and
+    no shell (open-webui's `/s/{id}`, LibreChat's `ShareView`): the title, "Updated …" and the artifact, a page in
+    the same locked frame loaded by `src` from the link's files, a PDF or an image in the file preview read from
+    them, another file or a workbook as a download; it reads the link every 30 s and loads a newer revision
+    (OpenMausBot's live pages check every 30 s), and says so at once when the link is revoked. The new tab is the app's page `/artifacts/$id?rev=N` (signed in), a thin header with the way back to
     the chat and who made it over the same view, never a `blob:` or `data:` address (Omnigent's
     `codeViewerHelpers.ts`). A page is an iframe loaded by `src` from its frame's address (`useFramePage`, the
     file shown under the token's folder, its other files beside it by their relative paths), with
@@ -4200,7 +4254,8 @@ Node (`internal/node`):
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
-    - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin;
+    - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin; under
+      `/s/`, a view-only link's page (issue #745), also `X-Robots-Tag: noindex, nofollow` and `no-store`;
     - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
     - gzipped, at level 5, to a browser that accepts it: HTML, CSS, JavaScript, JSON and SVG, through chi's
       `middleware.Compressor`, as Coder's site is (issue #510). The API's answers are not compressed.

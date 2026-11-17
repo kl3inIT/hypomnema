@@ -224,6 +224,74 @@ func artifactDownload(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	})
 }
 
+// View-only links (issue #745): the owner makes one for whom he sends an artifact to, lists them with their views and
+// revokes one, as on the artifact's Share dialog in the web.
+
+func artifactShare(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id, label := fs.Arg(0), str(fs, "label")
+	if label == "" {
+		return fmt.Errorf("%w: give --label, whom the link is for", ErrUsage)
+	}
+
+	resp, err := e.api.CreateArtifactShareWithResponse(ctx, id, openapi.NewArtifactShare{Label: label})
+	if err != nil {
+		return fmt.Errorf("sharing artifact %s: %w", id, err)
+	}
+
+	sh := resp.JSON201
+	if sh == nil {
+		return apiError("sharing artifact "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, sh, func() {
+		e.printf("%s  %s\n%s\n", sh.Id, sh.Label, e.url+sh.Path)
+	})
+}
+
+func artifactShares(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	resp, err := e.api.ListArtifactSharesWithResponse(ctx, id)
+	if err != nil {
+		return fmt.Errorf("listing the links of artifact %s: %w", id, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("listing the links of artifact "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		if len(resp.JSON200.Data) == 0 {
+			e.printf("no links\n")
+		}
+
+		for _, sh := range resp.JSON200.Data {
+			seen := "never viewed"
+			if sh.LastViewedAt != nil {
+				seen = "last viewed " + sh.LastViewedAt.Local().Format("2006-01-02 15:04")
+			}
+
+			e.printf("%s  %s  %d views, %s  %s\n  %s\n", sh.Id, sh.CreatedAt.Local().Format("2006-01-02 15:04"),
+				sh.Views, seen, sh.Label, e.url+sh.Path)
+		}
+	})
+}
+
+func artifactUnshare(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	resp, err := e.api.DeleteArtifactShareWithResponse(ctx, id)
+	if err != nil {
+		return fmt.Errorf("revoking link %s: %w", id, err)
+	}
+
+	if resp.StatusCode() != http.StatusNoContent {
+		return apiError("revoking link "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, map[string]any{"revoked": id}, func() { e.printf("revoked %s\n", id) })
+}
+
 // downloadName is the file a revision is saved as by default: <id>-r<rev>-<name>, its name being the last part of
 // what the server named it when that is a plain file name here, and nothing when it is not.
 func downloadName(id string, rev int, entry string) string {
