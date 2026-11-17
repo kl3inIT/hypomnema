@@ -28,6 +28,9 @@ var contentSecurityPolicy = strings.Join([]string{
 	"frame-ancestors 'none'",
 }, "; ")
 
+// sharedPage starts the path of a view-only link's page, /s/<token>.
+const sharedPage = "/s/"
+
 // reserved are the server's own paths: an unknown path under them is a 404,
 // never the client.
 var reserved = []string{"api", "node", "livez", "readyz"}
@@ -116,6 +119,13 @@ func serveIndex(w http.ResponseWriter, r *http.Request, assets fs.FS) {
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Content-Security-Policy", contentSecurityPolicy)
+
+	// A view-only link's page (issue #745) is opened without signing in by whoever has the link: it is never
+	// indexed (LibreChat's X-Robots-Tag) nor kept (LibreChat's no-store), as the client API's answers for it.
+	if strings.HasPrefix(path.Clean(r.URL.Path), sharedPage) {
+		h.Set("X-Robots-Tag", "noindex, nofollow")
+		h.Set("Cache-Control", "private, no-store")
+	}
 
 	if r.Method == http.MethodHead {
 		return

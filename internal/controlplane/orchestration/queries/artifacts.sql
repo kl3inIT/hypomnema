@@ -79,3 +79,28 @@ SELECT f.path, f.size, f.media_type, b.data
 FROM artifact_files f JOIN artifact_blobs b ON b.sha256 = f.sha256
 WHERE f.artifact_id = @artifact_id AND f.revision = @revision
 ORDER BY f.path;
+
+-- View-only links to an artifact (issue #745).
+
+-- name: InsertArtifactShare :exec
+INSERT INTO artifact_shares (id, artifact_id, token, label, created_at)
+VALUES (@id, @artifact_id, @token, @label, @now);
+
+-- name: ListArtifactShares :many
+-- Newest first.
+SELECT * FROM artifact_shares WHERE artifact_id = @artifact_id ORDER BY created_at DESC, id;
+
+-- name: DeleteArtifactShare :execrows
+DELETE FROM artifact_shares WHERE id = @id;
+
+-- name: SharedArtifact :one
+-- What a link shows: its artifact at the newest revision, with the type of the file shown.
+SELECT s.id, s.artifact_id, a.revision, a.updated_at, r.title, r.type, r.entry, f.media_type
+FROM artifact_shares s
+JOIN artifacts a ON a.id = s.artifact_id
+JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
+JOIN artifact_files f ON f.artifact_id = a.id AND f.revision = a.revision AND f.path = r.entry
+WHERE s.token = @token;
+
+-- name: CountArtifactShareView :exec
+UPDATE artifact_shares SET views = views + 1, last_viewed_at = @now WHERE id = @id;
