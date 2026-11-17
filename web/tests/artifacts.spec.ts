@@ -742,7 +742,8 @@ test("the pages skill's dashboard draws itself in its locked frame", async ({ pa
   const orders = await dash.locator("#kpi-orders").textContent()
   await dash.getByRole("combobox", { name: "Region" }).selectOption("Đà Nẵng")
   await expect(dash.locator("#kpi-orders")).not.toHaveText(orders!)
-  await expect(dash.locator("#note-regions")).toContainText("Đà Nẵng highlighted")
+  await expect(dash.locator("#figure-regions")).toContainText("Đà Nẵng")
+  await expect(dash.locator("#chart-regions")).toHaveAttribute("aria-label", /Đà Nẵng highlighted/)
   await dash.locator("#chart-mix").scrollIntoViewIfNeeded()
   await shot(page, "pages-dashboard-filtered")
 

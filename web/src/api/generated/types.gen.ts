@@ -3540,6 +3540,230 @@ export type ChatMessageList = {
   has_more: boolean;
 };
 
+/**
+ * Where the meeting's transcription stands.
+ */
+export type MeetingState = 'transcribing' | 'transcribed' | 'failed';
+
+/**
+ * Where its notes stand; waiting is for the transcript.
+ */
+export type MeetingNotesState = 'waiting' | 'writing' | 'ready' | 'failed';
+
+export type MeetingSection = {
+  title: string;
+  points: Array<string>;
+};
+
+export type MeetingNotes = {
+  /**
+   * The notes format's id.
+   */
+  format: string;
+  state: MeetingNotesState;
+  /**
+   * Why writing them failed
+   */
+  failure?: string;
+  /**
+   * The gateway model that wrote them.
+   */
+  model?: string;
+  summary: string;
+  /**
+   * The format's sections, in its order.
+   */
+  sections: Array<MeetingSection>;
+  written_at?: string;
+};
+
+export type MeetingSpeaker = {
+  /**
+   * The voice's label
+   */
+  label: string;
+  /**
+   * The name shown
+   */
+  name: string;
+  named: boolean;
+  /**
+   * How long its lines last.
+   */
+  talk_ms: number;
+  /**
+   * Its share of the meeting's talk
+   */
+  share: number;
+};
+
+export type Meeting = {
+  id: string;
+  title: string;
+  /**
+   * The owner gave the title; otherwise the notes wrote it.
+   */
+  titled: boolean;
+  language?: string;
+  people: Array<string>;
+  terms: Array<string>;
+  file_name: string;
+  media_type: string;
+  size: number;
+  duration_ms: number;
+  state: MeetingState;
+  /**
+   * Why hearing it failed
+   */
+  failure?: string;
+  /**
+   * The speech-to-text provider that heard it.
+   */
+  provider?: string;
+  model?: string;
+  created_at: string;
+  notes: MeetingNotes;
+  speakers: Array<MeetingSpeaker>;
+  actions: number;
+  open_actions: number;
+};
+
+export type MeetingList = {
+  data: Array<Meeting>;
+};
+
+export type MeetingLine = {
+  n: number;
+  start_ms: number;
+  end_ms: number;
+  /**
+   * The label of the voice it is shown as.
+   */
+  speaker: string;
+  /**
+   * The label the provider heard it as.
+   */
+  heard: string;
+  text: string;
+};
+
+export type MeetingItemKind = 'decision' | 'action';
+
+export type MeetingItem = {
+  id: string;
+  kind: MeetingItemKind;
+  text: string;
+  /**
+   * Who does an action
+   */
+  owner?: string;
+  /**
+   * The label of the voice that does it
+   */
+  owner_speaker?: string;
+  /**
+   * The deadline in the words the meeting used.
+   */
+  due?: string;
+  done: boolean;
+  /**
+   * The sentence it rests on.
+   */
+  quote?: string;
+  /**
+   * The line it rests on.
+   */
+  line?: number;
+  /**
+   * When that line was said.
+   */
+  start_ms?: number;
+};
+
+export type SpeakerSuggestion = {
+  label: string;
+  /**
+   * The name the voice called itself.
+   */
+  name: string;
+  /**
+   * The line it said it in.
+   */
+  line: number;
+};
+
+export type MeetingDetail = {
+  meeting: Meeting;
+  lines: Array<MeetingLine>;
+  /**
+   * The decisions, then the actions, each in the notes' order.
+   */
+  items: Array<MeetingItem>;
+  /**
+   * Names offered for unnamed voices, from the lines they introduced themselves in.
+   */
+  suggestions: Array<SpeakerSuggestion>;
+};
+
+export type WriteMeetingNotesRequest = {
+  format: string;
+};
+
+export type SpeakerName = {
+  name: string;
+};
+
+export type MeetingItemUpdate = {
+  done: boolean;
+};
+
+export type MeetingAction = {
+  id: string;
+  meeting_id: string;
+  meeting_title: string;
+  meeting_at: string;
+  text: string;
+  /**
+   * Who does it
+   */
+  who?: string;
+  due?: string;
+  done: boolean;
+  quote?: string;
+  start_ms?: number;
+};
+
+export type MeetingActionList = {
+  data: Array<MeetingAction>;
+  /**
+   * Everyone who has an action, open or done, by the name shown.
+   */
+  people: Array<string>;
+};
+
+export type MeetingFormatSection = {
+  title: string;
+  about: string;
+};
+
+export type MeetingFormat = {
+  id: string;
+  name: string;
+  sections: Array<MeetingFormatSection>;
+};
+
+export type MeetingSettings = {
+  /**
+   * The gateway chat model that writes notes; empty for none.
+   */
+  notes_model: string;
+  formats: Array<MeetingFormat>;
+};
+
+export type MeetingSettingsUpdate = {
+  notes_model: string;
+};
+
 export type LarkChannelSettingsWritable = {
   /**
    * The id of the Bot the Channel talks to, which must exist; the main Bot for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
@@ -3605,6 +3829,8 @@ export type NewTokenAccountWritable = {
    */
   token: string;
 };
+
+export type MeetingId = string;
 
 export type AccountId = string;
 
@@ -8669,6 +8895,367 @@ export type SpeakAudioResponses = {
 };
 
 export type SpeakAudioResponse = SpeakAudioResponses[keyof SpeakAudioResponses];
+
+export type ListMeetingsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    q?: string;
+    limit?: number;
+  };
+  url: '/meetings';
+};
+
+export type ListMeetingsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMeetingsError = ListMeetingsErrors[keyof ListMeetingsErrors];
+
+export type ListMeetingsResponses = {
+  /**
+   * The meetings.
+   */
+  200: MeetingList;
+};
+
+export type ListMeetingsResponse = ListMeetingsResponses[keyof ListMeetingsResponses];
+
+export type UploadMeetingData = {
+  body: Blob | File;
+  path?: never;
+  query: {
+    file_name: string;
+    /**
+     * The recording's type, such as audio/mpeg; absent, it is told from its bytes.
+     */
+    media_type?: string;
+    /**
+     * An ISO 639-1 code, such as vi; absent, the provider finds it.
+     */
+    language?: string;
+    /**
+     * Absent, the notes write one.
+     */
+    title?: string;
+    /**
+     * Who was in the meeting; they help name the speakers.
+     */
+    people?: Array<string>;
+    /**
+     * Words to hear right, such as names and jargon, given to the speech-to-text provider.
+     */
+    terms?: Array<string>;
+    /**
+     * The notes format's id (GET /meeting-settings lists them); absent, general.
+     */
+    format?: string;
+  };
+  url: '/meetings';
+};
+
+export type UploadMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UploadMeetingError = UploadMeetingErrors[keyof UploadMeetingErrors];
+
+export type UploadMeetingResponses = {
+  /**
+   * The meeting, transcribing.
+   */
+  201: Meeting;
+};
+
+export type UploadMeetingResponse = UploadMeetingResponses[keyof UploadMeetingResponses];
+
+export type DeleteMeetingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}';
+};
+
+export type DeleteMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteMeetingError = DeleteMeetingErrors[keyof DeleteMeetingErrors];
+
+export type DeleteMeetingResponses = {
+  /**
+   * The meeting is deleted.
+   */
+  204: void;
+};
+
+export type DeleteMeetingResponse = DeleteMeetingResponses[keyof DeleteMeetingResponses];
+
+export type GetMeetingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}';
+};
+
+export type GetMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetMeetingError = GetMeetingErrors[keyof GetMeetingErrors];
+
+export type GetMeetingResponses = {
+  /**
+   * The meeting.
+   */
+  200: MeetingDetail;
+};
+
+export type GetMeetingResponse = GetMeetingResponses[keyof GetMeetingResponses];
+
+export type GetMeetingRecordingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/recording';
+};
+
+export type GetMeetingRecordingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetMeetingRecordingError = GetMeetingRecordingErrors[keyof GetMeetingRecordingErrors];
+
+export type GetMeetingRecordingResponses = {
+  /**
+   * The recording, with its type as uploaded.
+   */
+  200: Blob | File;
+};
+
+export type GetMeetingRecordingResponse = GetMeetingRecordingResponses[keyof GetMeetingRecordingResponses];
+
+export type WriteMeetingNotesData = {
+  body: WriteMeetingNotesRequest;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/notes';
+};
+
+export type WriteMeetingNotesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type WriteMeetingNotesError = WriteMeetingNotesErrors[keyof WriteMeetingNotesErrors];
+
+export type WriteMeetingNotesResponses = {
+  /**
+   * The meeting, its notes being written.
+   */
+  202: Meeting;
+};
+
+export type WriteMeetingNotesResponse = WriteMeetingNotesResponses[keyof WriteMeetingNotesResponses];
+
+export type NameMeetingSpeakerData = {
+  body: SpeakerName;
+  path: {
+    meeting_id: string;
+    /**
+     * The voice's label.
+     */
+    label: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/speakers/{label}';
+};
+
+export type NameMeetingSpeakerErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type NameMeetingSpeakerError = NameMeetingSpeakerErrors[keyof NameMeetingSpeakerErrors];
+
+export type NameMeetingSpeakerResponses = {
+  /**
+   * The meeting as it is now.
+   */
+  200: MeetingDetail;
+};
+
+export type NameMeetingSpeakerResponse = NameMeetingSpeakerResponses[keyof NameMeetingSpeakerResponses];
+
+export type SetMeetingLineSpeakerData = {
+  body: SpeakerName;
+  path: {
+    meeting_id: string;
+    /**
+     * The line's number.
+     */
+    n: number;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/lines/{n}/speaker';
+};
+
+export type SetMeetingLineSpeakerErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetMeetingLineSpeakerError = SetMeetingLineSpeakerErrors[keyof SetMeetingLineSpeakerErrors];
+
+export type SetMeetingLineSpeakerResponses = {
+  /**
+   * The meeting as it is now.
+   */
+  200: MeetingDetail;
+};
+
+export type SetMeetingLineSpeakerResponse = SetMeetingLineSpeakerResponses[keyof SetMeetingLineSpeakerResponses];
+
+export type UpdateMeetingItemData = {
+  body: MeetingItemUpdate;
+  path: {
+    meeting_id: string;
+    item_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/items/{item_id}';
+};
+
+export type UpdateMeetingItemErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateMeetingItemError = UpdateMeetingItemErrors[keyof UpdateMeetingItemErrors];
+
+export type UpdateMeetingItemResponses = {
+  /**
+   * The action.
+   */
+  200: MeetingItem;
+};
+
+export type UpdateMeetingItemResponse = UpdateMeetingItemResponses[keyof UpdateMeetingItemResponses];
+
+export type ListMeetingActionsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Only this person's, by the name shown.
+     */
+    who?: string;
+    /**
+     * Open, done, or all (the default).
+     */
+    state?: 'open' | 'done' | 'all';
+  };
+  url: '/meeting-actions';
+};
+
+export type ListMeetingActionsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMeetingActionsError = ListMeetingActionsErrors[keyof ListMeetingActionsErrors];
+
+export type ListMeetingActionsResponses = {
+  /**
+   * The actions, and everyone who has one.
+   */
+  200: MeetingActionList;
+};
+
+export type ListMeetingActionsResponse = ListMeetingActionsResponses[keyof ListMeetingActionsResponses];
+
+export type GetMeetingSettingsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/meeting-settings';
+};
+
+export type GetMeetingSettingsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetMeetingSettingsError = GetMeetingSettingsErrors[keyof GetMeetingSettingsErrors];
+
+export type GetMeetingSettingsResponses = {
+  /**
+   * The settings.
+   */
+  200: MeetingSettings;
+};
+
+export type GetMeetingSettingsResponse = GetMeetingSettingsResponses[keyof GetMeetingSettingsResponses];
+
+export type SetMeetingSettingsData = {
+  body: MeetingSettingsUpdate;
+  path?: never;
+  query?: never;
+  url: '/meeting-settings';
+};
+
+export type SetMeetingSettingsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetMeetingSettingsError = SetMeetingSettingsErrors[keyof SetMeetingSettingsErrors];
+
+export type SetMeetingSettingsResponses = {
+  /**
+   * The settings.
+   */
+  200: MeetingSettings;
+};
+
+export type SetMeetingSettingsResponse = SetMeetingSettingsResponses[keyof SetMeetingSettingsResponses];
 
 export type ListChatsData = {
   body?: never;

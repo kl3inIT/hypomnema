@@ -27,6 +27,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
@@ -121,6 +122,8 @@ type Server struct {
 	builtinSkills func() ([]BuiltinSkill, error)
 	// routines starts the runs of Routines the owner asks for; nil when the control plane wired none.
 	routines Routines
+	// meetings keeps the meetings and does their work (issue #721); nil when the control plane wired none.
+	meetings Meetings
 }
 
 // Accounts is what the API asks of the service that signs subscription
@@ -331,6 +334,10 @@ func bodyLimit(r *http.Request) int64 {
 
 	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/audio/transcriptions" {
 		return maxTranscribeBody
+	}
+
+	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/meetings" {
+		return meetings.MaxRecording
 	}
 
 	return maxBodyBytes

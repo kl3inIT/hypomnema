@@ -262,6 +262,10 @@ func (p *phoneImport) chat(ctx context.Context, file zdbFile, db string) error {
 		p.chats++
 	}
 
+	// What is kept so far shows while the rest is read (issue #733).
+	p.a.setSync(messaging.PhoneSync{Stage: messaging.SyncImporting, Messages: p.added, Chats: p.chats,
+		Skipped: p.skipped})
+
 	return err
 }
 
