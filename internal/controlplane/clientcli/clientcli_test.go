@@ -893,6 +893,18 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	assert.Contains(t, out, "three or four\n   mature projects, never a single one",
 		"a research Task names several references to clone (issue #719)")
 
+	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "review")
+	require.NoError(t, err)
+	assert.Contains(t, out, "A review first reads what CodeRabbit (`coderabbitai[bot]`) already left",
+		"a review answers CodeRabbit's findings (issue #766)")
+	assert.Contains(t, out, `gh pr comment <url> --body
+   "@coderabbitai review"`, "the coordinator may ask CodeRabbit on an important pull request")
+	assert.Contains(t, out, "CodeRabbit is never a condition of its own")
+
+	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator")
+	require.NoError(t, err)
+	assert.Contains(t, out, "it\n  is never a merge condition")
+
 	_, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "nothing")
 	require.ErrorIs(t, err, ErrUsage)
 
@@ -1096,15 +1108,15 @@ func TestProfilesFromTheCLI(t *testing.T) {
 
 	out, err := w.cmd(t, "profiles", "apply", file)
 	require.NoError(t, err)
-	assert.Contains(t, out, "profile reviewer: new version v6")
+	assert.Contains(t, out, "profile reviewer: new version v7")
 
 	out, err = w.cmd(t, "profiles", "apply", file)
 	require.NoError(t, err)
-	assert.Contains(t, out, "unchanged, still v6")
+	assert.Contains(t, out, "unchanged, still v7")
 
 	var versions openapi.ProfileList
 	w.jsonCmd(t, &versions, "", "profiles", "versions", "reviewer")
-	assert.Len(t, versions.Data, 6)
+	assert.Len(t, versions.Data, 7)
 
 	coordinator := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
 	coordinator.login(t, bearertoken.Coordinator)

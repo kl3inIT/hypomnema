@@ -935,7 +935,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	created, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
-	assert.Equal(t, 6, created.JSON201.Version)
+	assert.Equal(t, 7, created.JSON201.Version)
 	assert.Equal(t, []string{"explorer"}, created.JSON201.Fallbacks)
 
 	same, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
