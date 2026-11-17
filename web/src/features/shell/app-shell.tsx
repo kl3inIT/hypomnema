@@ -4,6 +4,7 @@ import {
   BotMessageSquare,
   LayoutGrid,
   LogOut,
+  Mic,
   Repeat2,
   Server,
   Settings,
@@ -29,7 +30,7 @@ import { BotList } from "./bot-list"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// Team with what waits for the owner, the Routines, then what is set up: the Bots, the agents, the machines; in the
+// Team with what waits for the owner, the Routines, the Meetings (issue #721), then what is set up: the Bots, the agents, the machines; in the
 // order they are used, as OpenClaw's navigation, issue #371) and the Bots with
 // their chats (bot-list.tsx), and a quiet 52px header over each page. On a phone the sidebar hides and the header's
 // ≡ opens the same content as a drawer from the left (AppDrawer, issue #604).
@@ -76,6 +77,13 @@ function Places() {
       >
         <Repeat2 className="size-4" />
         Routines
+      </Link>
+      <Link
+        to="/meetings"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <Mic className="size-4" />
+        Meetings
       </Link>
       <Link
         to="/bots"
