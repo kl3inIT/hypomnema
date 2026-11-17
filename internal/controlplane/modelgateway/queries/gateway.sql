@@ -57,9 +57,9 @@ SELECT * FROM gateway_keys WHERE dispatch_id = @dispatch_id AND revoked_at IS NU
 ORDER BY created_at DESC, id DESC LIMIT 1;
 
 -- The newest key of a chat, working or not (issue #723): a voice message heard before the chat's pi starts is
--- recorded on it.
+-- recorded on it. Two keys made in the same millisecond are told apart by their rowid, the order they were made.
 -- name: GetLatestGatewayKeyOfChat :one
-SELECT * FROM gateway_keys WHERE chat_id = @chat_id ORDER BY created_at DESC, id DESC LIMIT 1;
+SELECT * FROM gateway_keys WHERE chat_id = @chat_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
 -- name: GetGatewayKeyByHash :one
 SELECT * FROM gateway_keys WHERE key_hash = @key_hash;

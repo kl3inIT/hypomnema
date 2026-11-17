@@ -281,11 +281,11 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const getLatestGatewayKeyOfChat = `-- name: GetLatestGatewayKeyOfChat :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, id DESC LIMIT 1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 // The newest key of a chat, working or not (issue #723): a voice message heard before the chat's pi starts is
-// recorded on it.
+// recorded on it. Two keys made in the same millisecond are told apart by their rowid, the order they were made.
 func (q *Queries) GetLatestGatewayKeyOfChat(ctx context.Context, chatID sql.NullString) (GatewayKey, error) {
 	row := q.db.QueryRowContext(ctx, getLatestGatewayKeyOfChat, chatID)
 	var i GatewayKey
