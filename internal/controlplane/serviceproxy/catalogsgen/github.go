@@ -100,8 +100,8 @@ func generateGitHub(ctx context.Context, client *http.Client, src sources, root 
 
 	var report strings.Builder
 
-	fmt.Fprintf(&report, "%s: %d REST operations, %d GraphQL root fields; the %d fields gh %s sends with an "+
-		"input are all in the schema\n",
+	fmt.Fprintf(&report, "%s: %d REST operations, %d GraphQL root fields; the %d root fields gh %s sends are all "+
+		"in the schema\n",
 		githubFile, len(declaration.REST), len(declaration.GraphQL), len(sent), gh.CLI.Version)
 
 	if err := printChanges(&report, before, written); err != nil {
@@ -250,9 +250,7 @@ func graphqlRootFields(raw []byte) ([]graphqlField, error) {
 		}
 	}
 
-	slices.SortFunc(out, func(a, b graphqlField) int {
-		return cmp.Or(cmp.Compare(a.Type, b.Type), cmp.Compare(a.Field, b.Field))
-	})
+	sortFields(out)
 
 	return out, nil
 }
@@ -262,16 +260,16 @@ func graphqlRootFields(raw []byte) ([]graphqlField, error) {
 // itself (`addProjectV2ItemById(input: $input_000)`).
 var inputField = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\(input:`)
 
-// ghFields reads the GraphQL fields gh's source sends with an input object, from the source tarball of the release
+// ghFields reads the GraphQL root fields gh's source sends (ghRootFields), from the source tarball of the release
 // agenttool pins. Tests are left out.
-func ghFields(tarball []byte) ([]string, error) {
+func ghFields(tarball []byte) ([]graphqlField, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(tarball))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = gz.Close() }()
 
-	found := map[string]bool{}
+	files := ghFiles{}
 	tr := tar.NewReader(gz)
 
 	for {
@@ -293,34 +291,43 @@ func ghFields(tarball []byte) ([]string, error) {
 			return nil, err
 		}
 
-		for _, m := range inputField.FindAllSubmatch(src, -1) {
-			found[string(m[1])] = true
-		}
+		files[h.Name] = src
+	}
+
+	found, err := ghRootFields(files)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(found) == 0 {
 		return nil, errors.New("no GraphQL field found in the source")
 	}
 
-	return slices.Sorted(maps.Keys(found)), nil
+	return found, nil
 }
 
-// lacks names the fields gh sends that are no root field of the schema.
-func lacks(d githubDeclaration, sent []string) []string {
-	have := map[string]bool{}
+// lacks names the root fields gh sends that are no root field of the schema of their operation's type.
+func lacks(d githubDeclaration, sent []graphqlField) []string {
+	have := map[[2]string]bool{}
 	for _, f := range d.GraphQL {
-		have[f.Field] = true
+		have[[2]string{f.Type, f.Field}] = true
 	}
 
 	var out []string
 
 	for _, f := range sent {
-		if !have[f] {
-			out = append(out, f)
+		if !have[[2]string{f.Type, f.Field}] {
+			out = append(out, f.Type+" "+f.Field)
 		}
 	}
 
 	return out
+}
+
+func sortFields(fields []graphqlField) {
+	slices.SortFunc(fields, func(a, b graphqlField) int {
+		return cmp.Or(cmp.Compare(a.Type, b.Type), cmp.Compare(a.Field, b.Field))
+	})
 }
 
 // encodeGitHub writes the declaration one operation per line, so that a regeneration's diff reads line by line.

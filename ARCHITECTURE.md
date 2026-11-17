@@ -1952,7 +1952,10 @@ flowchart LR
       `ref`, `branch` or `basehead` takes its slashes. A POST to `/graphql` is matched by each operation's type and
       root field (gqlparser parses the query; fragments at the root are followed); the action that needs the most
       care names the request and the others it names go with it (`Action.With`), and the proxy lets the strictest
-      of the owner's answers govern (refused, never, ask, allow; Onyx's `AllMatchedActions`). A query that asks
+      of the owner's answers govern (refused, never, ask, allow; Onyx's `AllMatchedActions`). When several ask,
+      each needs its own answer: those allowed for the session or the Routine are set aside
+      (`orchestration.StandingGrant`), and the request asks as the first of the others, the owner shown them all,
+      so that a granted comment never carries a merge. A query that asks
       only the schema (`__type`, `__schema`, `__typename`, which `gh` sends to detect features) is
       `github.schema.read`; beside another field, that field's action names it. A root field the schema does not
       have, a subscription or a body that is not GraphQL asks as `github.unlisted`. A release's asset upload goes
@@ -1961,7 +1964,8 @@ flowchart LR
       plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.
     - **Regenerating it**: `make catalogs-generate SERVICE=github` runs `serviceproxy/catalogsgen`, which fetches the
       REST description, the schema and gh's source at what `serviceproxy/catalog_sources.json` pins (URL, revision,
-      SHA-256, gh's version), fails on a changed SHA-256 or on a field gh sends with an input that the schema lacks,
+      SHA-256, gh's version), fails on a changed SHA-256 or on a root field gh's source sends that the schema lacks
+      (the structs it gives `Query` and `Mutate`, the queries it writes, the fields it calls with an input),
       writes the file and prints the operations added, removed or moved to another action. `make verify` runs only
       the offline tests: every operation of the file is a named action (a GET or a query a read, nothing else), every
       category is in a service, and the file's gh version is `agenttool.GitHubCLI`'s, so bumping gh fails until the

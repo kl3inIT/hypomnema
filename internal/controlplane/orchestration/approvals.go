@@ -149,32 +149,8 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 			return err
 		}
 
-		if routineID != "" {
-			always, err := routinestore.GrantedTx(ctx, q, routineID, n.Integration, n.Label, n.Action)
-			if err != nil {
-				return err
-			}
-
-			if always {
-				granted = true
-
-				return nil
-			}
-		}
-
-		if runID != "" || n.ChatID != "" {
-			sessions, err := q.CountSessionApprovals(ctx, store.CountSessionApprovalsParams{
-				Integration: n.Integration, Label: n.Label, Action: n.Action, RunID: runID, ChatID: n.ChatID,
-			})
-			if err != nil {
-				return fmt.Errorf("reading the approvals of the session: %w", err)
-			}
-
-			if sessions > 0 {
-				granted = true
-
-				return nil
-			}
+		if granted, err = standingGrant(ctx, q, n, runID, routineID); err != nil || granted {
+			return err
 		}
 
 		same, err := q.ListApprovalsByMatch(ctx, store.ListApprovalsByMatchParams{
@@ -296,6 +272,48 @@ func (s *Service) ExpireApproval(ctx context.Context, id string) (Approval, erro
 
 // runOfDispatch returns a Dispatch's Task and Run; both empty for no
 // Dispatch, or one that is gone.
+// StandingGrant reports whether the owner allowed an action for the rest of the Run or chat that asks, or for its
+// Routine, without recording anything: of a request that names several actions, each needs its own answer, and one
+// action's grant never carries another (review of #746).
+func (s *Service) StandingGrant(ctx context.Context, n NewApproval) (bool, error) {
+	q := s.read()
+
+	_, runID, err := runOfDispatch(ctx, q, n.DispatchID)
+	if err != nil {
+		return false, err
+	}
+
+	routineID, _, err := routinestore.RunOfAskerTx(ctx, q, n.RunKey, n.ChatID)
+	if err != nil {
+		return false, err
+	}
+
+	return standingGrant(ctx, q, n, runID, routineID)
+}
+
+// standingGrant is whether an action is allowed for the asker's Routine, or for the rest of its Run or chat.
+func standingGrant(ctx context.Context, q *store.Queries, n NewApproval, runID, routineID string) (bool, error) {
+	if routineID != "" {
+		always, err := routinestore.GrantedTx(ctx, q, routineID, n.Integration, n.Label, n.Action)
+		if err != nil || always {
+			return always, err
+		}
+	}
+
+	if runID == "" && n.ChatID == "" {
+		return false, nil
+	}
+
+	sessions, err := q.CountSessionApprovals(ctx, store.CountSessionApprovalsParams{
+		Integration: n.Integration, Label: n.Label, Action: n.Action, RunID: runID, ChatID: n.ChatID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading the approvals of the session: %w", err)
+	}
+
+	return sessions > 0, nil
+}
+
 func runOfDispatch(ctx context.Context, q *store.Queries, dispatchID string) (taskID, runID string, err error) {
 	if dispatchID == "" {
 		return "", "", nil

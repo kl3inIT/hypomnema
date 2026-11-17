@@ -440,3 +440,61 @@ func TestAGraphQLRequestIsGovernedByItsStrictestAnswer(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, got.Status)
 	assert.Len(t, w.service.received(), 1, "a request with a merge set to never is refused")
 }
+
+// Scenario (review of #746): a comment approved for the session does not carry a merge sent in the same GraphQL
+// request. Both ask by default; the owner approves a comment for the session, and a request that comments and
+// merges then waits for an approval of the merge, is refused while it waits, and GitHub is reached once, by the
+// comment alone. Approved once, the merge runs with it.
+func TestASessionGrantOfACommentDoesNotCarryAMerge(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+
+	_, err := w.svc.SetConnection(ctx, serviceproxy.GitHubID, "default", "", "conn-github-com-default")
+	require.NoError(t, err)
+
+	_, err = w.svc.SetConnectionChats(ctx, serviceproxy.GitHubID, "default", true)
+	require.NoError(t, err)
+
+	gh, refused := w.openTo(serviceproxy.GitHubID, w.pi, "default", "api.github.com", w.chat)
+	require.Zero(t, refused)
+
+	comment := graphqlBody(t, `mutation { addComment(input: {subjectId: "I_1", body: "hi"}) { clientMutationId } }`)
+	commented := make(chan answer, 1)
+
+	go func() { commented <- gh.do(http.MethodPost, "/graphql", "application/json", comment) }()
+
+	asked := w.pending()
+	require.Equal(t, "github.comments.create", asked.Action)
+
+	_, err = w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeSession)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, (<-commented).Status)
+	require.Len(t, w.service.received(), 1)
+
+	both := graphqlBody(t, `mutation { addComment(input: {subjectId: "I_1", body: "hi"}) { clientMutationId } `+
+		`mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }`)
+	merged := make(chan answer, 1)
+
+	go func() { merged <- gh.do(http.MethodPost, "/graphql", "application/json", both) }()
+
+	merge := w.pending()
+	assert.Equal(t, "github.pulls.merge", merge.Action, "the merge asks, whatever the comment's grant")
+	assert.Len(t, w.service.received(), 1, "nothing is sent while the merge waits")
+
+	_, err = w.proxy.Decide(ctx, merge.ID, false, "")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, (<-merged).Status)
+	assert.Len(t, w.service.received(), 1, "GitHub was reached once, by the comment alone")
+
+	go func() { merged <- gh.do(http.MethodPost, "/graphql", "application/json", both) }()
+
+	again := w.pending()
+	assert.Equal(t, "github.pulls.merge", again.Action)
+
+	_, err = w.proxy.Decide(ctx, again.ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, (<-merged).Status)
+	assert.Len(t, w.service.received(), 2, "approved once, the merge runs with the comment")
+}

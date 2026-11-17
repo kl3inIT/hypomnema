@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -81,26 +82,101 @@ func TestTheGeneratorKeepsEveryOperationOfGitHubsDeclaration(t *testing.T) {
 	assert.Contains(t, string(written), "\n    {\"method\":\"PUT\"", "one operation per line")
 }
 
-// Scenario: the generator reads what gh sends with an input object, in its struct tags and in the queries it
-// writes, leaving its tests out, and names what the schema lacks.
+// ghMerge is gh's merge as it sends it: a struct given to Mutate, and one aliased field in another.
+const ghMerge = `package merge
+
+func merge(c Client) error {
+	var mutation struct {
+		MergePullRequest struct{} ` + "`graphql:\"mergePullRequest(input: $input)\"`" + `
+		Y                struct{} ` + "`graphql:\"m0: deleteIssue(input:$input)\"`" + `
+	}
+
+	return c.Mutate("github.com", "PullRequestMerge", &mutation, nil)
+}
+`
+
+// ghRepo is gh's reading of a repository (api/queries_repo.go at v2.103.3): a struct of a type of the package given
+// to Query, whose field has no tag, and a query it writes itself with fmt verbs in it.
+const ghRepo = `package api
+
+type viewerQuery struct {
+	Viewer struct{ Login string }
+	Alias  struct{} ` + "`graphql:\"o: organization(login: $org)\"`" + `
+	Frag   struct{} ` + "`graphql:\"... on Query\"`" + `
+}
+
+func repo(c Client, fields string) error {
+	query := fmt.Sprintf(` + "`" + `query RepositoryInfo($owner: String!, $name: String!) {
+		repository(owner: $owner, name: $name) {%s}
+		__typename
+	}` + "`" + `, fields)
+
+	var v viewerQuery
+	if err := c.Query("github.com", "Viewer", &v, nil); err != nil {
+		return err
+	}
+
+	_ = fmt.Sprintf("add_%03d: addProjectV2ItemById(input: $input_%03d)", 1, 1)
+
+	return c.GraphQL("github.com", query, nil, nil)
+}
+`
+
+// Scenario: the generator reads every root field gh sends (decision 9c of #713): the mutations it gives Mutate, the
+// queries it gives Query (a field's tag past its alias, or its name), the queries it writes itself, fmt verbs and
+// all, and any field called with an input; its tests and what is not Go are left out. A query root field the schema
+// lacks, as a mutation, fails the generator (review of #746: `repository` was not checked).
 func TestTheGeneratorFailsOnAFieldGhSendsThatTheSchemaLacks(t *testing.T) {
 	t.Parallel()
 
 	tarball := gzipTar(t, map[string]string{
-		"cli-2.103.3/pkg/cmd/pr/merge/http.go": "var m struct{ X struct{} `graphql:\"mergePullRequest(input: $input)\"`" +
-			"\n Y struct{} `graphql:\"m0: deleteIssue(input:$input)\"` }",
-		"cli-2.103.3/api/queries_projects_v2.go": "fmt.Sprintf(\"add_%03d: addProjectV2ItemById(input: $input_%03d)\")",
-		"cli-2.103.3/api/queries_test.go":        "`graphql:\"onlyInATest(input: $input)\"`",
-		"cli-2.103.3/README.md":                  "notInGo(input: x)",
+		"cli-2.103.3/pkg/cmd/pr/merge/http.go": ghMerge,
+		"cli-2.103.3/api/queries_repo.go":      ghRepo,
+		"cli-2.103.3/api/queries_test.go":      "package api\n\nvar q = `query { onlyInATest }`\n",
+		"cli-2.103.3/README.md":                "notInGo(input: x)",
 	})
 
 	sent, err := ghFields(tarball)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"addProjectV2ItemById", "deleteIssue", "mergePullRequest"}, sent)
+	assert.Equal(t, []graphqlField{
+		{Type: "mutation", Field: "addProjectV2ItemById"},
+		{Type: "mutation", Field: "deleteIssue"},
+		{Type: "mutation", Field: "mergePullRequest"},
+		{Type: "query", Field: "organization"},
+		{Type: "query", Field: "repository"},
+		{Type: "query", Field: "viewer"},
+	}, sent)
 
 	d, err := githubOperations("2.103.3", []byte(restFixture), []byte(schemaFixture))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"addProjectV2ItemById"}, lacks(d, sent))
+	assert.Equal(t, []string{"mutation addProjectV2ItemById", "query organization"}, lacks(d, sent))
+
+	withoutRepository := strings.Replace(schemaFixture, "  repository(owner: String!, name: String!): Repository\n",
+		"", 1)
+	d, err = githubOperations("2.103.3", []byte(restFixture), []byte(withoutRepository))
+	require.NoError(t, err)
+	assert.Contains(t, lacks(d, sent), "query repository")
+}
+
+// Scenario: a query gh writes is read by its tokens: an operation's name and variables, aliases, arguments, nested
+// selections, fragments beside it and fmt verbs do not hide or invent a root field.
+func TestAQueryGhWritesIsReadForItsRootFields(t *testing.T) {
+	t.Parallel()
+
+	got := operationRoots(`query PullRequestForBranch($owner: String!, $repo: String!) {
+		r: repository(owner: $owner, name: $repo) { pullRequests(first: 30) { nodes { ...pr } } }
+		%[1]s
+		viewer { login }
+	}
+	fragment pr on PullRequest { number }
+	mutation M { addComment(input: {body: "a { b"}) { clientMutationId } }`)
+
+	assert.Equal(t, []graphqlField{
+		{Type: "query", Field: "repository"},
+		{Type: "query", Field: "viewer"},
+		{Type: "mutation", Field: "addComment"},
+	}, got)
+	assert.Empty(t, operationRoots(`{"query": "not a document"}`))
 }
 
 // Scenario: a download whose SHA-256 is not the pinned one is refused.

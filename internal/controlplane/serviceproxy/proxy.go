@@ -80,6 +80,7 @@ type Agents interface {
 // Store is what the proxy needs of orchestration.
 type Store interface {
 	AskApproval(ctx context.Context, n orchestration.NewApproval) (orchestration.Approval, bool, error)
+	StandingGrant(ctx context.Context, n orchestration.NewApproval) (bool, error)
 	GetApproval(ctx context.Context, id string) (orchestration.Approval, error)
 	DecideApproval(ctx context.Context, id string, approve bool, scope orchestration.ApprovalScope,
 	) (orchestration.Approval, error)
@@ -378,28 +379,32 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 // decide applies the action's Policy. An empty message means the request
 // runs; otherwise it is what the tool is told. describe says what the owner is
 // asked, when he is. Of an action and those the request names beside it
-// (With), the one whose answer is the strictest governs, and is returned.
+// (With), the strictest answer governs (Onyx's AllMatchedActions): one refused
+// or set to never refuses the request, and when the strictest is ask, each
+// action that asks needs its own answer, so that a grant of one never lets
+// another run (review of #746). The action returned is the one that decided.
 func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func(Action) asking,
 ) (governing Action, verdict, message string, err error) {
 	if action.Plumbing {
 		return action, "plumbing", "", nil
 	}
 
-	got, err := p.answerOf(ctx, action, s)
-	if err != nil {
-		return action, "", "", err
-	}
+	all := append([]Action{action}, action.With...)
+	answers := make([]answered, len(all))
 
-	for _, other := range action.With {
-		next, err := p.answerOf(ctx, other, s)
-		if err != nil {
+	strictest := 0
+
+	for i, a := range all {
+		if answers[i], err = p.answerOf(ctx, a, s); err != nil {
 			return action, "", "", err
 		}
 
-		if next.severity() > got.severity() {
-			action, got = other, next
+		if answers[i].severity() > answers[strictest].severity() {
+			strictest = i
 		}
 	}
+
+	action, got := all[strictest], answers[strictest]
 
 	if got.refusal != "" {
 		return action, got.verdict, got.refusal, nil
@@ -413,7 +418,56 @@ func (p *Proxy) decide(ctx context.Context, action Action, s session, describe f
 			"another way. Say so in your answer.", action.Name, s.connection()), nil
 	}
 
-	verdict, message, err = p.ask(ctx, action, s, describe(action))
+	asks := make([]Action, 0, len(all))
+
+	for i, a := range all {
+		if answers[i].policy == orchestration.PolicyAsk {
+			asks = append(asks, a)
+		}
+	}
+
+	if len(asks) == 1 {
+		verdict, message, err = p.ask(ctx, action, s, describe(action))
+
+		return action, verdict, message, err
+	}
+
+	// Several actions ask: those the owner allowed for the session or the Routine are set aside, and the request
+	// is asked for as the first of the others, the owner shown all of them. Approved once, the request runs once;
+	// approved for the session, only that action is allowed from then on, and the next asks again.
+	var waiting []Action
+
+	for _, a := range asks {
+		granted, err := p.cfg.Store.StandingGrant(ctx, orchestration.NewApproval{
+			Integration: s.integration, Label: s.label, Action: a.ID, DispatchID: s.caller.DispatchID,
+			ChatID: s.chatID, RunKey: s.runKey,
+		})
+		if err != nil {
+			return a, "", "", err
+		}
+
+		if !granted {
+			waiting = append(waiting, a)
+		}
+	}
+
+	if len(waiting) == 0 {
+		return asks[0], "approved before", "", nil
+	}
+
+	action = waiting[0]
+	q := describe(action)
+
+	if len(waiting) > 1 {
+		names := make([]string, 0, len(waiting)-1)
+		for _, a := range waiting[1:] {
+			names = append(names, a.Name)
+		}
+
+		q.fields = append([]orchestration.Field{{Label: "Also", Value: strings.Join(names, "; ")}}, q.fields...)
+	}
+
+	verdict, message, err = p.ask(ctx, action, s, q)
 
 	return action, verdict, message, err
 }
