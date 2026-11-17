@@ -135,7 +135,18 @@ the chat's watchers from memory only and are never stored. A reply that ends in 
 row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
 `server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
-`agent_settled`, where the mark clears. An owner message may carry files (issue #343): each is kept on the
+`agent_settled`, where the mark clears. A turn that a restart cuts continues by itself (issue #716, after Hermes's
+interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continue.py`): pi's `agent_start` marks the
+chat in the store (`chats.turn_started_at`, `turn_attempts`, migration 104) and `agent_settled` clears the mark, as
+does a pi that exits while the control plane runs; a pi the control plane stops keeps it. As the supervisor starts,
+a chat whose mark is at most 15 minutes old and was continued fewer than 2 times gets the line "Restarted for an
+update; continuing." (a kind-less system row given to pi, which pi reads as "the control plane restarted for an
+update and cut your previous turn … check the current state before redoing anything, then finish the task"), one
+attempt more and its mark from now; any other mark is cleared with the line "A restart cut this turn; send a message
+to continue.", not given to pi. The partial transcript stays as kept. A start that finds marks is recorded
+(`restart_boots`); when it is the third of starts no more than 5 minutes apart (Hermes's restart-loop guard,
+`gateway/restart_loop_guard.py`), nothing is continued and the marks stay. The supervisor lists the chats whose pi
+works on a turn (`WorkingChats`), which the control socket gives `hypomnema update`. An owner message may carry files (issue #343): each is kept on the
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
@@ -3262,6 +3273,12 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `/var/lib/hypomnema-update`, requires the manifest's SHA-256 and the version the binary reports, and runs that
     binary's `update install`, so the steps are the release's own. The control plane's own binary belongs to its
     user and is never run as root.
+  - `update install` first waits, at most 5 minutes, until no Bot's turn runs (issue #716, as Hermes's update
+    drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
+    `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
+    TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
+    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above).
   - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
     binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
     migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for

@@ -656,9 +656,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		shared.Run(ctx)
 	}()
 
+	// `hypomnema update` asks which Bots' turns run before it stops the control plane (issue #716).
+	controlDone := make(chan struct{})
+
+	go func() {
+		defer close(controlDone)
+
+		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, logger)
+	}()
+
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
+	<-controlDone
 	<-pprofDone
 	<-browserDone
 	<-routinesDone

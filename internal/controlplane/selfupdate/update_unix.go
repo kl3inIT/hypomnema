@@ -110,6 +110,10 @@ func Install(ctx context.Context, o Options, from string) error {
 		return err
 	}
 
+	// Bots' turns end first, within a bound (issue #716); workers are not waited for: a node reconnects and its
+	// worker goes on.
+	o.waitTurns(ctx)
+
 	if err := run(ctx, "systemctl", "stop", o.Unit); err != nil {
 		return err
 	}

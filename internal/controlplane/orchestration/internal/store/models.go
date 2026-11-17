@@ -210,6 +210,8 @@ type Chat struct {
 	ContextTokens  sql.NullInt64
 	ContextWindow  sql.NullInt64
 	ContextPercent sql.NullFloat64
+	TurnStartedAt  sql.NullInt64
+	TurnAttempts   int64
 }
 
 type ChatMessage struct {
@@ -616,6 +618,10 @@ type Repo struct {
 	Connection sql.NullString
 	SshUrl     sql.NullString
 	SshHostKey sql.NullString
+}
+
+type RestartBoot struct {
+	At int64
 }
 
 type Routine struct {

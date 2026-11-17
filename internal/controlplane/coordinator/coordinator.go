@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -87,6 +88,8 @@ type Supervisor struct {
 	procs    map[string]*proc
 	watchers map[string]map[watcher]struct{}
 	kick     chan struct{}
+	// stopping says the control plane stops every pi: a turn cut now keeps its mark (cutturns.go).
+	stopping atomic.Bool
 }
 
 // New returns a Supervisor; Run starts it.
@@ -115,6 +118,24 @@ func (s *Supervisor) Working(chatID string) bool {
 	s.mu.Unlock()
 
 	return p != nil && p.isWorking()
+}
+
+// WorkingChats lists the chats whose pi works on a turn, sorted, for `hypomnema update` to wait for (issue #716).
+func (s *Supervisor) WorkingChats() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var out []string
+
+	for id, p := range s.procs {
+		if p.isWorking() {
+			out = append(out, id)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
 }
 
 // Idle reports that the chat's pi runs and works on no turn: its last turn
@@ -169,6 +190,8 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 	wake := s.svc.Subscribe(ctx)
 	t := time.NewTicker(tick)
+
+	s.continueCutTurns(ctx)
 
 	defer t.Stop()
 	defer s.stopAll()
@@ -295,21 +318,35 @@ func ownerOnly(msgs []orchestration.ChatMessage) []orchestration.ChatMessage {
 
 // promptText joins the owner's messages and the wake-ups into one turn.
 // Wake-ups say they come from the control plane, so pi follows the skill's
-// rule for them: act, then end the turn.
+// rule for them: act, then end the turn. The line that wakes a chat to
+// continue a turn a restart cut is given as what it asks (cutturns.go).
 func promptText(msgs []orchestration.ChatMessage) string {
 	var owner, wakes []string
 
+	resumed := false
+
 	for _, m := range msgs {
-		if m.Role == orchestration.ChatOwner {
+		switch {
+		case m.Role == orchestration.ChatOwner:
 			owner = append(owner, ownerText(m))
-		} else {
+		case continued(m):
+			resumed = true
+		default:
 			wakes = append(wakes, "- "+m.Text)
 		}
 	}
 
 	var b strings.Builder
 
+	if resumed {
+		b.WriteString("Message from the Hypomnema control plane: " + continuedPrompt + "\n")
+	}
+
 	if len(wakes) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+
 		b.WriteString("Message from the Hypomnema control plane: these need you.\n")
 		b.WriteString(strings.Join(wakes, "\n"))
 		b.WriteString("\nAct on them, then end your turn; the control plane wakes you again.\n")
@@ -489,6 +526,8 @@ func (s *Supervisor) reapIdle() {
 }
 
 func (s *Supervisor) stopAll() {
+	s.stopping.Store(true)
+
 	s.mu.Lock()
 	procs := s.procs
 	s.procs = map[string]*proc{}

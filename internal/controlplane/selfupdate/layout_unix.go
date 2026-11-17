@@ -4,7 +4,9 @@ package selfupdate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"runtime"
@@ -14,6 +16,7 @@ import (
 
 func (o Options) binary() string   { return filepath.Join(o.Home, "bin", "hypomnema") }
 func (o Options) database() string { return filepath.Join(o.Home, "data", "hypomnema.db") }
+func (o Options) control() string  { return filepath.Join(o.Home, "data", ControlSocket) }
 
 func (o Options) manifestURL() string {
 	return strings.TrimSuffix(o.ReleaseURL, "/") + "/controlplane-" + runtime.GOOS + "-" + runtime.GOARCH + ".txt"
@@ -61,4 +64,88 @@ func (o Options) waitReady(ctx context.Context) error {
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// waitTurns waits until no Bot's turn runs in the control plane, asking its control socket every TurnsEvery, for at
+// most TurnsWithin; then the update goes on. A control plane that does not answer, one from before the socket or one
+// that is down, is not waited for, as Hermes's updater takes a gateway whose control socket does not answer as one
+// it cannot drain (gateway/control_socket.py, query_gateway_control).
+func (o Options) waitTurns(ctx context.Context) {
+	within, every := o.TurnsWithin, o.TurnsEvery
+	if within <= 0 {
+		within = DefaultTurnsWithin
+	}
+
+	if every <= 0 {
+		every = time.Second
+	}
+
+	deadline := time.Now().Add(within)
+	said := false
+
+	for {
+		chats, err := o.turns(ctx)
+
+		switch {
+		case err != nil:
+			o.printf("not waiting for Bots' turns: the control plane did not say which run: %v\n", err)
+
+			return
+		case len(chats) == 0:
+			if said {
+				o.printf("no Bot's turn runs now\n")
+			}
+
+			return
+		case !time.Now().Before(deadline):
+			o.printf("Bots' turns still run after %s, in chats %s; they are cut, and continue after the update\n",
+				within, strings.Join(chats, ", "))
+
+			return
+		case !said:
+			o.printf("waiting up to %s for Bots' turns to end, in chats %s\n", within, strings.Join(chats, ", "))
+
+			said = true
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(min(every, time.Until(deadline))):
+		}
+	}
+}
+
+// turns asks the control socket which chats' turns run.
+func (o Options) turns(ctx context.Context) ([]string, error) {
+	path := o.control()
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", path)
+		}},
+	}
+	defer client.CloseIdleConnections()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://control"+PathTurns, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck // read only
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s answered %s", path, resp.Status)
+	}
+
+	var t Turns
+	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+		return nil, fmt.Errorf("reading the answer of %s: %w", path, err)
+	}
+
+	return t.Chats, nil
 }

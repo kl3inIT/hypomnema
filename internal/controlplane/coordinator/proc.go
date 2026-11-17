@@ -220,6 +220,7 @@ func (p *proc) read(ctx context.Context, stdout io.Reader) {
 		// Exited before not working, so that a pi that exited during a turn never reads as Idle.
 		close(p.done)
 		p.setWorking(false)
+		p.s.exitedMidTurn(ctx, p.chatID)
 		p.s.revoke(ctx, p.chatID, p.gatewayKey())
 		p.s.cfg.Logger.InfoContext(ctx, "pi exited", slog.String("event", "coordinator.exited"),
 			slog.String("chat_id", p.chatID), slog.String("stderr", p.stderrTail()))

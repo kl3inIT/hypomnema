@@ -177,6 +177,21 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const continueChatTurn = `-- name: ContinueChatTurn :exec
+UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1 WHERE id = ?2
+`
+
+type ContinueChatTurnParams struct {
+	Now sql.NullInt64
+	ID  string
+}
+
+// The chat is woken to continue its cut turn: one attempt more, and the mark starts again now.
+func (q *Queries) ContinueChatTurn(ctx context.Context, arg ContinueChatTurnParams) error {
+	_, err := q.db.ExecContext(ctx, continueChatTurn, arg.Now, arg.ID)
+	return err
+}
+
 const countChatQueue = `-- name: CountChatQueue :one
 SELECT count(*) FROM chat_queue WHERE chat_id = ?1
 `
@@ -197,6 +212,42 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const cutChatTurns = `-- name: CutChatTurns :many
+SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_attempts FROM chats
+WHERE turn_started_at IS NOT NULL
+ORDER BY id
+`
+
+type CutChatTurnsRow struct {
+	ID            string
+	TurnStartedAt int64
+	TurnAttempts  int64
+}
+
+// The chats whose turn was marked and never settled: at start, the turns a restart cut.
+func (q *Queries) CutChatTurns(ctx context.Context) ([]CutChatTurnsRow, error) {
+	rows, err := q.db.QueryContext(ctx, cutChatTurns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CutChatTurnsRow{}
+	for rows.Next() {
+		var i CutChatTurnsRow
+		if err := rows.Scan(&i.ID, &i.TurnStartedAt, &i.TurnAttempts); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteArtifactsOfChat = `-- name: DeleteArtifactsOfChat :exec
@@ -253,6 +304,15 @@ func (q *Queries) DeleteChatQueued(ctx context.Context, arg DeleteChatQueuedPara
 	return result.RowsAffected()
 }
 
+const deleteRestartBoots = `-- name: DeleteRestartBoots :exec
+DELETE FROM restart_boots
+`
+
+func (q *Queries) DeleteRestartBoots(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteRestartBoots)
+	return err
+}
+
 const deleteSetupChangesOfChat = `-- name: DeleteSetupChangesOfChat :exec
 DELETE FROM setup_changes WHERE chat_id = ?1
 `
@@ -285,7 +345,7 @@ func (q *Queries) DetachRunsFromChat(ctx context.Context, chatID string) error {
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_attempts FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -304,6 +364,8 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.ContextTokens,
 		&i.ContextWindow,
 		&i.ContextPercent,
+		&i.TurnStartedAt,
+		&i.TurnAttempts,
 	)
 	return i, err
 }
@@ -421,6 +483,32 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 	return seq, err
 }
 
+const insertChatNotice = `-- name: InsertChatNotice :one
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (?1, 'system', '', ?2, ?3, ?4)
+RETURNING seq
+`
+
+type InsertChatNoticeParams struct {
+	ChatID        string
+	Text          string
+	ToCoordinator int64
+	Now           int64
+}
+
+// A line of the control plane in the chat, kind-less, given to pi too when to_coordinator is 1.
+func (q *Queries) InsertChatNotice(ctx context.Context, arg InsertChatNoticeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertChatNotice,
+		arg.ChatID,
+		arg.Text,
+		arg.ToCoordinator,
+		arg.Now,
+	)
+	var seq int64
+	err := row.Scan(&seq)
+	return seq, err
+}
+
 const insertChatQueued = `-- name: InsertChatQueued :one
 INSERT INTO chat_queue (chat_id, text, attachments, sender_id, sender_name, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -456,6 +544,15 @@ func (q *Queries) InsertChatQueued(ctx context.Context, arg InsertChatQueuedPara
 		&i.SenderName,
 	)
 	return i, err
+}
+
+const insertRestartBoot = `-- name: InsertRestartBoot :exec
+INSERT INTO restart_boots (at) VALUES (?1)
+`
+
+func (q *Queries) InsertRestartBoot(ctx context.Context, at int64) error {
+	_, err := q.db.ExecContext(ctx, insertRestartBoot, at)
+	return err
 }
 
 const lastTurnInput = `-- name: LastTurnInput :one
@@ -759,7 +856,7 @@ func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_attempts FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -784,10 +881,39 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.ContextTokens,
 			&i.ContextWindow,
 			&i.ContextPercent,
+			&i.TurnStartedAt,
+			&i.TurnAttempts,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRestartBoots = `-- name: ListRestartBoots :many
+SELECT at FROM restart_boots ORDER BY at DESC
+`
+
+func (q *Queries) ListRestartBoots(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listRestartBoots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var at int64
+		if err := rows.Scan(&at); err != nil {
+			return nil, err
+		}
+		items = append(items, at)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -826,6 +952,21 @@ type MarkChatMessagesDeliveredParams struct {
 
 func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMessagesDeliveredParams) error {
 	_, err := q.db.ExecContext(ctx, markChatMessagesDelivered, arg.Now, arg.ChatID, arg.Upto)
+	return err
+}
+
+const markChatTurn = `-- name: MarkChatTurn :exec
+UPDATE chats SET turn_started_at = ?1 WHERE id = ?2
+`
+
+type MarkChatTurnParams struct {
+	Now sql.NullInt64
+	ID  string
+}
+
+// A Bot's turn started in the chat (issue #716); the attempts stay, so a continued turn keeps its count.
+func (q *Queries) MarkChatTurn(ctx context.Context, arg MarkChatTurnParams) error {
+	_, err := q.db.ExecContext(ctx, markChatTurn, arg.Now, arg.ID)
 	return err
 }
 
@@ -872,6 +1013,16 @@ func (q *Queries) SetChatModel(ctx context.Context, arg SetChatModelParams) erro
 		arg.Effort,
 		arg.ID,
 	)
+	return err
+}
+
+const settleChatTurn = `-- name: SettleChatTurn :exec
+UPDATE chats SET turn_started_at = NULL, turn_attempts = 0 WHERE id = ?1
+`
+
+// The chat's turn ended: no mark, no attempts.
+func (q *Queries) SettleChatTurn(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, settleChatTurn, id)
 	return err
 }
 

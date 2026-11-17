@@ -196,3 +196,36 @@ UPDATE chat_messages SET delivered_at = @now WHERE chat_id = @chat_id AND seq = 
 
 -- name: CountChatQueue :one
 SELECT count(*) FROM chat_queue WHERE chat_id = @chat_id;
+
+-- name: MarkChatTurn :exec
+-- A Bot's turn started in the chat (issue #716); the attempts stay, so a continued turn keeps its count.
+UPDATE chats SET turn_started_at = @now WHERE id = @id;
+
+-- name: SettleChatTurn :exec
+-- The chat's turn ended: no mark, no attempts.
+UPDATE chats SET turn_started_at = NULL, turn_attempts = 0 WHERE id = @id;
+
+-- name: CutChatTurns :many
+-- The chats whose turn was marked and never settled: at start, the turns a restart cut.
+SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_attempts FROM chats
+WHERE turn_started_at IS NOT NULL
+ORDER BY id;
+
+-- name: ContinueChatTurn :exec
+-- The chat is woken to continue its cut turn: one attempt more, and the mark starts again now.
+UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = @now WHERE id = @id;
+
+-- name: InsertChatNotice :one
+-- A line of the control plane in the chat, kind-less, given to pi too when to_coordinator is 1.
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (@chat_id, 'system', '', @text, @to_coordinator, @now)
+RETURNING seq;
+
+-- name: ListRestartBoots :many
+SELECT at FROM restart_boots ORDER BY at DESC;
+
+-- name: DeleteRestartBoots :exec
+DELETE FROM restart_boots;
+
+-- name: InsertRestartBoot :exec
+INSERT INTO restart_boots (at) VALUES (@at);
