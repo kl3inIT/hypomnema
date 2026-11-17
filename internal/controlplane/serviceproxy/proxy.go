@@ -357,9 +357,9 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
-	action := s.catalog.Of(req, body, s.host)
-
-	verdict, message, err := p.decide(ctx, action, s, func() asking { return httpAsking(req, body, action, s) })
+	action, verdict, message, err := p.decide(ctx, s.catalog.Of(req, body, s.host), s, func(governing Action) asking {
+		return httpAsking(req, body, governing, s)
+	})
 	if err != nil {
 		// Every error refuses.
 		p.cfg.Logger.ErrorContext(ctx, "the proxy could not decide a request", slog.String("event", "serviceproxy.failed"),
@@ -377,54 +377,101 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 
 // decide applies the action's Policy. An empty message means the request
 // runs; otherwise it is what the tool is told. describe says what the owner is
-// asked, when he is.
-func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func() asking,
-) (verdict, message string, err error) {
+// asked, when he is. Of an action and those the request names beside it
+// (With), the one whose answer is the strictest governs, and is returned.
+func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func(Action) asking,
+) (governing Action, verdict, message string, err error) {
 	if action.Plumbing {
-		return "plumbing", "", nil
+		return action, "plumbing", "", nil
 	}
 
-	if action.Never {
-		return "never", fmt.Sprintf("Refused: %q is never run through %s: %s. Do not try another way; say so in your "+
-			"answer.", action.Name, s.connection(), action.Text), nil
+	got, err := p.answerOf(ctx, action, s)
+	if err != nil {
+		return action, "", "", err
 	}
 
-	policy := orchestration.PolicyAsk
-
-	if _, listed := s.catalog.Action(action.ID); listed {
-		// What the account cannot do at the service is refused before the owner's answer is read, as lark-cli
-		// refuses a call whose scope is missing before it makes it (shortcuts/common/runner.go,
-		// checkShortcutScopes). What is granted or unknown goes on.
-		conn, err := p.cfg.Store.ConnectionOf(ctx, s.integration, s.label)
+	for _, other := range action.With {
+		next, err := p.answerOf(ctx, other, s)
 		if err != nil {
-			return "", "", err
+			return action, "", "", err
 		}
 
-		if got := conn.Access.Of(action.ID); got.Access == orchestration.AccessMissing {
-			return "missing", cannot(conn, action, s, got.Reason), nil
-		}
-
-		policy = action.Default()
-
-		set, err := p.cfg.Store.ActionPolicies(ctx, s.integration, s.label)
-		if err != nil {
-			return "", "", err
-		}
-
-		if answer, ok := set[action.ID]; ok {
-			policy = answer
+		if next.severity() > got.severity() {
+			action, got = other, next
 		}
 	}
 
-	switch policy {
+	if got.refusal != "" {
+		return action, got.verdict, got.refusal, nil
+	}
+
+	switch got.policy {
 	case orchestration.PolicyAllow:
-		return "allowed", "", nil
+		return action, "allowed", "", nil
 	case orchestration.PolicyNever:
-		return "never", fmt.Sprintf("Refused: the owner set %q to never for %s. It was not run; do not try another "+
-			"way. Say so in your answer.", action.Name, s.connection()), nil
+		return action, "never", fmt.Sprintf("Refused: the owner set %q to never for %s. It was not run; do not try "+
+			"another way. Say so in your answer.", action.Name, s.connection()), nil
 	}
 
-	return p.ask(ctx, action, s, describe())
+	verdict, message, err = p.ask(ctx, action, s, describe(action))
+
+	return action, verdict, message, err
+}
+
+// answered is what an action is for a Connection: the owner's Policy, or what refuses it whatever he set.
+type answered struct {
+	policy string
+	// verdict and refusal refuse an action that is never run, or that the account cannot do at the service.
+	verdict, refusal string
+}
+
+// severity orders answers from the strictest: refused, never, ask, allow (Onyx's POLICY_SEVERITY).
+func (a answered) severity() int {
+	switch {
+	case a.refusal != "":
+		return 3
+	case a.policy == orchestration.PolicyNever:
+		return 2
+	case a.policy == orchestration.PolicyAllow:
+		return 0
+	}
+
+	return 1
+}
+
+// answerOf reads an action's answer for the session's Connection. An action the catalog does not list asks.
+func (p *Proxy) answerOf(ctx context.Context, action Action, s session) (answered, error) {
+	if action.Never {
+		return answered{verdict: "never", refusal: fmt.Sprintf("Refused: %q is never run through %s: %s. Do not try "+
+			"another way; say so in your answer.", action.Name, s.connection(), action.Text)}, nil
+	}
+
+	if _, listed := s.catalog.Action(action.ID); !listed {
+		return answered{policy: orchestration.PolicyAsk}, nil
+	}
+
+	// What the account cannot do at the service is refused before the owner's answer is read, as lark-cli
+	// refuses a call whose scope is missing before it makes it (shortcuts/common/runner.go,
+	// checkShortcutScopes). What is granted or unknown goes on.
+	conn, err := p.cfg.Store.ConnectionOf(ctx, s.integration, s.label)
+	if err != nil {
+		return answered{}, err
+	}
+
+	if got := conn.Access.Of(action.ID); got.Access == orchestration.AccessMissing {
+		return answered{verdict: "missing", refusal: cannot(conn, action, s, got.Reason)}, nil
+	}
+
+	set, err := p.cfg.Store.ActionPolicies(ctx, s.integration, s.label)
+	if err != nil {
+		return answered{}, err
+	}
+
+	if policy, ok := set[action.ID]; ok {
+		return answered{policy: policy}, nil
+	}
+
+	return answered{policy: action.Default()}, nil
 }
 
 // asking is what the owner is asked to approve: its title, what it shows him, and the digest that tells the same

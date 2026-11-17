@@ -1,0 +1,43 @@
+GitHub's REST API description and GraphQL schema
+Copyright (c) 2020 GitHub
+
+The REST description is used under the MIT License. Source:
+https://github.com/github/rest-api-description at
+35829a5b1d44a61da310ace729feacf5580ecd96,
+descriptions/api.github.com/api.github.com.json (LICENSE.md, MIT, Copyright
+(c) 2020 GitHub).
+
+The GraphQL schema is the public one GitHub serves at
+https://docs.github.com/public/fpt/schema.docs.graphql (read on 2026-11-17),
+kept in https://github.com/github/docs as
+src/graphql/data/fpt/schema.docs.graphql (code under LICENSE-CODE, MIT,
+Copyright GitHub).
+
+What is taken from them here: of each REST operation, its HTTP method, host,
+path, x-github category and operationId; of each root field of the schema's
+query and mutation types, its name and @docsCategory
+(internal/controlplane/serviceproxy/github_operations.json, written by
+internal/controlplane/serviceproxy/catalogsgen from the sources
+catalog_sources.json pins). Nothing else of either is kept. The catalog of
+actions made from that list is Hypomnema's own
+(internal/controlplane/serviceproxy/github.go).
+
+The MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

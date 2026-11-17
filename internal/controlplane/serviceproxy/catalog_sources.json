@@ -1,0 +1,21 @@
+{
+  "github": {
+    "cli": {
+      "name": "gh",
+      "version": "2.103.3",
+      "url": "https://github.com/cli/cli/archive/refs/tags/v2.103.3.tar.gz",
+      "revision": "63837fb778d6a39f02be0ce76ff89f2bc8d74bdc",
+      "sha256": "bb148138a3a2fe023e57c78042fe3b42fc09171c0e8fff4cf983b227b7a2eade"
+    },
+    "rest": {
+      "url": "https://raw.githubusercontent.com/github/rest-api-description/35829a5b1d44a61da310ace729feacf5580ecd96/descriptions/api.github.com/api.github.com.json",
+      "revision": "35829a5b1d44a61da310ace729feacf5580ecd96",
+      "sha256": "ab00ead2266c291448d68e092f2d72e099233265e4073abe0f77c34f2d570fc6"
+    },
+    "graphql": {
+      "url": "https://docs.github.com/public/fpt/schema.docs.graphql",
+      "fetched": "2026-11-17",
+      "sha256": "d928ebbb2d08cba348c0c5713ab3c8756a39e838324089ff66fcddf1bab2c496"
+    }
+  }
+}

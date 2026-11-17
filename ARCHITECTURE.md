@@ -1933,18 +1933,39 @@ flowchart LR
       and a Dispatch given a `github.com` Connection gets no `gh` script before the worker's own `gh`, which keeps
       its `GH_TOKEN` (#44). `hypomnema tool run github.com -- curl …` runs another command through the same
       account.
-    - **Its catalog** (`serviceproxy/github.go`) is Onyx's GitHub list (`providers/github.py`, MIT; notice in
-      `third_party/onyx/NOTICE`): REST routes on `api.github.com`, and a POST to `/graphql` matched by each
-      operation's type and root field (gqlparser parses the query; fragments at the root are followed), the action
-      that needs the most care governing a request with several. Reads run: the connected user, repositories,
-      issues, pull requests with their files and reviews, Actions runs, jobs and logs, check runs and statuses,
-      search, refs, contents, commits, releases, and the GraphQL queries `repository`, `repositoryOwner`, `node`,
-      `nodes`, `viewer`, `search`, and a query that asks only the schema (`__type`, `__schema`, `__typename`, which
-      `gh` sends to detect features; beside another field, that field's action names it). Opening an issue, commenting, opening a pull request, writing a file and writing
-      a ref ask; anything else (merge, close, labels, a rerun, a mutation it does not name, a body that is not
-      GraphQL) asks as `github.unlisted`. A log's download, which GitHub redirects to
+    - **Its catalog** (`serviceproxy/github.go`) is generated ([issue #739](https://github.com/kl3inIT/hypomnema/issues/739),
+      step 1 of [#713](https://github.com/kl3inIT/hypomnema/issues/713)): `github_operations.json` holds every
+      operation of GitHub's REST description (`github/rest-api-description`, 1281: method, host, path, `x-github`
+      category, `operationId`) and every query and mutation of the public GraphQL schema (316, with
+      `@docsCategory`), for gh 2.103.3; notice in `third_party/github/NOTICE`. The categories fold into 13 services
+      (Repositories, Issues, Pull requests, Actions and checks, Releases, Search, Projects, Discussions, Gists,
+      Security, Organizations and teams, Account, Copilot and agents) and Everything else (the queries, which have
+      no category of their own), each with `github.<service>.read`, `.write` and `.delete`: a GET or a query
+      reads, a DELETE or a mutation named `delete…` deletes, anything else writes. Reads run; the rest asks. A table
+      (`githubNamed`) keeps the ids the hand-written list had (Onyx's GitHub list, `providers/github.py`, MIT; notice
+      in `third_party/onyx/NOTICE`) for the operations it named: `github.user.read`, `.refs.read`,
+      `.contents.read`, `.git_data.read`, `.graphql.repo.read` (`repository`, `repositoryOwner`, `node`, `nodes`),
+      `.issues.create`, `.comments.create`, `.contents.write`, `.refs.write`, `.pulls.create`; its GET routes stay
+      for a request the description does not have. **Merge and auto-merge are actions of their own** and ask:
+      `github.pulls.merge` (REST `PUT …/pulls/{n}/merge` and `…/merge-async`, GraphQL `mergePullRequest`) and
+      `github.pulls.automerge` (`enablePullRequestAutoMerge`, `disablePullRequestAutoMerge`). A trailing `path`,
+      `ref`, `branch` or `basehead` takes its slashes. A POST to `/graphql` is matched by each operation's type and
+      root field (gqlparser parses the query; fragments at the root are followed); the action that needs the most
+      care names the request and the others it names go with it (`Action.With`), and the proxy lets the strictest
+      of the owner's answers govern (refused, never, ask, allow; Onyx's `AllMatchedActions`). A query that asks
+      only the schema (`__type`, `__schema`, `__typename`, which `gh` sends to detect features) is
+      `github.schema.read`; beside another field, that field's action names it. A root field the schema does not
+      have, a subscription or a body that is not GraphQL asks as `github.unlisted`. A release's asset upload goes
+      to `uploads.github.com`, also reached. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
       plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.
+    - **Regenerating it**: `make catalogs-generate SERVICE=github` runs `serviceproxy/catalogsgen`, which fetches the
+      REST description, the schema and gh's source at what `serviceproxy/catalog_sources.json` pins (URL, revision,
+      SHA-256, gh's version), fails on a changed SHA-256 or on a field gh sends with an input that the schema lacks,
+      writes the file and prints the operations added, removed or moved to another action. `make verify` runs only
+      the offline tests: every operation of the file is a named action (a GET or a query a read, nothing else), every
+      category is in a service, and the file's gh version is `agenttool.GitHubCLI`'s, so bumping gh fails until the
+      catalog is regenerated.
     - **Its skill** is the store skill `github` (`clientcli/skills/github`, requiring `integration:github.com`; a
       skill's integration requirement may be a host's name), from Onyx's and OpenClaw's github skills (MIT).
     - Not built: GitHub Enterprise Server and GitLab hosts (the proxy picks a catalog by the Integration's name);
