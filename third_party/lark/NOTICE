@@ -1,0 +1,37 @@
+lark-cli, Lark's own command-line tool
+Copyright (c) 2026 Lark Technologies Pte. Ltd.
+
+Used under the MIT License. Source: https://github.com/larksuite/cli at v1.0.100
+(ac22a60a23d66c37d43a7ec6d9e99b99a4320356), the tarball and SHA-256
+internal/controlplane/serviceproxy/catalog_sources.json pins. Its release files
+are fetched by the machines that run agents at the version and SHA-256
+internal/shared/agenttool/catalog.go pins, never redistributed.
+
+What is taken from it here: of each method of its service catalog
+(internal/registry/catalog/services/*.json) and each request its shortcut
+commands send (shortcuts/<group>/*.go), the HTTP method, the path, the risk
+lark-cli gives it and the scopes it checks before sending it
+(internal/controlplane/serviceproxy/lark_methods.json, written by
+internal/controlplane/serviceproxy/catalogsgen). Nothing else of its source is
+kept. The catalog of actions made from that list is Hypomnema's own
+(internal/controlplane/serviceproxy/lark.go).
+
+The MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -189,5 +189,14 @@
         "sha256": "10510cc9c52ddf4d4a2c51f03fa7d173d9665648369343786d450a2b1ad623df"
       }
     ]
+  },
+  "lark": {
+    "cli": {
+      "name": "lark-cli",
+      "version": "1.0.100",
+      "url": "https://github.com/larksuite/cli/archive/refs/tags/v1.0.100.tar.gz",
+      "revision": "ac22a60a23d66c37d43a7ec6d9e99b99a4320356",
+      "sha256": "cf578bb878407673b441cebb0bcb9b2d8f2204c19c65f50df1f6cce7694e7cfb"
+    }
   }
 }

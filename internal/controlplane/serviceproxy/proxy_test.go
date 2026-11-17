@@ -1170,6 +1170,38 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 	assert.Len(t, w.service.received(), 2, "only the two reads reached Lark")
 }
 
+// Scenario: the owner lets pi change Contacts on its own and never write Messages (issue #742, review of #794). pi
+// adds the bot to a group chat, POST /open-apis/bot/v4/add, which no list names. Contacts has bot search
+// (+search-bot) and nothing else of /open-apis/bot, so adding the bot is no write of Contacts: it asks as something
+// unnamed and reaches nobody, as it did before bot search was named.
+func TestAddingTheBotToAChatAsksThoughContactsIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 100*time.Millisecond)
+	ctx := t.Context()
+
+	//nolint:gosec // A made-up name of a vault secret, not a credential.
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "lark", Label: "work", Account: "Hypomnema", Secret: "conn-lark-work",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", true)
+	require.NoError(t, err)
+	require.NoError(t, w.svc.SetActionPolicy(ctx, "lark", "work", "lark.contact.write", orchestration.PolicyAllow))
+	require.NoError(t, w.svc.SetActionPolicy(ctx, "lark", "work", "lark.im.write", orchestration.PolicyNever))
+
+	lark, refused := w.openTo("lark", w.pi, "work", "open.larksuite.com", w.chat)
+	require.Zero(t, refused)
+
+	got := lark.do(http.MethodPost, "/open-apis/bot/v4/add/", "application/json", []byte(`{"chat_id":"oc_review"}`))
+	assert.Equal(t, http.StatusForbidden, got.Status)
+	assert.Empty(t, w.service.received(), "nothing reached Lark")
+
+	asked := w.approvals(orchestration.ApprovalPending)
+	require.Len(t, asked, 1)
+	assert.Equal(t, "lark.unlisted", asked[0].Action)
+}
+
 // TestLarkReadsThatAreNotGETsAreQueries keeps the catalog from letting a change through as a read. A read is
 // allowed without asking, and lark-cli also marks a POST that only queries (a search, a batch_query) as a read,
 // so each read that is not a GET is named here: one added to lark_methods.json must be checked against lark-cli's
@@ -1216,6 +1248,23 @@ func TestLarkReadsThatAreNotGETsAreQueries(t *testing.T) {
 		"POST /open-apis/task/v2/tasklists/search",
 		"POST /open-apis/task/v2/tasks/search",
 		"POST /open-apis/vc/v1/meetings/search",
+		// Read by the commands' helpers and Execute since #742, each from a command lark-cli marks as a read: chat
+		// details for +messages-search and the feed commands (shortcuts/im/helpers.go queryChatBatch), a chat's
+		// search and its mute status, a person's and a bot's search (contact +search-user, +search-bot), free/busy
+		// for +freebusy, +room-find and +suggestion, an export for drive +export and whiteboard +export and +query,
+		// and a meeting bot's screenshot for vc +meeting-screenshot.
+		"POST /open-apis/im/v1/chats/batch_query",
+		"POST /open-apis/im/v1/chat_p2p/batch_query",
+		"POST /open-apis/im/v1/chat_user_setting/batch_get_mute_status",
+		"POST /open-apis/im/v2/chats/search",
+		"POST /open-apis/contact/v3/users/search",
+		"POST /open-apis/bot/v4/bot/search",
+		"POST /open-apis/calendar/v4/freebusy/batch",
+		"POST /open-apis/calendar/v4/freebusy/room_find",
+		"POST /open-apis/calendar/v4/freebusy/suggestion",
+		"POST /open-apis/drive/v1/export_tasks",
+		"POST /open-apis/board/v1/whiteboards/{token}/export",
+		"POST /open-apis/vc/v1/bots/screenshot",
 	}
 
 	var reads []string

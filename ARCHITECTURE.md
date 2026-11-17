@@ -1782,6 +1782,15 @@ flowchart LR
       else asks as unnamed. The app's id, which lark-cli will not run without, is told with the list of accounts.
       Each method also carries the scopes lark-cli checks before calling it, as a person and as the app (issue
       #567): any one of a catalog method's scopes, all of a shortcut's.
+    - **Regenerating it** (issue #742): `make catalogs-generate SERVICE=lark` fetches lark-cli's source tarball at
+      what `catalog_sources.json` pins and reads its service catalog and, from the Go source of its shortcuts,
+      every request a command's Validate, DryRun and Execute send through the functions they call (a dry run's
+      `GET("…")`, `CallAPITyped`, `DoAPIJSONTyped`, a `larkcore.ApiReq`, and the wrappers that pass a method and
+      a path on). A call takes its command's risk; a GET is a read and a DELETE a high-risk write whatever the
+      command; a path built at run time is left out and answered by its service and verb. A part of the API no
+      service is named for fails the run; Feishu's apps and the app's slash commands are left out. `make verify`
+      checks that every method is its own service's action and that the sources' lark-cli version is
+      `agenttool.LarkCLI`'s.
     - **An Approval** (migration 00042) is the owner's answer to a request that asked. The request is held up to
       100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
       decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.

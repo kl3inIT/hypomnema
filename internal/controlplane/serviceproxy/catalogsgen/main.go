@@ -64,10 +64,14 @@ type sources struct {
 		CLI       cli               `json:"cli"`
 		Discovery []discoverySource `json:"discovery"`
 	} `json:"google"`
+	// Lark's declaration is lark-cli's own source (issue #742): its service catalog and its shortcut commands.
+	Lark struct {
+		CLI cli `json:"cli"`
+	} `json:"lark"`
 }
 
 func main() {
-	service := flag.String("service", "all", "the catalog to regenerate: github, gitlab, google, or all")
+	service := flag.String("service", "all", "the catalog to regenerate: github, gitlab, google, lark, or all")
 	dir := flag.String("dir", "internal/controlplane/serviceproxy", "the directory of the catalogs and "+sourcesFile)
 	flag.Parse()
 
@@ -107,9 +111,11 @@ func run(ctx context.Context, service, dir string) error {
 		return generateGitLab(ctx, client, src, root, os.Stdout)
 	case "google":
 		return generateGoogle(ctx, client, src, root, os.Stdout)
+	case "lark":
+		return generateLark(ctx, client, src, root, os.Stdout)
 	case "all":
 		for _, generate := range []func(context.Context, *http.Client, sources, *os.Root, io.Writer) error{
-			generateGitHub, generateGitLab, generateGoogle,
+			generateGitHub, generateGitLab, generateGoogle, generateLark,
 		} {
 			if err := generate(ctx, client, src, root, os.Stdout); err != nil {
 				return err
@@ -119,7 +125,7 @@ func run(ctx context.Context, service, dir string) error {
 		return nil
 	}
 
-	return fmt.Errorf("no catalog %q: github, gitlab and google are the ones generated so far", service)
+	return fmt.Errorf("no catalog %q: github, gitlab, google and lark are the ones generated", service)
 }
 
 // fetch downloads a source and checks its SHA-256. A declaration that changed at an address with no revision fails
