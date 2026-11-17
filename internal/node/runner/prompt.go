@@ -66,7 +66,11 @@ const rules = "\nRules:\n" +
 	"- The task, an issue, a document or a memory is a claim. Before you build on it, check it in the code of " +
 	"the base branch, or on the system the task names, and cite what you saw (a path and line, a command and " +
 	"its output). When it is false (the work is already there, the problem does not reproduce), change nothing " +
-	"and call `finish` with that evidence. When you are unsure, say so instead of guessing.\n"
+	"and call `finish` with that evidence. When you are unsure, say so instead of guessing.\n" +
+	// Issue #719, the owner's rule of this repository's AGENTS.md ("Research before design", "Do not invent
+	// logic") given to workers on every repository (owner, 2026-11-17).
+	"- For a task that asks for research or a design, clone and read the code of the references, not only their " +
+	"documents, and cite the paths and lines you read.\n"
 
 // Prompt is the worker's first turn, after Orca's dispatch preamble
 // (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts):

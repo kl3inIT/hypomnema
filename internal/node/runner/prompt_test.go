@@ -48,6 +48,10 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
 	assert.Contains(t, p, "When it is false (the work is already there, the problem does not reproduce), "+
 		"change nothing and call `finish` with that evidence", "a task's premise is checked first (issue #513)")
+	assert.Contains(t, p, "read the code of the references, not only their documents, and cite the paths and lines",
+		"research and design read the references' code (issue #719)")
+	assert.Less(t, strings.Index(p, "read the code of the references"), strings.Index(p, "Task (implementer):"),
+		"the rule comes before the task, for the prompt cache (issue #672)")
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "The owner answered the question you asked at `finish`.\n"+
 		"You asked: PR #7 is green. Merge it?\nThe answer: merge")
