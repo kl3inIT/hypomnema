@@ -11,6 +11,9 @@ const node = (id: string, name: string, m: object = {}) => ({
   name,
   status: "active",
   max_dispatches: 4,
+  reserved: { cpu_millis: 0, memory_bytes: 0 },
+  allocatable: { cpu_millis: 0, memory_bytes: 0 },
+  requested: { cpu_millis: 0, memory_bytes: 0 },
   runtimes: [
     { runtime: "claude", path: "/usr/bin/claude", version: "2.1.0" },
     { runtime: "codex", path: "/usr/bin/codex", version: "0.50.0" },

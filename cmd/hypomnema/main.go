@@ -8,7 +8,8 @@
 //	hypomnema nodes list
 //	hypomnema nodes drain|resume|rm <node>     stop new work on it, take work again, or remove it
 //	hypomnema nodes rename <node> <new name>   give it another name; nothing else about it changes
-//	hypomnema nodes set <node> --max N         change how many Dispatches it runs at once
+//	hypomnema nodes set <node> [--max N|none] [--reserve-cpu C] [--reserve-memory M]   its optional cap, and what
+//	                                           is kept back from its CPUs and memory for what else runs there
 //	hypomnema nodes token add <node> <name>    one more token for a node; printed once
 //	hypomnema nodes token list <node>
 //	hypomnema nodes token revoke <token id>

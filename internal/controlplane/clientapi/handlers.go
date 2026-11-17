@@ -509,11 +509,11 @@ func (s *Server) ListMachineProviders(ctx context.Context, _ openapi.ListMachine
 	return openapi.ListMachineProviders200JSONResponse{Data: out}, nil
 }
 
-// UpdateNode renames a node.
+// UpdateNode renames a node, or changes its cap or its reserve (issue #731).
 func (s *Server) UpdateNode(ctx context.Context, req openapi.UpdateNodeRequestObject,
 ) (openapi.UpdateNodeResponseObject, error) {
-	if req.Body.Name == nil && req.Body.MaxDispatches == nil {
-		return nil, fmt.Errorf("%w: name a node's new name or limit", orchestration.ErrInvalid)
+	if req.Body.Name == nil && req.Body.MaxDispatches == nil && req.Body.Reserved == nil {
+		return nil, fmt.Errorf("%w: name a node's new name, cap or reserve", orchestration.ErrInvalid)
 	}
 
 	var (
@@ -529,6 +529,13 @@ func (s *Server) UpdateNode(ctx context.Context, req openapi.UpdateNodeRequestOb
 
 	if req.Body.MaxDispatches != nil {
 		if n, err = s.svc.SetNodeLimit(ctx, req.NodeId, *req.Body.MaxDispatches); err != nil {
+			return nil, err
+		}
+	}
+
+	if r := req.Body.Reserved; r != nil {
+		reserved := orchestration.Resources{CPUMillis: r.CpuMillis, MemoryBytes: r.MemoryBytes}
+		if n, err = s.svc.SetNodeReserved(ctx, req.NodeId, reserved); err != nil {
 			return nil, err
 		}
 	}

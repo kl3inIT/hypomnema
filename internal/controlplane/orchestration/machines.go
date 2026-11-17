@@ -249,13 +249,9 @@ func (s *Service) MachineProvidersUsingKeyRef(ctx context.Context, ref string) (
 // MachineProvisionFailed.
 func (s *Service) BeginMachine(ctx context.Context, n NewMachine) (Node, string, string, error) {
 	n.Name = strings.TrimSpace(n.Name)
-	if n.Name == "" || n.MaxDispatches < 0 || n.Region == "" || n.Size == "" {
-		return Node{}, "", "", fmt.Errorf("%w: a machine needs a name, a region, a size and a limit of zero or more",
-			ErrInvalid)
-	}
-
-	if n.MaxDispatches == 0 {
-		n.MaxDispatches = NodeDispatchesDefault
+	if n.Name == "" || n.MaxDispatches < 0 || n.MaxDispatches > MaxDispatchesLimit || n.Region == "" || n.Size == "" {
+		return Node{}, "", "", fmt.Errorf("%w: a machine needs a name, a region, a size, and a cap of 1 to %d or none (0)",
+			ErrInvalid, MaxDispatchesLimit)
 	}
 
 	token, err := newNodeToken()
@@ -282,7 +278,7 @@ func (s *Service) BeginMachine(ctx context.Context, n NewMachine) (Node, string,
 		}
 
 		if err := q.InsertMachineNode(ctx, store.InsertMachineNodeParams{
-			ID: id, Name: n.Name, MaxDispatches: int64(n.MaxDispatches), ProviderID: nullString(p.ID),
+			ID: id, Name: n.Name, MaxDispatches: storedLimit(n.MaxDispatches), ProviderID: nullString(p.ID),
 			Region: nullString(n.Region), Size: nullString(n.Size), Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: inserting node %q: %w", ErrConflict, n.Name, err)
