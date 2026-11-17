@@ -136,7 +136,16 @@ export type ChatItem =
   | { kind: "artifact"; key: string; artifact: ArtifactCard }
   // An Approval the owner answered, where he answered it (issue #465).
   | { kind: "approval"; key: string; approval: ChatApproval }
-  | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
+  // chat is the reply's chat, whose Bot's folder holds the files its MEDIA: lines name (issue #699); the reply
+  // being written has none yet.
+  | {
+      kind: "reply"
+      key: string
+      text: string
+      streaming: boolean
+      createdAt?: string
+      chat?: string
+    }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
   // A Routine the Bot set up from this chat, where it was set up (issue #211).
   | { kind: "routine-setup"; key: string; routineId: string }
@@ -273,6 +282,7 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
               text: p.text,
               streaming: false,
               createdAt: m.created_at,
+              chat: m.chat_id,
             })
           }
         })

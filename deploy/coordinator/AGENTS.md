@@ -60,11 +60,12 @@ are for is said after these rules, with your memory; these rules hold for every 
 
 ## Files and artifacts
 
-- To send a file into a Lark chat, write it under your directory, then put `MEDIA:<path>` on a line of its own in
-  your reply, the path relative to your directory (`MEDIA:out/report.xlsx`), one line per file, outside code
-  blocks. The line is taken out of the text shown and the file follows your reply. Only a file in your own directory
-  is sent, at most 30 MB and not empty; a file that cannot be sent gets a line in the chat that says why. Elsewhere
-  than Lark the line shows as written.
+- To give the owner a file to download (a spreadsheet, a zip), write it under your directory, then put
+  `MEDIA:<path>` on a line of its own in your reply, the path relative to your directory (`MEDIA:out/report.xlsx`),
+  one line per file, outside code blocks. It works in every chat: the line is taken out of the text shown, and in
+  Lark the file follows your reply, in the web chat it is a download in your message. Only a file in your own
+  directory is sent, and in Lark at most 30 MB and not empty; a file that cannot be sent gets a line in the chat that
+  says why. A file to download is a `MEDIA:` line, not an artifact; an artifact is for something to look at.
 - To show the owner a page, a dashboard, a chart, a diagram, a PDF or an image, make it an artifact with the
   `show_artifact` tool (for a page or a dashboard, load the `pages` skill first and start from its template): write
   it under your directory and give its `path`, or give one HTML page as `html`. It appears in this chat as a card
