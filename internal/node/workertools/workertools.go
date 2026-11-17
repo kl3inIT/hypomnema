@@ -206,7 +206,7 @@ func (s *server) workFolder() (string, error) {
 
 // optionsHelp says how an option takes text (issue #714, decision 8).
 const optionsHelp = "An option is its label, or {label, allows_text} when the answer may add text to it " +
-	"(such as \"Change first\", with what to change). A last option \"Other\", with text, is added."
+	"(such as \"Change first\", with what to change). At most 9: a last option \"Other\", with text, is added."
 
 // optionsSchema is the schema of a question's options: a label, or a label
 // with allows_text, so that a plain string, which workers sent before issue
@@ -256,29 +256,33 @@ func (o *option) UnmarshalJSON(b []byte) error {
 // (interaction_tools.go:66-72).
 const otherLabel = "Other"
 
-// maxOptions is the control plane's MaxOptions: "Other" is added only while
-// it fits.
+// maxOptions is the control plane's MaxOptions, "Other" included.
 const maxOptions = 10
 
-// options keeps the options that have a label, each with its AllowsText,
-// and adds "Other" with text when there is any option and none is "Other"
-// already (issue #714, decision 8).
-func options(given []option) []nodeproto.Option {
+// options keeps the options that have a label, each with its AllowsText, and
+// ends them with "Other", which takes text (issue #714, decision 8): added
+// when the worker gave none, moved last and made to take text when it gave
+// one. A question with more options than fit beside "Other" is refused, so
+// the worker cuts one, rather than one of them, or "Other", being dropped.
+func options(given []option) ([]nodeproto.Option, error) {
 	out := make([]nodeproto.Option, 0, len(given)+1)
-	hasOther := false
 
 	for _, o := range given {
-		if o.Label = strings.TrimSpace(o.Label); o.Label != "" {
+		if o.Label = strings.TrimSpace(o.Label); o.Label != "" && !strings.EqualFold(o.Label, otherLabel) {
 			out = append(out, nodeproto.Option(o))
-			hasOther = hasOther || strings.EqualFold(o.Label, otherLabel)
 		}
 	}
 
-	if len(out) > 0 && !hasOther && len(out) < maxOptions {
-		out = append(out, nodeproto.Option{Label: otherLabel, AllowsText: true})
+	if len(out) == 0 {
+		return nil, nil
 	}
 
-	return out
+	if len(out) > maxOptions-1 {
+		return nil, fmt.Errorf("a question offers at most %d options, then \"Other\" with text; give fewer",
+			maxOptions-1)
+	}
+
+	return append(out, nodeproto.Option{Label: otherLabel, AllowsText: true}), nil
 }
 
 func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int, message string),
@@ -297,7 +301,12 @@ func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int
 		a.To = "owner"
 	}
 
-	seq, err := bridge.Ask(s.dir, nodeproto.Ask{Text: a.Question, Options: options(a.Options), To: a.To})
+	opts, err := options(a.Options)
+	if err != nil {
+		return nil, err
+	}
+
+	seq, err := bridge.Ask(s.dir, nodeproto.Ask{Text: a.Question, Options: opts, To: a.To})
 	if err != nil {
 		return nil, fmt.Errorf("recording the question: %w", err)
 	}
@@ -346,7 +355,12 @@ func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
 
 	final := bridge.Final{Summary: f.Summary, Evidence: f.Evidence}
 	if f.Gate != nil && strings.TrimSpace(f.Gate.Question) != "" {
-		final.Gate = &nodeproto.Ask{Text: f.Gate.Question, Options: options(f.Gate.Options), To: "owner"}
+		opts, err := options(f.Gate.Options)
+		if err != nil {
+			return nil, err
+		}
+
+		final.Gate = &nodeproto.Ask{Text: f.Gate.Question, Options: opts, To: "owner"}
 	}
 
 	if err := bridge.Finish(s.dir, final); err != nil {

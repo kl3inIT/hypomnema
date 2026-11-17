@@ -200,28 +200,67 @@ func TestCancelledAskEnds(t *testing.T) {
 	assert.Equal(t, "The question was withdrawn.", text(t, c.read()))
 }
 
-// Scenario: a worker's options, as the ask tool takes them (issue #714,
-// decision 8). A plain label and {label, allows_text} are both read; a blank
-// label is dropped; "Other" with text is added last unless the worker gave
-// one, or the question already has the most options the control plane takes;
-// a question without options stays a free answer.
+// Scenario: a worker's options, as the ask and finish tools take them
+// (issue #714, decision 8), through the tools' own calls. A plain label and
+// {label, allows_text} are both read, and a blank label is dropped. Every
+// question with options ends with an "Other" that takes text: added when the
+// worker gave none, and made to take text when the worker gave one without.
+// A question that would pass the control plane's 10 options with "Other" is
+// refused, so the worker cuts one, rather than one being dropped or "Other"
+// left out. A question without options stays a free answer.
 func TestOptionsCarryText(t *testing.T) {
 	t.Parallel()
 
-	read := func(raw string) []nodeproto.Option {
-		var given []option
-		require.NoError(t, json.Unmarshal([]byte(raw), &given))
+	gate := func(t *testing.T, options any) ([]nodeproto.Option, string) {
+		t.Helper()
 
-		return options(given)
+		c := newClient(t)
+		c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{
+			"name": "finish", "arguments": map[string]any{
+				"summary": "PR #7 is green", "gate": map[string]any{"question": "Merge PR #7?", "options": options},
+			},
+		}})
+		reply := text(t, c.read())
+
+		final, ok, err := bridge.Finished(c.dir)
+		require.NoError(t, err)
+
+		if !ok || final.Gate == nil {
+			return nil, reply
+		}
+
+		return final.Gate.Options, reply
 	}
 
+	got, _ := gate(t, []any{"merge", " ", map[string]any{"label": "change first", "allows_text": true}})
 	assert.Equal(t, []nodeproto.Option{
 		{Label: "merge"}, {Label: "change first", AllowsText: true}, {Label: "Other", AllowsText: true},
-	}, read(`["merge", " ", {"label": "change first", "allows_text": true}]`))
-	assert.Equal(t, []nodeproto.Option{{Label: "a"}, {Label: "other"}}, read(`["a", "other"]`),
-		"the worker's own Other is kept as it gave it")
-	assert.Empty(t, read(`[]`), "no options: a free answer")
-	assert.Len(t, read(`["1","2","3","4","5","6","7","8","9","10"]`), maxOptions)
+	}, got)
+
+	got, _ = gate(t, []string{"Yes", "other", "No"})
+	assert.Equal(t, []nodeproto.Option{{Label: "Yes"}, {Label: "No"}, {Label: "Other", AllowsText: true}}, got,
+		"the worker's own Other takes text, and comes last")
+
+	nine := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+	got, _ = gate(t, nine)
+	require.Len(t, got, maxOptions)
+	assert.Equal(t, nodeproto.Option{Label: "Other", AllowsText: true}, got[maxOptions-1])
+
+	got, reply := gate(t, append(nine, "10"))
+	assert.Nil(t, got, "nothing is recorded")
+	assert.Contains(t, reply, "at most 9 options")
+
+	c := newClient(t)
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
+		"name": "ask", "arguments": map[string]any{"question": "which?", "options": append(nine, "10")},
+	}})
+	assert.Contains(t, text(t, c.read()), "at most 9 options")
+	qs, err := bridge.Questions(c.dir)
+	require.NoError(t, err)
+	assert.Empty(t, qs, "a refused question is not asked")
+
+	got, _ = gate(t, []string{})
+	assert.Empty(t, got, "no options: a free answer")
 
 	var bad []option
 	require.Error(t, json.Unmarshal([]byte(`[3]`), &bad))

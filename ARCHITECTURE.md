@@ -270,9 +270,10 @@ sequenceDiagram
   is addressed to it and can forward a question to the owner. Open questions close when their Dispatch settles (a
   `wait` question) or their Task is canceled (a Gate); a Gate never expires, but a follow-up replaces it (below).
   A worker's options (`ask`, and `finish`'s Gate) are each a label or `{label, allows_text}`, so a "change first"
-  carries what to change; every question with options gets a last option "Other" that takes text, unless the worker
-  gave one or it already has the 10 options a question may have (issue #714, after Omnara's "Other" with
-  `AllowsText`, `interaction_tools.go:66-72`; `internal/node/workertools`).
+  carries what to change; every question with options ends with an "Other" that takes text (a worker's own "Other"
+  is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
+  to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
+  `internal/node/workertools`).
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or

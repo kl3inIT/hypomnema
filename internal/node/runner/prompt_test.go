@@ -209,12 +209,13 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	assert.Less(t, strings.Index(p, "gh pr merge"), strings.Index(p, "Task (implementer):"),
 		"the task's own word on merging, after the rules, wins")
 
-	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "https://gitlab.company.example/team/api", "gitlab.company.example",
-		"gitlab"
+	// The offer names the repository by its path and the host apart (orchestration's Offer, connect.go), as
+	// the control plane sends it; a GitLab subgroup has more than two names.
+	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "team/platform/api", "gitlab.company.example", "gitlab"
 	p = Prompt(d)
 
 	for _, want := range []string{
-		"`glab api projects/team%2Fapi`: has only_allow_merge_if_pipeline_succeeds: true",
+		"`glab api projects/team%2Fplatform%2Fapi`: has only_allow_merge_if_pipeline_succeeds: true",
 		"\"\"Pipelines must succeed\" is off in the project's settings\"",
 		"Before step 3, check that its pipeline is not null",
 		"`glab mr merge <iid> --auto-merge --yes --sha <sha>`",
@@ -224,4 +225,8 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	}
 
 	assert.NotContains(t, p, "gh pr merge")
+
+	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "kl3inIT/second-bite", "github.example.com", "github"
+	assert.Contains(t, Prompt(d), "`gh api repos/kl3inIT/second-bite --jq .allow_auto_merge`",
+		"a GitHub Enterprise host is named apart too")
 }

@@ -108,7 +108,7 @@ func Prompt(d statedb.Dispatch) string {
 		// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
 		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
 			openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
-		b.WriteString(autoMerge(o.RepoKind, o.Repo, o.Base, worktree.Branch(o.TaskID)))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, o.Base, worktree.Branch(o.TaskID)))
 	} else {
 		b.WriteString("\nWork only in this directory.\n")
 	}
@@ -158,8 +158,17 @@ func openCommand(kind, base, branch string) string {
 // merging the base, as this repository's AGENTS.md does. The worker stays
 // until the required checks are green, as OpenClaw's agent stays "until
 // verified merge" (landing.md:82), and no longer.
-func autoMerge(kind, repo, base, branch string) string {
-	r, err := githost.Parse(repo)
+//
+// The offer names the repository by its path, with its host apart
+// (orchestration's Offer); it is read as worktree.SourceOf reads it, so a
+// GitLab subgroup and a company's host are kept. An offer without a host is
+// one of before hosts existed, on github.com.
+func autoMerge(kind, host, path, base, branch string) string {
+	if host == "" {
+		host = githost.GitHubHost
+	}
+
+	r, err := githost.Parse("https://" + host + "/" + path)
 	adapter, ok := githost.For(githost.Kind(kind))
 
 	if err != nil || !ok {
