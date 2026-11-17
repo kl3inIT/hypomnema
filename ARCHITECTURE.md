@@ -1318,7 +1318,9 @@ flowchart LR
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
-    runs. A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
+    runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
+    at a file under `scripts/`; the Bot's instructions say so and that the owner then reads only the stub (issue
+    #769). A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
