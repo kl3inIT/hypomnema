@@ -496,6 +496,32 @@ func approvalNotice(a Approval) string {
 	}
 }
 
+// ApprovedOnce says whether the owner approved this very request of a chat, once, and it has not run yet (issue
+// #748): an act he approved after its turn ended runs on that approval alone, as OpenClaw runs an exec approved
+// later by the approval's authority (src/agents/bash-tools.exec-approval-followup.ts). It only reads: AskApproval
+// uses the approval when the request runs.
+func (s *Service) ApprovedOnce(ctx context.Context, n NewApproval) (bool, error) {
+	if n.ChatID == "" || n.MatchHash == "" {
+		return false, nil
+	}
+
+	same, err := s.read().ListApprovalsByMatch(ctx, store.ListApprovalsByMatchParams{
+		MatchHash: n.MatchHash, Integration: n.Integration, Label: n.Label, Action: n.Action,
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading the approvals of the same request: %w", err)
+	}
+
+	for _, row := range same {
+		if row.ChatID.String == n.ChatID && !row.RunID.Valid && !row.RoutineRunID.Valid &&
+			row.Status == string(ApprovalApproved) && row.Scope.String == string(ScopeOnce) && !row.UsedAt.Valid {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // UseApproval marks an approval for one request as run. It reports whether
 // this call was the one that used it: an approval for one request runs once.
 func (s *Service) UseApproval(ctx context.Context, id string) (bool, error) {

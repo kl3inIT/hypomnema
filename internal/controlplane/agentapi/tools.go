@@ -156,7 +156,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if m, ok := messagingServiceOf(asked.Tool); ok {
-		// Read again at each call: the owner's turn may have ended since the list (issue #618).
+		// Read again at each call: one taken back since the list is refused; whose turn it is, messagingCall decides
+		// (issues #618, #748).
 		labels, err := s.messagingLabels(r.Context(), a, m)
 		if err != nil {
 			s.fail(w, r, err)

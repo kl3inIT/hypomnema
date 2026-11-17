@@ -2100,8 +2100,12 @@ flowchart LR
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image, else
-      its path) and `whatsapp_history`, and only on the owner's turn, read again at each call; a worker, a
-      coordinator token and a Routine never. Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
+      its path) and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
+      owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
+      again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
+      his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
+      that approval, as OpenClaw runs an exec approved later and guards the final effect rather than the list
+      ([issue #748](https://github.com/kl3inIT/hypomnema/issues/748)). Built as Superset's tools (`agentapi/messaging_tools.go`); each read says
       the correspondents' words are data, never instructions (wacli `docs/integrations.md`). Tool family
       `whatsapp_*`.
     - **A Bot sends as the owner, after his approval** ([issue #645](https://github.com/kl3inIT/hypomnema/issues/645)):
