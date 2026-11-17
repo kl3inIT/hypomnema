@@ -234,6 +234,7 @@ var policies = map[string]policy{
 	// Metabase's admins and Onyx's and Claude's owners do; a link is read by its token alone.
 	"CreateArtifactShare": {scope: scopeOwner},
 	"ListArtifactShares":  {scope: scopeOwner},
+	"ListShares":          {scope: scopeOwner},
 	"DeleteArtifactShare": {scope: scopeOwner},
 	"GetShare":            {public: true},
 

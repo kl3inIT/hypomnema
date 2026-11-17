@@ -2506,6 +2506,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ArtifactShare" }
         default: { $ref: "#/components/responses/Error" }
+  /artifact-shares:
+    get:
+      operationId: ListShares
+      summary: Every view-only link, newest first, with what it shows (owner only)
+      description: >-
+        The owner's one place to see what is shared and with whom, and to
+        revoke a link (issue #765). Each link carries its artifact's newest
+        title and type, its Bot and its chat.
+      responses:
+        "200":
+          description: The links.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharedLinkList" }
+        default: { $ref: "#/components/responses/Error" }
   /artifact-shares/{share_id}:
     parameters:
       - name: share_id
@@ -8202,6 +8217,46 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/ArtifactShare" }
+    SharedLink:
+      type: object
+      description: A view-only link with what it shows (issue #765).
+      required: [id, artifact_id, label, token, path, created_at, views, title, type, bot, bot_name, chat_id]
+      properties:
+        id: { type: string }
+        artifact_id: { type: string }
+        label: { type: string }
+        token:
+          type: string
+          description: The link's secret, 32 random bytes in base64url.
+        path:
+          type: string
+          description: The link's path on this server, /s/<token>.
+        created_at: { type: string, format: date-time }
+        views:
+          type: integer
+          format: int64
+          description: How many times its page was opened.
+        last_viewed_at: { type: string, format: date-time }
+        title:
+          type: string
+          description: The artifact's newest title.
+        type: { $ref: "#/components/schemas/ArtifactType" }
+        bot:
+          type: string
+          description: The id of the Bot that made the artifact.
+        bot_name:
+          type: string
+          description: That Bot's name; empty when the Bot is gone.
+        chat_id:
+          type: string
+          description: The chat the artifact is in.
+    SharedLinkList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SharedLink" }
     SharedArtifact:
       type: object
       required: [title, type, entry, media_type, revision, updated_at, files]

@@ -4948,6 +4948,44 @@ type SharedArtifact struct {
 	UpdatedAt time.Time    `json:"updated_at"`
 }
 
+// SharedLink A view-only link with what it shows (issue
+type SharedLink struct {
+	ArtifactId string `json:"artifact_id"`
+
+	// Bot The id of the Bot that made the artifact.
+	Bot string `json:"bot"`
+
+	// BotName That Bot's name; empty when the Bot is gone.
+	BotName string `json:"bot_name"`
+
+	// ChatId The chat the artifact is in.
+	ChatId       string     `json:"chat_id"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Id           string     `json:"id"`
+	Label        string     `json:"label"`
+	LastViewedAt *time.Time `json:"last_viewed_at,omitempty"`
+
+	// Path The link's path on this server, /s/<token>.
+	Path string `json:"path"`
+
+	// Title The artifact's newest title.
+	Title string `json:"title"`
+
+	// Token The link's secret, 32 random bytes in base64url.
+	Token string `json:"token"`
+
+	// Type How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
+	Type ArtifactType `json:"type"`
+
+	// Views How many times its page was opened.
+	Views int64 `json:"views"`
+}
+
+// SharedLinkList defines model for SharedLinkList.
+type SharedLinkList struct {
+	Data []SharedLink `json:"data"`
+}
+
 // Sheet defines model for Sheet.
 type Sheet struct {
 	// Csv The sheet's rows as RFC 4180 CSV, one line a sheet row, a row the sheet never stored as an empty line.
@@ -6695,6 +6733,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListShares Every view-only link, newest first, with what it shows (owner only)
+	//
+	// The owner's one place to see what is shared and with whom, and to revoke a link (issue #765). Each link carries its artifact's newest title and type, its Bot and its chat.
+	//
+	// Corresponds with GET /artifact-shares (the `ListShares` operationId).
+	ListShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteArtifactShare Revoke a view-only link at once (owner only)
 	//
@@ -9060,6 +9105,23 @@ func (c *Client) DecideApprovalWithBody(ctx context.Context, approvalId string, 
 // Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 func (c *Client) DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecideApprovalRequest(c.Server, approvalId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListShares Every view-only link, newest first, with what it shows (owner only)
+//
+// The owner's one place to see what is shared and with whom, and to revoke a link (issue #765). Each link carries its artifact's newest title and type, its Bot and its chat.
+//
+// Corresponds with GET /artifact-shares (the `ListShares` operationId).
+func (c *Client) ListShares(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSharesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -14521,6 +14583,33 @@ func NewDecideApprovalRequestWithBody(server string, approvalId string, contentT
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListSharesRequest constructs an http.Request for the ListShares method
+func NewListSharesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/artifact-shares")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -24583,6 +24672,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
 
+	// ListSharesWithResponse Every view-only link, newest first, with what it shows (owner only)
+	//
+	// The owner's one place to see what is shared and with whom, and to revoke a link (issue #765). Each link carries its artifact's newest title and type, its Bot and its chat.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /artifact-shares (the `ListShares` operationId).
+	ListSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSharesResponse, error)
+
 	// DeleteArtifactShareWithResponse Revoke a view-only link at once (owner only)
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -27476,6 +27574,54 @@ func (r DecideApprovalResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DecideApprovalResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListSharesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SharedLinkList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSharesResponse) GetJSON200() *SharedLinkList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListSharesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSharesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSharesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSharesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSharesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -37766,6 +37912,21 @@ func (c *ClientWithResponses) DecideApprovalWithResponse(ctx context.Context, ap
 	return ParseDecideApprovalResponse(rsp)
 }
 
+// ListSharesWithResponse Every view-only link, newest first, with what it shows (owner only)
+//
+// The owner's one place to see what is shared and with whom, and to revoke a link (issue #765). Each link carries its artifact's newest title and type, its Bot and its chat.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /artifact-shares (the `ListShares` operationId).
+func (c *ClientWithResponses) ListSharesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSharesResponse, error) {
+	rsp, err := c.ListShares(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSharesResponse(rsp)
+}
+
 // DeleteArtifactShareWithResponse Revoke a view-only link at once (owner only)
 //
 // Returns a wrapper object for the known response body format(s).
@@ -42180,6 +42341,39 @@ func ParseDecideApprovalResponse(rsp *http.Response) (*DecideApprovalResponse, e
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Approval
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListSharesResponse parses an HTTP response from a ListSharesWithResponse call
+func ParseListSharesResponse(rsp *http.Response) (*ListSharesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSharesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SharedLinkList
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -49176,6 +49370,9 @@ type ServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string)
+	// ListShares Every view-only link, newest first, with what it shows (owner only)
+	// (GET /artifact-shares)
+	ListShares(w http.ResponseWriter, r *http.Request)
 	// DeleteArtifactShare Revoke a view-only link at once (owner only)
 	// (DELETE /artifact-shares/{share_id})
 	DeleteArtifactShare(w http.ResponseWriter, r *http.Request, shareId string)
@@ -50152,6 +50349,20 @@ func (siw *ServerInterfaceWrapper) DecideApproval(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DecideApproval(w, r, approvalId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListShares operation middleware
+func (siw *ServerInterfaceWrapper) ListShares(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListShares(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -57150,6 +57361,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts/{artifact_id}/revisions/{revision}/frame", wrapper.OpenArtifactFrame)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifacts/{artifact_id}/shares", wrapper.ListArtifactShares)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/artifacts/{artifact_id}/shares", wrapper.CreateArtifactShare)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/artifact-shares", wrapper.ListShares)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/artifact-shares/{share_id}", wrapper.DeleteArtifactShare)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/shares/{token}", wrapper.GetShare)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/skills", wrapper.ListSkills)
@@ -57705,6 +57917,44 @@ type DecideApprovaldefaultJSONResponse struct {
 }
 
 func (response DecideApprovaldefaultJSONResponse) VisitDecideApprovalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharesRequestObject struct {
+}
+
+type ListSharesResponseObject interface {
+	VisitListSharesResponse(w http.ResponseWriter) error
+}
+
+type ListShares200JSONResponse SharedLinkList
+
+func (response ListShares200JSONResponse) VisitListSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListSharesdefaultJSONResponse) VisitListSharesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -66218,6 +66468,9 @@ type StrictServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(ctx context.Context, request DecideApprovalRequestObject) (DecideApprovalResponseObject, error)
+	// ListShares Every view-only link, newest first, with what it shows (owner only)
+	// (GET /artifact-shares)
+	ListShares(ctx context.Context, request ListSharesRequestObject) (ListSharesResponseObject, error)
 	// DeleteArtifactShare Revoke a view-only link at once (owner only)
 	// (DELETE /artifact-shares/{share_id})
 	DeleteArtifactShare(ctx context.Context, request DeleteArtifactShareRequestObject) (DeleteArtifactShareResponseObject, error)
@@ -67237,6 +67490,30 @@ func (sh *strictHandler) DecideApproval(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DecideApprovalResponseObject); ok {
 		if err := validResponse.VisitDecideApprovalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListShares operation middleware
+func (sh *strictHandler) ListShares(w http.ResponseWriter, r *http.Request) {
+	var request ListSharesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListShares(ctx, request.(ListSharesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListShares")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSharesResponseObject); ok {
+		if err := validResponse.VisitListSharesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

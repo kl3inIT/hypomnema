@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
@@ -475,4 +476,56 @@ func TestAGuideGoesOnlyToAnAgentThatMayUseItsIntegration(t *testing.T) {
 	given, err = w.s.BotSkills(ctx, narrow.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"android-device", "pdf"}, names(given), "superset:vmaps is not on its list")
+}
+
+// Scenario: the gitlab guide requires the kind gitlab, not a host (issue #740): a Bot gets it while it may use a
+// Connection of any GitLab host, gitlab.com or a server the owner declared as gitlab, and not for a host of another
+// kind.
+func TestTheGitLabGuideGoesToABotGivenAnyGitLabHost(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.PublishBuiltinSkills(ctx, []skillpack.Skill{
+		requiringSkill(t, "gitlab", skillpack.RequiresIntegration, "gitlab"),
+	}, "builtin:v1")
+	require.NoError(t, err)
+
+	_, err = w.s.AddGitHost(ctx, "git.example.com", githost.GitLab)
+	require.NoError(t, err)
+	_, err = w.s.AddGitHost(ctx, "ghe.example.com", githost.GitHub)
+	require.NoError(t, err)
+
+	bot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	require.NoError(t, err)
+
+	given := func() []string {
+		t.Helper()
+
+		skills, err := w.s.BotSkills(ctx, bot.ID)
+		require.NoError(t, err)
+
+		out := []string{}
+		for _, sk := range skills {
+			out = append(out, sk.Name)
+		}
+
+		return out
+	}
+
+	for _, host := range []string{"git.example.com", "ghe.example.com"} {
+		_, err := w.s.SetConnection(ctx, host, "default", "", "conn-"+host)
+		require.NoError(t, err)
+	}
+
+	assert.Empty(t, given(), "no Connection is on for chats")
+
+	_, err = w.s.SetConnectionChats(ctx, "ghe.example.com", "default", true)
+	require.NoError(t, err)
+	assert.Empty(t, given(), "a GitHub host is not GitLab")
+
+	_, err = w.s.SetConnectionChats(ctx, "git.example.com", "default", true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gitlab"}, given())
 }

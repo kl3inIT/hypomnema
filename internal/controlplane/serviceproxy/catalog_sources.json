@@ -18,5 +18,21 @@
       "fetched": "2026-11-17",
       "sha256": "46c7f19cfed49694b9c05c6844bbda9f501726b56e63c3af8bfa0f4c96637ed1"
     }
+  },
+  "gitlab": {
+    "cli": {
+      "name": "glab",
+      "version": "1.130.0",
+      "url": "https://proxy.golang.org/gitlab.com/gitlab-org/cli/@v/v1.130.0.mod",
+      "revision": "9b430a11f95ec78d87f19be071d1c381d8803630",
+      "sha256": "3322cf283cea7d5b4966e00385eeac29b57ab7749444bda77166eccb88c18584"
+    },
+    "client": {
+      "name": "client-go",
+      "version": "v3.46.1",
+      "url": "https://proxy.golang.org/gitlab.com/gitlab-org/api/client-go/v3/@v/v3.46.1.zip",
+      "revision": "f5a1d82ee0ae2c59db6b358e6d3a430eabe726e5",
+      "sha256": "6c07a3a2997211ee777be77416d92e68bbc5e3ea96be7aa13dfced23f9d2801a"
+    }
   }
 }

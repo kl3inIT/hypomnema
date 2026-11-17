@@ -145,8 +145,11 @@ type Daemon struct {
 	known     map[string]bool // Dispatches the Runner has this process
 	// hosts knows which git hosts this machine reaches; nil when the node does not try.
 	hosts *hostWatch
-	// releaseURL is where the control plane said the node's releases are; "" until the first hello.
-	releaseURL string
+	// releaseURL is where the control plane said the node's releases are and controlPlaneVersion its own
+	// version, both "" until the first hello; hellos is signaled after each hello (issue #783).
+	releaseURL          string
+	controlPlaneVersion string
+	hellos              chan struct{}
 	// base is Run's context, for what outlives one socket: a terminal's connection.
 	base context.Context //nolint:containedctx // set once by Run, read by goroutines Run owns
 	// tools has the tools the control plane names installed; nil when the node installs none.
@@ -177,6 +180,7 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 		cfg: cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
 		newID: platform.NewID, instance: platform.NewID("ins"),
 		ephemeral: map[string]nodeproto.Report{}, known: map[string]bool{},
+		hellos: make(chan struct{}, 1),
 	}
 }
 
@@ -187,6 +191,18 @@ func (d *Daemon) ReleaseURL() string {
 
 	return d.releaseURL
 }
+
+// ControlPlaneVersion is the version the control plane said at the last hello, "" before the first.
+func (d *Daemon) ControlPlaneVersion() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.controlPlaneVersion
+}
+
+// Hellos receives once after each hello that set ReleaseURL and ControlPlaneVersion; hellos between two
+// receives are one.
+func (d *Daemon) Hellos() <-chan struct{} { return d.hellos }
 
 // Run keeps the node connected until ctx ends or the token is refused.
 func (d *Daemon) Run(ctx context.Context) error {
@@ -272,7 +288,13 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 
 	d.mu.Lock()
 	d.releaseURL = resp.ReleaseURL
+	d.controlPlaneVersion = resp.ControlPlaneVersion
 	d.mu.Unlock()
+
+	select {
+	case d.hellos <- struct{}{}:
+	default: // one not yet received already says it
+	}
 
 	d.hosts.ask(resp.GitHosts)
 	d.tools.ask(resp.Tools)

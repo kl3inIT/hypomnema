@@ -25,7 +25,8 @@ import (
 // sourcesFile names, beside the catalogs, where each declaration is fetched from.
 const sourcesFile = "catalog_sources.json"
 
-// maxDeclaration bounds one download: GitHub's REST description is 14 MB, gh's source 10 MB.
+// maxDeclaration bounds one download: GitHub's REST description is 14 MB, gh's source 10 MB, client-go's module
+// 5 MB.
 const maxDeclaration = 128 << 20
 
 // source is one thing fetched: its address, the revision it is at (or the day it was read, for an address that has
@@ -51,10 +52,16 @@ type sources struct {
 		REST    source `json:"rest"`
 		GraphQL source `json:"graphql"`
 	} `json:"github"`
+	// GitLab's declaration is the route table of client-go, the Go client glab is built on (issue #740): the CLI's
+	// source is its go.mod, which names client-go's version, and the client's its module at that version.
+	GitLab struct {
+		CLI    cli `json:"cli"`
+		Client cli `json:"client"`
+	} `json:"gitlab"`
 }
 
 func main() {
-	service := flag.String("service", "all", "the catalog to regenerate: github, or all")
+	service := flag.String("service", "all", "the catalog to regenerate: github, gitlab, or all")
 	dir := flag.String("dir", "internal/controlplane/serviceproxy", "the directory of the catalogs and "+sourcesFile)
 	flag.Parse()
 
@@ -88,11 +95,19 @@ func run(ctx context.Context, service, dir string) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 
 	switch service {
-	case "github", "all":
+	case "github":
 		return generateGitHub(ctx, client, src, root, os.Stdout)
+	case "gitlab":
+		return generateGitLab(ctx, client, src, root, os.Stdout)
+	case "all":
+		if err := generateGitHub(ctx, client, src, root, os.Stdout); err != nil {
+			return err
+		}
+
+		return generateGitLab(ctx, client, src, root, os.Stdout)
 	}
 
-	return fmt.Errorf("no catalog %q: github is the only one generated so far", service)
+	return fmt.Errorf("no catalog %q: github and gitlab are the ones generated so far", service)
 }
 
 // fetch downloads a source and checks its SHA-256. A declaration that changed at an address with no revision fails

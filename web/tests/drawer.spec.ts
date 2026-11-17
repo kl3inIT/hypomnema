@@ -160,6 +160,7 @@ test("Settings on a phone is a list of sections", async ({ page, isMobile }) => 
   await expect(list.getByRole("region", { name: "Connections" }).getByRole("link")).toHaveText([
     "Integrations",
     "Channels",
+    "Shared links",
     "Vault",
   ])
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
