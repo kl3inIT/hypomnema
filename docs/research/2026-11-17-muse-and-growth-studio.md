@@ -113,3 +113,12 @@ The owner signed in to muse.ai and asked about VMAP. Muse read the public posts 
 agent does read public Facebook groups, which no API or repository above does. The owner approved the roadmap and step 1
 as an Integration (not a skill on the shared browser, whose session every agent would share): issues
 [#781](https://github.com/kl3inIT/hypomnema/issues/781) and [#782](https://github.com/kl3inIT/hypomnema/issues/782).
+
+## 8. What step 1 became (2026-11-18)
+
+After a Codex review the plan of #782 changed from an Integration to a Model gateway capability: a pool of the owner's
+Muse accounts any agent asks (owner, 2026-11-18), each account a gateway Account of runtime `muse` with its muse.ai
+cookie jar in the vault, asked in a browser context of its own in the shared browser's Chrome, so that no agent's tab
+carries a Muse session. What was built is in [ARCHITECTURE.md](../../ARCHITECTURE.md) (Muse, and the browser's
+contexts); the selectors are the three references' and were not yet checked against the live site when it was
+written. The paragraphs above stay as they were written.
