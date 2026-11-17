@@ -67,6 +67,19 @@ func (a *accountSignIns) add(signIn accountSignIn, now time.Time) (string, error
 	return id, nil
 }
 
+// put keeps a taken sign-in again under its id, as it was: a paste that could
+// not be read reached no vendor, so the owner may correct it (issue #749).
+func (a *accountSignIns) put(id string, signIn accountSignIn) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.waiting == nil {
+		a.waiting = map[string]accountSignIn{}
+	}
+
+	a.waiting[id] = signIn
+}
+
 // take returns a sign-in once, if it has not ended.
 func (a *accountSignIns) take(id string, now time.Time) (accountSignIn, bool) {
 	a.mu.Lock()
@@ -141,6 +154,12 @@ func (s *Server) CompleteAccountSignIn(ctx context.Context, req openapi.Complete
 
 	a, err := s.accounts.Complete(ctx, signIn.attempt, pasted, signIn.label)
 	if err != nil {
+		if errors.Is(err, subscription.ErrBadPaste) {
+			s.accountSignIns.put(req.SignInId, signIn)
+
+			return nil, fmt.Errorf("%w: %w; correct the paste and send it again", orchestration.ErrInvalid, err)
+		}
+
 		if errors.Is(err, subscription.ErrLoginFailed) {
 			return nil, fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)
 		}
