@@ -318,7 +318,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		}
 		every := time.Duration(cfg.UpdateEveryMinutes) * time.Minute
 
-		if err := updater.UpdateLoop(ctx, d.ReleaseURL, busy, every, logger); errors.Is(err, ErrUpdated) {
+		if err := updater.UpdateLoop(ctx, d, busy, every, logger); errors.Is(err, ErrUpdated) {
 			cancel(ErrUpdated)
 		}
 	}()

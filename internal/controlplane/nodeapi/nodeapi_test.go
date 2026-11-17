@@ -628,6 +628,21 @@ func TestHelloAnswersEachClaim(t *testing.T) {
 	}, out.Dispositions)
 }
 
+// Scenario: a node says hello. The control plane names where the node's
+// releases are and its own version, so a node older than it looks for its
+// release at once (issue #783).
+func TestHelloSaysTheReleaseAndTheControlPlanesVersion(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	p.api.WithReleaseURL("")
+
+	status, out := p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, DefaultReleaseURL, out.ReleaseURL)
+	assert.Equal(t, platform.Version, out.ControlPlaneVersion)
+}
+
 // Scenario: the control plane tells a node which tools to have, for the
 // node's own system, at hello and with every heartbeat's answer; what the
 // node says it has, or why an install failed, is kept with the node.

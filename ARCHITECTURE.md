@@ -369,9 +369,15 @@ sequenceDiagram
     on it once; a git host's token reaches it with each Dispatch, and a Claude Code worker on it runs through the
     model gateway.
 - A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
-  the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
-  node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
-  one to two days (`update_every_minutes` in its configuration sets another), and when the release is newer it
+  the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default), and
+  its own version (issue #783, [research](docs/research/2026-11-17-node-update-interval.md), after Tailscale's
+  `ClientVersion` and Coder's version header). A node of a released version that systemd runs looks there 30 s
+  after it starts, then at a random interval of one to two days (`update_every_minutes` in its configuration sets
+  another), and at once after a hello whose control plane runs a newer release than the node: the control plane
+  restarts when it updates itself, so its nodes say hello again and take the release within minutes. While the
+  control plane stays newer, the node looks again every 10 minutes; a hello naming the release it already looked
+  for, as at each reconnect of a failing link, waits for that, and only a newer one looks at once. When the
+  release is newer it
   downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
   script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
   It does not end while a terminal is open, nor while a start of its phone is asked or under way, which it looks at
