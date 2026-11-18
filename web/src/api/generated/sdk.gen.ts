@@ -312,7 +312,7 @@ export const openNodeTerminal = <ThrowOnError extends boolean = true>(options: O
 });
 
 /**
- * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+ * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
  */
 export const stopNodeMachine = <ThrowOnError extends boolean = true>(options: Options<StopNodeMachineData, ThrowOnError>): RequestResult<StopNodeMachineResponses, StopNodeMachineErrors, ThrowOnError> => (options.client ?? client).post<StopNodeMachineResponses, StopNodeMachineErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -321,7 +321,7 @@ export const stopNodeMachine = <ThrowOnError extends boolean = true>(options: Op
 });
 
 /**
- * Turn a stopped machine on (owner only); it takes work again once its node connects
+ * Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
  */
 export const startNodeMachine = <ThrowOnError extends boolean = true>(options: Options<StartNodeMachineData, ThrowOnError>): RequestResult<StartNodeMachineResponses, StartNodeMachineErrors, ThrowOnError> => (options.client ?? client).post<StartNodeMachineResponses, StartNodeMachineErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -585,9 +585,9 @@ export const deleteIntegrationConnection = <ThrowOnError extends boolean = true>
 });
 
 /**
- * Say whether the coordinator may use a Connection in chats; only the owner
+ * Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
  *
- * A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+ * A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
  */
 export const patchIntegrationConnection = <ThrowOnError extends boolean = true>(options: Options<PatchIntegrationConnectionData, ThrowOnError>): RequestResult<PatchIntegrationConnectionResponses, PatchIntegrationConnectionErrors, ThrowOnError> => (options.client ?? client).patch<PatchIntegrationConnectionResponses, PatchIntegrationConnectionErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -1089,7 +1089,7 @@ export const getAccountLimits = <ThrowOnError extends boolean = true>(options: O
 /**
  * Use one of an account's limit resets, which starts its used-up limits again now; only the owner
  *
- * A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+ * A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
  */
 export const redeemAccountLimitReset = <ThrowOnError extends boolean = true>(options: Options<RedeemAccountLimitResetData, ThrowOnError>): RequestResult<RedeemAccountLimitResetResponses, RedeemAccountLimitResetErrors, ThrowOnError> => (options.client ?? client).post<RedeemAccountLimitResetResponses, RedeemAccountLimitResetErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

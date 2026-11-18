@@ -127,7 +127,7 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 
 	// Antigravity carries no per-account prompt cache through the gateway, so it
 	// round-robins (session empty) and leans on nearQuota ranking instead.
-	resp, err := s.underAccounts(ctx, antigravityRuntime, model, "", nearQuota,
+	resp, err := s.underAccounts(ctx, antigravityRuntime, listedModel(model), "", nearQuota,
 		func(token AccountToken) (*http.Response, error) {
 			return s.antigravityAttempt(ctx, call, token)
 		})

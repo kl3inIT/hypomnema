@@ -7,9 +7,9 @@
 // The rules are OpenMausBot's for a page (server/pages/bundle.ts, packages/phone-protocol/src/app.ts and
 // published-page.ts, Apache-2.0): one HTML file at most 256 KB, a folder with index.html at its top and its other
 // files beside it, at most 5 MB and 200 files, hidden files and package folders left out, a link that leads out of
-// the folder never followed, and only the kinds of files a page loads. Any other single file is an Artifact too
-// (issue #402, scope widened by the owner on 2026-11-14), shown by its kind as Onyx's preview variants are: a PDF,
-// an image, or a file to download.
+// the folder never followed, and only the kinds of files a page loads. A folder can also carry documents for
+// download (issue #860). Any other single file is an Artifact too (issue #402, scope widened by the owner on
+// 2026-11-14), shown by its kind as Onyx's preview variants are: a PDF, an image, or a file to download.
 package artifactpack
 
 import (
@@ -83,7 +83,7 @@ type Pack struct {
 	Size   int64
 }
 
-// pageTypes are the files a page's folder may carry and the type each is served as (OpenMausBot's
+// pageTypes are the files a page loads and the type each is served as (OpenMausBot's
 // PAGE_FILE_TYPES, without its videos, which it does not store either).
 var pageTypes = map[string]string{
 	"html": "text/html; charset=utf-8", "htm": "text/html; charset=utf-8", "css": "text/css; charset=utf-8",
@@ -97,11 +97,25 @@ var pageTypes = map[string]string{
 	"woff": "font/woff", "woff2": "font/woff2", "ttf": "font/ttf", "otf": "font/otf",
 }
 
+var pageDownloadTypes = map[string]string{
+	"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"pdf":  "application/pdf",
+}
+
 func ext(name string) string { return strings.ToLower(strings.TrimPrefix(path.Ext(name), ".")) }
 
 // PageFile says whether a folder page may carry a file of this name.
 func PageFile(name string) bool {
 	_, ok := pageTypes[ext(name)]
+
+	return ok || PageDownload(name)
+}
+
+// PageDownload says whether a file in a page's folder is served only as an attachment.
+func PageDownload(name string) bool {
+	_, ok := pageDownloadTypes[ext(name)]
 
 	return ok
 }
@@ -137,6 +151,10 @@ func isPDF(f File) bool { return bytes.HasPrefix(f.Data, []byte("%PDF-")) }
 func MediaType(p Pack, f File) string {
 	if p.Type == TypeHTML {
 		if t, ok := pageTypes[ext(f.Path)]; ok {
+			return t
+		}
+
+		if t, ok := pageDownloadTypes[ext(f.Path)]; ok {
 			return t
 		}
 	}
@@ -267,7 +285,7 @@ func Check(files []File) (Pack, error) {
 		for _, f := range files {
 			if !PageFile(f.Path) {
 				return Pack{}, fmt.Errorf("%w: a page's folder cannot carry %s; it carries pages, styles, scripts, "+
-					"data, images and fonts", ErrInvalid, f.Path)
+					"data, images, fonts and downloadable documents (xlsx, docx, pptx, pdf)", ErrInvalid, f.Path)
 			}
 		}
 	}

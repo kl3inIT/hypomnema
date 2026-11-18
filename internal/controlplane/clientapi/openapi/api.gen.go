@@ -814,6 +814,7 @@ const (
 	GatewayModelSourceAntigravity GatewayModelSource = "antigravity"
 	GatewayModelSourceCodex       GatewayModelSource = "codex"
 	GatewayModelSourceModelsDev   GatewayModelSource = "models_dev"
+	GatewayModelSourceOpencodeGo  GatewayModelSource = "opencode_go"
 	GatewayModelSourceSet         GatewayModelSource = "set"
 	GatewayModelSourceUnknown     GatewayModelSource = "unknown"
 )
@@ -826,6 +827,8 @@ func (e GatewayModelSource) Valid() bool {
 	case GatewayModelSourceCodex:
 		return true
 	case GatewayModelSourceModelsDev:
+		return true
+	case GatewayModelSourceOpencodeGo:
 		return true
 	case GatewayModelSourceSet:
 		return true
@@ -1195,13 +1198,16 @@ func (e NewNodeDevice) Valid() bool {
 
 // Defines values for NewTokenAccountRuntime.
 const (
-	NewTokenAccountRuntimeClaude NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeClaude     NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeOpencodeGo NewTokenAccountRuntime = "opencode_go"
 )
 
 // Valid indicates whether the value is a known member of the NewTokenAccountRuntime enum.
 func (e NewTokenAccountRuntime) Valid() bool {
 	switch e {
 	case NewTokenAccountRuntimeClaude:
+		return true
+	case NewTokenAccountRuntimeOpencodeGo:
 		return true
 	default:
 		return false
@@ -1342,28 +1348,31 @@ func (e ProfileUnavailableReason) Valid() bool {
 
 // Defines values for ProviderKind.
 const (
-	Anthropic               ProviderKind = "anthropic"
-	AntigravitySubscription ProviderKind = "antigravity_subscription"
-	ClaudeSubscription      ProviderKind = "claude_subscription"
-	CodexSubscription       ProviderKind = "codex_subscription"
-	ModelGateway            ProviderKind = "model_gateway"
-	OpenaiCompatible        ProviderKind = "openai_compatible"
+	ProviderKindAnthropic               ProviderKind = "anthropic"
+	ProviderKindAntigravitySubscription ProviderKind = "antigravity_subscription"
+	ProviderKindClaudeSubscription      ProviderKind = "claude_subscription"
+	ProviderKindCodexSubscription       ProviderKind = "codex_subscription"
+	ProviderKindModelGateway            ProviderKind = "model_gateway"
+	ProviderKindOpenaiCompatible        ProviderKind = "openai_compatible"
+	ProviderKindOpencodeGo              ProviderKind = "opencode_go"
 )
 
 // Valid indicates whether the value is a known member of the ProviderKind enum.
 func (e ProviderKind) Valid() bool {
 	switch e {
-	case Anthropic:
+	case ProviderKindAnthropic:
 		return true
-	case AntigravitySubscription:
+	case ProviderKindAntigravitySubscription:
 		return true
-	case ClaudeSubscription:
+	case ProviderKindClaudeSubscription:
 		return true
-	case CodexSubscription:
+	case ProviderKindCodexSubscription:
 		return true
-	case ModelGateway:
+	case ProviderKindModelGateway:
 		return true
-	case OpenaiCompatible:
+	case ProviderKindOpenaiCompatible:
+		return true
+	case ProviderKindOpencodeGo:
 		return true
 	default:
 		return false
@@ -2112,8 +2121,29 @@ type AccountStatus string
 
 // AccountLimitReset defines model for AccountLimitReset.
 type AccountLimitReset struct {
+	// GrantId The reset to use, by the id `grants` gives. Without it, one that starts a used-up window again is chosen.
+	GrantId *string `json:"grant_id,omitempty"`
+
 	// RequestId The caller's id of this use; the same id again uses no second reset.
 	RequestId string `json:"request_id"`
+}
+
+// AccountLimitResetGrant defines model for AccountLimitResetGrant.
+type AccountLimitResetGrant struct {
+	// Available How many resets the grant has left.
+	Available int `json:"available"`
+
+	// Clears The windows, by the names `windows` uses, that a use starts again, such as "5 hours" and "week" for an ordinary reset or "week (Fable)" for Fable's; empty when the vendor does not say, and then it may start any.
+	Clears []string `json:"clears"`
+
+	// ExpiresAt When the grant ends, when the vendor says.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Id The vendor's id of the grant, which a use names.
+	Id string `json:"id"`
+
+	// Label The vendor's name for the grant, when it gives one.
+	Label *string `json:"label,omitempty"`
 }
 
 // AccountLimitResets defines model for AccountLimitResets.
@@ -2123,6 +2153,9 @@ type AccountLimitResets struct {
 
 	// ExpiresAt When the one used next ends, when the vendor says.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Grants The usable resets one by one, as the vendor groups them.
+	Grants []AccountLimitResetGrant `json:"grants"`
 }
 
 // AccountLimitWindow defines model for AccountLimitWindow.
@@ -2949,9 +2982,15 @@ type ConnectionScope struct {
 	Dashboards []int64 `json:"dashboards"`
 }
 
-// ConnectionUse defines model for ConnectionUse.
+// ConnectionUse What changes; what is absent stays.
 type ConnectionUse struct {
-	Chats bool `json:"chats"`
+	Chats *bool `json:"chats,omitempty"`
+
+	// DialAddress Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
+	DialAddress *string `json:"dial_address,omitempty"`
+
+	// Proxy The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
+	Proxy *string `json:"proxy,omitempty"`
 }
 
 // CreatedGatewayKey defines model for CreatedGatewayKey.
@@ -3199,7 +3238,7 @@ type GatewayModelEffort string
 type GatewayModelEfforts struct {
 	ModelsDev *[]GatewayModelEffort `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource    `json:"source"`
 	Value  *[]GatewayModelEffort `json:"value,omitempty"`
 }
@@ -3208,7 +3247,7 @@ type GatewayModelEfforts struct {
 type GatewayModelInput struct {
 	ModelsDev *[]GatewayModelInputKind `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource       `json:"source"`
 	Value  *[]GatewayModelInputKind `json:"value,omitempty"`
 }
@@ -3233,7 +3272,7 @@ type GatewayModelPrice struct {
 type GatewayModelReasoning struct {
 	ModelsDev *bool `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource `json:"source"`
 	Value  *bool              `json:"value,omitempty"`
 }
@@ -3247,7 +3286,7 @@ type GatewayModelSettings struct {
 	Reasoning     *bool                    `json:"reasoning,omitempty"`
 }
 
-// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 type GatewayModelSource string
 
 // GatewayModelTarget defines model for GatewayModelTarget.
@@ -3261,7 +3300,7 @@ type GatewayModelTokens struct {
 	// ModelsDev What models.dev gives, when it gives one.
 	ModelsDev *int64 `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource `json:"source"`
 
 	// Value The number of tokens used; absent when unknown.
@@ -3398,7 +3437,7 @@ type GatewayUsageGroup struct {
 	// Name The model's or the key's name, or the account's label; empty for an account since removed.
 	Name string `json:"name"`
 
-	// Runtime An account's runtime (claude, codex, antigravity).
+	// Runtime An account's runtime (claude, codex, antigravity, opencode_go).
 	Runtime *string `json:"runtime,omitempty"`
 }
 
@@ -3573,13 +3612,19 @@ type IntegrationConnection struct {
 	Cannot []ConnectionCannot `json:"cannot"`
 
 	// Chats Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
-	Chats       bool      `json:"chats"`
-	CreatedAt   time.Time `json:"created_at"`
-	Integration string    `json:"integration"`
+	Chats     bool      `json:"chats"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// DialAddress Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name that does not resolve; absent dials the host.
+	DialAddress *string `json:"dial_address,omitempty"`
+	Integration string  `json:"integration"`
 
 	// Key The name of the key the role is assumed with, for an Integration of kind role. Not secret.
 	Key   *string `json:"key,omitempty"`
 	Label string  `json:"label"`
+
+	// Proxy The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a service in a private network, reached through a local proxy. Absent when they go direct.
+	Proxy *string `json:"proxy,omitempty"`
 
 	// RoleArn The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.
 	RoleArn *string `json:"role_arn,omitempty"`
@@ -4162,9 +4207,15 @@ type NewAccountConnection struct {
 	AppId     *string `json:"app_id,omitempty"`
 	AppSecret *string `json:"app_secret,omitempty"`
 
+	// DialAddress Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+	DialAddress *string `json:"dial_address,omitempty"`
+
 	// Key The name the key that assumes the role is kept under, such as main.
 	Key      *string `json:"key,omitempty"`
 	Password *string `json:"password,omitempty"`
+
+	// Proxy The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+	Proxy *string `json:"proxy,omitempty"`
 
 	// RoleArn The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
 	RoleArn         *string `json:"role_arn,omitempty"`
@@ -4379,14 +4430,14 @@ type NewTokenAccount struct {
 	// Label The account's name for the owner; a token names no e-mail.
 	Label string `json:"label"`
 
-	// Runtime The kind of subscription; only Claude gives a token to paste.
+	// Runtime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
 	Runtime NewTokenAccountRuntime `json:"runtime"`
 
-	// Token The token `claude setup-token` prints, one line.
+	// Token The token `claude setup-token` prints, or the OpenCode Go key, one line.
 	Token *string `json:"token,omitempty"`
 }
 
-// NewTokenAccountRuntime The kind of subscription; only Claude gives a token to paste.
+// NewTokenAccountRuntime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
 type NewTokenAccountRuntime string
 
 // Node defines model for Node.
@@ -6960,7 +7011,7 @@ type ClientInterface interface {
 
 	// RedeemAccountLimitResetWithBody Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -6969,7 +7020,7 @@ type ClientInterface interface {
 
 	// RedeemAccountLimitReset Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -8153,18 +8204,18 @@ type ClientInterface interface {
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnectionWithBody(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -8575,12 +8626,12 @@ type ClientInterface interface {
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	//
 	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 	StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	//
 	// Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
 	StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -9454,7 +9505,7 @@ func (c *Client) GetAccountLimits(ctx context.Context, accountId AccountID, para
 
 // RedeemAccountLimitResetWithBody Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes any type of body and a specified content type.
 //
@@ -9473,7 +9524,7 @@ func (c *Client) RedeemAccountLimitResetWithBody(ctx context.Context, accountId 
 
 // RedeemAccountLimitReset Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -12277,9 +12328,9 @@ func (c *Client) DeleteIntegrationConnection(ctx context.Context, integration In
 	return c.Client.Do(req)
 }
 
-// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes any type of body and a specified content type.
 //
@@ -12296,9 +12347,9 @@ func (c *Client) PatchIntegrationConnectionWithBody(ctx context.Context, integra
 	return c.Client.Do(req)
 }
 
-// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -13279,7 +13330,7 @@ func (c *Client) ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 //
 // Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 func (c *Client) StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -13294,7 +13345,7 @@ func (c *Client) StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors
 	return c.Client.Do(req)
 }
 
-// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 //
 // Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
 func (c *Client) StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -26240,7 +26291,7 @@ type ClientWithResponsesInterface interface {
 
 	// RedeemAccountLimitResetWithBodyWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -26249,7 +26300,7 @@ type ClientWithResponsesInterface interface {
 
 	// RedeemAccountLimitResetWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -27573,18 +27624,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*DeleteIntegrationConnectionResponse, error)
 
-	// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnectionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error)
 
-	// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -28049,14 +28100,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*ResumeNodeResponse, error)
 
-	// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 	StartNodeMachineWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*StartNodeMachineResponse, error)
 
-	// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -40416,7 +40467,7 @@ func (c *ClientWithResponses) GetAccountLimitsWithResponse(ctx context.Context, 
 
 // RedeemAccountLimitResetWithBodyWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -40431,7 +40482,7 @@ func (c *ClientWithResponses) RedeemAccountLimitResetWithBodyWithResponse(ctx co
 
 // RedeemAccountLimitResetWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -42727,9 +42778,9 @@ func (c *ClientWithResponses) DeleteIntegrationConnectionWithResponse(ctx contex
 	return ParseDeleteIntegrationConnectionResponse(rsp)
 }
 
-// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -42742,9 +42793,9 @@ func (c *ClientWithResponses) PatchIntegrationConnectionWithBodyWithResponse(ctx
 	return ParsePatchIntegrationConnectionResponse(rsp)
 }
 
-// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -43551,7 +43602,7 @@ func (c *ClientWithResponses) ResumeNodeWithResponse(ctx context.Context, nodeId
 	return ParseResumeNodeResponse(rsp)
 }
 
-// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -43564,7 +43615,7 @@ func (c *ClientWithResponses) StartNodeMachineWithResponse(ctx context.Context, 
 	return ParseStartNodeMachineResponse(rsp)
 }
 
-// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -53141,7 +53192,7 @@ type ServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
 	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
@@ -53270,10 +53321,10 @@ type ServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(w http.ResponseWriter, r *http.Request, nodeId NodeID)
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	// (POST /nodes/{node_id}/start)
 	StartNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	// (POST /nodes/{node_id}/stop)
 	StopNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
 	// OpenNodeTerminal A ticket for a terminal on a node (owner only). The ticket opens the WebSocket `/api/v1/terminals/{ticket}` once, within a short time; there the client sends JSON, `{data}` for what is typed and `{height, width}` for a resize, and receives the shell's bytes in binary frames
@@ -71508,7 +71559,7 @@ type StrictServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(ctx context.Context, request DeleteIntegrationConnectionRequestObject) (DeleteIntegrationConnectionResponseObject, error)
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(ctx context.Context, request PatchIntegrationConnectionRequestObject) (PatchIntegrationConnectionResponseObject, error)
 	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
@@ -71637,10 +71688,10 @@ type StrictServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(ctx context.Context, request ResumeNodeRequestObject) (ResumeNodeResponseObject, error)
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	// (POST /nodes/{node_id}/start)
 	StartNodeMachine(ctx context.Context, request StartNodeMachineRequestObject) (StartNodeMachineResponseObject, error)
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	// (POST /nodes/{node_id}/stop)
 	StopNodeMachine(ctx context.Context, request StopNodeMachineRequestObject) (StopNodeMachineResponseObject, error)
 	// OpenNodeTerminal A ticket for a terminal on a node (owner only). The ticket opens the WebSocket `/api/v1/terminals/{ticket}` once, within a short time; there the client sends JSON, `{data}` for what is typed and `{height, width}` for a resize, and receives the shell's bytes in binary frames

@@ -56,6 +56,12 @@ var (
 	// ErrNoAccount is returned when no account of a runtime can be used:
 	// none was logged in here, or every one is disabled or needs a new login.
 	ErrNoAccount = errors.New("no account logged in here can be used")
+	// ErrModelNotServed is returned for a model no account's list has, once every usable account's list is known
+	// (issue #814).
+	ErrModelNotServed = errors.New("the model is not served by any account")
+	// ErrNoModel is returned when a token is asked for without the model it will call, of a runtime whose accounts
+	// are each served their own models (issue #814).
+	ErrNoModel = errors.New("a token is asked for without its model")
 )
 
 // CoolingError says every usable account of a runtime waits for a usage
@@ -202,6 +208,11 @@ type Service struct {
 	servedMu sync.Mutex
 	// servedWait bounds the wait for an account's first reading in flight (served.go).
 	servedWait time.Duration
+	// firstList, when set, is told the runtime of an account whose first list of models was just read (served.go).
+	firstList func(runtime string)
+	// afterAccounts, when set, runs in TokenFor between reading the accounts and what is known of their lists: a
+	// test's moment to finish a list.
+	afterAccounts func()
 }
 
 const (
@@ -467,54 +478,84 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 // no other can (omp `select.ts`, where a reserve evicts a session's account
 // while a sibling is outside it, and `rank.ts` inReserve).
 func (s *Service) Token(ctx context.Context, runtime, session string, skip ...string) (Token, error) {
-	return s.TokenFor(ctx, runtime, "", session, skip...)
+	accounts, err := s.List(ctx)
+	if err != nil {
+		return Token{}, err
+	}
+
+	return s.tokenAmong(ctx, runtime, session, usable(accounts, runtime), skip)
 }
 
-// TokenFor is Token for a request for a model: of a runtime whose vendor lists each account's own models
-// (perAccount), only the accounts whose list has the model are taken, when one has it (issue #814), and every rule of
-// Token then orders those. An empty model is Token. The lists are read before the accounts, so that what reading them
-// found of an account (a login refused, a mark) decides whether it is given.
+// TokenFor is Token for a request for a model, which goes only to the accounts whose own list of models has it
+// (issue #814), as CLIProxyAPI routes a model only to the auths that registered it
+// (sdk/cliproxy/auth/conductor_selection.go:1419-1431 authSupportsRouteModel, applied at :1687). Every rule of Token
+// then orders those. Of a runtime whose vendor lists each account's own models (perAccount):
+//   - an account whose first list is being read is waited for, at most servedWait; while no account is known to have
+//     the model and one's list is not known (still being read, or never read), the answer is a CoolingError to try
+//     again soon, never another account in its place;
+//   - when every account's list is known and none has the model, the answer is ErrModelNotServed;
+//   - a request names its model: an empty one is ErrNoModel.
+//
+// Another runtime's accounts are taken as Token takes them. The accounts and what is known of their lists are taken
+// together, after the lists were read, so that what reading them found of an account decides, and no list read
+// between two steps of the pick is half seen (owner, 2026-11-18).
 func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (Token, error) {
-	narrow := model != "" && perAccount[runtime]
-
-	var servers []string
-	if narrow {
-		servers = s.servedOf(ctx, runtime).by[model]
+	if !perAccount[runtime] {
+		return s.Token(ctx, runtime, session, skip...)
 	}
+
+	if model == "" {
+		return Token{}, fmt.Errorf("%w: %s", ErrNoModel, runtime)
+	}
+
+	s.servedOf(ctx, runtime) // reads the lists not read yet, and waits for those being read
 
 	accounts, err := s.List(ctx)
 	if err != nil {
 		return Token{}, err
 	}
 
-	// Every account of the runtime logged in here, in a stable order, so the
-	// home a session hashes to does not move between its requests.
-	var ofRuntime []Account
+	if s.afterAccounts != nil {
+		s.afterAccounts()
+	}
+
+	ofRuntime := usable(accounts, runtime)
+	servers, unknown := s.servers(ofRuntime, model)
+
+	switch {
+	case len(servers) > 0:
+		return s.tokenAmong(ctx, runtime, session, servers, skip)
+	case unknown:
+		return Token{}, &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry)}
+	case len(ofRuntime) == 0:
+		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+	default:
+		return Token{}, fmt.Errorf("%w: %s by no %s account", ErrModelNotServed, model, runtime)
+	}
+}
+
+// usable are the accounts of a runtime that can be used: active and logged in here.
+func usable(accounts []Account, runtime string) []Account {
+	var out []Account
 
 	for _, a := range accounts {
 		if a.Runtime == runtime && a.Status == orchestration.AccountActive && a.State == StateActive {
-			ofRuntime = append(ofRuntime, a)
+			out = append(out, a)
 		}
 	}
 
-	// Only the accounts whose list has the model, when one has it: CLIProxyAPI picks only an auth that registered
-	// the model (sdk/cliproxy/auth/conductor_selection.go authSupportsRouteModel), and omp enforces the accounts
-	// discovery saw serve it only when one of them is there (packages/ai/src/auth/select.ts enforceAccounts).
-	// A list not known yet never lifts that (owner, 2026-11-18): while no account is known to have the model and
-	// one's list is still unknown (its first reading in flight past the wait, or failed), the request is answered
-	// as accounts that cool are, to be tried again, rather than sent to an account whose list may lack it. Only when
-	// every account's list is known and none has the model does every account serve it, as before.
-	switch {
-	case len(servers) > 0:
-		ofRuntime = slices.DeleteFunc(ofRuntime, func(a Account) bool { return !slices.Contains(servers, a.ID) })
-	case narrow && slices.ContainsFunc(ofRuntime, func(a Account) bool { return !s.listKnown(a.ID) }):
-		return Token{}, &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry)}
-	}
+	return out
+}
 
+// tokenAmong is Token among the given accounts of a runtime.
+func (s *Service) tokenAmong(
+	ctx context.Context, runtime, session string, ofRuntime []Account, skip []string,
+) (Token, error) {
 	if len(ofRuntime) == 0 {
 		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
 	}
 
+	// The accounts in a stable order, so the home a session hashes to does not move between its requests.
 	slices.SortFunc(ofRuntime, func(a, b Account) int { return strings.Compare(a.ID, b.ID) })
 
 	start := s.startIndex(runtime, session, len(ofRuntime), len(skip) == 0)
@@ -650,6 +691,9 @@ type ServedModel struct {
 	// Window and Output are the model's context window and largest output in tokens, as the vendor gives them;
 	// zero when it does not.
 	Window, Output int64
+	// Wire is the API the vendor serves the model on, when it serves its models on several (OpenCode Go:
+	// chat-completions, responses or messages); empty otherwise.
+	Wire string
 }
 
 // ModelLister is a Vendor that can say which models it serves an account.

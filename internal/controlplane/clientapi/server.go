@@ -148,7 +148,7 @@ type Accounts interface {
 	Limits(ctx context.Context, id string, fresh bool) (subscription.Limits, error)
 	// UseReset uses one of an account's limit resets and returns its limits
 	// after it; requestID makes a repeated call the same use.
-	UseReset(ctx context.Context, id, requestID string) (subscription.Limits, error)
+	UseReset(ctx context.Context, id, requestID, grantID string) (subscription.Limits, error)
 	// BeginInBrowser starts a sign-in at the vendor of a runtime whose last
 	// address the owner pastes back.
 	BeginInBrowser(ctx context.Context, runtime string) (*subscription.Attempt, error)

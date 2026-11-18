@@ -44,3 +44,8 @@ func (c *Codex) ReadLimitsFrom(base string) { c.usageBase = base }
 func (s *Service) WaitForListsAtMost(d time.Duration) {
 	s.servedWait = d
 }
+
+// BetweenAccountsAndLists runs f in TokenFor between reading the accounts and what is known of their lists.
+func (s *Service) BetweenAccountsAndLists(f func()) {
+	s.afterAccounts = f
+}

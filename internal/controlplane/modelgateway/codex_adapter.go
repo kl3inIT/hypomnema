@@ -99,14 +99,43 @@ type Subscriptions interface {
 }
 
 // ModelTokens is Subscriptions that can give, for a request for a model, a
-// token of only the accounts whose vendor lists the model, when one does
-// (issue #814): CLIProxyAPI picks only an auth that registered the model
-// (sdk/cliproxy/auth/conductor_selection.go authSupportsRouteModel), omp the
-// accounts discovery saw serve it (packages/ai/src/auth/select.ts accountIds).
-// Subscriptions without it give any account, as Token does.
+// token of only the accounts whose own list of models has it (issue #814), as
+// CLIProxyAPI routes a model only to the auths that registered it
+// (sdk/cliproxy/auth/conductor_selection.go:1419-1431 authSupportsRouteModel,
+// applied at :1687). While no account is known to have it and one's list is
+// not known yet, it answers a *CoolingError; once every list is known and none
+// has it, ErrModelNotServed. Subscriptions without it give any account, as
+// Token does.
 type ModelTokens interface {
 	TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error)
 }
+
+// ErrModelNotServed says no account's list of models has the model asked for
+// (issue #814).
+var ErrModelNotServed = errors.New("the model is not served by any account")
+
+// ErrNoModel says a token was asked for without the model it will call, of a
+// runtime whose accounts are each served their own models (issue #814).
+var ErrNoModel = errors.New("a token is asked for without its model")
+
+// forModel is the model a request calls under a runtime's accounts (issue
+// #814). A Codex or Antigravity request names it: underAccounts refuses one
+// that does not.
+type forModel struct {
+	name string
+	// listed says the vendor's list of an account's models names the model,
+	// so it goes only to the accounts whose list has it (ModelTokens). Codex's
+	// image and search models and Antigravity's search model are not on those
+	// lists: their requests go to any account, as before (owner, 2026-11-18).
+	listed bool
+}
+
+// listedModel is a model the accounts' lists name; unlistedModel one they do not.
+func listedModel(name string) forModel   { return forModel{name: name, listed: true} }
+func unlistedModel(name string) forModel { return forModel{name: name} }
+
+// namesModels are the runtimes whose requests name their model (issue #814).
+var namesModels = map[string]bool{codexRuntime: true, antigravityRuntime: true}
 
 // codexSubscription serves chat from the Codex backend.
 type codexSubscription struct{}
@@ -128,7 +157,7 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underAccounts(ctx, codexRuntime, call.upstream.Model, built.CacheKey, nil,
+	resp, err := s.underAccounts(ctx, codexRuntime, listedModel(call.upstream.Model), built.CacheKey, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.codexCall(ctx, &token, built)
 			if err != nil {

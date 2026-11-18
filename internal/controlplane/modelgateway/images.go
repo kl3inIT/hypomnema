@@ -593,62 +593,63 @@ func (s *Server) codexImage(
 
 	body := codex.ImageBody(prompt, opts)
 
-	resp, err := s.underAccounts(ctx, codexRuntime, "", "", nil, func(token AccountToken) (*http.Response, error) {
-		now := s.svc.clock.Now()
-		key := restKey(ImageProviderCodex, token.AccountID)
+	resp, err := s.underAccounts(ctx, codexRuntime, unlistedModel(codex.ImageModel), "", nil,
+		func(token AccountToken) (*http.Response, error) {
+			now := s.svc.clock.Now()
+			key := restKey(ImageProviderCodex, token.AccountID)
 
-		if codex.FreePlan(token.Plan) {
-			return imageRefusal(http.StatusForbidden, "plan_not_entitled",
-				"the ChatGPT account is on the free plan, which makes no images", 0), nil
-		}
-
-		if until, resting := s.imageRests.resting(key, now); resting {
-			return imageRefusal(http.StatusTooManyRequests, "image_rate_limited",
-				"the account rests after a limit", until.Sub(now)), nil
-		}
-
-		resp, err := s.codexImagePost(ctx, &token, codex.ImagePath(opts), body)
-		if err != nil {
-			return nil, err
-		}
-
-		status, retry := resp.StatusCode, resp.Header.Get("Retry-After")
-
-		raw, err := readImageAnswer(resp)
-		if err != nil {
-			return nil, err
-		}
-
-		if status == http.StatusOK {
-			got, err := codex.ParseImages(raw)
-			if err != nil {
-				return imageRefusal(http.StatusBadGateway, "upstream_failed", err.Error(), 0), nil
+			if codex.FreePlan(token.Plan) {
+				return imageRefusal(http.StatusForbidden, "plan_not_entitled",
+					"the ChatGPT account is on the free plan, which makes no images", 0), nil
 			}
 
-			s.imageRests.served(key)
+			if until, resting := s.imageRests.resting(key, now); resting {
+				return imageRefusal(http.StatusTooManyRequests, "image_rate_limited",
+					"the account rests after a limit", until.Sub(now)), nil
+			}
 
-			answer, account = got, token.AccountID
+			resp, err := s.codexImagePost(ctx, &token, codex.ImagePath(opts), body)
+			if err != nil {
+				return nil, err
+			}
 
-			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
-		}
+			status, retry := resp.StatusCode, resp.Header.Get("Retry-After")
 
-		failure := codex.ParseFailure(status, raw)
-		message := imageDetail(raw, failure.Message)
+			raw, err := readImageAnswer(resp)
+			if err != nil {
+				return nil, err
+			}
 
-		if secs, err := strconv.Atoi(retry); err == nil && secs > 0 && failure.ResetsAt.IsZero() {
-			failure.ResetsAt = now.Add(time.Duration(secs) * time.Second)
-		}
+			if status == http.StatusOK {
+				got, err := codex.ParseImages(raw)
+				if err != nil {
+					return imageRefusal(http.StatusBadGateway, "upstream_failed", err.Error(), 0), nil
+				}
 
-		code := cmpOr(failure.Code, "upstream_error")
-		if codex.NotEntitled(status, raw) {
-			// Another account may have the model (OmniRoute, issue #8307): a refusal that moves on.
-			failure.Status, code = http.StatusForbidden, "model_not_entitled"
-		}
+				s.imageRests.served(key)
 
-		wait := s.imageRests.rest(key, now, failure.Status, failure.Type == "usage_limit_reached", failure.ResetsAt)
+				answer, account = got, token.AccountID
 
-		return imageRefusal(failure.Status, code, cmpOr(message, http.StatusText(status)), wait), nil
-	})
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+			}
+
+			failure := codex.ParseFailure(status, raw)
+			message := imageDetail(raw, failure.Message)
+
+			if secs, err := strconv.Atoi(retry); err == nil && secs > 0 && failure.ResetsAt.IsZero() {
+				failure.ResetsAt = now.Add(time.Duration(secs) * time.Second)
+			}
+
+			code := cmpOr(failure.Code, "upstream_error")
+			if codex.NotEntitled(status, raw) {
+				// Another account may have the model (OmniRoute, issue #8307): a refusal that moves on.
+				failure.Status, code = http.StatusForbidden, "model_not_entitled"
+			}
+
+			wait := s.imageRests.rest(key, now, failure.Status, failure.Type == "usage_limit_reached", failure.ResetsAt)
+
+			return imageRefusal(failure.Status, code, cmpOr(message, http.StatusText(status)), wait), nil
+		})
 	if err == nil && resp.StatusCode == http.StatusOK {
 		return answer, account, nil
 	}
@@ -736,7 +737,7 @@ func (s *Server) antigravityImages(ctx context.Context, req ImageRequest) (Image
 
 	var res ImageResult
 
-	resp, err := s.underAccounts(ctx, antigravityRuntime, antigravity.ImageModel, "", nil,
+	resp, err := s.underAccounts(ctx, antigravityRuntime, listedModel(antigravity.ImageModel), "", nil,
 		func(token AccountToken) (*http.Response, error) {
 			got, refusal, err := s.antigravityImage(ctx, token, req.Prompt, opts)
 			if err != nil || refusal != nil {

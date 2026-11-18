@@ -557,6 +557,8 @@ type rosterAccounts struct {
 	imageAccounts
 
 	served map[string][]string
+	// asked are the models TokenFor was asked for, in order.
+	asked []string
 }
 
 func (a *rosterAccounts) TokenFor(
@@ -565,14 +567,29 @@ func (a *rosterAccounts) TokenFor(
 	var others []string
 
 	a.mu.Lock()
+	a.asked = append(a.asked, model)
+
 	for _, acc := range a.all {
 		if !slices.Contains(a.served[acc.id], model) {
 			others = append(others, acc.id)
 		}
 	}
+
+	none := len(others) == len(a.all)
 	a.mu.Unlock()
 
+	if none {
+		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+	}
+
 	return a.Token(ctx, runtime, session, append(skip, others...)...)
+}
+
+func (a *rosterAccounts) askedFor() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return slices.Clone(a.asked)
 }
 
 // Scenario (issue #814, review of #832): the first Antigravity account is not served the image model, the second

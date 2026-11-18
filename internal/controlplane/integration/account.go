@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
@@ -47,6 +48,41 @@ type Account struct {
 	Address  string
 	User     string
 	Password string
+	// Proxy is the proxy the service is reached through (issue #850), read by connproxy.Parse, and DialAddress
+	// where it is dialed instead of its host's, read by connproxy.ParseDial. Empty keeps what a label that exists
+	// has, or none.
+	Proxy       string
+	DialAddress string
+}
+
+// routeOf is how a Connection's requests reach its service (issue #850).
+func routeOf(conn orchestration.Connection) connproxy.Route {
+	return connproxy.Route{Proxy: conn.Proxy, Dial: conn.DialAddress}
+}
+
+// routeToConnect is the route a new sign-in takes: the one given, read, or else the one the label has.
+func (s *Service) routeToConnect(ctx context.Context, integration, label string, a Account) (connproxy.Route, error) {
+	proxy, err := connproxy.Parse(a.Proxy)
+	if err != nil {
+		return connproxy.Route{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
+	dial, err := connproxy.ParseDial(a.DialAddress)
+	if err != nil {
+		return connproxy.Route{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
+	if kept, err := s.store.ConnectionOf(ctx, integration, label); err == nil {
+		if proxy == "" {
+			proxy = kept.Proxy
+		}
+
+		if dial == "" {
+			dial = kept.DialAddress
+		}
+	}
+
+	return connproxy.Route{Proxy: proxy, Dial: dial}, nil
 }
 
 // AccountRequest is one request to a Connection's service. Path and RawQuery
@@ -78,14 +114,31 @@ type accountSession struct {
 	cookie string
 }
 
-// newAccountClient is the client for a Connection's own address. It follows
-// no redirect: a service that sends a request elsewhere is answered with what
-// it said, and the token goes nowhere else.
-func newAccountClient() *http.Client {
+// newAccountWays are the transports a Connection's own address is called with: the default one, or one through
+// the Connection's proxy (issue #850).
+func newAccountWays() *connproxy.Transports {
+	return &connproxy.Transports{
+		Direct: http.DefaultTransport,
+		New: func() *http.Transport {
+			return http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // net/http's own.
+		},
+	}
+}
+
+// accountClient is the client for a Connection's own address, through its proxy when it names one. It follows no
+// redirect: a service that sends a request elsewhere is answered with what it said, and the token goes nowhere
+// else.
+func (s *Service) accountClient(route connproxy.Route) (*http.Client, error) {
+	way, err := s.accountWays.For(route)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
 	return &http.Client{
+		Transport:     way,
 		Timeout:       accountTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	}, nil
 }
 
 func accountKey(integration, label string) string { return integration + ":" + label }
@@ -135,7 +188,12 @@ func (s *Service) ConnectAccount(ctx context.Context, integration, label string,
 		return Connection{}, fmt.Errorf("%w: an account is its user name and its password, each one line", ErrInvalid)
 	}
 
-	session, err := s.signInAccount(ctx, d, address, user, a.Password)
+	route, err := s.routeToConnect(ctx, d.ID, label, a)
+	if err != nil {
+		return Connection{}, err
+	}
+
+	session, err := s.signInAccount(ctx, d, address, route, user, a.Password)
 	if err != nil {
 		return Connection{}, fmt.Errorf("%w: %w", ErrSignInFailed, err)
 	}
@@ -156,10 +214,22 @@ func (s *Service) ConnectAccount(ctx context.Context, integration, label string,
 
 	saved, err := s.store.SaveServiceConnection(ctx, orchestration.Connection{
 		Integration: d.ID, Label: label, Account: user, Secret: name, Address: address,
-		Version: s.accountVersion(ctx, d, address, session.access),
+		Version: s.accountVersion(ctx, d, address, route, session.access),
 	})
 	if err != nil {
 		return Connection{}, err
+	}
+
+	if saved.Proxy != route.Proxy {
+		if saved, err = s.store.SetConnectionProxy(ctx, d.ID, label, route.Proxy); err != nil {
+			return Connection{}, err
+		}
+	}
+
+	if saved.DialAddress != route.Dial {
+		if saved, err = s.store.SetConnectionDialAddress(ctx, d.ID, label, route.Dial); err != nil {
+			return Connection{}, err
+		}
 	}
 
 	s.mu.Lock()
@@ -171,7 +241,8 @@ func (s *Service) ConnectAccount(ctx context.Context, integration, label string,
 
 // signInAccount signs a local account in at the service. Its errors hold the
 // status only: the answer may repeat what was sent.
-func (s *Service) signInAccount(ctx context.Context, d Definition, address, user, password string,
+func (s *Service) signInAccount(ctx context.Context, d Definition, address string, route connproxy.Route, user,
+	password string,
 ) (accountSession, error) {
 	// provider "db" is Superset's own accounts, which sign in here even where its pages sign in elsewhere;
 	// refresh asks for a refresh token too (superset-mcp, base-client.ts; tried 2026-11-12).
@@ -187,7 +258,7 @@ func (s *Service) signInAccount(ctx context.Context, d Definition, address, user
 
 	req.Header.Set("Content-Type", "application/json")
 
-	status, _, answer, err := s.accountDo(req)
+	status, _, answer, err := s.accountDo(req, route)
 	if err != nil {
 		return accountSession{}, fmt.Errorf("signing in to %s: %w", d.Name, err)
 	}
@@ -206,7 +277,8 @@ func (s *Service) signInAccount(ctx context.Context, d Definition, address, user
 }
 
 // refreshAccount asks for a new access token with the refresh token.
-func (s *Service) refreshAccount(ctx context.Context, d Definition, address string, old accountSession,
+func (s *Service) refreshAccount(ctx context.Context, d Definition, address string, route connproxy.Route,
+	old accountSession,
 ) (accountSession, error) {
 	if old.refresh == "" {
 		return accountSession{}, errors.New("no refresh token")
@@ -219,7 +291,7 @@ func (s *Service) refreshAccount(ctx context.Context, d Definition, address stri
 
 	req.Header.Set("Authorization", "Bearer "+old.refresh)
 
-	status, _, answer, err := s.accountDo(req)
+	status, _, answer, err := s.accountDo(req, route)
 	if err != nil {
 		return accountSession{}, err
 	}
@@ -238,7 +310,9 @@ func (s *Service) refreshAccount(ctx context.Context, d Definition, address stri
 
 // accountVersion reads what the service says it runs; empty when it does not
 // say.
-func (s *Service) accountVersion(ctx context.Context, d Definition, address, access string) string {
+func (s *Service) accountVersion(ctx context.Context, d Definition, address string, route connproxy.Route,
+	access string,
+) string {
 	if d.VersionPath == "" {
 		return ""
 	}
@@ -250,7 +324,7 @@ func (s *Service) accountVersion(ctx context.Context, d Definition, address, acc
 
 	req.Header.Set("Authorization", "Bearer "+access)
 
-	status, _, answer, err := s.accountDo(req)
+	status, _, answer, err := s.accountDo(req, route)
 	if err != nil || status != http.StatusOK {
 		return ""
 	}
@@ -292,7 +366,14 @@ func (s *Service) signInAgain(ctx context.Context, d Definition, conn orchestrat
 		return accountSession{}, vaultError(err)
 	}
 
-	session, err := s.signInAccount(ctx, d, conn.Address, conn.Account, opened.Payload[vault.KeyValue])
+	session, err := s.signInAccount(ctx, d, conn.Address, routeOf(conn), conn.Account, opened.Payload[vault.KeyValue])
+	if errors.Is(err, orchestration.ErrUnavailable) {
+		// The service, or the proxy to it (issue #850), could not be reached: the password was not refused.
+		s.dropAccount(d.ID, conn.Label)
+
+		return accountSession{}, err
+	}
+
 	if err != nil {
 		s.dropAccount(d.ID, conn.Label)
 		// What could not be recorded is not worth failing the answer for: the sign-in itself is what failed.
@@ -382,7 +463,7 @@ func (s *Service) Call(ctx context.Context, integration, label string, r Account
 		if !refreshed {
 			refreshed = true
 
-			if session, err = s.refreshAccount(ctx, d, conn.Address, used); err == nil {
+			if session, err = s.refreshAccount(ctx, d, conn.Address, routeOf(conn), used); err == nil {
 				continue
 			}
 		}
@@ -477,7 +558,7 @@ func (s *Service) csrf(ctx context.Context, d Definition, conn orchestration.Con
 
 	req.Header.Set("Authorization", "Bearer "+session.access)
 
-	status, header, body, err := s.accountDo(req)
+	status, header, body, err := s.accountDo(req, routeOf(conn))
 	if err != nil {
 		return AccountAnswer{}, false, err
 	}
@@ -531,7 +612,7 @@ func (s *Service) sendOnce(
 		}
 	}
 
-	status, header, body, err := s.accountDo(req)
+	status, header, body, err := s.accountDo(req, routeOf(conn))
 	if err != nil {
 		return AccountAnswer{}, err
 	}
@@ -541,16 +622,32 @@ func (s *Service) sendOnce(
 
 // accountDo sends a request to a Connection's address. Its errors hold the
 // host and the cause only, never the request or the answer.
-func (s *Service) accountDo(req *http.Request) (int, http.Header, []byte, error) {
+func (s *Service) accountDo(req *http.Request, route connproxy.Route) (int, http.Header, []byte, error) {
 	if req.Header.Get("Accept") == "" {
 		req.Header.Set("Accept", "application/json")
 	}
 
-	resp, err := s.accountClient.Do(req)
+	client, err := s.accountClient(route)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		var urlErr *url.Error
 		if errors.As(err, &urlErr) {
 			err = urlErr.Err // net/http would repeat the address.
+		}
+
+		if route.Proxy != "" {
+			// Through a proxy, the service may be up and the way to it down (issue #850): both are named.
+			return 0, nil, nil, fmt.Errorf("%w: %w", orchestration.ErrUnavailable,
+				connproxy.Unreachable(req.URL.Host, route.Proxy, err))
+		}
+
+		if route.Dial != "" {
+			return 0, nil, nil, fmt.Errorf("%w: calling %s at %s: %w", orchestration.ErrUnavailable, req.URL.Host,
+				route.Dial, err)
 		}
 
 		return 0, nil, nil, fmt.Errorf("%w: calling %s: %w", orchestration.ErrUnavailable, req.URL.Host, err)

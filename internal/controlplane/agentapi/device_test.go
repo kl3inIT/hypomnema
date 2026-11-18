@@ -98,6 +98,19 @@ func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
 	assert.Contains(t, logs, "duration_ms=", "how long the call took")
 	assert.NotContains(t, logs, "bí mật")
 
+	// The phone's location and the agent's takes are listed and called as the other tools (issue #851).
+	assert.True(t, listed(tools, devicetool.Location) && listed(tools, devicetool.VideoList))
+
+	status, _ = w.useDevice(key, devicetool.Location, `{"latitude":21.0285,"longitude":105.8542}`)
+	require.Equal(t, http.StatusOK, status)
+
+	status, _ = w.useDevice(key, devicetool.VideoList, `{}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []string{
+		`d-dsp_1 device_location {"latitude":21.0285,"longitude":105.8542}`, `d-dsp_1 video_list {}`,
+	}, p.calls[1:])
+	p.calls = p.calls[:1]
+
 	status, _ = w.call(http.MethodGet, agenttool.PathDeviceTools, "", nil)
 	assert.Equal(t, http.StatusUnauthorized, status)
 
@@ -139,6 +152,30 @@ func TestABotsPiUsesThePhoneAsItsChat(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, []string{`b-` + chat.ID + ` device_tap {"target":"#3"}`}, p.calls)
 	assert.Contains(t, w.logs.String(), "bot "+orchestration.DefaultBotID+" in chat "+chat.ID)
+
+	// The phone's location and the Bot's takes too (issue #851).
+	assert.True(t, listed(tools, devicetool.Location) && listed(tools, devicetool.VideoList))
+
+	status, _ = w.useDevice(pi, devicetool.Location, `{"latitude":21.0285,"longitude":105.8542}`)
+	require.Equal(t, http.StatusOK, status)
+
+	status, _ = w.useDevice(pi, devicetool.VideoList, `{"state":"recording"}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []string{
+		`b-` + chat.ID + ` device_location {"latitude":21.0285,"longitude":105.8542}`,
+		`b-` + chat.ID + ` video_list {"state":"recording"}`,
+	}, p.calls[1:])
+}
+
+// listed says whether a tool is in a list.
+func listed(tools agenttool.BrowserToolList, name string) bool {
+	for _, tool := range tools.Data {
+		if tool.Name == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // An agent is told what it did wrong and why the phone cannot be used now;

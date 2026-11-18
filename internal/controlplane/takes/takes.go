@@ -140,9 +140,11 @@ func (s *Store) Update(said devicetool.Take) (devicetool.Take, error) {
 	return t, write(s.folder(t.ID), t)
 }
 
-// merge is a take with what the node said of it.
+// merge is a take with what the node said of it. A take that ended is never
+// running again: an answer of the node sent before the end and kept after it
+// does not undo it (issue #851).
 func merge(t, said devicetool.Take) devicetool.Take {
-	if said.State != "" {
+	if said.State != "" && (t.Running() || !said.Running()) {
 		t.State = said.State
 	}
 

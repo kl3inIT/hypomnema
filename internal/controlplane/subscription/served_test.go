@@ -1,6 +1,7 @@
 package subscription_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -94,14 +95,12 @@ func TestAModelGoesOnlyToTheAccountsServedIt(t *testing.T) {
 	both := accountsFor(t, w, "gemini-4-hydrogen-sonar", 2)
 	assert.ElementsMatch(t, []string{pro.ID, ultra.ID}, both, "in turn, as without a model")
 
-	assert.ElementsMatch(t, []string{pro.ID, ultra.ID}, accountsFor(t, w, "", 2), "no model: every account")
+	_, err := w.subs.TokenFor(t.Context(), "antigravity", "", "")
+	require.ErrorIs(t, err, subscription.ErrNoModel, "a request names its model")
 
 	// The Ultra account tried and refused: no other account is served Carbon.
-	_, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "", ultra.ID)
+	_, err = w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "", ultra.ID)
 	require.ErrorIs(t, err, subscription.ErrNoAccount)
-
-	// A model no account's list has, such as one a profile keeps (issue #639), is tried under every account.
-	assert.ElementsMatch(t, []string{pro.ID, ultra.ID}, accountsFor(t, w, "gemini-4-argon-high", 2))
 }
 
 // Scenario: the Pro account's list cannot be read. The Ultra account's models are still listed and served, and the
@@ -269,22 +268,104 @@ func TestAListNotKnownYetNeverLiftsTheFilter(t *testing.T) {
 	release()
 }
 
-// Scenario (issue #814): every account's list is known and none has the model, such as one a profile keeps (issue
-// #639). Every account serves it, as before; while one account's list is not known, none does yet.
-func TestAModelNoKnownListHasGoesToEveryAccount(t *testing.T) {
+// Scenario (issue #814): no account's list has the model, such as one a profile keeps (issue #639). While the Pro
+// account's list cannot be read, the request is told to try again; once every list is known, it is told no account
+// is served the model. No account is ever picked for it (owner, 2026-11-18).
+func TestAModelNoListHasIsNotServed(t *testing.T) {
 	t.Parallel()
 
 	w := newAntigravityWorld(t, ideSecret)
 	w.google.set(func(g *google) { g.rosterFails["pro"] = true })
-	pro, ultra := twoAccounts(t, w)
+	twoAccounts(t, w)
 
-	_, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-argon-high", "")
+	token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-argon-high", "")
 
 	var cooling *subscription.CoolingError
 	require.ErrorAs(t, err, &cooling, "the Pro account's list could not be read")
+	assert.Empty(t, token.AccountID)
 
 	w.google.set(func(g *google) { g.rosterFails["pro"] = false })
 	w.clock.advance(5 * time.Minute) // past the retry
 
-	assert.ElementsMatch(t, []string{pro.ID, ultra.ID}, accountsFor(t, w, "gemini-4-argon-high", 2))
+	token, err = w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-argon-high", "")
+	require.ErrorIs(t, err, subscription.ErrModelNotServed)
+	assert.Empty(t, token.AccountID)
+}
+
+// Scenario (review of #832, round 3): the Ultra account's first list is still being read past the wait, and it ends
+// between two steps of a request's pick: after the accounts were read and before what is known of their lists. The
+// Pro account, whose list is known not to have Carbon, is not picked: the pick sees the accounts and their lists at
+// one moment.
+func TestAListReadDuringAPickIsSeenWhole(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	w.subs.WaitForListsAtMost(50 * time.Millisecond)
+	pro, ultra := twoAccounts(t, w)
+	w.subs.NoteQuota(ultra.ID, 0.05)
+
+	hold, arrived := make(chan struct{}), make(chan string, 4)
+	release := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	w.google.set(func(g *google) { g.holds["ultra"], g.arrived = hold, arrived })
+
+	go func() { _, _ = w.subs.ServedNames(t.Context(), "antigravity") }()
+
+	select {
+	case <-arrived:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the Ultra account's list was never asked for")
+	}
+
+	w.subs.BetweenAccountsAndLists(func() {
+		release()
+
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+			if _, ok := w.subs.ServedNames(context.Background(), "antigravity"); ok {
+				return
+			}
+		}
+
+		t.Error("the Ultra account's list was never read")
+	})
+
+	token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+	require.NoError(t, err)
+	assert.NotEqual(t, pro.ID, token.AccountID)
+	assert.Equal(t, ultra.ID, token.AccountID)
+}
+
+// Scenario (issue #814): when an account's first list is read, the gateway is told at once, so that its models are
+// brought up to date then rather than at the next hourly reading; a list read again is not told.
+func TestAFirstListIsToldAtOnce(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	twoAccounts(t, w)
+
+	told := make(chan string, 4)
+	w.subs.OnFirstList(func(runtime string) { told <- runtime })
+
+	_, ok := w.subs.ServedNames(t.Context(), "antigravity")
+	require.True(t, ok)
+
+	for range 2 {
+		select {
+		case runtime := <-told:
+			assert.Equal(t, "antigravity", runtime)
+		case <-time.After(10 * time.Second):
+			t.Fatal("a first list was not told")
+		}
+	}
+
+	w.clock.advance(time.Hour)
+
+	_, ok = w.subs.ServedNames(t.Context(), "antigravity")
+	require.True(t, ok)
+
+	select {
+	case runtime := <-told:
+		t.Fatalf("a list read again was told: %s", runtime)
+	case <-time.After(100 * time.Millisecond):
+	}
 }

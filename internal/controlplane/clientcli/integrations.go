@@ -318,7 +318,7 @@ func integrationsChats(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return errors.New("say on or off")
 	}
 
-	resp, err := e.api.PatchIntegrationConnectionWithResponse(ctx, id, label, openapi.ConnectionUse{Chats: allowed})
+	resp, err := e.api.PatchIntegrationConnectionWithResponse(ctx, id, label, openapi.ConnectionUse{Chats: &allowed})
 	if err != nil {
 		return fmt.Errorf("changing %s:%s: %w", id, label, err)
 	}
@@ -332,6 +332,68 @@ func integrationsChats(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			e.printf("the coordinator may use %s:%s in chats\n", id, label)
 		} else {
 			e.printf("the coordinator may not use %s:%s\n", id, label)
+		}
+	})
+}
+
+// integrationsProxy sets the proxy an account's requests to its service go through (issue #850), or clears it.
+func integrationsProxy(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id, label, ok := strings.Cut(fs.Arg(0), ":")
+	if !ok || label == "" {
+		return errors.New("name the account as <integration>:<label>, such as superset:prod")
+	}
+
+	proxy := fs.Arg(1)
+	if proxy == "off" {
+		proxy = ""
+	}
+
+	resp, err := e.api.PatchIntegrationConnectionWithResponse(ctx, id, label, openapi.ConnectionUse{Proxy: &proxy})
+	if err != nil {
+		return fmt.Errorf("changing %s:%s: %w", id, label, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("changing "+id+":"+label, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		if p := val(resp.JSON200.Proxy); p != "" {
+			e.printf("%s:%s reaches its service through %s\n", id, label, p)
+		} else {
+			e.printf("%s:%s reaches its service direct\n", id, label)
+		}
+	})
+}
+
+// integrationsDialAddress sets where an account's requests are dialed instead of their host's (issue #850), as
+// curl's --resolve, or clears it.
+func integrationsDialAddress(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id, label, ok := strings.Cut(fs.Arg(0), ":")
+	if !ok || label == "" {
+		return errors.New("name the account as <integration>:<label>, such as superset:prod")
+	}
+
+	dial := fs.Arg(1)
+	if dial == "off" {
+		dial = ""
+	}
+
+	resp, err := e.api.PatchIntegrationConnectionWithResponse(ctx, id, label,
+		openapi.ConnectionUse{DialAddress: &dial})
+	if err != nil {
+		return fmt.Errorf("changing %s:%s: %w", id, label, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("changing "+id+":"+label, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		if d := val(resp.JSON200.DialAddress); d != "" {
+			e.printf("%s:%s dials its service at %s; clear it once its name resolves\n", id, label, d)
+		} else {
+			e.printf("%s:%s dials its service by its name\n", id, label)
 		}
 	})
 }

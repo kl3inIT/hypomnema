@@ -3,6 +3,7 @@ package modelgateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -97,9 +98,13 @@ func newAccountState() *accountState {
 // the client gets when none serves. usedLast, when given, says an account is
 // to be tried only after the others.
 func (s *Server) underAccounts(
-	ctx context.Context, runtime, model, session string, usedLast func(AccountToken) bool,
+	ctx context.Context, runtime string, model forModel, session string, usedLast func(AccountToken) bool,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
+	if namesModels[runtime] && model.name == "" {
+		return nil, fmt.Errorf("%w: %s", ErrNoModel, runtime)
+	}
+
 	var (
 		tried    []string
 		spared   []AccountToken
@@ -156,6 +161,11 @@ func (s *Server) underAccounts(
 	}
 
 	// No account was tried at all.
+	if errors.Is(stopping, ErrModelNotServed) {
+		return openAIError(http.StatusNotFound, typeInvalidRequest, "model_not_served",
+			fmt.Sprintf("model %q is not served by any %s account", model.name, runtime), 0), nil
+	}
+
 	var cooling *CoolingError
 	if errors.As(stopping, &cooling) {
 		if now := s.svc.clock.Now(); runtime == codexRuntime && cooling.Until.Sub(now) > codexWaitsUpTo {
@@ -173,9 +183,11 @@ func (s *Server) underAccounts(
 
 // token is a token of an account of a runtime, of one whose vendor lists
 // model when the accounts can say (ModelTokens) and a model is given.
-func (s *Server) token(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error) {
-	if byModel, ok := s.accounts.(ModelTokens); ok && model != "" {
-		return byModel.TokenFor(ctx, runtime, model, session, skip...)
+func (s *Server) token(
+	ctx context.Context, runtime string, model forModel, session string, skip ...string,
+) (AccountToken, error) {
+	if byModel, ok := s.accounts.(ModelTokens); ok && model.listed {
+		return byModel.TokenFor(ctx, runtime, model.name, session, skip...)
 	}
 
 	return s.accounts.Token(ctx, runtime, session, skip...)

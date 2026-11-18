@@ -1472,6 +1472,14 @@ export type IntegrationConnection = {
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
+  /**
+   * The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a service in a private network, reached through a local proxy. Absent when they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name that does not resolve; absent dials the host.
+   */
+  dial_address?: string;
   session?: DeviceSession;
   /**
    * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
@@ -1593,6 +1601,14 @@ export type NewAccountConnection = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   /**
    * The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
@@ -1837,8 +1853,19 @@ export type ApprovalDecision = {
   decision: 'approve' | 'approve_session' | 'approve_routine' | 'reject';
 };
 
+/**
+ * What changes; what is absent stays.
+ */
 export type ConnectionUse = {
-  chats: boolean;
+  chats?: boolean;
+  /**
+   * The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
+   */
+  dial_address?: string;
 };
 
 export type NewIntegrationClient = {
@@ -2213,7 +2240,7 @@ export type GatewayUsageGroup = {
    */
   name: string;
   /**
-   * An account's runtime (claude, codex, antigravity).
+   * An account's runtime (claude, codex, antigravity, opencode_go).
    */
   runtime?: string;
   counts: GatewayUsageCounts;
@@ -2316,9 +2343,9 @@ export type GatewayRequestList = {
 
 export type NewTokenAccount = {
   /**
-   * The kind of subscription; only Claude gives a token to paste.
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
    */
-  runtime: 'claude';
+  runtime: 'claude' | 'opencode_go';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
@@ -2396,6 +2423,33 @@ export type AccountLimitReset = {
    * The caller's id of this use; the same id again uses no second reset.
    */
   request_id: string;
+  /**
+   * The reset to use, by the id `grants` gives. Without it, one that starts a used-up window again is chosen.
+   */
+  grant_id?: string;
+};
+
+export type AccountLimitResetGrant = {
+  /**
+   * The vendor's id of the grant, which a use names.
+   */
+  id: string;
+  /**
+   * The vendor's name for the grant, when it gives one.
+   */
+  label?: string;
+  /**
+   * How many resets the grant has left.
+   */
+  available: number;
+  /**
+   * When the grant ends, when the vendor says.
+   */
+  expires_at?: string;
+  /**
+   * The windows, by the names `windows` uses, that a use starts again, such as "5 hours" and "week" for an ordinary reset or "week (Fable)" for Fable's; empty when the vendor does not say, and then it may start any.
+   */
+  clears: Array<string>;
 };
 
 export type AccountLimitResets = {
@@ -2407,6 +2461,10 @@ export type AccountLimitResets = {
    * When the one used next ends, when the vendor says.
    */
   expires_at?: string;
+  /**
+   * The usable resets one by one, as the vendor groups them.
+   */
+  grants: Array<AccountLimitResetGrant>;
 };
 
 export type AccountLimits = {
@@ -2457,9 +2515,9 @@ export type GatewayModelAttributes = {
 };
 
 /**
- * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+ * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
  */
-export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'unknown';
+export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'opencode_go' | 'unknown';
 
 export type GatewayModelInputKind = 'text' | 'image';
 
@@ -3186,7 +3244,7 @@ export type ProfileList = {
 
 export type Provider = {
   name: string;
-  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'model_gateway';
+  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'opencode_go' | 'model_gateway';
   base_url?: string;
   /**
    * Where the API key is kept, by name; never the key.
@@ -4166,6 +4224,14 @@ export type NewAccountConnectionWritable = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   password?: string;
   /**
@@ -4187,15 +4253,15 @@ export type NewIntegrationClientWritable = {
 
 export type NewTokenAccountWritable = {
   /**
-   * The kind of subscription; only Claude gives a token to paste.
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
    */
-  runtime: 'claude';
+  runtime: 'claude' | 'opencode_go';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
   label: string;
   /**
-   * The token `claude setup-token` prints, one line.
+   * The token `claude setup-token` prints, or the OpenCode Go key, one line.
    */
   token: string;
 };

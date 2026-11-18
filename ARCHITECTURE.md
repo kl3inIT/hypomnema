@@ -362,9 +362,12 @@ sequenceDiagram
     failed, and a due destroy is tried again. Nothing is created or destroyed without the owner asking.
   - Stop and start (`machines stop|start <node>`, `POST /nodes/{node_id}/stop` and `/start`, owner only): a
     machine that is ready and on is turned off at the provider and keeps its disk, as Coder's AWS template stops
-    an instance instead of destroying it. Its node is drained first, and a node that runs a Dispatch is refused.
-    The machine's power is `stopping`, then `stopped`; a start makes the node active again and the power
-    `starting` until the node says hello. A stop or a start the provider did not carry out is asked again every
+    an instance instead of destroying it. A node that runs a Dispatch is refused. The machine's power is
+    `stopping`, then `stopped`; a start makes it `starting` until the node says hello, and a node takes no work
+    while its machine's power is set. A stop and a start leave the node's status, the owner's drain, as it was: a
+    node the owner drained comes back drained, and only `nodes resume` makes it active, as Nomad's
+    `upsertNodeTxn` retains a node's scheduling eligibility and a Kubernetes cordon (`spec.unschedulable`) outlasts
+    a node's restart (issue #844). A stop or a start the provider did not carry out is asked again every
     pass, with the reason recorded. One power step runs for a machine at a time: a stop or start asked (by the
     owner or the phone) waits for the one in flight, and the pass leaves a machine whose step is in flight to the
     next pass and reads each other machine again before acting on it, as client-go's workqueue hands a key to one
@@ -697,7 +700,11 @@ sequenceDiagram
     `adb shell input keyevent` with back 4, home 3, recents 187 and enter 66, as Orca and OpenMausBot press keys,
     since Android CLI's `input key` took 1.3 to 3.5 s a press (issue #584); `device_launch` is `adb shell monkey -p <package> -c
     android.intent.category.LAUNCHER 1` (Orca, OpenMausBot); `device_logcat` is `adb logcat -d -v threadtime -t
-    N [*:<level>]` (Orca), with only the last lines holding a text when one is given. Android CLI runs with
+    N [*:<level>]` (Orca), with only the last lines holding a text when one is given; `device_location
+    {latitude, longitude, altitude?}` sets the emulator's GPS as Appium sets an emulator's (notice in
+    `third_party/appium-settings`; issue #851): each value rounded up to 5 decimals, latitude -90..90 and
+    longitude -180..180 or refused, then `adb emu geo fix <lon> <lat> [<alt>]` sent twice, the second time with `,`
+    for `.` (an emulator bug's workaround). Android CLI runs with
     `--no-metrics` and `--sdk` and `ANDROID_SDK_ROOT` set to the phone's SDK, against the adb server the phone
     started; a failure it prints as `Error:` with exit 0 is a failure.
   - The control plane passes a call on the socket of the node that holds the phone (`device_call`, with the
@@ -721,7 +728,8 @@ sequenceDiagram
     `failed`, with no agent's call running and no view open. The 30 minutes count from the first look that finds
     all of that; a call or a view, its start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
-    `phone.machine_stopped`. The next call or view starts the machine again (above).
+    `phone.machine_stopped`. The next call or view starts the machine again (above); a node the owner
+    drained stays drained through both.
   - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
     the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
     gives the rules that matter most: look before acting, act by box number, never sign in or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
@@ -770,7 +778,9 @@ sequenceDiagram
   - Filming (issue #817, step 1 of 3 of agent-made demo videos; [research](docs/research/2026-11-18-agent-recorded-phone-demo-video.md)).
     An agent films the phone as a **take** (see the glossary) with `video_start {title, request_id}`, `video_say
     {take, text, tap?, chapter?}` right before each action, `video_stop {take}` and `video_status {take}`
-    (`internal/shared/devicetool/video.go`, after autodemo's camera tools). They are listed, routed and switched
+    (`internal/shared/devicetool/video.go`, after autodemo's camera tools), and `video_list {state?}`, which the
+    control plane answers alone: the calling agent's own takes (id, title, state, ended_by, start, length), the
+    newest 20, as the owner's `GET /takes` restricted to the agent, never another's and never a file (issue #851). They are listed, routed and switched
     with the phone's tools: a worker's tools server and a Bot's `hypomnema mcp` pass every `device_*` and `video_*`
     name to the phone's routes (`devicetool.Routed`), and the phone family's switch `device_*` names them too
     (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and `video_end` are never
@@ -780,6 +790,9 @@ sequenceDiagram
     While it lives another agent's phone calls are answered "The phone is filming for …" and reach no node;
     `video_say` and `video_stop` name the take, and one naming another is refused or, for a stop, answered with
     that take's state. A start retried with its request id answers the same take; a stop twice the same state.
+    A take whose lease ends is recorded `finalizing` with its end at once, before the node answers, and the store
+    never makes an ended take `recording` or `paused` again (a node's answer sent before the stop and kept after
+    it), so `video_status` after a stop is never `recording` (issue #851).
     The phone's sweep (every few seconds) ends the take as `work_end` once the Dispatch is settled or its worker
     exited without a report, or the Bot's turn mark changed (it settled, was cut, or another turn began), as
     `phone_end` once the node says its phone is not running; a node that went offline is told at its next hello.
@@ -862,8 +875,9 @@ sequenceDiagram
     and a Routine's script with `hypomnema artifact show --title T (--html-file F | --path P) [--id A]`. The file or
     folder is read where the agent works, by the same rules (`artifactpack.Read`, shared since issue #536 so that a
     node's tools server reads by them too): the Bot's directory, a worker's worktree, and must be inside it. A
-    folder has `index.html` at its top; its hidden files, `node_modules` and `__pycache__`, files a page does not
-    load (OpenMausBot's `PAGE_FILE_TYPES`), badly named ones and links out of it are left out and named in the
+    folder has `index.html` at its top. Along with files the page loads (OpenMausBot's `PAGE_FILE_TYPES`), it can
+    carry download-only `.xlsx`, `.docx`, `.pptx` and `.pdf` files (issue #860). Hidden files, `node_modules`,
+    `__pycache__`, unsupported or badly named files and links out of the folder are left out and named in the
     answer. One HTML file is at most 256 KB, all files 5 MB and 200, a title one line of 80 characters. The files
     go as a tar in the body of `POST /artifacts?title=&id=`, the second body allowed over 1 MB
     (`artifactpack.MaxBody`). The type is found from the bytes and the name: `html` (an .html file that is
@@ -904,8 +918,9 @@ sequenceDiagram
     a random token kept in memory for an hour after its last use (Onyx's preview token lasts an hour; at most
     5000), serving only that revision's files by exact path, read only, with OpenMausBot's headers
     (`Content-Security-Policy: sandbox allow-scripts; default-src 'none'`, `nosniff`, `Access-Control-Allow-Origin:
-    *`, `no-referrer`, `no-store`). An HTML file is sent with the page's own policy in that header instead
-    (`pagePolicy`, issue #737, as Onyx's static preview sends one): `sandbox allow-scripts allow-forms`, the frame's
+    *`, `no-referrer`, `no-store`). Download-only folder files also carry `Content-Disposition: attachment` with
+    their filename. An HTML file is sent with the page's own policy in that header instead
+    (`pagePolicy`, issue #737, as Onyx's static preview sends one): `sandbox allow-scripts allow-forms allow-downloads` (issue #843), the frame's
     flags; OpenMausBot's directives (scripts, styles and fonts inline or from cdnjs, jsdelivr and unpkg, Google
     Fonts; images from `data:`, `blob:` and those CDNs; connections to them and DuckDB's extensions; no frame,
     object, form target or base); its own files by the token's address under the request's host, by http and
@@ -2151,6 +2166,23 @@ flowchart LR
     - **On the web** the Integrations page has a Superset card: add an account (name, address, user name,
       password), see its user name, address, version and whether the last sign-in worked, what agents may do
       with it, "Use in chats", connect again, disconnect.
+  - A Connection may name a proxy ([issue #850](https://github.com/kl3inIT/hypomnema/issues/850),
+    `internal/controlplane/connproxy`; [setup](deploy/integrations/private-network.md)): `socks5://`, `socks5h://`,
+    `http://` or `https://` with a host and a port, no user or path (`connproxy.Parse`), in the `proxy` column of
+    `connections`, as Metabase's database details carry their own tunnel. Its requests, the sign-in of an account
+    Connection included, go through it (a transport per proxy, kept); every other Connection goes direct. When the
+    proxy cannot reach the service, the request fails with "cannot reach <host> through <proxy>", and an account
+    Connection is not marked as needing a new sign-in. Set with `PATCH .../connections/{label}` (`proxy`, owner
+    only), `hypomnema integrations proxy <integration>:<label> <proxy>|off`, `integrations connect superset
+    --proxy`, and the account's "Proxy" dialog on the Integrations page, which shows "Through <proxy>".
+    - A dial address (`dial_address`, `connproxy.ParseDial`: a host or an IP, with a port or not) is where a
+      Connection's requests are dialed instead of their host's, as curl's `--resolve`: the connection, and a
+      proxy's CONNECT or SOCKS5 target, is that address, while the Host header and the TLS server name stay the
+      host's, so the certificate is still checked against the real name. A temporary way round a name that does
+      not resolve where the control plane runs, cleared once it does; no reference BI tool has it (Metabase and
+      Grafana tunnel to a host they resolve). Set the same ways (`dial_address`, `integrations dial-address
+      <integration>:<label> <host[:port]>|off`, `integrations connect superset --dial-address`, "Connect to
+      (temporary)" in the Proxy dialog, shown as "Dialed at <address> (temporary)").
   - AWS is an Integration of kind `role` ([issue #331](https://github.com/kl3inIT/hypomnema/issues/331),
     `internal/controlplane/integration/aws.go`; [setup](deploy/integrations/aws.md)): the owner's AWS accounts,
     one role a Connection, as the AWS CLI has a profile with the key and a profile a role.
@@ -2752,6 +2784,14 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   answer and the profile name none). Anthropic's terms forbid routing a subscription through other software; the
   owner chose to build it for his own subscription and agents knowing that. The gateway's Claude provider runs under
   such an account (below).
+- OpenCode Go (issue #854, [research](docs/research/2026-11-18-opencode-go-provider.md)): no login. Each Console
+  API key is an account of runtime `opencode_go`, added with `accounts add opencode_go <label> --token -` or the
+  Models page's "Add account" (its key pasted), sealed in the vault as a Claude token is; nothing refreshes it.
+  `accounts models` reads `GET opencode.ai/inference/go/v1/models` and `accounts limits` reads
+  `GET opencode.ai/zen/go/v1/usage`: the 5 hours (`rolling`), the week and the month, each a percent and its reset,
+  a window Go calls `rate-limited` shown used up (omp `opencode-go.ts`). A 403 there is a key whose workspace has no
+  Go subscription: the account's plan is set to "no Go subscription" (opencode `usage-limits.ts`); an answer clears
+  it. The gateway's OpenCode Go provider runs under these accounts (below).
 - A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
   ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
   the tier as the plan and the project) and the same email, case aside. The email is asked too since issue #326:
@@ -2808,13 +2848,13 @@ flowchart LR
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
-OpenAI-compatible providers the owner declares and from three built-in providers, the owner's Codex, Antigravity and
-Claude subscriptions, searches the web and reads pages, and makes images (below). Other provider formats and other
+OpenAI-compatible providers the owner declares and from four built-in providers, the owner's Codex, Antigravity and
+Claude subscriptions and OpenCode Go, searches the web and reads pages, and makes images (below). Other provider formats and other
 capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
   kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`,
-  `claude_subscription`) and
+  `claude_subscription`, `opencode_go`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
 - The gateway serves every model of every subscription under `<provider>/<model>`, such as
@@ -2826,11 +2866,14 @@ capabilities do not exist yet.
   the last one; a caller waits up to 30 s for an account's first reading another has started), and takes the union
   of their lists in the accounts' order (issue [#814](https://github.com/kl3inIT/hypomnema/issues/814), as omp's
   `unionAccountCatalogs` and CLIProxyAPI's per-auth registry do for both; an account whose list cannot be read hides
-  no other's), and for Claude with its first active account that answers (neither reads Anthropic's list per
-  account),
+  no other's; when an account's first list is read, the providers are updated then, not at the next hour), and for
+  Claude with its first active account that answers (neither reads Anthropic's list per account),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
-  (`GET api.anthropic.com/v1/models` with the OAuth token) and Antigravity (`fetchAvailableModels`, without internal
-  or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`). Codex's and Claude's providers
+  (`GET api.anthropic.com/v1/models` with the OAuth token), Antigravity (`fetchAvailableModels`, without internal
+  or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`) and OpenCode Go
+  (`GET opencode.ai/inference/go/v1/models`, its chat models on a wire the gateway calls, each with its wire, window
+  and largest output; issue #854). OpenCode Go's provider is set to that list as Antigravity's is (OpenClaw, Hermes
+  and pi read Go's live list). Codex's and Claude's providers
   gain the names they lack and lose none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
   OpenClaw and Hermes read them); Antigravity's is set to the roster, as omp takes it as authoritative, except a
   model a profile's current version uses (issue [#639](https://github.com/kl3inIT/hypomnema/issues/639)). A
@@ -2913,7 +2956,9 @@ capabilities do not exist yet.
     (`defaultTools`). Everything else is pi's default.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
-  format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:
+  format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets, and its
+  `opencode_go` targets whose model Go serves on Responses (issue #854; the body as the client sent it, the model's
+  name at Go and `stream` on, under the Go keys as the chat route sends it below):
   - The client's body is passed on, not translated (`modelgateway/codex`, `PassThrough`): the model's name at the
     backend, `stream` on and `store` off, a string input as a user message, references to stored items and their ids
     taken out, `service_tier` `fast` as `priority`, the lite shape for the models that take it, the client's session
@@ -2923,12 +2968,14 @@ capabilities do not exist yet.
     limit and the next account are the chat route's.
   - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
     keeps its status and body.
-  - Not served: a model with no Codex target (400 `model_not_served_here`), an answer that is not a stream (400),
+  - Not served: a model with no such target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
   Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
-  model's targets in order, the next on 429 or 5xx. A `claude_subscription` target is passed the request:
+  model's targets in order, the next on 429 or 5xx. An `opencode_go` target whose model Go serves on Messages is
+  passed the body as sent but for the model's name, under the Go keys (issue #854), and its answer comes back as
+  Anthropic's does below. A `claude_subscription` target is passed the request:
   - The body is passed on as sent but for the model's name (`modelgateway/claude`, `PassThrough`). A client that is
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
@@ -3078,15 +3125,20 @@ capabilities do not exist yet.
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
     401, 402 or 403; 30 seconds after another 5xx.
-  - A request for an Antigravity or Codex model (chat, and Antigravity's images) goes only to the accounts whose
-    list (read as the gateway's models are) has it, when one has it; every rule here then orders those, and an
-    account is judged as it is after its list was read (issue
-    [#814](https://github.com/kl3inIT/hypomnema/issues/814), CLIProxyAPI's `authSupportsRouteModel`, omp's
-    `accountIds`). A list not known yet never lifts that (owner, 2026-11-18): while no account is known to have
-    the model and one's list is still unknown (its first reading in flight past the 30 s wait, or failed), the
-    request gets a 429 to try again in 30 s, and the gateway's list is not changed while a first reading is in
-    flight. A model no account's list has, once every list is known, such as one a profile keeps or a Codex model
-    its picker hides, goes to every account as before. Claude's requests are not narrowed: its list is the first account's.
+  - A request for an Antigravity or Codex model (chat on `/chat/completions`, `/responses` and `/messages`, and
+    Antigravity's images) goes only to the accounts whose own list (read as the gateway's models are) has it, as
+    CLIProxyAPI routes a model only to the auths that registered it (`sdk/cliproxy/auth/conductor_selection.go`
+    `authSupportsRouteModel`, :1419-1431, applied at :1687; issue
+    [#814](https://github.com/kl3inIT/hypomnema/issues/814), owner's design of 2026-11-18). Every rule here then
+    orders those. An account whose first list is being read is waited for, at most 30 s; while no account is known to
+    have the model and one's list is not known (still being read, or never read), the request gets a 429 to try
+    again in 30 s, never another account in its place; once every list is known and none has the model, it gets a
+    404 `model_not_served`. The accounts and what is known of their lists are taken at one moment, after the lists
+    were read, so an account is judged as it is then. Every request for a Codex or Antigravity account names its
+    model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
+    and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,
+    as before (owner, 2026-11-18). Claude's requests are not narrowed: its list does not name every model it serves,
+    and it is the first account's.
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
@@ -3108,6 +3160,8 @@ capabilities do not exist yet.
     windows (`anthropic-ratelimit-unified-*-utilization`) or of Codex's primary and secondary windows
     (`x-codex-*-used-percent`), as omp reads them. The reading is in memory and trusted for 30 minutes; an account
     with none is used.
+  - OpenCode Go's keys are ranked the same way from the 5 hours and the week of their limits call (below), as omp
+    ranks a pool of Go keys (`opencode-go.ts` `opencodeGoRankingStrategy`); the month is shown only.
   - Since issue #319 the accounts of Claude and Codex are ranked as omp ranks them (`subscription/rank.go`, after
     `rank.ts`, `select.ts` and `usage-report.ts`): from each account's windows, the newer of its last answer's
     headers (Codex's `x-codex-{primary,secondary}-{used-percent,window-minutes,reset-at}` too now) and the limits
@@ -3218,6 +3272,30 @@ capabilities do not exist yet.
     cache read and written as prompt tokens and says each.
   - Not built: uTLS fingerprinting, a signed `cch`, header order and casing forced over the wire, model-specific
     thinking tables, several accounts rotated.
+- `opencode-go` (kind `opencode_go`, issue #854, seeded by migration 00120;
+  [research](docs/research/2026-11-18-opencode-go-provider.md)) serves OpenCode Go, OpenCode's subscription for open
+  models, as `opencode-go/<model>` under the Go keys the owner added as accounts (above). The owner chose no limit on
+  which callers may use it (owner, 2026-11-18).
+  - Each model is called at `opencode.ai/inference/go` on the wire Go's model list names for it
+    (`modelgateway/opencode_go_adapter.go`): OpenAI's chat at `/openai/v1/chat/completions`, OpenAI's Responses at
+    `/openai/v1/responses`, Anthropic's Messages at `/anthropic/v1/messages`; a model whose wire is not known yet is
+    called on chat, the provider's API in models.dev. Gemini models (`generate-content`) are not served.
+  - The chat route passes a chat model the request as `openai_compatible` does. A Messages model is asked with the
+    Claude translation without its disguise and without the gateway's cache breakpoints (`claude.Options.Plain`), a
+    Responses model with the Codex translation without its lite shape (`codex.Options.Plain`); their answers become
+    chat chunks as the subscriptions' do. `/v1/messages` and `/v1/responses` pass their own wire's models the body
+    (above).
+  - Each call carries the key (`Authorization: Bearer`, or `x-api-key` with `anthropic-version: 2023-06-01` on
+    Messages), `User-Agent: hypomnema/<version>` and `x-opencode-session`, a hash of the gateway's session: the
+    client's `prompt_cache_key` or session header, else its gateway key. The session also picks the key, as for
+    every built-in provider.
+  - A 429 whose body says "Monthly usage limit reached" with "Resets in N days|hours|minutes|seconds", or any
+    refusal naming `GoUsageLimitError`, rests that key until the reset Go named, with no cap (an hour when it named
+    none), and the request moves to the next key at once (omniroute `opencode-monthly-quota-resets-in`, opencode
+    `QUOTA_CODES`). Any other refusal rests the key as every built-in provider's account rests (above).
+  - Not built: OpenCode Zen, the "Extra Usage" balance, Go's prices in the price book (a Go model is unpriced unless
+    its name is Anthropic's, Google's or OpenAI's), a per-model wire for pi's `models.json` (pi speaks chat to a Go
+    model), moving the `ocg/*` models off 9Router on zm (#670).
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
@@ -4630,7 +4708,7 @@ Node (`internal/node`):
     the chat and who made it over the same view, never a `blob:` or `data:` address (Omnigent's
     `codeViewerHelpers.ts`). A page is an iframe loaded by `src` from its frame's address (`useFramePage`, the
     file shown under the token's folder, its other files beside it by their relative paths), with
-    `sandbox="allow-scripts allow-forms"` (`frame.ts`), never `allow-same-origin`, `referrerpolicy="no-referrer"`,
+    `sandbox="allow-scripts allow-forms allow-downloads"` (`frame.ts`; a card's thumbnail without downloads, issue #843), never `allow-same-origin`, `referrerpolicy="no-referrer"`,
     on a white canvas; its policy is the server's header (above), as Onyx's `HtmlFilePreview.tsx` loads its preview.
     It was a `srcdoc` with OpenMausBot's CSP meta until issue #737: a srcdoc document takes the web client's own
     policy on top of its own, which refused its inline and CDN scripts and its base. Any other file opens in the file preview
@@ -4735,12 +4813,18 @@ Node (`internal/node`):
     - Limit resets (decision 17 of the issue, after 9router-go's Codex reset credits, 9router's and T3 Code's
       Claude grants, and Orca's confirmation): `subscription` reads how many an account can use with its limits,
       for Codex from `chatgpt.com/backend-api/wham/rate-limit-reset-credits` and for Claude from the usage call
-      asked with `cedar_ember=1`, so the two are one call there. `UseReset` reads them again, uses the one the
-      vendor names as next (Codex: `…/consume` with the credit and the request's id; Claude:
+      asked with `cedar_ember=1`, so the two are one call there. Each usable grant is kept with its label, its
+      count, its end and the windows it `clears`, by their names here; `seven_day_overage_included` is "week
+      (Fable)", in the usage answer and in `clears` alike (omp `claude-reset.ts`), so an ordinary reset (5 hours,
+      week) and a Fable launch reset are told apart; a Codex credit is a grant of one that names none (issue
+      #841). `UseReset` reads them again and uses the grant asked for by `grant_id`; without one, while a window
+      is used up, a grant that clears it, Anthropic's next when it does, and 409 with nothing spent when none
+      does (omp `claudeResetClearedBlockScopes`); with nothing used up, the vendor's next (Codex: `…/consume` with the credit and the request's id; Claude:
       `/api/organizations/{org}/reset_rate_limits` with the grant, the organization read from the profile), drops
       the kept reading and reads the limits anew. "Already redeemed" is the reset done; no reset, nothing to
       reset and a wait are errors of their own. The page shows "N limit resets left" under an account's bars
-      with a button behind a confirmation; `POST /accounts/{id}/limits/reset` `{request_id}` is the owner's and
+      and each grant on a line of its own (label, count, what it starts again, its end) with a Use button behind
+      a confirmation; `POST /accounts/{id}/limits/reset` `{request_id, grant_id}` is the owner's and
       answers the limits after it, 409 when the vendor refuses. The request's id is the page's, one a dialog,
       so a retry uses no second reset.
     - Signing in and the order (step 2 of the issue): "Add account" on a subscription's card and "Sign in again"

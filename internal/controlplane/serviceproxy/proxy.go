@@ -34,6 +34,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
@@ -138,6 +139,8 @@ type Proxy struct {
 	rechecked map[string]time.Time
 	// repositories are the owner/name of GitHub repositories' ids, by Connection (issue #802).
 	repositories repositoryNames
+	// ways are the transports to the services: Upstream, or one through a Connection's proxy (issue #850).
+	ways *connproxy.Transports
 }
 
 // New returns a Proxy with a certificate authority of its own, made now and
@@ -150,10 +153,7 @@ func New(cfg Config) (*Proxy, error) {
 	}
 
 	if cfg.Upstream == nil {
-		cfg.Upstream = &http.Transport{
-			Proxy: nil, ForceAttemptHTTP2: true, MaxIdleConnsPerHost: 8, IdleConnTimeout: 90 * time.Second,
-			TLSHandshakeTimeout: handshakeTimeout,
-		}
+		cfg.Upstream = connproxy.NewTransport(handshakeTimeout)
 	}
 
 	if cfg.Hold == 0 {
@@ -166,6 +166,9 @@ func New(cfg Config) (*Proxy, error) {
 
 	return &Proxy{
 		cfg: cfg, ca: ca, waiting: map[string][]chan orchestration.Approval{}, rechecked: map[string]time.Time{},
+		ways: &connproxy.Transports{
+			Direct: cfg.Upstream, New: func() *http.Transport { return connproxy.NewTransport(handshakeTimeout) },
+		},
 	}, nil
 }
 
@@ -760,6 +763,19 @@ func (p *Proxy) Decide(ctx context.Context, id string, approve bool, scope orche
 	return decided, nil
 }
 
+// way is the transport a session's requests are sent with: through its Connection's proxy, at its dial address,
+// when it names them (issue #850), the proxy's own Upstream otherwise.
+func (p *Proxy) way(ctx context.Context, s session) (http.RoundTripper, string, error) {
+	conn, err := p.cfg.Store.ConnectionOf(ctx, s.integration, s.label)
+	if err != nil {
+		return nil, "", err
+	}
+
+	way, err := p.ways.For(connproxy.Route{Proxy: conn.Proxy, Dial: conn.DialAddress})
+
+	return way, conn.Proxy, err
+}
+
 // forward sends the request on with the Connection's token and writes the
 // service's answer back.
 func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, body []byte, action Action, s session,
@@ -816,8 +832,17 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 		upstream.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := p.cfg.Upstream.RoundTrip(upstream)
+	way, proxy, err := p.way(ctx, s)
 	if err != nil {
+		return p.reply(out, http.StatusBadGateway, "the request could not be sent on: "+err.Error())
+	}
+
+	resp, err := way.RoundTrip(upstream)
+	if err != nil {
+		if proxy != "" {
+			return p.reply(out, http.StatusBadGateway, connproxy.Unreachable(s.host, proxy, errors.New(rootCause(err))).Error())
+		}
+
 		return p.reply(out, http.StatusBadGateway, "the service could not be reached: "+rootCause(err))
 	}
 

@@ -508,8 +508,8 @@ paths:
     post:
       operationId: StopNodeMachine
       summary: >-
-        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with
-        409 while it runs a Dispatch
+        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its
+        status; refused with 409 while it runs a Dispatch
       responses:
         "200":
           description: The node, its machine stopping or stopped.
@@ -522,7 +522,7 @@ paths:
       - $ref: "#/components/parameters/NodeID"
     post:
       operationId: StartNodeMachine
-      summary: Turn a stopped machine on (owner only); it takes work again once its node connects
+      summary: Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
       responses:
         "200":
           description: The node, its machine starting.
@@ -958,10 +958,12 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     patch:
       operationId: PatchIntegrationConnection
-      summary: Say whether the coordinator may use a Connection in chats; only the owner
+      summary: Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
       description: >-
         A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in
-        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its
+        proxy (issue #850) is what its requests to its service go through, and its dial address where they are
+        dialed instead of their host's; the next request uses them.
       requestBody:
         required: true
         content:
@@ -1819,11 +1821,13 @@ paths:
       operationId: RedeemAccountLimitReset
       summary: Use one of an account's limit resets, which starts its used-up limits again now; only the owner
       description: >-
-        A reset that is used does not come back. The one used is the one the
-        vendor names as next. `request_id` makes a repeated request the same
-        use: sent again, it uses no second reset. Answers the account's limits
-        as they are after it. An account with no reset to use, with no limit
-        used up, or whose vendor asks to wait is 409.
+        A reset that is used does not come back. The one used is `grant_id`'s;
+        without it, one that starts a used-up window again, the vendor's next
+        when it does (issue #841). `request_id` makes a repeated request the
+        same use: sent again, it uses no second reset. Answers the account's
+        limits as they are after it. An account with no reset to use, with no
+        limit used up, with no reset that starts the used-up one again, with no
+        usable reset of `grant_id`, or whose vendor asks to wait is 409.
       requestBody:
         required: true
         content:
@@ -6229,6 +6233,17 @@ components:
           description: >-
             Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
             turns it on.
+        proxy:
+          type: string
+          description: >-
+            The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a
+            service in a private network, reached through a local proxy. Absent when they go direct.
+        dial_address:
+          type: string
+          description: >-
+            Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an
+            IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name
+            that does not resolve; absent dials the host.
         session: { $ref: "#/components/schemas/DeviceSession" }
         cannot:
           type: array
@@ -6343,6 +6358,18 @@ components:
           type: string
           maxLength: 1024
           description: Where the service is, such as https://superset.example.com.
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the
+            label has.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one
+            the label has.
         username: { type: string, maxLength: 1024 }
         password:
           type: string
@@ -6602,10 +6629,22 @@ components:
             owner takes it back; reject refuses it.
     ConnectionUse:
       type: object
-      required: [chats]
+      description: What changes; what is absent stays.
       additionalProperties: false
       properties:
         chats: { type: boolean }
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no
+            user or path. Empty clears it, and they go direct.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port
+            or not; the certificate is still checked against the host. Temporary. Empty clears it.
     NewIntegrationClient:
       type: object
       required: [client_id, client_secret]
@@ -7059,7 +7098,7 @@ components:
           description: The model's or the key's name, or the account's label; empty for an account since removed.
         runtime:
           type: string
-          description: An account's runtime (claude, codex, antigravity).
+          description: An account's runtime (claude, codex, antigravity, opencode_go).
         counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
     GatewayUsage:
       type: object
@@ -7174,8 +7213,10 @@ components:
       properties:
         runtime:
           type: string
-          enum: [claude]
-          description: The kind of subscription; only Claude gives a token to paste.
+          enum: [claude, opencode_go]
+          description: >-
+            The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go,
+            whose Console API key is the account (issue #854).
         label:
           type: string
           minLength: 1
@@ -7186,7 +7227,7 @@ components:
           minLength: 1
           maxLength: 4096
           writeOnly: true
-          description: The token `claude setup-token` prints, one line.
+          description: The token `claude setup-token` prints, or the OpenCode Go key, one line.
     NewAccountImport:
       type: object
       required: [runtime, credentials]
@@ -7276,9 +7317,40 @@ components:
           type: string
           pattern: "^[A-Za-z0-9_-]{1,64}$"
           description: The caller's id of this use; the same id again uses no second reset.
+        grant_id:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{1,80}$"
+          description: >-
+            The reset to use, by the id `grants` gives. Without it, one that
+            starts a used-up window again is chosen.
+    AccountLimitResetGrant:
+      type: object
+      required: [id, available, clears]
+      properties:
+        id:
+          type: string
+          description: The vendor's id of the grant, which a use names.
+        label:
+          type: string
+          description: The vendor's name for the grant, when it gives one.
+        available:
+          type: integer
+          description: How many resets the grant has left.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the grant ends, when the vendor says.
+        clears:
+          type: array
+          items: { type: string }
+          description: >-
+            The windows, by the names `windows` uses, that a use starts again,
+            such as "5 hours" and "week" for an ordinary reset or "week (Fable)"
+            for Fable's; empty when the vendor does not say, and then it may
+            start any.
     AccountLimitResets:
       type: object
-      required: [available]
+      required: [available, grants]
       properties:
         available:
           type: integer
@@ -7287,6 +7359,10 @@ components:
           type: string
           format: date-time
           description: When the one used next ends, when the vendor says.
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/AccountLimitResetGrant" }
+          description: The usable resets one by one, as the vendor groups them.
     AccountLimits:
       type: object
       required: [windows]
@@ -7347,8 +7423,9 @@ components:
       description: >-
         Where a value comes from; codex is the window Codex itself gives a Codex
         subscription's model, antigravity the window or largest output
-        CLIProxyAPI's registry gives an Antigravity subscription's model.
-      enum: [set, models_dev, codex, antigravity, unknown]
+        CLIProxyAPI's registry gives an Antigravity subscription's model,
+        opencode_go the one OpenCode Go's model list gives a Go model.
+      enum: [set, models_dev, codex, antigravity, opencode_go, unknown]
     GatewayModelInputKind:
       type: string
       enum: [text, image]
@@ -8183,6 +8260,7 @@ components:
             - claude_subscription
             - codex_subscription
             - antigravity_subscription
+            - opencode_go
             - model_gateway
         base_url: { type: string }
         api_key_ref:
