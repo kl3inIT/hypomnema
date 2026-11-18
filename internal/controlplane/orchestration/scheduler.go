@@ -494,7 +494,8 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNoNodeFits, nil
 		}
 
-		if p.checkNodeFit(conv.NodeID, conv.Runtime, host) != nil {
+		fits := p.checkNodeFit(conv.NodeID, conv.Runtime, host) == nil
+		if !fits {
 			return nil, ReasonNoNode, nil
 		}
 

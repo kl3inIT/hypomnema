@@ -18,8 +18,8 @@ func volumeAt(root *os.Root, path string) (mountID, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()                      //nolint:errcheck // directory handle
-	return volumeAtFD(int(file.Fd()), path) //nolint:gosec // file descriptor
+	defer file.Close() //nolint:errcheck // directory handle
+	return volumeAtFD(int(file.Fd()), path)
 }
 
 func volumeAtFD(fd int, path string) (mountID, error) {

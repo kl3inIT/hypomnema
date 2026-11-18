@@ -40,7 +40,7 @@ func TestNativePruneCannotMutateThroughALateSymlink(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, handle.Close()) })
 	require.NoError(t, os.Symlink(outside, filepath.Join(store, "swapped")))
-	cmd, err := ScopedCommand(t.Context(), []*os.File{handle}, "/bin/sh", "-ec",
+	cmd, err := ScopedCommand(t.Context(), []Scope{{Dir: handle}}, "/bin/sh", "-ec",
 		`touch "$1/allowed"; rm "$1/swapped/state.db"`, "prune", store)
 	require.NoError(t, err)
 	require.Error(t, cmd.Run())
@@ -89,7 +89,7 @@ elif [ "$6" = prune ]; then
 else
   exit 4
 fi
-`), 0o700))
+`), 0o700)) //nolint:gosec // the fixture must be executable
 	caches := Caches{UserHome: home, WorkerPath: func() string { return bin }}
 	link := filepath.Join(version, "files")
 	require.NoError(t, os.Symlink(outside, link))
@@ -168,9 +168,10 @@ func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
 		require.NoError(t, os.Chtimes(file, old, old))
 		entries = append(entries, file)
 	}
-	require.NoError(t, os.Chmod(blocked, 0o500))
-	t.Cleanup(func() { assert.NoError(t, os.Chmod(blocked, 0o700)) })
-	require.ErrorIs(t, trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool { return true }), os.ErrPermission)
+	require.NoError(t, os.Chmod(blocked, 0o500))                      //nolint:gosec // directory needs to be searchable
+	t.Cleanup(func() { assert.NoError(t, os.Chmod(blocked, 0o700)) }) //nolint:gosec // restore the test directory
+	err := trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool { return true })
+	require.ErrorIs(t, err, os.ErrPermission)
 	assert.FileExists(t, entries[0])
 	assert.NoFileExists(t, entries[1])
 }

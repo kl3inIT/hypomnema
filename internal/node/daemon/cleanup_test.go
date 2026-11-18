@@ -141,6 +141,7 @@ func TestReplayedAcceptAndStopBeforeStart(t *testing.T) {
 			name = "stop cancels start waiting for prune"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			ctx := t.Context()
 			db, err := statedb.Open(ctx, filepath.Join(t.TempDir(), "state.db"), time.Now)
 			require.NoError(t, err)

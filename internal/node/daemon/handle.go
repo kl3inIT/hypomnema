@@ -270,23 +270,30 @@ func (d *Daemon) start(h statedb.Dispatch) {
 			d.mu.Unlock()
 			cancel()
 		}()
-		d.diskWorkers.RLock()
+		for !d.diskWorkers.TryRLock() {
+			select {
+			case <-ctx.Done():
+				_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
 		defer d.diskWorkers.RUnlock()
 
 		if ctx.Err() == nil && d.cfg.Disk != nil {
 			if disk := d.measureDisk(ctx); !disk.AllowsWork() && ctx.Err() == nil {
-				_ = d.worker(h.ID).end(d.base, nodeproto.ReportLowDisk, disk)
+				_ = d.worker(h.ID).end(ctx, nodeproto.ReportLowDisk, disk)
 				return
 			}
 		}
 		if ctx.Err() != nil {
-			_ = d.worker(h.ID).Stopped(d.base)
+			_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
 			return
 		}
 		err := d.runner.Start(ctx, h, d.worker(h.ID))
 		if ctx.Err() != nil && d.base.Err() == nil {
 			if err != nil {
-				_ = d.worker(h.ID).Stopped(d.base)
+				_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
 			} else {
 				d.runner.Stop(h.ID)
 			}

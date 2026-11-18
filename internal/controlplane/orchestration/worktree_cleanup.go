@@ -19,7 +19,9 @@ func (s *Service) CheckWorktreeCleanup(ctx context.Context, nodeID string, paths
 	return approved, err
 }
 
-func (s *Service) CheckWorktreeCleanupWithProtection(ctx context.Context, nodeID string, paths []nodeproto.WorktreePath) (
+func (s *Service) CheckWorktreeCleanupWithProtection(ctx context.Context, nodeID string,
+	paths []nodeproto.WorktreePath,
+) (
 	[]nodeproto.CleanupWorktree, []string, error,
 ) {
 	if len(paths) > nodeproto.CleanupBatchSize {

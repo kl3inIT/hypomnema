@@ -242,7 +242,7 @@ func (c Caches) prunePnpm(ctx context.Context, volume string) error {
 
 func (c Caches) pnpm(ctx context.Context, handle *os.File, exe, store, cache, action string) (*exec.Cmd, error) {
 	args := []string{"--store-dir", store, "--cache-dir", cache, "store", action}
-	cmd, err := ScopedCommand(ctx, []*os.File{handle}, exe, args...)
+	cmd, err := ScopedCommand(ctx, []Scope{{Dir: handle}}, exe, args...)
 	if err != nil {
 		return nil, err
 	}

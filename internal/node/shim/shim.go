@@ -22,10 +22,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-
-	"github.com/shirou/gopsutil/v4/process"
 	"sync"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // File names inside a shim's directory.

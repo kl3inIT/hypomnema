@@ -4533,10 +4533,10 @@ Node (`internal/node`):
   Dispatches, so the node can check their resolved paths for aliases. The node verifies its own Dispatches and
   shim process groups before removing anything. It removes files relative to pinned directory handles, without
   traversing symlinks or crossing mounts, and removes the Run directory only if empty. It checks Git status
-  including ignored and untracked files regardless of local Git configuration. For a clean, unlocked checkout
-  with no submodules, `git worktree remove` without force unregisters the removed checkout from its managed
-  mirror. The native command is confined to the mirror's worktree metadata; where Linux Landlock is unavailable,
-  the node keeps the checkout. Open Runs keep their worktrees for follow-ups.
+  including ignored and untracked files regardless of local Git configuration. For a clean checkout,
+  `git worktree remove` runs without force. The native command can unlink files only inside the pinned checkout
+  and the mirror's worktree metadata; where Linux Landlock is unavailable, the node keeps the checkout.
+  Open Runs keep their worktrees for follow-ups.
 - Setup and the worker get private `TMPDIR`, `TEMP` and `TMP` under `run/<dispatch>/tmp`. The node also reclaims
   that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
   shim from claiming permission to launch. A saved PID alone is not enough to signal a process group. Disk

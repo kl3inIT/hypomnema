@@ -468,7 +468,7 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	restarted := g.restart().sup
 	restarted.Release("dsp_1")
 	assert.Never(t, func() bool { return !shim.Alive(pid) }, 100*time.Millisecond, 10*time.Millisecond)
-	require.NoError(t, os.WriteFile(identity, original, 0o600))
+	require.NoError(t, os.WriteFile(identity, original, 0o600)) //nolint:gosec // the owned shim fixture
 
 	restarted.Release("dsp_1")
 

@@ -1,7 +1,6 @@
 package worktree
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,7 +41,27 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 		return err
 	}
 
-	if err := ctx.Err(); err != nil {
+	if !diskguard.ScopeAvailable() {
+		return errors.New("git worktree cleanup needs filesystem confinement")
+	}
+	dirs := []string{path, filepath.Dir(path), filepath.Join(mirror, "worktrees")}
+	scopes := make([]diskguard.Scope, 0, len(dirs))
+	for index, dir := range dirs {
+		handle, err := diskguard.OpenDirFile(dir)
+		if err != nil {
+			return err
+		}
+		defer handle.Close() //nolint:errcheck // directory handle
+		scopes = append(scopes, diskguard.Scope{Dir: handle, OnlyRmdir: index == 1})
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return err
+	}
+	if !stopped() {
+		return nil
+	}
+	if err := cleanStatus(ctx, gitPath, path); err != nil {
 		return err
 	}
 	if !stopped() {
@@ -54,40 +73,17 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 	if checked, err := m.managedMirror(path); err != nil || checked != mirror {
 		return errors.New("the worktree or its mirror changed")
 	}
-	if !diskguard.ScopeAvailable() {
-		return errors.New("Git worktree cleanup needs filesystem confinement")
-	}
-	worktrees, err := diskguard.OpenDirFile(filepath.Join(mirror, "worktrees"))
-	if err != nil {
-		return err
-	}
-	defer worktrees.Close() //nolint:errcheck // directory handle
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		return err
-	}
-	remove, err := diskguard.ScopedCommand(ctx, []*os.File{worktrees}, gitPath, "-C", mirror, "worktree", "remove", "--", path)
-	if err != nil {
-		return err
-	}
-	var refused error
-	removed := false
-	if err := diskguard.RemoveTree(ctx, path, func() bool {
-		if !stopped() {
-			return false
+	for index, dir := range dirs {
+		opened, err := scopes[index].Dir.Stat()
+		current, pathErr := os.Lstat(dir)
+		if err != nil || pathErr != nil || !diskguard.RealDir(dir) || !os.SameFile(opened, current) {
+			return fmt.Errorf("the cleanup directory changed: %s", dir)
 		}
-		if checked, err := m.managedMirror(path); err != nil || checked != mirror {
-			refused = errors.New("the worktree or its mirror changed")
-			return false
-		}
-		refused = cleanStatus(ctx, gitPath, path)
-		removed = refused == nil
-		return removed
-	}); err != nil {
-		return err
 	}
-	if !removed {
-		return refused
+	remove, err := diskguard.ScopedCommand(ctx, scopes, gitPath,
+		"-c", "status.showUntrackedFiles=all", "-c", "core.fsmonitor=false", "-C", mirror, "worktree", "remove", "--", path)
+	if err != nil {
+		return err
 	}
 	if output, err := remove.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree remove: %w: %s", err, output)
@@ -96,20 +92,14 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 }
 
 func cleanStatus(ctx context.Context, gitPath, path string) error {
-	status, err := exec.CommandContext(ctx, gitPath, "--no-optional-locks", "-C", path, "status", "--porcelain=v1", //nolint:gosec // checked worktree
-		"--untracked-files=all", "--ignored=matching", "--ignore-submodules=none").Output()
+	args := []string{"--no-optional-locks", "-c", "core.fsmonitor=false", "-C", path, "status", "--porcelain=v1",
+		"--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"}
+	status, err := exec.CommandContext(ctx, gitPath, args...).Output() //nolint:gosec // checked worktree
 	if err != nil {
 		return err
 	}
 	if len(status) != 0 {
 		return errors.New("worktree contains tracked, untracked, or ignored changes")
-	}
-	index, err := exec.CommandContext(ctx, gitPath, "-C", path, "ls-files", "--stage", "-z").Output() //nolint:gosec // checked worktree
-	if err != nil {
-		return err
-	}
-	if bytes.HasPrefix(index, []byte("160000 ")) || bytes.Contains(index, []byte("\x00160000 ")) {
-		return errors.New("worktree contains a submodule")
 	}
 	return nil
 }
