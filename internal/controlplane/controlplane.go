@@ -437,6 +437,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// The owner's hold on the phone ends as the browser's does (issue #417, step 3).
 	go sharedPhone.Run(ctx)
 	nodes.WithPhone(sharedPhone.Held)
+	nodes.WithTakes(phoneTakes, sharedPhone.NodeTakes)
 
 	agents.Register(mux)
 
@@ -577,6 +578,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	api.WithPhone(ownersPhone{sharedPhone})
+	api.WithTakes(ownerTakes{Store: phoneTakes, phone: sharedPhone})
 
 	if musePool != nil {
 		api.WithMuse(musePool)
@@ -823,6 +825,19 @@ func workAlive(svc *orchestration.Service, logger *slog.Logger) func(ctx context
 			return true
 		}
 	}
+}
+
+// ownerTakes are the takes as the owner reads and deletes them: a take still
+// filmed is ended on its node before its files go.
+type ownerTakes struct {
+	*takes.Store
+	phone *phone.Phone
+}
+
+func (o ownerTakes) Delete(ctx context.Context, id string) error {
+	o.phone.EndTake(ctx, id)
+
+	return o.Store.Delete(id)
 }
 
 // nodeTerminals lets the client API reach a node for a terminal through the

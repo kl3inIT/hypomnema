@@ -149,6 +149,8 @@ func (s *memTakes) Update(said devicetool.Take) (devicetool.Take, error) {
 	return t, nil
 }
 
+func (s *memTakes) Deleted(string) bool { return false }
+
 func (s *memTakes) ByRequest(agent, requestID string) (devicetool.Take, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

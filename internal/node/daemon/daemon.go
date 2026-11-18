@@ -112,6 +112,8 @@ type Config struct {
 	FindRuntimes func(ctx context.Context, tools []nodeproto.ToolState) []nodeproto.RuntimeInfo
 	// Commands runs an agent's commands on the machine (issue #543); nil: the node runs none.
 	Commands Commands
+	// Takes are the takes the phone films (issue #817), said at hello and uploaded; nil: none.
+	Takes Takes
 }
 
 // Phone is the phone a node holds (issue #417); *device.Manager is the
@@ -150,6 +152,8 @@ type Daemon struct {
 	releaseURL          string
 	controlPlaneVersion string
 	hellos              chan struct{}
+	// uploadNow has the takes' uploads tried at once (takes.go).
+	uploadNow chan struct{}
 	// base is Run's context, for what outlives one socket: a terminal's connection.
 	base context.Context //nolint:containedctx // set once by Run, read by goroutines Run owns
 	// tools has the tools the control plane names installed; nil when the node installs none.
@@ -180,7 +184,7 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 		cfg: cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
 		newID: platform.NewID, instance: platform.NewID("ins"),
 		ephemeral: map[string]nodeproto.Report{}, known: map[string]bool{},
-		hellos: make(chan struct{}, 1),
+		hellos: make(chan struct{}, 1), uploadNow: make(chan struct{}, 1),
 	}
 }
 
@@ -225,6 +229,8 @@ func (d *Daemon) run(ctx context.Context) error {
 	if d.tools != nil {
 		go d.tools.run(ctx)
 	}
+
+	go d.uploadTakes(ctx)
 
 	for {
 		healthy, err := d.connectOnce(ctx)
@@ -291,6 +297,8 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 	d.controlPlaneVersion = resp.ControlPlaneVersion
 	d.mu.Unlock()
 
+	d.settleTakes(ctx, resp)
+
 	select {
 	case d.hellos <- struct{}{}:
 	default: // one not yet received already says it
@@ -321,7 +329,7 @@ func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim, held []str
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),
-		StoreGuides: true,
+		StoreGuides: true, Takes: d.heldTakes(), ListsTakes: d.cfg.Takes != nil && held != nil,
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)

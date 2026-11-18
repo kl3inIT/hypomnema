@@ -35,7 +35,36 @@ const (
 	// PathExec is where a node posts the answer to an exec, with the request's
 	// id as ?request= (issue #543).
 	PathExec = "/node/v1/exec"
+	// PathTakes is where a node uploads a take's files (issue #817): a PUT to
+	// PathTakes + "{take}/files/{name}", the file's length in Content-Length
+	// and its SHA-256 in TakeSumHeader.
+	PathTakes = "/node/v1/takes/"
 )
+
+// TakeSumHeader carries an uploaded file's SHA-256, in hex.
+const TakeSumHeader = "X-Hypomnema-Sha256"
+
+// TakeHeld is a take the node holds, as it says at hello: filmed, being
+// finished, or waiting to be uploaded.
+type TakeHeld struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+// TakeEnd asks the node at hello to end a take it still films: the control
+// plane restarted, or the take's end did not reach the node.
+type TakeEnd struct {
+	ID      string `json:"id"`
+	EndedBy string `json:"ended_by"`
+}
+
+// TakeUpload is a finished take a node is to upload: its segments, then its
+// take.json, files of its folder.
+type TakeUpload struct {
+	ID    string
+	Dir   string
+	Files []string
+}
 
 // DeviceAnswerWithin is how long the control plane waits for a node's answer
 // to a device_call: a phone that is stopped boots first (5 minutes at most,
@@ -284,6 +313,10 @@ type HelloRequest struct {
 	// nothing is ended; a hello that only checks an install does not either.
 	Held      []string `json:"held,omitempty"`
 	ListsHeld bool     `json:"lists_held,omitempty"`
+	// Takes are the takes the node holds when ListsTakes is set (issue #817): the control plane ends one it
+	// films that holds no lease of the phone any more, and has the node drop one the owner deleted.
+	Takes      []TakeHeld `json:"takes,omitempty"`
+	ListsTakes bool       `json:"lists_takes,omitempty"`
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).
@@ -513,6 +546,9 @@ type HelloResponse struct {
 	// to each release within minutes, so a node older than it looks for its
 	// release at once (issue #783, after Tailscale's ClientVersion).
 	ControlPlaneVersion string `json:"control_plane_version,omitempty"`
+	// EndTakes are takes the node is to end, and DropTakes ones it is to remove, of those it said it holds.
+	EndTakes  []TakeEnd `json:"end_takes,omitempty"`
+	DropTakes []string  `json:"drop_takes,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.

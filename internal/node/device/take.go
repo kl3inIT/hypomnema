@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 // An agent filming the phone (issue #817, design v3). A take is read from
@@ -410,7 +411,7 @@ func (m *Manager) SayTake(id, agent, text, chapter string, tap func() (*deviceto
 		return 1
 	})
 	t.meta.Steps = slices.Insert(t.meta.Steps, i, step)
-	meta := t.meta
+	meta := m.liveMeta(t)
 	f.mu.Unlock()
 
 	m.save(t)
@@ -472,7 +473,7 @@ func (m *Manager) PauseTake(id string) (devicetool.Take, error) {
 	t.paused = true
 	t.meta.State = devicetool.TakePaused
 	t.meta.Pauses = append(t.meta.Pauses, devicetool.TakePause{AtMs: t.finished.Milliseconds()})
-	meta := t.meta
+	meta := m.liveMeta(t)
 	f.mu.Unlock()
 
 	m.save(t)
@@ -504,7 +505,7 @@ func (m *Manager) ResumeTake(id string) (devicetool.Take, error) {
 	t.paused = false
 	t.meta.State = devicetool.TakeRecording
 	t.next()
-	meta := t.meta
+	meta := m.liveMeta(t)
 	f.mu.Unlock()
 
 	m.save(t)
@@ -594,12 +595,7 @@ func (m *Manager) TakeStatus(id string) (devicetool.Take, error) {
 		return devicetool.Take{}, fmt.Errorf("%w: %s", ErrNoTake, id)
 	}
 
-	meta := t.meta
-	if !t.ended {
-		meta.DurationMs = t.timeAt(m.now()).Milliseconds()
-	}
-
-	return snapshot(meta), nil
+	return snapshot(m.liveMeta(t)), nil
 }
 
 // writeTake writes a take's segments as its queue says, until the take is
@@ -782,6 +778,16 @@ func writeTakeFile(dir string, meta devicetool.Take) error {
 	return err
 }
 
+// liveMeta is a take with its time now while it is filmed. The caller holds filming.mu.
+func (m *Manager) liveMeta(t *take) devicetool.Take {
+	meta := t.meta
+	if !t.ended {
+		meta.DurationMs = t.timeAt(m.now()).Milliseconds()
+	}
+
+	return meta
+}
+
 // snapshot is a copy of a take that shares nothing with it.
 func snapshot(meta devicetool.Take) devicetool.Take {
 	meta.Segments = slices.Clone(meta.Segments)
@@ -875,22 +881,14 @@ func removeUnlisted(dir string, meta devicetool.Take) {
 	}
 }
 
-// Upload is a finished take the node is to upload: its segments, then its
-// take.json.
-type Upload struct {
-	ID    string
-	Dir   string
-	Files []string
-}
-
-// Uploads are the finished takes the node holds, oldest first.
-func (m *Manager) Uploads() []Upload {
+// Uploads are the finished takes the node holds, by id.
+func (m *Manager) Uploads() []nodeproto.TakeUpload {
 	f := &m.film
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	var out []Upload
+	var out []nodeproto.TakeUpload
 
 	for _, t := range f.takes {
 		if !t.meta.Final() {
@@ -908,10 +906,10 @@ func (m *Manager) Uploads() []Upload {
 			files = append(files, s.File)
 		}
 
-		out = append(out, Upload{ID: t.meta.ID, Dir: t.dir, Files: append(files, takeFile)})
+		out = append(out, nodeproto.TakeUpload{ID: t.meta.ID, Dir: t.dir, Files: append(files, takeFile)})
 	}
 
-	slices.SortFunc(out, func(a, b Upload) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(out, func(a, b nodeproto.TakeUpload) int { return strings.Compare(a.ID, b.ID) })
 
 	return out
 }
@@ -952,25 +950,19 @@ func (m *Manager) DropTake(id string) {
 	}
 }
 
-// HeldTake is a take the node holds, as it says at hello.
-type HeldTake struct {
-	ID    string
-	State string
-}
-
-// HeldTakes are the takes the node holds.
-func (m *Manager) HeldTakes() []HeldTake {
+// HeldTakes are the takes the node holds, as it says them at hello.
+func (m *Manager) HeldTakes() []nodeproto.TakeHeld {
 	f := &m.film
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	out := make([]HeldTake, 0, len(f.takes))
+	out := make([]nodeproto.TakeHeld, 0, len(f.takes))
 	for _, t := range f.takes {
-		out = append(out, HeldTake{ID: t.meta.ID, State: t.meta.State})
+		out = append(out, nodeproto.TakeHeld{ID: t.meta.ID, State: t.meta.State})
 	}
 
-	slices.SortFunc(out, func(a, b HeldTake) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(out, func(a, b nodeproto.TakeHeld) int { return strings.Compare(a.ID, b.ID) })
 
 	return out
 }

@@ -47,6 +47,8 @@ type TakeStore interface {
 	Update(t devicetool.Take) (devicetool.Take, error)
 	// ByRequest finds an agent's take by the request id it started it with.
 	ByRequest(agent, requestID string) (devicetool.Take, bool)
+	// Deleted says whether the owner deleted a take.
+	Deleted(id string) bool
 }
 
 // ErrNoTake reports a take the control plane does not know.
@@ -491,6 +493,55 @@ func (p *Phone) resumeFilming(ctx context.Context) {
 	}
 
 	p.keep(*answer.Take)
+}
+
+// NodeTakes settles the takes a node says it holds at its hello: one it
+// films that no lease holds any more is to be ended, for why its end did not
+// reach the node, or "restart" when the control plane restarted since it
+// started; one the owner deleted is to be dropped.
+func (p *Phone) NodeTakes(ctx context.Context, nodeID string, held []nodeproto.TakeHeld,
+) ([]nodeproto.TakeEnd, []string) {
+	var (
+		end  []nodeproto.TakeEnd
+		drop []string
+	)
+
+	for _, h := range held {
+		if p.cfg.Takes != nil && p.cfg.Takes.Deleted(h.ID) {
+			drop = append(drop, h.ID)
+
+			continue
+		}
+
+		if h.State != devicetool.TakeRecording && h.State != devicetool.TakePaused {
+			continue
+		}
+
+		p.mu.Lock()
+		leased := p.lease != nil && p.lease.take == h.ID && p.lease.node == nodeID
+		why, told := p.ending[h.ID]
+		delete(p.ending, h.ID)
+		p.mu.Unlock()
+
+		if leased {
+			continue
+		}
+
+		if !told {
+			why = devicetool.EndedRestart
+		}
+
+		end = append(end, nodeproto.TakeEnd{ID: h.ID, EndedBy: why})
+		p.cfg.Logger.InfoContext(ctx, "a take its node still films is ended", slog.String("event", "phone.take_orphaned"),
+			slog.String("take", h.ID), slog.String("ended_by", why))
+	}
+
+	return end, drop
+}
+
+// EndTake ends a take that holds the phone, as stopped: the owner deletes it.
+func (p *Phone) EndTake(ctx context.Context, id string) {
+	p.endLease(ctx, id, devicetool.EndedStop)
 }
 
 // toNode runs a video tool on the phone's node, waking it first.

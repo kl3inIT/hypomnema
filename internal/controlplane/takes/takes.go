@@ -41,6 +41,8 @@ var ErrDeleted = errors.New("the take was deleted")
 type Store struct {
 	dir string
 	mu  sync.Mutex
+	// FreeBytes says how much disk is free for an upload; nil: the file system's own.
+	FreeBytes func(path string) (uint64, error)
 }
 
 // Open opens the takes' folder, making it.
