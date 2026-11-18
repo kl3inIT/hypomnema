@@ -129,7 +129,7 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 		session = cacheKey(key.ID)
 	}
 
-	record := Usage{KeyID: key.ID, Model: model.Name, Stream: true}
+	record := Usage{KeyID: key.ID, Model: model.Name, Stream: true, started: started}
 	serving, served := withServed(r)
 	s.serveResponses(w, serving, raw, session, model, &record)
 	record.AccountID = served.id
@@ -310,9 +310,10 @@ func (s *Server) relayResponses(
 		answered = completed
 		sent += len(line)
 
-		// An empty line ends an event.
+		// An empty line ends an event; the first event passed on is the first chunk (issue #856).
 		if len(line) == 0 {
 			flush()
+			record.firstChunk(s.svc.clock.Now())
 		}
 	}
 

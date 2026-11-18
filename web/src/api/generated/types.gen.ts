@@ -62,7 +62,42 @@ export type Run = {
 };
 
 export type RunDetail = Run & {
+  usage?: WorkUsage;
   tasks: Array<TaskDetail>;
+};
+
+/**
+ * What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+ */
+export type WorkUsage = {
+  dispatches: number;
+  /**
+   * The Dispatches that sent the gateway requests.
+   */
+  gateway_dispatches: number;
+  requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  cache_write_tokens: number;
+  /**
+   * The gateway requests' cost at the vendor's API price, in micro-dollars.
+   */
+  cost_micros: number;
+  /**
+   * The gateway requests the price book has no price for.
+   */
+  unpriced: number;
+  /**
+   * The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+   */
+  reported: {
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_write: number;
+  };
 };
 
 export type RunList = {
@@ -122,6 +157,7 @@ export type Task = {
 };
 
 export type TaskDetail = Task & {
+  usage?: WorkUsage;
   latest_dispatch?: Dispatch;
   /**
    * More work asked of the Task's worker after it succeeded, oldest first.
@@ -2246,7 +2282,56 @@ export type GatewayUsageGroup = {
   counts: GatewayUsageCounts;
 };
 
+/**
+ * The speed and reliability of a provider's model, or of a subscription account, over the requests to the text models. Time to first token is over the answered streams, latency over the answered requests, tokens a second (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+ */
+export type GatewayPerformance = {
+  provider: string;
+  /**
+   * The model the provider served; empty for an account.
+   */
+  model: string;
+  account_id?: string;
+  account_label?: string;
+  /**
+   * An account's runtime (claude, codex, antigravity).
+   */
+  runtime?: string;
+  requests: number;
+  ok: number;
+  failed: number;
+  /**
+   * The requests whose client left first; they count neither as answered nor as failed.
+   */
+  client_gone: number;
+  /**
+   * The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+   */
+  success_rate?: number;
+  cost_micros: number;
+  /**
+   * Read from each request, with percentiles and the median tokens a second; false from the ledger.
+   */
+  exact: boolean;
+  ttft_p50_ms?: number;
+  ttft_p95_ms?: number;
+  latency_p50_ms?: number;
+  latency_p95_ms?: number;
+  ttft_avg_ms?: number;
+  latency_avg_ms?: number;
+  /**
+   * The median of the requests' output tokens a second; from the ledger, all tokens over all time.
+   */
+  tokens_per_second?: number;
+};
+
 export type GatewayUsage = {
+  /**
+   * Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner", and no percentiles.
+   */
+  ledger: boolean;
+  by_provider: Array<GatewayPerformance>;
+  speed_by_account: Array<GatewayPerformance>;
   since: string;
   until: string;
   /**
@@ -2315,6 +2400,14 @@ export type GatewayRequest = {
    */
   estimated: boolean;
   duration_ms: number;
+  /**
+   * Time to first token: from the gateway receiving the request to the first chunk it streamed to the client; absent for an answer that is not a stream.
+   */
+  ttft_ms?: number;
+  /**
+   * The output tokens over the time after the first token; absent when the request was not a stream, its counts were estimated, or it had no output.
+   */
+  tokens_per_second?: number;
   /**
    * The seconds of the recording an audio transcription heard; absent for other requests.
    */
@@ -7294,7 +7387,7 @@ export type GetGatewayUsageData = {
   body?: never;
   path?: never;
   query: {
-    period: '24h' | '7d' | '30d';
+    period: '24h' | '7d' | '30d' | '90d' | '12m';
     /**
      * The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
      */

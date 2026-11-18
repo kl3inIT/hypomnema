@@ -132,22 +132,49 @@ type UsageReport struct {
 	ByModel      []UsageGroup
 	ByKey        []UsageGroup
 	ByAccount    []UsageGroup
+	// ByProvider and SpeedByAccount compare the text models' speed and
+	// reliability (issue #856): by provider and the model it served, and by
+	// subscription account.
+	ByProvider     []PerformanceGroup
+	SpeedByAccount []PerformanceGroup
+	// Ledger says the period was read from the daily ledger, which outlives
+	// the request rows: its days are UTC days, and it has no percentiles.
+	Ledger bool
+}
+
+// UsagePeriod is a period the page offers: how long, the size of a bar, and
+// whether it is read from the daily ledger. Monthly bars are calendar months.
+type UsagePeriod struct {
+	Span, Bucket time.Duration
+	Ledger       bool
+	Monthly      bool
 }
 
 // UsagePeriods are the periods the page offers, with the size of a bar: an
-// hour for a day, a day for a week or a month (T3 Code usageShortcuts.ts).
-var UsagePeriods = map[string]struct{ Span, Bucket time.Duration }{
-	"24h": {24 * time.Hour, time.Hour},
-	"7d":  {7 * 24 * time.Hour, 24 * time.Hour},
-	"30d": {30 * 24 * time.Hour, 24 * time.Hour},
+// hour for a day, a day for a week or a month (T3 Code usageShortcuts.ts), and
+// for the periods longer than the requests are kept (issue #856), a day for
+// 90 days and a month for 12 months, from the daily ledger.
+var UsagePeriods = map[string]UsagePeriod{
+	"24h": {Span: 24 * time.Hour, Bucket: time.Hour},
+	"7d":  {Span: 7 * 24 * time.Hour, Bucket: 24 * time.Hour},
+	"30d": {Span: 30 * 24 * time.Hour, Bucket: 24 * time.Hour},
+	"90d": {Span: 90 * 24 * time.Hour, Bucket: 24 * time.Hour, Ledger: true},
+	"12m": {Span: 365 * 24 * time.Hour, Bucket: 30 * 24 * time.Hour, Ledger: true, Monthly: true},
 }
 
+const periodsText = "the period is 24h, 7d, 30d, 90d or 12m"
+
 // Usage reports a period ending now. offset is the viewer's distance from
-// UTC, so that a day's bar starts at the viewer's midnight.
+// UTC, so that a day's bar starts at the viewer's midnight; a period read from
+// the ledger has UTC days.
 func (s *Service) Usage(ctx context.Context, period string, offset time.Duration) (UsageReport, error) {
 	p, ok := UsagePeriods[period]
 	if !ok {
-		return UsageReport{}, fmt.Errorf("%w: the period is 24h, 7d or 30d", ErrInvalid)
+		return UsageReport{}, fmt.Errorf("%w: %s", ErrInvalid, periodsText)
+	}
+
+	if p.Ledger {
+		return s.ledgerUsage(ctx, p)
 	}
 
 	now := s.clock.Now()
@@ -210,7 +237,44 @@ func (s *Service) Usage(ctx context.Context, period string, offset time.Duration
 		return UsageReport{}, err
 	}
 
+	if report.ByProvider, report.SpeedByAccount, err = s.performance(ctx, q, origin); err != nil {
+		return UsageReport{}, err
+	}
+
 	return report, nil
+}
+
+// performance compares the text models' requests since a moment, each
+// request counted, by provider and model and by account.
+func (s *Service) performance(
+	ctx context.Context, q *store.Queries, since time.Time,
+) ([]PerformanceGroup, []PerformanceGroup, error) {
+	rows, err := q.ListPerformanceSamples(ctx, since.UnixMilli())
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the requests' speed: %w", err)
+	}
+
+	byProvider, byAccount := newPerformanceGroups(), newPerformanceGroups()
+
+	for _, r := range rows {
+		sample := performanceSample{
+			provider: r.Provider, model: r.UpstreamModel, account: r.AccountID, outcome: Outcome(r.Outcome),
+			duration: time.Duration(r.DurationMs) * time.Millisecond, ttft: ttftOf(r.TtftMs),
+			completion: r.CompletionTokens, estimated: r.Estimated == 1, costMicros: r.CostMicros.Int64,
+		}
+
+		byProvider.get(r.Provider+"\x00"+r.UpstreamModel, func() PerformanceGroup {
+			return PerformanceGroup{Provider: r.Provider, Model: r.UpstreamModel}
+		}).add(sample)
+
+		if r.AccountID != "" {
+			byAccount.get(r.AccountID, func() PerformanceGroup {
+				return PerformanceGroup{Provider: r.Provider, AccountID: r.AccountID}
+			}).add(sample)
+		}
+	}
+
+	return byProvider.list(true), byAccount.list(true), nil
 }
 
 func (s *Service) usageByModel(ctx context.Context, q *store.Queries, since time.Time) ([]UsageGroup, error) {
@@ -279,7 +343,11 @@ func (s *Service) UsageRequests(
 ) ([]Usage, bool, error) {
 	p, ok := UsagePeriods[period]
 	if !ok {
-		return nil, false, fmt.Errorf("%w: the period is 24h, 7d or 30d", ErrInvalid)
+		return nil, false, fmt.Errorf("%w: %s", ErrInvalid, periodsText)
+	}
+
+	if p.Ledger {
+		return nil, false, fmt.Errorf("%w: the requests are kept 31 days; the period is 24h, 7d or 30d", ErrInvalid)
 	}
 
 	if limit <= 0 || limit > 200 {

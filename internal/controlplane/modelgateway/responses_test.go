@@ -106,6 +106,7 @@ func TestACodexClientIsPassedThrough(t *testing.T) {
 	usage := g.lastUsage(t)
 	assert.Equal(t, modelgateway.OutcomeOK, usage.Outcome)
 	assert.Equal(t, "codex-subscription", usage.Provider)
+	assert.NotNil(t, usage.TTFT, "the Responses stream has its time to first token (issue #856)")
 	assert.Equal(t, modelgateway.Tokens{Prompt: 30, Completion: 7, Cached: 20, Reasoning: 4}, usage.Tokens)
 
 	// Without a session of its own, a client keeps one per gateway key.

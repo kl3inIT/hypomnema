@@ -817,6 +817,16 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		return err
 	}
 
+	if err := recordDispatchUsage(ctx, q, now, d.ID); err != nil {
+		return err
+	}
+
+	if to == DispatchFailed {
+		if err := raiseRepeatedFailure(ctx, q, now, d); err != nil {
+			return err
+		}
+	}
+
 	// The worker no longer waits for anything (Orca's closeQuestionsForDispatch on every settlement).
 	closed, err := q.CancelOpenWaitQuestionsOfDispatch(ctx, store.CancelOpenWaitQuestionsOfDispatchParams{
 		Now: now, DispatchID: d.ID,
