@@ -52,6 +52,8 @@ var ErrInvalid = storeerr.ErrInvalid
 // Speech hears a recording: the gateway's speech service.
 type Speech interface {
 	Transcribe(ctx context.Context, req speech.TranscribeRequest) (speech.Transcript, error)
+	// Live streams a track recorded live (issue #820).
+	Live(ctx context.Context, req speech.LiveRequest, l speech.LiveListener) (*speech.Live, error)
 }
 
 // Models asks a gateway chat model in-process: the gateway's server.
@@ -85,6 +87,10 @@ type Service struct {
 	mu sync.Mutex
 	// working cancels the step a meeting is in, so that deleting it stops its work.
 	working map[string]context.CancelFunc
+	// tracks are the tracks being recorded live, by meeting and track (live.go).
+	tracks map[string]*Track
+	// ending lets one live meeting end at a time.
+	ending sync.Mutex
 }
 
 // New returns a Service; the recordings' folder is made when missing.
@@ -97,7 +103,7 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("making the recordings' folder: %w", err)
 	}
 
-	return &Service{cfg: cfg, working: map[string]context.CancelFunc{}}, nil
+	return &Service{cfg: cfg, working: map[string]context.CancelFunc{}, tracks: map[string]*Track{}}, nil
 }
 
 // Upload is a recording the owner sends, with what it was told about it.
@@ -258,6 +264,13 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	}
 	s.mu.Unlock()
 
+	// A meeting deleted while it records stops recording, and its tracks' audio goes with it.
+	for _, t := range s.openTracks(id) {
+		t.fail(ctx, ErrNotRecording)
+	}
+
+	s.removeTracks(id)
+
 	if err := os.Remove(s.path(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing the recording: %w", err)
 	}
@@ -295,7 +308,9 @@ func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 		return Detail{}, err
 	}
 
-	return Detail{Meeting: m, Lines: lines, Items: items, Suggestions: suggest(lines, m.Speakers, m.People)}, nil
+	return Detail{
+		Meeting: s.withRecorded(m), Lines: lines, Items: items, Suggestions: suggest(lines, m.Speakers, m.People),
+	}, nil
 }
 
 // Run does the meetings' work until ctx ends: the steps a restart interrupted first, then each step as it comes.
@@ -519,7 +534,7 @@ func (s *Service) writeNotes(ctx context.Context, id string) {
 
 	shown := map[string]string{}
 	for _, sp := range d.Meeting.Speakers {
-		shown[sp.Label] = sp.Shown()
+		shown[sp.Key()] = sp.Shown()
 	}
 
 	names, err := s.sentWords(ctx)
@@ -637,12 +652,21 @@ func (s *Service) failed(ctx context.Context, doing, id string, err error) {
 
 // List returns the meetings, the newest first; with a query, those whose title or transcript holds it.
 func (s *Service) List(ctx context.Context, query string, limit int) ([]meetingstore.Meeting, error) {
-	return s.cfg.Store.List(ctx, query, limit)
+	all, err := s.cfg.Store.List(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, m := range all {
+		all[i] = s.withRecorded(m)
+	}
+
+	return all, nil
 }
 
-// NameSpeaker names a voice for the whole meeting; a name another voice has merges the two.
-func (s *Service) NameSpeaker(ctx context.Context, id, label, name string) error {
-	return s.cfg.Store.NameSpeaker(ctx, id, label, name)
+// NameSpeaker names a voice of a track for the whole meeting; a name another voice of the track has merges the two.
+func (s *Service) NameSpeaker(ctx context.Context, id, track, label, name string) error {
+	return s.cfg.Store.NameSpeaker(ctx, id, track, label, name)
 }
 
 // SetLineSpeaker gives one line to the voice called name.

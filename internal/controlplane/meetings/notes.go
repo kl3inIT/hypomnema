@@ -148,8 +148,12 @@ func transcript(s subject, lines []meetingstore.Line, shown map[string]string) s
 
 	var body strings.Builder
 
-	for _, l := range lines {
-		fmt.Fprintf(&body, "[%d] %s %s: %s\n", l.N, clock(l.Start), shown[l.Speaker], l.Text)
+	// Lines are numbered by their place in the transcript, in the order they were said; the items' lines are
+	// turned back into the lines' own numbers when they are kept (written), as a live meeting's tracks number its
+	// lines out of that order (issue #820).
+	for i, l := range lines {
+		fmt.Fprintf(&body, "[%d] %s %s: %s\n", i+1, clock(l.Start), shown[meetingstore.VoiceKey(l.Track, l.Speaker)],
+			l.Text)
 	}
 
 	b.WriteString("\n<transcript>\n")
@@ -297,11 +301,11 @@ func contentText(raw json.RawMessage) string {
 func written(a answer, lines []meetingstore.Line, speakers []meetingstore.Speaker, titled bool,
 ) meetingstore.Written {
 	shown := make([]string, 0, len(speakers))
-	byName := map[string]string{}
+	byName := map[string]meetingstore.Speaker{}
 
 	for _, s := range speakers {
 		shown = append(shown, s.Shown())
-		byName[meetingstore.Fold(s.Shown())] = s.Label
+		byName[meetingstore.Fold(s.Shown())] = s
 	}
 
 	items := func(in []answerItem) []checkedItem {
@@ -335,17 +339,17 @@ func written(a answer, lines []meetingstore.Line, speakers []meetingstore.Speake
 	}
 
 	add := func(kind string, it checkedItem) {
-		item := meetingstore.Item{Kind: kind, Text: it.Text, Due: it.Due, Quote: it.Quote, Line: it.Line}
+		item := meetingstore.Item{Kind: kind, Text: it.Text, Due: it.Due, Quote: it.Quote}
 
-		if label, ok := byName[meetingstore.Fold(it.Owner)]; ok && it.Owner != "" {
-			item.OwnerSpeaker = label
+		if voice, ok := byName[meetingstore.Fold(it.Owner)]; ok && it.Owner != "" {
+			item.OwnerTrack, item.OwnerSpeaker = voice.Track, voice.Label
 		} else {
 			item.Owner = it.Owner
 		}
 
 		if it.Line > 0 {
-			start := lines[it.Line-1].Start
-			item.Start = &start
+			l := lines[it.Line-1]
+			item.Line, item.Start = l.N, &l.Start
 		}
 
 		w.Items = append(w.Items, item)
