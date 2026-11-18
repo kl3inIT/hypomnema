@@ -477,6 +477,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agents.WithRelay(proxy)
 	agents.WithMessaging(integrations).WithJudge(proxy)
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
+		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		ClaudeBaseURL:      cfg.ClaudeBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,

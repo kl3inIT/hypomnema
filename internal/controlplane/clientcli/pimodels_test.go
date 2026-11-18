@@ -41,8 +41,8 @@ func (runningPi) Stop(_ string) {}
 func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p.chat && p.key != "" }
 
 // Scenario: the launcher starts pi for a chat (issue #204). It writes pi's
-// models.json from what the control plane says: one provider, the model
-// gateway, with every model the gateway serves (issue #549), and never a
+// models.json from what the control plane says: the model gateway and its
+// fallbacks variant, with every model the gateway serves (issue #549), and never a
 // provider pi would call past the gateway. pi then runs the key command the
 // file names, and gets the key of its own chat.
 func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
@@ -68,7 +68,7 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 
 	var file piModelsFile
 	require.NoError(t, json.Unmarshal([]byte(out), &file))
-	require.Len(t, file.Providers, 1, "a provider pi would call past the gateway is left out")
+	require.Len(t, file.Providers, 2, "a provider pi would call past the gateway is left out")
 
 	workers := file.Providers["hypomnema"]
 	assert.Equal(t, w.url+"/v1", workers.BaseURL)
@@ -182,6 +182,15 @@ func TestPiSpeaksEachSubscriptionsOwnWire(t *testing.T) {
 	assert.Equal(t, [2]string{"openai-responses", ""}, wires["codex-subscription/gpt-6.1-sol"])
 	assert.Equal(t, [2]string{"", ""}, wires["antigravity-subscription/gemini-3.1-pro-high"])
 	assert.Equal(t, [2]string{"", ""}, wires["duo"])
+
+	fallback := file.Providers["hypomnema-fallback"]
+	assert.Equal(t, "openai-completions", fallback.API)
+	assert.Equal(t, w.url+"/v1", fallback.BaseURL)
+	require.Len(t, fallback.Models, len(wires))
+	for _, model := range fallback.Models {
+		assert.Contains(t, wires, model.ID)
+		assert.Empty(t, model.API+model.BaseURL, "every model uses the fallback provider's wire")
+	}
 }
 
 // Scenario: pi starts with the gateway's Codex and Claude models (issue

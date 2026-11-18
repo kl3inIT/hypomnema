@@ -54,6 +54,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   persona: "",
   memory: "",
   memory_limit: 2200,
+  fallbacks: [],
   skills: [],
   skills_off: [],
   tools: [],
@@ -231,6 +232,7 @@ test("a draft is sent as the settings the server replaces", () => {
       {
         name: "helper",
         model: "gateway/gpt-luna",
+        fallbacks: [],
         effort: "high",
         persona: "Be brief.",
         skills: ["review-go"],
