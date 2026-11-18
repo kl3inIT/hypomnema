@@ -481,7 +481,7 @@ func (q *Queries) SetMachineResource(ctx context.Context, arg SetMachineResource
 }
 
 const startMachine = `-- name: StartMachine :execrows
-UPDATE nodes SET updated_at = ?1, status = 'active', machine_power = 'starting', machine_error = NULL
+UPDATE nodes SET updated_at = ?1, machine_power = 'starting', machine_error = NULL
 WHERE id = ?2 AND status <> 'deleted' AND machine_state = 'ready' AND machine_power = 'stopped'
 `
 
@@ -490,7 +490,7 @@ type StartMachineParams struct {
 	ID  string
 }
 
-// A stopped machine is to be started and takes work again once its node says hello.
+// A stopped machine is to be started; once its node says hello it takes work again if the owner had not drained it.
 func (q *Queries) StartMachine(ctx context.Context, arg StartMachineParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, startMachine, arg.Now, arg.ID)
 	if err != nil {
@@ -521,7 +521,7 @@ func (q *Queries) StartMachineDeletion(ctx context.Context, arg StartMachineDele
 }
 
 const stopMachine = `-- name: StopMachine :execrows
-UPDATE nodes SET updated_at = ?1, status = 'drained', machine_power = 'stopping', machine_error = NULL
+UPDATE nodes SET updated_at = ?1, machine_power = 'stopping', machine_error = NULL
 WHERE id = ?2 AND status <> 'deleted' AND machine_state = 'ready' AND machine_power IS NULL
 `
 
@@ -530,7 +530,9 @@ type StopMachineParams struct {
 	ID  string
 }
 
-// A ready machine that is on takes no more work and is to be stopped.
+// A ready machine that is on is to be stopped. Its status, the owner's drain, is left as it is: a machine that is not
+// on takes no work whatever its status (placement.go), as Nomad's upsertNodeTxn retains a node's
+// SchedulingEligibility across a re-registration (issue #844).
 func (q *Queries) StopMachine(ctx context.Context, arg StopMachineParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, stopMachine, arg.Now, arg.ID)
 	if err != nil {

@@ -28,7 +28,7 @@ const providerStates: Partial<Record<NonNullable<Node["machine"]>["state"], Mach
 export function machineState(node: Node): MachineState {
   const provider = node.machine && providerStates[node.machine.state]
   if (provider) return provider
-  // A ready machine that is not on says so: its node is drained and offline because of it, not on its own.
+  // A ready machine that is not on says so: its node takes no work and is offline because of it, whatever its status.
   if (node.machine?.power) return node.machine.power
 
   if (!node.connected) return "offline"

@@ -508,8 +508,8 @@ paths:
     post:
       operationId: StopNodeMachine
       summary: >-
-        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with
-        409 while it runs a Dispatch
+        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its
+        status; refused with 409 while it runs a Dispatch
       responses:
         "200":
           description: The node, its machine stopping or stopped.
@@ -522,7 +522,7 @@ paths:
       - $ref: "#/components/parameters/NodeID"
     post:
       operationId: StartNodeMachine
-      summary: Turn a stopped machine on (owner only); it takes work again once its node connects
+      summary: Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
       responses:
         "200":
           description: The node, its machine starting.
