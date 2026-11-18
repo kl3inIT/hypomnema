@@ -24,13 +24,20 @@ import (
 // googleAccount is the Antigravity account logged in on the control plane.
 type googleAccount struct {
 	accounts
+
+	// models are the models the accounts were asked for, in order (issue #814).
+	models []string
 }
 
 func (a *googleAccount) Token(
-	ctx context.Context, runtime, session string, skip ...string,
+	ctx context.Context, runtime, model, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	token, err := a.accounts.Token(ctx, runtime, session, skip...)
+	token, err := a.accounts.Token(ctx, runtime, model, session, skip...)
 	token.Project = "bright-wave-1234"
+
+	a.mu.Lock()
+	a.models = append(a.models, model)
+	a.mu.Unlock()
 
 	return token, err
 }
@@ -135,10 +142,15 @@ func TestAChatIsServedFromTheAntigravitySubscription(t *testing.T) {
 	t.Parallel()
 
 	backend, got := cloudCode(t, stream(geminiEvents...))
-	g := newAntigravityGateway(t, backend, &googleAccount{})
+	account := &googleAccount{}
+	g := newAntigravityGateway(t, backend, account)
 
 	status, _, body := g.call(t, g.key, askFlash+`,"stream":true}`)
 	require.Equal(t, http.StatusOK, status, body)
+
+	account.mu.Lock()
+	assert.Equal(t, []string{"gemini-3.8-flash-high"}, account.models, "an account that serves the model (issue #814)")
+	account.mu.Unlock()
 
 	sentHeaders, sent := got.last(t)
 	assert.Equal(t, "Bearer access-0", sentHeaders.Get("Authorization"))

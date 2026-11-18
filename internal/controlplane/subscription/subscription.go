@@ -197,7 +197,7 @@ type Service struct {
 	// pins is the account each conversation is on (rank.go); pinsMu guards it.
 	pins   map[string]pin
 	pinsMu sync.Mutex
-	// served is the last reading of what each runtime's accounts are served with (served.go); servedMu guards it.
+	// served is the last reading of the models each account is served (served.go); servedMu guards it.
 	served   map[string]servedReading
 	servedMu sync.Mutex
 }
@@ -428,6 +428,13 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 // no other can (omp `select.ts`, where a reserve evicts a session's account
 // while a sibling is outside it, and `rank.ts` inReserve).
 func (s *Service) Token(ctx context.Context, runtime, session string, skip ...string) (Token, error) {
+	return s.TokenFor(ctx, runtime, "", session, skip...)
+}
+
+// TokenFor is Token for a request for a model: of a runtime whose list of an account's models is authoritative,
+// only the accounts whose list has the model are taken, when one has it (servers, issue #814), and every rule of
+// Token then orders those. An empty model is Token.
+func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (Token, error) {
 	accounts, err := s.List(ctx)
 	if err != nil {
 		return Token{}, err
@@ -442,6 +449,8 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 			ofRuntime = append(ofRuntime, a)
 		}
 	}
+
+	ofRuntime = s.servers(ctx, runtime, model, ofRuntime)
 
 	if len(ofRuntime) == 0 {
 		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)

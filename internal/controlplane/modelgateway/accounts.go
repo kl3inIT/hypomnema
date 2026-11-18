@@ -91,12 +91,13 @@ func newAccountState() *accountState {
 }
 
 // underAccounts serves a request under the accounts of a runtime in their
-// order. attempt runs it under one account and answers in OpenAI's shape; an
+// order, those that serve model when it is given (Subscriptions.Token).
+// attempt runs it under one account and answers in OpenAI's shape; an
 // answer that moves on is kept while the next account is tried, and is what
 // the client gets when none serves. usedLast, when given, says an account is
 // to be tried only after the others.
 func (s *Server) underAccounts(
-	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool,
+	ctx context.Context, runtime, model, session string, usedLast func(AccountToken) bool,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
 	var (
@@ -124,7 +125,7 @@ func (s *Server) underAccounts(
 	}
 
 	for {
-		token, err := s.accounts.Token(ctx, runtime, session, tried...)
+		token, err := s.accounts.Token(ctx, runtime, model, session, tried...)
 		if err != nil {
 			stopping = err
 

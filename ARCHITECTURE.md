@@ -1653,7 +1653,8 @@ flowchart LR
   and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
   1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
   continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
-  gateway serves), in
+  gateway serves: the gateway picks one for each request, among the accounts whose list has the model for
+  Antigravity, issue [#814](https://github.com/kl3inIT/hypomnema/issues/814)), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
   Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
@@ -2747,7 +2748,10 @@ capabilities do not exist yet.
   `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
   every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
   logged-in accounts). A subscription provider's models are what its migration listed plus what its vendor serves:
-  soon after the start and then every hour the control plane asks, with the first active account of each runtime,
+  soon after the start and then every hour the control plane asks, with every active account of each runtime, each
+  read and kept for an hour on its own (a failed reading is tried again after 5 minutes and keeps the last one), and
+  takes the union of their lists in the accounts' order (issue [#814](https://github.com/kl3inIT/hypomnema/issues/814),
+  as omp's `unionAccountCatalogs` and CLIProxyAPI's registry do; an account whose list cannot be read hides no other's),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token) and Antigravity (`fetchAvailableModels`, without internal
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`). Codex's and Claude's providers
@@ -2779,7 +2783,7 @@ capabilities do not exist yet.
   (500,000 for `gpt-6.2-sol`, `gpt-6.1-sol` and `gpt-6.1-terra`, 372,000 for `gpt-daybreak-red-latest`, 272,000 for
   every other model and one it does not list), an Antigravity one's window and largest
   output as Google serves them, `maxTokens` and `maxOutputTokens` of `fetchAvailableModels` under the first active
-  account, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
+  account whose list has the model and gives them, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
   levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
   xhigh (max is sent as xhigh), Claude none, low to max (minimal's budget is low's), Antigravity's Gemini low,
   medium and high and its other models none; an OpenAI-compatible provider gets any. A level set that the provider
@@ -2998,6 +3002,12 @@ capabilities do not exist yet.
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
     401, 402 or 403; 30 seconds after another 5xx.
+  - A request for an Antigravity model goes only to the accounts whose list (`fetchAvailableModels`, read as the
+    gateway's models are) has it, when one has it; every rule here then orders those (issue
+    [#814](https://github.com/kl3inIT/hypomnema/issues/814), CLIProxyAPI's `authSupportsRouteModel`, omp's
+    `accountIds`). A model no account's list has, such as one a profile keeps, goes to every account as before.
+    Codex's and Claude's lists are per account too, but leave out models they serve, so their requests are not
+    narrowed.
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.

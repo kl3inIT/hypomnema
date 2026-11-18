@@ -40,7 +40,9 @@ type imageAccounts struct {
 	cooldown []string
 }
 
-func (a *imageAccounts) Token(_ context.Context, runtime, _ string, skip ...string) (modelgateway.AccountToken, error) {
+func (a *imageAccounts) Token(
+	_ context.Context, runtime, _, _ string, skip ...string,
+) (modelgateway.AccountToken, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 

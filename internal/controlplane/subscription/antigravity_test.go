@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -51,15 +52,23 @@ type google struct {
 	operations int
 	// listed counts the calls to fetchAvailableModels.
 	listed int
-	agents []string
-	extra  []string
-	hosts  []string
+	// rosters, by Google's user id, is the list of models fetchAvailableModels answers that user instead of the
+	// usual one, and rosterFails the users it answers 503; owners says whose each access token is.
+	rosters     map[string]string
+	rosterFails map[string]bool
+	owners      map[string]string
+	agents      []string
+	extra       []string
+	hosts       []string
 }
 
 func newGoogle(t *testing.T) *google {
 	t.Helper()
 
-	g := &google{t: t, project: "bright-wave-1234", user: "1122334455", email: googleEmail}
+	g := &google{
+		t: t, project: "bright-wave-1234", user: "1122334455", email: googleEmail,
+		rosters: map[string]string{}, rosterFails: map[string]bool{}, owners: map[string]string{},
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token", g.token)
 	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +99,22 @@ func newGoogle(t *testing.T) *google {
 
 			g.mu.Lock()
 			g.listed++
+			user := g.owners[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+			roster, own := g.rosters[user]
+			fails := g.rosterFails[user]
 			g.mu.Unlock()
+
+			if fails {
+				http.Error(w, `{"error":{"status":"UNAVAILABLE"}}`, http.StatusServiceUnavailable)
+
+				return
+			}
+
+			if own {
+				_, _ = io.WriteString(w, roster)
+
+				return
+			}
 
 			// Each model's window and largest output as zm's account was served them on 2026-11-16 (issue #587). An
 			// internal, a disabled and a denied model (omp's list, issue #639) are not offered.
@@ -165,7 +189,7 @@ func (g *google) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	refresh := ""
+	refresh, user := "", g.user
 
 	switch r.PostForm.Get("grant_type") {
 	case "authorization_code":
@@ -175,19 +199,33 @@ func (g *google) token(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		refresh = `"refresh_token":"google-refresh",`
+		// A user other than the first gets a refresh token of their own, so that a refreshed token is still theirs.
+		given := "google-refresh"
+		if g.user != "1122334455" {
+			given += "." + g.user
+		}
+
+		refresh = `"refresh_token":"` + given + `",`
 	case "refresh_token":
-		if g.revoked || r.PostForm.Get("refresh_token") != "google-refresh" {
+		given, ok := strings.CutPrefix(r.PostForm.Get("refresh_token"), "google-refresh")
+		if g.revoked || !ok || (given != "" && !strings.HasPrefix(given, ".")) {
 			http.Error(w, `{"error":"invalid_grant","error_description":"Token has been expired or revoked."}`,
 				http.StatusBadRequest)
 
 			return
 		}
+
+		user = "1122334455"
+		if given != "" {
+			user = given[1:]
+		}
 	}
 
 	g.issued++
+	access := fmt.Sprintf("ya29.access-%d", g.issued)
+	g.owners[access] = user
 
-	_, _ = fmt.Fprintf(w, `{"access_token":"ya29.access-%d",%s"expires_in":3599}`, g.issued, refresh)
+	_, _ = fmt.Fprintf(w, `{"access_token":%q,%s"expires_in":3599}`, access, refresh)
 }
 
 func (g *google) loadCodeAssist(w http.ResponseWriter, r *http.Request, host string) {

@@ -79,8 +79,10 @@ type Subscriptions interface {
 	// Token returns a valid access token of an account of a runtime that can be
 	// used and is not among skip, ordered by the session (sticky, so one
 	// conversation keeps one account) or round-robin when the session is empty;
-	// ErrNoAccount or a *CoolingError when none can.
-	Token(ctx context.Context, runtime, session string, skip ...string) (AccountToken, error)
+	// ErrNoAccount or a *CoolingError when none can. A model, when given, is
+	// served only under the accounts whose vendor lists it, when the runtime's
+	// list is authoritative and one lists it (issue #814).
+	Token(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error)
 	// TokenAfterRefusal refreshes an account whose token the vendor refused
 	// and returns the new one.
 	TokenAfterRefusal(ctx context.Context, refused AccountToken) (AccountToken, error)
@@ -118,20 +120,21 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underAccounts(ctx, codexRuntime, built.CacheKey, nil, func(token AccountToken) (*http.Response, error) {
-		resp, err := s.codexCall(ctx, &token, built)
-		if err != nil {
-			return nil, err
-		}
+	resp, err := s.underAccounts(ctx, codexRuntime, "", built.CacheKey, nil,
+		func(token AccountToken) (*http.Response, error) {
+			resp, err := s.codexCall(ctx, &token, built)
+			if err != nil {
+				return nil, err
+			}
 
-		if resp.StatusCode != http.StatusOK {
-			return s.codexRefused(ctx, token, resp), nil
-		}
+			if resp.StatusCode != http.StatusOK {
+				return s.codexRefused(ctx, token, resp), nil
+			}
 
-		s.accountState.served(token.AccountID)
+			s.accountState.served(token.AccountID)
 
-		return s.codexAnswer(ctx, call, token, built, resp), nil
-	})
+			return s.codexAnswer(ctx, call, token, built, resp), nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
 	}

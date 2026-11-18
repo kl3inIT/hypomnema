@@ -593,7 +593,7 @@ func (s *Server) codexImage(
 
 	body := codex.ImageBody(prompt, opts)
 
-	resp, err := s.underAccounts(ctx, codexRuntime, "", nil, func(token AccountToken) (*http.Response, error) {
+	resp, err := s.underAccounts(ctx, codexRuntime, "", "", nil, func(token AccountToken) (*http.Response, error) {
 		now := s.svc.clock.Now()
 		key := restKey(ImageProviderCodex, token.AccountID)
 
@@ -736,7 +736,7 @@ func (s *Server) antigravityImages(ctx context.Context, req ImageRequest) (Image
 
 	var res ImageResult
 
-	resp, err := s.underAccounts(ctx, antigravityRuntime, "", nil, func(token AccountToken) (*http.Response, error) {
+	resp, err := s.underAccounts(ctx, antigravityRuntime, "", "", nil, func(token AccountToken) (*http.Response, error) {
 		got, refusal, err := s.antigravityImage(ctx, token, req.Prompt, opts)
 		if err != nil || refusal != nil {
 			return refusal, err

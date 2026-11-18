@@ -85,7 +85,7 @@ func (g subscriptionSearch) Search(ctx context.Context, provider, query string, 
 func (s *Server) searchUnder(ctx context.Context, runtime string, attempt searchAttempt) ([]websearch.Result, error) {
 	var found []websearch.Result
 
-	resp, err := s.underAccounts(ctx, runtime, "", nil, func(token AccountToken) (*http.Response, error) {
+	resp, err := s.underAccounts(ctx, runtime, "", "", nil, func(token AccountToken) (*http.Response, error) {
 		results, refusal, err := attempt(token)
 		if err != nil || refusal != nil {
 			return refusal, err

@@ -360,7 +360,7 @@ func chatFromMessages(raw []byte) (chatRequest, error) {
 
 // claudeMessages passes a request to a Claude subscription under its accounts.
 func (s *Server) claudeMessages(ctx context.Context, call messagesCall, upstreamModel string) (*http.Response, error) {
-	return s.underAccounts(ctx, claudeAccountRuntime, call.session, nil,
+	return s.underAccounts(ctx, claudeAccountRuntime, "", call.session, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.messagesCall(ctx, &token, call, upstreamModel)
 			if err != nil {
