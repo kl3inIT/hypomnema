@@ -50,7 +50,7 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    canceled. A blocked Task has not ended.
 4. Finish the Run with `hypomnema runs finish <run_id> --json`, then report to the owner per Task: the outcome, the
    evidence (the pull request), and what is left. While the owner has yet to decide on a fix you offered for a
-   failed Task, leave the Run open: a finished Run takes no new Tasks.
+   failed Task, or while its review waits for a next step, leave the Run open: a finished Run takes no new Tasks.
 
 A key is any string unique to that create, such as `health-run-1`. When a create gets no answer (a timeout, a
 dropped connection), run it again with the same `--key`: the control plane returns the first result instead of
@@ -134,6 +134,9 @@ hypomnema runs wait <run_id> --after <after> --json
 It returns when something needs you: a Task ended or was blocked, a worker asked you a question, an escalation
 arrived, or the Run ended. It prints those events, the `after` for the next wait, and `next`. Start with `--after 0`.
 
+- On a review wake, read the Run again and load the `review` reference. The verdict and PR state in the wake
+  are a snapshot, not permission to merge. If a Task has already been added, do not repeat it. A Run stalled after
+  review is not ready to finish merely because its Tasks ended.
 - When your turn began with a message from the control plane listing a Run's events, end your turn after acting;
   the control plane wakes you again.
 - In a session with the owner (Claude Code, Codex), start the wait as a background command if your runtime tells you
@@ -184,6 +187,13 @@ A worker's report is a claim; the Task's record and its evidence are what count.
 - Never merge a pull request, nor turn on its auto-merge: the worker that made it does, or the owner. A worker that
   could not turn auto-merge on says what the repository lacks (no required check, auto-merge off in its settings);
   report that to the owner, who changes the setting or merges.
+- On a GitHub PR handoff, including one recovered after a worker failed, run `gh reconcile-replacement <new-url>`
+  through Hypomnema's GitHub launcher. If the Task spec explicitly says which PR it replaces, pass that PR's number
+  after the URL. The command also recognizes a `Replaces #n` or `Supersedes #n` line in the new body, verifies that
+  both PRs name the same closing issue in GitHub, then comments with the replacement's link and closes the old PR
+  without deleting its branch. No declaration means no write. If it cannot verify the issue, leave the old PR open
+  and tell the owner. Each write uses the usual GitHub approvals. If it waits for approval, end your turn and rerun
+  the same command when woken; it does not repeat a comment it already posted.
 
 ## Proof
 

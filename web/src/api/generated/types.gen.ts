@@ -59,6 +59,20 @@ export type Run = {
    */
   uses?: Array<string>;
   finished_at?: string;
+  review_stall?: ReviewStall;
+};
+
+/**
+ * A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+ */
+export type ReviewStall = {
+  task_id: string;
+  pull_request: string;
+  verdict: 'correct' | 'incorrect' | 'unknown';
+  merge_state: string;
+  mergeable: string;
+  checks: 'PASSING' | 'FAILING' | 'PENDING' | 'UNKNOWN';
+  waiting_for_owner: boolean;
 };
 
 export type RunDetail = Run & {

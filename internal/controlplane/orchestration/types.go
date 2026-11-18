@@ -59,10 +59,11 @@ type Run struct {
 	// GetRun and ListRuns.
 	Bot string
 	// Uses are the Connections the Run's workers may use ("google:work").
-	Uses       []string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	FinishedAt *time.Time
+	Uses        []string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	FinishedAt  *time.Time
+	ReviewStall *ReviewStall
 }
 
 // Task is one unit of work inside a Run.

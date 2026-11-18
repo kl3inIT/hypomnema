@@ -276,6 +276,12 @@ func nextSteps(ctx context.Context, e *env, out *Waited) error {
 		return nil
 	}
 
+	if run.ReviewStall != nil {
+		add("hypomnema skills get hypomnema-coordinator --reference review")
+
+		return nil
+	}
+
 	settled := true
 	for _, t := range run.Tasks {
 		settled = settled && ended(t.Status)

@@ -26,6 +26,7 @@ export type Card = {
 // wait for the owner; a block on a failed dependency waits on that Task instead.
 function columnOf(task: TaskDetail, run: Run, question?: Question): Column {
   if (question) return "you"
+  if (run.review_stall?.waiting_for_owner && run.review_stall.task_id === task.id) return "you"
 
   switch (task.status) {
     case "failed":
