@@ -92,6 +92,7 @@ export function runtimeOf(
   byVersion: Map<string, string> = new Map(),
 ): string {
   return (
+    task.latest_dispatch?.runtime ||
     task.runtime ||
     (task.latest_dispatch?.fallback_for &&
       byVersion.get(task.latest_dispatch.profile_version_id ?? "")) ||

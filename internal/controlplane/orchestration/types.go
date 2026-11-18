@@ -72,6 +72,7 @@ type Task struct {
 	RunID         string
 	Position      int
 	Profile       string
+	Kind          string
 	Spec          string
 	Runtime       string
 	Model         string
@@ -100,6 +101,8 @@ type Task struct {
 type NewTask struct {
 	Ref       string
 	Profile   string
+	Kind      string `json:",omitempty"`
+	ReviewOf  string `json:",omitempty"`
 	Spec      string
 	Runtime   string
 	Model     string

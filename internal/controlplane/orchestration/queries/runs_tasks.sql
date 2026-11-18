@@ -35,8 +35,9 @@ SELECT CAST(coalesce(max(position), 0) + 1 AS INTEGER) AS next FROM tasks WHERE 
 
 -- name: InsertTask :exec
 INSERT INTO tasks (id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason,
-                   created_at, updated_at)
-VALUES (@id, @run_id, @position, @profile, @spec, @runtime, @model, @effort, @status, @blocked_reason, @now, @now);
+                   created_at, updated_at, kind, author_vendor)
+VALUES (@id, @run_id, @position, @profile, @spec, @runtime, @model, @effort, @status, @blocked_reason,
+        @now, @now, @kind, @author_vendor);
 
 -- name: InsertTaskDep :exec
 INSERT INTO task_deps (task_id, depends_on) VALUES (@task_id, @depends_on);

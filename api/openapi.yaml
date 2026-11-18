@@ -3231,6 +3231,46 @@ paths:
       responses:
         "204": { description: The grant is taken back. }
         default: { $ref: "#/components/responses/Error" }
+  /role-routing:
+    get:
+      operationId: GetRoleRouting
+      summary: The worker role and kind mapping
+      responses:
+        "200":
+          description: The effective mapping as YAML.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutRoleRouting
+      summary: Validate and replace the worker role and kind mapping; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Source" }
+      responses:
+        "204": { description: The mapping was stored. }
+        default: { $ref: "#/components/responses/Error" }
+  /role-routing/metrics:
+    get:
+      operationId: GetRoleMetrics
+      summary: Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+      parameters:
+        - in: query
+          name: since
+          description: Start of the period; defaults to 14 days ago.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Worker metrics.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RoleMetric" }
+        default: { $ref: "#/components/responses/Error" }
   /profiles:
     get:
       operationId: ListProfiles
@@ -4810,12 +4850,13 @@ components:
       enum: [dependency_failed, gate, dispatch_unknown, needs_auth]
     Task:
       type: object
-      required: [id, run_id, position, profile, spec, status, failure_count, created_at, updated_at]
+      required: [id, run_id, position, profile, kind, spec, status, failure_count, created_at, updated_at]
       properties:
         id: { type: string }
         run_id: { type: string }
         position: { type: integer }
         profile: { type: string }
+        kind: { $ref: "#/components/schemas/TaskKind" }
         spec: { type: string }
         runtime: { type: string }
         model: { type: string }
@@ -4898,6 +4939,23 @@ components:
           minItems: 1
           maxItems: 100
           items: { $ref: "#/components/schemas/NewTask" }
+    TaskKind:
+      type: string
+      enum: [broad, narrow, quick]
+    RoleMetric:
+      type: object
+      required: [role, kind, runtime, model, attempts, succeeded, failed, cost_micros, unpriced]
+      properties:
+        role: { type: string }
+        kind: { $ref: "#/components/schemas/TaskKind" }
+        runtime: { type: string }
+        model: { type: string }
+        chain_entry: { type: integer, description: One-based position in the Task's effective routing chain. }
+        attempts: { type: integer, format: int64 }
+        succeeded: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        cost_micros: { type: integer, format: int64 }
+        unpriced: { type: integer, format: int64 }
     NewTask:
       type: object
       required: [ref, spec]
@@ -4913,6 +4971,11 @@ components:
           minLength: 1
           maxLength: 100
           description: The profile it runs with; implementer when left out.
+        kind: { $ref: "#/components/schemas/TaskKind", description: Use broad when unsure or when omitted. }
+        review_of:
+          type: string
+          minLength: 1
+          description: The succeeded Task in this Run a reviewer checks; its vendor is excluded.
         spec: { type: string, minLength: 1, maxLength: 100000 }
         runtime: { type: string, minLength: 1, maxLength: 100 }
         model: { type: string, minLength: 1, maxLength: 200 }
@@ -4941,6 +5004,8 @@ components:
         profile_version_id:
           type: string
           description: The profile version it ran with; absent for Dispatches from before profiles.
+        chain_entry: { type: integer, description: One-based position in the Task's effective routing chain. }
+        runtime: { type: string, description: The worker runtime selected by role routing. }
         fallback_for:
           type: string
           description: >-

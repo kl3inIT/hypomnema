@@ -366,9 +366,17 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			return err
 		}
 
-		provider, err := checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
-		if err != nil {
-			return fmt.Errorf("profile %s: %w", p.Name, err)
+		provider := ""
+		if p.Runtime == "" && slices.Contains(roles, p.Name) {
+			if in.Model != nil || len(p.Fallbacks) != 0 {
+				return fmt.Errorf("%w: role %s uses role routing, not a profile model or fallbacks", ErrInvalid, p.Name)
+			}
+		} else {
+			var err error
+			provider, err = checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
+			if err != nil {
+				return fmt.Errorf("profile %s: %w", p.Name, err)
+			}
 		}
 
 		if err := checkFallbacks(ctx, q, p); err != nil {
@@ -416,7 +424,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 
 		if err := q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
 			ID: id, Profile: p.Name, Version: current.Version + 1, Source: source, Digest: digest, Description: p.Description,
-			Runtime: p.Runtime, Provider: nullString(p.Provider), Model: nullString(p.Model),
+			Runtime: or(p.Runtime, roleRuntime), Provider: nullString(p.Provider), Model: nullString(p.Model),
 			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
 			Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
 			SkillsOff: strings.Join(p.SkillsOff, ","), Tools: strings.Join(p.Tools, ","),
@@ -740,6 +748,9 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 	}
 
 	for i, pr := range profiles {
+		if pr.Runtime == "" {
+			continue
+		}
 		gateway, accounts := false, ""
 
 		if pr.Provider != "" {
@@ -799,8 +810,12 @@ func (s *Service) ListProfileVersions(ctx context.Context, name string) ([]Profi
 }
 
 func profileFromRow(v store.ProfileVersion) Profile {
+	runtime := v.Runtime
+	if runtime == roleRuntime {
+		runtime = ""
+	}
 	return Profile{
-		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: v.Runtime,
+		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: runtime,
 		Provider: v.Provider.String,
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
 		Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills), SkillsOff: splitNames(v.SkillsOff),
@@ -1263,10 +1278,30 @@ func (s *Service) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 // checkTaskProfile checks a new Task's profile and its overrides together.
-func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask) error {
+func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask, vendor string) error {
 	v, err := q.CurrentProfileVersion(ctx, nt.Profile)
 	if err != nil {
 		return fmt.Errorf("task %q: %w", nt.Ref, missingProfile(ctx, q, err, nt.Profile))
+	}
+	if v.Runtime == roleRuntime || vendor != "" {
+		if nt.Profile == "reviewer" && nt.ReviewOf == "" {
+			return fmt.Errorf("%w: reviewer Task %q needs review_of", ErrInvalid, nt.Ref)
+		}
+		if nt.Effort != "" && !slices.Contains(Efforts, nt.Effort) {
+			return fmt.Errorf("%w: unknown effort %q", ErrInvalid, nt.Effort)
+		}
+		if nt.Runtime != "" || nt.Model != "" {
+			task := store.Task{Profile: nt.Profile, Kind: nt.Kind, AuthorVendor: vendor,
+				Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort)}
+			chain, err := chosenRoleChain(ctx, q, task)
+			if err != nil {
+				return err
+			}
+			if len(chain) == 0 {
+				return fmt.Errorf("%w: requested runtime %s is not in the Task's role chain", ErrInvalid, nt.Runtime)
+			}
+		}
+		return nil
 	}
 
 	if nt.Runtime == "" && nt.Model == "" && nt.Effort == "" {
@@ -1306,7 +1341,9 @@ type resolved struct {
 	// handoff says the backup takes over work another worker began.
 	handoff bool
 	// req is what a worker of the profile version asks of a node (issue #731).
-	req request
+	req        request
+	chain      []roleEntry
+	chainIndex int
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -1324,6 +1361,24 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
 		return resolved{}, fmt.Errorf("reading the last dispatch of task %s: %w", task.ID, err)
+	case last.RoleChain != "":
+		chain, err := dispatchRoleChain(last)
+		if err != nil {
+			return resolved{}, err
+		}
+		version, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
+		if err != nil {
+			return resolved{}, notFound(err, "profile version", last.ProfileVersionID.String)
+		}
+		r, err := resolveRoleEntry(ctx, q, version, task, chain, int(last.ChainEntry.Int64)-1)
+		r.fallbackFor, r.fallbackUntil = last.FallbackFor.String, last.FallbackUntil.Int64
+		return r, err
+	case v.Runtime == roleRuntime && last.ProfileVersionID.Valid:
+		version, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
+		if err != nil {
+			return resolved{}, notFound(err, "profile version", last.ProfileVersionID.String)
+		}
+		return resolveVersion(ctx, q, task, version)
 	case last.FallbackFor.Valid && last.ProfileVersionID.Valid:
 		conv, open, err := openConversation(ctx, q, task.ID)
 		if err != nil {
@@ -1341,6 +1396,16 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 
 			return r, err
 		}
+	}
+	if v.Runtime == roleRuntime || task.AuthorVendor != "" {
+		chain, err := chosenRoleChain(ctx, q, task)
+		if err != nil {
+			return resolved{}, err
+		}
+		if len(chain) == 0 {
+			return resolved{}, fmt.Errorf("%w: no entry for %s/%s matches the Task", errRoleEntry, task.Profile, task.Kind)
+		}
+		return resolveRoleEntry(ctx, q, v, task, chain, 0)
 	}
 
 	return resolveVersion(ctx, q, task, v)

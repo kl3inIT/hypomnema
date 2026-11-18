@@ -1644,7 +1644,13 @@ flowchart LR
     commands stay for the owner.
   - Not built: a Routine on a node, a one-time Routine, a run started by an outside event, a Routine that feeds
     another, stopping a run by hand. A prompt run's chat is listed among the chats like any other.
-- Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
+- Role routing (issue #661): the `implementer`, `planner`, `explorer` and `reviewer` profiles can omit runtime and
+  model. Every Task has a `kind` (`broad` by default, `narrow` or `quick`). The scheduler selects a role/kind chain,
+  filters the review author's vendor, and snapshots its selected entry and chain into the Dispatch. Follow-ups
+  keep their entry; cooling accounts can trigger a handoff to a later entry on the same node and worktree.
+  All entries share their role's profile version and memory. See [role routing](docs/role-routing.md) for the
+  mapping, owner commands, metrics and migration path for existing profiles and Bots.
+- Legacy profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
@@ -1791,7 +1797,7 @@ flowchart LR
   every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
   `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
-  A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
+  A new Task with a legacy profile whose runtime has only accounts that cool down is placed under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
   only one that names no runtime or model of its own; a backup's own `fallbacks` are not followed; with none that
@@ -4216,9 +4222,10 @@ The owner's commands:
   and "lone subagent lossy handoff", Coder's subagent catalog); a question that changes nothing goes to a profile
   that reads and reports; a Task that needs an earlier one's findings gets that Task's report pasted word for word
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
-  follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
-  standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only in the first round; findings that make a change incorrect are sent to the change's worker as a
+  follow-up to its worker, not a new Task. The `planner` researches in one session; the `reviewer` checks plans
+  before owner approval and `broad` or `narrow` changes from another vendor. A `quick` change needs green CI only.
+  A first PR review receives the pull request and spec, not the report or transcript. Findings that make a change
+  incorrect are sent to the change's worker as a
   follow-up without asking the owner (issue #871; owner, 2026-11-18), and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
