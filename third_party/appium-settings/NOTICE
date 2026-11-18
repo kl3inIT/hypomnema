@@ -1,0 +1,16 @@
+Appium Settings
+Copyright JS Foundation and other contributors, https://js.foundation
+
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/appium/io.appium.settings at bf8c11b,
+lib/commands/geolocation.ts (setGeoLocation, lines 26-75).
+
+What is adapted from it here (issue #851), in Go: how the phone's location is
+set on an emulator, in the phone's tools (internal/shared/devicetool,
+location.go; internal/node/device/tools.go): each value rounded up to 5
+decimals, then `adb emu geo fix <longitude> <latitude> [<altitude>]` sent
+twice, the second time with "," in place of "." as a workaround for the
+emulator's bug https://code.google.com/p/android/issues/detail?id=206180.
+Satellites, speed, bearing and accuracy, and the helper app a real device
+needs, are not taken.
