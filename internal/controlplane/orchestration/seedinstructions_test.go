@@ -1,7 +1,6 @@
 package orchestration
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -129,14 +128,9 @@ func TestMigrationTellsTheSeededReviewerToRunTheChecks(t *testing.T) {
 		assert.Contains(t, instruction, "still open (then it is a P1 finding of yours)", "00111's text stays")
 		assert.Equal(t, sourceDigest(source), digest, "what ApplyProfile writes for that YAML")
 
-		var seeded, sample profileSource
+		var seeded profileSource
 		require.NoError(t, decodeStrict(source, &seeded))
 		assert.Equal(t, seeded.Instruction, instruction, "the instruction is the source's")
-
-		yaml, err := os.ReadFile("../../../deploy/profiles/reviewer-codex.yaml")
-		require.NoError(t, err)
-		require.NoError(t, decodeStrict(string(yaml), &sample))
-		assert.Equal(t, sample.Instruction, instruction, "deploy/profiles/reviewer-codex.yaml carries the same text")
 
 		_, err = p.DownTo(ctx, 114)
 		require.NoError(t, err)

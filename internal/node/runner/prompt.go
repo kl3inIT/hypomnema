@@ -18,32 +18,35 @@ const recoveryNote = "Your previous attempt at this task was interrupted and its
 // rules are the worker's instructions for its tools and its work, the same
 // for every worker (Orca's preamble forbids AskUserQuestion and subagents and
 // requires worker_done exactly once).
-const rules = "\nRules:\n" +
-	// Issue #672: one decision boundary, stated once, in place of "when a decision is not yours to make": what a
-	// worker decides itself and what needs `ask` (GPT-5.6 Sol's prompt guidance, "Require confirmation for external
-	// writes, destructive actions ... or a material expansion of scope"; OpenAI's GPT-6 guide, "replacing blanket
-	// 'always ask' rules with clear boundaries"; OpenClaw's template "Do freely / Ask first",
-	// docs/reference/templates/AGENTS.md L19-23). The list is the owner's (2026-11-17). "Within what the task and
-	// your instructions allow" keeps an explorer's or a reviewer's own instruction, which changes nothing.
-	// Issue #714, decision 1: merging left the list; the worker turns on the host's auto-merge where the
-	// repository waits for its required checks (pullRequest), and never merges directly.
-	"- Decide yourself, within what the task and your instructions allow: how to build it and where the code " +
+const writeRules =
+// Issue #672: one decision boundary, stated once, in place of "when a decision is not yours to make": what a
+// worker decides itself and what needs `ask` (GPT-5.6 Sol's prompt guidance, "Require confirmation for external
+// writes, destructive actions ... or a material expansion of scope"; OpenAI's GPT-6 guide, "replacing blanket
+// 'always ask' rules with clear boundaries"; OpenClaw's template "Do freely / Ask first",
+// docs/reference/templates/AGENTS.md L19-23). The list is the owner's (2026-11-17). "Within what the task and
+// your instructions allow" keeps an explorer's or a reviewer's own instruction, which changes nothing.
+// Issue #714, decision 1: merging left the list; the worker turns on the host's auto-merge where the
+// repository waits for its required checks (pullRequest), and never merges directly.
+"- Decide yourself, within what the task and your instructions allow: how to build it and where the code " +
 	"goes, which tests to add or change, running the repository's checks, committing and pushing your branch, " +
 	"opening or updating this task's pull request and turning on its auto-merge as said below. Never merge it " +
 	"directly. Ask first, with the `ask` tool, and wait for the answer: " +
 	"before changing the task's scope, deploying or changing a server, deleting what your change did " +
 	"not make, or acting outside this directory and this task's pull request. " +
 	"Never use AskUserQuestion; no one reads it.\n" +
-	// Issue #672: Orca's worker "needs no progress updates unless the task asks"
-	// (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts:71-73); omp's subagent, "No TODO
-	// tracking, no progress updates" (packages/coding-agent/src/prompts/system/subagent-system-prompt.md:90).
-	"- No one reads what you write before `finish`, so no progress messages are needed.\n" +
+	"- Do not end your turn on a plan, an offer to continue or a list of next steps when the Task asks for a change.\n"
+
+const rules =
+// Issue #672: Orca's worker "needs no progress updates unless the task asks"
+// (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts:71-73); omp's subagent, "No TODO
+// tracking, no progress updates" (packages/coding-agent/src/prompts/system/subagent-system-prompt.md:90).
+"- No one reads what you write before `finish`, so no progress messages are needed.\n" +
 	// Issue #672: finish the whole task, after Anthropic's Opus 5.5 page (its text for unattended runs) and Fable
 	// 5.2 page ("Finishing work"), omp's subagent ("While work remains ... continue with another tool call", and
 	// not to end "on a plan, a promise of further work, or a question", subagent-system-prompt.md:92,98) and Hermes's
 	// TASK_COMPLETION_GUIDANCE (agent/prompt_builder.py:383-392).
 	"- Finish the whole task. Errors, timeouts and failing tests are ordinary obstacles: find their cause and " +
-	"work through them. Do not end your turn on a plan, an offer to continue or a list of next steps; stop early " +
+	"work through them. Stop early " +
 	"only when nothing can move without the owner, and then use `ask` or a `gate`.\n" +
 	"- When the work is done, call the `finish` tool exactly once, then end your turn. A task ended without " +
 	"`finish` counts as failed.\n" +
@@ -59,7 +62,6 @@ const rules = "\nRules:\n" +
 	"output, the pull request as its URL).\n" +
 	"- If the owner must decide before the work goes on (such as a choice between designs), " +
 	"pass that question as `gate` to `finish` instead of waiting.\n" +
-	"- Do not start subagents, and do not work outside this directory.\n" +
 	// Issue #513, after OpenClaw's and Hermes's AGENTS.md (verify the claim against source and observed
 	// behavior; close as implemented_on_main or cannot_reproduce) and Coder's ("state uncertainty instead of
 	// guessing").
@@ -91,11 +93,27 @@ const rules = "\nRules:\n" +
 // turn; the exact order is inferred.
 func Prompt(d statedb.Dispatch) string {
 	o := d.Offer
+	readOnly := o.RoleRouted && o.Profile != "implementer"
 
 	var b strings.Builder
 
 	b.WriteString("You are a worker dispatched by Hypomnema, a software factory. ")
 	b.WriteString("Carry out the task at the end of this message on your own.\n")
+	b.WriteString("\nRules:\n")
+	if readOnly {
+		b.WriteString("- Read and report. Do not edit project files, commit, push, open a pull request, " +
+			"or use AskUserQuestion.\n")
+		b.WriteString("- Deliver the complete answer, plan or review requested in the Task through `finish`.\n")
+	} else {
+		b.WriteString(writeRules)
+	}
+	if o.RoleRouted && o.Profile == "planner" {
+		// Codex codex-rs/core/src/tools/handlers/multi_agents_spec.rs:738-745; owner, 2026-11-18.
+		b.WriteString("- Keep analysis and blocking work here. You may use this CLI's subagents for independent " +
+			"read-only lookups. Do not dispatch separate Hypomnema Tasks or work outside this directory.\n")
+	} else {
+		b.WriteString("- Do not start subagents, and do not work outside this directory.\n")
+	}
 	b.WriteString(rules)
 
 	// The "Tools" block (issue #723, decisions 2.2 to 2.4): built from the tools the worker gets alone, so it is the
@@ -118,9 +136,13 @@ func Prompt(d statedb.Dispatch) string {
 		fmt.Fprintf(&b, "\nWork only in this directory, a git worktree of %s on branch %s, started from %s. ",
 			o.Repo, worktree.Branch(o.TaskID), o.Base)
 		// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
-		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
-			openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, o.Base, worktree.Branch(o.TaskID)))
+		if readOnly {
+			b.WriteString("Read the repository here; leave it unchanged.\n")
+		} else {
+			fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
+				openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
+			b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, o.Base, worktree.Branch(o.TaskID)))
+		}
 	} else {
 		b.WriteString("\nWork only in this directory.\n")
 	}

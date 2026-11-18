@@ -50,6 +50,7 @@ const task = (more: Partial<TaskDetail>): TaskDetail => ({
   run_id: "run_1",
   position: 1,
   profile: "implementer",
+  kind: "narrow",
   spec: "Add the /health handler",
   status: "running",
   failure_count: 0,

@@ -65,6 +65,11 @@ func tasksCreate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		t := openapi.NewTask{
 			Ref: str(fs, "ref"), Profile: optional(fs, "profile"), Spec: spec, Runtime: optional(fs, "runtime"),
 			Model: optional(fs, "model"), Effort: optional(fs, "effort"),
+			ReviewOf: optional(fs, "review-of"),
+		}
+		if kind := str(fs, "kind"); kind != "" {
+			value := openapi.TaskKind(kind)
+			t.Kind = &value
 		}
 
 		if deps := str(fs, "depends-on"); deps != "" {
