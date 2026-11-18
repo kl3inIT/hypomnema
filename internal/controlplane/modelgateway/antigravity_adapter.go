@@ -239,7 +239,7 @@ func (s *Server) antigravityPost(
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("User-Agent", s.antigravity.identity.UserAgent(ctx))
 
-	if err := s.checkAntigravityVerification(ctx, token.AccountID); err != nil {
+	if err := s.checkAntigravityVerification(ctx, token); err != nil {
 		return nil, err
 	}
 
@@ -330,17 +330,17 @@ type groupQuota interface {
 // (issue #822): a mark with Google's link, which keeps the account out of use
 // until its next try on a growing schedule, and its clearing once a call works.
 type verifications interface {
-	NeedsVerification(ctx context.Context, accountID, url, message string) (time.Time, error)
-	Verified(ctx context.Context, accountID string) error
+	NeedsVerification(ctx context.Context, token AccountToken, url, message string) (time.Time, error)
+	Verified(ctx context.Context, token AccountToken) error
 }
 
 type verificationChecker interface {
-	CheckVerification(ctx context.Context, accountID string) error
+	CheckVerification(ctx context.Context, token AccountToken) error
 }
 
-func (s *Server) checkAntigravityVerification(ctx context.Context, id string) error {
+func (s *Server) checkAntigravityVerification(ctx context.Context, token AccountToken) error {
 	if accounts, ok := s.accounts.(verificationChecker); ok {
-		return accounts.CheckVerification(ctx, id)
+		return accounts.CheckVerification(ctx, token)
 	}
 
 	return nil
@@ -358,7 +358,7 @@ func (s *Server) antigravityNeedsVerification(ctx context.Context, token Account
 		return
 	}
 
-	if _, err := v.NeedsVerification(context.WithoutCancel(ctx), token.AccountID, f.ValidationURL, f.Message); err != nil {
+	if _, err := v.NeedsVerification(context.WithoutCancel(ctx), token, f.ValidationURL, f.Message); err != nil {
 		s.logger.ErrorContext(ctx, "marking an Antigravity account to verify",
 			slog.String("event", "modelgateway.antigravity_verify_mark_failed"),
 			slog.String("account_id", token.AccountID), slog.String("error", err.Error()))
@@ -369,11 +369,11 @@ func (s *Server) antigravityNeedsVerification(ctx context.Context, token Account
 // on the first call that works under it.
 func (s *Server) antigravityVerified(ctx context.Context, token AccountToken) {
 	v, ok := s.accounts.(verifications)
-	if !ok || !token.Verifying {
+	if !ok || !(token.Verifying || token.VerificationRetry != nil && token.VerificationRetry.Load() != 0) {
 		return
 	}
 
-	if err := v.Verified(context.WithoutCancel(ctx), token.AccountID); err != nil {
+	if err := v.Verified(context.WithoutCancel(ctx), token); err != nil {
 		s.logger.ErrorContext(ctx, "clearing an Antigravity account's verification",
 			slog.String("event", "modelgateway.antigravity_verify_clear_failed"),
 			slog.String("account_id", token.AccountID), slog.String("error", err.Error()))

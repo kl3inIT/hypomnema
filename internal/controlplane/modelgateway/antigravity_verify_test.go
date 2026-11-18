@@ -43,7 +43,10 @@ func (a *verifyingAccounts) Token(
 	return token, err
 }
 
-func (a *verifyingAccounts) NeedsVerification(_ context.Context, id, url, _ string) (time.Time, error) {
+func (a *verifyingAccounts) NeedsVerification(
+	_ context.Context, token modelgateway.AccountToken, url, _ string,
+) (time.Time, error) {
+	id := token.AccountID
 	a.vmu.Lock()
 	if a.marks == nil {
 		a.marks = map[string][]string{}
@@ -81,11 +84,11 @@ func (a *verifyingAccounts) TokenAfterRefusal(
 	return a.googleAccount.TokenAfterRefusal(ctx, refused)
 }
 
-func (a *verifyingAccounts) Verified(_ context.Context, id string) error {
+func (a *verifyingAccounts) Verified(_ context.Context, token modelgateway.AccountToken) error {
 	a.vmu.Lock()
 	defer a.vmu.Unlock()
 
-	a.cleared = append(a.cleared, id)
+	a.cleared = append(a.cleared, token.AccountID)
 
 	return nil
 }
@@ -213,7 +216,8 @@ func TestTheRetryAfterARefusalGoesToTheNextAccountWhenMarked(t *testing.T) {
 	account := &verifyingAccounts{googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_1", "acc_2"}}}}
 	backend, got := cloudCode(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "Bearer access-0" { // acc_1's token, refused; meanwhile acc_1 is marked
-			_, _ = account.NeedsVerification(r.Context(), "acc_1", "https://accounts.google.com/x", "")
+			token := modelgateway.AccountToken{AccountID: "acc_1"}
+			_, _ = account.NeedsVerification(r.Context(), token, "https://accounts.google.com/x", "")
 
 			plain(http.StatusUnauthorized, `{"error":{"code":401,"status":"UNAUTHENTICATED"}}`)(w, r)
 
@@ -239,7 +243,8 @@ func TestReview826RestingRetryMustReleaseOriginalAccount(t *testing.T) {
 	var attempts atomic.Int32
 	backend, got := cloudCode(t, func(w http.ResponseWriter, r *http.Request) {
 		if attempts.Add(1) <= 3 {
-			_, _ = account.NeedsVerification(r.Context(), "acc_1", "https://accounts.google.com/x", "")
+			token := modelgateway.AccountToken{AccountID: "acc_1"}
+			_, _ = account.NeedsVerification(r.Context(), token, "https://accounts.google.com/x", "")
 			plain(http.StatusUnauthorized, `{"error":{"code":401,"status":"UNAUTHENTICATED"}}`)(w, r)
 
 			return
@@ -272,17 +277,17 @@ func (a markedAfterPick) Token(
 ) (modelgateway.AccountToken, error) {
 	token, err := a.verifyingAccounts.Token(ctx, runtime, session, skip...)
 	if err == nil && token.AccountID == "acc_1" {
-		_, err = a.NeedsVerification(ctx, token.AccountID, "https://accounts.google.com/x", "")
+		_, err = a.NeedsVerification(ctx, token, "https://accounts.google.com/x", "")
 	}
 
 	return token, err
 }
 
-func (a markedAfterPick) CheckVerification(_ context.Context, id string) error {
+func (a markedAfterPick) CheckVerification(_ context.Context, token modelgateway.AccountToken) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.cooled[id].After(time.Now()) {
+	if a.cooled[token.AccountID].After(time.Now()) {
 		return modelgateway.ErrAccountResting
 	}
 

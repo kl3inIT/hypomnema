@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -334,13 +335,17 @@ func (s *Service) usableToken(ctx context.Context, a Account) (Token, error) {
 		return Token{}, fmt.Errorf("%w: account %s is %s", ErrNoTokens, a.ID, cmpState(a.State))
 	}
 
+	var retry *atomic.Int64
+	if a.Runtime == antigravityRuntime {
+		retry = new(atomic.Int64)
+	}
 	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
-		if err := s.refresh(ctx, a, 0); err != nil {
+		if err := s.refresh(ctx, a, 0, retry); err != nil {
 			return Token{}, err
 		}
 	}
 
-	return s.tokenOf(ctx, a.Account)
+	return s.tokenOf(ctx, a.Account, retry)
 }
 
 // getLimits makes the limits call and returns its body, or a limitsRefusedError.

@@ -306,6 +306,14 @@ async function fakeServer(page: Page, start?: Account[]) {
         )
       }
 
+      if (pending?.runtime === "antigravity") {
+        const signedIn = accounts.find((account) => account.id === "acc_verify")!
+        delete signedIn.verification
+        delete limits[signedIn.id]
+
+        return json(signedIn)
+      }
+
       const made: Account = {
         id: `acc_${accounts.length + 1}`,
         runtime: pending?.runtime ?? "claude",
@@ -606,6 +614,47 @@ test("the owner sees an Antigravity account Google wants verified", async ({ pag
     await expect(row.getByTestId("verification")).toBeVisible()
     await row.scrollIntoViewIfNeeded()
     await shot(page, "models-needs-verification-light")
+  }
+})
+
+test("signing Antigravity in again drops the old Verify link without waiting for limits", async ({
+  page,
+}) => {
+  await fakeServer(page)
+  let signInComplete = false
+  await page.route("**/api/v1/account-sign-ins/*", async (route) => {
+    signInComplete = true
+    await route.fallback()
+  })
+  let releaseLimits!: () => void
+  const limitsReady = new Promise<void>((resolve) => {
+    releaseLimits = resolve
+  })
+  await page.route("**/api/v1/accounts/acc_verify/limits", async (route) => {
+    if (signInComplete) await limitsReady
+    await route.fallback()
+  })
+  const oldLimits = page.waitForResponse("**/api/v1/accounts/acc_verify/limits")
+  await page.goto("/settings/models")
+  await oldLimits
+
+  try {
+    const row = card(page, "Antigravity").getByLabel("Antigravity account second@gmail.example")
+    const verify = row.getByRole("button", { name: "Verify second@gmail.example with Google" })
+    await expect(verify).toBeVisible()
+    await row.getByRole("button", { name: "Sign second@gmail.example in again" }).click()
+    const dialog = page.getByRole("dialog", { name: /^Sign .* in again$/ })
+    await dialog
+      .getByLabel("2. Paste what the page gives back")
+      .fill("http://localhost:1455/auth/callback?code=xyz&state=abc")
+    const newLimits = page.waitForRequest("**/api/v1/accounts/acc_verify/limits")
+    await dialog.getByRole("button", { name: "Sign in" }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(row.getByTestId("verification")).toHaveCount(0)
+    await expect(verify).toHaveCount(0)
+    await newLimits
+  } finally {
+    releaseLimits()
   }
 })
 

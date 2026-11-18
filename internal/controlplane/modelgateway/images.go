@@ -802,7 +802,7 @@ func (s *Server) antigravityImage(
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", s.antigravity.identity.UserAgent(ctx))
 
-		if err := s.checkAntigravityVerification(ctx, token.AccountID); err != nil {
+		if err := s.checkAntigravityVerification(ctx, token); err != nil {
 			return nil, err
 		}
 

@@ -50,6 +50,7 @@ type google struct {
 	revoked     bool
 	onRefresh   func(context.Context)
 	onDailyRead func(context.Context)
+	onRead      func(http.ResponseWriter, *http.Request) bool
 	// user is who logs in next: Google's id and the email.
 	user  string
 	email string
@@ -88,7 +89,7 @@ func newGoogle(t *testing.T) *google {
 		mux.HandleFunc("POST /"+host+"/v1internal:fetchAvailableModels", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
 
-			if g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
+			if g.interceptRead(w, r) || g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
 				return
 			}
 
@@ -117,7 +118,7 @@ func newGoogle(t *testing.T) *google {
 		mux.HandleFunc("POST /"+host+"/v1internal:retrieveUserQuotaSummary", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
 
-			if g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
+			if g.interceptRead(w, r) || g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
 				return
 			}
 
@@ -154,6 +155,14 @@ func newGoogle(t *testing.T) *google {
 	t.Cleanup(g.srv.Close)
 
 	return g
+}
+
+func (g *google) interceptRead(w http.ResponseWriter, r *http.Request) bool {
+	g.mu.Lock()
+	hook := g.onRead
+	g.mu.Unlock()
+
+	return hook != nil && hook(w, r)
 }
 
 func (g *google) dailyReadUnavailable(w http.ResponseWriter, r *http.Request, host string) bool {
@@ -336,14 +345,20 @@ func newAntigravityWorld(t *testing.T, secret string) *antigravityWorld {
 func (w *antigravityWorld) login() (subscription.Account, error) {
 	w.t.Helper()
 
-	attempt, err := w.subs.Begin(w.t.Context(), "antigravity")
+	return w.loginWithContext(w.t.Context())
+}
+
+func (w *antigravityWorld) loginWithContext(ctx context.Context) (subscription.Account, error) {
+	w.t.Helper()
+
+	attempt, err := w.subs.Begin(ctx, "antigravity")
 	require.NoError(w.t, err)
 	require.True(w.t, attempt.Paste)
 
 	link, err := url.Parse(attempt.URL)
 	require.NoError(w.t, err)
 
-	return w.subs.Complete(w.t.Context(), attempt,
+	return w.subs.Complete(ctx, attempt,
 		"http://localhost:51121/oauth-callback?state="+link.Query().Get("state")+"&code=the-code&scope=email", "")
 }
 

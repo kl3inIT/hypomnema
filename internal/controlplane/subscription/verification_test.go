@@ -2,6 +2,8 @@ package subscription_test
 
 import (
 	"context"
+	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
 
 const verifyLink = "https://accounts.google.com/signin/continue?sarp=1&plt=first"
@@ -31,6 +34,18 @@ func (w *antigravityWorld) verification(id string) subscription.Account {
 	require.NotNil(w.t, a.Verification, "the account is marked")
 
 	return a
+}
+
+func (w *antigravityWorld) credential(ctx context.Context, id string) subscription.Token {
+	w.t.Helper()
+	account, err := w.subs.Get(ctx, id)
+	require.NoError(w.t, err)
+	name, ok := vault.NameFromRef(account.SecretRef)
+	require.True(w.t, ok)
+	secret, err := w.vault.Get(ctx, name)
+	require.NoError(w.t, err)
+
+	return subscription.Token{AccountID: id, Version: secret.Version}
 }
 
 // Scenario (issue #822): Google wants an Antigravity account verified and answers the models list with 403
@@ -99,14 +114,9 @@ func TestAnAccountGoogleWantsVerifiedRestsOnAGrowingSchedule(t *testing.T) {
 		assert.Equal(t, t0, v.AskedAt, "when Google first asked")
 	}
 
-	// Its next time come, the gateway may try it, and says so; Google no longer asks, so it works and is cleared.
+	// The next read claims its retry (including any OAuth refresh). Google no longer asks, so the mark clears.
 	w.clock.advance(w.verification(marked.ID).Verification.RetryAt.Sub(w.clock.Now()))
 	w.google.set(func(g *google) { g.asks = "" })
-
-	token, err := w.subs.Token(t.Context(), "antigravity", "", other.ID)
-	require.NoError(t, err)
-	assert.Equal(t, marked.ID, token.AccountID)
-	assert.True(t, token.Verifying, "this is the marked account's try")
 
 	_, err = w.subs.Models(t.Context(), marked.ID)
 	require.NoError(t, err)
@@ -115,7 +125,7 @@ func TestAnAccountGoogleWantsVerifiedRestsOnAGrowingSchedule(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, a.Verification, "a call that works clears the mark")
 
-	token, err = w.subs.Token(t.Context(), "antigravity", "", other.ID)
+	token, err := w.subs.Token(t.Context(), "antigravity", "", other.ID)
 	require.NoError(t, err)
 	assert.False(t, token.Verifying)
 }
@@ -131,12 +141,13 @@ func TestTheGatewayMarksAndClearsAnAccountToVerify(t *testing.T) {
 	a, err := w.login()
 	require.NoError(t, err)
 
-	retry, err := w.subs.NeedsVerification(t.Context(), a.ID, verifyLink, "Verify your account to continue.")
+	credential := w.credential(t.Context(), a.ID)
+	retry, err := w.subs.NeedsVerification(t.Context(), credential, verifyLink, "Verify your account to continue.")
 	require.NoError(t, err)
 	assert.Equal(t, t0.Add(10*time.Minute), retry)
 
 	// A request in flight when the account was marked answers the same, with a newer link.
-	retry, err = w.subs.NeedsVerification(t.Context(), a.ID, verifyLink+"-2", "Verify your account to continue.")
+	retry, err = w.subs.NeedsVerification(t.Context(), credential, verifyLink+"-2", "Verify your account to continue.")
 	require.NoError(t, err)
 	assert.Equal(t, t0.Add(10*time.Minute), retry, "not a new try: the schedule does not climb")
 
@@ -150,7 +161,7 @@ func TestTheGatewayMarksAndClearsAnAccountToVerify(t *testing.T) {
 	require.ErrorAs(t, err, &cooling)
 	assert.Equal(t, t0.Add(10*time.Minute), cooling.Until)
 
-	require.NoError(t, w.subs.Verified(t.Context(), a.ID))
+	require.NoError(t, w.subs.Verified(t.Context(), credential))
 
 	token, err := w.subs.Token(t.Context(), "antigravity", "")
 	require.NoError(t, err)
@@ -199,7 +210,7 @@ func TestTheRetryAfterARefusalWaitsForTheNextTry(t *testing.T) {
 	token, err := w.subs.Token(t.Context(), "antigravity", "")
 	require.NoError(t, err)
 
-	_, err = w.subs.NeedsVerification(t.Context(), a.ID, verifyLink, "Verify your account to continue.")
+	_, err = w.subs.NeedsVerification(t.Context(), token, verifyLink, "Verify your account to continue.")
 	require.NoError(t, err)
 
 	_, err = w.subs.TokenAfterRefusal(t.Context(), token)
@@ -231,7 +242,8 @@ func TestReview826MarkDuringRefreshMustBlockToken(t *testing.T) {
 
 	world.google.set(func(fake *google) {
 		fake.onRefresh = func(ctx context.Context) {
-			_, err := world.subs.NeedsVerification(ctx, account.ID, verifyLink, "Verify your account to continue.")
+			credential := world.credential(ctx, account.ID)
+			_, err := world.subs.NeedsVerification(ctx, credential, verifyLink, "Verify your account to continue.")
 			assert.NoError(t, err)
 		}
 	})
@@ -248,7 +260,7 @@ func TestReview826MarkedAccountMustNotRefreshBeforeGate(t *testing.T) {
 	t.Parallel()
 
 	world := newAntigravityWorld(t, ideSecret)
-	account, err := world.login()
+	_, err := world.login()
 	require.NoError(t, err)
 
 	refused, err := world.subs.Token(t.Context(), "antigravity", "")
@@ -259,7 +271,7 @@ func TestReview826MarkedAccountMustNotRefreshBeforeGate(t *testing.T) {
 		fake.revoked = true
 		fake.onRefresh = func(context.Context) { refreshed.Store(true) }
 	})
-	_, err = world.subs.NeedsVerification(t.Context(), account.ID, verifyLink, "Verify your account to continue.")
+	_, err = world.subs.NeedsVerification(t.Context(), refused, verifyLink, "Verify your account to continue.")
 	require.NoError(t, err)
 
 	_, err = world.subs.TokenAfterRefusal(t.Context(), refused)
@@ -294,7 +306,7 @@ func markDuringCall(t *testing.T, world *antigravityWorld, id string) func(conte
 	t.Helper()
 
 	return func(ctx context.Context) {
-		_, err := world.subs.NeedsVerification(ctx, id, verifyLink, "Verify your account to continue.")
+		_, err := world.subs.NeedsVerification(ctx, world.credential(ctx, id), verifyLink, "Verify your account to continue.")
 		assert.NoError(t, err)
 	}
 }
@@ -419,4 +431,112 @@ func TestReview826MarkedAccountDoesNotReachSecondHost(t *testing.T) {
 			assert.Equal(t, 1, world.verification(account.ID).Verification.Failures)
 		})
 	}
+}
+
+func TestReview826RetryClaimsSlotBeforeFirstHost(t *testing.T) {
+	t.Parallel()
+
+	world := newAntigravityWorld(t, ideSecret)
+	account, err := world.login()
+	require.NoError(t, err)
+	markDuringCall(t, world, account.ID)(t.Context())
+	world.clock.advance(10 * time.Minute)
+	var hosts atomic.Int32
+	world.google.set(func(fake *google) {
+		fake.onRead = func(w http.ResponseWriter, r *http.Request) bool {
+			hosts.Add(1)
+			if strings.HasSuffix(r.URL.Path, "fetchAvailableModels") && strings.HasPrefix(r.URL.Path, "/daily/") {
+				_, err := world.subs.Limits(r.Context(), account.ID, true)
+				assert.ErrorAs(t, err, new(*subscription.VerificationError), "the competing call skips the claimed slot")
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+
+			return true
+		}
+	})
+
+	_, err = world.subs.Models(t.Context(), account.ID)
+	require.Error(t, err)
+	_, err = world.subs.Limits(t.Context(), account.ID, true)
+	require.ErrorAs(t, err, new(*subscription.VerificationError))
+	assert.EqualValues(t, 2, hosts.Load(), "only the slot owner may use both hosts")
+	assert.Equal(t, world.clock.Now().Add(time.Hour), world.verification(account.ID).Verification.RetryAt)
+}
+
+func TestReview826OldSignInCannotChangeVerification(t *testing.T) {
+	t.Parallel()
+
+	for _, oldSuccess := range []bool{false, true} {
+		name := "old refusal cannot mark"
+		if oldSuccess {
+			name = "old success cannot clear"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			world := newAntigravityWorld(t, ideSecret)
+			account, err := world.login()
+			require.NoError(t, err)
+			if oldSuccess {
+				markDuringCall(t, world, account.ID)(t.Context())
+				world.clock.advance(10 * time.Minute)
+			}
+			world.google.set(func(fake *google) {
+				fake.onRead = func(_ http.ResponseWriter, r *http.Request) bool {
+					world.google.set(func(fake *google) { fake.onRead = nil })
+					_, err := world.loginWithContext(r.Context())
+					assert.NoError(t, err)
+					world.google.set(func(fake *google) { fake.asks = verifyLink })
+					if oldSuccess {
+						_, err := world.subs.Models(r.Context(), account.ID)
+						assert.ErrorAs(t, err, new(*subscription.VerificationError))
+						world.google.set(func(fake *google) { fake.asks = "" })
+					}
+
+					return false
+				}
+			})
+
+			_, err = world.subs.Models(t.Context(), account.ID)
+			if oldSuccess {
+				require.NoError(t, err)
+				assert.Equal(t, verifyLink, world.verification(account.ID).Verification.URL)
+			} else {
+				require.ErrorAs(t, err, new(*subscription.VerificationError))
+				current, err := world.subs.Get(t.Context(), account.ID)
+				require.NoError(t, err)
+				assert.Nil(t, current.Verification)
+			}
+		})
+	}
+}
+
+func TestReview826ClaimSurvives401Refresh(t *testing.T) {
+	t.Parallel()
+
+	world := newAntigravityWorld(t, ideSecret)
+	account, err := world.login()
+	require.NoError(t, err)
+	credential := world.credential(t.Context(), account.ID)
+	markDuringCall(t, world, account.ID)(t.Context())
+	world.clock.advance(10 * time.Minute)
+
+	token, err := world.subs.Token(t.Context(), "antigravity", "")
+	require.NoError(t, err)
+	assert.Equal(t, account.ID, token.AccountID)
+	assert.True(t, token.Verifying, "this is the marked account's try")
+	require.NoError(t, world.subs.CheckVerification(t.Context(), token))
+
+	_, err = world.subs.Models(t.Context(), account.ID)
+	require.ErrorAs(t, err, new(*subscription.VerificationError))
+
+	fresh, err := world.subs.TokenAfterRefusal(t.Context(), token)
+	require.NoError(t, err)
+	require.Greater(t, fresh.Version, token.Version)
+	require.NoError(t, world.subs.CheckVerification(t.Context(), fresh))
+
+	retry, err := world.subs.NeedsVerification(t.Context(), credential, verifyLink+"-later", "Please verify.")
+	require.NoError(t, err)
+	assert.Equal(t, world.clock.Now().Add(time.Hour), retry, "OAuth refresh does not start another sign-in generation")
+	assert.Equal(t, verifyLink+"-later", world.verification(account.ID).Verification.URL)
 }

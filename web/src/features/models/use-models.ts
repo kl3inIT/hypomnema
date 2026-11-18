@@ -68,6 +68,17 @@ export function useAccountLimits(accountId: string, enabled: boolean) {
   })
 }
 
+export function useResetAccountLimits() {
+  const queryClient = useQueryClient()
+
+  return (accountId: string) => {
+    void queryClient.resetQueries({
+      queryKey: getAccountLimitsQueryKey({ path: { account_id: accountId } }),
+      exact: true,
+    })
+  }
+}
+
 // useShowLimits shows limits the server answered with, such as after a reset, as an account's limits: the body
 // of their read, which the limits themselves are.
 export function useShowLimits(accountId: string) {

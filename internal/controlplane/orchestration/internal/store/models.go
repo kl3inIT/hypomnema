@@ -9,26 +9,27 @@ import (
 )
 
 type Account struct {
-	ID              string
-	Runtime         string
-	Label           string
-	Status          string
-	Position        int64
-	CreatedAt       int64
-	UpdatedAt       int64
-	ExternalID      sql.NullString
-	Email           sql.NullString
-	Plan            sql.NullString
-	SecretRef       sql.NullString
-	RefreshFailures int64
-	RefreshRetryAt  sql.NullInt64
-	RefreshError    sql.NullString
-	Project         sql.NullString
-	VerifyUrl       sql.NullString
-	VerifyMessage   sql.NullString
-	VerifyAskedAt   sql.NullInt64
-	VerifyFailures  int64
-	VerifyRetryAt   sql.NullInt64
+	ID                 string
+	Runtime            string
+	Label              string
+	Status             string
+	Position           int64
+	CreatedAt          int64
+	UpdatedAt          int64
+	ExternalID         sql.NullString
+	Email              sql.NullString
+	Plan               sql.NullString
+	SecretRef          sql.NullString
+	RefreshFailures    int64
+	RefreshRetryAt     sql.NullInt64
+	RefreshError       sql.NullString
+	Project            sql.NullString
+	VerifyUrl          sql.NullString
+	VerifyMessage      sql.NullString
+	VerifyAskedAt      sql.NullInt64
+	VerifyFailures     int64
+	VerifyRetryAt      sql.NullInt64
+	VerifyLoginVersion int64
 }
 
 type AccountCooldown struct {

@@ -2862,17 +2862,21 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
 - An Antigravity account Google wants verified (issue #822): a 403 whose `google.rpc.ErrorInfo` reason is
   `VALIDATION_REQUIRED`, on chat or images (the gateway), on the models list or on the quota read, marks the account
   (`subscription/verification.go`, `orchestration/account_verification.go`, columns `verify_*` of `accounts`):
-  Google's latest `validation_url`, its message, when it first asked, the answers in a row that asked and the next
+  Google's latest `validation_url`, its message, when it first asked, the retry count and the next
   try. The gateway passes a marked account over until its next try, as a cooling one, and the models list and the
   limits do not ask Google before it either; the tries come after 10 minutes, 1 hour, 6 hours, then every day
-  (opencode-antigravity-auth PR #338). An answer to a request sent before the mark, while the account rests,
-  updates the link but not the schedule. The current mark is checked before an OAuth refresh (manual or
+  (opencode-antigravity-auth PR #338). One request atomically claims each due retry before contacting Google and
+  advances the schedule even if it receives no verification verdict. The same request may use a fallback host;
+  background refresh leaves marked accounts to the requests that can verify them. Further refusals update the link
+  but not the schedule. The current mark is checked before an OAuth refresh (manual or
   background included), before handing out a token, and before each request with it (including a second host).
   A mark made during a failed refresh wins over the OAuth error for routing, so the gateway tries the next
   account. The link kept is the `validation_url` of the
   `VALIDATION_REQUIRED` detail itself, none when it names none. The first call that works under the account clears
   the mark (a chat only once its answer has ended well, not at its 200), and so does signing it in again
-  (opencode-antigravity-auth issue #589). `GET /accounts` gives the mark as `verification`
+  (opencode-antigravity-auth issue #589). The vault version written at sign-in bounds which responses can mark or
+  clear: responses using an earlier sign-in are ignored, while OAuth refresh keeps the same sign-in generation.
+  Settings drops the account's cached limits when sign-in succeeds. `GET /accounts` gives the mark as `verification`
   (`url`, `message`, `asked_at`, `next_try_at`), `GET /accounts/{id}/limits` answers `unavailable: verification`
   with `verification_url`, and `accounts list` prints it. Settings, Models shows the account "Needs verification"
   with when Google asked, the next try and a Verify button that opens the link; the owner can still sign it in

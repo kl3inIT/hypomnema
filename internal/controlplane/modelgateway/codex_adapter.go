@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/codex"
@@ -63,6 +64,8 @@ type AccountToken struct {
 	// Verifying says Google asked for the account to be verified and this is
 	// its next try (issue #822).
 	Verifying bool
+	// VerificationRetry is the deadline claimed by this request's retry, if any.
+	VerificationRetry *atomic.Int64
 }
 
 // ErrNoAccount says no account of a kind can be used now: none is logged

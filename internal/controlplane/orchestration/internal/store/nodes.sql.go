@@ -27,21 +27,50 @@ func (q *Queries) AccountLabelTaken(ctx context.Context, arg AccountLabelTakenPa
 	return exists, err
 }
 
+const claimAccountVerificationRetry = `-- name: ClaimAccountVerificationRetry :execrows
+UPDATE accounts SET updated_at = ?1, verify_failures = verify_failures + 1, verify_retry_at = ?2
+WHERE id = ?3 AND verify_login_version <= ?4 AND verify_asked_at IS NOT NULL
+    AND verify_retry_at = ?5 AND verify_retry_at <= ?1
+`
+
+type ClaimAccountVerificationRetryParams struct {
+	Now             int64
+	NextRetryAt     sql.NullInt64
+	ID              string
+	Version         int64
+	PreviousRetryAt sql.NullInt64
+}
+
+func (q *Queries) ClaimAccountVerificationRetry(ctx context.Context, arg ClaimAccountVerificationRetryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimAccountVerificationRetry,
+		arg.Now,
+		arg.NextRetryAt,
+		arg.ID,
+		arg.Version,
+		arg.PreviousRetryAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const clearAccountVerification = `-- name: ClearAccountVerification :execrows
 UPDATE accounts
 SET updated_at = ?1, verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0,
     verify_retry_at = NULL
-WHERE id = ?2 AND verify_asked_at IS NOT NULL
+WHERE id = ?2 AND verify_login_version <= ?3 AND verify_asked_at IS NOT NULL
 `
 
 type ClearAccountVerificationParams struct {
-	Now int64
-	ID  string
+	Now     int64
+	ID      string
+	Version int64
 }
 
 // A call under the account succeeded: Google no longer asks.
 func (q *Queries) ClearAccountVerification(ctx context.Context, arg ClearAccountVerificationParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, clearAccountVerification, arg.Now, arg.ID)
+	result, err := q.db.ExecContext(ctx, clearAccountVerification, arg.Now, arg.ID, arg.Version)
 	if err != nil {
 		return 0, err
 	}
@@ -268,7 +297,7 @@ func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, 
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at FROM accounts WHERE id = ?1
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at, verify_login_version FROM accounts WHERE id = ?1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -295,12 +324,13 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.VerifyAskedAt,
 		&i.VerifyFailures,
 		&i.VerifyRetryAt,
+		&i.VerifyLoginVersion,
 	)
 	return i, err
 }
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at FROM accounts
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at, verify_login_version FROM accounts
 WHERE runtime = ?1 AND external_id = ?2 AND lower(coalesce(email, '')) = lower(?3)
 `
 
@@ -334,6 +364,7 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByEx
 		&i.VerifyAskedAt,
 		&i.VerifyFailures,
 		&i.VerifyRetryAt,
+		&i.VerifyLoginVersion,
 	)
 	return i, err
 }
@@ -592,7 +623,7 @@ func (q *Queries) ListAccountLabelsBySecretRef(ctx context.Context, secretRef sq
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at FROM accounts ORDER BY runtime, position, id
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at, verify_login_version FROM accounts ORDER BY runtime, position, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -625,6 +656,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.VerifyAskedAt,
 			&i.VerifyFailures,
 			&i.VerifyRetryAt,
+			&i.VerifyLoginVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -979,10 +1011,7 @@ func (q *Queries) SetAccountIdentity(ctx context.Context, arg SetAccountIdentity
 }
 
 const setAccountLogin = `-- name: SetAccountLogin :execrows
-UPDATE accounts
-SET updated_at = ?1, email = ?2, plan = ?3, project = ?4,
-    verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0, verify_retry_at = NULL
-WHERE id = ?5
+UPDATE accounts SET updated_at = ?1, email = ?2, plan = ?3, project = ?4 WHERE id = ?5
 `
 
 type SetAccountLoginParams struct {
@@ -993,8 +1022,6 @@ type SetAccountLoginParams struct {
 	ID      string
 }
 
-// A new login of an account: who it is now, and the project it works in. It clears a verification Google asked
-// for (issue #822; opencode-antigravity-auth clears it on a new sign-in, src/v2.ts:455-462).
 func (q *Queries) SetAccountLogin(ctx context.Context, arg SetAccountLoginParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setAccountLogin,
 		arg.Now,
@@ -1078,7 +1105,7 @@ const setAccountVerification = `-- name: SetAccountVerification :execrows
 UPDATE accounts
 SET updated_at = ?1, verify_url = ?2, verify_message = ?3, verify_asked_at = ?4,
     verify_failures = ?5, verify_retry_at = ?6
-WHERE id = ?7
+WHERE id = ?7 AND verify_login_version <= ?8
 `
 
 type SetAccountVerificationParams struct {
@@ -1089,6 +1116,7 @@ type SetAccountVerificationParams struct {
 	VerifyFailures int64
 	VerifyRetryAt  sql.NullInt64
 	ID             string
+	Version        int64
 }
 
 // Google asked for the account to be verified (issue #822).
@@ -1101,6 +1129,7 @@ func (q *Queries) SetAccountVerification(ctx context.Context, arg SetAccountVeri
 		arg.VerifyFailures,
 		arg.VerifyRetryAt,
 		arg.ID,
+		arg.Version,
 	)
 	if err != nil {
 		return 0, err
@@ -1251,6 +1280,27 @@ type SetNodeToolsParams struct {
 
 func (q *Queries) SetNodeTools(ctx context.Context, arg SetNodeToolsParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setNodeTools, arg.Tools, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setVerificationLogin = `-- name: SetVerificationLogin :execrows
+UPDATE accounts
+SET updated_at = ?1, verify_login_version = ?2,
+    verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0, verify_retry_at = NULL
+WHERE id = ?3 AND verify_login_version < ?2
+`
+
+type SetVerificationLoginParams struct {
+	Now     int64
+	Version int64
+	ID      string
+}
+
+func (q *Queries) SetVerificationLogin(ctx context.Context, arg SetVerificationLoginParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setVerificationLogin, arg.Now, arg.Version, arg.ID)
 	if err != nil {
 		return 0, err
 	}

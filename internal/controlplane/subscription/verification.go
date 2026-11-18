@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -24,36 +25,36 @@ import (
 // (sdk/cliproxy/auth/conductor_cooldown.go:1804-1810, 3969 at a5e8f69).
 
 // verifySchedule is how long an account Google wants verified rests after the
-// first, second, third and every later answer in a row that asked (PR #338's
+// initial refusal and the retries that follow it (PR #338's
 // VERIFICATION_COOLDOWN_SCHEDULE).
 var verifySchedule = []time.Duration{10 * time.Minute, time.Hour, 6 * time.Hour, 24 * time.Hour}
 
-// verifyWait is the rest after the nth answer in a row that asked.
+// verifyWait is the rest after an initial refusal or a claimed retry.
 func verifyWait(failures int) time.Duration {
 	return verifySchedule[min(max(failures, 1), len(verifySchedule))-1]
 }
 
 // NeedsVerification marks an account Google wants verified, with its link and
 // message, and returns when it is tried again.
-func (s *Service) NeedsVerification(ctx context.Context, accountID, url, message string) (time.Time, error) {
-	v, err := s.accounts.MarkAccountVerification(ctx, accountID, url, message, verifyWait)
-	if err != nil {
+func (s *Service) NeedsVerification(ctx context.Context, token Token, url, message string) (time.Time, error) {
+	v, err := s.accounts.MarkAccountVerification(ctx, token.AccountID, token.Version, url, message, verifyWait(1))
+	if err != nil || v.RetryAt.IsZero() {
 		return time.Time{}, err
 	}
 
 	s.logger.WarnContext(ctx, "Google asks for an account to be verified",
-		slog.String("event", "subscription.verification_required"), slog.String("account_id", accountID),
+		slog.String("event", "subscription.verification_required"), slog.String("account_id", token.AccountID),
 		slog.Int("failures", v.Failures), slog.Time("retry_at", v.RetryAt))
 
 	return v.RetryAt, nil
 }
 
 // Verified clears the mark of an account a call worked under.
-func (s *Service) Verified(ctx context.Context, accountID string) error {
-	cleared, err := s.accounts.ClearAccountVerification(ctx, accountID)
+func (s *Service) Verified(ctx context.Context, token Token) error {
+	cleared, err := s.accounts.ClearAccountVerification(ctx, token.AccountID, token.Version)
 	if err == nil && cleared {
 		s.logger.InfoContext(ctx, "an account Google wanted verified works again",
-			slog.String("event", "subscription.verification_cleared"), slog.String("account_id", accountID))
+			slog.String("event", "subscription.verification_cleared"), slog.String("account_id", token.AccountID))
 	}
 
 	return err
@@ -66,22 +67,57 @@ func (s *Service) verifyWaits(v *orchestration.AccountVerification) error {
 		return nil
 	}
 
-	return &VerificationError{Message: v.Message, URL: v.URL, AskedAt: v.AskedAt, RetryAt: v.RetryAt}
+	return verificationRest(v)
 }
 
-// CheckVerification rechecks the account immediately before a request to Google.
-func (s *Service) CheckVerification(ctx context.Context, accountID string) error {
-	_, err := s.currentVerification(ctx, accountID)
-
-	return err
+func verificationRest(mark *orchestration.AccountVerification) *VerificationError {
+	return &VerificationError{Message: mark.Message, URL: mark.URL, AskedAt: mark.AskedAt, RetryAt: mark.RetryAt}
 }
 
-func (s *Service) currentVerification(
-	ctx context.Context, accountID string,
-) (*orchestration.AccountVerification, error) {
-	mark, err := s.accounts.AccountVerification(ctx, accountID)
+// CheckVerification rechecks the account immediately before a request to Google and claims a due retry slot.
+func (s *Service) CheckVerification(ctx context.Context, token Token) error {
+	for {
+		mark, err := s.currentVerification(ctx, token)
+		if err != nil || mark == nil || ownsRetry(token.VerificationRetry, mark) {
+			return err
+		}
+		if token.VerificationRetry == nil {
+			return verificationRest(mark)
+		}
+
+		next, err := s.accounts.ClaimVerificationRetry(
+			ctx, token.AccountID, token.Version, mark.RetryAt, verifyWait(mark.Failures+1),
+		)
+		if err != nil {
+			return err
+		}
+		if !next.IsZero() {
+			token.VerificationRetry.Store(next.UnixMilli())
+			return nil
+		}
+	}
+}
+
+func ownsRetry(retry *atomic.Int64, mark *orchestration.AccountVerification) bool {
+	return retry != nil && mark != nil && mark.Failures > 1 && retry.Load() == mark.RetryAt.UnixMilli()
+}
+
+func (s *Service) currentVerification(ctx context.Context, token Token) (*orchestration.AccountVerification, error) {
+	mark, version, err := s.accounts.VerificationState(ctx, token.AccountID)
 	if err != nil {
 		return nil, err
+	}
+	if token.Version < version {
+		if mark != nil {
+			return nil, verificationRest(mark)
+		}
+		return nil, &VerificationError{Message: "The Antigravity account was signed in again."}
+	}
+	if ownsRetry(token.VerificationRetry, mark) && mark.RetryAt.After(s.clock.Now()) {
+		return mark, nil
+	}
+	if mark != nil && token.VerificationRetry != nil && token.VerificationRetry.Load() != 0 {
+		return nil, verificationRest(mark)
 	}
 
 	return mark, s.verifyWaits(mark)
@@ -99,7 +135,7 @@ func (s *Service) noteVerification(ctx context.Context, token Token, err error) 
 			return err
 		}
 
-		retry, markErr := s.NeedsVerification(ctx, token.AccountID, verify.URL, verify.Message)
+		retry, markErr := s.NeedsVerification(ctx, token, verify.URL, verify.Message)
 		if markErr != nil {
 			return errors.Join(err, markErr)
 		}
@@ -107,8 +143,8 @@ func (s *Service) noteVerification(ctx context.Context, token Token, err error) 
 		verify.RetryAt = retry
 
 		return err
-	case err == nil && token.Verifying:
-		if clearErr := s.Verified(ctx, token.AccountID); clearErr != nil {
+	case err == nil && (token.Verifying || token.VerificationRetry != nil && token.VerificationRetry.Load() != 0):
+		if clearErr := s.Verified(ctx, token); clearErr != nil {
 			s.logger.ErrorContext(ctx, "clearing an account's verification",
 				slog.String("event", "subscription.verification_clear_failed"),
 				slog.String("account_id", token.AccountID), slog.String("error", clearErr.Error()))

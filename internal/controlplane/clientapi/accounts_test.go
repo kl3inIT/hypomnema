@@ -383,8 +383,9 @@ func TestTheOwnerSeesAnAccountGoogleWantsVerified(t *testing.T) {
 
 	const link = "https://accounts.google.com/signin/continue?plt=1"
 
-	marked, err := w.svc.MarkAccountVerification(ctx, google.ID, link, "Verify your account to continue.",
-		func(int) time.Duration { return 10 * time.Minute })
+	marked, err := w.svc.MarkAccountVerification(
+		ctx, google.ID, 0, link, "Verify your account to continue.", 10*time.Minute,
+	)
 	require.NoError(t, err)
 
 	fake := &signedIn{
