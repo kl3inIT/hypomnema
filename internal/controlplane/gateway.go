@@ -110,16 +110,29 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	}, nil
 }
 
-// gatewayServedLimits gives the gateway what an Antigravity account is served each model with (issue #587).
+// gatewayServedLimits gives the gateway what an Antigravity account (issue #587) or an OpenCode Go key (issue #854)
+// is served each model with.
 func gatewayServedLimits(
 	subs *subscription.Service,
 ) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
-		if kind != "antigravity_subscription" {
+		switch kind {
+		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo:
+			return subs.ServedLimits(ctx, subscriptionRuntimes[kind], upstream)
+		default:
 			return 0, 0, false
 		}
+	}
+}
 
-		return subs.ServedLimits(ctx, "antigravity", upstream)
+// gatewayServedWire gives the gateway the wire OpenCode Go serves each model on, from its model list (issue #854).
+func gatewayServedWire(subs *subscription.Service) func(ctx context.Context, kind, upstream string) (string, bool) {
+	return func(ctx context.Context, kind, upstream string) (string, bool) {
+		if kind != orchestration.ProviderOpenCodeGo {
+			return "", false
+		}
+
+		return subs.ServedWire(ctx, orchestration.OpenCodeGoRuntime, upstream)
 	}
 }
 
@@ -445,6 +458,7 @@ var subscriptionRuntimes = map[string]string{
 	orchestration.ProviderCodexSubscription:       "codex",
 	orchestration.ProviderClaudeSubscription:      "claude",
 	orchestration.ProviderAntigravitySubscription: "antigravity",
+	orchestration.ProviderOpenCodeGo:              orchestration.OpenCodeGoRuntime,
 }
 
 // vendorModelsEvery is how often the subscription providers are given the models their vendors serve, and
@@ -468,9 +482,10 @@ type providerModels interface {
 }
 
 // rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
-// authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639). The others only gain models: Anthropic's
-// list does not name every model it serves (OpenClaw, Hermes), and Codex's is read per account.
-var rosterRuntimes = map[string]bool{"antigravity": true}
+// authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639), and as OpenClaw, Hermes and pi take
+// OpenCode Go's live /v1/models (issue #854). The others only gain models: Anthropic's list does not name every model
+// it serves (OpenClaw, Hermes), and Codex's is read per account.
+var rosterRuntimes = map[string]bool{"antigravity": true, orchestration.OpenCodeGoRuntime: true}
 
 // vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
 // the start and then every hour, until ctx ends.

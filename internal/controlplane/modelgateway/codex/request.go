@@ -62,6 +62,9 @@ type Options struct {
 	// CacheKey is the prompt cache key for a client that sent none. It is
 	// also the session the request is sent under.
 	CacheKey string
+	// Plain leaves out the lite shape, which only the Codex backend takes: the
+	// body is for another Responses API (OpenCode Go, issue #854).
+	Plain bool
 }
 
 // Request is a body for the backend, with what is needed to read its answer.
@@ -189,7 +192,7 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 		body["prompt_cache_key"] = cacheKey
 	}
 
-	lite := Lite(opt.Model)
+	lite := Lite(opt.Model) && !opt.Plain
 	if lite {
 		applyLite(body)
 	}

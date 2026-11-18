@@ -40,6 +40,10 @@ type Options struct {
 	// Session is the request's session, which keeps its prompt cache and is
 	// the session id of metadata.user_id; a value for a client that names none.
 	Session string
+	// Plain leaves the disguise and the gateway's cache breakpoints out: the
+	// body is the translation alone, for a Messages API that is not a Claude
+	// subscription (OpenCode Go, issue #854).
+	Plain bool
 }
 
 // Request is a Messages body with what is needed to read its answer.
@@ -135,6 +139,15 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 	// tools, no cache breakpoints, only enough to be accepted (CLIProxyAPI
 	// isClaudeProbeOrHelperRequest).
 	probe := isProbe(in)
+
+	if opt.Plain {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return Request{}, fmt.Errorf("encoding the Messages request: %w", err)
+		}
+
+		return Request{Body: encoded, Names: names, Session: opt.Session}, nil
+	}
 
 	// The disguise: the client's tools become Claude Code's, then the billing
 	// block and the fake user id go on, over the body as it then stands.

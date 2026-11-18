@@ -168,6 +168,8 @@ type Service struct {
 	allProviders func(ctx context.Context) ([]ProviderInfo, error)
 	// served gives the window and largest output a subscription's vendor serves a model with (issue #587).
 	served func(ctx context.Context, kind, upstream string) (window, output int64, ok bool)
+	// wire gives the API a subscription's vendor serves a model on, for a vendor that serves several (issue #854).
+	wire func(ctx context.Context, kind, upstream string) (string, bool)
 }
 
 // New returns a Service over an opened, migrated database. providers looks
@@ -305,7 +307,9 @@ func (s *Service) checkTarget(ctx context.Context, provider, model string) (stri
 // one's models under "<provider>/<model>" without a row in its table (issue #549), as 9router-go lists the models
 // of every active connection (internal/handlers/chat/models_list.go) and CLIProxyAPI's registry fills from its
 // logged-in accounts (internal/registry/model_registry.go). The table is left for a name made on purpose.
-var subscriptionKinds = []string{"claude_subscription", "codex_subscription", "antigravity_subscription"}
+var subscriptionKinds = []string{
+	"claude_subscription", "codex_subscription", "antigravity_subscription", openCodeGoKind,
+}
 
 // subscriptionModel is the model a subscription offers under "<provider>/<model>", or ok false when the name is
 // not one.
@@ -420,6 +424,13 @@ func (s *Service) WithServedLimits(
 	served func(ctx context.Context, kind, upstream string) (window, output int64, ok bool),
 ) *Service {
 	s.served = served
+
+	return s
+}
+
+// WithServedWire gives the gateway the API a subscription's vendor serves each model on (OpenCode Go, issue #854).
+func (s *Service) WithServedWire(wire func(ctx context.Context, kind, upstream string) (string, bool)) *Service {
+	s.wire = wire
 
 	return s
 }
