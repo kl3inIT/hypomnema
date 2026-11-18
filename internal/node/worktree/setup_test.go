@@ -28,6 +28,13 @@ func TestMain(tests *testing.M) {
 	os.Exit(tests.Run())
 }
 
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return path
+}
+
 // lockedBuffer is a log the node writes while the test reads it.
 type lockedBuffer struct {
 	mu  sync.Mutex
@@ -61,7 +68,7 @@ func declaring(t *testing.T, file string) (Maker, Source, string, *lockedBuffer)
 		t.Skip("no shell is installed")
 	}
 
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	origin(t, filepath.Join(dir, "origin"))
 
 	src := filepath.Join(dir, "origin", "kl3inIT", "second-bite")
@@ -137,8 +144,7 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 
 func TestDisposableWorktreeCannotContainNodeHome(t *testing.T) {
 	t.Parallel()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	root := realTempDir(t)
 	target := filepath.Join(root, "run", "task")
 	home := filepath.Join(target, "node")
 	require.NoError(t, os.MkdirAll(home, 0o700))

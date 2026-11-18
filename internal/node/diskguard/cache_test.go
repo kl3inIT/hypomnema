@@ -25,12 +25,19 @@ func TestMain(tests *testing.M) {
 	os.Exit(tests.Run())
 }
 
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return path
+}
+
 func TestNativePruneCannotMutateThroughALateSymlink(t *testing.T) {
 	t.Parallel()
 	if !ScopeAvailable() {
 		t.Skip("Landlock is unavailable")
 	}
-	root := t.TempDir()
+	root := realTempDir(t)
 	store, outside := filepath.Join(root, "store"), filepath.Join(root, "open-run")
 	for _, dir := range []string{store, outside} {
 		require.NoError(t, os.Mkdir(dir, 0o700))
@@ -52,7 +59,7 @@ func TestNativePruneCannotMutateThroughALateSymlink(t *testing.T) {
 func TestRemoveTreeCannotFollowSwappedParent(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"tmp", "worktree"} {
-		root := t.TempDir()
+		root := realTempDir(t)
 		parent, outside := filepath.Join(root, "parent"), filepath.Join(root, "outside")
 		for _, dir := range []string{parent, outside} {
 			require.NoError(t, os.MkdirAll(filepath.Join(dir, name), 0o700))
@@ -70,8 +77,7 @@ func TestRemoveTreeCannotFollowSwappedParent(t *testing.T) {
 
 func TestPnpmRejectsStoreSymlinkAndLeavesDefaultDLXCacheAlone(t *testing.T) {
 	t.Parallel()
-	home, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
+	home := realTempDir(t)
 	bin := filepath.Join(home, ".local", "bin")
 	store := pnpmStore(home)
 	version := filepath.Join(store, "v11")
@@ -121,7 +127,7 @@ func mustReadDir(t *testing.T, path string) []os.DirEntry {
 
 func TestGoCacheTrimStopsAtTargetAndKeepsNewAndUnknownFiles(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := realTempDir(t)
 	bucket := filepath.Join(root, "01")
 	require.NoError(t, os.Mkdir(bucket, 0o700))
 	now := time.Now()
@@ -156,7 +162,7 @@ func TestGoCacheTrimStopsAtTargetAndKeepsNewAndUnknownFiles(t *testing.T) {
 
 func TestGoCacheOnAnotherMountIsNeverTrimmed(t *testing.T) {
 	t.Parallel()
-	volume := t.TempDir()
+	volume := realTempDir(t)
 	if !RealDir("/dev/shm") || SameVolume(volume, "/dev/shm") {
 		t.Skip("a separate /dev/shm mount is needed")
 	}
@@ -171,7 +177,7 @@ func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("unlink permission must not be bypassed by root")
 	}
-	root := t.TempDir()
+	root := realTempDir(t)
 	blocked, later := filepath.Join(root, "01"), filepath.Join(root, "02")
 	now := time.Now()
 	var entries []string

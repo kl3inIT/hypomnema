@@ -47,7 +47,7 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	origin(t, filepath.Join(dir, "origin"))
 
 	m := Maker{Root: filepath.Join(dir, "node"), URL: filepath.ToSlash(filepath.Join(dir, "origin")) + "/%s"}

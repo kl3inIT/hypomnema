@@ -461,6 +461,7 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	dir := g.sup.dir("dsp_1")
 	pid, err := shim.PID(dir)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = shim.KillRecorded(dir) })
 	identity := filepath.Join(dir, "shim.identity")
 	original, err := os.ReadFile(identity) //nolint:gosec // an owned test fixture
 	require.NoError(t, err)
@@ -494,7 +495,17 @@ exec "` + realExe + `" "$@"
 	dispatch := g.dispatch()
 	dir := g.sup.dir(dispatch.ID)
 	proceed := filepath.Join(dir, "proceed")
-	t.Cleanup(func() { _ = os.WriteFile(proceed, nil, 0o600) })
+	t.Cleanup(func() {
+		_ = os.WriteFile(proceed, nil, 0o600)
+		if _, err := os.Stat(filepath.Join(dir, "spawned")); err != nil {
+			return
+		}
+		assert.Eventually(t, func() bool {
+			_, err := shim.PID(dir)
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond)
+		_ = shim.KillRecorded(dir)
+	})
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
