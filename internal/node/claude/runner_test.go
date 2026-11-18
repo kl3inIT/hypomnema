@@ -20,17 +20,24 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
+	"github.com/kl3inIT/hypomnema/internal/node/workertools"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
-// The test binary plays three parts: the tests, the shim (`shim --dir D`),
-// and a fake claude (FAKE_CLAUDE set) that speaks stream-JSON.
+// The test binary also runs the shim, the MCP server, and a fake Claude (FAKE_CLAUDE set).
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == "shim" && os.Args[2] == "--dir" {
 		if err := shim.Main(context.Background(), os.Args[3]); err != nil {
 			os.Exit(2)
 		}
 
+		os.Exit(0)
+	}
+
+	if len(os.Args) == 4 && os.Args[1] == "mcp" && os.Args[2] == "--dir" {
+		if err := workertools.Serve(context.Background(), os.Stdin, os.Stdout, os.Args[3]); err != nil {
+			os.Exit(2)
+		}
 		os.Exit(0)
 	}
 
@@ -113,6 +120,16 @@ func fakeClaude(mode string) int {
 				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Write", "input": map[string]any{"x": 1}},
 			})
 		case msg.Type == "control_response" && msg.Response.RequestID == "perm_1":
+			if mode == "background" || mode == "queued" {
+				emitInterimResult(out, mode == "queued")
+				continue
+			}
+
+			if strings.HasPrefix(mode, "recover") {
+				emitFailedFinish(out, mode)
+				continue
+			}
+
 			emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
 				{"type": "text", "text": "Adding the button."},
 				{"type": "tool_use", "id": "call_1", "name": "Write", "input": map[string]any{"file_path": "login.tsx"}},
@@ -139,10 +156,59 @@ func fakeClaude(mode string) int {
 			emit(out, map[string]any{"type": "result", "subtype": "success", "is_error": false,
 				"result": "did it; https://github.com/kl3inIT/second-bite/pull/7",
 				"usage":  map[string]any{"input_tokens": 1200, "output_tokens": 300, "cache_read_input_tokens": 9000}})
+		case msg.Type == "control_response" && msg.Response.RequestID == "perm_after":
+			emit(out, map[string]any{"type": "control_request", "request_id": "perm_finish",
+				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "mcp__hypomnema__finish"}})
+		case msg.Type == "control_response" && msg.Response.RequestID == "perm_finish":
+			_ = bridge.Finish(bridgeDir(), bridge.Final{Summary: "finished after Bash"})
+			emit(out, map[string]any{"type": "result", "subtype": "success", "result": "done"})
 		}
 	}
 
 	return exit
+}
+
+func emitInterimResult(out *json.Encoder, queued bool) {
+	result := map[string]any{"type": "result", "subtype": "success", "result": "waiting"}
+	if queued {
+		result["queued_turn_count"] = 1
+	} else {
+		emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
+			"tasks": []map[string]string{{"task_id": "bg", "task_type": "local_bash"}}})
+	}
+	emit(out, result)
+	emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
+	time.Sleep(500 * time.Millisecond)
+	if !queued {
+		emit(out, map[string]any{"type": "system", "subtype": "task_notification", "task_id": "bg", "status": "stopped"})
+		emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+	}
+	emit(out, map[string]any{"type": "control_request", "request_id": "perm_after",
+		"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Bash"}})
+}
+
+func emitFailedFinish(out *json.Encoder, mode string) {
+	input := map[string]any{
+		"summary": "recovered finish", "evidence": []nodeproto.Evidence{{Kind: "pull_request", Ref: "https://example.test/pull/7"}},
+	}
+	callID, result := "final", "Tool permission request failed: AbortError: Stream closed"
+	switch mode {
+	case "recover-denied":
+		result = "Tool permission request failed: denied"
+	case "recover-wrong-id":
+		callID = "different-tool"
+	case "recover-invalid":
+		input["summary"] = " "
+	case "recover-recorded":
+		_ = bridge.Finish(bridgeDir(), bridge.Final{Summary: "already recorded"})
+	}
+	emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_use", "id": "final", "name": "mcp__hypomnema__finish", "input": input},
+	}}})
+	emit(out, map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_result", "tool_use_id": callID, "is_error": true, "content": result},
+	}}})
+	emit(out, map[string]any{"type": "result", "subtype": "success", "result": "could not call finish"})
 }
 
 // bridgeDir is the bridge directory named in the worker's --mcp-config, as
@@ -414,6 +480,53 @@ func TestTurnWithoutFinishFails(t *testing.T) {
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "worker_error", r.finished[0].Class)
 	assert.True(t, strings.HasPrefix(r.finished[0].Summary, "stopped without finish"))
+}
+
+func TestInterimResultKeepsPermissionStreamOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{"background", "queued"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			g := newRig(t, mode)
+			r := newReporter("dsp_1")
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+			r.wait(t)
+
+			require.Len(t, r.finished, 1)
+			assert.Empty(t, r.finished[0].Class)
+			assert.Equal(t, "finished after Bash", r.finished[0].Summary)
+		})
+	}
+}
+
+func TestRecoversOnlyAnExplicitFinishWithAClosedPermissionStream(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		mode, class, summary string
+		evidence             []nodeproto.Evidence
+	}{
+		{mode: "recover", summary: "recovered finish",
+			evidence: []nodeproto.Evidence{{Kind: "pull_request", Ref: "https://example.test/pull/7"}}},
+		{mode: "recover-recorded", summary: "already recorded"},
+		{mode: "recover-denied", class: "worker_error", summary: "stopped without finish: could not call finish"},
+		{mode: "recover-wrong-id", class: "worker_error", summary: "stopped without finish: could not call finish"},
+		{mode: "recover-invalid", class: "worker_error", summary: "stopped without finish: could not call finish"},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			t.Parallel()
+			g := newRig(t, test.mode)
+			r := newReporter("dsp_1")
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+			r.wait(t)
+
+			require.Len(t, r.finished, 1)
+			assert.Equal(t, test.class, r.finished[0].Class)
+			assert.Equal(t, test.summary, r.finished[0].Summary)
+			assert.Equal(t, test.evidence, r.finished[0].Evidence)
+		})
+	}
 }
 
 // Scenario: the process dies after it started, with no result. The outcome

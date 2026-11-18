@@ -148,6 +148,7 @@ func (rt *ClaudeRuntime) Adopted(state []byte) runner.Turn {
 	var s saved
 	if json.Unmarshal(state, &s) == nil {
 		t.result, t.limited, t.toolsDown = s.Result, s.Limited, s.ToolsDown
+		t.background, t.finishCalls = s.Background, s.FinishCalls
 	}
 
 	return t
@@ -156,9 +157,11 @@ func (rt *ClaudeRuntime) Adopted(state []byte) runner.Turn {
 // saved is what a turn keeps across a daemon restart: the result event, a
 // rate limit's reset, and a tools server that failed.
 type saved struct {
-	Result    *event     `json:"result,omitempty"`
-	Limited   *time.Time `json:"limited,omitempty"`
-	ToolsDown string     `json:"tools_down,omitempty"`
+	Result      *event                     `json:"result,omitempty"`
+	Limited     *time.Time                 `json:"limited,omitempty"`
+	ToolsDown   string                     `json:"tools_down,omitempty"`
+	Background  bool                       `json:"background,omitempty"`
+	FinishCalls map[string]json.RawMessage `json:"finish_calls,omitempty"`
 }
 
 // gatewayAccount is the offer's AccountRef when the model gateway serves the
@@ -244,7 +247,12 @@ type event struct {
 	Request   json.RawMessage `json:"request"`
 	Result    string          `json:"result"`
 	IsError   bool            `json:"is_error"`
-	Usage     *struct {
+	Queued    int             `json:"queued_turn_count"`
+	Message   json.RawMessage `json:"message,omitempty"`
+	Tasks     []struct {
+		Type string `json:"task_type"`
+	} `json:"tasks,omitempty"`
+	Usage *struct {
 		Input      int64 `json:"input_tokens"`
 		Output     int64 `json:"output_tokens"`
 		CacheRead  int64 `json:"cache_read_input_tokens"`
@@ -265,8 +273,10 @@ type event struct {
 // turn is one stream-JSON turn. Its lines come from one goroutine, and it is
 // read once the worker exited.
 type turn struct {
-	result  *event
-	limited *time.Time
+	result      *event
+	limited     *time.Time
+	background  bool
+	finishCalls map[string]json.RawMessage
 	// toolsDown is the tools server's status when it failed to start.
 	toolsDown string
 }
@@ -293,15 +303,35 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 		}
 	case e.Type == "control_request":
 		permission(ctx, w, e)
+	case e.Type == "system" && e.Subtype == "background_tasks_changed" && e.Tasks != nil:
+		t.background = false
+		for _, task := range e.Tasks {
+			if task.Type == "local_bash" {
+				t.background = true
+				break
+			}
+		}
+	case e.Type == "assistant" || e.Type == "user":
+		t.recoverFinish(ctx, w, e)
 	case e.Type == "result":
-		t.result = &e
-
-		// One turn per Dispatch for now: closing stdin ends the process.
-		_ = w.Send(ctx, []byte(shim.CloseLine))
+		t.onResult(ctx, w, e)
 	case e.Type == "rate_limit_event" && e.RateLimit != nil && e.RateLimit.Status == "rejected":
 		limited := time.Unix(e.RateLimit.ResetsAt, 0).UTC()
 		t.limited = &limited
 	}
+}
+
+func (t *turn) onResult(ctx context.Context, w *runner.Worker, e event) {
+	if !e.IsError && !strings.HasPrefix(e.Subtype, "error") && (t.background || e.Queued > 0) {
+		_, finished, err := bridge.Finished(bridge.Dir(w.Dir()))
+		w.Report(ctx, err)
+		if !finished {
+			return
+		}
+	}
+
+	t.result = &e
+	w.Report(ctx, w.Send(ctx, []byte(shim.CloseLine)))
 }
 
 // permission answers a permission prompt: allowed, for now.
@@ -351,7 +381,10 @@ func (t *turn) Result() runner.Result {
 
 func (t *turn) State() []byte {
 	//nolint:errchkjson // The event as it was decoded, and a time.
-	raw, _ := json.Marshal(saved{Result: t.result, Limited: t.limited, ToolsDown: t.toolsDown})
+	raw, _ := json.Marshal(saved{
+		Result: t.result, Limited: t.limited, ToolsDown: t.toolsDown,
+		Background: t.background, FinishCalls: t.finishCalls,
+	})
 
 	return raw
 }

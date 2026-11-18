@@ -4279,8 +4279,8 @@ Node (`internal/node`):
   given 10 s for the shim to write one, as a start is, and then ends as `start_failed` ("the shim did not start";
   Omnara fails a process whose execution was never committed).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
-  no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
-  process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
+  no login on the node: its model comes from the control plane's gateway under the offer's key. A Codex turn is one
+  process under a shim: `codex exec --json --skip-git-repo-check --ignore-user-config
   --dangerously-bypass-approvals-and-sandbox`, with `-c` overrides that name the gateway (`<control plane>/v1`,
   `wire_api = "responses"`, `supports_standalone_web_search = true` so that Codex offers its `web.run` search, which
   the gateway answers on `/v1/alpha/search` (codex-rs `ext/web-search/src/extension.rs`; OpenClaw sets it the same
@@ -4336,7 +4336,13 @@ Node (`internal/node`):
     alive after 30 s is killed with its whole session group.
   - Reported:
     - the session id from `system/init`, as started;
-    - one turn per Dispatch: stdin is closed after the turn's `result`.
+    - a Dispatch can include a follow-up turn from background Bash. A successful `result` while Claude reports
+      background Bash or queued turns does not close stdin; permission replies still go over the same pipe.
+      The background hold survives adoption. A result with no outstanding work, a terminal error, or a result
+      after `finish` closes stdin (issue #867).
+    - if Claude's journal matches an explicit `finish` call to a closed-stdio permission error, the node validates
+      the same tool arguments and records a fallback in the bridge. A normal finish takes precedence. The node
+      sends the chosen report through the same durable outbox; prose or a PR alone is not a final report.
   - The worker's transcript goes to the control plane apart from its reports
     ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every
     runtime since issue #157):

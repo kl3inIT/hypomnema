@@ -32,3 +32,18 @@ func TestAnAdoptedTurnKeepsItsResult(t *testing.T) {
 	assert.Equal(t, "rate_limited", outcome.Class)
 	assert.Equal(t, before.Outcome(ex), outcome)
 }
+
+func TestAnAdoptedTurnKeepsBackgroundHoldAndPendingFinish(t *testing.T) {
+	t.Parallel()
+
+	before := &turn{
+		background: true,
+		finishCalls: map[string]json.RawMessage{
+			"toolu_1": json.RawMessage(`{"summary":"finished after Bash"}`),
+		},
+	}
+	after, ok := (&ClaudeRuntime{}).Adopted(before.State()).(*turn)
+	require.True(t, ok)
+	assert.True(t, after.background)
+	assert.Equal(t, before.finishCalls, after.finishCalls)
+}
