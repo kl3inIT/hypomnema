@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
@@ -66,7 +65,7 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 		},
 		Call: func(ctx context.Context, c toolsmcp.Call) (any, error) {
 			switch {
-			case strings.HasPrefix(c.Name, devicetool.Prefix):
+			case devicetool.Routed(c.Name):
 				return agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
 			case c.Name == agenttool.ToolGenerateImage:
 				return agent.ImageCall(ctx, c.Arguments,

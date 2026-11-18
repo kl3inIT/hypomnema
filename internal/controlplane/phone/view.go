@@ -52,6 +52,8 @@ type Update struct {
 	Said *nodeproto.DeviceViewMessage
 	// Controller is who drives the phone, ControllerAgent or ControllerYou.
 	Controller string
+	// Filming is the take that holds the phone, with an empty Take once none does (issue #817).
+	Filming *Filming
 }
 
 // View is the owner's view of the phone.
@@ -69,6 +71,9 @@ type View struct {
 	reason error
 	told   bool
 	held   bool
+	// filming is the take the page was told of last; filmTold whether it was told any yet.
+	filming  Filming
+	filmTold bool
 
 	closing sync.Once
 }
@@ -207,6 +212,12 @@ func (v *View) Next(ctx context.Context) (Update, error) {
 			return Update{Controller: ControllerAgent}, nil
 		}
 
+		filmChanged := v.p.filmingChanged()
+
+		if f, changed := v.filmingNews(); changed {
+			return Update{Filming: &f}, nil
+		}
+
 		select {
 		case up, ok := <-v.said:
 			if !ok {
@@ -223,6 +234,7 @@ func (v *View) Next(ctx context.Context) (Update, error) {
 
 			return up, nil
 		case <-changed:
+		case <-filmChanged:
 		case <-v.again:
 			v.mu.Lock()
 			v.told = false
@@ -231,6 +243,30 @@ func (v *View) Next(ctx context.Context) (Update, error) {
 			return Update{}, ctx.Err()
 		}
 	}
+}
+
+// filmingNews is the take that holds the phone when the page has not been
+// told it yet.
+func (v *View) filmingNews() (Filming, bool) {
+	f, _ := v.p.Filming()
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.filmTold && f == v.filming {
+		return Filming{}, false
+	}
+
+	// A page that was never told of a take need not be told there is none.
+	if !v.filmTold && f.Take == "" {
+		v.filmTold = true
+
+		return Filming{}, false
+	}
+
+	v.filming, v.filmTold = f, true
+
+	return f, true
 }
 
 // Action is one message of the page: takeControl and releaseControl, as the
@@ -245,6 +281,9 @@ func (v *View) Do(ctx context.Context, a Action) error {
 
 	switch a.Type {
 	case "takeControl":
+		// A take is paused, and the node said so, before the owner's first touch can reach the phone: nothing
+		// the owner types is filmed (issue #817, row 6; the owner's ask, 2026-11-18).
+		v.p.pauseFilming(ctx)
 		v.p.hold.Take(ctx, now)
 		v.p.cfg.Logger.InfoContext(ctx, "the owner took the phone", slog.String("event", "phone.taken"))
 

@@ -160,10 +160,10 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 	case "finish":
 		return s.finish(c.Arguments)
 	default:
-		// The phone's tools are named device_* (issue #417); generate_image's files are read and written here
+		// The phone's tools are named device_* (issue #417) and video_* (issue #817); generate_image's files are read and written here
 		// (issue #492), show_artifact's read here (issue #536); any other tool is one the control plane lists for the worker (issue #536): it knows which
 		// it offers.
-		if s.agent != nil && strings.HasPrefix(c.Name, devicetool.Prefix) {
+		if s.agent != nil && devicetool.Routed(c.Name) {
 			return s.agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
 		}
 

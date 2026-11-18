@@ -71,3 +71,22 @@ func TestThePhoneFamilyIsThePhonesTools(t *testing.T) {
 	require.Equal(t, "phone", phone.Name)
 	assert.ElementsMatch(t, offered, phone.Tools)
 }
+
+// The phone's switch is one: switching device_* off takes the video tools of
+// the phone's family too (issue #817), and naming one of them alone still works.
+func TestThePhonesSwitchTakesItsVideoTools(t *testing.T) {
+	t.Parallel()
+
+	off := ToolSwitches{Off: []string{devicetool.Prefix + "*"}}
+	assert.False(t, off.Allows(devicetool.VideoStart))
+	assert.False(t, off.Allows(devicetool.Screen))
+	assert.True(t, off.Allows(ToolMemory))
+
+	only := ToolSwitches{On: []string{devicetool.Prefix + "*"}}
+	assert.True(t, only.Allows(devicetool.VideoSay))
+
+	one := ToolSwitches{Off: []string{devicetool.VideoStart}}
+	assert.False(t, one.Allows(devicetool.VideoStart))
+	assert.True(t, one.Allows(devicetool.VideoSay))
+	require.NoError(t, CheckToolSwitches(nil, []string{devicetool.VideoStart}))
+}

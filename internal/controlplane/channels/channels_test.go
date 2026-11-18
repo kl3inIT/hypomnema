@@ -91,6 +91,27 @@ type lark struct {
 	holdCards chan struct{}
 	// recordings are the voice messages' recordings, by their key; another key cannot be downloaded.
 	recordings map[string][]byte
+	// downloads are the files messages carry, by their key and kind ("image:key" or "file:key"); another cannot
+	// be downloaded.
+	downloads map[string][]byte
+}
+
+// Download downloads a file a message carries (issue #829), an image apart from other files as Lark keeps it.
+func (l *lark) Download(_ context.Context, _ string, f channels.File, limit int64) ([]byte, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	kind := "file:"
+	if f.Image {
+		kind = "image:"
+	}
+
+	data, ok := l.downloads[kind+f.Key]
+	if !ok || int64(len(data)) > limit {
+		return nil, errors.New("Lark refused it with code 234003: file not found")
+	}
+
+	return data, nil
 }
 
 // Recording downloads a voice message's recording (issue #723).
@@ -143,7 +164,7 @@ func newLark(owner, linh string) *lark {
 		bytes:      map[string][]byte{},
 		emails:     map[string]string{"owner@example.com": owner, "linh@example.com": linh},
 		names:      map[string]string{linh: "Linh"},
-		recordings: map[string][]byte{},
+		recordings: map[string][]byte{}, downloads: map[string][]byte{},
 	}
 }
 
@@ -967,7 +988,7 @@ func TestWhoMayTalkThroughAChannelIsTheOwnersChoice(t *testing.T) {
 	assert.Equal(t, "oc_other: This bot serves members of its Lark organization only.", w.lark.noticed()[3])
 }
 
-// Scenario: things a Channel does not serve. A picture gets a short notice; a
+// Scenario: things a Channel does not serve. A sticker gets a short notice; a
 // message in a group and a message from another app are left alone; with the
 // coordinator not running the sender is told nothing will answer; a Channel
 // the owner switched off takes nothing at all.
@@ -977,11 +998,12 @@ func TestWhatAChannelDoesNotServe(t *testing.T) {
 	w := newWorld(t)
 	w.setUp(channelstore.ChannelOwner)
 
-	picture := direct("om_1", ownerDM, ownerID, "")
-	picture.IsText = false
-	w.lark.say(picture)
+	sticker := direct("om_1", ownerDM, ownerID, "")
+	sticker.IsText = false
+	w.lark.say(sticker)
 	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
-	assert.Equal(t, ownerDM+": This bot reads text messages only for now.", w.lark.noticed()[0])
+	assert.Equal(t, ownerDM+": This bot cannot read this kind of message: send text, a voice message, an image or "+
+		"a file.", w.lark.noticed()[0])
 
 	group := direct("om_2", "oc_group", ownerID, "hello all")
 	group.Direct = false
@@ -2101,4 +2123,117 @@ func TestAVoiceMessageIsHeardBeforeTheBotReadsIt(t *testing.T) {
 	assert.Equal(t, []string{mine + ": Gặp nhau lúc 3 giờ", hers + ": Em gửi báo giá", mine + ": failed"},
 		w.hearing.heard, "each heard on its own chat; the group's is not heard")
 	assert.Empty(t, w.lark.noticed(), "a voice message is no longer refused as not text")
+}
+
+// Scenario (issue #829): the owner sends his Channel what is not plain text.
+// A post with a question and a screenshot reaches the Bot as the question,
+// with the screenshot kept in the chat's attachments in the Bot's folder,
+// where pi reads it, as a file attached on the web is. An image alone and a
+// file with its name reach it the same way. A file Lark will not give still
+// lets the message through, with a line naming it. In a group the owner
+// switched on, a post that mentions the bot is handled the same way. None of
+// them gets the notice that the bot cannot read it.
+func TestAPostAnImageAndAFileReachTheBotAsAttachments(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.lark.groups = []channels.Group{{ChatID: team, Name: "Maps team"}}
+	w.lark.names[ownerID] = "Đạt"
+	w.setUp(channelstore.ChannelOwner)
+	require.NoError(t, os.MkdirAll(w.bots.Root(orchestration.DefaultBotID), 0o700), "the Bot's folder is there")
+
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 600<<10)...)
+	pdf := []byte("%PDF-1.7 the report")
+
+	w.lark.mu.Lock()
+	w.lark.downloads["image:img_1"] = png
+	w.lark.downloads["file:file_1"] = pdf
+	w.lark.mu.Unlock()
+
+	screenshot := channels.File{Key: "img_1", Image: true}
+
+	post := direct("om_1", ownerDM, ownerID, "của mình có theo đơn vị kiểu này chưa")
+	post.Files = []channels.File{screenshot, screenshot}
+	w.lark.say(post)
+
+	mine := w.chatOf(ownerDM)
+	require.Eventually(t, func() bool { return len(w.texts(mine)) == 1 }, eventual, tick)
+
+	chat, err := w.orch.GetChat(t.Context(), mine)
+	require.NoError(t, err)
+
+	dir := orchestration.AttachmentsDir(mine)
+	assert.Equal(t, []string{"owner: của mình có theo đơn vị kiểu này chưa"}, w.texts(mine))
+	assert.Equal(t, [][]orchestration.ChatAttachment{{
+		{Name: "image-1.png", Path: dir + "/om_1-image-1.png", Size: int64(len(png)), Type: "image/png"},
+	}}, w.attachments(mine), "a key twice in one message is kept once, in pieces larger than one")
+
+	kept, err := os.ReadFile(filepath.Join(w.bots.Root(chat.Bot), filepath.FromSlash(dir), "om_1-image-1.png"))
+	require.NoError(t, err)
+	assert.Equal(t, png, kept)
+
+	// Each waits for the one before, as a person writes them one after another.
+	say := func(m channels.Message) {
+		t.Helper()
+
+		before := len(w.texts(mine))
+		w.lark.say(m)
+		require.Eventually(t, func() bool { return len(w.texts(mine)) == before+1 }, eventual, tick)
+	}
+
+	image := direct("om_2", ownerDM, ownerID, "")
+	image.IsText, image.Files = false, []channels.File{screenshot}
+	say(image)
+
+	file := direct("om_3", ownerDM, ownerID, "")
+	file.IsText, file.Files = false, []channels.File{{Key: "file_1", Name: "Báo cáo.pdf"}}
+	say(file)
+
+	gone := direct("om_4", ownerDM, ownerID, "xem ảnh này")
+	gone.Files = []channels.File{{Key: "img_gone", Image: true}}
+	say(gone)
+
+	assert.Equal(t, []string{"owner: ", "owner: ", "owner: xem ảnh này\n[image 1 could not be read]"},
+		w.texts(mine)[1:])
+
+	got := w.attachments(mine)
+	assert.Equal(t, []orchestration.ChatAttachment{
+		{Name: "image-1.png", Path: dir + "/om_2-image-1.png", Size: int64(len(png)), Type: "image/png"},
+	}, got[1])
+	assert.Equal(t, []orchestration.ChatAttachment{
+		{Name: "Báo cáo.pdf", Path: dir + "/om_3-Báo cáo.pdf", Size: int64(len(pdf)), Type: "application/pdf"},
+	}, got[2])
+	assert.Empty(t, got[3], "a file that could not be read is named in the text instead")
+
+	_, err = w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+
+	asked := inGroup("om_5", ownerID, "@_user_1 đây là gì?", mentionOfBot)
+	asked.Files = []channels.File{screenshot}
+	w.lark.say(asked)
+
+	ours := w.chatOf(team)
+	require.Eventually(t, func() bool { return len(w.texts(ours)) == 1 }, eventual, tick)
+	assert.Equal(t, []string{"owner: [Đạt]: đây là gì?"}, w.texts(ours))
+	assert.Equal(t, []orchestration.ChatAttachment{{
+		Name: "image-1.png", Path: orchestration.AttachmentsDir(ours) + "/om_5-image-1.png", Size: int64(len(png)),
+		Type: "image/png",
+	}}, w.attachments(ours)[0])
+
+	assert.Empty(t, w.lark.noticed(), "none is refused as not text")
+}
+
+// attachments are the files of each message of a chat, in order.
+func (w *world) attachments(chatID string) [][]orchestration.ChatAttachment {
+	w.t.Helper()
+
+	msgs, err := w.orch.ListChatMessages(w.t.Context(), chatID, 0, 0)
+	require.NoError(w.t, err)
+
+	out := make([][]orchestration.ChatAttachment, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, m.Attachments)
+	}
+
+	return out
 }

@@ -740,6 +740,29 @@ var commands = []command{
 		flags: jsonFlag, run: browserStatus,
 	},
 	{
+		name: "takes list", summary: "the takes agents filmed of the phone, the newest first (owner)",
+		flags: jsonFlag, run: takesList,
+	},
+	{
+		name: "takes get", args: "<take_id>", min: 1, max: 1,
+		summary: "a take with its segments, its steps and where the owner paused it (owner)",
+		flags:   jsonFlag, run: takesGet,
+	},
+	{
+		name: "takes download", args: "<take_id>", min: 1, max: 1,
+		summary: "save an available take's segments and take.json as a zip (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("out", "", "the file to write (default <take_id>.zip)")
+			jsonFlag(fs)
+		},
+		run: takesDownload,
+	},
+	{
+		name: "takes delete", args: "<take_id>", min: 1, max: 1,
+		summary: "delete a take and its files; one still filmed is ended first (owner)",
+		flags:   jsonFlag, run: takesDelete,
+	},
+	{
 		name:    "device status",
 		summary: "the nodes that hold an Android phone: each phone's state and what is installed (owner)",
 		flags:   jsonFlag, run: deviceStatus,

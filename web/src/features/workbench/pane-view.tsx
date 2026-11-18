@@ -1,4 +1,5 @@
 import {
+  Clapperboard,
   FileDiff,
   FileText,
   FolderTree,
@@ -50,6 +51,8 @@ import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
 import { baseName, isUnsaved, useUnsaved } from "@/features/files/files-state"
 import { useChat } from "@/features/shell/chats"
+import { useTake } from "@/features/takes/take-state"
+import { TakeView } from "@/features/takes/take-view"
 import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
@@ -200,6 +203,8 @@ export function PaneView({
                     <UnsavedMark tab={key} />
                   </TabButton>
                 )
+              case "take":
+                return <TakeTab key={key} take={tab.take} onClose={close} {...common} />
               case "phone":
                 return (
                   <TabButton
@@ -348,6 +353,13 @@ export function PaneView({
             if (tab.kind === "phone") {
               return shown && <PhoneView key={key} label="The phone's screen" />
             }
+            if (tab.kind === "take") {
+              return (
+                shown && (
+                  <TakeView key={key} id={tab.take} onClose={() => onChange(closeTab(pane, key))} />
+                )
+              )
+            }
             if (tab.kind === "file") {
               // Kept behind other tabs, as a chat is, so that text not saved stays.
               return (
@@ -393,6 +405,10 @@ export function PaneView({
                     // An artifact opens in the panel beside the chat, in the place of the Files panel (issue #402).
                     onOpenArtifact={(artifact) => onChange({ ...pane, artifact, files: false })}
                     onOpenBrowserTab={showTab}
+                    // A take opens as a tab of the pane, beside the chat where there is room (issue #817).
+                    onOpenTake={(take) =>
+                      beside ? beside.open({ kind: "take", take }) : open({ kind: "take", take })
+                    }
                   />
                 ) : (
                   <DraftChat
@@ -498,6 +514,23 @@ function ChatTab({ chat, onClose, ...props }: TabProps & { chat: string }) {
       {...props}
     >
       {info.data && <AgentAvatar name={name} className="size-5 shrink-0" />}
+      <span className="truncate">{title}</span>
+    </TabButton>
+  )
+}
+
+// TakeTab is a take's tab: a clapperboard and its title.
+function TakeTab({ take, onClose, ...props }: TabProps & { take: string }) {
+  const title = useTake(take).data?.title ?? "Take"
+
+  return (
+    <TabButton
+      title={`A take of the phone: ${title}`}
+      onClose={onClose}
+      closeLabel={`Close ${title}`}
+      {...props}
+    >
+      <Clapperboard className="size-3.5 shrink-0" aria-hidden />
       <span className="truncate">{title}</span>
     </TabButton>
   )

@@ -23,7 +23,7 @@ import (
 // Device is the phone: its tools, and one call of a tool for the agent named.
 type Device interface {
 	Tools(ctx context.Context) ([]devicetool.Tool, error)
-	Call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error)
+	Call(ctx context.Context, c phone.Caller, tool string, arguments json.RawMessage) (json.RawMessage, error)
 }
 
 // WithDevice gives agents the phone. Without it the phone's routes answer
@@ -108,7 +108,14 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 
 	started := time.Now()
 
-	result, err := s.device.Call(r.Context(), a.key, asked.Tool, asked.Arguments)
+	caller, err := s.caller(r.Context(), a)
+	if err != nil {
+		s.fail(w, r, err)
+
+		return
+	}
+
+	result, err := s.device.Call(r.Context(), caller, asked.Tool, asked.Arguments)
 	if err != nil {
 		s.failDevice(w, r, err)
 
@@ -123,8 +130,36 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(result)
+	_, _ = w.Write(result) //nolint:gosec // The tool's result as JSON, not a page.
 }
+
+// caller is the agent as the phone knows it: its key, its name, and the
+// work a take it films ends with (issue #817, row 7): a worker's Dispatch, or
+// the turn a Bot's pi works on now, its chat's turn mark (issue #716); any
+// other agent's own key.
+func (s *Server) caller(ctx context.Context, a agent) (phone.Caller, error) {
+	c := phone.Caller{Key: a.key, Name: a.name, Work: a.key}
+
+	switch {
+	case a.dispatchID != "":
+		c.Work = WorkDispatch + a.dispatchID
+	case a.chatID != "":
+		turn, err := s.store.ChatTurn(ctx, a.chatID)
+		if err != nil {
+			return phone.Caller{}, err
+		}
+
+		c.Work = WorkTurn + a.chatID + " " + turn
+	}
+
+	return c, nil
+}
+
+// The kinds of an agent's work, before its id.
+const (
+	WorkDispatch = "dispatch "
+	WorkTurn     = "turn "
+)
 
 // failDevice answers an error of the phone, as failBrowser does the browser's.
 func (s *Server) failDevice(w http.ResponseWriter, r *http.Request, err error) {

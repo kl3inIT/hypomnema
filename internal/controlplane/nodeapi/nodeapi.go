@@ -74,6 +74,9 @@ type Server struct {
 	storeGuides map[string]bool
 	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
 	deviceCalls map[string]*pendingDevice
+	// takeFiles takes the takes' files nodes upload, and takesHeld settles those a node holds at hello (takes.go).
+	takeFiles TakeFiles
+	takesHeld TakesHeld
 	// execs are the agents' commands nodes have been sent, by request id (exec.go).
 	execs map[string]*pendingExec
 }
@@ -208,6 +211,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+nodeproto.PathDevice, s.deviceAnswer)
 	mux.HandleFunc("GET "+nodeproto.PathDevice, s.deviceView)
 	mux.HandleFunc("POST "+nodeproto.PathExec, s.execAnswer)
+	mux.HandleFunc("PUT "+nodeproto.PathTakes+"{take}/files/{name}", s.takeUpload)
 	mux.HandleFunc("GET "+nodeproto.PathSkills+"{digest}", s.skill)
 }
 
@@ -312,6 +316,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 
 	s.deviceSaid(n.ID, req.DeviceState)
 	s.guidesSaid(n.ID, req.StoreGuides)
+	endTakes, dropTakes := s.settleTakes(r.Context(), n.ID, req)
 
 	resp := nodeproto.HelloResponse{
 		NodeID: n.ID, Dispositions: make([]nodeproto.Disposition, 0, len(dispositions)),
@@ -321,6 +326,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		ReleaseURL:       s.releaseURL,
 		// The node looks for its release at once when this is newer than its own (issue #783).
 		ControlPlaneVersion: platform.Version,
+		EndTakes:            endTakes, DropTakes: dropTakes,
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
@@ -102,11 +103,18 @@ func TestTheOwnerWatchesThePhoneThroughATicket(t *testing.T) {
 	p.updates <- phone.Update{Controller: phone.ControllerAgent}
 	p.updates <- phone.Update{Said: &nodeproto.DeviceViewMessage{Type: "state", State: phone.StateWaking}}
 	p.updates <- phone.Update{Said: &nodeproto.DeviceViewMessage{Type: "screen", Width: 720, Height: 1280}}
+	at := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
+	p.updates <- phone.Update{Filming: &phone.Filming{
+		Take: "tk_0123456789abcdef", Title: "Sign in", Agent: "dispatch 1", State: "recording", AtMs: 1500, At: at,
+		Said: "Tap Sign in",
+	}}
 	p.updates <- phone.Update{Frame: []byte("SEMU a frame")}
 
 	for _, want := range []string{
 		`{"controller":"agent","type":"control"}`, `{"state":"waking","type":"state"}`,
 		`{"height":1280,"type":"screen","width":720}`,
+		`{"type":"take","take":"tk_0123456789abcdef","title":"Sign in","agent":"dispatch 1","state":"recording",` +
+			`"at_ms":1500,"at":"2026-11-18T09:00:00Z","said":"Tap Sign in"}`,
 	} {
 		kind, data, err := conn.Read(t.Context())
 		require.NoError(t, err)

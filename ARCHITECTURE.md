@@ -761,6 +761,63 @@ sequenceDiagram
     is taken only with the button. The owner types passwords here; agents never sign in. WebCodecs needs a secure
     page (HTTPS or this computer's own address), and a page without it says so. The sidebar says when the owner
     holds the phone.
+  - Filming (issue #817, step 1 of 3 of agent-made demo videos; [research](docs/research/2026-11-18-agent-recorded-phone-demo-video.md)).
+    An agent films the phone as a **take** (see the glossary) with `video_start {title, request_id}`, `video_say
+    {take, text, tap?, chapter?}` right before each action, `video_stop {take}` and `video_status {take}`
+    (`internal/shared/devicetool/video.go`, after autodemo's camera tools). They are listed, routed and switched
+    with the phone's tools: a worker's tools server and a Bot's `hypomnema mcp` pass every `device_*` and `video_*`
+    name to the phone's routes (`devicetool.Routed`), and the phone family's switch `device_*` names them too
+    (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and `video_end` are never
+    offered.
+  - The take holds the phone (`internal/controlplane/phone/lease.go`): `video_start` makes a lease of {take, agent
+    key, work}, work being a worker's Dispatch or a Bot's turn (its chat's turn mark, `orchestration.ChatTurn`).
+    While it lives another agent's phone calls are answered "The phone is filming for …" and reach no node;
+    `video_say` and `video_stop` name the take, and one naming another is refused or, for a stop, answered with
+    that take's state. A start retried with its request id answers the same take; a stop twice the same state.
+    The phone's sweep (every few seconds) ends the take as `work_end` once the Dispatch is settled or its worker
+    exited without a report, or the Bot's turn mark changed (it settled, was cut, or another turn began), as
+    `phone_end` once the node says its phone is not running; a node that went offline is told at its next hello.
+    A take the node still films at a hello that no lease holds (the control plane restarted) is ended `restart`.
+    The owner's "Take control" first asks the node to pause the take and waits for its answer; "Hand back", or
+    the hold's expiry, resumes it.
+  - On the node (`internal/node/device/take.go`, `segment.go`, `video.go`) a take reads every packet of the one
+    scrcpy stream before the views' fan-out, through an unbounded queue of its own to a writer goroutine, so a
+    slow disk holds up no view and no packet is dropped; the stream stays open, and the phone up past its idle
+    time, while a take runs. A segment starts on a key frame (the server is asked for one), at the take's start, at
+    a resume, at a new SPS/PPS and when the stream starts again; it is written with bluenviron/mediacommon as
+    MediaMTX writes its recordings (fragmented MP4, Annex B made AVCC, 90 kHz, a sample's duration the next
+    PTS less its own, fragments flushed at 1 MiB) and, as it closes, muxed into a regular MP4 (mediacommon's
+    `pmp4`, as MediaMTX's playback serves its recordings), its last frame lasting until the close. The timeline
+    is the node's monotonic clock: a segment's origin is the arrival of its first key frame, a take's time is the
+    finished segments' lengths and the time since the current origin, paused time left out; a line is stamped
+    when it arrives, at the segment's start while it waits for its first frame. A take that never got a frame
+    fails "no frame from the phone". A write that fails ends it `writer_error` (`disk_low` on a full disk), as
+    does free disk under 400 MB at the start or before a segment, keeping the segments closed before. Its
+    folder `takes/<id>/` under the phone's folder is 0700, its files 0600; `take.json` is written whole at each
+    change, and a node that starts again ends a take it finds filmed as `restart`, removing the file of the
+    segment that was being written.
+  - Upload and storage (`internal/node/daemon/takes.go`, `internal/controlplane/nodeapi/takes.go`,
+    `internal/controlplane/takes`). A node says at hello the takes it holds, and uploads each finished one, every
+    segment then `take.json`, with `PUT /node/v1/takes/{take}/files/{name}`, its length and `X-Hypomnema-Sha256`,
+    under a deadline of a minute and its size at 64 KiB/s, which the route sets for itself over the server's
+    15 s; a file that fails is sent again whole at the next try (30 s, or at once after a hello). The take must be
+    bound to the node's token; the file is streamed to a temporary file and renamed only when its length and
+    sum match; the same file again with the same sum is answered again, another sum 409; a control plane with
+    less than 400 MB free beside the file answers 507. The take is `available` once `take.json` and every
+    segment it names arrived; the node then removes its copy. The control plane keeps takes in `takes/<id>/`
+    beside its database, 0700 and 0600, until the owner deletes one, which removes its files and leaves a
+    tombstone: a late upload is answered 410 and the node drops its copy, as it does when a hello names the take
+    deleted.
+  - The owner's (`clientapi/takes.go`, owner tokens only): `GET /takes`, `GET` and `DELETE /takes/{id}`,
+    `GET /takes/{id}/segments/{file}` with Range requests (`http.ServeContent`), `GET /takes/{id}/archive` (a zip
+    of the segments and `take.json`); `hypomnema takes list|get|download|delete`. An agent is told a take's id,
+    title, state, length and steps, never a file. The phone's view says the take filmed (`take` messages), and
+    the web's phone tab shows REC or PAUSED with its time and the last line said; a Bot's `video_start` shows a
+    card in its chat that follows the take's state and opens it, once available, as a tab of the pane: the
+    segments play one after the other on one timeline with a mark for each step and a hatched mark for each
+    pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
+    A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
+    seek into a file's last sample.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1593,7 +1650,7 @@ flowchart LR
   changes state (omp's scout, gemini-cli's investigator). The reviewer and the explorer are told to change nothing;
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
-  deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
+  deployment: `implementer-codex` (`codex-worker` until 2026-11-18, issue #835), with the implementer's instruction, and `reviewer-codex.yaml`, which makes
   `reviewer` itself run on Codex with the seeded reviewer's instruction. `reviewer-claude.yaml` (issue #756) is
   the same instruction on Claude Code under the Claude subscription, with one paragraph more, that a review of a
   Claude author's change says it was not independent; no migration seeds it, as the seeded `reviewer` already runs
@@ -2440,10 +2497,20 @@ flowchart LR
     - A message is taken when a person sent it in their direct chat with the Channel's app, once (a row per
       Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
       by the mode: the people he added, or every member of the organization. People are kept per Channel
-      (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
-      not text and a pi that is not running are answered with a short notice; a voice message (Lark `audio`) is
-      heard first and its transcript taken as the message (issue #723, see "Incoming voice" under "An agent's
-      tools").
+      (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message the bot
+      cannot read (a sticker, a card, a shared chat) and a pi that is not running are answered with a short
+      notice; a voice message (Lark `audio`) is heard first and its transcript taken as the message (issue #723,
+      see "Incoming voice" under "An agent's tools").
+    - A rich-text post, an image, a file and a video (issue #829) are read too, after OpenClaw
+      (`extensions/feishu/src/post.ts`, `bot-content.ts`) and Hermes (`plugins/platforms/feishu/adapter.py`): a
+      post's title and rows are its text, a mention kept as the placeholder its mentions name, so a post that
+      mentions the bot is a question in a group; its images (`img`), files (`media`) and top-level `files` are
+      files of the message, each once. `channels/received.go` downloads each through the Conn as a
+      `channels.Downloader` (`GET /im/v1/messages/:id/resources/:key`, type `image` or `file`, at most
+      `workspacefs.MaxUpload`), writes it into `attachments/<chat id>/<message id>-<name>` of the chat's Bot's
+      folder through the folders' helper, as the web uploads one (issue #343), and the message goes in with
+      those attachments. A file that cannot be downloaded or kept leaves a line `[<name> could not be read]`
+      in the message, which still goes in, and is logged (`channels.file_unread`).
     - Each person's message keeps who wrote it (issue #468, migration 00087, after OpenMausBot's
       `Message.sender {name, id}`): `chat_messages.sender_id` and `sender_name` (and the same on `chat_queue`,
       kept when a queued message goes in) are NULL for the owner (the web, the CLI, the Channel's owner at Lark)
@@ -4846,9 +4913,11 @@ the internet, so that a machine created at a provider can install the node from 
   written under one was read under the other, [#381](https://github.com/kl3inIT/hypomnema/issues/381)).
 - Since [#381](https://github.com/kl3inIT/hypomnema/issues/381) (v0.9.23) a Claude Code worker may instead run through
   the gateway with a key of its Dispatch; the profile `implementer-gateway` tried it and is no longer listed (2026-11-16).
-- Profiles since 2026-11-16 (issue #661): `implementer` (Claude Code, Opus 5.5, the default; backup `codex-worker`),
+- Profiles since 2026-11-18 (issues #661, #835; named `<role>` for a role's default and `<role>-<vendor>` for another
+  vendor's): `implementer` (Claude Code, Opus 5.5, the default; fallback `implementer-codex`),
   `explorer` (Claude Code, Sonnet 5.5), `reviewer` (Codex, gpt-6.1-sol, effort high, so another vendor reviews a
-  Claude Code worker's change), `codex-worker` (Codex, gpt-6.1-sol) and `superset-report-worker` (Codex), against
+  Claude Code worker's change), `reviewer-claude` (Claude Code, Opus 5.5), `implementer-codex` (Codex, gpt-6.2-sol;
+  `codex-worker` on gpt-6.1-sol until 2026-11-18) and `superset-report-worker` (Codex), against
   the provider `model-gateway` for Codex. The trial profiles `omp-worker`, `opencode-worker`, `omp-claude`,
   `omp-claude-sub` and the separate `codex-reviewer` were removed (hidden, their versions kept).
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is

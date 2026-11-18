@@ -78,6 +78,22 @@ type Recorder interface {
 	Recording(ctx context.Context, messageID, key string, limit int64) ([]byte, error)
 }
 
+// File is a file a message carries (issue #829): the service's key of it,
+// its name when the service gives one, and whether it is an image, which a
+// service may keep apart from other files (Lark downloads an image as type
+// image, OpenClaw media.ts).
+type File struct {
+	Key   string
+	Name  string
+	Image bool
+}
+
+// Downloader is a Conn that downloads the files a message carries (issue
+// #829): at most limit bytes of one, or an error.
+type Downloader interface {
+	Download(ctx context.Context, messageID string, f File, limit int64) ([]byte, error)
+}
+
 // Reply is a reply being written. Its text is replaced as more is written,
 // and set once more when it ends; how a change is counted is the service's.
 type Reply interface {
@@ -113,9 +129,14 @@ type Message struct {
 	ChatID string
 	// Direct says the chat is the person's direct chat with the account.
 	Direct bool
-	// Text is the text of a text message; IsText says it is one.
+	// Text is the text of a text message or of a rich-text post; IsText says
+	// the message is one of the two.
 	Text   string
 	IsText bool
+	// Files are the files the message carries (issue #829): a post's images
+	// and files, an image, a file or a video, which the Conn downloads as a
+	// Downloader. A voice message's recording is Voice, not a file.
+	Files []File
 	// Voice is the service's key of a voice message's recording, which the
 	// Conn reads as a Recorder; empty for any other message (issue #723).
 	Voice string
