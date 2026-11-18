@@ -589,13 +589,97 @@ paths:
         (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video`
         (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y`
         from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and
-        `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+        `power`. While the owner holds control every agent's phone call is answered that the tools are paused.
+        While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take
+        is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing
+        the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the
+        last line said)
       responses:
         "201":
           description: The ticket.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BrowserViewTicket" }
+        default: { $ref: "#/components/responses/Error" }
+  /takes:
+    get:
+      operationId: ListTakes
+      summary: The takes agents filmed of the phone, the newest first (owner only; issue #817)
+      description: >-
+        A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more
+        segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the
+        agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+      responses:
+        "200":
+          description: The takes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TakeList" }
+        default: { $ref: "#/components/responses/Error" }
+  /takes/{take_id}:
+    parameters:
+      - $ref: "#/components/parameters/TakeID"
+    get:
+      operationId: GetTake
+      summary: A take with its segments, steps and pauses (owner only)
+      responses:
+        "200":
+          description: The take.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Take" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteTake
+      summary: Delete a take and its files (owner only)
+      description: >-
+        A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it
+        is refused; a take its node still holds while offline is removed there at the node's next hello.
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+  /takes/{take_id}/segments/{file}:
+    parameters:
+      - $ref: "#/components/parameters/TakeID"
+      - name: file
+        in: path
+        required: true
+        schema: { type: string, pattern: "^seg-[0-9]{3}\\.mp4$" }
+    get:
+      operationId: ReadTakeSegment
+      summary: One segment of an available take, for the owner's player (owner only)
+      description: >-
+        Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: The segment.
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "206":
+          description: The part of the segment asked for.
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /takes/{take_id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/TakeID"
+    get:
+      operationId: GetTakeArchive
+      summary: An available take's segments and its take.json as a zip, as an opaque download (owner only)
+      responses:
+        "200":
+          description: The zip.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}/resume:
     parameters:
@@ -1574,6 +1658,30 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/NewTokenAccount" }
+      responses:
+        "201":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
+  /account-imports:
+    post:
+      operationId: ImportAccount
+      summary: Keep an account from the session its CLI saved; only the owner
+      description: >-
+        The credentials are Claude Code's `.credentials.json` (issue #828), as
+        OmniRoute and Hermes read it: its access and refresh tokens are sealed
+        in the vault, refreshed first when the access token is about to end,
+        and never answered or logged. Who the account is comes from the
+        vendor, as a sign-in's does; an account the vendor already knows takes
+        the new tokens. The control plane refreshes them from then on, so the
+        session on the machine the file came from may be signed out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewAccountImport" }
       responses:
         "201":
           description: The account.
@@ -4435,6 +4543,11 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 64 }
+    TakeID:
+      name: take_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
     ArtifactID:
       name: artifact_id
       in: path
@@ -6664,6 +6777,85 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Node" }
+    TakeList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Take" }
+    Take:
+      type: object
+      description: >-
+        A take (issue #817): its segments in order on one timeline, the steps said on it and where the owner's
+        takeover paused it. `recording` and `paused` while it is filmed, `finalizing` while the node closes its
+        last segment, `uploading` until every file reached the control plane, then `available`; `failed` with
+        `reason` when it got no frame or could not be kept.
+      required: [id, title, agent, node, started_at, state, duration_ms, segments, steps, pauses]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        agent: { type: string, description: The agent's key, such as d-<dispatch> or b-<chat>. }
+        agent_name: { type: string, description: Who filmed it, as the logs name agents. }
+        node: { type: string, description: The node that filmed it. }
+        app_package: { type: string, description: The app the agent opened last while filming. }
+        app_version: { type: string }
+        started_at: { type: string, format: date-time }
+        state:
+          type: string
+          description: recording, paused, finalizing, uploading, available or failed.
+        ended_by:
+          type: string
+          description: >-
+            What ended it: stop, work_end (the agent's Dispatch or turn ended), phone_end, stream_error,
+            writer_error, disk_low or restart.
+        reason: { type: string }
+        duration_ms: { type: integer, format: int64 }
+        segments:
+          type: array
+          items: { $ref: "#/components/schemas/TakeSegment" }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/TakeStep" }
+        pauses:
+          type: array
+          items: { $ref: "#/components/schemas/TakePause" }
+    TakeSegment:
+      type: object
+      required: [file, at_ms, length_ms, last_frame_ms, width, height, bytes, sha256]
+      properties:
+        file: { type: string }
+        at_ms: { type: integer, format: int64, description: Where it starts on the take's timeline. }
+        length_ms: { type: integer, format: int64 }
+        last_frame_ms:
+          type: integer
+          format: int64
+          description: >-
+            When its last frame starts, from the segment's start; the screen is still after it until the segment
+            ends. A player seeks into that still tail from just before it: a browser does not seek into a file's
+            last sample.
+        width: { type: integer }
+        height: { type: integer }
+        bytes: { type: integer, format: int64 }
+        sha256: { type: string }
+    TakeStep:
+      type: object
+      required: [at_ms, text]
+      properties:
+        at_ms: { type: integer, format: int64 }
+        text: { type: string }
+        tap:
+          type: object
+          required: [x, "y"]
+          properties:
+            x: { type: integer }
+            "y": { type: integer }
+        chapter: { type: string }
+    TakePause:
+      type: object
+      required: [at_ms]
+      properties:
+        at_ms: { type: integer, format: int64 }
     DeviceList:
       type: object
       required: [data, held]
@@ -6995,6 +7187,25 @@ components:
           maxLength: 4096
           writeOnly: true
           description: The token `claude setup-token` prints, one line.
+    NewAccountImport:
+      type: object
+      required: [runtime, credentials]
+      additionalProperties: false
+      properties:
+        runtime:
+          type: string
+          enum: [claude]
+          description: The kind of subscription; only Claude Code's file is read.
+        credentials:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          writeOnly: true
+          description: The whole `.credentials.json` Claude Code saved, as text.
+        label:
+          type: string
+          maxLength: 64
+          description: The account's name for the owner; its e-mail when left out. Kept by an account imported again.
     NewAccountSignIn:
       type: object
       required: [runtime]

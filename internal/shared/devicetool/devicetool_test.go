@@ -88,3 +88,54 @@ func TestACallIsReadOrRefused(t *testing.T) {
 	_, err = read("device_reboot", `{}`)
 	require.ErrorIs(t, err, ErrNoSuchTool)
 }
+
+// The video tools are offered to an agent with their own arguments; the
+// control plane's own ones, and the take it names a start with, are taken
+// only as the node reads a call.
+func TestAVideoCallIsReadOrRefused(t *testing.T) {
+	t.Parallel()
+
+	c, err := Read(VideoStart, json.RawMessage(`{"title":" Sign in ","request_id":"r1"}`))
+	require.NoError(t, err)
+	assert.Equal(t, Call{Tool: VideoStart, Title: "Sign in", RequestID: "r1"}, c)
+
+	_, err = Read(VideoStart, json.RawMessage(`{"title":"Sign in","take":"tk_1"}`))
+	require.ErrorIs(t, err, ErrBadArguments, "an agent does not name its take")
+
+	c, err = ReadNode(VideoStart, json.RawMessage(`{"title":"Sign in","take":"tk_1"}`))
+	require.NoError(t, err)
+	assert.Equal(t, "tk_1", c.Take)
+
+	_, err = Read(VideoStart, json.RawMessage(`{}`))
+	require.ErrorIs(t, err, ErrBadArguments)
+
+	c, err = Read(VideoSay, json.RawMessage(`{"take":"tk_1","text":"Tap Sign in","tap":"#3","chapter":"Sign in"}`))
+	require.NoError(t, err)
+	assert.Equal(t, Call{Tool: VideoSay, Take: "tk_1", Text: "Tap Sign in", Target: &Point{Box: 3},
+		Chapter: "Sign in"}, c)
+
+	_, err = Read(VideoSay, json.RawMessage(`{"text":"no take"}`))
+	require.ErrorIs(t, err, ErrBadArguments)
+
+	_, err = Read(VideoSay, json.RawMessage(`{"take":"../etc","text":"x"}`))
+	require.ErrorIs(t, err, ErrBadArguments)
+
+	_, err = Read(VideoSay, json.RawMessage(`{"take":"tk_1","text":"x","tap":"the blue one"}`))
+	require.ErrorIs(t, err, ErrBadArguments)
+
+	for _, internal := range []string{VideoPause, VideoResume, VideoEnd} {
+		_, err = Read(internal, json.RawMessage(`{"take":"tk_1"}`))
+		require.ErrorIs(t, err, ErrNoSuchTool, "%s is the control plane's own", internal)
+	}
+
+	c, err = ReadNode(VideoEnd, json.RawMessage(`{"take":"tk_1","ended_by":"work_end"}`))
+	require.NoError(t, err)
+	assert.Equal(t, EndedWorkEnd, c.EndedBy)
+
+	_, err = ReadNode(VideoEnd, json.RawMessage(`{"take":"tk_1","ended_by":"bored"}`))
+	require.ErrorIs(t, err, ErrBadArguments)
+
+	assert.True(t, Routed(VideoStart))
+	assert.True(t, Routed(Screen))
+	assert.False(t, Routed("web_search"))
+}

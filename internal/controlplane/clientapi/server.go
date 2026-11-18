@@ -57,6 +57,8 @@ type Server struct {
 	heartbeat time.Duration
 	// coordinator reports whether pi works on a chat; nil when none runs.
 	coordinator Coordinator
+	// takes are the takes agents filmed of the phone (takes.go); nil: none.
+	takes Takes
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
 	// terminals reaches a node for a terminal; nil when the control plane wired none.
@@ -153,6 +155,9 @@ type Accounts interface {
 	// Complete finishes a sign-in and stores it: a new account, or new tokens
 	// for the account the vendor's id already has.
 	Complete(ctx context.Context, a *subscription.Attempt, pasted, label string) (subscription.Account, error)
+	// Import stores the session a vendor's CLI saved in its credentials file
+	// (issue #828), as Complete stores a sign-in.
+	Import(ctx context.Context, runtime string, raw []byte, label string) (subscription.Account, error)
 }
 
 // GatewayModels lists the models the model gateway serves, gives their
@@ -413,11 +418,17 @@ func requestValidator() (func(http.Handler) http.Handler, error) {
 		return nil, fmt.Errorf("loading the embedded OpenAPI spec: %w", err)
 	}
 
+	filter := openapi3filter.Options{
+		AuthenticationFunc:  openapi3filter.NoopAuthenticationFunc,
+		SkipSettingDefaults: true,
+	}
+	// A refused request is answered with what is wrong and where, never the
+	// value sent: a body may hold a secret, such as the credentials an import
+	// sends (issue #828), and the schema error would quote it.
+	filter.WithCustomSchemaErrorFunc(schemaErrorMessage)
+
 	return nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
-		Options: openapi3filter.Options{
-			AuthenticationFunc:  openapi3filter.NoopAuthenticationFunc,
-			SkipSettingDefaults: true,
-		},
+		Options:               filter,
 		SilenceServersWarning: true,
 		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, _ *http.Request,
 			opts nethttpmiddleware.ErrorHandlerOpts,
@@ -441,6 +452,16 @@ func requestValidator() (func(http.Handler) http.Handler, error) {
 			writeJSONError(w, statusOf(code), code, validationMessage(err))
 		},
 	}), nil
+}
+
+// schemaErrorMessage is a schema error's reason and the field it is about,
+// without the value or the schema.
+func schemaErrorMessage(err *openapi3.SchemaError) string {
+	if field := err.JSONPointer(); len(field) > 0 {
+		return fmt.Sprintf("%s: %s", strings.Join(field, "."), err.Reason)
+	}
+
+	return err.Reason
 }
 
 func validationMessage(err error) string {

@@ -1,17 +1,19 @@
-# A worker profile on the Codex CLI, served by the control plane's model gateway (issue #107). The starting set of
-# profiles runs Claude Code only, so the coordinator has a Codex worker to choose once this one is applied.
+# The implementer on the Codex CLI, served by the control plane's model gateway (issue #107): implementer's fallback
+# while Claude waits for a limit (`fallbacks: [implementer-codex]` on implementer), and the worker to choose when the
+# owner asks for Codex. Named `<role>-<vendor>` (issue #835); it was `codex-worker` until 2026-11-18.
 #
 # Before applying, replace the two placeholders:
 #   <gateway provider>  the provider of kind model_gateway: `hypomnema providers list`
 #   <gateway model>     a model that provider offers:        `hypomnema models list`
-#                       Codex describes gpt-6.1-sol as its "Latest workhorse model for coding and everyday work".
-# Then: hypomnema profiles apply codex-worker.yaml, or make it on the web under Agents.
+#                       The owner runs gpt-6.2-sol (2026-11-18).
+# Then: hypomnema profiles apply implementer-codex.yaml, or make it on the web under Agents.
 #
 # The description is what the coordinator chooses by; say in it what this worker is for.
-name: codex-worker
+name: implementer-codex
 description: >-
-  Makes a change in the repository, runs its checks and opens a pull request, on the Codex CLI. Use when the owner
-  asks for Codex, or to have a second vendor do the work; implementer is the default for any change.
+  Makes a change in the repository, runs its checks and opens a pull request, on the Codex CLI. The fallback of
+  implementer while Claude waits for a limit; use it also when the owner asks for Codex or a second vendor.
+  implementer is the default for any change.
 runtime: codex
 model:
   provider: <gateway provider>
@@ -32,5 +34,5 @@ instruction: |
 #   - implementer
 #
 # On the owner's control plane (2026-11-16) this profile runs gpt-6.1-sol and is the backup of `implementer`
-# (implementer's `fallbacks: [codex-worker]`), so Claude Code work goes on under Codex while Claude's accounts wait
+# (implementer's `fallbacks: [implementer-codex]`), so Claude Code work goes on under Codex while Claude's accounts wait
 # for a limit to reset.

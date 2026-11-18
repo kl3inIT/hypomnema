@@ -201,7 +201,7 @@ func TestTheOwnerTakesThePhoneAndAgentsArePaused(t *testing.T) {
 		{Type: nodeproto.DeviceViewHome},
 	}, end.got()[len(end.got())-4:])
 
-	raw, err := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+	raw, err := p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 	require.NoError(t, err)
 
 	var answer nodeproto.DeviceAnswer
@@ -213,7 +213,7 @@ func TestTheOwnerTakesThePhoneAndAgentsArePaused(t *testing.T) {
 	require.NoError(t, v.Do(t.Context(), Action{Type: "releaseControl"}))
 	assert.Equal(t, ControllerAgent, nextUp(t, v).Controller)
 
-	_, err = p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+	_, err = p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"n-phone d-1 device_screen"}, link.calls)
 }
@@ -232,7 +232,7 @@ func TestACallRunningWhenTheOwnerTakesThePhoneIsAnsweredPaused(t *testing.T) {
 	answered := make(chan json.RawMessage, 1)
 
 	go func() {
-		raw, _ := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+		raw, _ := p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 		answered <- raw
 	}()
 

@@ -295,6 +295,30 @@ async function fakeServer(page: Page, start?: Account[]) {
       return json(made, 201)
     }
 
+    // A Claude account from Claude Code's .credentials.json (issue #828): its e-mail is the vendor's, not the
+    // file's, and the file is never answered.
+    if (kind === "account-imports" && request.method() === "POST") {
+      calls.push(call)
+
+      const body = request.postDataJSON() as {
+        runtime: string
+        credentials: string
+        label?: string
+      }
+      const made: Account = {
+        id: `acc_${accounts.length + 1}`,
+        runtime: body.runtime,
+        label: body.label ?? "laptop@example.com",
+        status: "active",
+        position: 9,
+        email: "laptop@example.com",
+        sign_in: "active",
+      }
+      accounts = [...accounts, made]
+
+      return json(made, 201)
+    }
+
     if (kind === "accounts" && id && action === "move") {
       calls.push(call)
 
@@ -591,6 +615,43 @@ test("the owner adds a Claude account by pasting a token", async ({ page }) => {
   await expect(dialog).toHaveCount(0)
   await expect(claude.getByLabel("Claude account personal")).toBeVisible()
   expect(calls).toContain("POST /accounts")
+})
+
+// Scenario: the owner brings a Claude Code session from another machine (issue #828): the dialog takes the
+// .credentials.json pasted, refuses a file that is not Claude Code's before sending it, and the account takes its
+// e-mail when no name is given.
+test("the owner imports a Claude account from Claude Code's credentials file", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/models")
+
+  const claude = card(page, "Claude")
+  await claude.getByRole("button", { name: "Add account" }).click()
+
+  const dialog = page.getByRole("dialog", { name: /^(Add a .* account|Sign .* in again)$/ })
+  await dialog.getByRole("tab", { name: "Import a file" }).click()
+  await expect(dialog).toContainText(".credentials.json")
+
+  await dialog.getByRole("textbox", { name: ".credentials.json" }).fill('{"token":"x"}')
+  await dialog.getByRole("button", { name: "Import account" }).click()
+  await expect(dialog).toContainText("not Claude Code's .credentials.json")
+  await shot(page, "models-import-file")
+
+  // Choosing the file reads it into the field.
+  await dialog.getByLabel("Choose the .credentials.json file").setInputFiles({
+    name: ".credentials.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      '{"claudeAiOauth":{"accessToken":"sk-ant-oat01-made-up","refreshToken":"sk-ant-ort01-made-up"}}',
+    ),
+  })
+  await expect(dialog.getByRole("textbox", { name: ".credentials.json" })).toHaveValue(
+    /claudeAiOauth/,
+  )
+  await dialog.getByRole("button", { name: "Import account" }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect(claude.getByLabel("Claude account laptop@example.com")).toBeVisible()
+  expect(calls).toContain("POST /account-imports")
 })
 
 // Scenario: the owner changes which account the gateway tries first.

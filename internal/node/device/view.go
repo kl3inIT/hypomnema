@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -41,6 +42,8 @@ type screen struct {
 	mu      sync.Mutex
 	views   map[*View]struct{}
 	serving bool
+	// filming keeps the stream open while a take runs, with no view open (take.go).
+	filming bool
 	stream  screenStream
 	config  []byte
 	size    screenSize
@@ -118,13 +121,18 @@ func (m *Manager) Watch(ctx context.Context) *View {
 	return v
 }
 
-// watched says whether a view is open, which puts the idle stop off.
+// watched says whether a view is open or a take runs, which puts the idle
+// stop off: a take is a use, as a view is (issue #817, row 5).
 func (s *screen) watched() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return len(s.views) > 0
+	return len(s.views) > 0 || s.filming
 }
+
+// used says whether the stream is wanted: a view is open or a take runs. The
+// caller holds mu.
+func (s *screen) used() bool { return len(s.views) > 0 || s.filming }
 
 // stateChanged tells every view the phone's state, and serve that it changed.
 func (s *screen) stateChanged(state, reason string) {
@@ -159,7 +167,7 @@ func (m *Manager) serveScreen(ctx context.Context) {
 
 	for {
 		s.mu.Lock()
-		if len(s.views) == 0 {
+		if !s.used() {
 			s.serving = false
 			s.mu.Unlock()
 
@@ -186,6 +194,7 @@ func (m *Manager) serveScreen(ctx context.Context) {
 			m.opts.Logger.WarnContext(ctx, "the phone's screen could not be streamed",
 				slog.String("event", "device.view_failed"), slog.String("error", err.Error()))
 			s.failed(err)
+			m.endRunning(devicetool.EndedStreamError, "the phone's screen could not be streamed: "+err.Error())
 		} else {
 			m.relay(stream)
 		}
@@ -228,8 +237,8 @@ func (m *Manager) relay(stream screenStream) {
 
 	s.mu.Lock()
 
-	// The last view left while the stream was starting: it ends at once.
-	if len(s.views) == 0 {
+	// The last view left, and no take runs, while the stream was starting: it ends at once.
+	if !s.used() {
 		s.mu.Unlock()
 		stream.Close()
 
@@ -250,6 +259,9 @@ func (m *Manager) relay(stream screenStream) {
 
 	s.mu.Unlock()
 
+	// A take's segment ends with the stream before: the new stream starts with its own configuration.
+	m.streamRestarted()
+
 	defer func() {
 		s.mu.Lock()
 		s.stream = nil
@@ -263,8 +275,15 @@ func (m *Manager) relay(stream screenStream) {
 			return
 		}
 
-		if m.fanOut(p) {
+		// A take reads the packet first, through its own queue: the views' fan-out may drop it.
+		ask := m.feed(p)
+
+		if m.fanOut(p) || ask {
 			m.askKeyFrame(stream)
+		}
+
+		if m.fed != nil {
+			m.fed(p)
 		}
 	}
 }
@@ -328,6 +347,61 @@ func (m *Manager) askKeyFrame(stream screenStream) {
 
 	if due {
 		_ = stream.Control(resetVideoMessage())
+	}
+}
+
+// streamOn keeps the stream open for a take, starting it when no view did,
+// and asks for a key frame for the take's first segment.
+func (m *Manager) streamOn(ctx context.Context) {
+	s := &m.live
+
+	s.mu.Lock()
+
+	if s.views == nil {
+		s.views = map[*View]struct{}{}
+		s.wake = make(chan struct{}, 1)
+	}
+
+	s.filming = true
+	serve := !s.serving
+	s.serving = true
+	stream := s.stream
+	s.poke()
+	s.mu.Unlock()
+
+	switch {
+	case serve:
+		go m.serveScreen(context.WithoutCancel(ctx))
+	case stream != nil:
+		m.askKeyFrame(stream)
+	}
+}
+
+// streamOff lets the stream end with the last view once no take runs.
+func (m *Manager) streamOff() {
+	on := m.filmingNow()
+	s := &m.live
+
+	s.mu.Lock()
+	s.filming = on
+	stream := s.stream
+	idle := !s.used()
+	s.poke()
+	s.mu.Unlock()
+
+	if idle && stream != nil {
+		stream.Close()
+	}
+}
+
+// askKey asks the stream running, if any, for a key frame.
+func (m *Manager) askKey() {
+	m.live.mu.Lock()
+	stream := m.live.stream
+	m.live.mu.Unlock()
+
+	if stream != nil {
+		m.askKeyFrame(stream)
 	}
 }
 
@@ -484,7 +558,7 @@ func (v *View) Close() {
 
 		s.mu.Lock()
 		delete(s.views, v)
-		last := len(s.views) == 0
+		last := !s.used()
 		stream := s.stream
 		s.poke()
 		s.mu.Unlock()

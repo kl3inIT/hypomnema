@@ -133,6 +133,28 @@ func (s *signedIn) Complete(ctx context.Context, a *subscription.Attempt, pasted
 	return subscription.Account{Account: made, State: subscription.StateActive}, nil
 }
 
+// Import keeps the session of a file that holds Claude Code's credentials, as
+// the vendor reads it; any other file is a bad paste.
+func (s *signedIn) Import(ctx context.Context, runtime string, raw []byte, label string,
+) (subscription.Account, error) {
+	if !strings.Contains(string(raw), "claudeAiOauth") {
+		return subscription.Account{}, fmt.Errorf("%w: no claudeAiOauth", subscription.ErrBadPaste)
+	}
+
+	if label == "" {
+		label = "owner@example.com"
+	}
+
+	made, err := s.svc.AddAccount(ctx, runtime, label)
+	if err != nil {
+		return subscription.Account{}, err
+	}
+
+	s.states[made.ID] = subscription.StateActive
+
+	return subscription.Account{Account: made, State: subscription.StateActive}, nil
+}
+
 // UseReset uses one of the account's resets as a vendor does: the same
 // request sent again uses no second one, an account with none is refused,
 // and the windows start again.
@@ -595,4 +617,49 @@ func TestTheOwnerUsesAnAccountsLimitReset(t *testing.T) {
 		openapi.AccountLimitReset{RequestId: "req-3"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+}
+
+// Scenario: the owner imports a Claude Code session from its credentials file
+// (issue #828). A coordinator may not; a file that is not Claude Code's is
+// refused; the account is answered without the credentials.
+func TestTheOwnerImportsAClaudeSessionFromItsCredentialsFile(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	fake := &signedIn{svc: w.svc, states: map[string]subscription.State{}, removed: map[string]bool{}}
+	w.srv.WithAccounts(fake).WithSecrets(noSecrets{})
+
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+
+	file := `{"claudeAiOauth":{"accessToken":"sk-ant-oat-secret","refreshToken":"sk-ant-ort-secret"}}`
+	label := "laptop"
+	body := openapi.NewAccountImport{Runtime: openapi.NewAccountImportRuntimeClaude, Credentials: &file, Label: &label}
+
+	refused, err := pi.ImportAccountWithResponse(ctx, body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
+
+	other := `{"token":"x"}`
+	bad, err := owner.ImportAccountWithResponse(ctx,
+		openapi.NewAccountImport{Runtime: openapi.NewAccountImportRuntimeClaude, Credentials: &other})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, bad.StatusCode(), string(bad.Body))
+
+	// A body the contract refuses is answered with what is wrong, never with the credentials it carried.
+	missing, err := owner.ImportAccountWithBodyWithResponse(ctx, "application/json",
+		strings.NewReader(`{"credentials":"{\"claudeAiOauth\":{\"refreshToken\":\"sk-ant-ort-secret\"}}"}`))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, missing.StatusCode())
+	assert.Contains(t, string(missing.Body), "runtime")
+	assert.NotContains(t, string(missing.Body), "sk-ant-", "the refusal does not quote the credentials")
+
+	done, err := owner.ImportAccountWithResponse(ctx, body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, done.StatusCode(), string(done.Body))
+	assert.Equal(t, "laptop", done.JSON201.Label)
+	assert.Equal(t, "claude", done.JSON201.Runtime)
+	assert.NotContains(t, string(done.Body), "sk-ant-", "the credentials are never answered")
 }

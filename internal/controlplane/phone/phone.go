@@ -80,6 +80,10 @@ type Config struct {
 	// WakeWithin and Poll replace the package's limits, for a test.
 	WakeWithin time.Duration
 	Poll       time.Duration
+	// Takes keeps the takes agents film (lease.go); nil: no take can be filmed.
+	Takes TakeStore
+	// WorkAlive says whether an agent's work, a Caller's Work, goes on: a take ends with it. nil: it always does.
+	WorkAlive func(ctx context.Context, work string) bool
 }
 
 // Phone is the phone agents share.
@@ -96,6 +100,11 @@ type Phone struct {
 	waking map[string]time.Time
 	// idleSince is when a sweep first found the phone's machine idle, zero while it is not (idle.go).
 	idleSince time.Time
+	// lease is the take that holds the phone, nil when none does; ending are takes whose end did not reach their
+	// node, with why they ended, told at its next hello; filmChanged is closed when the lease changes (lease.go).
+	lease       *lease
+	ending      map[string]string
+	filmChanged chan struct{}
 }
 
 // New returns a Phone.
@@ -116,7 +125,10 @@ func New(cfg Config) *Phone {
 		cfg.Poll = pollEvery
 	}
 
-	return &Phone{cfg: cfg, holder: make(chan struct{}, 1), hold: ownerhold.New(), waking: map[string]time.Time{}}
+	return &Phone{
+		cfg: cfg, holder: make(chan struct{}, 1), hold: ownerhold.New(), waking: map[string]time.Time{},
+		ending: map[string]string{}, filmChanged: make(chan struct{}),
+	}
 }
 
 // Tools lists the phone's tools; ErrUnavailable when no node holds a phone,
@@ -137,11 +149,33 @@ func (p *Phone) Held(ctx context.Context) bool {
 }
 
 // Call runs one phone tool for an agent and returns its result as MCP has
-// it: content and isError. It waits for the call before it to end.
-func (p *Phone) Call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
-	if _, err := devicetool.Read(tool, arguments); err != nil {
+// it: content and isError. It waits for the call before it to end. While a
+// take holds the phone, only its agent's calls go through (lease.go).
+func (p *Phone) Call(ctx context.Context, c Caller, tool string, arguments json.RawMessage) (json.RawMessage, error) {
+	call, err := devicetool.Read(tool, arguments)
+	if err != nil {
 		return nil, err
 	}
+
+	p.endStale(ctx, c)
+
+	if devicetool.IsVideo(tool) {
+		answer, err := p.video(ctx, c, call)
+		if err != nil {
+			return nil, err
+		}
+
+		// What the node said of the take is the control plane's; the agent is given the text.
+		answer.Take = nil
+
+		return encode(answer)
+	}
+
+	if why := p.leasedTo(c); why != "" {
+		return encode(failure(why))
+	}
+
+	agent := c.Key
 
 	select {
 	case p.holder <- struct{}{}:
@@ -193,6 +227,11 @@ func (p *Phone) call(ctx context.Context, agent, tool string, arguments json.Raw
 		return nil, err
 	}
 
+	return encode(answer)
+}
+
+// encode is a node's answer as the agent is given it.
+func encode(answer nodeproto.DeviceAnswer) (json.RawMessage, error) {
 	raw, err := json.Marshal(answer)
 	if err != nil {
 		return nil, fmt.Errorf("encoding the phone's answer: %w", err)
@@ -337,13 +376,19 @@ func (p *Phone) Run(ctx context.Context) {
 			if reason := p.hold.Expire(p.cfg.Clock.Now()); reason != "" {
 				p.released(ctx, reason)
 			}
+
+			p.checkLease(ctx)
 		case <-sweep.C:
 			p.Sweep(ctx)
 		}
 	}
 }
 
+// released notes the phone went back to the agents, and resumes the take the
+// owner's takeover paused.
 func (p *Phone) released(ctx context.Context, reason string) {
 	p.cfg.Logger.InfoContext(ctx, "the phone went back to the agents",
 		slog.String("event", "phone.released"), slog.String("reason", reason))
+
+	p.resumeFilming(ctx)
 }

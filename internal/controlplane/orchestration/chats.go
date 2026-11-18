@@ -845,6 +845,23 @@ func chatMessage(r store.ChatMessage) ChatMessage {
 	}
 }
 
+// ChatTurn names the turn a chat's pi works on now: its turn mark's pi and
+// start (issue #716), which agent_start sets and agent_settled clears, so a
+// next turn has another name. Empty between turns. A take a Bot films ends
+// with the turn that started it (issue #817).
+func (s *Service) ChatTurn(ctx context.Context, chatID string) (string, error) {
+	row, err := s.read().GetChat(ctx, chatID)
+	if err != nil {
+		return "", notFound(err, "chat", chatID)
+	}
+
+	if !row.TurnToken.Valid || !row.TurnStartedAt.Valid {
+		return "", nil
+	}
+
+	return fmt.Sprintf("%s@%d", row.TurnToken.String, row.TurnStartedAt.Int64), nil
+}
+
 // OwnerTurn says whether what a chat's pi works on now is the owner's own request (issue #468): the last of the
 // chat's messages pi is given as a turn is a message the owner wrote. A message of a Channel person who is not
 // the owner, a wake-up (a Run's events, a Routine's run, an Approval answered after its request ended) and a

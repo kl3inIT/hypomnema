@@ -106,7 +106,7 @@ const (
 	noticeOwnerOnly = "This bot takes messages from its owner only."
 	noticeAllowlist = "This bot takes messages from its owner and the people he added."
 	noticeOutsider  = "This bot serves members of its %s organization only."
-	noticeTextOnly  = "This bot reads text messages only for now."
+	noticeTextOnly  = "This bot cannot read this kind of message: send text, a voice message, an image or a file."
 	noticeNoAnswer  = "%s is not running, so nothing will answer. Your message is kept."
 	noticeFailed    = "This message could not be taken. Try again."
 	noticeQueued    = "⏳ Queued: %s is still working on the message before."
@@ -649,7 +649,7 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 
 	recorder, voice := cn.voice(m)
 
-	if !voice && (!m.IsText || strings.TrimSpace(m.Text) == "") {
+	if !voice && !readable(m) {
 		cn.notice(ctx, m.ChatID, noticeTextOnly)
 
 		return nil
@@ -692,6 +692,10 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 		body = cn.heard(ctx, recorder, chat.ChatID, m)
 	}
 
+	// The files it carries are kept in the chat's attachments before the Bot reads it (issue #829).
+	files, unread := cn.received(ctx, chat.Bot, chat.ChatID, m)
+	body = withUnread(body, unread)
+
 	text := body
 
 	if sender != nil {
@@ -702,7 +706,7 @@ func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) 
 			platform, name, defuseLabels(body, platform))
 	}
 
-	return cn.deliver(ctx, m, chat, text, sender)
+	return cn.deliver(ctx, m, chat, text, files, sender)
 }
 
 // voice says whether a message is a voice message the Channels can hear:
@@ -776,14 +780,14 @@ func (cn *conn) inGroup(ctx context.Context, ch channelstore.Channel, m Message)
 		return err
 	}
 
-	if !m.IsText {
+	if !m.IsText && len(m.Files) == 0 {
 		cn.notice(ctx, m.ChatID, noticeTextOnly)
 
 		return nil
 	}
 
-	// Mentioning the bot with nothing to ask says nothing to answer (MemoryOS).
-	if strings.TrimSpace(text) == "" {
+	// Mentioning the bot with nothing to ask says nothing to answer (MemoryOS); a post with files asks about them.
+	if strings.TrimSpace(text) == "" && len(m.Files) == 0 {
 		return nil
 	}
 
@@ -839,7 +843,10 @@ func (cn *conn) inGroup(ctx context.Context, ch channelstore.Channel, m Message)
 		sender = &orchestration.ChatSender{ID: m.Sender, Name: name}
 	}
 
-	return cn.deliver(ctx, m, chat, "["+name+"]: "+defuseLabels(text, cn.caps.Platform), sender)
+	files, unread := cn.received(ctx, chat.Bot, chat.ChatID, m)
+	text = withUnread(text, unread)
+
+	return cn.deliver(ctx, m, chat, "["+name+"]: "+defuseLabels(text, cn.caps.Platform), files, sender)
 }
 
 // addressed is a group message's text without the account's own mentions,
@@ -926,9 +933,10 @@ func (cn *conn) self(ctx context.Context) (string, error) {
 }
 
 // deliver gives a person's message to the Bot of its chat and marks it as
-// being worked on. sender is who wrote it when it is not the Channel's owner.
+// being worked on, with the files it carried, kept in the chat's attachments
+// (issue #829). sender is who wrote it when it is not the Channel's owner.
 func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.ChannelChat, text string,
-	sender *orchestration.ChatSender,
+	files []orchestration.ChatAttachment, sender *orchestration.ChatSender,
 ) error {
 	store := cn.all.store
 
@@ -945,7 +953,8 @@ func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.Channe
 
 	// A message written while pi works waits in the chat's queue until the turn settles (issue #497).
 	if _, _, err := store.SendOwnerMessage(ctx, chat.ChatID,
-		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: text, Sender: sender}, busy); err != nil {
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: text, Attachments: files, Sender: sender},
+		busy); err != nil {
 		r.forget(m.ID)
 
 		return err

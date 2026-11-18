@@ -65,7 +65,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"slices"
 	"syscall"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane"
@@ -130,7 +129,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return err
 	}
 
-	if slices.Contains(clientcli.Commands(), args[0]) {
+	if clientcli.Handles(args) {
 		home, err := clientcli.DefaultHome()
 		if err != nil {
 			return err

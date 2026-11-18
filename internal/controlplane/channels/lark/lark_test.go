@@ -123,4 +123,60 @@ func TestAVoiceMessageIsReadAsItsRecordingsKey(t *testing.T) {
 	assert.Empty(t, text.Voice)
 }
 
+// Scenario (issue #829): a post is read as its title and rows of text, with
+// its mentions kept as the placeholders the message's mentions name, a link
+// as a link, and each image and file in it, once, to download; a post by
+// language reads the same. An image, a file and a video message are the one
+// file each is, and a sticker is none.
+func TestAPostIsReadAsItsTextAndItsFiles(t *testing.T) {
+	t.Parallel()
+
+	event := func(kind, content string) *larkim.P2MessageReceiveV1 {
+		return &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+			Message: &larkim.EventMessage{
+				MessageId: ptr("om_1"), ChatId: ptr("oc_1"), ChatType: ptr("group"), MessageType: ptr(kind),
+				Content: ptr(content),
+				Mentions: []*larkim.MentionEvent{{
+					Key: ptr("@_user_1"), Name: ptr("Hypomnema"), Id: &larkim.UserId{OpenId: ptr("ou_bot")},
+				}},
+			},
+			Sender: &larkim.EventSender{SenderType: ptr("user"), SenderId: &larkim.UserId{OpenId: ptr("ou_1")}},
+		}}
+	}
+
+	post := `{"title":"Đơn vị","content":[` +
+		`[{"tag":"at","user_id":"@_user_1","user_name":"Hypomnema"},{"tag":"text","text":" của mình có theo "},` +
+		`{"tag":"a","text":"đơn vị","href":"https://example.com/d"},{"tag":"text","text":" kiểu này chưa"}],` +
+		`[{"tag":"img","image_key":"img_1"}],` +
+		`[{"tag":"code","text":"x=1"},{"tag":"emotion","emoji_type":"SMILE"}],` +
+		`[{"tag":"media","file_key":"file_v","file_name":"clip.mp4"},{"tag":"img","image_key":"img_1"}]],` +
+		`"files":[{"file_key":"file_d","file_name":"Báo cáo.xlsx"},{"file_key":"dir_1","is_folder":true}]}`
+
+	m := messageOf(event("post", post))
+	assert.True(t, m.IsText)
+	assert.Equal(t, "Đơn vị\n@_user_1 của mình có theo [đơn vị](https://example.com/d) kiểu này chưa\n`x=1`:SMILE:",
+		m.Text)
+	assert.Equal(t, []channels.File{
+		{Key: "img_1", Image: true}, {Key: "file_v", Name: "clip.mp4"}, {Key: "file_d", Name: "Báo cáo.xlsx"},
+	}, m.Files)
+	assert.Equal(t, "@_user_1", m.Mentions[0].Key, "the mention the text holds is the one the message names")
+
+	byLanguage := messageOf(event("post", `{"zh_cn":{"title":"","content":[[{"tag":"text","text":"xin chào"}]]}}`))
+	assert.Equal(t, "xin chào", byLanguage.Text)
+
+	image := messageOf(event("image", `{"image_key":"img_2"}`))
+	assert.False(t, image.IsText)
+	assert.Equal(t, []channels.File{{Key: "img_2", Image: true}}, image.Files)
+
+	file := messageOf(event("file", `{"file_key":"file_2","file_name":"notes.pdf"}`))
+	assert.Equal(t, []channels.File{{Key: "file_2", Name: "notes.pdf"}}, file.Files)
+
+	video := messageOf(event("media", `{"file_key":"file_3","image_key":"img_cover","file_name":"a.mp4"}`))
+	assert.Equal(t, []channels.File{{Key: "file_3", Name: "a.mp4"}}, video.Files)
+
+	sticker := messageOf(event("sticker", `{"file_key":"stk_1"}`))
+	assert.Empty(t, sticker.Files)
+	assert.False(t, sticker.IsText)
+}
+
 func ptr(s string) *string { return &s }

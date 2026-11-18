@@ -226,13 +226,14 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		phone      *device.Manager
 		phoneSays  daemon.Phone
 		watchPhone func(ctx context.Context) daemon.PhoneView
+		takes      daemon.Takes
 	)
 
 	if cfg.Device == nodeproto.DeviceAndroid {
 		phone = device.New(device.Options{
 			Dir: filepath.Join(home, "device"), KVM: CanUseKVM, Logger: logger, GPU: cfg.DeviceGPU,
 		})
-		phoneSays = phone
+		phoneSays, takes = phone, phone
 		watchPhone = func(ctx context.Context) daemon.PhoneView { return phone.Watch(ctx) }
 
 		go phone.Run(ctx)
@@ -289,7 +290,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 			return found
 		},
 		Terminal: terminals, Commands: commands,
-		Device: cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone,
+		Device: cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone, Takes: takes,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems
