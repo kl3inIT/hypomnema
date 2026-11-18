@@ -213,8 +213,12 @@ func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 	if err := root.Mkdir(cacheName, 0o700); err != nil {
 		return err
 	}
+	cacheInfo, err := root.Lstat(cacheName)
+	if err != nil {
+		return err
+	}
 	cache := filepath.Join(store, cacheName)
-	defer func() { _ = root.Remove(cacheName) }()
+	defer func() { _ = removeAt(ctx, root, cacheName, mount, cacheInfo) }()
 	if !RealDir(cache) || !SameVolume(worktreeVolume, cache) {
 		return errors.New("the isolated pnpm cache is not on the worktree volume")
 	}
@@ -248,12 +252,21 @@ func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 }
 
 func (c Caches) pnpm(ctx context.Context, handle *os.File, exe, store, cache, action string) (*exec.Cmd, error) {
-	args := []string{"--store-dir", store, "--cache-dir", cache, "store", action}
+	args := []string{"--store-dir", store, "store", action}
 	cmd, err := ScopedCommand(ctx, []Scope{{Dir: handle}}, exe, args...)
 	if err != nil {
 		return nil, err
 	}
 	cmd.Dir = c.UserHome
-	cmd.Env = []string{"HOME=" + c.UserHome, "PATH=" + c.WorkerPath(), "COREPACK_ENABLE_NETWORK=0", "CI=true"}
+	corepack := os.Getenv("COREPACK_HOME")
+	if corepack == "" {
+		corepack = filepath.Join(c.UserHome, ".cache", "node", "corepack")
+	}
+	cmd.Env = []string{
+		"HOME=" + c.UserHome, "PATH=" + c.WorkerPath(), "COREPACK_HOME=" + corepack,
+		"COREPACK_ENABLE_NETWORK=0", "CI=true", "NODE_DISABLE_COMPILE_CACHE=1",
+		"XDG_CACHE_HOME=" + cache, "XDG_STATE_HOME=" + cache, "XDG_RUNTIME_DIR=" + cache,
+		"TMPDIR=" + cache, "TEMP=" + cache, "TMP=" + cache,
+	}
 	return cmd, nil
 }

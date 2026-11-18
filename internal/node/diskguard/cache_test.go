@@ -80,11 +80,12 @@ func TestPnpmRejectsStoreSymlinkAndLeavesDefaultDLXCacheAlone(t *testing.T) {
 	}
 	require.NoError(t, os.WriteFile(dlx, nil, 0o600))
 	script := []byte(`#!/bin/sh
-if [ "$6" = path ]; then
+if [ "$4" = path ]; then
   printf '%s/v11\n' "$2"
-elif [ "$6" = prune ]; then
-  [ "$3" = --cache-dir ] || exit 2
-  [ -d "$4" ] || exit 3
+elif [ "$4" = prune ]; then
+  case "$XDG_CACHE_HOME" in "$2"/*) ;; *) exit 2 ;; esac
+  [ "$XDG_RUNTIME_DIR" = "$XDG_CACHE_HOME" ] || exit 3
+  : > "$XDG_RUNTIME_DIR/lock"
   : > "$2/pruned"
 else
   exit 4
@@ -103,6 +104,14 @@ fi
 	require.NoError(t, caches.prunePnpm(t.Context(), home))
 	assert.FileExists(t, filepath.Join(store, "pruned"))
 	assert.FileExists(t, dlx)
+	assert.Len(t, mustReadDir(t, store), 2, "the native command's isolated cache and locks are reclaimed")
+}
+
+func mustReadDir(t *testing.T, path string) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	require.NoError(t, err)
+	return entries
 }
 
 func TestGoCacheTrimStopsAtTargetAndKeepsNewAndUnknownFiles(t *testing.T) {
