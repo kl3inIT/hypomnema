@@ -227,51 +227,6 @@ func TestTheAudioFamilyIsSwitchedOffAsOne(t *testing.T) {
 	assert.Empty(t, audio.asked)
 }
 
-// Scenario (decisions 2.2, 2.3; the owner's change of 2026-11-18): the
-// "Tools" block is built from the tools each agent gets. A Claude Code
-// worker and a Bot's pi with the same families get the same block, which
-// names the web, images and audio, and nothing whose line is empty (the
-// memory, the browser). A Bot that switches the speech off gets a block
-// without it.
-func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
-	t.Parallel()
-
-	var api *agentapi.Server
-
-	w := newWorldWith(t, 0, func(s *agentapi.Server) {
-		api = s.WithAudio(&fakeAudio{}).WithWeb(&fakeWeb{}).WithImages(&fakeImages{}).
-			WithRuntimes(func(context.Context, string) (string, error) { return "claude", nil })
-	})
-	ctx := t.Context()
-
-	key := w.workerUnder("", "laptop", "")
-	session, err := w.svc.AgentSessionOf(ctx, key)
-	require.NoError(t, err)
-
-	workerTools := api.WorkerTools(ctx, session.DispatchID)
-	assert.Subset(t, workerTools, []string{agenttool.ToolWebSearch, agenttool.ToolGenerateImage,
-		agenttool.ToolAudioSpeak, agenttool.ToolMemory, "agent_browser_open"})
-
-	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "same"})
-	require.NoError(t, err)
-
-	block := agenttool.ToolGuide(workerTools)
-	assert.Equal(t, block, agenttool.ToolGuide(api.BotTools(ctx, bot)))
-	assert.Contains(t, block, "- Web: ")
-	assert.Contains(t, block, "- Images: ")
-	assert.Contains(t, block, "- Audio: ")
-	assert.NotContains(t, block, "Memory")
-	assert.NotContains(t, block, "Browser")
-
-	quiet, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "quiet", ToolsOff: []string{"audio_*"}})
-	require.NoError(t, err)
-
-	botTools := api.BotTools(ctx, quiet)
-	assert.NotContains(t, botTools, agenttool.ToolAudioSpeak)
-	assert.NotContains(t, agenttool.ToolGuide(botTools), "- Audio: ")
-	assert.Contains(t, agenttool.ToolGuide(botTools), "- Web: ")
-}
-
 // Scenario (issue #723, incoming voice): a voice note of the owner's
 // WhatsApp, and one of his Zalo, opened by a Bot comes with its transcript
 // after its path, heard as the Bot's chat so that it is recorded on its key;

@@ -45,8 +45,9 @@ type Server struct {
 	// agentKey makes a Dispatch's own key to the agent API, for the
 	// Connections its Run may use; nil when the control plane wired none.
 	agentKey func(ctx context.Context, dispatchID string, uses []string) (string, bool)
-	// toolNames are the tools a Dispatch's worker gets, for its "Tools" block (issue #723).
-	toolNames func(ctx context.Context, dispatchID string) []string
+	// toolNames are the tools a Dispatch's worker gets, read with its key, for its "Tools" block (issues #723,
+	// #789).
+	toolNames func(ctx context.Context, dispatchID, key string) []string
 	// tools names the tools a node of a system should have; nil when the
 	// control plane wired none.
 	tools func(ctx context.Context, os, arch string) []nodeproto.Tool
@@ -165,8 +166,8 @@ func (s *Server) WithPhone(held func(ctx context.Context) bool) *Server {
 }
 
 // WithToolNames sets where an offer's tool names come from: the tools the
-// Dispatch's worker gets (agentapi.Server.WorkerTools).
-func (s *Server) WithToolNames(names func(ctx context.Context, dispatchID string) []string) *Server {
+// Dispatch's worker gets, read with its key (agentapi.Server.WorkerTools).
+func (s *Server) WithToolNames(names func(ctx context.Context, dispatchID, key string) []string) *Server {
 	s.toolNames = names
 
 	return s
@@ -582,9 +583,10 @@ func (c *session) push(ctx context.Context) error {
 			o.Device = nodeproto.DeviceAndroid
 		}
 
-		// And the names of the tools it gets, for the "Tools" block of its rules (issue #723).
+		// And the names of the tools it gets, read with that key as its tools server will be, for the "Tools" block
+		// of its rules (issues #723, #789).
 		if c.srv.toolNames != nil && o.AgentKey != "" {
-			o.Tools = c.srv.toolNames(ctx, o.DispatchID)
+			o.Tools = c.srv.toolNames(ctx, o.DispatchID, o.AgentKey)
 		}
 
 		o.Skills = c.srv.skillsFor(c.nodeID, o.Skills)

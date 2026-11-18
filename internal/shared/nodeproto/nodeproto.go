@@ -581,9 +581,10 @@ type Offer struct {
 	// where the worker's CLI reads skills.
 	Skills []Skill `json:"skills,omitempty"`
 	// Tools are the names of Hypomnema's tools the worker gets, after its
-	// profile's switches (issue #723, decision 2.3): the node writes the
-	// "Tools" block of its rules from them (agenttool.ToolGuide). A node of
-	// an earlier release ignores them.
+	// profile's switches, and the commands it reaches an account with
+	// through the service proxy (issue #723, decision 2.3; issue #789): the
+	// node writes the "Tools" block of its rules from them
+	// (agenttool.ToolGuide). A node of an earlier release ignores them.
 	Tools []string `json:"tools,omitempty"`
 }
 

@@ -195,19 +195,20 @@ func TestABotIsRenamedFromTheCLI(t *testing.T) {
 
 // Scenario (issue #723, decisions 2.2 to 2.4): pi's prompt opens with the
 // "Tools" block built from the tools the control plane says its Bot gets,
-// before the persona, in a direct chat and in a group's; a Bot whose tools
-// say nothing gets no block.
+// before the persona, in a direct chat and in a group's, with a line for
+// each family and command it has (issue #789); a Bot with none of them gets
+// no block.
 func TestABotsPromptOpensWithItsToolsBlock(t *testing.T) {
 	t.Parallel()
 
 	w := newWorldWith(t, nil, func(s *clientapi.Server) {
 		s.WithBotTools(func(_ context.Context, bot orchestration.Bot) []string {
 			if bot.Name == "quiet" {
-				return []string{agenttool.ToolMemory}
+				return nil
 			}
 
 			return []string{agenttool.ToolMemory, agenttool.ToolWebSearch, agenttool.ToolWebFetch,
-				agenttool.ToolAudioTranscribe}
+				agenttool.ToolAudioTranscribe, "lark-cli"}
 		})
 	})
 	w.login(t, bearertoken.Owner)
@@ -217,8 +218,9 @@ func TestABotsPromptOpensWithItsToolsBlock(t *testing.T) {
 	_, err = w.cmdIn(t, "You say little.\n", "bots", "set", "quiet", "--persona-file", "-")
 	require.NoError(t, err)
 
-	block := agenttool.ToolGuide([]string{agenttool.ToolWebSearch, agenttool.ToolAudioTranscribe})
-	require.NotEmpty(t, block)
+	block := agenttool.ToolGuide([]string{agenttool.ToolMemory, agenttool.ToolWebSearch,
+		agenttool.ToolAudioTranscribe, "lark-cli"})
+	require.Contains(t, block, "\n- lark-cli: ")
 
 	out, err := w.cmd(t, "bots", "prompt", "vmap")
 	require.NoError(t, err)
