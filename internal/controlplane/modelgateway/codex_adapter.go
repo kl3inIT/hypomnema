@@ -267,6 +267,55 @@ func codexRefusal(failure *codex.Failure, now time.Time) *http.Response {
 	return resp
 }
 
+// accountsCoolingMessage is what the gateway says when every account of a
+// runtime waits for a limit to reset.
+const accountsCoolingMessage = "no account of this provider can be used for now"
+
+// codexWaitsUpTo is the longest wait for a free Codex account a client is
+// left to sit out itself, after the Retry-After of a plain 429; a longer one
+// is a usage limit (codexAccountsCooling). It is OpenClaw's maxRetryDelayMs,
+// past which a 429 fails over at once (src/llm/provider-rate-limit.ts:99-114,
+// 270).
+const codexWaitsUpTo = time.Minute
+
+// codexAccountsCooling is the answer when every Codex account waits longer
+// than codexWaitsUpTo for its limit: a 429 in the shape the backend gives a
+// used-up plan, type usage_limit_reached with resets_at (issue #756). The
+// Codex CLI ends its turn on that type and writes the reset into its error
+// (codex-rs 0.169.0 codex-api/src/api_bridge.rs:221-252,
+// core/src/session/turn.rs:2032-2038), where any other 429 is retried after
+// its whole Retry-After, five times (core/src/responses_retry.rs:142-167,
+// protocol/src/error.rs:489-491): a worker would wait for hours with no word.
+// A chat client gets the same type as when the backend itself refused
+// (codexRefused passes that on).
+func codexAccountsCooling(until, now time.Time) *http.Response {
+	var body struct {
+		Error struct {
+			Message  string `json:"message"`
+			Type     string `json:"type"`
+			Code     string `json:"code"`
+			ResetsAt int64  `json:"resets_at"`
+		} `json:"error"`
+	}
+
+	body.Error.Message, body.Error.Type, body.Error.Code = accountsCoolingMessage, "usage_limit_reached",
+		"account_unavailable"
+	// The whole second after the reset: the CLI reads a Unix second.
+	body.Error.ResetsAt = until.Add(time.Second - 1).Unix()
+
+	encoded, _ := json.Marshal(body) //nolint:errchkjson // Strings and a number always encode.
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: io.NopCloser(bytes.NewReader(encoded)),
+	}
+
+	if wait := until.Sub(now); wait > 0 {
+		resp.Header.Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	}
+
+	return resp
+}
+
 // retryAfter is the seconds until a usage limit ends, for the Retry-After header.
 func retryAfter(failure *codex.Failure, now time.Time) string {
 	if failure.ResetsAt.IsZero() || !failure.ResetsAt.After(now) {

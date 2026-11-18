@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -244,7 +245,9 @@ type event struct {
 	Request   json.RawMessage `json:"request"`
 	Result    string          `json:"result"`
 	IsError   bool            `json:"is_error"`
-	Usage     *struct {
+	// APIErrorStatus is the HTTP status of the refusal a result ended on.
+	APIErrorStatus int `json:"api_error_status"`
+	Usage          *struct {
 		Input      int64 `json:"input_tokens"`
 		Output     int64 `json:"output_tokens"`
 		CacheRead  int64 `json:"cache_read_input_tokens"`
@@ -380,6 +383,11 @@ func (t *turn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
 		f.Summary = "the worker's tools server (" + workertools.Name + ") did not start: its status was " + t.toolsDown
 	case t.limited != nil:
 		f.Class, f.ResetsAt = "rate_limited", t.limited
+	case res.APIErrorStatus == http.StatusTooManyRequests:
+		// A 429 with no rate_limit_event: the model gateway's, when every account waits for its limit (issue #756).
+		// Claude Code 2.1.325 does not retry it; it ends with "API Error: Request rejected (429)". The gateway
+		// cools its own accounts, so no reset is needed here, as the Codex runtime's "429" (codex/runner.go).
+		f.Class = "rate_limited"
 	case strings.Contains(lower, "invalid api key") || strings.Contains(lower, "please run /login") ||
 		strings.Contains(lower, "authentication") || strings.Contains(lower, "oauth token"):
 		f.Class = "needs_auth"

@@ -684,10 +684,17 @@ func (s *Service) GetProfile(ctx context.Context, name string) (Profile, error) 
 func (s *Service) withAvailability(ctx context.Context, profiles []Profile) error {
 	q := s.read()
 
+	unusable, err := s.unusableLogins(ctx)
+	if err != nil {
+		return err
+	}
+
 	p, err := loadPlacement(ctx, q, s.clock.Now().UnixMilli())
 	if err != nil {
 		return err
 	}
+
+	p.unusable = unusable
 
 	for i, pr := range profiles {
 		gateway, accounts := false, ""

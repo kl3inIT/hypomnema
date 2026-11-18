@@ -159,6 +159,44 @@ func TestAPassedThroughRequestMovesToTheNextAccount(t *testing.T) {
 	assert.Equal(t, modelgateway.OutcomeUpstreamError, alone.lastUsage(t).Outcome)
 }
 
+// Scenario: every Codex account already waits for its limit when a Codex CLI
+// worker calls (issue #756). The backend is not called, and the worker gets
+// the backend's own usage-limit shape with the reset, which the CLI ends its
+// turn on, instead of a 429 it would retry after the whole wait, five times.
+// A wait of a minute or less stays a plain 429.
+func TestAWorkerWhoseAccountsAllCoolGetsAUsageLimit(t *testing.T) {
+	t.Parallel()
+
+	resets := time.Now().Add(time.Hour).Truncate(time.Second)
+	limit := `{"error":{"type":"usage_limit_reached","message":"limit","resets_at":` + jsonInt(resets.Unix()) + `}}`
+
+	backend, got := codexBackend(t, plain(http.StatusTooManyRequests, limit))
+	g := newCodexGateway(t, backend, &accounts{})
+
+	status, _, _ := g.respond(t, g.key, codexAsks)
+	require.Equal(t, http.StatusTooManyRequests, status)
+
+	status, headers, body := g.respond(t, g.key, codexAsks)
+	assert.Equal(t, http.StatusTooManyRequests, status)
+	assert.Equal(t, 1, got.calls(), "a cooling account is not sent to the backend")
+	assert.JSONEq(t, `{"error":{"type":"usage_limit_reached","code":"account_unavailable",`+
+		`"message":"no account of this provider can be used for now","resets_at":`+jsonInt(resets.Unix())+`}}`, body)
+	assert.NotEmpty(t, headers.Get("Retry-After"))
+
+	// A wait of a minute or less is the client's to sit out: a plain 429 the CLI retries after Retry-After.
+	soon := time.Now().Add(30 * time.Second).Unix()
+	backendSoon, _ := codexBackend(t, plain(http.StatusTooManyRequests,
+		`{"error":{"type":"usage_limit_reached","message":"limit","resets_at":`+jsonInt(soon)+`}}`))
+	shortly := newCodexGateway(t, backendSoon, &accounts{})
+	shortly.respond(t, shortly.key, codexAsks)
+
+	status, headers, body = shortly.respond(t, shortly.key, codexAsks)
+	assert.Equal(t, http.StatusTooManyRequests, status)
+	assert.Contains(t, body, `"type":"rate_limit_error"`)
+	assert.Contains(t, body, "account_unavailable")
+	assert.NotEmpty(t, headers.Get("Retry-After"))
+}
+
 // Scenario: what the route refuses itself. It answers as a stream only; a
 // model served by another kind of provider is not passed on here; a key that
 // may not use the model, and no key, are refused as on the chat route.

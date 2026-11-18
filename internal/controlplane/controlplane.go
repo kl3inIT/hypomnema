@@ -347,6 +347,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
 	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
+	svc.SetGatewayLogins(subscriptions.Unusable)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets)).WithProviderList(gatewayProviderList(svc)).
 		WithServedLimits(gatewayServedLimits(subscriptions))

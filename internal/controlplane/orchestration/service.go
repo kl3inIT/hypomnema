@@ -45,6 +45,34 @@ type Service struct {
 	meetings *meetingstore.Store
 	// chatKeys revokes a deleted chat's gateway keys (issue #405).
 	chatKeys ChatKeys
+	// gatewayLogins says which accounts the gateway cannot serve under (issue #756).
+	gatewayLogins GatewayLogins
+}
+
+// GatewayLogins returns the accounts the control plane keeps that the model
+// gateway cannot serve under now: no tokens, or a login refused for good. The
+// subscription service gives it (subscription.Service.Token takes only the
+// others), as ChatKeys lets the gateway act here without an import.
+type GatewayLogins func(ctx context.Context) (map[string]bool, error)
+
+// SetGatewayLogins gives the Service the gateway's view of its logins, before
+// the scheduler runs. Without it every active account the control plane keeps
+// counts as one the gateway can serve under.
+func (s *Service) SetGatewayLogins(f GatewayLogins) { s.gatewayLogins = f }
+
+// unusableLogins is the gateway's view of its logins, read before a
+// transaction: the vault is read on a connection of its own.
+func (s *Service) unusableLogins(ctx context.Context) (map[string]bool, error) {
+	if s.gatewayLogins == nil {
+		return map[string]bool{}, nil
+	}
+
+	out, err := s.gatewayLogins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the gateway's logins: %w", err)
+	}
+
+	return out, nil
 }
 
 // ChatKeys revokes the gateway keys of a chat being deleted, in the

@@ -73,7 +73,7 @@ func fakeCodex(mode string) int {
 		return 0
 	case "limited":
 		emit(out, map[string]any{
-			"type": "turn.failed", "error": map[string]any{"message": "You've hit your usage limit."},
+			"type": "turn.failed", "error": map[string]any{"message": limitMessage},
 		})
 
 		return 1
@@ -91,6 +91,10 @@ func fakeCodex(mode string) int {
 
 	return 0
 }
+
+// limitMessage is how the Codex CLI ends a turn on the gateway's usage limit
+// (issue #756): seen of codex-cli 0.169.0 against the gateway's answer.
+const limitMessage = "You’ve hit your usage limit. Try again at Nov 20th, 2099 1:12 PM."
 
 func emit(out *json.Encoder, v map[string]any) {
 	if err := out.Encode(v); err != nil {
@@ -317,6 +321,12 @@ func TestHowACodexTurnEnds(t *testing.T) {
 
 			require.Len(t, r.finished, 1)
 			assert.Equal(t, want, r.finished[0].Class, r.finished[0].Summary)
+
+			if mode == "limited" {
+				// The reset the CLI wrote, read in the node's zone, to the minute after it.
+				require.NotNil(t, r.finished[0].ResetsAt)
+				assert.True(t, time.Date(2099, 11, 20, 13, 13, 0, 0, time.Local).Equal(*r.finished[0].ResetsAt))
+			}
 		})
 	}
 

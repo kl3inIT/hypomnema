@@ -413,6 +413,11 @@ func TestARefusedRefreshTokenAsksForANewLoginAndIsNotSentAgain(t *testing.T) {
 	assert.Contains(t, a.Refresh.Error, "refresh_token_reused")
 	assert.Nil(t, a.Refresh.RetryAt, "a refused login is not tried again")
 
+	// The scheduler leaves it out when it asks whether every account cools (issue #756).
+	unusable, err := w.subs.Unusable(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{a.ID: true}, unusable)
+
 	w.clock.advance(2 * time.Hour)
 	require.NoError(t, w.subs.RefreshDue(t.Context()))
 	assert.Equal(t, 1, w.openai.refreshCalls())
@@ -422,6 +427,10 @@ func TestARefusedRefreshTokenAsksForANewLoginAndIsNotSentAgain(t *testing.T) {
 	assert.Equal(t, subscription.StateActive, again.State)
 	assert.Empty(t, again.Refresh.Error)
 	assert.Equal(t, "refresh-2", w.tokens(again)[vault.KeyRefreshToken])
+
+	unusable, err = w.subs.Unusable(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, unusable, "logged in again, the gateway serves under it")
 
 	all, err := w.subs.List(t.Context())
 	require.NoError(t, err)
