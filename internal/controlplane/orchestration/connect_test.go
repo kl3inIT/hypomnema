@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -218,4 +219,69 @@ func TestNodeConnectEndsAClaimedDispatchThatNeverStarted(t *testing.T) {
 	assert.Equal(t, FailureStartFailed, w.dispatchOf(d.ID).FailureClass)
 	assert.Equal(t, TaskReady, w.task(tasks[0].ID).Status)
 	assert.Empty(t, w.slots())
+}
+
+// Scenario (issue #833, as on stc-hy-app): the control plane is down longer
+// than a lease while a worker runs. The node says hello to the new process
+// before the reaper runs; the Dispatch is retained and its lease renewed, so
+// the next heartbeat is taken and the reaper leaves it running.
+func TestARestartLongerThanTheLeaseLeavesARetainedDispatchRunning(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(specs(1)...)
+
+	d, c := w.start(tasks[0].ID)
+	w.advance(LeaseDuration + time.Minute)
+
+	_, err := w.s.Heartbeat(t.Context(), w.again(c))
+	require.ErrorIs(t, err, ErrConflict, "a lease that ran out is not renewed by a heartbeat")
+
+	got := w.connect([]string{d.ID}, Claim{DispatchID: d.ID, Epoch: 1})
+	assert.Equal(t, []Disposition{{DispatchID: d.ID, Kind: DispositionRetain}}, got)
+
+	reaped := w.reap()
+	assert.Empty(t, reaped.Unknown)
+	assert.Equal(t, DispatchRunning, w.dispatchOf(d.ID).Status)
+
+	w.advance(LeaseDuration / 2)
+	b := w.heartbeat(c)
+	assert.Equal(t, w.clock.now.Add(LeaseDuration), b.LeaseExpiresAt)
+
+	w.advance(LeaseDuration / 2)
+	assert.Empty(t, w.reap().Unknown)
+	assert.Equal(t, DispatchRunning, w.dispatchOf(d.ID).Status)
+	assert.Equal(t, TaskRunning, w.task(tasks[0].ID).Status)
+}
+
+// Scenario (issue #833): the reaper ran before the node came back, so the
+// Dispatch is unknown when the node says hello. It is told to reattach, its
+// reattach returns it to running, and nothing is left unknown. A Dispatch of
+// the node that it no longer holds still ends lost.
+func TestARestartLongerThanTheLeaseEndsWithAReattach(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	tasks := w.tasks(specs(2)...)
+
+	d, c := w.start(tasks[0].ID)
+	gone, _ := w.start(tasks[1].ID)
+	w.advance(time.Minute)
+
+	reaped := w.loseLease()
+	assert.ElementsMatch(t, []string{d.ID, gone.ID}, reaped.Unknown)
+
+	got := w.connect([]string{d.ID}, Claim{DispatchID: d.ID, Epoch: 1})
+	assert.Equal(t, []Disposition{{DispatchID: d.ID, Kind: DispositionReattach}}, got)
+
+	acc, err := w.s.ReattachDispatch(t.Context(), w.again(c), "pid:42@1")
+	require.NoError(t, err)
+
+	c.Epoch = acc.Epoch
+	w.heartbeat(c)
+
+	assert.Equal(t, DispatchRunning, w.dispatchOf(d.ID).Status)
+	assert.Equal(t, TaskRunning, w.task(tasks[0].ID).Status)
+	assert.Equal(t, DispatchFailed, w.dispatchOf(gone.ID).Status)
+	assert.Equal(t, FailureLost, w.dispatchOf(gone.ID).FailureClass)
 }

@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -218,11 +219,12 @@ func (s *Server) OpenArtifactFrame(ctx context.Context, req openapi.OpenArtifact
 		return nil, err
 	}
 
-	if !hasRevision(a, req.Revision) {
+	kind, ok := artifactRevisionType(a, req.Revision)
+	if !ok {
 		return nil, fmt.Errorf("%w: revision %d of artifact %s", orchestration.ErrNotFound, req.Revision, a.ID)
 	}
 
-	token, err := s.frames.add(a.ID, req.Revision, s.now())
+	token, err := s.frames.add(a.ID, req.Revision, kind, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -230,14 +232,14 @@ func (s *Server) OpenArtifactFrame(ctx context.Context, req openapi.OpenArtifact
 	return openapi.OpenArtifactFrame200JSONResponse{Url: artifactFilesPath + token + "/"}, nil
 }
 
-func hasRevision(a orchestration.Artifact, rev int) bool {
+func artifactRevisionType(a orchestration.Artifact, rev int) (artifactpack.Type, bool) {
 	for _, r := range a.Revisions {
 		if r.Revision == rev {
-			return true
+			return r.Type, true
 		}
 	}
 
-	return false
+	return "", false
 }
 
 func toArtifact(a orchestration.Artifact) openapi.Artifact {
@@ -297,10 +299,11 @@ type artifactFrames struct {
 type artifactFrame struct {
 	artifact string
 	revision int
+	kind     artifactpack.Type
 	used     time.Time
 }
 
-func (f *artifactFrames) add(artifact string, revision int, now time.Time) (string, error) {
+func (f *artifactFrames) add(artifact string, revision int, kind artifactpack.Type, now time.Time) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("making a frame's address: %w", err)
@@ -329,7 +332,7 @@ func (f *artifactFrames) add(artifact string, revision int, now time.Time) (stri
 		delete(f.frames, oldest)
 	}
 
-	f.frames[token] = &artifactFrame{artifact: artifact, revision: revision, used: now}
+	f.frames[token] = &artifactFrame{artifact: artifact, revision: revision, kind: kind, used: now}
 
 	return token, nil
 }
@@ -392,7 +395,7 @@ func pagePolicy(files string) string {
 	own := "http://" + files + " https://" + files
 
 	return strings.Join([]string{
-		"sandbox allow-scripts allow-forms",
+		"sandbox allow-scripts allow-forms allow-downloads",
 		"default-src 'none'",
 		"script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' " + pageCDNs + " " + own,
 		"style-src 'unsafe-inline' " + pageCDNs + " https://fonts.googleapis.com " + own,
@@ -429,7 +432,7 @@ func (s *Server) artifactFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.serveFrameFile(w, r, fr.artifact, fr.revision, artifactFilesPath+r.PathValue("token")+"/")
+	s.serveFrameFile(w, r, fr.artifact, fr.revision, fr.kind, artifactFilesPath+r.PathValue("token")+"/")
 }
 
 // frameRequest sets the frame's headers on an answer of a files route, and answers what is not a read; false
@@ -458,16 +461,16 @@ func frameRequest(w http.ResponseWriter, r *http.Request) bool {
 // serveFrameFile sends a file of a revision by the request's path, a page with its policy naming folder, the
 // address its files load from under this host; false when it answered with an error.
 func (s *Server) serveFrameFile(w http.ResponseWriter, r *http.Request, artifact string, revision int,
-	folder string,
+	kind artifactpack.Type, folder string,
 ) bool {
-	path := r.PathValue("path")
-	if path != "" && artifactpack.CheckPath(path) != nil {
+	requestedPath := r.PathValue("path")
+	if requestedPath != "" && artifactpack.CheckPath(requestedPath) != nil {
 		answerText(w, http.StatusBadRequest, "Not a file of this page.")
 
 		return false
 	}
 
-	f, err := s.svc.ReadArtifactFile(r.Context(), artifact, revision, path)
+	f, err := s.svc.ReadArtifactFile(r.Context(), artifact, revision, requestedPath)
 	if errors.Is(err, orchestration.ErrNotFound) {
 		answerText(w, http.StatusNotFound, "Not found.")
 
@@ -480,7 +483,11 @@ func (s *Server) serveFrameFile(w http.ResponseWriter, r *http.Request, artifact
 		return false
 	}
 
-	if isPage(f.MediaType) {
+	if kind == artifactpack.TypeHTML && artifactpack.PageDownload(f.Path) {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
+			"filename": path.Base(f.Path),
+		}))
+	} else if isPage(f.MediaType) {
 		if !plainHost.MatchString(r.Host) {
 			answerText(w, http.StatusBadRequest, "Not a host a page can name.")
 

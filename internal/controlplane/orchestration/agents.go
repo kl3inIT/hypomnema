@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
@@ -131,6 +132,64 @@ func (s *Service) SetConnectionChats(ctx context.Context, integration, label str
 
 		n, err := q.SetConnectionChats(ctx, store.SetConnectionChatsParams{
 			Chats: chats, Now: now, Integration: integration, Label: label,
+		})
+		if err != nil {
+			return fmt.Errorf("changing connection %s:%s: %w", integration, label, err)
+		}
+
+		if n == 0 {
+			return fmt.Errorf("%w: %s has no connection %s", ErrNotFound, integration, label)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return Connection{}, err
+	}
+
+	return s.ConnectionOf(ctx, integration, label)
+}
+
+// SetConnectionProxy sets the proxy a Connection's requests go through (issue #850), read by connproxy.Parse;
+// empty clears it, and the Connection goes direct.
+func (s *Service) SetConnectionProxy(ctx context.Context, integration, label, proxy string) (Connection, error) {
+	address, err := connproxy.Parse(proxy)
+	if err != nil {
+		return Connection{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetConnectionProxy(ctx, store.SetConnectionProxyParams{
+			Proxy: nullString(address), Now: now, Integration: integration, Label: label,
+		})
+		if err != nil {
+			return fmt.Errorf("changing connection %s:%s: %w", integration, label, err)
+		}
+
+		if n == 0 {
+			return fmt.Errorf("%w: %s has no connection %s", ErrNotFound, integration, label)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return Connection{}, err
+	}
+
+	return s.ConnectionOf(ctx, integration, label)
+}
+
+// SetConnectionDialAddress sets where a Connection's requests are dialed instead of their host's (issue #850),
+// read by connproxy.ParseDial; empty clears it.
+func (s *Service) SetConnectionDialAddress(ctx context.Context, integration, label, dial string) (Connection, error) {
+	address, err := connproxy.ParseDial(dial)
+	if err != nil {
+		return Connection{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetConnectionDialAddress(ctx, store.SetConnectionDialAddressParams{
+			DialAddress: nullString(address), Now: now, Integration: integration, Label: label,
 		})
 		if err != nil {
 			return fmt.Errorf("changing connection %s:%s: %w", integration, label, err)

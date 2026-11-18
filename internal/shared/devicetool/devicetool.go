@@ -15,7 +15,8 @@
 // with adb, as the skill types, when the text is ASCII adb types as it is
 // (issue #578). A screen without boxes is adb's `exec-out screencap -p`, as OpenMausBot
 // takes one (server/drivers/phone-proxy.ts). Launching an app and reading its log are Orca's (src/main/emulator/android,
-// launchAppArgs and logcatArgs). The names and arguments are this repository's.
+// launchAppArgs and logcatArgs). Setting the phone's location is Appium's for an emulator
+// (location.go). The names and arguments are this repository's.
 package devicetool
 
 import (
@@ -42,6 +43,8 @@ const (
 	Key    = "device_key"
 	Launch = "device_launch"
 	Logcat = "device_logcat"
+	// Location sets the phone's GPS position (location.go, issue #851).
+	Location = "device_location"
 )
 
 // Errors of a call an agent made wrongly.
@@ -86,8 +89,10 @@ const FocusedField = "focused=true"
 
 const point = `"#N", a number from your last device_screen with boxes, or "x,y" in the screen's pixels`
 
-// Tools are the tools an agent is offered.
-func Tools() []Tool {
+// Tools are the tools an agent is offered: the phone's, then filming it (video.go).
+func Tools() []Tool { return append(phoneTools(), videoTools()...) }
+
+func phoneTools() []Tool {
 	return []Tool{
 		tool(Screen, "Take a picture of the phone's screen. Look at it before acting and again after each "+
 			"action. With boxes, what can be tapped is marked by numbered boxes, which device_tap takes by "+
@@ -119,6 +124,7 @@ func Tools() []Tool {
 			"of a priority and above.",
 			`{"lines":{"type":"integer","minimum":1,"maximum":1000,"default":100},`+
 				`"contains":{"type":"string"},"level":{"type":"string","enum":["V","D","I","W","E","F"]}}`, nil),
+		locationTool(),
 	}
 }
 
@@ -164,6 +170,20 @@ type Call struct {
 	Lines    int
 	Contains string
 	Level    string
+	// Latitude, Longitude and Altitude are where device_location puts the phone, as the emulator's
+	// `geo fix` is given them: rounded up to 5 decimals (location.go). Altitude is "" when not given.
+	Latitude  string
+	Longitude string
+	Altitude  string
+	// Take names a take; Title and RequestID are video_start's; Chapter is video_say's, whose line is Text
+	// and whose tap is Target; EndedBy is video_end's; State is video_list's.
+	Take      string
+	Title     string
+	RequestID string
+	Chapter   string
+	EndedBy   string
+	// State is the state video_list keeps takes of; "" for every take.
+	State string
 }
 
 var (
@@ -174,48 +194,82 @@ var (
 
 // arguments are every tool's arguments; a call sets those of its tool.
 type arguments struct {
-	Boxes      bool    `json:"boxes"`
-	Target     *string `json:"target"`
-	From       *string `json:"from"`
-	To         *string `json:"to"`
-	DurationMs *int    `json:"duration_ms"`
-	Text       *string `json:"text"`
-	Into       string  `json:"into"`
-	Submit     bool    `json:"submit"`
-	Key        string  `json:"key"`
-	Package    string  `json:"package"`
-	Lines      *int    `json:"lines"`
-	Contains   string  `json:"contains"`
-	Level      string  `json:"level"`
+	Boxes      bool     `json:"boxes"`
+	Target     *string  `json:"target"`
+	From       *string  `json:"from"`
+	To         *string  `json:"to"`
+	DurationMs *int     `json:"duration_ms"`
+	Text       *string  `json:"text"`
+	Into       string   `json:"into"`
+	Submit     bool     `json:"submit"`
+	Key        string   `json:"key"`
+	Package    string   `json:"package"`
+	Lines      *int     `json:"lines"`
+	Contains   string   `json:"contains"`
+	Level      string   `json:"level"`
+	Latitude   *float64 `json:"latitude"`
+	Longitude  *float64 `json:"longitude"`
+	Altitude   *float64 `json:"altitude"`
 }
 
 // takes are the arguments each tool's schema names.
 var takes = map[string][]string{
-	Screen: {"boxes"},
-	Tap:    {"target"},
-	Swipe:  {"from", "to", "duration_ms"},
-	Type:   {"text", "into", "submit"},
-	Key:    {"key"},
-	Launch: {"package"},
-	Logcat: {"lines", "contains", "level"},
+	Screen:   {"boxes"},
+	Tap:      {"target"},
+	Swipe:    {"from", "to", "duration_ms"},
+	Type:     {"text", "into", "submit"},
+	Key:      {"key"},
+	Launch:   {"package"},
+	Logcat:   {"lines", "contains", "level"},
+	Location: {"latitude", "longitude", "altitude"},
 }
 
-func takesOf(tool string) string {
-	if len(takes[tool]) == 0 {
+func takesOf(names []string) string {
+	if len(names) == 0 {
 		return "none"
 	}
 
-	return strings.Join(takes[tool], ", ")
+	return strings.Join(names, ", ")
 }
 
 // Read reads a call's arguments, refusing a tool that is not offered and
 // arguments its tool does not take.
-func Read(tool string, raw json.RawMessage) (Call, error) {
-	if !slices.ContainsFunc(Tools(), func(t Tool) bool { return t.Name == tool }) {
+func Read(tool string, raw json.RawMessage) (Call, error) { return read(tool, raw, false) }
+
+// ReadNode reads a call as the node that holds the phone reads it: the
+// control plane's own video tools and arguments too (video.go).
+func ReadNode(tool string, raw json.RawMessage) (Call, error) { return read(tool, raw, true) }
+
+// accepted are the arguments a tool takes, as an agent or the control plane calls it.
+func accepted(tool string, internal bool) ([]string, bool) {
+	if internal {
+		if names, ok := internalTakes[tool]; ok {
+			return names, true
+		}
+	}
+
+	if names, ok := videoTakes[tool]; ok {
+		return names, true
+	}
+
+	if !slices.ContainsFunc(phoneTools(), func(t Tool) bool { return t.Name == tool }) {
+		return nil, false
+	}
+
+	return takes[tool], true
+}
+
+func read(tool string, raw json.RawMessage, internal bool) (Call, error) {
+	names, ok := accepted(tool, internal)
+	if !ok {
 		return Call{}, fmt.Errorf("%w: %s", ErrNoSuchTool, tool)
 	}
 
-	var a arguments
+	var (
+		a arguments
+		v videoArguments
+	)
+
 	if len(raw) > 0 && string(raw) != "null" {
 		var given map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &given); err != nil {
@@ -224,13 +278,19 @@ func Read(tool string, raw json.RawMessage) (Call, error) {
 
 		// What the tool's schema does not name is refused, as its additionalProperties says.
 		for name := range given {
-			if !slices.Contains(takes[tool], name) {
-				return Call{}, bad("%s takes no argument %q; it takes %s", tool, name, takesOf(tool))
+			if !slices.Contains(names, name) {
+				return Call{}, bad("%s takes no argument %q; it takes %s", tool, name, takesOf(names))
 			}
 		}
 
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return Call{}, fmt.Errorf("%w: they are not a JSON object of the tool's arguments", ErrBadArguments)
+		}
+
+		if IsVideo(tool) {
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return Call{}, fmt.Errorf("%w: they are not a JSON object of the tool's arguments", ErrBadArguments)
+			}
 		}
 	}
 
@@ -259,6 +319,10 @@ func Read(tool string, raw json.RawMessage) (Call, error) {
 		}
 	case Logcat:
 		err = c.readLogcat(a.Lines, a.Contains, a.Level)
+	case Location:
+		err = c.readLocation(a.Latitude, a.Longitude, a.Altitude)
+	default:
+		err = c.readVideo(v, internal)
 	}
 
 	if err != nil {

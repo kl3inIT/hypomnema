@@ -234,7 +234,7 @@ func usage(args []string) string {
 
 func newClient(cfg Config, timeout time.Duration) (*openapi.ClientWithResponses, error) {
 	c, err := openapi.NewClientWithResponses(cfg.URL+basePath,
-		openapi.WithHTTPClient(&http.Client{Timeout: timeout}),
+		openapi.WithHTTPClient(&http.Client{Timeout: timeout, CheckRedirect: sameOrigin}),
 		openapi.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
 			r.Header.Set("Authorization", "Bearer "+cfg.Token)
 
@@ -245,6 +245,24 @@ func newClient(cfg Config, timeout time.Duration) (*openapi.ClientWithResponses,
 	}
 
 	return c, nil
+}
+
+// sameOrigin follows a redirect only to the control plane's own scheme and
+// host. Go resends a request's body on a 307 or 308, so a redirect elsewhere
+// would carry what was sent, such as the credentials an import sends (issue
+// #828), to another server; the Authorization header alone is dropped.
+func sameOrigin(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+
+	first := via[0].URL
+	if req.URL.Scheme != first.Scheme || req.URL.Host != first.Host {
+		return fmt.Errorf("the control plane redirected to %s://%s, another server; not followed",
+			req.URL.Scheme, req.URL.Host)
+	}
+
+	return nil
 }
 
 // apiError turns an error answer into an error.

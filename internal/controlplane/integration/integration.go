@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
@@ -65,6 +66,8 @@ type Store interface {
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
 	RemoveConnection(ctx context.Context, integration, label string) (orchestration.Connection, error)
 	SetConnectionChats(ctx context.Context, integration, label string, allowed bool) (orchestration.Connection, error)
+	SetConnectionProxy(ctx context.Context, integration, label, proxy string) (orchestration.Connection, error)
+	SetConnectionDialAddress(ctx context.Context, integration, label, dial string) (orchestration.Connection, error)
 	SetIntegrationClient(ctx context.Context, integration, clientID, secret string) error
 	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
 	SetConnectionSignInFailed(ctx context.Context, integration, label string, failed bool) error
@@ -86,9 +89,9 @@ type Service struct {
 	// "integration:label".
 	appTokens map[string]Token
 	// accounts is what each Connection of kind account is signed in with, by
-	// "integration:label"; accountClient sends its requests.
-	accounts      map[string]accountSession
-	accountClient *http.Client
+	// "integration:label"; accountWays are the transports its requests are sent with, by its proxy (issue #850).
+	accounts    map[string]accountSession
+	accountWays *connproxy.Transports
 	// roles is the session of each Connection that is a role, by
 	// "integration:label" (aws.go); stsEndpoint replaces STS's own address,
 	// for a test.
@@ -127,7 +130,7 @@ func New(store Store, secrets *vault.Service, clock platform.Clock, newID func(s
 	return &Service{
 		store: store, vault: secrets, defs: defs, client: &http.Client{Timeout: httpTimeout}, clock: clock,
 		newID: newID, signIns: map[string]*signIn{}, appTokens: map[string]Token{},
-		accounts: map[string]accountSession{}, accountClient: newAccountClient(), roles: map[string]awsRole{},
+		accounts: map[string]accountSession{}, accountWays: newAccountWays(), roles: map[string]awsRole{},
 		after: time.After, devices: map[string]messaging.Service{}, held: map[string]messaging.Account{},
 	}
 }
@@ -164,6 +167,10 @@ type Connection struct {
 	Key     string
 	// Chats says the coordinator may use the Connection in chats.
 	Chats bool
+	// Proxy is the proxy its requests to its service go through (issue #850); empty goes direct. DialAddress is
+	// where they are dialed instead of their host's, as curl's --resolve; empty dials the host.
+	Proxy       string
+	DialAddress string
 	// Session is the state of the account's session, for an Integration of kind device; nil otherwise.
 	Session *messaging.State
 	// Access is what the account can really do, action by action, as last read at the service (issue #567).
@@ -263,6 +270,7 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connection) Connection {
 	out := Connection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Chats: c.Chats,
+		Proxy: c.Proxy, DialAddress: c.DialAddress,
 		Address: c.Address, Version: c.Version, AppID: c.AppID, AppLabel: c.AppLabel, Access: c.Access,
 		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
@@ -541,6 +549,43 @@ func (s *Service) SetChats(ctx context.Context, integration, label string, allow
 	if err != nil {
 		return Connection{}, err
 	}
+
+	return s.view(ctx, d, changed), nil
+}
+
+// SetProxy sets the proxy a Connection's requests to its service go through (issue #850); empty clears it. A
+// Connection signed in with its own address is signed in again through it at its next request.
+func (s *Service) SetProxy(ctx context.Context, integration, label, proxy string) (Connection, error) {
+	d, err := s.definition(integration)
+	if err != nil {
+		return Connection{}, err
+	}
+
+	changed, err := s.store.SetConnectionProxy(ctx, d.ID, label, proxy)
+	if err != nil {
+		return Connection{}, err
+	}
+
+	s.dropAccount(d.ID, label)
+
+	return s.view(ctx, d, changed), nil
+}
+
+// SetDialAddress sets where a Connection's requests are dialed instead of their host's (issue #850), as
+// curl's --resolve; empty clears it. A Connection signed in with its own address signs in again at its next
+// request.
+func (s *Service) SetDialAddress(ctx context.Context, integration, label, dial string) (Connection, error) {
+	d, err := s.definition(integration)
+	if err != nil {
+		return Connection{}, err
+	}
+
+	changed, err := s.store.SetConnectionDialAddress(ctx, d.ID, label, dial)
+	if err != nil {
+		return Connection{}, err
+	}
+
+	s.dropAccount(d.ID, label)
 
 	return s.view(ctx, d, changed), nil
 }

@@ -242,6 +242,10 @@ var commands = []command{
 			fs.String("services", "", "for a service that signs in: what to connect, such as gmail:read,calendar "+
 				"(:read is read only)")
 			fs.String("url", "", "for superset: its address, such as https://superset.example.com")
+			fs.String("proxy", "", "for superset: the proxy its address is reached through, such as "+
+				"socks5://127.0.0.1:1055 (default: the one the label has, or none)")
+			fs.String("dial-address", "", "for superset: an address to dial instead of its host's, as curl's "+
+				"--resolve; temporary (default: the one the label has, or none)")
 			fs.String("user", "", "for superset: the account's user name")
 			fs.String("password-file", "", "for superset: the file holding the password, or - for standard input")
 			fs.String("role", "", "for aws: the role's ARN, such as arn:aws:iam::123456789012:role/hypomnema/read")
@@ -310,6 +314,18 @@ var commands = []command{
 		name: "integrations chats", args: "<integration>:<label> on|off", min: 2, max: 2,
 		summary: "let the coordinator use an account in chats, and give it to its Runs, or stop it (owner)",
 		flags:   jsonFlag, run: integrationsChats,
+	},
+	{
+		name: "integrations proxy", args: "<integration>:<label> <proxy>|off", min: 2, max: 2,
+		summary: "send an account's requests to its service through a proxy, such as socks5://127.0.0.1:1055 for a " +
+			"service in a private network, or off to send them direct (owner)",
+		flags: jsonFlag, run: integrationsProxy,
+	},
+	{
+		name: "integrations dial-address", args: "<integration>:<label> <host[:port]>|off", min: 2, max: 2,
+		summary: "dial an account's service at another address while its name and certificate stay the service's, " +
+			"as curl's --resolve: a temporary way round a name that does not resolve; off dials the name (owner)",
+		flags: jsonFlag, run: integrationsDialAddress,
 	},
 	{
 		name: "integrations actions", args: "<integration>:<label>", min: 1, max: 1,
@@ -740,6 +756,29 @@ var commands = []command{
 		flags: jsonFlag, run: browserStatus,
 	},
 	{
+		name: "takes list", summary: "the takes agents filmed of the phone, the newest first (owner)",
+		flags: jsonFlag, run: takesList,
+	},
+	{
+		name: "takes get", args: "<take_id>", min: 1, max: 1,
+		summary: "a take with its segments, its steps and where the owner paused it (owner)",
+		flags:   jsonFlag, run: takesGet,
+	},
+	{
+		name: "takes download", args: "<take_id>", min: 1, max: 1,
+		summary: "save an available take's segments and take.json as a zip (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("out", "", "the file to write (default <take_id>.zip)")
+			jsonFlag(fs)
+		},
+		run: takesDownload,
+	},
+	{
+		name: "takes delete", args: "<take_id>", min: 1, max: 1,
+		summary: "delete a take and its files; one still filmed is ended first (owner)",
+		flags:   jsonFlag, run: takesDelete,
+	},
+	{
 		name:    "device status",
 		summary: "the nodes that hold an Android phone: each phone's state and what is installed (owner)",
 		flags:   jsonFlag, run: deviceStatus,
@@ -820,6 +859,11 @@ var commands = []command{
 		name: "image order", args: "<provider> <provider>", min: 2, max: 2,
 		summary: "the order a request asks the image providers in, each named once (owner)",
 		flags:   jsonFlag, run: imageOrder,
+	},
+	{
+		name: "accounts import", args: "claude", min: 1, max: 1,
+		summary: "keep a Claude account on the control plane from the session Claude Code saved: --file, or --detect (owner)",
+		flags:   accountsImportFlags, run: accountsImport,
 	},
 	{
 		name:    "muse accounts",

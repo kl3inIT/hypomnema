@@ -40,6 +40,8 @@
 //	                                           make a gateway key; prints it once
 //	hypomnema gateway keys list | revoke <key id>
 //	hypomnema gateway usage [--limit N]         the latest requests the gateway served
+//	hypomnema gateway usage --by provider|account [--period 7d]
+//	                                           the text models' speed and reliability
 //
 // Anywhere, over the client API (after login):
 //
@@ -65,7 +67,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"slices"
 	"syscall"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane"
@@ -130,7 +131,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return err
 	}
 
-	if slices.Contains(clientcli.Commands(), args[0]) {
+	if clientcli.Handles(args) {
 		home, err := clientcli.DefaultHome()
 		if err != nil {
 			return err

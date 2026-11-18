@@ -749,29 +749,58 @@ func TestRateLimitIsNotCountedAndCoolsTheAccount(t *testing.T) {
 	w.dispatch(tasks[0].ID)
 }
 
-// Scenario: a node is off. Expiries are not counted, but three in a row on
-// one node escalate it as unavailable.
-func TestExpiriesInARowMakeTheNodeUnavailable(t *testing.T) {
+func TestRecentExpiriesMakeTheNodeUnavailableWithARunningClaim(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
+	tasks := w.tasks(specs(2)...)
+	task := tasks[0]
 
-	for i := range ExpiriesBeforeUnavailable {
-		w.dispatch(task.ID)
+	for range ExpiriesBeforeUnavailable - 1 {
+		queued := w.dispatch(task.ID)
 		w.advance(QueueTimeout)
-
-		r := w.reap()
-		if i < ExpiriesBeforeUnavailable-1 {
-			assert.Empty(t, r.Escalations)
-
-			continue
-		}
-
-		assert.Equal(t, []Escalation{{Kind: EscalationNodeUnavailable, NodeID: w.node.ID}}, r.Escalations)
+		reaped := w.reap()
+		assert.Equal(t, []string{queued.ID}, reaped.Expired)
+		assert.Empty(t, reaped.Escalations)
 	}
 
+	running, call := w.start(tasks[1].ID)
+	queued := w.dispatch(task.ID)
+	for range QueueTimeout / time.Minute {
+		w.advance(time.Minute)
+		w.heartbeat(call)
+	}
+
+	reaped := w.reap()
+	assert.Equal(t, []string{queued.ID}, reaped.Expired)
+	assert.Equal(t, []Escalation{{Kind: EscalationNodeUnavailable, NodeID: w.node.ID}}, reaped.Escalations)
+	node, err := w.s.GetNode(t.Context(), w.node.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, node.UnavailableAt)
+	assert.Equal(t, DispatchRunning, w.dispatchOf(running.ID).Status)
 	assert.Zero(t, w.task(task.ID).FailureCount)
+}
+
+func TestExpiriesOutsideTheWindowDoNotMakeTheNodeUnavailable(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	task := w.tasks(specs(1)...)[0]
+
+	for attempt := range ExpiriesBeforeUnavailable {
+		queued := w.dispatch(task.ID)
+		w.advance(QueueTimeout)
+		reaped := w.reap()
+		assert.Equal(t, []string{queued.ID}, reaped.Expired)
+		assert.Empty(t, reaped.Escalations)
+		if attempt == 0 {
+			w.advance(NodeExpiryWindow - 2*QueueTimeout + time.Millisecond)
+		}
+	}
+
+	node, err := w.s.GetNode(t.Context(), w.node.ID)
+	require.NoError(t, err)
+	assert.Nil(t, node.UnavailableAt)
 }
 
 // Scenario: the account needs a login. The Task is blocked and never retried

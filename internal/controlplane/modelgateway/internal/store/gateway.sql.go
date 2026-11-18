@@ -10,6 +10,101 @@ import (
 	"database/sql"
 )
 
+const addGatewayUsageDaily = `-- name: AddGatewayUsageDaily :exec
+INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
+                                 client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
+                                 cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced,
+                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens)
+SELECT CAST(?1 AS INTEGER),
+       CAST(CASE
+           WHEN k.bot_id IS NOT NULL THEN k.bot_id
+           WHEN k.dispatch_id IS NOT NULL OR (k.name LIKE 'dispatch-%' AND length(k.name) = 35) THEN 'workers'
+           WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
+           ELSE 'owner' END AS TEXT),
+       CAST(?2 AS TEXT), CAST(?3 AS TEXT), CAST(?4 AS TEXT), CAST(?5 AS TEXT), 1,
+       CAST(?6 AS INTEGER), CAST(?7 AS INTEGER), CAST(?8 AS INTEGER),
+       CAST(?9 AS INTEGER), CAST(?10 AS INTEGER), CAST(?11 AS INTEGER),
+       CAST(?12 AS INTEGER), CAST(?13 AS INTEGER), CAST(?14 AS INTEGER),
+       CAST(?15 AS INTEGER), CAST(?16 AS INTEGER), CAST(?17 AS INTEGER),
+       CAST(?18 AS INTEGER), CAST(?19 AS INTEGER), CAST(?20 AS INTEGER),
+       CAST(?21 AS INTEGER), CAST(?22 AS INTEGER), CAST(?23 AS INTEGER),
+       CAST(?24 AS INTEGER)
+FROM gateway_keys k WHERE k.id = CAST(?25 AS TEXT)
+ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE SET
+    requests = requests + excluded.requests, ok = ok + excluded.ok, failed = failed + excluded.failed,
+    client_gone = client_gone + excluded.client_gone, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+    completion_tokens = completion_tokens + excluded.completion_tokens,
+    cached_tokens = cached_tokens + excluded.cached_tokens, reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+    cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
+    web_searches = web_searches + excluded.web_searches, audio_ms = audio_ms + excluded.audio_ms,
+    characters = characters + excluded.characters, images = images + excluded.images,
+    cost_micros = cost_micros + excluded.cost_micros, unpriced = unpriced + excluded.unpriced,
+    ok_duration_ms = ok_duration_ms + excluded.ok_duration_ms, ttft_ms = ttft_ms + excluded.ttft_ms,
+    ttft_count = ttft_count + excluded.ttft_count, generation_ms = generation_ms + excluded.generation_ms,
+    generation_tokens = generation_tokens + excluded.generation_tokens
+`
+
+type AddGatewayUsageDailyParams struct {
+	Day              int64
+	Model            string
+	Provider         string
+	UpstreamModel    string
+	AccountID        string
+	Ok               int64
+	Failed           int64
+	ClientGone       int64
+	PromptTokens     int64
+	CompletionTokens int64
+	CachedTokens     int64
+	ReasoningTokens  int64
+	CacheWriteTokens int64
+	WebSearches      int64
+	AudioMs          int64
+	Characters       int64
+	Images           int64
+	CostMicros       int64
+	Unpriced         int64
+	OkDurationMs     int64
+	TtftMs           int64
+	TtftCount        int64
+	GenerationMs     int64
+	GenerationTokens int64
+	KeyID            string
+}
+
+// One request added to the daily ledger (issue #856), in the transaction that writes its row: its UTC day, and the
+// caller its key counts under, as UsageByKey groups them, without the key.
+func (q *Queries) AddGatewayUsageDaily(ctx context.Context, arg AddGatewayUsageDailyParams) error {
+	_, err := q.db.ExecContext(ctx, addGatewayUsageDaily,
+		arg.Day,
+		arg.Model,
+		arg.Provider,
+		arg.UpstreamModel,
+		arg.AccountID,
+		arg.Ok,
+		arg.Failed,
+		arg.ClientGone,
+		arg.PromptTokens,
+		arg.CompletionTokens,
+		arg.CachedTokens,
+		arg.ReasoningTokens,
+		arg.CacheWriteTokens,
+		arg.WebSearches,
+		arg.AudioMs,
+		arg.Characters,
+		arg.Images,
+		arg.CostMicros,
+		arg.Unpriced,
+		arg.OkDurationMs,
+		arg.TtftMs,
+		arg.TtftCount,
+		arg.GenerationMs,
+		arg.GenerationTokens,
+		arg.KeyID,
+	)
+	return err
+}
+
 const countGatewayAudioCalls = `-- name: CountGatewayAudioCalls :many
 SELECT provider, model,
        CAST(SUM(outcome = 'ok') AS INTEGER) AS answered,
@@ -412,11 +507,11 @@ const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           audio_ms, characters, web_searches, images, created_at)
+                           audio_ms, characters, web_searches, images, ttft_ms, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
         ?10, ?11, ?12, ?13, ?14, ?15,
         ?16, ?17, ?18, ?19, ?20, ?21,
-        ?22, ?23, ?24, ?25, ?26)
+        ?22, ?23, ?24, ?25, ?26, ?27)
 `
 
 type InsertGatewayUsageParams struct {
@@ -445,6 +540,7 @@ type InsertGatewayUsageParams struct {
 	Characters         int64
 	WebSearches        int64
 	Images             int64
+	TtftMs             sql.NullInt64
 	Now                int64
 }
 
@@ -475,6 +571,7 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.Characters,
 		arg.WebSearches,
 		arg.Images,
+		arg.TtftMs,
 		arg.Now,
 	)
 	return err
@@ -811,7 +908,7 @@ func (q *Queries) ListGatewaySearchUsage(ctx context.Context, since string) ([]G
 }
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?1
 `
 
@@ -842,6 +939,7 @@ type ListGatewayUsageRow struct {
 	Characters         int64
 	WebSearches        int64
 	Images             int64
+	TtftMs             sql.NullInt64
 	KeyName            string
 }
 
@@ -881,6 +979,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 			&i.Characters,
 			&i.WebSearches,
 			&i.Images,
+			&i.TtftMs,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -896,8 +995,117 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 	return items, nil
 }
 
+const listGatewayUsageDaily = `-- name: ListGatewayUsageDaily :many
+SELECT day, caller, model, provider, upstream_model, account_id, requests, ok, failed, client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced, ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens FROM gateway_usage_daily WHERE day >= ?1 ORDER BY day, caller, model, provider, upstream_model, account_id
+`
+
+// The ledger's rows from a UTC day on, for the periods longer than the request rows are kept.
+func (q *Queries) ListGatewayUsageDaily(ctx context.Context, since int64) ([]GatewayUsageDaily, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayUsageDaily, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GatewayUsageDaily{}
+	for rows.Next() {
+		var i GatewayUsageDaily
+		if err := rows.Scan(
+			&i.Day,
+			&i.Caller,
+			&i.Model,
+			&i.Provider,
+			&i.UpstreamModel,
+			&i.AccountID,
+			&i.Requests,
+			&i.Ok,
+			&i.Failed,
+			&i.ClientGone,
+			&i.PromptTokens,
+			&i.CompletionTokens,
+			&i.CachedTokens,
+			&i.ReasoningTokens,
+			&i.CacheWriteTokens,
+			&i.WebSearches,
+			&i.AudioMs,
+			&i.Characters,
+			&i.Images,
+			&i.CostMicros,
+			&i.Unpriced,
+			&i.OkDurationMs,
+			&i.TtftMs,
+			&i.TtftCount,
+			&i.GenerationMs,
+			&i.GenerationTokens,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPerformanceSamples = `-- name: ListPerformanceSamples :many
+SELECT provider, upstream_model, account_id, outcome, duration_ms, ttft_ms, completion_tokens, estimated, cost_micros
+FROM gateway_usage
+WHERE created_at >= ?1 AND model NOT LIKE 'web/%' AND model NOT LIKE 'audio/%' AND model NOT LIKE 'image/%'
+ORDER BY created_at
+`
+
+type ListPerformanceSamplesRow struct {
+	Provider         string
+	UpstreamModel    string
+	AccountID        string
+	Outcome          string
+	DurationMs       int64
+	TtftMs           sql.NullInt64
+	CompletionTokens int64
+	Estimated        int64
+	CostMicros       sql.NullInt64
+}
+
+// The requests to the text models since a moment (issue #856), for the speed by provider and model and by
+// account: the percentiles need each request, not sums.
+func (q *Queries) ListPerformanceSamples(ctx context.Context, since int64) ([]ListPerformanceSamplesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPerformanceSamples, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPerformanceSamplesRow{}
+	for rows.Next() {
+		var i ListPerformanceSamplesRow
+		if err := rows.Scan(
+			&i.Provider,
+			&i.UpstreamModel,
+			&i.AccountID,
+			&i.Outcome,
+			&i.DurationMs,
+			&i.TtftMs,
+			&i.CompletionTokens,
+			&i.Estimated,
+			&i.CostMicros,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsageRequests = `-- name: ListUsageRequests :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= ?1
   AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?4 OFFSET ?3
@@ -937,6 +1145,7 @@ type ListUsageRequestsRow struct {
 	Characters         int64
 	WebSearches        int64
 	Images             int64
+	TtftMs             sql.NullInt64
 	KeyName            string
 }
 
@@ -981,6 +1190,7 @@ func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsPa
 			&i.Characters,
 			&i.WebSearches,
 			&i.Images,
+			&i.TtftMs,
 			&i.KeyName,
 		); err != nil {
 			return nil, err

@@ -220,6 +220,13 @@ func writePhoneUpdate(ctx context.Context, conn *websocket.Conn, up phone.Update
 		return writeJSON(ctx, conn, map[string]any{"type": "control", "controller": up.Controller})
 	case up.Said != nil:
 		return writeJSON(ctx, conn, up.Said)
+	case up.Filming != nil:
+		f := up.Filming
+
+		return writeJSON(ctx, conn, map[string]any{
+			"type": "take", "take": f.Take, "title": f.Title, "agent": f.Agent, "state": f.State,
+			"at_ms": f.AtMs, "at": f.At, "said": f.Said,
+		})
 	}
 
 	return nil

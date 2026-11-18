@@ -10,6 +10,7 @@ const runtimes: Record<string, string> = {
   claude_subscription: "claude",
   codex_subscription: "codex",
   antigravity_subscription: "antigravity",
+  opencode_go: "opencode_go",
 }
 
 // The name of a subscription as its vendor calls the product, and what kind of account it takes.
@@ -17,6 +18,7 @@ const subscriptions: Record<string, { name: string; account: string }> = {
   claude_subscription: { name: "Claude", account: "Claude subscription" },
   codex_subscription: { name: "Codex", account: "ChatGPT subscription" },
   antigravity_subscription: { name: "Antigravity", account: "Google subscription" },
+  opencode_go: { name: "OpenCode Go", account: "OpenCode Go key" },
 }
 
 export type Subscription = {
@@ -24,7 +26,7 @@ export type Subscription = {
   name: string
   // account is what kind of account signs in, such as "ChatGPT subscription".
   account: string
-  // runtime is what its accounts sign in for: claude, codex or antigravity.
+  // runtime is what its accounts sign in for: claude, codex, antigravity or opencode_go.
   runtime: string
   accounts: Account[]
 }

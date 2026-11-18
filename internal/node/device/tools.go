@@ -78,9 +78,15 @@ type agents struct {
 // background, and the call says to come back. Every call puts the phone's
 // idle stop off.
 func (m *Manager) Call(ctx context.Context, agent, tool string, arguments json.RawMessage) nodeproto.DeviceAnswer {
-	call, err := devicetool.Read(tool, arguments)
+	call, err := devicetool.ReadNode(tool, arguments)
 	if err != nil {
 		return failed(err.Error())
+	}
+
+	// Filming does not wait for an agent's call: a line is stamped when it comes, and the owner's takeover
+	// pauses a take at once (video.go).
+	if devicetool.IsVideo(tool) {
+		return m.video(ctx, agent, call)
 	}
 
 	m.agents.mu.Lock()
@@ -152,9 +158,16 @@ func (m *Manager) runTool(ctx context.Context, agent string, c devicetool.Call) 
 	case devicetool.Key:
 		return m.key(ctx, c.Key), true
 	case devicetool.Launch:
-		return m.launch(ctx, c.Package), true
+		answer := m.launch(ctx, c.Package)
+		if !answer.IsError {
+			m.launchedFor(ctx, agent, c.Package)
+		}
+
+		return answer, true
 	case devicetool.Logcat:
 		return m.logcat(ctx, c), false
+	case devicetool.Location:
+		return m.location(ctx, c), true
 	default:
 		return failed("no such phone tool: " + c.Tool), false
 	}
@@ -448,6 +461,26 @@ func (m *Manager) launch(ctx context.Context, pkg string) nodeproto.DeviceAnswer
 	}
 
 	return text("Opened " + pkg + ".")
+}
+
+// location sets the emulator's GPS with its console's `geo fix`, sent
+// twice, the second time with "," for ".", as Appium sets an emulator's
+// (devicetool's location.go). adb's `emu` passes the console's auth token
+// itself, as `emu kill` does when the phone stops.
+func (m *Manager) location(ctx context.Context, c devicetool.Call) nodeproto.DeviceAnswer {
+	for _, args := range [][]string{devicetool.GeoFix(c), devicetool.GeoFixComma(c)} {
+		out, err := m.adb(ctx, toolWithin, append([]string{"-s", serial, "emu", "geo", "fix"}, args...)...)
+		if why := failure(out, err); why != "" {
+			return failed("The location could not be set: " + why)
+		}
+	}
+
+	said := "The phone's location is now " + c.Latitude + ", " + c.Longitude
+	if c.Altitude != "" {
+		said += ", " + c.Altitude + " m high"
+	}
+
+	return text(said + ". An app may take a few seconds to see it.")
 }
 
 // logcat reads the last lines of the phone's log, as Orca's logcat does

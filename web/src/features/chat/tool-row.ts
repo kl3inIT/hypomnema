@@ -17,6 +17,11 @@ const verbs: Record<string, { verb: string; keys: string[] }> = {
   grep: { verb: "Searched for", keys: ["pattern"] },
   find: { verb: "Searched for", keys: ["pattern"] },
   ls: { verb: "Listed files in", keys: ["path"] },
+  // Filming the phone (issue #817).
+  video_start: { verb: "Started filming", keys: ["title"] },
+  video_say: { verb: "Said", keys: ["text"] },
+  video_stop: { verb: "Stopped filming", keys: ["take"] },
+  video_status: { verb: "Checked the take", keys: ["take"] },
   // The Muse tools (issue #782).
   muse_ask: { verb: "Ask Muse ·", keys: ["prompt"] },
   muse_chats: { verb: "Muse threads ·", keys: ["query"] },

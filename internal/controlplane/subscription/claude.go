@@ -137,6 +137,10 @@ func claudeCode(pasted, state string) (string, error) {
 	return code, nil
 }
 
+// claudeMadeUpID starts the id of an account whose vendor id was not known
+// at sign-in, made from its refresh token (whoLoggedIn).
+const claudeMadeUpID = "claude-"
+
 type claudeTokens struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -219,7 +223,7 @@ func (c *Claude) whoLoggedIn(ctx context.Context, answer claudeTokens) Identity 
 
 	if who.ExternalID == "" {
 		sum := sha256.Sum256([]byte(answer.RefreshToken))
-		who.ExternalID = "claude-" + hex.EncodeToString(sum[:])[:16]
+		who.ExternalID = claudeMadeUpID + hex.EncodeToString(sum[:])[:16]
 	}
 
 	if who.Email == "" {
@@ -232,25 +236,9 @@ func (c *Claude) whoLoggedIn(ctx context.Context, answer claudeTokens) Identity 
 // Refresh implements Vendor. Anthropic may or may not return a new refresh
 // token; the old one is kept when it does not.
 func (c *Claude) Refresh(ctx context.Context, current vault.Payload) (vault.Refreshed, error) {
-	var answer claudeTokens
-
-	var status int
-
-	err := c.postJSON(ctx, c.tokenBase+"/v1/oauth/token", "refreshing the tokens", map[string]string{
-		"grant_type":    "refresh_token",
-		"client_id":     claudeClientID,
-		"refresh_token": current[vault.KeyRefreshToken],
-	}, &answer, &status)
+	answer, err := c.refreshTokens(ctx, current[vault.KeyRefreshToken])
 	if err != nil {
-		if status == http.StatusBadRequest || status == http.StatusUnauthorized || status == http.StatusForbidden {
-			return vault.Refreshed{}, fmt.Errorf("%w: %w", vault.ErrLoginRejected, err)
-		}
-
 		return vault.Refreshed{}, err
-	}
-
-	if answer.AccessToken == "" {
-		return vault.Refreshed{}, errors.New("the refresh answer lacks an access token")
 	}
 
 	return vault.Refreshed{
@@ -260,6 +248,34 @@ func (c *Claude) Refresh(ctx context.Context, current vault.Payload) (vault.Refr
 		},
 		AccessTokenExpiresAt: c.expiry(answer.ExpiresIn),
 	}, nil
+}
+
+// refreshTokens spends a refresh token and returns Anthropic's whole answer,
+// which may name the account and its organization. A refusal for good wraps
+// vault.ErrLoginRejected.
+func (c *Claude) refreshTokens(ctx context.Context, refreshToken string) (claudeTokens, error) {
+	var answer claudeTokens
+
+	var status int
+
+	err := c.postJSON(ctx, c.tokenBase+"/v1/oauth/token", "refreshing the tokens", map[string]string{
+		"grant_type":    "refresh_token",
+		"client_id":     claudeClientID,
+		"refresh_token": refreshToken,
+	}, &answer, &status)
+	if err != nil {
+		if status == http.StatusBadRequest || status == http.StatusUnauthorized || status == http.StatusForbidden {
+			return claudeTokens{}, fmt.Errorf("%w: %w", vault.ErrLoginRejected, err)
+		}
+
+		return claudeTokens{}, err
+	}
+
+	if answer.AccessToken == "" {
+		return claudeTokens{}, errors.New("the refresh answer lacks an access token")
+	}
+
+	return answer, nil
 }
 
 // Identify implements Vendor. A Claude OAuth token is opaque, so who it

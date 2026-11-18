@@ -62,7 +62,42 @@ export type Run = {
 };
 
 export type RunDetail = Run & {
+  usage?: WorkUsage;
   tasks: Array<TaskDetail>;
+};
+
+/**
+ * What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+ */
+export type WorkUsage = {
+  dispatches: number;
+  /**
+   * The Dispatches that sent the gateway requests.
+   */
+  gateway_dispatches: number;
+  requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  cache_write_tokens: number;
+  /**
+   * The gateway requests' cost at the vendor's API price, in micro-dollars.
+   */
+  cost_micros: number;
+  /**
+   * The gateway requests the price book has no price for.
+   */
+  unpriced: number;
+  /**
+   * The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+   */
+  reported: {
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_write: number;
+  };
 };
 
 export type RunList = {
@@ -122,6 +157,7 @@ export type Task = {
 };
 
 export type TaskDetail = Task & {
+  usage?: WorkUsage;
   latest_dispatch?: Dispatch;
   /**
    * More work asked of the Task's worker after it succeeded, oldest first.
@@ -1472,6 +1508,14 @@ export type IntegrationConnection = {
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
+  /**
+   * The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a service in a private network, reached through a local proxy. Absent when they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name that does not resolve; absent dials the host.
+   */
+  dial_address?: string;
   session?: DeviceSession;
   /**
    * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
@@ -1593,6 +1637,14 @@ export type NewAccountConnection = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   /**
    * The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
@@ -1837,8 +1889,19 @@ export type ApprovalDecision = {
   decision: 'approve' | 'approve_session' | 'approve_routine' | 'reject';
 };
 
+/**
+ * What changes; what is absent stays.
+ */
 export type ConnectionUse = {
-  chats: boolean;
+  chats?: boolean;
+  /**
+   * The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
+   */
+  dial_address?: string;
 };
 
 export type NewIntegrationClient = {
@@ -1963,6 +2026,80 @@ export type NewRepo = {
 
 export type NodeList = {
   data: Array<Node>;
+};
+
+export type TakeList = {
+  data: Array<Take>;
+};
+
+/**
+ * A take (issue #817): its segments in order on one timeline, the steps said on it and where the owner's takeover paused it. `recording` and `paused` while it is filmed, `finalizing` while the node closes its last segment, `uploading` until every file reached the control plane, then `available`; `failed` with `reason` when it got no frame or could not be kept.
+ */
+export type Take = {
+  id: string;
+  title: string;
+  /**
+   * The agent's key
+   */
+  agent: string;
+  /**
+   * Who filmed it
+   */
+  agent_name?: string;
+  /**
+   * The node that filmed it.
+   */
+  node: string;
+  /**
+   * The app the agent opened last while filming.
+   */
+  app_package?: string;
+  app_version?: string;
+  started_at: string;
+  /**
+   * recording, paused, finalizing, uploading, available or failed.
+   */
+  state: string;
+  /**
+   * What ended it: stop, work_end (the agent's Dispatch or turn ended), phone_end, stream_error, writer_error, disk_low or restart.
+   */
+  ended_by?: string;
+  reason?: string;
+  duration_ms: number;
+  segments: Array<TakeSegment>;
+  steps: Array<TakeStep>;
+  pauses: Array<TakePause>;
+};
+
+export type TakeSegment = {
+  file: string;
+  /**
+   * Where it starts on the take's timeline.
+   */
+  at_ms: number;
+  length_ms: number;
+  /**
+   * When its last frame starts, from the segment's start; the screen is still after it until the segment ends. A player seeks into that still tail from just before it: a browser does not seek into a file's last sample.
+   */
+  last_frame_ms: number;
+  width: number;
+  height: number;
+  bytes: number;
+  sha256: string;
+};
+
+export type TakeStep = {
+  at_ms: number;
+  text: string;
+  tap?: {
+    x: number;
+    y: number;
+  };
+  chapter?: string;
+};
+
+export type TakePause = {
+  at_ms: number;
 };
 
 export type DeviceList = {
@@ -2162,13 +2299,62 @@ export type GatewayUsageGroup = {
    */
   name: string;
   /**
-   * An account's runtime (claude, codex, antigravity).
+   * An account's runtime (claude, codex, antigravity, opencode_go).
    */
   runtime?: string;
   counts: GatewayUsageCounts;
 };
 
+/**
+ * The speed and reliability of a provider's model, or of a subscription account, over the requests to the text models. Time to first token is over the answered streams, latency over the answered requests, tokens a second (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+ */
+export type GatewayPerformance = {
+  provider: string;
+  /**
+   * The model the provider served; empty for an account.
+   */
+  model: string;
+  account_id?: string;
+  account_label?: string;
+  /**
+   * An account's runtime (claude, codex, antigravity).
+   */
+  runtime?: string;
+  requests: number;
+  ok: number;
+  failed: number;
+  /**
+   * The requests whose client left first; they count neither as answered nor as failed.
+   */
+  client_gone: number;
+  /**
+   * The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+   */
+  success_rate?: number;
+  cost_micros: number;
+  /**
+   * Read from each request, with percentiles and the median tokens a second; false from the ledger.
+   */
+  exact: boolean;
+  ttft_p50_ms?: number;
+  ttft_p95_ms?: number;
+  latency_p50_ms?: number;
+  latency_p95_ms?: number;
+  ttft_avg_ms?: number;
+  latency_avg_ms?: number;
+  /**
+   * The median of the requests' output tokens a second; from the ledger, all tokens over all time.
+   */
+  tokens_per_second?: number;
+};
+
 export type GatewayUsage = {
+  /**
+   * Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner", and no percentiles.
+   */
+  ledger: boolean;
+  by_provider: Array<GatewayPerformance>;
+  speed_by_account: Array<GatewayPerformance>;
   since: string;
   until: string;
   /**
@@ -2238,6 +2424,14 @@ export type GatewayRequest = {
   estimated: boolean;
   duration_ms: number;
   /**
+   * Time to first token: from the gateway receiving the request to the first chunk it streamed to the client; absent for an answer that is not a stream.
+   */
+  ttft_ms?: number;
+  /**
+   * The output tokens over the time after the first token; absent when the request was not a stream, its counts were estimated, or it had no output.
+   */
+  tokens_per_second?: number;
+  /**
    * The seconds of the recording an audio transcription heard; absent for other requests.
    */
   audio_seconds?: number;
@@ -2265,13 +2459,24 @@ export type GatewayRequestList = {
 
 export type NewTokenAccount = {
   /**
-   * The kind of subscription; only Claude gives a token to paste.
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
    */
-  runtime: 'claude';
+  runtime: 'claude' | 'opencode_go';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
   label: string;
+};
+
+export type NewAccountImport = {
+  /**
+   * The kind of subscription; only Claude Code's file is read.
+   */
+  runtime: 'claude';
+  /**
+   * The account's name for the owner; its e-mail when left out. Kept by an account imported again.
+   */
+  label?: string;
 };
 
 export type NewAccountSignIn = {
@@ -2334,6 +2539,33 @@ export type AccountLimitReset = {
    * The caller's id of this use; the same id again uses no second reset.
    */
   request_id: string;
+  /**
+   * The reset to use, by the id `grants` gives. Without it, one that starts a used-up window again is chosen.
+   */
+  grant_id?: string;
+};
+
+export type AccountLimitResetGrant = {
+  /**
+   * The vendor's id of the grant, which a use names.
+   */
+  id: string;
+  /**
+   * The vendor's name for the grant, when it gives one.
+   */
+  label?: string;
+  /**
+   * How many resets the grant has left.
+   */
+  available: number;
+  /**
+   * When the grant ends, when the vendor says.
+   */
+  expires_at?: string;
+  /**
+   * The windows, by the names `windows` uses, that a use starts again, such as "5 hours" and "week" for an ordinary reset or "week (Fable)" for Fable's; empty when the vendor does not say, and then it may start any.
+   */
+  clears: Array<string>;
 };
 
 export type AccountLimitResets = {
@@ -2345,6 +2577,10 @@ export type AccountLimitResets = {
    * When the one used next ends, when the vendor says.
    */
   expires_at?: string;
+  /**
+   * The usable resets one by one, as the vendor groups them.
+   */
+  grants: Array<AccountLimitResetGrant>;
 };
 
 export type AccountLimits = {
@@ -2399,9 +2635,9 @@ export type GatewayModelAttributes = {
 };
 
 /**
- * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+ * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
  */
-export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'unknown';
+export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'opencode_go' | 'unknown';
 
 export type GatewayModelInputKind = 'text' | 'image';
 
@@ -3128,7 +3364,7 @@ export type ProfileList = {
 
 export type Provider = {
   name: string;
-  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'model_gateway';
+  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'opencode_go' | 'model_gateway';
   base_url?: string;
   /**
    * Where the API key is kept, by name; never the key.
@@ -4108,6 +4344,14 @@ export type NewAccountConnectionWritable = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   password?: string;
   /**
@@ -4129,17 +4373,32 @@ export type NewIntegrationClientWritable = {
 
 export type NewTokenAccountWritable = {
   /**
-   * The kind of subscription; only Claude gives a token to paste.
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
    */
-  runtime: 'claude';
+  runtime: 'claude' | 'opencode_go';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
   label: string;
   /**
-   * The token `claude setup-token` prints, one line.
+   * The token `claude setup-token` prints, or the OpenCode Go key, one line.
    */
   token: string;
+};
+
+export type NewAccountImportWritable = {
+  /**
+   * The kind of subscription; only Claude Code's file is read.
+   */
+  runtime: 'claude';
+  /**
+   * The whole `.credentials.json` Claude Code saved, as text.
+   */
+  credentials: string;
+  /**
+   * The account's name for the owner; its e-mail when left out. Kept by an account imported again.
+   */
+  label?: string;
 };
 
 export type MeetingId = string;
@@ -4190,6 +4449,8 @@ export type MemoryOfBot = string;
 export type MemoryOfAgent = string;
 
 export type SkillName = string;
+
+export type TakeId = string;
 
 export type ArtifactId = string;
 
@@ -5198,6 +5459,147 @@ export type OpenDeviceViewResponses = {
 };
 
 export type OpenDeviceViewResponse = OpenDeviceViewResponses[keyof OpenDeviceViewResponses];
+
+export type ListTakesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/takes';
+};
+
+export type ListTakesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListTakesError = ListTakesErrors[keyof ListTakesErrors];
+
+export type ListTakesResponses = {
+  /**
+   * The takes.
+   */
+  200: TakeList;
+};
+
+export type ListTakesResponse = ListTakesResponses[keyof ListTakesResponses];
+
+export type DeleteTakeData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}';
+};
+
+export type DeleteTakeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteTakeError = DeleteTakeErrors[keyof DeleteTakeErrors];
+
+export type DeleteTakeResponses = {
+  /**
+   * Deleted.
+   */
+  204: void;
+};
+
+export type DeleteTakeResponse = DeleteTakeResponses[keyof DeleteTakeResponses];
+
+export type GetTakeData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}';
+};
+
+export type GetTakeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetTakeError = GetTakeErrors[keyof GetTakeErrors];
+
+export type GetTakeResponses = {
+  /**
+   * The take.
+   */
+  200: Take;
+};
+
+export type GetTakeResponse = GetTakeResponses[keyof GetTakeResponses];
+
+export type ReadTakeSegmentData = {
+  body?: never;
+  headers?: {
+    Range?: string;
+  };
+  path: {
+    take_id: string;
+    file: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/segments/{file}';
+};
+
+export type ReadTakeSegmentErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadTakeSegmentError = ReadTakeSegmentErrors[keyof ReadTakeSegmentErrors];
+
+export type ReadTakeSegmentResponses = {
+  /**
+   * The segment.
+   */
+  200: Blob | File;
+  /**
+   * The part of the segment asked for.
+   */
+  206: Blob | File;
+};
+
+export type ReadTakeSegmentResponse = ReadTakeSegmentResponses[keyof ReadTakeSegmentResponses];
+
+export type GetTakeArchiveData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/archive';
+};
+
+export type GetTakeArchiveErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetTakeArchiveError = GetTakeArchiveErrors[keyof GetTakeArchiveErrors];
+
+export type GetTakeArchiveResponses = {
+  /**
+   * The zip.
+   */
+  200: Blob | File;
+};
+
+export type GetTakeArchiveResponse = GetTakeArchiveResponses[keyof GetTakeArchiveResponses];
 
 export type ResumeNodeData = {
   body?: never;
@@ -6632,6 +7034,31 @@ export type AddTokenAccountResponses = {
 
 export type AddTokenAccountResponse = AddTokenAccountResponses[keyof AddTokenAccountResponses];
 
+export type ImportAccountData = {
+  body: NewAccountImportWritable;
+  path?: never;
+  query?: never;
+  url: '/account-imports';
+};
+
+export type ImportAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ImportAccountError = ImportAccountErrors[keyof ImportAccountErrors];
+
+export type ImportAccountResponses = {
+  /**
+   * The account.
+   */
+  201: Account;
+};
+
+export type ImportAccountResponse = ImportAccountResponses[keyof ImportAccountResponses];
+
 export type BeginAccountSignInData = {
   body: NewAccountSignIn;
   path?: never;
@@ -6987,7 +7414,7 @@ export type GetGatewayUsageData = {
   body?: never;
   path?: never;
   query: {
-    period: '24h' | '7d' | '30d';
+    period: '24h' | '7d' | '30d' | '90d' | '12m';
     /**
      * The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
      */

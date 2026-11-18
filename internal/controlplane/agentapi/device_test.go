@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +26,7 @@ import (
 // with err when it is set.
 type sharedPhone struct {
 	calls []string
+	works []string
 	err   error
 }
 
@@ -31,12 +34,14 @@ func (p *sharedPhone) Tools(context.Context) ([]devicetool.Tool, error) {
 	return devicetool.Tools(), p.err
 }
 
-func (p *sharedPhone) Call(_ context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
+func (p *sharedPhone) Call(_ context.Context, c phone.Caller, tool string, arguments json.RawMessage,
+) (json.RawMessage, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
 
-	p.calls = append(p.calls, fmt.Sprintf("%s %s %s", agent, tool, arguments))
+	p.calls = append(p.calls, fmt.Sprintf("%s %s %s", c.Key, tool, arguments))
+	p.works = append(p.works, c.Work)
 
 	return json.RawMessage(`{"content":[{"type":"image","data":"cG5n","mimeType":"image/png"}],"isError":false}`), nil
 }
@@ -93,6 +98,19 @@ func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
 	assert.Contains(t, logs, "duration_ms=", "how long the call took")
 	assert.NotContains(t, logs, "bí mật")
 
+	// The phone's location and the agent's takes are listed and called as the other tools (issue #851).
+	assert.True(t, listed(tools, devicetool.Location) && listed(tools, devicetool.VideoList))
+
+	status, _ = w.useDevice(key, devicetool.Location, `{"latitude":21.0285,"longitude":105.8542}`)
+	require.Equal(t, http.StatusOK, status)
+
+	status, _ = w.useDevice(key, devicetool.VideoList, `{}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []string{
+		`d-dsp_1 device_location {"latitude":21.0285,"longitude":105.8542}`, `d-dsp_1 video_list {}`,
+	}, p.calls[1:])
+	p.calls = p.calls[:1]
+
 	status, _ = w.call(http.MethodGet, agenttool.PathDeviceTools, "", nil)
 	assert.Equal(t, http.StatusUnauthorized, status)
 
@@ -134,6 +152,30 @@ func TestABotsPiUsesThePhoneAsItsChat(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, []string{`b-` + chat.ID + ` device_tap {"target":"#3"}`}, p.calls)
 	assert.Contains(t, w.logs.String(), "bot "+orchestration.DefaultBotID+" in chat "+chat.ID)
+
+	// The phone's location and the Bot's takes too (issue #851).
+	assert.True(t, listed(tools, devicetool.Location) && listed(tools, devicetool.VideoList))
+
+	status, _ = w.useDevice(pi, devicetool.Location, `{"latitude":21.0285,"longitude":105.8542}`)
+	require.Equal(t, http.StatusOK, status)
+
+	status, _ = w.useDevice(pi, devicetool.VideoList, `{"state":"recording"}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []string{
+		`b-` + chat.ID + ` device_location {"latitude":21.0285,"longitude":105.8542}`,
+		`b-` + chat.ID + ` video_list {"state":"recording"}`,
+	}, p.calls[1:])
+}
+
+// listed says whether a tool is in a list.
+func listed(tools agenttool.BrowserToolList, name string) bool {
+	for _, tool := range tools.Data {
+		if tool.Name == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // An agent is told what it did wrong and why the phone cannot be used now;
@@ -175,4 +217,49 @@ func TestAPhoneCallThatFailsSaysWhy(t *testing.T) {
 	status, body := none.call(http.MethodGet, agenttool.PathDeviceTools, noneKey, nil)
 	assert.Equal(t, http.StatusServiceUnavailable, status)
 	assert.Contains(t, string(body), "no phone")
+}
+
+// Scenario: the phone is told what each caller works on, which a take it
+// films ends with (issue #817): a worker's Dispatch, and a Bot's turn, which
+// is another turn once the chat's turn settled and the next began.
+func TestThePhoneKnowsTheWorkOfEachCall(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	p := &sharedPhone{}
+	withPhone(w, p)
+
+	ctx := t.Context()
+
+	key, err := w.svc.AddAgentSession(ctx, "dsp_1", nil)
+	require.NoError(t, err)
+
+	status, _ := w.useDevice(key, devicetool.VideoStart, `{"title":"Sign in"}`)
+	require.Equal(t, http.StatusOK, status)
+
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	require.NoError(t, w.svc.MarkChatTurn(ctx, chat.ID, "pi-1"))
+
+	status, _ = w.useDevice(pi, devicetool.Screen, `{}`)
+	require.Equal(t, http.StatusOK, status)
+
+	require.NoError(t, w.svc.SettleChatTurn(ctx, chat.ID, "pi-1"))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, w.svc.MarkChatTurn(ctx, chat.ID, "pi-1"))
+
+	status, _ = w.useDevice(pi, devicetool.Screen, `{}`)
+	require.Equal(t, http.StatusOK, status)
+
+	require.Len(t, p.works, 3)
+	assert.Equal(t, "dispatch dsp_1", p.works[0])
+	assert.True(t, strings.HasPrefix(p.works[1], "turn "+chat.ID+" pi-1@"), p.works[1])
+	assert.NotEqual(t, p.works[1], p.works[2], "the chat's next turn is other work")
 }

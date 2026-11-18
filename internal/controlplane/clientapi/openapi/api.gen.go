@@ -817,6 +817,7 @@ const (
 	GatewayModelSourceAntigravity GatewayModelSource = "antigravity"
 	GatewayModelSourceCodex       GatewayModelSource = "codex"
 	GatewayModelSourceModelsDev   GatewayModelSource = "models_dev"
+	GatewayModelSourceOpencodeGo  GatewayModelSource = "opencode_go"
 	GatewayModelSourceSet         GatewayModelSource = "set"
 	GatewayModelSourceUnknown     GatewayModelSource = "unknown"
 )
@@ -829,6 +830,8 @@ func (e GatewayModelSource) Valid() bool {
 	case GatewayModelSourceCodex:
 		return true
 	case GatewayModelSourceModelsDev:
+		return true
+	case GatewayModelSourceOpencodeGo:
 		return true
 	case GatewayModelSourceSet:
 		return true
@@ -1145,6 +1148,21 @@ func (e MessagingMessageMediaType) Valid() bool {
 	}
 }
 
+// Defines values for NewAccountImportRuntime.
+const (
+	NewAccountImportRuntimeClaude NewAccountImportRuntime = "claude"
+)
+
+// Valid indicates whether the value is a known member of the NewAccountImportRuntime enum.
+func (e NewAccountImportRuntime) Valid() bool {
+	switch e {
+	case NewAccountImportRuntimeClaude:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NewAccountSignInRuntime.
 const (
 	NewAccountSignInRuntimeAntigravity NewAccountSignInRuntime = "antigravity"
@@ -1183,13 +1201,16 @@ func (e NewNodeDevice) Valid() bool {
 
 // Defines values for NewTokenAccountRuntime.
 const (
-	NewTokenAccountRuntimeClaude NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeClaude     NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeOpencodeGo NewTokenAccountRuntime = "opencode_go"
 )
 
 // Valid indicates whether the value is a known member of the NewTokenAccountRuntime enum.
 func (e NewTokenAccountRuntime) Valid() bool {
 	switch e {
 	case NewTokenAccountRuntimeClaude:
+		return true
+	case NewTokenAccountRuntimeOpencodeGo:
 		return true
 	default:
 		return false
@@ -1330,28 +1351,31 @@ func (e ProfileUnavailableReason) Valid() bool {
 
 // Defines values for ProviderKind.
 const (
-	Anthropic               ProviderKind = "anthropic"
-	AntigravitySubscription ProviderKind = "antigravity_subscription"
-	ClaudeSubscription      ProviderKind = "claude_subscription"
-	CodexSubscription       ProviderKind = "codex_subscription"
-	ModelGateway            ProviderKind = "model_gateway"
-	OpenaiCompatible        ProviderKind = "openai_compatible"
+	ProviderKindAnthropic               ProviderKind = "anthropic"
+	ProviderKindAntigravitySubscription ProviderKind = "antigravity_subscription"
+	ProviderKindClaudeSubscription      ProviderKind = "claude_subscription"
+	ProviderKindCodexSubscription       ProviderKind = "codex_subscription"
+	ProviderKindModelGateway            ProviderKind = "model_gateway"
+	ProviderKindOpenaiCompatible        ProviderKind = "openai_compatible"
+	ProviderKindOpencodeGo              ProviderKind = "opencode_go"
 )
 
 // Valid indicates whether the value is a known member of the ProviderKind enum.
 func (e ProviderKind) Valid() bool {
 	switch e {
-	case Anthropic:
+	case ProviderKindAnthropic:
 		return true
-	case AntigravitySubscription:
+	case ProviderKindAntigravitySubscription:
 		return true
-	case ClaudeSubscription:
+	case ProviderKindClaudeSubscription:
 		return true
-	case CodexSubscription:
+	case ProviderKindCodexSubscription:
 		return true
-	case ModelGateway:
+	case ProviderKindModelGateway:
 		return true
-	case OpenaiCompatible:
+	case ProviderKindOpenaiCompatible:
+		return true
+	case ProviderKindOpencodeGo:
 		return true
 	default:
 		return false
@@ -1993,19 +2017,25 @@ func (e WorkspaceEntryType) Valid() bool {
 
 // Defines values for GetGatewayUsageParamsPeriod.
 const (
+	GetGatewayUsageParamsPeriodN12m GetGatewayUsageParamsPeriod = "12m"
 	GetGatewayUsageParamsPeriodN24h GetGatewayUsageParamsPeriod = "24h"
 	GetGatewayUsageParamsPeriodN30d GetGatewayUsageParamsPeriod = "30d"
 	GetGatewayUsageParamsPeriodN7d  GetGatewayUsageParamsPeriod = "7d"
+	GetGatewayUsageParamsPeriodN90d GetGatewayUsageParamsPeriod = "90d"
 )
 
 // Valid indicates whether the value is a known member of the GetGatewayUsageParamsPeriod enum.
 func (e GetGatewayUsageParamsPeriod) Valid() bool {
 	switch e {
+	case GetGatewayUsageParamsPeriodN12m:
+		return true
 	case GetGatewayUsageParamsPeriodN24h:
 		return true
 	case GetGatewayUsageParamsPeriodN30d:
 		return true
 	case GetGatewayUsageParamsPeriodN7d:
+		return true
+	case GetGatewayUsageParamsPeriodN90d:
 		return true
 	default:
 		return false
@@ -2103,8 +2133,29 @@ type AccountStatus string
 
 // AccountLimitReset defines model for AccountLimitReset.
 type AccountLimitReset struct {
+	// GrantId The reset to use, by the id `grants` gives. Without it, one that starts a used-up window again is chosen.
+	GrantId *string `json:"grant_id,omitempty"`
+
 	// RequestId The caller's id of this use; the same id again uses no second reset.
 	RequestId string `json:"request_id"`
+}
+
+// AccountLimitResetGrant defines model for AccountLimitResetGrant.
+type AccountLimitResetGrant struct {
+	// Available How many resets the grant has left.
+	Available int `json:"available"`
+
+	// Clears The windows, by the names `windows` uses, that a use starts again, such as "5 hours" and "week" for an ordinary reset or "week (Fable)" for Fable's; empty when the vendor does not say, and then it may start any.
+	Clears []string `json:"clears"`
+
+	// ExpiresAt When the grant ends, when the vendor says.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Id The vendor's id of the grant, which a use names.
+	Id string `json:"id"`
+
+	// Label The vendor's name for the grant, when it gives one.
+	Label *string `json:"label,omitempty"`
 }
 
 // AccountLimitResets defines model for AccountLimitResets.
@@ -2114,6 +2165,9 @@ type AccountLimitResets struct {
 
 	// ExpiresAt When the one used next ends, when the vendor says.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Grants The usable resets one by one, as the vendor groups them.
+	Grants []AccountLimitResetGrant `json:"grants"`
 }
 
 // AccountLimitWindow defines model for AccountLimitWindow.
@@ -2958,9 +3012,15 @@ type ConnectionScope struct {
 	Dashboards []int64 `json:"dashboards"`
 }
 
-// ConnectionUse defines model for ConnectionUse.
+// ConnectionUse What changes; what is absent stays.
 type ConnectionUse struct {
-	Chats bool `json:"chats"`
+	Chats *bool `json:"chats,omitempty"`
+
+	// DialAddress Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
+	DialAddress *string `json:"dial_address,omitempty"`
+
+	// Proxy The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
+	Proxy *string `json:"proxy,omitempty"`
 }
 
 // CreatedGatewayKey defines model for CreatedGatewayKey.
@@ -3208,7 +3268,7 @@ type GatewayModelEffort string
 type GatewayModelEfforts struct {
 	ModelsDev *[]GatewayModelEffort `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource    `json:"source"`
 	Value  *[]GatewayModelEffort `json:"value,omitempty"`
 }
@@ -3217,7 +3277,7 @@ type GatewayModelEfforts struct {
 type GatewayModelInput struct {
 	ModelsDev *[]GatewayModelInputKind `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource       `json:"source"`
 	Value  *[]GatewayModelInputKind `json:"value,omitempty"`
 }
@@ -3242,7 +3302,7 @@ type GatewayModelPrice struct {
 type GatewayModelReasoning struct {
 	ModelsDev *bool `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource `json:"source"`
 	Value  *bool              `json:"value,omitempty"`
 }
@@ -3256,7 +3316,7 @@ type GatewayModelSettings struct {
 	Reasoning     *bool                    `json:"reasoning,omitempty"`
 }
 
-// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 type GatewayModelSource string
 
 // GatewayModelTarget defines model for GatewayModelTarget.
@@ -3270,11 +3330,46 @@ type GatewayModelTokens struct {
 	// ModelsDev What models.dev gives, when it gives one.
 	ModelsDev *int64 `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource `json:"source"`
 
 	// Value The number of tokens used; absent when unknown.
 	Value *int64 `json:"value,omitempty"`
+}
+
+// GatewayPerformance The speed and reliability of a provider's model, or of a subscription account, over the requests to the text models. Time to first token is over the answered streams, latency over the answered requests, tokens a second (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+type GatewayPerformance struct {
+	AccountId    *string `json:"account_id,omitempty"`
+	AccountLabel *string `json:"account_label,omitempty"`
+
+	// ClientGone The requests whose client left first; they count neither as answered nor as failed.
+	ClientGone int64 `json:"client_gone"`
+	CostMicros int64 `json:"cost_micros"`
+
+	// Exact Read from each request, with percentiles and the median tokens a second; false from the ledger.
+	Exact        bool   `json:"exact"`
+	Failed       int64  `json:"failed"`
+	LatencyAvgMs *int64 `json:"latency_avg_ms,omitempty"`
+	LatencyP50Ms *int64 `json:"latency_p50_ms,omitempty"`
+	LatencyP95Ms *int64 `json:"latency_p95_ms,omitempty"`
+
+	// Model The model the provider served; empty for an account.
+	Model    string `json:"model"`
+	Ok       int64  `json:"ok"`
+	Provider string `json:"provider"`
+	Requests int64  `json:"requests"`
+
+	// Runtime An account's runtime (claude, codex, antigravity).
+	Runtime *string `json:"runtime,omitempty"`
+
+	// SuccessRate The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+	SuccessRate *float32 `json:"success_rate,omitempty"`
+
+	// TokensPerSecond The median of the requests' output tokens a second; from the ledger, all tokens over all time.
+	TokensPerSecond *float32 `json:"tokens_per_second,omitempty"`
+	TtftAvgMs       *int64   `json:"ttft_avg_ms,omitempty"`
+	TtftP50Ms       *int64   `json:"ttft_p50_ms,omitempty"`
+	TtftP95Ms       *int64   `json:"ttft_p95_ms,omitempty"`
 }
 
 // GatewayRequest defines model for GatewayRequest.
@@ -3328,8 +3423,14 @@ type GatewayRequest struct {
 	ReasoningTokens int64  `json:"reasoning_tokens"`
 
 	// Status The provider's HTTP status; 0 when it gave none.
-	Status        int    `json:"status"`
-	Stream        bool   `json:"stream"`
+	Status int  `json:"status"`
+	Stream bool `json:"stream"`
+
+	// TokensPerSecond The output tokens over the time after the first token; absent when the request was not a stream, its counts were estimated, or it had no output.
+	TokensPerSecond *float32 `json:"tokens_per_second,omitempty"`
+
+	// TtftMs Time to first token: from the gateway receiving the request to the first chunk it streamed to the client; absent for an answer that is not a stream.
+	TtftMs        *int64 `json:"ttft_ms,omitempty"`
 	UpstreamModel string `json:"upstream_model"`
 
 	// WebSearches The web searches the request made: 1 for an answered web/search, and a model's own searches beside its tokens; absent when none.
@@ -3355,9 +3456,14 @@ type GatewayUsage struct {
 	ByAccount     []GatewayUsageGroup  `json:"by_account"`
 	ByKey         []GatewayUsageGroup  `json:"by_key"`
 	ByModel       []GatewayUsageGroup  `json:"by_model"`
-	Since         time.Time            `json:"since"`
-	Totals        GatewayUsageCounts   `json:"totals"`
-	Until         time.Time            `json:"until"`
+	ByProvider    []GatewayPerformance `json:"by_provider"`
+
+	// Ledger Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner", and no percentiles.
+	Ledger         bool                 `json:"ledger"`
+	Since          time.Time            `json:"since"`
+	SpeedByAccount []GatewayPerformance `json:"speed_by_account"`
+	Totals         GatewayUsageCounts   `json:"totals"`
+	Until          time.Time            `json:"until"`
 }
 
 // GatewayUsageBucket defines model for GatewayUsageBucket.
@@ -3407,7 +3513,7 @@ type GatewayUsageGroup struct {
 	// Name The model's or the key's name, or the account's label; empty for an account since removed.
 	Name string `json:"name"`
 
-	// Runtime An account's runtime (claude, codex, antigravity).
+	// Runtime An account's runtime (claude, codex, antigravity, opencode_go).
 	Runtime *string `json:"runtime,omitempty"`
 }
 
@@ -3582,13 +3688,19 @@ type IntegrationConnection struct {
 	Cannot []ConnectionCannot `json:"cannot"`
 
 	// Chats Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
-	Chats       bool      `json:"chats"`
-	CreatedAt   time.Time `json:"created_at"`
-	Integration string    `json:"integration"`
+	Chats     bool      `json:"chats"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// DialAddress Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name that does not resolve; absent dials the host.
+	DialAddress *string `json:"dial_address,omitempty"`
+	Integration string  `json:"integration"`
 
 	// Key The name of the key the role is assumed with, for an Integration of kind role. Not secret.
 	Key   *string `json:"key,omitempty"`
 	Label string  `json:"label"`
+
+	// Proxy The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a service in a private network, reached through a local proxy. Absent when they go direct.
+	Proxy *string `json:"proxy,omitempty"`
 
 	// RoleArn The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.
 	RoleArn *string `json:"role_arn,omitempty"`
@@ -4171,15 +4283,36 @@ type NewAccountConnection struct {
 	AppId     *string `json:"app_id,omitempty"`
 	AppSecret *string `json:"app_secret,omitempty"`
 
+	// DialAddress Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+	DialAddress *string `json:"dial_address,omitempty"`
+
 	// Key The name the key that assumes the role is kept under, such as main.
 	Key      *string `json:"key,omitempty"`
 	Password *string `json:"password,omitempty"`
+
+	// Proxy The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+	Proxy *string `json:"proxy,omitempty"`
 
 	// RoleArn The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
 	RoleArn         *string `json:"role_arn,omitempty"`
 	SecretAccessKey *string `json:"secret_access_key,omitempty"`
 	Username        *string `json:"username,omitempty"`
 }
+
+// NewAccountImport defines model for NewAccountImport.
+type NewAccountImport struct {
+	// Credentials The whole `.credentials.json` Claude Code saved, as text.
+	Credentials *string `json:"credentials,omitempty"`
+
+	// Label The account's name for the owner; its e-mail when left out. Kept by an account imported again.
+	Label *string `json:"label,omitempty"`
+
+	// Runtime The kind of subscription; only Claude Code's file is read.
+	Runtime NewAccountImportRuntime `json:"runtime"`
+}
+
+// NewAccountImportRuntime The kind of subscription; only Claude Code's file is read.
+type NewAccountImportRuntime string
 
 // NewAccountSignIn defines model for NewAccountSignIn.
 type NewAccountSignIn struct {
@@ -4373,14 +4506,14 @@ type NewTokenAccount struct {
 	// Label The account's name for the owner; a token names no e-mail.
 	Label string `json:"label"`
 
-	// Runtime The kind of subscription; only Claude gives a token to paste.
+	// Runtime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
 	Runtime NewTokenAccountRuntime `json:"runtime"`
 
-	// Token The token `claude setup-token` prints, one line.
+	// Token The token `claude setup-token` prints, or the OpenCode Go key, one line.
 	Token *string `json:"token,omitempty"`
 }
 
-// NewTokenAccountRuntime The kind of subscription; only Claude gives a token to paste.
+// NewTokenAccountRuntime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
 type NewTokenAccountRuntime string
 
 // Node defines model for Node.
@@ -4950,6 +5083,9 @@ type RunDetail struct {
 	Tasks     []TaskDetail `json:"tasks"`
 	UpdatedAt time.Time    `json:"updated_at"`
 
+	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+	Usage *WorkUsage `json:"usage,omitempty"`
+
 	// Uses The Connections the Run's workers may use, each as integration:label.
 	Uses *[]string `json:"uses,omitempty"`
 }
@@ -5425,6 +5561,72 @@ type SupersetRequest struct {
 // SupersetRequestMethod defines model for SupersetRequest.Method.
 type SupersetRequestMethod string
 
+// Take A take (issue #817): its segments in order on one timeline, the steps said on it and where the owner's takeover paused it. `recording` and `paused` while it is filmed, `finalizing` while the node closes its last segment, `uploading` until every file reached the control plane, then `available`; `failed` with `reason` when it got no frame or could not be kept.
+type Take struct {
+	// Agent The agent's key
+	Agent string `json:"agent"`
+
+	// AgentName Who filmed it
+	AgentName *string `json:"agent_name,omitempty"`
+
+	// AppPackage The app the agent opened last while filming.
+	AppPackage *string `json:"app_package,omitempty"`
+	AppVersion *string `json:"app_version,omitempty"`
+	DurationMs int64   `json:"duration_ms"`
+
+	// EndedBy What ended it: stop, work_end (the agent's Dispatch or turn ended), phone_end, stream_error, writer_error, disk_low or restart.
+	EndedBy *string `json:"ended_by,omitempty"`
+	Id      string  `json:"id"`
+
+	// Node The node that filmed it.
+	Node      string        `json:"node"`
+	Pauses    []TakePause   `json:"pauses"`
+	Reason    *string       `json:"reason,omitempty"`
+	Segments  []TakeSegment `json:"segments"`
+	StartedAt time.Time     `json:"started_at"`
+
+	// State recording, paused, finalizing, uploading, available or failed.
+	State string     `json:"state"`
+	Steps []TakeStep `json:"steps"`
+	Title string     `json:"title"`
+}
+
+// TakeList defines model for TakeList.
+type TakeList struct {
+	Data []Take `json:"data"`
+}
+
+// TakePause defines model for TakePause.
+type TakePause struct {
+	AtMs int64 `json:"at_ms"`
+}
+
+// TakeSegment defines model for TakeSegment.
+type TakeSegment struct {
+	// AtMs Where it starts on the take's timeline.
+	AtMs   int64  `json:"at_ms"`
+	Bytes  int64  `json:"bytes"`
+	File   string `json:"file"`
+	Height int    `json:"height"`
+
+	// LastFrameMs When its last frame starts, from the segment's start; the screen is still after it until the segment ends. A player seeks into that still tail from just before it: a browser does not seek into a file's last sample.
+	LastFrameMs int64  `json:"last_frame_ms"`
+	LengthMs    int64  `json:"length_ms"`
+	Sha256      string `json:"sha256"`
+	Width       int    `json:"width"`
+}
+
+// TakeStep defines model for TakeStep.
+type TakeStep struct {
+	AtMs    int64   `json:"at_ms"`
+	Chapter *string `json:"chapter,omitempty"`
+	Tap     *struct {
+		X int `json:"x"`
+		Y int `json:"y"`
+	} `json:"tap,omitempty"`
+	Text string `json:"text"`
+}
+
 // Task defines model for Task.
 type Task struct {
 	BlockedReason     *BlockedReason `json:"blocked_reason,omitempty"`
@@ -5486,6 +5688,9 @@ type TaskDetail struct {
 	Spec      string     `json:"spec"`
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
+
+	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+	Usage *WorkUsage `json:"usage,omitempty"`
 
 	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
@@ -5769,6 +5974,34 @@ type WebSearchUsage struct {
 	Today        WebSearchTally `json:"today"`
 }
 
+// WorkUsage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+type WorkUsage struct {
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	CachedTokens     int64 `json:"cached_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+
+	// CostMicros The gateway requests' cost at the vendor's API price, in micro-dollars.
+	CostMicros int64 `json:"cost_micros"`
+	Dispatches int   `json:"dispatches"`
+
+	// GatewayDispatches The Dispatches that sent the gateway requests.
+	GatewayDispatches int   `json:"gateway_dispatches"`
+	PromptTokens      int64 `json:"prompt_tokens"`
+	ReasoningTokens   int64 `json:"reasoning_tokens"`
+
+	// Reported The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+	Reported struct {
+		CacheRead  int64 `json:"cache_read"`
+		CacheWrite int64 `json:"cache_write"`
+		Input      int64 `json:"input"`
+		Output     int64 `json:"output"`
+	} `json:"reported"`
+	Requests int64 `json:"requests"`
+
+	// Unpriced The gateway requests the price book has no price for.
+	Unpriced int64 `json:"unpriced"`
+}
+
 // Workspace defines model for Workspace.
 type Workspace struct {
 	// Id `bot`, or the Task's id.
@@ -5991,6 +6224,9 @@ type SkillName = string
 
 // SupersetDashboardID defines model for SupersetDashboardID.
 type SupersetDashboardID = string
+
+// TakeID defines model for TakeID.
+type TakeID = string
 
 // TaskID defines model for TaskID.
 type TaskID = string
@@ -6443,12 +6679,20 @@ type SearchSkillsParams struct {
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
+// ReadTakeSegmentParams defines parameters for ReadTakeSegment.
+type ReadTakeSegmentParams struct {
+	Range *string `json:"Range,omitempty"`
+}
+
 // ListTasksParams defines parameters for ListTasks.
 type ListTasksParams struct {
 	// Since Tasks of Runs that are no longer open count only when they changed at or after it; 24 hours ago by default.
 	Since *time.Time `form:"since,omitempty" json:"since,omitempty"`
 	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// ImportAccountJSONRequestBody defines body for ImportAccount for application/json ContentType.
+type ImportAccountJSONRequestBody = NewAccountImport
 
 // BeginAccountSignInJSONRequestBody defines body for BeginAccountSignIn for application/json ContentType.
 type BeginAccountSignInJSONRequestBody = NewAccountSignIn
@@ -6776,6 +7020,24 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// ImportAccountWithBody Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ImportAccount Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccount(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// BeginAccountSignInWithBody Start signing a subscription account in on the control plane; only the owner
 	//
 	// Answers with a link the owner opens in a browser on any machine; nothing is opened on the server. Either the browser ends on an address that does not load, which completes the sign-in (`paste`), or the owner enters `user_code` on the page the link opens and completing waits for it. An account the vendor already knows is signed in again.
@@ -6859,7 +7121,7 @@ type ClientInterface interface {
 
 	// RedeemAccountLimitResetWithBody Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -6868,7 +7130,7 @@ type ClientInterface interface {
 
 	// RedeemAccountLimitReset Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -7544,7 +7806,7 @@ type ClientInterface interface {
 	// Corresponds with GET /device (the `GetDevice` operationId).
 	GetDevice(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	//
 	// Corresponds with POST /device/views (the `OpenDeviceView` operationId).
 	OpenDeviceView(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -7799,7 +8061,9 @@ type ClientInterface interface {
 	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
 	SetMuseTools(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+	//
+	// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 	//
 	// Corresponds with GET /gateway/usage (the `GetGatewayUsage` operationId).
 	GetGatewayUsage(ctx context.Context, params *GetGatewayUsageParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -8052,18 +8316,18 @@ type ClientInterface interface {
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnectionWithBody(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -8474,12 +8738,12 @@ type ClientInterface interface {
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	//
 	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 	StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	//
 	// Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
 	StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -9009,6 +9273,37 @@ type ClientInterface interface {
 	// Corresponds with GET /skills/{skill}/revisions/{revision}/files (the `ListSkillFiles` operationId).
 	ListSkillFiles(ctx context.Context, skill SkillName, revision int, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+	//
+	// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+	//
+	// Corresponds with GET /takes (the `ListTakes` operationId).
+	ListTakes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteTake Delete a take and its files (owner only)
+	//
+	// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+	//
+	// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+	DeleteTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTake A take with its segments, steps and pauses (owner only)
+	//
+	// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+	GetTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	//
+	// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+	GetTakeArchive(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+	//
+	// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+	//
+	// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+	ReadTakeSegment(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListTasks The Tasks a board shows, most recently changed first
 	//
 	// Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
@@ -9089,6 +9384,44 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /web/search (the `SearchWeb` operationId).
 	SearchWeb(ctx context.Context, body SearchWebJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ImportAccountWithBody Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *Client) ImportAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewImportAccountRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ImportAccount Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *Client) ImportAccount(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewImportAccountRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // BeginAccountSignInWithBody Start signing a subscription account in on the control plane; only the owner
@@ -9284,7 +9617,7 @@ func (c *Client) GetAccountLimits(ctx context.Context, accountId AccountID, para
 
 // RedeemAccountLimitResetWithBody Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes any type of body and a specified content type.
 //
@@ -9303,7 +9636,7 @@ func (c *Client) RedeemAccountLimitResetWithBody(ctx context.Context, accountId 
 
 // RedeemAccountLimitReset Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -10919,7 +11252,7 @@ func (c *Client) GetDevice(ctx context.Context, reqEditors ...RequestEditorFn) (
 	return c.Client.Do(req)
 }
 
-// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 //
 // Corresponds with POST /device/views (the `OpenDeviceView` operationId).
 func (c *Client) OpenDeviceView(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -11524,7 +11857,9 @@ func (c *Client) SetMuseTools(ctx context.Context, body SetMuseToolsJSONRequestB
 	return c.Client.Do(req)
 }
 
-// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+//
+// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 //
 // Corresponds with GET /gateway/usage (the `GetGatewayUsage` operationId).
 func (c *Client) GetGatewayUsage(ctx context.Context, params *GetGatewayUsageParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -12107,9 +12442,9 @@ func (c *Client) DeleteIntegrationConnection(ctx context.Context, integration In
 	return c.Client.Do(req)
 }
 
-// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes any type of body and a specified content type.
 //
@@ -12126,9 +12461,9 @@ func (c *Client) PatchIntegrationConnectionWithBody(ctx context.Context, integra
 	return c.Client.Do(req)
 }
 
-// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -13109,7 +13444,7 @@ func (c *Client) ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 //
 // Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 func (c *Client) StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -13124,7 +13459,7 @@ func (c *Client) StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors
 	return c.Client.Do(req)
 }
 
-// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 //
 // Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
 func (c *Client) StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -14414,6 +14749,87 @@ func (c *Client) ListSkillFiles(ctx context.Context, skill SkillName, revision i
 	return c.Client.Do(req)
 }
 
+// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+//
+// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+//
+// Corresponds with GET /takes (the `ListTakes` operationId).
+func (c *Client) ListTakes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTakesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteTake Delete a take and its files (owner only)
+//
+// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+//
+// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+func (c *Client) DeleteTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteTakeRequest(c.Server, takeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTake A take with its segments, steps and pauses (owner only)
+//
+// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+func (c *Client) GetTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTakeRequest(c.Server, takeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+//
+// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+func (c *Client) GetTakeArchive(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTakeArchiveRequest(c.Server, takeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+//
+// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+//
+// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+func (c *Client) ReadTakeSegment(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadTakeSegmentRequest(c.Server, takeId, file, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListTasks The Tasks a board shows, most recently changed first
 //
 // Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
@@ -14603,6 +15019,46 @@ func (c *Client) SearchWeb(ctx context.Context, body SearchWebJSONRequestBody, r
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewImportAccountRequest calls the generic ImportAccount builder with application/json body
+func NewImportAccountRequest(server string, body ImportAccountJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewImportAccountRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewImportAccountRequestWithBody constructs an http.Request for the ImportAccount method, with any body, and a specified content type
+func NewImportAccountRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/account-imports")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewBeginAccountSignInRequest calls the generic BeginAccountSignIn builder with application/json body
@@ -25287,6 +25743,191 @@ func NewListSkillFilesRequest(server string, skill SkillName, revision int) (*ht
 	return req, nil
 }
 
+// NewListTakesRequest constructs an http.Request for the ListTakes method
+func NewListTakesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteTakeRequest constructs an http.Request for the DeleteTake method
+func NewDeleteTakeRequest(server string, takeId TakeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetTakeRequest constructs an http.Request for the GetTake method
+func NewGetTakeRequest(server string, takeId TakeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetTakeArchiveRequest constructs an http.Request for the GetTakeArchive method
+func NewGetTakeArchiveRequest(server string, takeId TakeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s/archive", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadTakeSegmentRequest constructs an http.Request for the ReadTakeSegment method
+func NewReadTakeSegmentRequest(server string, takeId TakeID, file string, params *ReadTakeSegmentParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "file", file, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s/segments/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Range != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Range", *params.Range, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Range", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewListTasksRequest constructs an http.Request for the ListTasks method
 func NewListTasksRequest(server string, params *ListTasksParams) (*http.Request, error) {
 	var err error
@@ -25653,6 +26294,24 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// ImportAccountWithBodyWithResponse Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error)
+
+	// ImportAccountWithResponse Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccountWithResponse(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error)
+
 	// BeginAccountSignInWithBodyWithResponse Start signing a subscription account in on the control plane; only the owner
 	//
 	// Answers with a link the owner opens in a browser on any machine; nothing is opened on the server. Either the browser ends on an address that does not load, which completes the sign-in (`paste`), or the owner enters `user_code` on the page the link opens and completing waits for it. An account the vendor already knows is signed in again.
@@ -25746,7 +26405,7 @@ type ClientWithResponsesInterface interface {
 
 	// RedeemAccountLimitResetWithBodyWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -25755,7 +26414,7 @@ type ClientWithResponsesInterface interface {
 
 	// RedeemAccountLimitResetWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -26515,7 +27174,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /device (the `GetDevice` operationId).
 	GetDeviceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error)
 
-	// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -26796,7 +27455,9 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
 	SetMuseToolsWithResponse(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMuseToolsResponse, error)
 
-	// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+	//
+	// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -27079,18 +27740,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*DeleteIntegrationConnectionResponse, error)
 
-	// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnectionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error)
 
-	// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -27555,14 +28216,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*ResumeNodeResponse, error)
 
-	// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 	StartNodeMachineWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*StartNodeMachineResponse, error)
 
-	// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -28174,6 +28835,47 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /skills/{skill}/revisions/{revision}/files (the `ListSkillFiles` operationId).
 	ListSkillFilesWithResponse(ctx context.Context, skill SkillName, revision int, reqEditors ...RequestEditorFn) (*ListSkillFilesResponse, error)
 
+	// ListTakesWithResponse The takes agents filmed of the phone, the newest first (owner only; issue
+	//
+	// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes (the `ListTakes` operationId).
+	ListTakesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListTakesResponse, error)
+
+	// DeleteTakeWithResponse Delete a take and its files (owner only)
+	//
+	// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+	DeleteTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*DeleteTakeResponse, error)
+
+	// GetTakeWithResponse A take with its segments, steps and pauses (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+	GetTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeResponse, error)
+
+	// GetTakeArchiveWithResponse An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+	GetTakeArchiveWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeArchiveResponse, error)
+
+	// ReadTakeSegmentWithResponse One segment of an available take, for the owner's player (owner only)
+	//
+	// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+	ReadTakeSegmentWithResponse(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*ReadTakeSegmentResponse, error)
+
 	// ListTasksWithResponse The Tasks a board shows, most recently changed first
 	//
 	// Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
@@ -28264,6 +28966,54 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /web/search (the `SearchWeb` operationId).
 	SearchWebWithResponse(ctx context.Context, body SearchWebJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchWebResponse, error)
+}
+
+type ImportAccountResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Account
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r ImportAccountResponse) GetJSON201() *Account {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ImportAccountResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ImportAccountResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ImportAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ImportAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ImportAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type BeginAccountSignInResponse struct {
@@ -39041,6 +39791,225 @@ func (r ListSkillFilesResponse) ContentType() string {
 	return ""
 }
 
+type ListTakesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TakeList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListTakesResponse) GetJSON200() *TakeList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListTakesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListTakesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTakesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTakesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListTakesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteTakeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteTakeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteTakeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteTakeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteTakeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteTakeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetTakeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Take
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTakeResponse) GetJSON200() *Take {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetTakeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTakeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTakeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTakeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTakeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetTakeArchiveResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetTakeArchiveResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTakeArchiveResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTakeArchiveResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTakeArchiveResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTakeArchiveResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReadTakeSegmentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReadTakeSegmentResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadTakeSegmentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadTakeSegmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadTakeSegmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadTakeSegmentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListTasksResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -39425,6 +40394,36 @@ func (r SearchWebResponse) ContentType() string {
 	return ""
 }
 
+// ImportAccountWithBodyWithResponse Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *ClientWithResponses) ImportAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error) {
+	rsp, err := c.ImportAccountWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseImportAccountResponse(rsp)
+}
+
+// ImportAccountWithResponse Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *ClientWithResponses) ImportAccountWithResponse(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error) {
+	rsp, err := c.ImportAccount(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseImportAccountResponse(rsp)
+}
+
 // BeginAccountSignInWithBodyWithResponse Start signing a subscription account in on the control plane; only the owner
 //
 // Answers with a link the owner opens in a browser on any machine; nothing is opened on the server. Either the browser ends on an address that does not load, which completes the sign-in (`paste`), or the owner enters `user_code` on the page the link opens and completing waits for it. An account the vendor already knows is signed in again.
@@ -39584,7 +40583,7 @@ func (c *ClientWithResponses) GetAccountLimitsWithResponse(ctx context.Context, 
 
 // RedeemAccountLimitResetWithBodyWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -39599,7 +40598,7 @@ func (c *ClientWithResponses) RedeemAccountLimitResetWithBodyWithResponse(ctx co
 
 // RedeemAccountLimitResetWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -40923,7 +41922,7 @@ func (c *ClientWithResponses) GetDeviceWithResponse(ctx context.Context, reqEdit
 	return ParseGetDeviceResponse(rsp)
 }
 
-// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -41414,7 +42413,9 @@ func (c *ClientWithResponses) SetMuseToolsWithResponse(ctx context.Context, body
 	return ParseSetMuseToolsResponse(rsp)
 }
 
-// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+//
+// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -41895,9 +42896,9 @@ func (c *ClientWithResponses) DeleteIntegrationConnectionWithResponse(ctx contex
 	return ParseDeleteIntegrationConnectionResponse(rsp)
 }
 
-// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -41910,9 +42911,9 @@ func (c *ClientWithResponses) PatchIntegrationConnectionWithBodyWithResponse(ctx
 	return ParsePatchIntegrationConnectionResponse(rsp)
 }
 
-// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -42719,7 +43720,7 @@ func (c *ClientWithResponses) ResumeNodeWithResponse(ctx context.Context, nodeId
 	return ParseResumeNodeResponse(rsp)
 }
 
-// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -42732,7 +43733,7 @@ func (c *ClientWithResponses) StartNodeMachineWithResponse(ctx context.Context, 
 	return ParseStartNodeMachineResponse(rsp)
 }
 
-// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -43800,6 +44801,77 @@ func (c *ClientWithResponses) ListSkillFilesWithResponse(ctx context.Context, sk
 	return ParseListSkillFilesResponse(rsp)
 }
 
+// ListTakesWithResponse The takes agents filmed of the phone, the newest first (owner only; issue
+//
+// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes (the `ListTakes` operationId).
+func (c *ClientWithResponses) ListTakesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListTakesResponse, error) {
+	rsp, err := c.ListTakes(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTakesResponse(rsp)
+}
+
+// DeleteTakeWithResponse Delete a take and its files (owner only)
+//
+// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+func (c *ClientWithResponses) DeleteTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*DeleteTakeResponse, error) {
+	rsp, err := c.DeleteTake(ctx, takeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteTakeResponse(rsp)
+}
+
+// GetTakeWithResponse A take with its segments, steps and pauses (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+func (c *ClientWithResponses) GetTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeResponse, error) {
+	rsp, err := c.GetTake(ctx, takeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTakeResponse(rsp)
+}
+
+// GetTakeArchiveWithResponse An available take's segments and its take.json as a zip, as an opaque download (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+func (c *ClientWithResponses) GetTakeArchiveWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeArchiveResponse, error) {
+	rsp, err := c.GetTakeArchive(ctx, takeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTakeArchiveResponse(rsp)
+}
+
+// ReadTakeSegmentWithResponse One segment of an available take, for the owner's player (owner only)
+//
+// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+func (c *ClientWithResponses) ReadTakeSegmentWithResponse(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*ReadTakeSegmentResponse, error) {
+	rsp, err := c.ReadTakeSegment(ctx, takeId, file, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadTakeSegmentResponse(rsp)
+}
+
 // ListTasksWithResponse The Tasks a board shows, most recently changed first
 //
 // Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
@@ -43955,6 +45027,39 @@ func (c *ClientWithResponses) SearchWebWithResponse(ctx context.Context, body Se
 		return nil, err
 	}
 	return ParseSearchWebResponse(rsp)
+}
+
+// ParseImportAccountResponse parses an HTTP response from a ImportAccountWithResponse call
+func ParseImportAccountResponse(rsp *http.Response) (*ImportAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ImportAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Account
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseBeginAccountSignInResponse parses an HTTP response from a BeginAccountSignInWithResponse call
@@ -51414,6 +52519,153 @@ func ParseListSkillFilesResponse(rsp *http.Response) (*ListSkillFilesResponse, e
 	return response, nil
 }
 
+// ParseListTakesResponse parses an HTTP response from a ListTakesWithResponse call
+func ParseListTakesResponse(rsp *http.Response) (*ListTakesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTakesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TakeList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteTakeResponse parses an HTTP response from a DeleteTakeWithResponse call
+func ParseDeleteTakeResponse(rsp *http.Response) (*DeleteTakeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteTakeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetTakeResponse parses an HTTP response from a GetTakeWithResponse call
+func ParseGetTakeResponse(rsp *http.Response) (*GetTakeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTakeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Take
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetTakeArchiveResponse parses an HTTP response from a GetTakeArchiveWithResponse call
+func ParseGetTakeArchiveResponse(rsp *http.Response) (*GetTakeArchiveResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTakeArchiveResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadTakeSegmentResponse parses an HTTP response from a ReadTakeSegmentWithResponse call
+func ParseReadTakeSegmentResponse(rsp *http.Response) (*ReadTakeSegmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadTakeSegmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListTasksResponse parses an HTTP response from a ListTasksWithResponse call
 func ParseListTasksResponse(rsp *http.Response) (*ListTasksResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -51680,6 +52932,9 @@ func ParseSearchWebResponse(rsp *http.Response) (*SearchWebResponse, error) {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ImportAccount Keep an account from the session its CLI saved; only the owner
+	// (POST /account-imports)
+	ImportAccount(w http.ResponseWriter, r *http.Request)
 	// BeginAccountSignIn Start signing a subscription account in on the control plane; only the owner
 	// (POST /account-sign-ins)
 	BeginAccountSignIn(w http.ResponseWriter, r *http.Request)
@@ -51911,7 +53166,7 @@ type ServerInterface interface {
 	// GetDevice The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	// (GET /device)
 	GetDevice(w http.ResponseWriter, r *http.Request)
-	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	// (POST /device/views)
 	OpenDeviceView(w http.ResponseWriter, r *http.Request)
 	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
@@ -51983,7 +53238,7 @@ type ServerInterface interface {
 	// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
 	// (PUT /gateway/muse/tools)
 	SetMuseTools(w http.ResponseWriter, r *http.Request)
-	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
 	// (GET /gateway/usage)
 	GetGatewayUsage(w http.ResponseWriter, r *http.Request, params GetGatewayUsageParams)
 	// ListGatewayRequests The requests of a period, newest first, a page at a time; only the owner
@@ -52055,7 +53310,7 @@ type ServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
 	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
@@ -52184,10 +53439,10 @@ type ServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(w http.ResponseWriter, r *http.Request, nodeId NodeID)
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	// (POST /nodes/{node_id}/start)
 	StartNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	// (POST /nodes/{node_id}/stop)
 	StopNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
 	// OpenNodeTerminal A ticket for a terminal on a node (owner only). The ticket opens the WebSocket `/api/v1/terminals/{ticket}` once, within a short time; there the client sends JSON, `{data}` for what is typed and `{height, width}` for a resize, and receives the shell's bytes in binary frames
@@ -52364,6 +53619,21 @@ type ServerInterface interface {
 	// ListSkillFiles The files of one revision of a skill, by path
 	// (GET /skills/{skill}/revisions/{revision}/files)
 	ListSkillFiles(w http.ResponseWriter, r *http.Request, skill SkillName, revision int)
+	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+	// (GET /takes)
+	ListTakes(w http.ResponseWriter, r *http.Request)
+	// DeleteTake Delete a take and its files (owner only)
+	// (DELETE /takes/{take_id})
+	DeleteTake(w http.ResponseWriter, r *http.Request, takeId TakeID)
+	// GetTake A take with its segments, steps and pauses (owner only)
+	// (GET /takes/{take_id})
+	GetTake(w http.ResponseWriter, r *http.Request, takeId TakeID)
+	// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	// (GET /takes/{take_id}/archive)
+	GetTakeArchive(w http.ResponseWriter, r *http.Request, takeId TakeID)
+	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+	// (GET /takes/{take_id}/segments/{file})
+	ReadTakeSegment(w http.ResponseWriter, r *http.Request, takeId TakeID, file string, params ReadTakeSegmentParams)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(w http.ResponseWriter, r *http.Request, params ListTasksParams)
@@ -52398,6 +53668,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ImportAccount operation middleware
+func (siw *ServerInterfaceWrapper) ImportAccount(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // BeginAccountSignIn operation middleware
 func (siw *ServerInterfaceWrapper) BeginAccountSignIn(w http.ResponseWriter, r *http.Request) {
@@ -59655,6 +60939,157 @@ func (siw *ServerInterfaceWrapper) ListSkillFiles(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListTakes operation middleware
+func (siw *ServerInterfaceWrapper) ListTakes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTakes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTake operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTake(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTake(w, r, takeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTake operation middleware
+func (siw *ServerInterfaceWrapper) GetTake(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTake(w, r, takeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTakeArchive operation middleware
+func (siw *ServerInterfaceWrapper) GetTakeArchive(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTakeArchive(w, r, takeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadTakeSegment operation middleware
+func (siw *ServerInterfaceWrapper) ReadTakeSegment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "file" -------------
+	var file string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "file", r.PathValue("file"), &file, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "file", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReadTakeSegmentParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadTakeSegment(w, r, takeId, file, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTasks operation middleware
 func (siw *ServerInterfaceWrapper) ListTasks(w http.ResponseWriter, r *http.Request) {
 
@@ -60001,6 +61436,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/device/stop", wrapper.StopNodeDevice)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/device", wrapper.GetDevice)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/device/views", wrapper.OpenDeviceView)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes", wrapper.ListTakes)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/takes/{take_id}", wrapper.DeleteTake)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}", wrapper.GetTake)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/segments/{file}", wrapper.ReadTakeSegment)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/archive", wrapper.GetTakeArchive)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/resume", wrapper.ResumeNode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
@@ -60049,6 +61489,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/git/ssh-key", wrapper.GetGitSSHKey)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/accounts", wrapper.ListAccounts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/accounts", wrapper.AddTokenAccount)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account-imports", wrapper.ImportAccount)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account-sign-ins", wrapper.BeginAccountSignIn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account-sign-ins/{sign_in_id}", wrapper.CompleteAccountSignIn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/accounts/{account_id}/move", wrapper.MoveAccount)
@@ -60208,6 +61649,45 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 }
 
 type ErrorJSONResponse Error
+
+type ImportAccountRequestObject struct {
+	Body *ImportAccountJSONRequestBody
+}
+
+type ImportAccountResponseObject interface {
+	VisitImportAccountResponse(w http.ResponseWriter) error
+}
+
+type ImportAccount201JSONResponse Account
+
+func (response ImportAccount201JSONResponse) VisitImportAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportAccountdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ImportAccountdefaultJSONResponse) VisitImportAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type BeginAccountSignInRequestObject struct {
 	Body *BeginAccountSignInJSONRequestBody
@@ -69283,6 +70763,228 @@ func (response ListSkillFilesdefaultJSONResponse) VisitListSkillFilesResponse(w 
 	return err
 }
 
+type ListTakesRequestObject struct {
+}
+
+type ListTakesResponseObject interface {
+	VisitListTakesResponse(w http.ResponseWriter) error
+}
+
+type ListTakes200JSONResponse TakeList
+
+func (response ListTakes200JSONResponse) VisitListTakesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTakesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListTakesdefaultJSONResponse) VisitListTakesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTakeRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+}
+
+type DeleteTakeResponseObject interface {
+	VisitDeleteTakeResponse(w http.ResponseWriter) error
+}
+
+type DeleteTake204Response struct {
+}
+
+func (response DeleteTake204Response) VisitDeleteTakeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTakedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteTakedefaultJSONResponse) VisitDeleteTakeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTakeRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+}
+
+type GetTakeResponseObject interface {
+	VisitGetTakeResponse(w http.ResponseWriter) error
+}
+
+type GetTake200JSONResponse Take
+
+func (response GetTake200JSONResponse) VisitGetTakeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTakedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetTakedefaultJSONResponse) VisitGetTakeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTakeArchiveRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+}
+
+type GetTakeArchiveResponseObject interface {
+	VisitGetTakeArchiveResponse(w http.ResponseWriter) error
+}
+
+type GetTakeArchive200ApplicationzipResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetTakeArchive200ApplicationzipResponse) VisitGetTakeArchiveResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/zip")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetTakeArchivedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetTakeArchivedefaultJSONResponse) VisitGetTakeArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadTakeSegmentRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+	File   string `json:"file"`
+	Params ReadTakeSegmentParams
+}
+
+type ReadTakeSegmentResponseObject interface {
+	VisitReadTakeSegmentResponse(w http.ResponseWriter) error
+}
+
+type ReadTakeSegment200Videomp4Response struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadTakeSegment200Videomp4Response) VisitReadTakeSegmentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "video/mp4")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadTakeSegment206Videomp4Response struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadTakeSegment206Videomp4Response) VisitReadTakeSegmentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "video/mp4")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(206)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadTakeSegmentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReadTakeSegmentdefaultJSONResponse) VisitReadTakeSegmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTasksRequestObject struct {
 	Params ListTasksParams
 }
@@ -69597,6 +71299,9 @@ func (response SearchWebdefaultJSONResponse) VisitSearchWebResponse(w http.Respo
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ImportAccount Keep an account from the session its CLI saved; only the owner
+	// (POST /account-imports)
+	ImportAccount(ctx context.Context, request ImportAccountRequestObject) (ImportAccountResponseObject, error)
 	// BeginAccountSignIn Start signing a subscription account in on the control plane; only the owner
 	// (POST /account-sign-ins)
 	BeginAccountSignIn(ctx context.Context, request BeginAccountSignInRequestObject) (BeginAccountSignInResponseObject, error)
@@ -69828,7 +71533,7 @@ type StrictServerInterface interface {
 	// GetDevice The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	// (GET /device)
 	GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error)
-	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	// (POST /device/views)
 	OpenDeviceView(ctx context.Context, request OpenDeviceViewRequestObject) (OpenDeviceViewResponseObject, error)
 	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
@@ -69900,7 +71605,7 @@ type StrictServerInterface interface {
 	// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
 	// (PUT /gateway/muse/tools)
 	SetMuseTools(ctx context.Context, request SetMuseToolsRequestObject) (SetMuseToolsResponseObject, error)
-	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
 	// (GET /gateway/usage)
 	GetGatewayUsage(ctx context.Context, request GetGatewayUsageRequestObject) (GetGatewayUsageResponseObject, error)
 	// ListGatewayRequests The requests of a period, newest first, a page at a time; only the owner
@@ -69972,7 +71677,7 @@ type StrictServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(ctx context.Context, request DeleteIntegrationConnectionRequestObject) (DeleteIntegrationConnectionResponseObject, error)
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(ctx context.Context, request PatchIntegrationConnectionRequestObject) (PatchIntegrationConnectionResponseObject, error)
 	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
@@ -70101,10 +71806,10 @@ type StrictServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(ctx context.Context, request ResumeNodeRequestObject) (ResumeNodeResponseObject, error)
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	// (POST /nodes/{node_id}/start)
 	StartNodeMachine(ctx context.Context, request StartNodeMachineRequestObject) (StartNodeMachineResponseObject, error)
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	// (POST /nodes/{node_id}/stop)
 	StopNodeMachine(ctx context.Context, request StopNodeMachineRequestObject) (StopNodeMachineResponseObject, error)
 	// OpenNodeTerminal A ticket for a terminal on a node (owner only). The ticket opens the WebSocket `/api/v1/terminals/{ticket}` once, within a short time; there the client sends JSON, `{data}` for what is typed and `{height, width}` for a resize, and receives the shell's bytes in binary frames
@@ -70281,6 +71986,21 @@ type StrictServerInterface interface {
 	// ListSkillFiles The files of one revision of a skill, by path
 	// (GET /skills/{skill}/revisions/{revision}/files)
 	ListSkillFiles(ctx context.Context, request ListSkillFilesRequestObject) (ListSkillFilesResponseObject, error)
+	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+	// (GET /takes)
+	ListTakes(ctx context.Context, request ListTakesRequestObject) (ListTakesResponseObject, error)
+	// DeleteTake Delete a take and its files (owner only)
+	// (DELETE /takes/{take_id})
+	DeleteTake(ctx context.Context, request DeleteTakeRequestObject) (DeleteTakeResponseObject, error)
+	// GetTake A take with its segments, steps and pauses (owner only)
+	// (GET /takes/{take_id})
+	GetTake(ctx context.Context, request GetTakeRequestObject) (GetTakeResponseObject, error)
+	// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	// (GET /takes/{take_id}/archive)
+	GetTakeArchive(ctx context.Context, request GetTakeArchiveRequestObject) (GetTakeArchiveResponseObject, error)
+	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+	// (GET /takes/{take_id}/segments/{file})
+	ReadTakeSegment(ctx context.Context, request ReadTakeSegmentRequestObject) (ReadTakeSegmentResponseObject, error)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(ctx context.Context, request ListTasksRequestObject) (ListTasksResponseObject, error)
@@ -70344,6 +72064,37 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ImportAccount operation middleware
+func (sh *strictHandler) ImportAccount(w http.ResponseWriter, r *http.Request) {
+	var request ImportAccountRequestObject
+
+	var body ImportAccountJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ImportAccount(ctx, request.(ImportAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ImportAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ImportAccountResponseObject); ok {
+		if err := validResponse.VisitImportAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // BeginAccountSignIn operation middleware
@@ -76824,6 +78575,136 @@ func (sh *strictHandler) ListSkillFiles(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSkillFilesResponseObject); ok {
 		if err := validResponse.VisitListSkillFilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTakes operation middleware
+func (sh *strictHandler) ListTakes(w http.ResponseWriter, r *http.Request) {
+	var request ListTakesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTakes(ctx, request.(ListTakesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTakes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTakesResponseObject); ok {
+		if err := validResponse.VisitListTakesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTake operation middleware
+func (sh *strictHandler) DeleteTake(w http.ResponseWriter, r *http.Request, takeId TakeID) {
+	var request DeleteTakeRequestObject
+
+	request.TakeId = takeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTake(ctx, request.(DeleteTakeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTake")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTakeResponseObject); ok {
+		if err := validResponse.VisitDeleteTakeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTake operation middleware
+func (sh *strictHandler) GetTake(w http.ResponseWriter, r *http.Request, takeId TakeID) {
+	var request GetTakeRequestObject
+
+	request.TakeId = takeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTake(ctx, request.(GetTakeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTake")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTakeResponseObject); ok {
+		if err := validResponse.VisitGetTakeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTakeArchive operation middleware
+func (sh *strictHandler) GetTakeArchive(w http.ResponseWriter, r *http.Request, takeId TakeID) {
+	var request GetTakeArchiveRequestObject
+
+	request.TakeId = takeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTakeArchive(ctx, request.(GetTakeArchiveRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTakeArchive")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTakeArchiveResponseObject); ok {
+		if err := validResponse.VisitGetTakeArchiveResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadTakeSegment operation middleware
+func (sh *strictHandler) ReadTakeSegment(w http.ResponseWriter, r *http.Request, takeId TakeID, file string, params ReadTakeSegmentParams) {
+	var request ReadTakeSegmentRequestObject
+
+	request.TakeId = takeId
+	request.File = file
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadTakeSegment(ctx, request.(ReadTakeSegmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadTakeSegment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadTakeSegmentResponseObject); ok {
+		if err := validResponse.VisitReadTakeSegmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

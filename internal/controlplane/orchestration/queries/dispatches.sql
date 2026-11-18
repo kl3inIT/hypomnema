@@ -86,6 +86,13 @@ SET updated_at       = @now,
     stop_acked_at    = CASE WHEN status = 'stopping' THEN coalesce(stop_acked_at, @now) ELSE stop_acked_at END
 WHERE id = @id AND epoch = @epoch AND status IN ('starting', 'running', 'stopping') AND lease_expires_at > @now;
 
+-- name: RetainLease :execrows
+-- A node's hello renews the lease of a Dispatch it is told to retain, even one that ran out while the control plane
+-- was down and before the reaper marked it unknown (issue #833).
+UPDATE dispatches
+SET updated_at = @now, lease_expires_at = CAST(@lease_expires_at AS INTEGER)
+WHERE id = @id AND epoch = @epoch AND status IN ('starting', 'running', 'stopping');
+
 -- name: MarkStarted :execrows
 UPDATE dispatches
 SET updated_at = @now, status = 'running', started_at = @now, progress_at = @now, process_ref = @process_ref
@@ -161,8 +168,13 @@ WHERE status = 'running' AND overrun_at IS NULL
   AND started_at + waited_ms + CAST(@max_ms AS INTEGER) <= coalesce(waiting_since, @now)
 RETURNING id, node_id;
 
--- name: RecentDispatchStatusesOfNode :many
-SELECT status FROM dispatches WHERE node_id = @node_id ORDER BY created_at DESC, rowid DESC LIMIT @n;
+-- name: NodesWithRecentTaskExpiries :many
+SELECT DISTINCT node_id FROM dispatches
+WHERE task_id = @task_id AND status = 'expired' AND settled_at >= CAST(@since AS INTEGER);
+
+-- name: CountRecentNodeExpiries :one
+SELECT count(*) FROM dispatches
+WHERE node_id = @node_id AND status = 'expired' AND settled_at >= CAST(@since AS INTEGER);
 
 -- name: GetReceipt :one
 SELECT * FROM receipts WHERE caller = @caller AND request_id = @request_id;

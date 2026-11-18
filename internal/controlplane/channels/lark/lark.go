@@ -41,8 +41,9 @@ import (
 type LarkChannel struct{}
 
 var (
-	_ channels.Channel  = LarkChannel{}
-	_ channels.Recorder = (*sdk)(nil)
+	_ channels.Channel    = LarkChannel{}
+	_ channels.Recorder   = (*sdk)(nil)
+	_ channels.Downloader = (*sdk)(nil)
 )
 
 // Kind is lark.
@@ -213,14 +214,22 @@ func messageOf(e *larkim.P2MessageReceiveV1) channels.Message {
 	msg, sender := e.Event.Message, e.Event.Sender
 	m.ID, m.ChatID = deref(msg.MessageId), deref(msg.ChatId)
 	m.Direct = deref(msg.ChatType) == "p2p"
-	m.IsText = deref(msg.MessageType) == "text"
+	m.IsText = deref(msg.MessageType) == "text" || deref(msg.MessageType) == "post"
 
-	switch deref(msg.MessageType) {
+	switch kind := deref(msg.MessageType); kind {
 	case "text":
 		m.Text = textOf(deref(msg.Content))
+	case "post":
+		// A rich-text post: its text, and the images and files in it (issue #829).
+		m.Text, m.Files = postOf(deref(msg.Content))
 	case "audio":
 		// A voice message: its recording's file_key, which Recording downloads (issue #723).
 		m.Voice = fileKeyOf(deref(msg.Content))
+	case "image", "file", "media":
+		// An image, a file or a video: the one file it is (issue #829), as OpenClaw's parseMediaResource reads it.
+		if f, ok := fileOf(kind, deref(msg.Content)); ok {
+			m.Files = []channels.File{f}
+		}
 	}
 
 	for _, mention := range msg.Mentions {
@@ -342,27 +351,46 @@ func fileKeyOf(content string) string {
 // bot-content.ts:297, media.ts:207-210). It needs the scope im:resource,
 // which SendFile needs too.
 func (s *sdk) Recording(ctx context.Context, messageID, key string, limit int64) ([]byte, error) {
-	resp, err := s.media.Im.V1.MessageResource.Get(ctx, larkim.NewGetMessageResourceReqBuilder().
-		MessageId(messageID).FileKey(key).Type("file").Build())
-	if err != nil {
-		return nil, fmt.Errorf("downloading a voice message from Lark: %w", err)
+	return s.resource(ctx, messageID, key, "file", limit, "a voice message")
+}
+
+// Download downloads a file a message carries (issue #829) the way Recording
+// does, as type image for an image and file for any other, as OpenClaw's
+// saveMessageResourceFeishu asks (extensions/feishu/src/media.ts).
+func (s *sdk) Download(ctx context.Context, messageID string, f channels.File, limit int64) ([]byte, error) {
+	kind, what := "file", "a file"
+	if f.Image {
+		kind, what = "image", "an image"
 	}
 
-	if err := refused("downloading a voice message from Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
+	return s.resource(ctx, messageID, f.Key, kind, limit, what)
+}
+
+// resource downloads one resource of a message: at most limit bytes.
+func (s *sdk) resource(ctx context.Context, messageID, key, kind string, limit int64, what string) ([]byte, error) {
+	doing := "downloading " + what + " from Lark"
+
+	resp, err := s.media.Im.V1.MessageResource.Get(ctx, larkim.NewGetMessageResourceReqBuilder().
+		MessageId(messageID).FileKey(key).Type(kind).Build())
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", doing, err)
+	}
+
+	if err := refused(doing, resp.Success(), resp.Code, resp.Msg); err != nil {
 		return nil, err
 	}
 
 	if resp.File == nil {
-		return nil, errors.New("downloading a voice message from Lark: Lark sent no file")
+		return nil, fmt.Errorf("%s: Lark sent no file", doing)
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.File, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("downloading a voice message from Lark: %w", err)
+		return nil, fmt.Errorf("%s: %w", doing, err)
 	}
 
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("the voice message is larger than %d MiB", limit>>20)
+		return nil, fmt.Errorf("%s is larger than %d MiB", what, limit>>20)
 	}
 
 	return data, nil

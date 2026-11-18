@@ -147,6 +147,17 @@ func (p *placement) connected(n *nodeLoad) bool {
 	return n.row.LastSeenAt.Valid && p.now-n.row.LastSeenAt.Int64 < NodeOfflineAfter.Milliseconds()
 }
 
+// takesWork reports whether a node can be given new work: the owner has not
+// drained it, it is connected, and a provider's machine is on. The owner's
+// drain and the machine's power are kept apart, so that a stop and a start
+// leave the drain as the owner set it (issue #844), as Nomad's Node.Ready
+// (nomad/structs/structs.go) asks for a ready status and scheduling
+// eligibility, two fields, and the kube-scheduler filters a cordoned node
+// apart from one that is not ready.
+func (p *placement) takesWork(n *nodeLoad) bool {
+	return NodeStatus(n.row.Status) == NodeActive && p.connected(n) && !n.row.MachinePower.Valid
+}
+
 func (n *nodeLoad) offers(runtime string) bool {
 	return slices.ContainsFunc(n.runtimes, func(r RuntimeInfo) bool { return r.Runtime == runtime })
 }
@@ -321,6 +332,8 @@ func (p *placement) serves(n *nodeLoad, runtime string) error {
 		return fmt.Errorf("%w: node %s is drained", ErrUnavailable, id)
 	case !p.connected(n):
 		return fmt.Errorf("%w: node %s is not connected", ErrUnavailable, id)
+	case n.row.MachinePower.Valid:
+		return fmt.Errorf("%w: the machine of node %s is %s", ErrUnavailable, id, n.row.MachinePower.String)
 	case n.row.UnavailableAt.Valid:
 		return fmt.Errorf("%w: node %s let its dispatches expire", ErrUnavailable, id)
 	case !n.offers(runtime):
@@ -457,10 +470,10 @@ func (n *nodeLoad) lacks(tools []string) string {
 	return ""
 }
 
-// anyHas reports whether a connected, active node has every one of the tools.
+// anyHas reports whether a node that takes work has every one of the tools.
 func (p *placement) anyHas(tools []string) (missing string) {
 	for _, n := range p.order {
-		if NodeStatus(n.row.Status) != NodeActive || !p.connected(n) {
+		if !p.takesWork(n) {
 			continue
 		}
 
@@ -478,10 +491,10 @@ func (p *placement) anyHas(tools []string) (missing string) {
 	return missing
 }
 
-// anyReaches reports whether a connected, active node reaches the git host.
+// anyReaches reports whether a node that takes work reaches the git host.
 func (p *placement) anyReaches(host string) bool {
 	return slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
-		return NodeStatus(n.row.Status) == NodeActive && p.connected(n) && n.reaches(host)
+		return p.takesWork(n) && n.reaches(host)
 	})
 }
 
@@ -498,9 +511,9 @@ func (p *placement) accountUsable(runtime, id string) (usable, cooling bool) {
 // scores, as Kubernetes filters with NodeResourcesFit before scoring
 // (helper/resource_fit.go:136-145) and Nomad ranks only Ready() nodes
 // (structs.go:2168-2170). The filter is checkNode, the fit by requests among
-// it; a node low on memory is skipped (lowMemory). The highest score wins
-// (better).
-func (p *placement) pickNode(runtime string, host where) *nodeLoad {
+// it; a node low on memory is skipped (lowMemory). The highest-ranked node
+// wins (better).
+func (p *placement) pickNode(runtime string, host where, recentExpiries map[string]bool) *nodeLoad {
 	var best *nodeLoad
 
 	for _, n := range p.order {
@@ -509,7 +522,7 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 			continue
 		}
 
-		if best == nil || p.better(n, best, host.req) {
+		if best == nil || p.better(n, best, host.req, recentExpiries) {
 			best = n
 		}
 	}
@@ -518,8 +531,8 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 }
 
 // better reports whether node a goes before node b for a Dispatch of the
-// request: a higher score, then more allocatable memory left by requests, then
-// the smaller id.
+// request: a node without a recent expiry for the Task (Nomad's rescheduling
+// penalty), then a higher score, more memory left by requests, and the smaller id.
 //
 // A node's score is its free capacity, 0 to 1: the mean of its free share by
 // requests and its measured free CPU and memory shares. From Kubernetes
@@ -532,7 +545,11 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 // as Jenkins Least Load ranks by idle executors (LeastLoadBalancer.java:443-470),
 // then by id, as Orca's relay does (assignment-store.ts:8164), to keep
 // placement reproducible.
-func (p *placement) better(a, b *nodeLoad, r request) bool {
+func (p *placement) better(a, b *nodeLoad, r request, recentExpiries map[string]bool) bool {
+	if recentExpiries[a.row.ID] != recentExpiries[b.row.ID] {
+		return !recentExpiries[a.row.ID]
+	}
+
 	// The sum of the three shares orders as their mean does. Each sum is
 	// computed the same way, so equal nodes tie exactly.
 	if sa, sb := a.free(r)+p.measured(a), b.free(r)+p.measured(b); sa != sb {
@@ -625,6 +642,10 @@ const TokenRuntime = "claude"
 // No worker runs under it; the Muse pool (internal/controlplane/muse) asks
 // muse.ai with it.
 const MuseRuntime = "muse"
+
+// OpenCodeGoRuntime is the runtime of an OpenCode Go key (issue #854): a Console API key the owner pastes, kept in
+// the vault. No worker runs under it; the model gateway serves the provider of kind ProviderOpenCodeGo with it.
+const OpenCodeGoRuntime = "opencode_go"
 
 // runsOnNode reports whether a worker on a node can run under an account:
 // one whose CLI was logged in on that node. An account whose secret the

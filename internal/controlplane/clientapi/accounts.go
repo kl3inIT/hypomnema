@@ -165,7 +165,7 @@ func (s *Server) RedeemAccountLimitReset(ctx context.Context, req openapi.Redeem
 		return nil, fmt.Errorf("%w: accounts are not signed in on this control plane", orchestration.ErrUnavailable)
 	}
 
-	limits, err := s.accounts.UseReset(ctx, req.AccountId, req.Body.RequestId)
+	limits, err := s.accounts.UseReset(ctx, req.AccountId, req.Body.RequestId, val(req.Body.GrantId))
 
 	switch {
 	case err == nil:
@@ -175,6 +175,7 @@ func (s *Server) RedeemAccountLimitReset(ctx context.Context, req openapi.Redeem
 	case errors.Is(err, subscription.ErrBadResetRequest):
 		return nil, fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)
 	case errors.Is(err, subscription.ErrNoResets), errors.Is(err, subscription.ErrNothingToReset),
+		errors.Is(err, subscription.ErrUnknownReset), errors.Is(err, subscription.ErrNoResetClears),
 		errors.Is(err, subscription.ErrResetWait), errors.Is(err, subscription.ErrNoTokens),
 		errors.Is(err, subscription.ErrNoLimits):
 		return nil, fmt.Errorf("%w: %w", orchestration.ErrConflict, err)
@@ -206,6 +207,7 @@ func toLimits(limits subscription.Limits) openapi.AccountLimits {
 			resets.ExpiresAt = &limits.Resets.ExpiresAt
 		}
 
+		resets.Grants = toResetGrants(limits.Resets.Grants)
 		out.Resets = &resets
 	}
 
@@ -395,6 +397,30 @@ func toAccount(a subscription.Account) openapi.Account {
 	}
 	if signIn, ok := signIns[a.State]; ok {
 		out.SignIn = &signIn
+	}
+
+	return out
+}
+
+// toResetGrants are an account's resets one by one as the API shows them (issue #841).
+func toResetGrants(grants []subscription.ResetGrant) []openapi.AccountLimitResetGrant {
+	out := make([]openapi.AccountLimitResetGrant, 0, len(grants))
+
+	for _, g := range grants {
+		grant := openapi.AccountLimitResetGrant{Id: g.ID, Available: g.Available, Clears: g.Clears}
+		if grant.Clears == nil {
+			grant.Clears = []string{}
+		}
+
+		if g.Label != "" {
+			grant.Label = &g.Label
+		}
+
+		if !g.ExpiresAt.IsZero() {
+			grant.ExpiresAt = &g.ExpiresAt
+		}
+
+		out = append(out, grant)
 	}
 
 	return out

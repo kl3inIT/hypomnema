@@ -31,7 +31,18 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   ]
   let repos = start.repos ?? []
   // Google, with its OAuth client and one account that was signed in.
-  let accounts = [
+  let accounts: {
+    integration: string
+    label: string
+    account: string
+    services: string[]
+    sign_in_required: boolean
+    chats: boolean
+    proxy?: string
+    dial_address?: string
+    created_at: string
+    updated_at: string
+  }[] = [
     {
       integration: "google",
       label: "personal",
@@ -483,8 +494,24 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       }
 
       if (request.method() === "PATCH") {
-        const asked = request.postDataJSON() as { chats: boolean }
-        supersets = supersets.map((a) => (a.label === label ? { ...a, chats: asked.chats } : a))
+        const asked = request.postDataJSON() as {
+          chats?: boolean
+          proxy?: string
+          dial_address?: string
+        }
+        supersets = supersets.map((a) =>
+          a.label === label
+            ? {
+                ...a,
+                chats: asked.chats ?? a.chats,
+                proxy: asked.proxy === undefined ? a.proxy : asked.proxy || undefined,
+                dial_address:
+                  asked.dial_address === undefined
+                    ? a.dial_address
+                    : asked.dial_address || undefined,
+              }
+            : a,
+        )
 
         return json(supersets.find((a) => a.label === label))
       }
@@ -520,9 +547,15 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
     }
 
     if (kind === "integrations" && sub === "connections" && request.method() === "PATCH") {
-      const asked = request.postDataJSON() as { chats: boolean }
+      const asked = request.postDataJSON() as { chats?: boolean; proxy?: string }
       accounts = accounts.map((a) =>
-        a.label === path.split("/")[4] ? { ...a, chats: asked.chats } : a,
+        a.label === path.split("/")[4]
+          ? {
+              ...a,
+              chats: asked.chats ?? a.chats,
+              proxy: asked.proxy === undefined ? a.proxy : asked.proxy || undefined,
+            }
+          : a,
       )
 
       return json(accounts.find((a) => a.label === path.split("/")[4]))
@@ -1179,6 +1212,23 @@ test("the owner connects his Superset account and disconnects it", async ({ page
   await account.getByRole("switch", { name: "Use in chats" }).click()
   await expect(account.getByRole("switch", { name: "Use in chats" })).toBeChecked()
 
+  // A Superset in a private network is reached through a local proxy (issue #850): a proxy with a password is
+  // refused before it is sent, and the one he saves shows on the account.
+  await account.getByRole("button", { name: "Proxy" }).click()
+  const proxy = page.locator("[data-slot=dialog-content]")
+  await proxy.getByLabel("Proxy").fill("socks5://me:secret@127.0.0.1:1055")
+  await proxy.getByRole("button", { name: "Save" }).click()
+  await expect(proxy).toContainText("with a host and a port")
+  await proxy.getByLabel("Proxy").fill("socks5://127.0.0.1:1055")
+  await proxy.getByLabel("Connect to (temporary)").fill("100.64.0.7:443")
+  await shot(page, "integrations-superset-proxy")
+  await proxy.getByRole("button", { name: "Save" }).click()
+  await expect(proxy).toBeHidden()
+  await expect(account).toContainText("Through socks5://127.0.0.1:1055")
+  await expect(account).toContainText("Dialed at 100.64.0.7:443 (temporary)")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-superset-through-proxy")
+
   await superset.getByRole("button", { name: "Disconnect vmaps" }).click()
   const confirm = page.getByRole("alertdialog")
   await expect(confirm).toContainText("removes its password from the vault")
@@ -1188,6 +1238,7 @@ test("the owner connects his Superset account and disconnects it", async ({ page
   expect(calls).toEqual([
     "PUT /integrations/superset/connections/vmaps",
     "PUT /integrations/superset/connections/vmaps",
+    "PATCH /integrations/superset/connections/vmaps",
     "PATCH /integrations/superset/connections/vmaps",
     "DELETE /integrations/superset/connections/vmaps",
   ])

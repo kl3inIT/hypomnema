@@ -183,6 +183,9 @@ func (o *owner) machinesCommand(ctx context.Context, args []string) error {
 		change, done := o.machines.Stop, "stopped: it keeps its disk and costs no compute"
 		if args[0] == "start" {
 			change, done = o.machines.Start, "starting: it takes work again once its node connects"
+			if n.Status == orchestration.NodeDrained {
+				done = "starting: it stays drained, as the owner left it; `nodes resume` lets it take work"
+			}
 		}
 
 		if _, err := change(ctx, n.ID); err != nil {

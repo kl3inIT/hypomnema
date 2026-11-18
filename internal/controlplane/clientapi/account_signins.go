@@ -170,6 +170,30 @@ func (s *Server) CompleteAccountSignIn(ctx context.Context, req openapi.Complete
 	return openapi.CompleteAccountSignIn200JSONResponse(toAccount(a)), nil
 }
 
+// ImportAccount keeps an account from the session Claude Code saved in its
+// .credentials.json (issue #828), as OmniRoute's "Import Claude auth" does
+// (ImportClaudeAuthModal.tsx). The credentials are not logged and never
+// answered; a file that is not the vendor's is refused before anything is kept.
+func (s *Server) ImportAccount(ctx context.Context, req openapi.ImportAccountRequestObject,
+) (openapi.ImportAccountResponseObject, error) {
+	if s.accounts == nil || s.secrets == nil {
+		return nil, fmt.Errorf("%w: an imported session is kept in the vault, which is not set up",
+			orchestration.ErrUnavailable)
+	}
+
+	a, err := s.accounts.Import(ctx, string(req.Body.Runtime), []byte(val(req.Body.Credentials)), val(req.Body.Label))
+	if err != nil {
+		if errors.Is(err, subscription.ErrBadPaste) || errors.Is(err, subscription.ErrUnknownVendor) ||
+			errors.Is(err, subscription.ErrLoginFailed) {
+			return nil, fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)
+		}
+
+		return nil, err
+	}
+
+	return openapi.ImportAccount201JSONResponse(toAccount(a)), nil
+}
+
 // AddTokenAccount keeps an account from the token of `claude setup-token`
 // the owner pastes (issue #199): the other way to add a Claude account,
 // beside signing in, as 9router's dialog has "Paste token" beside its browser

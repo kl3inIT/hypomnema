@@ -134,7 +134,7 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 		call.session = claudeSession(key.ID)
 	}
 
-	record := Usage{KeyID: key.ID, Model: model.Name, Stream: call.req.Stream}
+	record := Usage{KeyID: key.ID, Model: model.Name, Stream: call.req.Stream, started: started}
 	serving, served := withServed(r)
 	s.passMessages(w, serving, call, model, &record)
 	record.AccountID = served.id
@@ -204,9 +204,12 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 			err  error
 		)
 
-		if a.claude {
+		switch {
+		case a.goWire:
+			resp, err = s.goMessages(ctx, call, a.upstream.Model)
+		case a.claude:
 			resp, err = s.claudeMessages(ctx, call, a.upstream.Model)
-		} else {
+		default:
 			if chat == nil {
 				translated, terr := chatFromMessages(call.raw)
 				if terr != nil {
@@ -320,7 +323,10 @@ func (s *Server) omitRefusedImages(ctx context.Context, resp *http.Response, cal
 type messagesAttempt struct {
 	target   Target
 	upstream upstream
-	claude   bool
+	// claude says the target answers in Messages' own format: a Claude
+	// subscription, or an OpenCode Go model served on Messages (go).
+	claude bool
+	goWire bool
 }
 
 // messagesAttempts are the targets of a model a call can be sent to, in order.
@@ -338,14 +344,36 @@ func (s *Server) messagesAttempts(ctx context.Context, call messagesCall, model 
 		}
 
 		claudeTarget := u.Kind == "claude_subscription"
+		// An OpenCode Go model served on Messages is passed the request as it is (issue #854).
+		goTarget := u.Kind == openCodeGoKind && call.generates && s.accounts != nil &&
+			s.svc.goWire(ctx, u.Model) == goWireMessages
+
 		if (claudeTarget && s.accounts == nil) || (!claudeTarget && !call.generates) {
 			continue
 		}
 
-		attempts = append(attempts, messagesAttempt{target: target, upstream: u, claude: claudeTarget})
+		attempts = append(attempts, messagesAttempt{
+			target: target, upstream: u, claude: claudeTarget || goTarget, goWire: goTarget,
+		})
 	}
 
 	return attempts
+}
+
+// goMessages passes a request to an OpenCode Go model served on Messages
+// under the Go keys: the client's body with the model's name at Go (issue #854).
+func (s *Server) goMessages(ctx context.Context, call messagesCall, upstreamModel string) (*http.Response, error) {
+	body, err := withModel(call.raw, upstreamModel, nil)
+	if err != nil {
+		return nil, &badMessagesError{err: err}
+	}
+
+	accept := "application/json"
+	if call.req.Stream {
+		accept = "text/event-stream"
+	}
+
+	return s.underGo(ctx, openCodeGoSession(call.session), goWireMessages, body, accept, nil)
 }
 
 // chatFromMessages is a Messages request as the chat route reads one.
@@ -437,6 +465,8 @@ func (s *Server) relayFromChat(
 		if flusher != nil {
 			flusher.Flush()
 		}
+
+		record.firstChunk(s.svc.clock.Now())
 
 		return true
 	}
@@ -660,9 +690,10 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 		answered = completed
 		sent += len(line)
 
-		// An empty line ends an event.
+		// An empty line ends an event; the first event passed on is the first chunk (issue #856).
 		if len(line) == 0 {
 			flush()
+			record.firstChunk(s.svc.clock.Now())
 		}
 	}
 

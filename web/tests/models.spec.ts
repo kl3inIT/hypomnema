@@ -131,8 +131,26 @@ const limits: Record<string, object> = {
       { name: "week", used_percent: 26, resets_at: iso(now + 2 * 86_400_000) },
     ],
     read_at: iso(now - 20_000),
-    // Out of its 5 hours, with two limit resets it can use.
-    resets: { available: 2, expires_at: iso(now + 20 * 86_400_000) },
+    // Out of its 5 hours, with two ordinary limit resets and one of Fable's (issue #841).
+    resets: {
+      available: 3,
+      expires_at: iso(now + 20 * 86_400_000),
+      grants: [
+        {
+          id: "fable",
+          label: "Fable launch",
+          available: 1,
+          expires_at: iso(now + 23 * 86_400_000),
+          clears: ["week (Fable)"],
+        },
+        {
+          id: "ordinary",
+          available: 2,
+          expires_at: iso(now + 20 * 86_400_000),
+          clears: ["5 hours", "week"],
+        },
+      ],
+    },
   },
   acc_main: {
     windows: [
@@ -320,6 +338,30 @@ async function fakeServer(page: Page, start?: Account[]) {
       return json(made, 201)
     }
 
+    // A Claude account from Claude Code's .credentials.json (issue #828): its e-mail is the vendor's, not the
+    // file's, and the file is never answered.
+    if (kind === "account-imports" && request.method() === "POST") {
+      calls.push(call)
+
+      const body = request.postDataJSON() as {
+        runtime: string
+        credentials: string
+        label?: string
+      }
+      const made: Account = {
+        id: `acc_${accounts.length + 1}`,
+        runtime: body.runtime,
+        label: body.label ?? "laptop@example.com",
+        status: "active",
+        position: 9,
+        email: "laptop@example.com",
+        sign_in: "active",
+      }
+      accounts = [...accounts, made]
+
+      return json(made, 201)
+    }
+
     if (kind === "accounts" && id && action === "move") {
       calls.push(call)
 
@@ -339,13 +381,14 @@ async function fakeServer(page: Page, start?: Account[]) {
 
     // Using a limit reset: the 5 hours start again and one reset fewer is left.
     if (kind === "accounts" && id && action === "limits" && path.endsWith("/reset")) {
+      const body = request.postDataJSON() as { request_id: string; grant_id?: string }
       calls.push(
-        `${call} ${(request.postDataJSON() as { request_id: string }).request_id ? "with a request id" : ""}`,
+        `${call} ${body.request_id ? "with a request id" : ""} of ${body.grant_id ?? "any"}`,
       )
 
       const reading = limits[id] as {
         windows: { name: string; used_percent: number }[]
-        resets?: { available: number }
+        resets?: { available: number; grants: { id: string; available: number }[] }
       }
       if (!reading?.resets) {
         return json(
@@ -356,6 +399,8 @@ async function fakeServer(page: Page, start?: Account[]) {
 
       reading.windows[0]!.used_percent = 0
       reading.resets.available -= 1
+      const grant = reading.resets.grants.find((g) => g.id === body.grant_id)
+      if (grant) grant.available -= 1
 
       return json(reading)
     }
@@ -660,6 +705,43 @@ test("the owner adds a Claude account by pasting a token", async ({ page }) => {
   expect(calls).toContain("POST /accounts")
 })
 
+// Scenario: the owner brings a Claude Code session from another machine (issue #828): the dialog takes the
+// .credentials.json pasted, refuses a file that is not Claude Code's before sending it, and the account takes its
+// e-mail when no name is given.
+test("the owner imports a Claude account from Claude Code's credentials file", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/models")
+
+  const claude = card(page, "Claude")
+  await claude.getByRole("button", { name: "Add account" }).click()
+
+  const dialog = page.getByRole("dialog", { name: /^(Add a .* account|Sign .* in again)$/ })
+  await dialog.getByRole("tab", { name: "Import a file" }).click()
+  await expect(dialog).toContainText(".credentials.json")
+
+  await dialog.getByRole("textbox", { name: ".credentials.json" }).fill('{"token":"x"}')
+  await dialog.getByRole("button", { name: "Import account" }).click()
+  await expect(dialog).toContainText("not Claude Code's .credentials.json")
+  await shot(page, "models-import-file")
+
+  // Choosing the file reads it into the field.
+  await dialog.getByLabel("Choose the .credentials.json file").setInputFiles({
+    name: ".credentials.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      '{"claudeAiOauth":{"accessToken":"sk-ant-oat01-made-up","refreshToken":"sk-ant-ort01-made-up"}}',
+    ),
+  })
+  await expect(dialog.getByRole("textbox", { name: ".credentials.json" })).toHaveValue(
+    /claudeAiOauth/,
+  )
+  await dialog.getByRole("button", { name: "Import account" }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect(claude.getByLabel("Claude account laptop@example.com")).toBeVisible()
+  expect(calls).toContain("POST /account-imports")
+})
+
 // Scenario: the owner changes which account the gateway tries first.
 test("the owner moves an account up", async ({ page }) => {
   const calls = await fakeServer(page)
@@ -677,34 +759,41 @@ test("the owner moves an account up", async ({ page }) => {
   await shot(page, "models-moved")
 })
 
-// Scenario: an account is out of its 5 hours and has limit resets. The page says how many are left; the owner is
-// told a reset does not come back before one is used; after it the 5 hours start again and one fewer is left.
+// Scenario: an account is out of its 5 hours and has limit resets, an ordinary grant and Fable's (issue #841). The
+// page lists each with what it starts again; the owner uses the ordinary one, is told a reset does not come back,
+// and after it the 5 hours start again and one fewer is left.
 test("the owner uses a limit reset", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/models")
 
   const spare = card(page, "Claude").getByLabel("Claude account spare")
-  await expect(spare.getByTestId("limit-resets")).toContainText("2 limit resets left")
+  await expect(spare.getByTestId("limit-resets")).toContainText("3 limit resets left")
+  const grants = spare.getByTestId("reset-grant")
+  await expect(grants).toHaveCount(2)
+  await expect(grants.first()).toContainText("Fable launch · 1 left · starts Week (Fable) again")
+  await expect(grants.last()).toContainText("Limit reset · 2 left · starts 5 hours, Week again")
   // An account with none says nothing of resets.
   await expect(
     card(page, "Claude").getByLabel("Claude account work").getByTestId("limit-resets"),
   ).toHaveCount(0)
   await shot(page, "models-resets")
 
-  await spare.getByRole("button", { name: "Use a limit reset of spare" }).click()
+  await spare.getByRole("button", { name: "Use Limit reset of spare" }).click()
   const dialog = page.getByRole("alertdialog")
   await expect(dialog).toContainText("does not come back")
-  await expect(dialog).toContainText("1 will be left")
+  await expect(dialog).toContainText("starts 5 hours, Week again now")
+  await expect(dialog).toContainText("1 of these will be left")
   await shot(page, "models-reset-confirm")
 
   await dialog.getByRole("button", { name: "Use a reset" }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(spare.getByTestId("limit-resets")).toContainText("1 limit reset left")
+  await expect(spare.getByTestId("limit-resets")).toContainText("2 limit resets left")
+  await expect(grants.last()).toContainText("Limit reset · 1 left")
   await expect(spare.getByRole("meter", { name: "5 hours used by spare" })).toHaveAttribute(
     "aria-valuenow",
     "0",
   )
-  expect(calls).toContain("POST /accounts/acc_spare/limits/reset with a request id")
+  expect(calls).toContain("POST /accounts/acc_spare/limits/reset with a request id of ordinary")
   await shot(page, "models-reset-used")
 })
 

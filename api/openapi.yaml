@@ -508,8 +508,8 @@ paths:
     post:
       operationId: StopNodeMachine
       summary: >-
-        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with
-        409 while it runs a Dispatch
+        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its
+        status; refused with 409 while it runs a Dispatch
       responses:
         "200":
           description: The node, its machine stopping or stopped.
@@ -522,7 +522,7 @@ paths:
       - $ref: "#/components/parameters/NodeID"
     post:
       operationId: StartNodeMachine
-      summary: Turn a stopped machine on (owner only); it takes work again once its node connects
+      summary: Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
       responses:
         "200":
           description: The node, its machine starting.
@@ -589,13 +589,97 @@ paths:
         (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video`
         (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y`
         from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and
-        `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+        `power`. While the owner holds control every agent's phone call is answered that the tools are paused.
+        While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take
+        is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing
+        the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the
+        last line said)
       responses:
         "201":
           description: The ticket.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BrowserViewTicket" }
+        default: { $ref: "#/components/responses/Error" }
+  /takes:
+    get:
+      operationId: ListTakes
+      summary: The takes agents filmed of the phone, the newest first (owner only; issue #817)
+      description: >-
+        A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more
+        segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the
+        agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+      responses:
+        "200":
+          description: The takes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TakeList" }
+        default: { $ref: "#/components/responses/Error" }
+  /takes/{take_id}:
+    parameters:
+      - $ref: "#/components/parameters/TakeID"
+    get:
+      operationId: GetTake
+      summary: A take with its segments, steps and pauses (owner only)
+      responses:
+        "200":
+          description: The take.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Take" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteTake
+      summary: Delete a take and its files (owner only)
+      description: >-
+        A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it
+        is refused; a take its node still holds while offline is removed there at the node's next hello.
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+  /takes/{take_id}/segments/{file}:
+    parameters:
+      - $ref: "#/components/parameters/TakeID"
+      - name: file
+        in: path
+        required: true
+        schema: { type: string, pattern: "^seg-[0-9]{3}\\.mp4$" }
+    get:
+      operationId: ReadTakeSegment
+      summary: One segment of an available take, for the owner's player (owner only)
+      description: >-
+        Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: The segment.
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "206":
+          description: The part of the segment asked for.
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /takes/{take_id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/TakeID"
+    get:
+      operationId: GetTakeArchive
+      summary: An available take's segments and its take.json as a zip, as an opaque download (owner only)
+      responses:
+        "200":
+          description: The zip.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}/resume:
     parameters:
@@ -874,10 +958,12 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     patch:
       operationId: PatchIntegrationConnection
-      summary: Say whether the coordinator may use a Connection in chats; only the owner
+      summary: Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
       description: >-
         A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in
-        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its
+        proxy (issue #850) is what its requests to its service go through, and its dial address where they are
+        dialed instead of their host's; the next request uses them.
       requestBody:
         required: true
         content:
@@ -1581,6 +1667,30 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Account" }
         default: { $ref: "#/components/responses/Error" }
+  /account-imports:
+    post:
+      operationId: ImportAccount
+      summary: Keep an account from the session its CLI saved; only the owner
+      description: >-
+        The credentials are Claude Code's `.credentials.json` (issue #828), as
+        OmniRoute and Hermes read it: its access and refresh tokens are sealed
+        in the vault, refreshed first when the access token is about to end,
+        and never answered or logged. Who the account is comes from the
+        vendor, as a sign-in's does; an account the vendor already knows takes
+        the new tokens. The control plane refreshes them from then on, so the
+        session on the machine the file came from may be signed out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewAccountImport" }
+      responses:
+        "201":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
   /account-sign-ins:
     post:
       operationId: BeginAccountSignIn
@@ -1711,11 +1821,13 @@ paths:
       operationId: RedeemAccountLimitReset
       summary: Use one of an account's limit resets, which starts its used-up limits again now; only the owner
       description: >-
-        A reset that is used does not come back. The one used is the one the
-        vendor names as next. `request_id` makes a repeated request the same
-        use: sent again, it uses no second reset. Answers the account's limits
-        as they are after it. An account with no reset to use, with no limit
-        used up, or whose vendor asks to wait is 409.
+        A reset that is used does not come back. The one used is `grant_id`'s;
+        without it, one that starts a used-up window again, the vendor's next
+        when it does (issue #841). `request_id` makes a repeated request the
+        same use: sent again, it uses no second reset. Answers the account's
+        limits as they are after it. An account with no reset to use, with no
+        limit used up, with no reset that starts the used-up one again, with no
+        usable reset of `grant_id`, or whose vendor asks to wait is 409.
       requestBody:
         required: true
         content:
@@ -1810,12 +1922,18 @@ paths:
   /gateway/usage:
     get:
       operationId: GetGatewayUsage
-      summary: What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+      summary: >-
+        What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text
+        models' speed and reliability by provider and by account; only the owner
+      description: >-
+        24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a
+        calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together,
+        and the speed has averages, not percentiles (ledger is true).
       parameters:
         - name: period
           in: query
           required: true
-          schema: { type: string, enum: ["24h", "7d", "30d"] }
+          schema: { type: string, enum: ["24h", "7d", "30d", "90d", "12m"] }
         - name: utc_offset_minutes
           in: query
           description: The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
@@ -4435,6 +4553,11 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 64 }
+    TakeID:
+      name: take_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
     ArtifactID:
       name: artifact_id
       in: path
@@ -4591,9 +4714,46 @@ components:
         - type: object
           required: [tasks]
           properties:
+            usage: { $ref: "#/components/schemas/WorkUsage" }
             tasks:
               type: array
               items: { $ref: "#/components/schemas/TaskDetail" }
+    WorkUsage:
+      type: object
+      description: >-
+        What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's
+        keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose
+        runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+      required: [dispatches, gateway_dispatches, requests, prompt_tokens, completion_tokens, cached_tokens,
+        reasoning_tokens, cache_write_tokens, cost_micros, unpriced, reported]
+      properties:
+        dispatches: { type: integer }
+        gateway_dispatches:
+          type: integer
+          description: The Dispatches that sent the gateway requests.
+        requests: { type: integer, format: int64 }
+        prompt_tokens: { type: integer, format: int64 }
+        completion_tokens: { type: integer, format: int64 }
+        cached_tokens: { type: integer, format: int64 }
+        reasoning_tokens: { type: integer, format: int64 }
+        cache_write_tokens: { type: integer, format: int64 }
+        cost_micros:
+          type: integer
+          format: int64
+          description: The gateway requests' cost at the vendor's API price, in micro-dollars.
+        unpriced:
+          type: integer
+          format: int64
+          description: The gateway requests the price book has no price for.
+        reported:
+          type: object
+          description: The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+          required: [input, output, cache_read, cache_write]
+          properties:
+            input: { type: integer, format: int64 }
+            output: { type: integer, format: int64 }
+            cache_read: { type: integer, format: int64 }
+            cache_write: { type: integer, format: int64 }
     RunList:
       type: object
       required: [data]
@@ -4673,6 +4833,7 @@ components:
         - $ref: "#/components/schemas/Task"
         - type: object
           properties:
+            usage: { $ref: "#/components/schemas/WorkUsage" }
             latest_dispatch: { $ref: "#/components/schemas/Dispatch" }
             follow_ups:
               type: array
@@ -6116,6 +6277,17 @@ components:
           description: >-
             Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
             turns it on.
+        proxy:
+          type: string
+          description: >-
+            The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a
+            service in a private network, reached through a local proxy. Absent when they go direct.
+        dial_address:
+          type: string
+          description: >-
+            Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an
+            IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name
+            that does not resolve; absent dials the host.
         session: { $ref: "#/components/schemas/DeviceSession" }
         cannot:
           type: array
@@ -6230,6 +6402,18 @@ components:
           type: string
           maxLength: 1024
           description: Where the service is, such as https://superset.example.com.
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the
+            label has.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one
+            the label has.
         username: { type: string, maxLength: 1024 }
         password:
           type: string
@@ -6489,10 +6673,22 @@ components:
             owner takes it back; reject refuses it.
     ConnectionUse:
       type: object
-      required: [chats]
+      description: What changes; what is absent stays.
       additionalProperties: false
       properties:
         chats: { type: boolean }
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no
+            user or path. Empty clears it, and they go direct.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port
+            or not; the certificate is still checked against the host. Temporary. Empty clears it.
     NewIntegrationClient:
       type: object
       required: [client_id, client_secret]
@@ -6664,6 +6860,85 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Node" }
+    TakeList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Take" }
+    Take:
+      type: object
+      description: >-
+        A take (issue #817): its segments in order on one timeline, the steps said on it and where the owner's
+        takeover paused it. `recording` and `paused` while it is filmed, `finalizing` while the node closes its
+        last segment, `uploading` until every file reached the control plane, then `available`; `failed` with
+        `reason` when it got no frame or could not be kept.
+      required: [id, title, agent, node, started_at, state, duration_ms, segments, steps, pauses]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        agent: { type: string, description: The agent's key, such as d-<dispatch> or b-<chat>. }
+        agent_name: { type: string, description: Who filmed it, as the logs name agents. }
+        node: { type: string, description: The node that filmed it. }
+        app_package: { type: string, description: The app the agent opened last while filming. }
+        app_version: { type: string }
+        started_at: { type: string, format: date-time }
+        state:
+          type: string
+          description: recording, paused, finalizing, uploading, available or failed.
+        ended_by:
+          type: string
+          description: >-
+            What ended it: stop, work_end (the agent's Dispatch or turn ended), phone_end, stream_error,
+            writer_error, disk_low or restart.
+        reason: { type: string }
+        duration_ms: { type: integer, format: int64 }
+        segments:
+          type: array
+          items: { $ref: "#/components/schemas/TakeSegment" }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/TakeStep" }
+        pauses:
+          type: array
+          items: { $ref: "#/components/schemas/TakePause" }
+    TakeSegment:
+      type: object
+      required: [file, at_ms, length_ms, last_frame_ms, width, height, bytes, sha256]
+      properties:
+        file: { type: string }
+        at_ms: { type: integer, format: int64, description: Where it starts on the take's timeline. }
+        length_ms: { type: integer, format: int64 }
+        last_frame_ms:
+          type: integer
+          format: int64
+          description: >-
+            When its last frame starts, from the segment's start; the screen is still after it until the segment
+            ends. A player seeks into that still tail from just before it: a browser does not seek into a file's
+            last sample.
+        width: { type: integer }
+        height: { type: integer }
+        bytes: { type: integer, format: int64 }
+        sha256: { type: string }
+    TakeStep:
+      type: object
+      required: [at_ms, text]
+      properties:
+        at_ms: { type: integer, format: int64 }
+        text: { type: string }
+        tap:
+          type: object
+          required: [x, "y"]
+          properties:
+            x: { type: integer }
+            "y": { type: integer }
+        chapter: { type: string }
+    TakePause:
+      type: object
+      required: [at_ms]
+      properties:
+        at_ms: { type: integer, format: int64 }
     DeviceList:
       type: object
       required: [data, held]
@@ -6891,12 +7166,64 @@ components:
           description: The model's or the key's name, or the account's label; empty for an account since removed.
         runtime:
           type: string
-          description: An account's runtime (claude, codex, antigravity).
+          description: An account's runtime (claude, codex, antigravity, opencode_go).
         counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
+    GatewayPerformance:
+      type: object
+      description: >-
+        The speed and reliability of a provider's model, or of a subscription account, over the requests to the text
+        models. Time to first token is over the answered streams, latency over the answered requests, tokens a second
+        (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+      required: [provider, model, requests, ok, failed, client_gone, cost_micros, exact]
+      properties:
+        provider: { type: string }
+        model:
+          type: string
+          description: The model the provider served; empty for an account.
+        account_id: { type: string }
+        account_label: { type: string }
+        runtime:
+          type: string
+          description: An account's runtime (claude, codex, antigravity).
+        requests: { type: integer, format: int64 }
+        ok: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        client_gone:
+          type: integer
+          format: int64
+          description: The requests whose client left first; they count neither as answered nor as failed.
+        success_rate:
+          type: number
+          description: The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+        cost_micros: { type: integer, format: int64 }
+        exact:
+          type: boolean
+          description: Read from each request, with percentiles and the median tokens a second; false from the ledger.
+        ttft_p50_ms: { type: integer, format: int64 }
+        ttft_p95_ms: { type: integer, format: int64 }
+        latency_p50_ms: { type: integer, format: int64 }
+        latency_p95_ms: { type: integer, format: int64 }
+        ttft_avg_ms: { type: integer, format: int64 }
+        latency_avg_ms: { type: integer, format: int64 }
+        tokens_per_second:
+          type: number
+          description: The median of the requests' output tokens a second; from the ledger, all tokens over all time.
     GatewayUsage:
       type: object
-      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account]
+      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account, by_provider,
+        speed_by_account, ledger]
       properties:
+        ledger:
+          type: boolean
+          description: >-
+            Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner",
+            and no percentiles.
+        by_provider:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayPerformance" }
+        speed_by_account:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayPerformance" }
         since: { type: string, format: date-time }
         until: { type: string, format: date-time }
         bucket_seconds:
@@ -6972,6 +7299,17 @@ components:
           type: boolean
           description: The provider reported no usage; the counts are the sizes divided by four.
         duration_ms: { type: integer, format: int64 }
+        ttft_ms:
+          type: integer
+          format: int64
+          description: >-
+            Time to first token: from the gateway receiving the request to the first chunk it streamed to the
+            client; absent for an answer that is not a stream.
+        tokens_per_second:
+          type: number
+          description: >-
+            The output tokens over the time after the first token; absent when the request was not a stream, its
+            counts were estimated, or it had no output.
         audio_seconds:
           type: number
           description: The seconds of the recording an audio transcription heard; absent for other requests.
@@ -7006,8 +7344,10 @@ components:
       properties:
         runtime:
           type: string
-          enum: [claude]
-          description: The kind of subscription; only Claude gives a token to paste.
+          enum: [claude, opencode_go]
+          description: >-
+            The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go,
+            whose Console API key is the account (issue #854).
         label:
           type: string
           minLength: 1
@@ -7018,7 +7358,26 @@ components:
           minLength: 1
           maxLength: 4096
           writeOnly: true
-          description: The token `claude setup-token` prints, one line.
+          description: The token `claude setup-token` prints, or the OpenCode Go key, one line.
+    NewAccountImport:
+      type: object
+      required: [runtime, credentials]
+      additionalProperties: false
+      properties:
+        runtime:
+          type: string
+          enum: [claude]
+          description: The kind of subscription; only Claude Code's file is read.
+        credentials:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          writeOnly: true
+          description: The whole `.credentials.json` Claude Code saved, as text.
+        label:
+          type: string
+          maxLength: 64
+          description: The account's name for the owner; its e-mail when left out. Kept by an account imported again.
     NewAccountSignIn:
       type: object
       required: [runtime]
@@ -7089,9 +7448,40 @@ components:
           type: string
           pattern: "^[A-Za-z0-9_-]{1,64}$"
           description: The caller's id of this use; the same id again uses no second reset.
+        grant_id:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{1,80}$"
+          description: >-
+            The reset to use, by the id `grants` gives. Without it, one that
+            starts a used-up window again is chosen.
+    AccountLimitResetGrant:
+      type: object
+      required: [id, available, clears]
+      properties:
+        id:
+          type: string
+          description: The vendor's id of the grant, which a use names.
+        label:
+          type: string
+          description: The vendor's name for the grant, when it gives one.
+        available:
+          type: integer
+          description: How many resets the grant has left.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the grant ends, when the vendor says.
+        clears:
+          type: array
+          items: { type: string }
+          description: >-
+            The windows, by the names `windows` uses, that a use starts again,
+            such as "5 hours" and "week" for an ordinary reset or "week (Fable)"
+            for Fable's; empty when the vendor does not say, and then it may
+            start any.
     AccountLimitResets:
       type: object
-      required: [available]
+      required: [available, grants]
       properties:
         available:
           type: integer
@@ -7100,6 +7490,10 @@ components:
           type: string
           format: date-time
           description: When the one used next ends, when the vendor says.
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/AccountLimitResetGrant" }
+          description: The usable resets one by one, as the vendor groups them.
     AccountLimits:
       type: object
       required: [windows]
@@ -7165,8 +7559,9 @@ components:
       description: >-
         Where a value comes from; codex is the window Codex itself gives a Codex
         subscription's model, antigravity the window or largest output
-        CLIProxyAPI's registry gives an Antigravity subscription's model.
-      enum: [set, models_dev, codex, antigravity, unknown]
+        CLIProxyAPI's registry gives an Antigravity subscription's model,
+        opencode_go the one OpenCode Go's model list gives a Go model.
+      enum: [set, models_dev, codex, antigravity, opencode_go, unknown]
     GatewayModelInputKind:
       type: string
       enum: [text, image]
@@ -8001,6 +8396,7 @@ components:
             - claude_subscription
             - codex_subscription
             - antigravity_subscription
+            - opencode_go
             - model_gateway
         base_url: { type: string }
         api_key_ref:

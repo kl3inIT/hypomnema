@@ -65,8 +65,10 @@ ORDER BY created_at, id;
 SELECT * FROM nodes WHERE provider_id = @provider_id AND status <> 'deleted' ORDER BY created_at, id;
 
 -- name: StopMachine :execrows
--- A ready machine that is on takes no more work and is to be stopped.
-UPDATE nodes SET updated_at = @now, status = 'drained', machine_power = 'stopping', machine_error = NULL
+-- A ready machine that is on is to be stopped. Its status, the owner's drain, is left as it is: a machine that is not
+-- on takes no work whatever its status (placement.go), as Nomad's upsertNodeTxn retains a node's
+-- SchedulingEligibility across a re-registration (issue #844).
+UPDATE nodes SET updated_at = @now, machine_power = 'stopping', machine_error = NULL
 WHERE id = @id AND status <> 'deleted' AND machine_state = 'ready' AND machine_power IS NULL;
 
 -- name: MachineStopped :execrows
@@ -74,8 +76,8 @@ UPDATE nodes SET updated_at = @now, machine_power = 'stopped', machine_error = N
 WHERE id = @id AND machine_power = 'stopping';
 
 -- name: StartMachine :execrows
--- A stopped machine is to be started and takes work again once its node says hello.
-UPDATE nodes SET updated_at = @now, status = 'active', machine_power = 'starting', machine_error = NULL
+-- A stopped machine is to be started; once its node says hello it takes work again if the owner had not drained it.
+UPDATE nodes SET updated_at = @now, machine_power = 'starting', machine_error = NULL
 WHERE id = @id AND status <> 'deleted' AND machine_state = 'ready' AND machine_power = 'stopped';
 
 -- name: SetMachinePowerError :execrows
