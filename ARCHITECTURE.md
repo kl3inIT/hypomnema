@@ -2440,10 +2440,20 @@ flowchart LR
     - A message is taken when a person sent it in their direct chat with the Channel's app, once (a row per
       Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
       by the mode: the people he added, or every member of the organization. People are kept per Channel
-      (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
-      not text and a pi that is not running are answered with a short notice; a voice message (Lark `audio`) is
-      heard first and its transcript taken as the message (issue #723, see "Incoming voice" under "An agent's
-      tools").
+      (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message the bot
+      cannot read (a sticker, a card, a shared chat) and a pi that is not running are answered with a short
+      notice; a voice message (Lark `audio`) is heard first and its transcript taken as the message (issue #723,
+      see "Incoming voice" under "An agent's tools").
+    - A rich-text post, an image, a file and a video (issue #829) are read too, after OpenClaw
+      (`extensions/feishu/src/post.ts`, `bot-content.ts`) and Hermes (`plugins/platforms/feishu/adapter.py`): a
+      post's title and rows are its text, a mention kept as the placeholder its mentions name, so a post that
+      mentions the bot is a question in a group; its images (`img`), files (`media`) and top-level `files` are
+      files of the message, each once. `channels/received.go` downloads each through the Conn as a
+      `channels.Downloader` (`GET /im/v1/messages/:id/resources/:key`, type `image` or `file`, at most
+      `workspacefs.MaxUpload`), writes it into `attachments/<chat id>/<message id>-<name>` of the chat's Bot's
+      folder through the folders' helper, as the web uploads one (issue #343), and the message goes in with
+      those attachments. A file that cannot be downloaded or kept leaves a line `[<name> could not be read]`
+      in the message, which still goes in, and is logged (`channels.file_unread`).
     - Each person's message keeps who wrote it (issue #468, migration 00087, after OpenMausBot's
       `Message.sender {name, id}`): `chat_messages.sender_id` and `sender_name` (and the same on `chat_queue`,
       kept when a queued message goes in) are NULL for the owner (the web, the CLI, the Channel's owner at Lark)
