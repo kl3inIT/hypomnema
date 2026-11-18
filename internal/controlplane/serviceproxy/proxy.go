@@ -136,6 +136,8 @@ type Proxy struct {
 	waiting map[string][]chan orchestration.Approval
 	// rechecked is when each Connection's access was last read again after a 403, by "integration:label".
 	rechecked map[string]time.Time
+	// repositories are the owner/name of GitHub repositories' ids, by Connection (issue #802).
+	repositories repositoryNames
 }
 
 // New returns a Proxy with a certificate authority of its own, made now and
@@ -360,9 +362,7 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
-	action, verdict, message, err := p.decide(ctx, s.catalog.Of(req, body, s.host), s, func(governing Action) asking {
-		return httpAsking(req, body, governing, s)
-	})
+	action, verdict, message, err := p.decideRequest(ctx, req, body, s)
 	if err != nil {
 		// Every error refuses.
 		p.cfg.Logger.ErrorContext(ctx, "the proxy could not decide a request", slog.String("event", "serviceproxy.failed"),

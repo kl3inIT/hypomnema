@@ -2166,7 +2166,22 @@ flowchart LR
       never carries a merge. A query that asks
       only the schema (`__type`, `__schema`, `__typename`, which `gh` sends to detect features) is
       `github.schema.read`; beside another field, that field's action names it. A root field the schema does not
-      have, a subscription or a body that is not GraphQL asks as `github.unlisted`. A release's asset upload goes
+      have, a subscription or a body that is not GraphQL asks as `github.unlisted`. **A request by a repository's
+      id** ([issue #802](https://github.com/kl3inIT/hypomnema/issues/802); `serviceproxy/github_repository.go`),
+      `/repositories/{id}/<rest>` on `api.github.com`, which the description does not have but GitHub's paging
+      `Link` headers point at and `gh api --paginate` follows, is matched as `/repos/{owner}/{repo}/<rest>` with
+      the same method, and sent on unchanged. The id is resolved through the same Connection with GitHub's
+      `GET /repositories/{id}` (10 s at most), and the name kept per Connection for 20 minutes, at most 1024 of
+      them (github-mcp-server's `RepoAccessCache`). That lookup is the read `GET /repos/{owner}/{repo}` is
+      (`github.repos.read`) and is decided as it first: only when the owner allows it, or a grant for the session or
+      the Routine stands, is anything sent or a kept name used. Set to never, the request is refused; when it asks,
+      the owner is asked for that read, and nothing is sent until he approves. Then the id is resolved and the
+      request decided as its `/repos` form's action, so that it is never looser than that form (a merge set to never
+      is refused even after the read is approved). A GitHub Connection names no repositories, so what it covers is
+      what its token can read: an id GitHub does not answer with that repository (404, an error, another id, an
+      owner or name that is not GitHub's letters, digits, `.`, `-` and `_`, or is `.` or `..`) stays
+      `github.unlisted` and asks. When such a request asks, the owner is shown the repository's name read again from GitHub then, never
+      a kept one, and only its id when it cannot be read. A release's asset upload goes
       to `uploads.github.com`, also reached. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
       plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.
