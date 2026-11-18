@@ -3475,9 +3475,10 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   whether the public proxy cuts a long blocking transcription from a tool outside.
 
 Meetings (`internal/controlplane/meetings`, `orchestration/meetingstore`, `modelgateway/complete.go`,
-`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues #721 and #747,
-[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a meeting's recording; it is
-heard with who spoke when (Audio, above) and a gateway chat model writes its summary, decisions and actions.
+`clientapi/meetings.go`, `clientapi/meetinglive.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues
+#721, #747 and #820, [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a
+meeting's recording, or records one live from the browser; it is heard with who spoke when (Audio, above) and a
+gateway chat model writes its summary, decisions and actions.
 - Data (migrations 00104, 00105): `meetings` (title and whether the owner gave it, language, people as JSON (a
   `terms` column is left from before #747, no longer written or read), the
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
@@ -3488,7 +3489,12 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
   hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
-  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771).
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771). 00118 (issue
+  #820) rebuilt the tables, keeping every row: `meetings` gained `source` (`upload`, every meeting before it, or
+  `live`) and `kind` (`online` or `in_person` for a live one), the state `recording`, and `size` 0 while it records;
+  a voice is one of a track's (`meeting_speakers` keyed `(meeting_id, track, label)`, `meeting_lines.track`,
+  `meeting_items.owner_track`): `file` for an upload, `mic` and `tab` for a live meeting (MemoryOS V108, V197).
+  Lines are read by `start_ms`, then `n`, which stays a line's id.
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3521,8 +3527,27 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   whose title came already joins it; a decision that restates an action on its line is
   dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
   one the owner did not give.
-- Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
-  has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
+- Recording live (`meetings/live.go`, `meetings/wav.go`, `speech/live.go`, `clientapi/meetinglive.go`; issue #820,
+  after MemoryOS's meeting recorder): `POST /meetings/live {kind, language?, title?, people?}` makes a meeting
+  `recording`, refused while another records (one at a time, so at most two streams). Each track (the microphone;
+  online also a shared tab) asks `POST /meetings/{id}/tickets {track}` for a 60 s single-use ticket, then opens the
+  WebSocket `/api/v1/meetings/{id}/stream/{ticket}?track=&offset=` (outside the contract, as a terminal's, both
+  server deadlines lifted): PCM16 24 kHz mono frames of at most 64 KiB and one `{"type":"end"}` in; `ready`,
+  `preview`, `line` (kept), `finished`, `error {code}` out; a ping every 20 s; a track with no audio for 60 s
+  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v5`, the key as a
+  bearer header, endpoint detection, diarization except an online microphone, which is the owner, shown "You" and
+  not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
+  frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
+  and shifts the new stream's times; a final token that ends at or before the track's last kept line is dropped, so
+  a replay, or a browser that reconnects with an earlier offset, never keeps a line twice. A stream more than 30 s
+  behind ends its track. Lines are appended as final (`meetingstore.AppendLine`). Each track's PCM is written to
+  `<id>.<track>.pcm` at its offset on the meeting's clock; `POST /meetings/{id}/end` lets open tracks keep their
+  last words (at most 20 s), mixes the tracks into one WAV as the meeting's recording, removes the track files, and
+  moves the meeting to `transcribed` and its notes to `writing` in one guarded transaction, once (never through
+  `transcribing`). Each track's audio seconds are counted on the `meetings` key when it closes. Nothing ends a
+  meeting by itself: one left recording keeps its length (`duration_ms`, the longest track kept) to resume from.
+- Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}?track=`, the track absent
+  for the one track holding the label; a name another voice of its track has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
   body; `file_name`, `media_type`, `language`, `title`, `people` in the query), `GET`
@@ -3533,7 +3558,14 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
   /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
   meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix`.
-- On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
+- On the web: Record, beside Upload recording, asks Online (only where a tab's sound can be shared, Chromium on a
+  computer) or In person, the language and the people, asks for the tab then the microphone, and opens the
+  meeting's page on a recording bar (time, a level meter a track, a warning when the tab is silent 20 s or no longer
+  shared, Stop asked first, then "Saving the last words…") over the live transcript in the turn layout with what
+  is being said. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
+  tab closes and holds a screen wake lock; a socket that drops reconnects after 1/2/5/10/20 s with up to 30 s of
+  audio queued. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.
+  The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
   title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
@@ -3546,8 +3578,8 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   repository), and Notes model, picked with the single-model picker the Bots use
   (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
-- Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
-  editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
+- Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
+  recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -4869,7 +4901,8 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions, a meeting recorded live (its tracks, their audio mixed into one WAV, its end)
+internal/controlplane/speech/speechtest  a fake of Soniox's realtime WebSocket for the tests of meetings recorded live
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores

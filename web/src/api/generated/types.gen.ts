@@ -3787,9 +3787,46 @@ export type ChatMessageList = {
 };
 
 /**
- * Where the meeting's transcription stands.
+ * Where the meeting's transcription stands; a live meeting is recording until it ends.
  */
-export type MeetingState = 'transcribing' | 'transcribed' | 'failed';
+export type MeetingState = 'recording' | 'transcribing' | 'transcribed' | 'failed';
+
+/**
+ * How the meeting came, uploaded or recorded live.
+ */
+export type MeetingSource = 'upload' | 'live';
+
+/**
+ * How a live meeting is held; online records the microphone and a shared tab.
+ */
+export type MeetingKind = 'online' | 'in_person';
+
+/**
+ * What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+ */
+export type MeetingTrack = 'file' | 'mic' | 'tab';
+
+export type MeetingLiveTrack = 'mic' | 'tab';
+
+export type NewLiveMeeting = {
+  kind: MeetingKind;
+  /**
+   * An ISO 639-1 code, such as vi; absent, the provider finds it.
+   */
+  language?: string;
+  /**
+   * Absent
+   */
+  title?: string;
+  /**
+   * Who is in the meeting; they help name the speakers.
+   */
+  people?: Array<string>;
+};
+
+export type MeetingTrackRequest = {
+  track: MeetingLiveTrack;
+};
 
 /**
  * Where its notes stand; waiting is for the transcript.
@@ -3820,10 +3857,15 @@ export type MeetingNotes = {
 };
 
 export type MeetingSpeaker = {
+  track: MeetingTrack;
   /**
-   * The voice's label
+   * The voice's label on its track, the provider's or m1, m2… for one the owner made.
    */
   label: string;
+  /**
+   * The owner's own voice
+   */
+  owner: boolean;
   /**
    * The name shown
    */
@@ -3851,8 +3893,13 @@ export type Meeting = {
   file_name: string;
   media_type: string;
   size: number;
+  /**
+   * Its length; while it records, what is kept so far, where a resumed recording goes on.
+   */
   duration_ms: number;
   state: MeetingState;
+  source: MeetingSource;
+  kind?: MeetingKind;
   /**
    * Why hearing it failed
    */
@@ -3874,11 +3921,15 @@ export type MeetingList = {
 };
 
 export type MeetingLine = {
+  /**
+   * The line's number
+   */
   n: number;
+  track: MeetingTrack;
   start_ms: number;
   end_ms: number;
   /**
-   * The label of the voice it is shown as.
+   * The label of the voice it is shown as
    */
   speaker: string;
   /**
@@ -3902,6 +3953,7 @@ export type MeetingItem = {
    * The label of the voice that does it
    */
   owner_speaker?: string;
+  owner_track?: MeetingTrack;
   /**
    * The deadline in the words the meeting used.
    */
@@ -3922,6 +3974,7 @@ export type MeetingItem = {
 };
 
 export type SpeakerSuggestion = {
+  track: MeetingTrack;
   label: string;
   /**
    * The name the voice called itself.
@@ -9898,7 +9951,12 @@ export type NameMeetingSpeakerData = {
      */
     label: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * The voice's track; absent, the one track that has the label.
+     */
+    track?: MeetingTrack;
+  };
   url: '/meetings/{meeting_id}/speakers/{label}';
 };
 
@@ -9950,6 +10008,85 @@ export type SetMeetingLineSpeakerResponses = {
 };
 
 export type SetMeetingLineSpeakerResponse = SetMeetingLineSpeakerResponses[keyof SetMeetingLineSpeakerResponses];
+
+export type StartLiveMeetingData = {
+  body: NewLiveMeeting;
+  path?: never;
+  query?: never;
+  url: '/meetings/live';
+};
+
+export type StartLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartLiveMeetingError = StartLiveMeetingErrors[keyof StartLiveMeetingErrors];
+
+export type StartLiveMeetingResponses = {
+  /**
+   * The meeting, recording.
+   */
+  201: Meeting;
+};
+
+export type StartLiveMeetingResponse = StartLiveMeetingResponses[keyof StartLiveMeetingResponses];
+
+export type OpenMeetingTrackData = {
+  body: MeetingTrackRequest;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/tickets';
+};
+
+export type OpenMeetingTrackErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMeetingTrackError = OpenMeetingTrackErrors[keyof OpenMeetingTrackErrors];
+
+export type OpenMeetingTrackResponses = {
+  /**
+   * The ticket.
+   */
+  201: TerminalTicket;
+};
+
+export type OpenMeetingTrackResponse = OpenMeetingTrackResponses[keyof OpenMeetingTrackResponses];
+
+export type EndLiveMeetingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/end';
+};
+
+export type EndLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EndLiveMeetingError = EndLiveMeetingErrors[keyof EndLiveMeetingErrors];
+
+export type EndLiveMeetingResponses = {
+  /**
+   * The meeting, transcribed.
+   */
+  200: Meeting;
+};
+
+export type EndLiveMeetingResponse = EndLiveMeetingResponses[keyof EndLiveMeetingResponses];
 
 export type UpdateMeetingItemData = {
   body: MeetingItemUpdate;

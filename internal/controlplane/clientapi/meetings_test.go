@@ -36,6 +36,10 @@ func (twoVoices) Transcribe(context.Context, speech.TranscribeRequest) (speech.T
 	}, nil
 }
 
+func (twoVoices) Live(context.Context, speech.LiveRequest, speech.LiveListener) (*speech.Live, error) {
+	return nil, speech.ErrUnavailable
+}
+
 // noModel stands for a gateway with no chat model asked: the notes are not this test's.
 type noModel struct{}
 
@@ -99,7 +103,9 @@ func TestTheOwnerUploadsAMeetingAndPlaysItBack(t *testing.T) {
 	require.Len(t, d.Meeting.Speakers, 2)
 	assert.InDelta(t, 0.25, d.Meeting.Speakers[0].Share, 0.001)
 	assert.InDelta(t, 0.75, d.Meeting.Speakers[1].Share, 0.001)
-	assert.Equal(t, []openapi.SpeakerSuggestion{{Label: "2", Name: "Laura", Line: 2}}, d.Suggestions)
+	assert.Equal(t, []openapi.SpeakerSuggestion{
+		{Track: openapi.MeetingTrackFile, Label: "2", Name: "Laura", Line: 2},
+	}, d.Suggestions)
 	assert.Equal(t, openapi.MeetingNotesStateFailed, d.Meeting.Notes.State, "no notes model is picked")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.url+BasePath+"/meetings/"+m.Id+"/recording", nil)
@@ -120,7 +126,7 @@ func TestTheOwnerUploadsAMeetingAndPlaysItBack(t *testing.T) {
 	assert.Equal(t, "audio/mpeg", resp.Header.Get("Content-Type"))
 	assert.Equal(t, "bytes 4-7/14", resp.Header.Get("Content-Range"))
 
-	named, err := owner.NameMeetingSpeakerWithResponse(ctx, m.Id, "2", openapi.SpeakerName{Name: "Laura"})
+	named, err := owner.NameMeetingSpeakerWithResponse(ctx, m.Id, "2", nil, openapi.SpeakerName{Name: "Laura"})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, named.StatusCode(), string(named.Body))
 	assert.Equal(t, "Laura", named.JSON200.Meeting.Speakers[1].Name)
