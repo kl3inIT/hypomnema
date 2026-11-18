@@ -875,8 +875,9 @@ sequenceDiagram
     and a Routine's script with `hypomnema artifact show --title T (--html-file F | --path P) [--id A]`. The file or
     folder is read where the agent works, by the same rules (`artifactpack.Read`, shared since issue #536 so that a
     node's tools server reads by them too): the Bot's directory, a worker's worktree, and must be inside it. A
-    folder has `index.html` at its top; its hidden files, `node_modules` and `__pycache__`, files a page does not
-    load (OpenMausBot's `PAGE_FILE_TYPES`), badly named ones and links out of it are left out and named in the
+    folder has `index.html` at its top. Along with files the page loads (OpenMausBot's `PAGE_FILE_TYPES`), it can
+    carry download-only `.xlsx`, `.docx`, `.pptx` and `.pdf` files (issue #860). Hidden files, `node_modules`,
+    `__pycache__`, unsupported or badly named files and links out of the folder are left out and named in the
     answer. One HTML file is at most 256 KB, all files 5 MB and 200, a title one line of 80 characters. The files
     go as a tar in the body of `POST /artifacts?title=&id=`, the second body allowed over 1 MB
     (`artifactpack.MaxBody`). The type is found from the bytes and the name: `html` (an .html file that is
@@ -917,7 +918,8 @@ sequenceDiagram
     a random token kept in memory for an hour after its last use (Onyx's preview token lasts an hour; at most
     5000), serving only that revision's files by exact path, read only, with OpenMausBot's headers
     (`Content-Security-Policy: sandbox allow-scripts; default-src 'none'`, `nosniff`, `Access-Control-Allow-Origin:
-    *`, `no-referrer`, `no-store`). An HTML file is sent with the page's own policy in that header instead
+    *`, `no-referrer`, `no-store`). Download-only folder files also carry `Content-Disposition: attachment` with
+    their filename. An HTML file is sent with the page's own policy in that header instead
     (`pagePolicy`, issue #737, as Onyx's static preview sends one): `sandbox allow-scripts allow-forms allow-downloads` (issue #843), the frame's
     flags; OpenMausBot's directives (scripts, styles and fonts inline or from cdnjs, jsdelivr and unpkg, Google
     Fonts; images from `data:`, `blob:` and those CDNs; connections to them and DuckDB's extensions; no frame,
