@@ -69,6 +69,24 @@ func movesOn(status int) bool {
 	}
 }
 
+func (s *Server) retryRefusedAccount(
+	ctx context.Context, resp *http.Response, token *AccountToken,
+	attempt func(AccountToken) (*http.Response, error),
+) (*http.Response, error) {
+	fresh, err := s.accounts.TokenAfterRefusal(ctx, *token)
+	if err != nil && ctx.Err() == nil {
+		return resp, nil
+	}
+
+	drain(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	*token = fresh
+	return attempt(fresh)
+}
+
 // accountState is what the gateway remembers of accounts while it runs: how
 // many times in a row each was limited, and the last reading of its quota.
 // It is in memory, as the references keep theirs.

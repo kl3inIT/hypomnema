@@ -22,6 +22,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   persona: "",
   memory: "",
   memory_limit: 2200,
+  fallbacks: [],
   skills: [],
   skills_off: [],
   tools: [],
@@ -46,6 +47,7 @@ const coordinator = bot("coordinator", {
 
 const models = [
   { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
+  { provider: "opencode-go", name: "deepseek-v4.1-flash", kind: "opencode_go" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
 ]
@@ -860,6 +862,33 @@ test("a Bot is limited to some dashboards of a Superset account", async ({ page 
       body: { persona: "You answer the community group.", scopes: {} },
     },
   ])
+})
+
+test("a Bot page shows and saves its ordered fallback models", async ({ page }) => {
+  const calls = await fakeServer(page, [
+    { ...coordinator, fallbacks: ["claude-subscription/claude-opus-5-5"] },
+  ])
+  await page.goto("/bots/coordinator")
+
+  const chain = page.getByRole("list", { name: "Fallback models, in order" })
+  await expect(chain.getByRole("listitem")).toHaveCount(1)
+  await page.locator("#bot-fallback-add").click()
+  await page.getByRole("option", { name: /deepseek-v4\.1-flash/i }).click()
+  await expect(chain.getByRole("listitem")).toHaveCount(2)
+  const save = page.getByRole("button", { name: "Save", exact: true })
+  await save.click()
+  await expect
+    .poll(() => calls.at(-1))
+    .toMatchObject({
+      call: "PUT /bots/coordinator",
+      body: {
+        fallbacks: ["claude-subscription/claude-opus-5-5", "opencode-go/deepseek-v4.1-flash"],
+      },
+    })
+  await expect(save).toBeDisabled()
+  await chain.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-fallback-models")
 })
 
 // Scenario: a Bot others use must not show its bash runs (issue #441). Its page says what its chats show of its

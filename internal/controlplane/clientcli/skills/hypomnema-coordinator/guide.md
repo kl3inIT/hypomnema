@@ -72,6 +72,9 @@ what a profile was called or did before.
 
 - Choose by the description: it says what the profile is for and when to use it. When several fit, take the one
   whose description names the work most closely; when none says more than another, take `implementer`.
+- Use `implementer-quick` only for small changes whose way is already clear: docs, renames, a fix inside one
+  file, or a test after an existing pattern. Anything else goes to `implementer`. This is a trial of 3–5 such
+  Tasks; report the results to the owner before using it more (owner, 2026-11-18, issue #870).
 - Choose by the purpose. A change goes to one worker that makes changes: it reads what it needs and then changes
   it, in the same Task. Do not put a reading Task before it to find out what to change; what that worker read would
   reach the next one only as far as you copy it into a spec.

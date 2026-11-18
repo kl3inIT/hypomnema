@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -326,6 +327,84 @@ func TestTheNextTargetAnswersWhenTheFirstCannot(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 	assert.Equal(t, answer, body) //nolint:testifylint // byte for byte: the answer is passed on, not re-encoded
 	assert.Equal(t, 2, g.lastUsage(t).Attempts)
+}
+
+func TestBotFallbacksSkipRestingAccountsAndKeepTheirOrder(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	primary, primaryCalls := provider(t, plain(http.StatusForbidden, `{"error":{"message":"refused"}}`))
+	backup, backupCalls := provider(t, plain(http.StatusOK, answer))
+	remaining, remainingCalls := provider(t, plain(http.StatusOK, answer))
+	resting, restingCalls := codexBackend(t, plain(http.StatusOK, answer))
+	accounts := &accounts{cooled: map[string]time.Time{"acc_1": time.Now().Add(time.Hour)}}
+	g := newChatGateway(t, modelgateway.Config{
+		Subscriptions: accounts,
+		CodexBaseURL:  resting.URL,
+		ChatFallbacks: func(_ context.Context, chat, model string) ([]string, error) {
+			assert.Equal(t, "chat_inherited", chat)
+			assert.Contains(t, []string{"primary", "gpt"}, model)
+			return []string{"resting", "backup", "remaining"}, nil
+		},
+	}, primary, backup, remaining)
+
+	for _, source := range []string{
+		"name: primary\ntargets: [{provider: p1, model: up-1}]\n",
+		"name: resting\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n",
+		"name: backup\ntargets: [{provider: p2, model: up-2}]\n",
+		"name: remaining\ntargets: [{provider: p3, model: up-3}]\n",
+	} {
+		_, err := g.svc.ApplyModel(ctx, source)
+		require.NoError(t, err)
+	}
+
+	_, key, err := g.svc.AddChatKey(ctx, "chat_inherited", "", "primary")
+	require.NoError(t, err)
+	status, _, _ := g.call(t, key, `{"model":"backup","messages":[]}`)
+	assert.Equal(t, http.StatusForbidden, status, "the fallback cannot be requested directly with this key")
+	status, _, body := g.call(t, key, `{"model":"primary","messages":[]}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.JSONEq(t, answer, body)
+	assert.Equal(t, 1, primaryCalls.calls())
+	assert.Equal(t, 1, backupCalls.calls())
+	assert.Zero(t, restingCalls.calls())
+	assert.Zero(t, remainingCalls.calls())
+	usage := g.lastUsage(t)
+	assert.Equal(t, "backup", usage.Model)
+	assert.Equal(t, 3, usage.Attempts)
+
+	status, _, _ = g.call(t, g.key, `{"model":"gpt","messages":[]}`)
+	assert.Equal(t, http.StatusForbidden, status, "a non-chat key cannot use the Bot's fallbacks")
+
+	_, key, err = g.svc.AddChatKey(ctx, "chat_inherited", "", "gpt")
+	require.NoError(t, err)
+	status, _, body = g.call(t, key, `{"model":"gpt","messages":[]}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, "gpt", g.lastUsage(t).Model, "a healthy target of the primary is tried before the Bot's fallbacks")
+}
+
+func TestBotFallbacksWaitForEveryRefusedAccount(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	backend, refused := codexBackend(t, plain(http.StatusUnauthorized, `{"error":{"code":"token_expired"}}`))
+	backup, used := provider(t, plain(http.StatusOK, answer))
+	accounts := &accounts{ids: []string{"acc_1", "acc_2"}, refreshErr: errors.New("refresh refused")}
+	g := newChatGateway(t, modelgateway.Config{
+		Subscriptions: accounts,
+		CodexBaseURL:  backend.URL,
+		ChatFallbacks: func(context.Context, string, string) ([]string, error) {
+			assert.Equal(t, 2, refused.calls())
+			return []string{"gpt"}, nil
+		},
+	}, backup)
+	_, err := g.svc.ApplyModel(ctx, "name: primary\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n")
+	require.NoError(t, err)
+	_, key, err := g.svc.AddChatKey(ctx, "chat_inherited", "", "primary")
+	require.NoError(t, err)
+	status, _, body := g.call(t, key, `{"model":"primary","messages":[{"role":"user","content":"Hi"}]}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, 1, used.calls())
 }
 
 // Scenario: the provider refuses the request, or the last target is

@@ -2602,6 +2602,9 @@ type Bot struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Effort      *string   `json:"effort,omitempty"`
 
+	// Fallbacks Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+	Fallbacks []string `json:"fallbacks"`
+
 	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
 	GuaranteedDispatches int `json:"guaranteed_dispatches"`
 
@@ -2677,6 +2680,9 @@ type BotSettings struct {
 	// Connections What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
 	Connections *AllowList `json:"connections,omitempty"`
 	Effort      *string    `json:"effort,omitempty"`
+
+	// Fallbacks Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
+	Fallbacks *[]string `json:"fallbacks,omitempty"`
 
 	// GuaranteedDispatches The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
 	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`

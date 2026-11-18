@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -55,12 +56,13 @@ const (
 // Profile, which is a worker's recipe.
 type Bot struct {
 	// ID never changes; Name is shown and may change (issue #466).
-	ID       string
-	Name     string
-	Provider string
-	Model    string
-	Effort   string
-	Persona  string
+	ID        string
+	Name      string
+	Provider  string
+	Model     string
+	Fallbacks []string
+	Effort    string
+	Persona   string
 	// Memory is the Bot's entries, one per line.
 	Memory string
 	// Skills are the skills the Bot gets beside those given to everyone;
@@ -97,7 +99,8 @@ type Bot struct {
 func botFromRow(r store.Bot) Bot {
 	return Bot{
 		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
-		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
+		Fallbacks: splitNames(r.Fallbacks),
+		Persona:   r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
 		Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff), Connections: allowListOf(r.Connections),
 		Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		GuaranteedDispatches: int(r.GuaranteedDispatches.Int64),
@@ -302,6 +305,10 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 
 	b.Provider = provider
 
+	if err := checkBotFallbacks(ctx, q, b); err != nil {
+		return err
+	}
+
 	if err := checkSkills(ctx, q, b.Skills, b.SkillsOff); err != nil {
 		return err
 	}
@@ -313,6 +320,81 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 	return checkAllowLists(ctx, q, *b, had)
 }
 
+func checkBotFallbacks(ctx context.Context, q *store.Queries, b *Bot) error {
+	if len(b.Fallbacks) == 0 {
+		return nil
+	}
+	if len(b.Fallbacks) > MaxFallbacks {
+		return fmt.Errorf("%w: a bot can have at most %d fallbacks", ErrInvalid, MaxFallbacks)
+	}
+	if b.Model == "" {
+		return fmt.Errorf("%w: choose a primary model before adding fallbacks", ErrInvalid)
+	}
+
+	primary, err := gatewayBotModel(ctx, q, b.Provider, b.Model)
+	if err != nil {
+		return err
+	}
+
+	seen := map[string]bool{primary: true}
+	for _, ref := range b.Fallbacks {
+		provider, model, _ := strings.Cut(ref, "/")
+		if provider == "" || model == "" || strings.ContainsAny(ref, ",\r\n") || strings.TrimSpace(ref) != ref {
+			return fmt.Errorf("%w: fallback %q must be provider/model", ErrInvalid, ref)
+		}
+		if _, err := checkModel(ctx, q, botRuntime, provider, model, ""); err != nil {
+			return err
+		}
+		name, err := gatewayBotModel(ctx, q, provider, model)
+		if err != nil {
+			return err
+		}
+		if seen[name] {
+			return fmt.Errorf("%w: fallback %q repeats a model in the chain", ErrInvalid, ref)
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
+func gatewayBotModel(ctx context.Context, q *store.Queries, provider, model string) (string, error) {
+	row, err := q.GetProvider(ctx, provider)
+	if err != nil {
+		return "", notFound(err, "provider", provider)
+	}
+	if !throughGateway(row.Kind) {
+		return "", fmt.Errorf("%w: bot fallbacks require gateway models; %s/%s is not one", ErrInvalid, provider, model)
+	}
+	return GatewayModelName(row.Kind, provider, model), nil
+}
+
+func (s *Service) ChatFallbacks(ctx context.Context, chatID, requested string) ([]string, error) {
+	chat, err := s.GetChat(ctx, chatID)
+	if err != nil || chat.Choice.Model != "" {
+		return nil, err
+	}
+	bot, err := s.GetBot(ctx, chat.Bot)
+	if err != nil || len(bot.Fallbacks) == 0 {
+		return nil, err
+	}
+	primary, err := s.PiModel(ctx, ChatModel{Provider: bot.Provider, Model: bot.Model})
+	if err != nil || primary.Provider != PiProvider || primary.Model != requested {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(bot.Fallbacks))
+	for _, ref := range bot.Fallbacks {
+		provider, model, _ := strings.Cut(ref, "/")
+		name, err := gatewayBotModel(ctx, s.read(), provider, model)
+		if err == nil {
+			names = append(names, name)
+		} else if !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrInvalid) {
+			return nil, err
+		}
+	}
+	return names, nil
+}
+
 func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 	if b.ToolDisplay == "" {
 		b.ToolDisplay = ToolsOn
@@ -320,7 +402,8 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 
 	err := q.InsertBot(ctx, store.InsertBotParams{
 		ID: b.ID, Name: b.Name, Provider: nullString(b.Provider), Model: nullString(b.Model),
-		Effort: nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
+		Fallbacks: strings.Join(b.Fallbacks, ","),
+		Effort:    nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
 		SkillsOff: strings.Join(b.SkillsOff, ","), Tools: strings.Join(b.Tools, ","),
 		ToolsOff: strings.Join(b.ToolsOff, ","), Connections: b.Connections.stored(), Workers: b.Workers.stored(),
 		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes),
@@ -340,7 +423,8 @@ func updateBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 
 	return q.UpdateBot(ctx, store.UpdateBotParams{
 		Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
-		Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
+		Fallbacks: strings.Join(b.Fallbacks, ","),
+		Persona:   b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
 		Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay),
 		ConnectionScopes: storedScopes(b.Scopes), GuaranteedDispatches: storedLimit(b.GuaranteedDispatches), Now: now,
