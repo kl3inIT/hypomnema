@@ -2858,8 +2858,10 @@ export type Bot = {
    * The skills given to everyone that the Bot does not get.
    */
   skills_off: Array<string>;
+  preset: ToolPreset;
+  tool_access?: ToolAccess;
   /**
-   * The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
    */
   tools: Array<string>;
   /**
@@ -3181,8 +3183,9 @@ export type BotSettings = {
    * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
    */
   skills_off?: Array<string>;
+  preset?: ToolPreset;
   /**
-   * The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+   * Additional tools or families; left out, the Bot keeps those it has.
    */
   tools?: Array<string>;
   /**
@@ -3303,8 +3306,10 @@ export type Profile = {
    * The skills given to everyone that its workers do not get.
    */
   skills_off: Array<string>;
+  preset: ToolPreset;
+  tool_access?: ToolAccess;
   /**
-   * The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
    */
   tools: Array<string>;
   /**
@@ -3356,6 +3361,48 @@ export type Model = {
   provider: string;
   name: string;
   kind: string;
+};
+
+/**
+ * Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+ */
+export type ToolPreset = 'full' | 'report';
+
+/**
+ * Saved access in the detail response, before a particular chat or Run applies its own limits.
+ */
+export type ToolAccess = {
+  families: Array<ToolFamilyAccess>;
+  skills: Array<SkillAccess>;
+};
+
+export type ToolFamilyAccess = {
+  name: string;
+  description: string;
+  state: ToolAccessState;
+  reason: string;
+  source: ToolAccessSource;
+  tools: Array<ToolAccessItem>;
+};
+
+export type ToolAccessItem = {
+  name: string;
+  state: ToolAccessState;
+  reason: string;
+  source: ToolAccessSource;
+};
+
+/**
+ * Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+ */
+export type ToolAccessState = 'off' | 'on' | 'unavailable' | 'available';
+
+export type ToolAccessSource = 'preset' | 'exception' | 'connection';
+
+export type SkillAccess = {
+  name: string;
+  missing: boolean;
+  reason: string;
 };
 
 export type ToolFamily = {

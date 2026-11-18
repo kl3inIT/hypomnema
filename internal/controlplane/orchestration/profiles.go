@@ -18,6 +18,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Profiles (issue #42), after Omnara's agent configs and profiles: a profile
@@ -204,11 +205,9 @@ type Profile struct {
 	// (issue #21).
 	Skills    []string
 	SkillsOff []string
-	// Tools are the only control-plane tools its workers get, when any is
-	// named, and ToolsOff those they never get, each a name or a family
-	// (issue #536; agenttool.ToolSwitches).
-	Tools    []string
-	ToolsOff []string
+	Preset    string
+	Tools     []string
+	ToolsOff  []string
 	// CPURequestMillis and MemoryRequestBytes are what a worker of the profile
 	// asks of a node, from the YAML's requests (issue #731); 0 is the default
 	// for building work, DefaultCPURequestMillis or DefaultMemoryRequest.
@@ -266,6 +265,7 @@ type profileSource struct {
 	Fallbacks   []string `yaml:"fallbacks"`
 	Skills      []string `yaml:"skills"`
 	SkillsOff   []string `yaml:"skills_off"`
+	Preset      string   `yaml:"preset"`
 	Tools       []string `yaml:"tools"`
 	ToolsOff    []string `yaml:"tools_off"`
 	// Requests is what a worker asks of a node (issue #731; requests.go).
@@ -322,7 +322,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 	p := Profile{
 		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
 		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Skills: in.Skills, SkillsOff: in.SkillsOff, Tools: in.Tools,
-		ToolsOff: in.ToolsOff, Source: source,
+		Preset: agenttool.DefaultPreset(in.Preset), ToolsOff: in.ToolsOff, Source: source,
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
@@ -377,7 +377,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
-		if err := checkTools(p.Tools, p.ToolsOff); err != nil {
+		if err := checkTools(p.Preset, p.Tools, p.ToolsOff); err != nil {
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
@@ -394,6 +394,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			return fmt.Errorf("reading profile %s: %w", p.Name, err)
 		case current.Digest == digest && !current.deleted:
 			out = profileFromRow(current.ProfileVersion)
+			out.Source = editableProfileSource(out)
 
 			return nil
 		}
@@ -417,7 +418,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
 			Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
 			SkillsOff: strings.Join(p.SkillsOff, ","), Tools: strings.Join(p.Tools, ","),
-			ToolsOff: strings.Join(p.ToolsOff, ","), CpuRequestMillis: positive(p.CPURequestMillis),
+			Preset: p.Preset, ToolsOff: strings.Join(p.ToolsOff, ","), CpuRequestMillis: positive(p.CPURequestMillis),
 			MemoryRequestBytes: positive(p.MemoryRequestBytes), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
@@ -675,11 +676,54 @@ func (s *Service) GetProfile(ctx context.Context, name string) (Profile, error) 
 	}
 
 	out := []Profile{profileFromRow(row)}
+	out[0].Source = editableProfileSource(out[0])
 	if err := s.withAvailability(ctx, out); err != nil {
 		return Profile{}, err
 	}
 
 	return out[0], nil
+}
+
+// editableProfileSource projects a migrated tool policy into the editor without rewriting the version's history.
+func editableProfileSource(p Profile) string {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(p.Source), &doc); err != nil || len(doc.Content) != 1 {
+		return p.Source
+	}
+
+	root := doc.Content[0]
+	var source profileSource
+	if root.Kind != yaml.MappingNode || root.Decode(&source) != nil ||
+		agenttool.DefaultPreset(source.Preset) == p.Preset && slices.Equal(source.Tools, p.Tools) &&
+			slices.Equal(source.ToolsOff, p.ToolsOff) {
+		return p.Source
+	}
+
+	var policy yaml.Node
+	if err := policy.Encode(struct {
+		Preset string   `yaml:"preset"`
+		On     []string `yaml:"tools,omitempty"`
+		Off    []string `yaml:"tools_off,omitempty"`
+	}{p.Preset, p.Tools, p.ToolsOff}); err != nil {
+		return p.Source
+	}
+
+	keys := make([]*yaml.Node, 0, len(root.Content)+len(policy.Content))
+	for index := 0; index < len(root.Content); index += 2 {
+		switch root.Content[index].Value {
+		case "preset", "tools", "tools_off":
+		default:
+			keys = append(keys, root.Content[index:index+2]...)
+		}
+	}
+
+	root.Content = append(keys, policy.Content...)
+	raw, err := yaml.Marshal(&doc)
+	if err != nil {
+		return p.Source
+	}
+
+	return string(raw)
 }
 
 // withAvailability says of each profile whether a worker can start under it
@@ -744,7 +788,9 @@ func (s *Service) ListProfileVersions(ctx context.Context, name string) ([]Profi
 
 	out := make([]Profile, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, profileFromRow(r))
+		profile := profileFromRow(r)
+		profile.Source = editableProfileSource(profile)
+		out = append(out, profile)
 	}
 
 	return out, nil
@@ -756,7 +802,7 @@ func profileFromRow(v store.ProfileVersion) Profile {
 		Provider: v.Provider.String,
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
 		Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills), SkillsOff: splitNames(v.SkillsOff),
-		Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff), CreatedAt: millis(v.CreatedAt),
+		Preset: v.Preset, Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff), CreatedAt: millis(v.CreatedAt),
 		CPURequestMillis: v.CpuRequestMillis.Int64, MemoryRequestBytes: v.MemoryRequestBytes.Int64,
 	}
 }

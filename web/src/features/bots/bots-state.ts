@@ -1,6 +1,14 @@
 import { modelName } from "@/lib/model-name"
-import type { AllowList, Bot, BotSettings, ConnectionScope, Model } from "@/api/generated/types.gen"
+import type {
+  AllowList,
+  Bot,
+  BotSettings,
+  ConnectionScope,
+  Model,
+  ToolPreset,
+} from "@/api/generated/types.gen"
 import { modelKey, splitModel } from "@/features/agents/profiles-state"
+import { toolEntries } from "@/features/tools/tools-state"
 
 // What the Bots pages say about a Bot, apart from how they draw it.
 
@@ -60,6 +68,7 @@ export type Draft = {
   persona: string
   skills: string[]
   skillsOff: string[]
+  preset: ToolPreset
   tools: string[]
   toolsOff: string[]
 }
@@ -71,6 +80,7 @@ export const emptyDraft: Draft = {
   persona: "",
   skills: [],
   skillsOff: [],
+  preset: "full",
   tools: [],
   toolsOff: [],
 }
@@ -83,6 +93,7 @@ export function draftOf(bot: Bot): Draft {
     persona: bot.persona,
     skills: bot.skills,
     skillsOff: bot.skills_off,
+    preset: bot.preset ?? "full",
     tools: bot.tools,
     toolsOff: bot.tools_off,
   }
@@ -97,7 +108,8 @@ export function sameDraft(a: Draft, b: Draft) {
     a.skills.join() === b.skills.join() &&
     a.skillsOff.join() === b.skillsOff.join() &&
     a.tools.join() === b.tools.join() &&
-    a.toolsOff.join() === b.toolsOff.join()
+    a.toolsOff.join() === b.toolsOff.join() &&
+    a.preset === b.preset
   )
 }
 
@@ -114,8 +126,9 @@ export function settingsOf(draft: Draft, models: Model[]): BotSettings {
     persona: draft.persona.trim(),
     skills: draft.skills,
     skills_off: draft.skillsOff,
-    tools: draft.tools,
-    tools_off: draft.toolsOff,
+    preset: draft.preset,
+    tools: toolEntries(draft.tools),
+    tools_off: toolEntries(draft.toolsOff),
   }
 }
 

@@ -1,4 +1,4 @@
-import type { ToolFamily } from "../../src/api/generated/types.gen.js"
+import type { ToolAccess, ToolFamily } from "../../src/api/generated/types.gen.js"
 
 // Hypomnema's tools by family, as GET /tools answers (issue #536; internal/shared/agenttool/switches.go), shortened
 // to a few names per family.
@@ -28,6 +28,12 @@ export const toolFamilies: ToolFamily[] = [
     tools: ["superset_dashboards", "superset_api"],
   },
   {
+    name: "whatsapp",
+    description: "The owner's WhatsApp, with a WhatsApp Connection",
+    pattern: "whatsapp_*",
+    tools: ["whatsapp_chats", "whatsapp_messages"],
+  },
+  {
     name: "browser",
     description: "The browser every agent shares, in a tab of its own",
     pattern: "agent_browser_*",
@@ -40,3 +46,26 @@ export const toolFamilies: ToolFamily[] = [
     tools: ["device_screen", "device_tap"],
   },
 ]
+
+export const fullToolAccess: ToolAccess = {
+  families: toolFamilies.map((family) => {
+    const state =
+      family.name === "phone" ? "off" : family.name === "whatsapp" ? "unavailable" : "available"
+    const reason =
+      state === "off"
+        ? "Not included in the preset"
+        : state === "unavailable"
+          ? "No WhatsApp Connection"
+          : "Included in the preset"
+    const source = state === "unavailable" ? "connection" : "preset"
+
+    return {
+      ...family,
+      state,
+      reason,
+      source,
+      tools: family.tools.map((name) => ({ name, state, reason, source })),
+    }
+  }),
+  skills: [{ name: "android-device", missing: true, reason: "Phone tools are off" }],
+}

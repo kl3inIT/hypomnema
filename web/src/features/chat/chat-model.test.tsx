@@ -113,6 +113,7 @@ const vmap = {
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   position: 1,

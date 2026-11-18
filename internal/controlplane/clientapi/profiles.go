@@ -32,7 +32,13 @@ func (s *Server) GetProfile(ctx context.Context, req openapi.GetProfileRequestOb
 		return nil, err
 	}
 
-	return openapi.GetProfile200JSONResponse(toProfile(p)), nil
+	out := toProfile(p)
+	out.ToolAccess, err = s.toolAccess(ctx, nil, p.Runtime, p.ToolSwitches())
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetProfile200JSONResponse(out), nil
 }
 
 // ApplyProfile stores a profile's YAML: 201 for a new version, 200 when the
@@ -148,7 +154,7 @@ func toProfile(p orchestration.Profile) openapi.Profile {
 		Model:    ptr(p.Model), Effort: ptr(p.Effort), Instruction: ptr(p.Instruction), Source: p.Source,
 		Fallbacks: append([]string{}, p.Fallbacks...), Skills: append([]string{}, p.Skills...),
 		SkillsOff: append([]string{}, p.SkillsOff...), Tools: append([]string{}, p.Tools...),
-		ToolsOff: append([]string{}, p.ToolsOff...), CreatedAt: p.CreatedAt,
+		Preset: openapi.ToolPreset(p.Preset), ToolsOff: append([]string{}, p.ToolsOff...), CreatedAt: p.CreatedAt,
 		CpuRequestMillis: ptr(p.CPURequestMillis), MemoryRequestBytes: ptr(p.MemoryRequestBytes),
 	}
 

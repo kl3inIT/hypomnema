@@ -1,16 +1,16 @@
 -- name: InsertBot :exec
 -- A new Bot goes last in the order (issue #470).
 INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, tools, tools_off, connections,
-                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, created_at, updated_at)
+                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at)
 VALUES (@id, @name, @provider, @model, @effort, @persona, @skills, @skills_off, @tools, @tools_off, @connections,
         @workers, @tool_display, (SELECT coalesce(max(position) + 1, 0) FROM bots), @connection_scopes,
-        @guaranteed_dispatches, @now, @now);
+        @guaranteed_dispatches, @preset, @now, @now);
 
 -- name: UpdateBot :exec
 -- A Bot's settings; its name and memory stay.
 UPDATE bots SET provider = @provider, model = @model, effort = @effort, persona = @persona, skills = @skills,
     skills_off = @skills_off, tools = @tools, tools_off = @tools_off, connections = @connections, workers = @workers, tool_display = @tool_display,
-    connection_scopes = @connection_scopes, guaranteed_dispatches = @guaranteed_dispatches, updated_at = @now
+    connection_scopes = @connection_scopes, guaranteed_dispatches = @guaranteed_dispatches, preset = @preset, updated_at = @now
 WHERE id = @id;
 
 -- name: RenameBot :execrows

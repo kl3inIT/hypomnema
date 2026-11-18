@@ -7798,7 +7798,7 @@ components:
     Bot:
       type: object
       required:
-        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
+        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, preset, tools, tools_off,
          connections, workers, scopes, tool_display, guaranteed_dispatches, created_at, updated_at]
       properties:
         id:
@@ -7840,12 +7840,12 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that the Bot does not get.
+        preset: { $ref: "#/components/schemas/ToolPreset" }
+        tool_access: { $ref: "#/components/schemas/ToolAccess" }
         tools:
           type: array
           items: { type: string }
-          description: >-
-            The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty,
-            every tool a Bot gets. A CLI's own tools are not switched here.
+          description: Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
         tools_off:
           type: array
           items: { type: string }
@@ -8169,12 +8169,13 @@ components:
           type: array
           items: { type: string }
           description: The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
+        preset:
+          $ref: "#/components/schemas/ToolPreset"
+          description: Left out, the Bot keeps its preset, or defaults to full when created.
         tools:
           type: array
           items: { type: string }
-          description: >-
-            The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out,
-            the Bot keeps those it has.
+          description: Additional tools or families; left out, the Bot keeps those it has.
         tools_off:
           type: array
           items: { type: string }
@@ -8274,7 +8275,7 @@ components:
     Profile:
       type: object
       required:
-        [name, description, version_id, version, runtime, fallbacks, skills, skills_off, tools, tools_off, source,
+        [name, description, version_id, version, runtime, fallbacks, skills, skills_off, preset, tools, tools_off, source,
          created_at]
       properties:
         name: { type: string }
@@ -8308,12 +8309,12 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that its workers do not get.
+        preset: { $ref: "#/components/schemas/ToolPreset" }
+        tool_access: { $ref: "#/components/schemas/ToolAccess" }
         tools:
           type: array
           items: { type: string }
-          description: >-
-            The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty,
-            every tool a worker gets. A CLI's own tools are not switched here.
+          description: Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
         tools_off:
           type: array
           items: { type: string }
@@ -8392,6 +8393,58 @@ components:
         provider: { type: string }
         name: { type: string }
         kind: { type: string }
+    ToolPreset:
+      type: string
+      enum: [full, report]
+      x-enum-varnames: [ToolPresetFull, ToolPresetReport]
+      description: Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+    ToolAccess:
+      type: object
+      description: Saved access in the detail response, before a particular chat or Run applies its own limits.
+      required: [families, skills]
+      properties:
+        families:
+          type: array
+          items: { $ref: "#/components/schemas/ToolFamilyAccess" }
+        skills:
+          type: array
+          items: { $ref: "#/components/schemas/SkillAccess" }
+    ToolFamilyAccess:
+      type: object
+      required: [name, description, state, reason, source, tools]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        state: { $ref: "#/components/schemas/ToolAccessState" }
+        reason: { type: string }
+        source: { $ref: "#/components/schemas/ToolAccessSource" }
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/ToolAccessItem" }
+    ToolAccessItem:
+      type: object
+      required: [name, state, reason, source]
+      properties:
+        name: { type: string }
+        state: { $ref: "#/components/schemas/ToolAccessState" }
+        reason: { type: string }
+        source: { $ref: "#/components/schemas/ToolAccessSource" }
+    ToolAccessState:
+      type: string
+      enum: [off, on, unavailable, available]
+      x-enum-varnames: [ToolAccessOff, ToolAccessOn, ToolAccessUnavailable, ToolAccessAvailable]
+      description: Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+    ToolAccessSource:
+      type: string
+      enum: [preset, exception, connection]
+      x-enum-varnames: [ToolAccessPreset, ToolAccessException, ToolAccessConnection]
+    SkillAccess:
+      type: object
+      required: [name, missing, reason]
+      properties:
+        name: { type: string }
+        missing: { type: boolean }
+        reason: { type: string }
     ToolFamily:
       type: object
       required: [name, description, pattern, tools]
