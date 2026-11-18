@@ -7,7 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { effortLabel } from "@/features/agents/profiles-state"
 import { IntegrationMark } from "@/features/settings/service-cards"
-import { useServices } from "@/features/settings/use-integrations"
+import { useHostKinds, useServices } from "@/features/settings/use-integrations"
 import { PageHeader, PageHeading } from "@/components/page-header"
 import { modelIsId } from "@/lib/model-name"
 import { ModelMark } from "@/components/icons/model-mark"
@@ -201,6 +201,8 @@ function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
 // WorksWith is the Connections a Bot may use: everything the owner switched on for chats when it has no list,
 // else each one on its list as its Integration's mark, name and label.
 function WorksWith({ list, names }: { list: AllowList; names: Record<string, string> }) {
+  const kinds = useHostKinds()
+
   if (!list.limited) return <span>Everything you switched on</span>
 
   if (list.names.length === 0) return <span className="text-muted-foreground">No account</span>
@@ -212,7 +214,11 @@ function WorksWith({ list, names }: { list: AllowList; names: Record<string, str
 
         return (
           <li key={name} className="inline-flex min-w-0 items-center gap-1.5">
-            <IntegrationMark id={integration} className="size-3.5 shrink-0" />
+            <IntegrationMark
+              id={integration}
+              kind={kinds[integration]}
+              className="size-3.5 shrink-0"
+            />
             <span className="truncate">
               {names[integration] ?? integration} · {label}
             </span>

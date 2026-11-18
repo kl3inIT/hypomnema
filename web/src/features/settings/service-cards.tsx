@@ -27,12 +27,15 @@ import {
 } from "@/api/generated/@tanstack/react-query.gen"
 import type {
   DeviceSession,
+  GitHostKind,
   Integration,
   IntegrationConnection,
   PhoneSync,
   SignIn,
 } from "@/api/generated/types.gen"
 import {
+  GitHubIcon,
+  GitLabIcon,
   GmailIcon,
   GoogleCalendarIcon,
   GoogleDocsIcon,
@@ -116,10 +119,25 @@ const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   zalo: ZaloIcon,
 }
 
+// A git host's mark by its kind, as the Integrations page's host card picks it (integrations-screen.tsx).
+const gitMarks: Record<GitHostKind, ComponentType<SVGProps<SVGSVGElement>>> = {
+  github: GitHubIcon,
+  gitlab: GitLabIcon,
+}
+
 // IntegrationMark is an Integration's logo, or a plain plug for one that has none here. The Bot page shows it beside
-// each Connection a Bot may use.
-export function IntegrationMark({ id, className }: { id: string; className?: string }) {
-  const Mark = marks[id] ?? Plug
+// each Connection a Bot may use. A Connection of a git host names the host, so its mark comes from the host's kind
+// (issue #824).
+export function IntegrationMark({
+  id,
+  kind,
+  className,
+}: {
+  id: string
+  kind?: GitHostKind
+  className?: string
+}) {
+  const Mark = (kind && gitMarks[kind]) ?? marks[id] ?? Plug
 
   return <Mark className={className} aria-hidden />
 }
