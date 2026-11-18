@@ -149,6 +149,7 @@ type Bot struct {
 	ToolsOff             string
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
+	Fallbacks            string
 }
 
 type Channel struct {

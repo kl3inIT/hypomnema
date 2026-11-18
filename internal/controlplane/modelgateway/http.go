@@ -1,6 +1,7 @@
 package modelgateway
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 
 // Config tunes the gateway's HTTP API; the zero value is the default.
 type Config struct {
+	ChatFallbacks func(ctx context.Context, chatID, primary string) ([]string, error)
 	// StreamIdleTimeout ends a stream whose provider sends nothing for this
 	// long; zero is DefaultStreamIdleTimeout.
 	StreamIdleTimeout time.Duration
@@ -50,13 +52,14 @@ type Config struct {
 
 // Server serves the gateway's HTTP API.
 type Server struct {
-	svc         *Service
-	logger      *slog.Logger
-	client      *http.Client
-	idleTimeout time.Duration
-	accounts    Subscriptions
-	codexURL    string
-	claudeURL   string
+	chatFallbacks func(ctx context.Context, chatID, primary string) ([]string, error)
+	svc           *Service
+	logger        *slog.Logger
+	client        *http.Client
+	idleTimeout   time.Duration
+	accounts      Subscriptions
+	codexURL      string
+	claudeURL     string
 	// antigravityURL is the Cloud Code host; antigravity, what is remembered
 	// of Antigravity accounts while the gateway runs.
 	antigravityURL string
@@ -108,7 +111,8 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 	}
 
 	return &Server{
-		svc: svc, logger: logger, client: &http.Client{Transport: transport}, idleTimeout: cfg.StreamIdleTimeout,
+		chatFallbacks: cfg.ChatFallbacks,
+		svc:           svc, logger: logger, client: &http.Client{Transport: transport}, idleTimeout: cfg.StreamIdleTimeout,
 		accounts: cfg.Subscriptions, codexURL: strings.TrimRight(cfg.CodexBaseURL, "/"),
 		claudeURL:      strings.TrimRight(cfg.ClaudeBaseURL, "/"),
 		antigravityURL: strings.TrimRight(cfg.AntigravityBaseURL, "/"),

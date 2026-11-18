@@ -10,9 +10,10 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
-// piProviderID is the one provider of pi's models.json (orchestration.PiProvider): the supervisor names it with
+// piProviderID is the default provider of pi's models.json (orchestration.PiProvider): the supervisor names it with
 // each model's gateway name.
 const piProviderID = "hypomnema"
 
@@ -76,7 +77,7 @@ type piCost struct {
 // MODEL_THINKING_LEVELS); off is the gateway's none.
 var piThinkingLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 
-// piModels prints the models.json pi starts with (issue #204): one provider of pi, the model gateway, with every
+// piModels prints the models.json pi starts with (issue #204): the gateway, with every
 // model it serves (issue #549: each subscription's models, under "<provider>/<model>", and the names made in its
 // table), so that a Bot given another model needs nothing changed on the machine. The launcher writes it as pi
 // starts for a chat, as Omnigent writes a models.json for each of its pi sessions (inner/pi_executor.py) and as a
@@ -113,9 +114,11 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 
 	root := strings.TrimRight(e.url, "/")
 	models := make([]piModel, 0, len(served.JSON200.Data))
+	fallbackModels := make([]piModel, 0, len(served.JSON200.Data))
 
 	for _, m := range served.JSON200.Data {
 		pm := piModelOf(m.Name, m.Attributes)
+		fallbackModels = append(fallbackModels, pm)
 
 		// The wire is chosen as a worker's offer chooses it (orchestration modelAPI): a subscription's own for a
 		// name "<subscription>/<model>"; chat, which the gateway turns into each target's, for a name of its table.
@@ -132,10 +135,16 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 		models = append(models, pm)
 	}
 
-	file := piModelsFile{Providers: map[string]piProvider{piProviderID: {
-		Name: "Hypomnema gateway", BaseURL: root + "/v1", API: "openai-completions", APIKey: keyCommand,
-		Models: models,
-	}}}
+	file := piModelsFile{Providers: map[string]piProvider{
+		piProviderID: {
+			Name: "Hypomnema gateway", BaseURL: root + "/v1", API: "openai-completions", APIKey: keyCommand,
+			Models: models,
+		},
+		orchestration.PiFallbackProvider: {
+			Name: "Hypomnema gateway with Bot fallbacks", BaseURL: root + "/v1", API: "openai-completions",
+			APIKey: keyCommand, Models: fallbackModels,
+		},
+	}}
 
 	out, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
