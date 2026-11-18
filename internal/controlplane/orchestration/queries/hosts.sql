@@ -51,6 +51,13 @@ WHERE integration = @integration AND label = @label AND sign_in_failed <> @faile
 -- What the account can do, action by action (issue #567). It is not a change of the Connection: updated_at stays.
 UPDATE connections SET access = @access WHERE integration = @integration AND label = @label;
 
+-- name: SetConnectionProxy :execrows
+UPDATE connections SET proxy = @proxy, updated_at = @now WHERE integration = @integration AND label = @label;
+
+-- name: SetConnectionDialAddress :execrows
+UPDATE connections SET dial_address = @dial_address, updated_at = @now
+WHERE integration = @integration AND label = @label;
+
 -- name: SetConnectionChats :execrows
 UPDATE connections SET chats = @chats, updated_at = @now WHERE integration = @integration AND label = @label;
 

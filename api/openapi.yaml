@@ -958,10 +958,12 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     patch:
       operationId: PatchIntegrationConnection
-      summary: Say whether the coordinator may use a Connection in chats; only the owner
+      summary: Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
       description: >-
         A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in
-        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its
+        proxy (issue #850) is what its requests to its service go through, and its dial address where they are
+        dialed instead of their host's; the next request uses them.
       requestBody:
         required: true
         content:
@@ -6231,6 +6233,17 @@ components:
           description: >-
             Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
             turns it on.
+        proxy:
+          type: string
+          description: >-
+            The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a
+            service in a private network, reached through a local proxy. Absent when they go direct.
+        dial_address:
+          type: string
+          description: >-
+            Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an
+            IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name
+            that does not resolve; absent dials the host.
         session: { $ref: "#/components/schemas/DeviceSession" }
         cannot:
           type: array
@@ -6345,6 +6358,18 @@ components:
           type: string
           maxLength: 1024
           description: Where the service is, such as https://superset.example.com.
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the
+            label has.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one
+            the label has.
         username: { type: string, maxLength: 1024 }
         password:
           type: string
@@ -6604,10 +6629,22 @@ components:
             owner takes it back; reject refuses it.
     ConnectionUse:
       type: object
-      required: [chats]
+      description: What changes; what is absent stays.
       additionalProperties: false
       properties:
         chats: { type: boolean }
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no
+            user or path. Empty clears it, and they go direct.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port
+            or not; the certificate is still checked against the host. Temporary. Empty clears it.
     NewIntegrationClient:
       type: object
       required: [client_id, client_secret]

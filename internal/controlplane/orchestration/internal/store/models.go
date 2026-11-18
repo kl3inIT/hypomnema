@@ -276,6 +276,8 @@ type Connection struct {
 	AppID        sql.NullString
 	AppLabel     sql.NullString
 	Access       sql.NullString
+	Proxy        sql.NullString
+	DialAddress  sql.NullString
 }
 
 type Conversation struct {

@@ -2973,9 +2973,15 @@ type ConnectionScope struct {
 	Dashboards []int64 `json:"dashboards"`
 }
 
-// ConnectionUse defines model for ConnectionUse.
+// ConnectionUse What changes; what is absent stays.
 type ConnectionUse struct {
-	Chats bool `json:"chats"`
+	Chats *bool `json:"chats,omitempty"`
+
+	// DialAddress Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
+	DialAddress *string `json:"dial_address,omitempty"`
+
+	// Proxy The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
+	Proxy *string `json:"proxy,omitempty"`
 }
 
 // CreatedGatewayKey defines model for CreatedGatewayKey.
@@ -3597,13 +3603,19 @@ type IntegrationConnection struct {
 	Cannot []ConnectionCannot `json:"cannot"`
 
 	// Chats Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
-	Chats       bool      `json:"chats"`
-	CreatedAt   time.Time `json:"created_at"`
-	Integration string    `json:"integration"`
+	Chats     bool      `json:"chats"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// DialAddress Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name that does not resolve; absent dials the host.
+	DialAddress *string `json:"dial_address,omitempty"`
+	Integration string  `json:"integration"`
 
 	// Key The name of the key the role is assumed with, for an Integration of kind role. Not secret.
 	Key   *string `json:"key,omitempty"`
 	Label string  `json:"label"`
+
+	// Proxy The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a service in a private network, reached through a local proxy. Absent when they go direct.
+	Proxy *string `json:"proxy,omitempty"`
 
 	// RoleArn The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.
 	RoleArn *string `json:"role_arn,omitempty"`
@@ -4186,9 +4198,15 @@ type NewAccountConnection struct {
 	AppId     *string `json:"app_id,omitempty"`
 	AppSecret *string `json:"app_secret,omitempty"`
 
+	// DialAddress Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+	DialAddress *string `json:"dial_address,omitempty"`
+
 	// Key The name the key that assumes the role is kept under, such as main.
 	Key      *string `json:"key,omitempty"`
 	Password *string `json:"password,omitempty"`
+
+	// Proxy The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+	Proxy *string `json:"proxy,omitempty"`
 
 	// RoleArn The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
 	RoleArn         *string `json:"role_arn,omitempty"`
@@ -8177,18 +8195,18 @@ type ClientInterface interface {
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnectionWithBody(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -12301,9 +12319,9 @@ func (c *Client) DeleteIntegrationConnection(ctx context.Context, integration In
 	return c.Client.Do(req)
 }
 
-// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes any type of body and a specified content type.
 //
@@ -12320,9 +12338,9 @@ func (c *Client) PatchIntegrationConnectionWithBody(ctx context.Context, integra
 	return c.Client.Do(req)
 }
 
-// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -27597,18 +27615,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*DeleteIntegrationConnectionResponse, error)
 
-	// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnectionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error)
 
-	// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	//
-	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -42751,9 +42769,9 @@ func (c *ClientWithResponses) DeleteIntegrationConnectionWithResponse(ctx contex
 	return ParseDeleteIntegrationConnectionResponse(rsp)
 }
 
-// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -42766,9 +42784,9 @@ func (c *ClientWithResponses) PatchIntegrationConnectionWithBodyWithResponse(ctx
 	return ParsePatchIntegrationConnectionResponse(rsp)
 }
 
-// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 //
-// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -53165,7 +53183,7 @@ type ServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
 	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
@@ -71532,7 +71550,7 @@ type StrictServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(ctx context.Context, request DeleteIntegrationConnectionRequestObject) (DeleteIntegrationConnectionResponseObject, error)
-	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(ctx context.Context, request PatchIntegrationConnectionRequestObject) (PatchIntegrationConnectionResponseObject, error)
 	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner

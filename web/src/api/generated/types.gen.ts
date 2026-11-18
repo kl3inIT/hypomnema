@@ -1472,6 +1472,14 @@ export type IntegrationConnection = {
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
+  /**
+   * The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a service in a private network, reached through a local proxy. Absent when they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name that does not resolve; absent dials the host.
+   */
+  dial_address?: string;
   session?: DeviceSession;
   /**
    * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
@@ -1593,6 +1601,14 @@ export type NewAccountConnection = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   /**
    * The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
@@ -1837,8 +1853,19 @@ export type ApprovalDecision = {
   decision: 'approve' | 'approve_session' | 'approve_routine' | 'reject';
 };
 
+/**
+ * What changes; what is absent stays.
+ */
 export type ConnectionUse = {
-  chats: boolean;
+  chats?: boolean;
+  /**
+   * The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
+   */
+  dial_address?: string;
 };
 
 export type NewIntegrationClient = {
@@ -4197,6 +4224,14 @@ export type NewAccountConnectionWritable = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   password?: string;
   /**

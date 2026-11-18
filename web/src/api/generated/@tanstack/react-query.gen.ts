@@ -1096,9 +1096,9 @@ export const deleteIntegrationConnectionMutation = (options?: Partial<Options<De
 };
 
 /**
- * Say whether the coordinator may use a Connection in chats; only the owner
+ * Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
  *
- * A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+ * A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
  */
 export const patchIntegrationConnectionMutation = (options?: Partial<Options<PatchIntegrationConnectionData>>): UseMutationOptions<PatchIntegrationConnectionResponse, PatchIntegrationConnectionError, Options<PatchIntegrationConnectionData>> => {
   const mutationOptions: UseMutationOptions<PatchIntegrationConnectionResponse, PatchIntegrationConnectionError, Options<PatchIntegrationConnectionData>> = {
