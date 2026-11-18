@@ -33,8 +33,10 @@ const (
 	codexRuntime = "codex"
 	// The Codex CLI the gateway presents itself as. The backend may refuse a
 	// version that grows too old; 9router-go's providers/client_identity.go
-	// is where to look for the one in use.
-	codexCLIVersion = "0.159.0"
+	// is where to look for the one in use. It is Codex's latest release,
+	// rust-v0.169.1 (2026-11-17, issue #795), and the same as the version the
+	// model list names (subscription/models.go, codexClientVersion).
+	codexCLIVersion = "0.169.1"
 	codexOriginator = "codex_cli_rs"
 	codexUserAgent  = "codex_cli_rs/" + codexCLIVersion
 	// codexLiteHeader tells the backend a body has the lite shape.

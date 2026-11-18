@@ -2734,10 +2734,10 @@ capabilities do not exist yet.
   each; the YAML is their one home (`modelgateway/attributes.go`). One it does not set is models.dev's for the model
   of its first target, under that provider's vendor (the snapshot of `modelgateway/prices`: `limit.context`,
   `limit.output`, `modalities.input`, `reasoning` and `reasoning_options` of type `effort`); else it is unknown.
-  A subscription's window is its own before models.dev's: a Codex one's from Codex's list (272,000 for a model it
-  does not list), an Antigravity one's window and largest output as Google serves them, `maxTokens` and
-  `maxOutputTokens` of `fetchAvailableModels` under the first active account, read once an hour (issue #587, as
-  omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
+  A subscription's window is its own before models.dev's: a Codex one's from Codex's list (500,000 for
+  `gpt-6.2-sol` and `gpt-6.1-terra`, 272,000 for a model it does not list), an Antigravity one's window and largest
+  output as Google serves them, `maxTokens` and `maxOutputTokens` of `fetchAvailableModels` under the first active
+  account, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
   levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
   xhigh (max is sent as xhigh), Claude none, low to max (minimal's budget is low's), Antigravity's Gemini low,
   medium and high and its other models none; an OpenAI-compatible provider gets any. A level set that the provider
@@ -2984,11 +2984,13 @@ capabilities do not exist yet.
     `reasoning_effort` becomes `reasoning.effort` with a summary asked for. Only what the backend takes is sent:
     sampling settings, token limits, `user`, `metadata` and `stream_options` are left out. Tool names and call ids
     are made to fit the backend (64 bytes, a narrow alphabet) and the names are mapped back in the answer. The
-    models `gpt-6.1-sol`, `gpt-6-sol` and `gpt-6-luna` take the "lite" shape the Codex CLI sends them: tools and
-    instructions at the head of the input, one tool call at a time, reasoning over every turn with no summary.
+    models `gpt-6.2-sol`, `gpt-6.2-astra`, `gpt-6.1-sol`, `gpt-6-sol` and `gpt-6-luna` take the "lite" shape the
+    Codex CLI sends them: tools and instructions at the head of the input, one tool call at a time, reasoning over
+    every turn with no summary.
   - The call goes to `chatgpt.com/backend-api/codex/responses`, always as a stream, with the account's access token
-    and ChatGPT account id, the Codex CLI's `originator`, `User-Agent` and `version` (constants that need upkeep), and
-    a session and prompt cache key that are the client's `prompt_cache_key` or one derived from the gateway key.
+    and ChatGPT account id, the Codex CLI's `originator`, `User-Agent` and `version` (constants that need upkeep:
+    Codex 0.169.1 since issue #795, the version the model list names too), and a session and prompt cache key that
+    are the client's `prompt_cache_key` or one derived from the gateway key.
   - The backend's events become chat chunks: text, the reasoning summary as `reasoning_content`, tool calls by
     index with their arguments sent once, then the finish reason (`tool_calls`, `stop`, or `length` for an answer
     cut at the token limit) and the usage in a chunk of its own. A client that did not ask for a stream gets the

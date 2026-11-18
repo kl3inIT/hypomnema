@@ -53,6 +53,37 @@ func TestAModelThatSetsNothingHasWhatModelsDevSays(t *testing.T) {
 	assert.Equal(t, "gpt-6.1-sol", got.Price.Model)
 }
 
+// Scenario (issue #795): Codex's gpt-6.2 models, served from the subscription,
+// have the window Codex's list at rust-v0.169.1 gives them (500,000 for
+// gpt-6.2-sol, the default 272,000 for gpt-6.2-astra) and models.dev's price.
+func TestTheGPT62ModelsHaveCodexsWindowAndAPrice(t *testing.T) {
+	t.Parallel()
+
+	g := newSubscriptionGateway(t)
+
+	for model, window := range map[string]int64{"gpt-6.2-sol": 500000, "gpt-6.2-astra": 272000} {
+		got, err := g.Resolve(t.Context(), modelgateway.Model{Name: "codex-subscription/" + model,
+			Targets: []modelgateway.Target{{Provider: "codex-subscription", UpstreamModel: model}}})
+		require.NoError(t, err)
+
+		require.NotNil(t, got.ContextWindow.Value, model)
+		assert.Equal(t, window, *got.ContextWindow.Value, model)
+		assert.Equal(t, modelgateway.SourceCodex, got.ContextWindow.Source, model)
+		require.NotNil(t, got.Price, model)
+		assert.Equal(t, model, got.Price.Model)
+	}
+
+	sol, ok := prices.Find("codex_subscription", "gpt-6.2-sol")
+	require.True(t, ok)
+	require.NotNil(t, sol.Input)
+	assert.Equal(t, int64(2_000_000), *sol.Input, "two dollars a million input tokens, as models.dev says")
+
+	astra, ok := prices.Find("codex_subscription", "gpt-6.2-astra")
+	require.True(t, ok)
+	require.NotNil(t, astra.Output)
+	assert.Equal(t, int64(40_000_000), *astra.Output, "forty dollars a million output tokens")
+}
+
 // Scenario: the owner sets a smaller window and text only on the model, on
 // the Models page: those win, models.dev's stay beside them, and what is not
 // set still comes from models.dev. Taken out again, they come from models.dev.

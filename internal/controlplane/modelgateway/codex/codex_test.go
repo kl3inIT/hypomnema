@@ -141,6 +141,20 @@ func TestAGPT6ModelTakesTheLiteShape(t *testing.T) {
 	assert.Len(t, plain["input"], 1, "with no tools and no instructions nothing is put before the conversation")
 }
 
+// Scenario (issue #795): gpt-6.2-sol and gpt-6.2-astra take the lite shape,
+// as Codex's list at rust-v0.169.1 says (use_responses_lite).
+func TestTheGPT62ModelsTakeTheLiteShape(t *testing.T) {
+	t.Parallel()
+
+	for _, model := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
+		req, body := build(t, model, conversation)
+
+		assert.True(t, req.Lite, model)
+		assert.Nil(t, body["tools"], model)
+		assert.Equal(t, map[string]any{"effort": "high", "context": "all_turns"}, body["reasoning"], model)
+	}
+}
+
 // Scenario: tool names and call ids the backend would refuse. Two long names
 // that shorten to the same thing stay apart; a call id over 64 bytes is cut
 // the same way in the call and in its result; a classic model with no effort
