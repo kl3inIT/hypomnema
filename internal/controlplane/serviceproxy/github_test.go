@@ -608,3 +608,154 @@ func pendingMerge(t *testing.T, w *world) orchestration.Approval {
 
 	return found
 }
+
+// githubRepositories answers GitHub's GET /repositories/{id} as GitHub would for an account that can read
+// kl3inIT/hypomnema (1447911125) only: another id is 404, and 77 is answered with another repository's id.
+func githubRepositories(r *http.Request) (int, string, bool) {
+	if r.Host != "api.github.com" && r.URL.Host != "api.github.com" {
+		return 0, "", false
+	}
+
+	switch r.URL.Path {
+	case "/repositories/1447911125":
+		return http.StatusOK, `{"id":1447911125,"full_name":"kl3inIT/hypomnema","private":false}`, true
+	case "/repositories/77":
+		return http.StatusOK, `{"id":78,"full_name":"kl3inIT/hypomnema"}`, true
+	case "/repositories/42":
+		return http.StatusNotFound, `{"message":"Not Found"}`, true
+	}
+
+	return 0, "", false
+}
+
+// githubWorld is a world with the git host's Connection github.com:default on for chats, GitHub answering
+// /repositories/{id} as githubRepositories does, and gh's connection to api.github.com.
+func githubWorld(t *testing.T, hold time.Duration) (*world, *tool) {
+	t.Helper()
+
+	w := newWorld(t, hold)
+	w.service.answers = githubRepositories
+
+	_, err := w.svc.SetConnection(t.Context(), serviceproxy.GitHubID, "default", "", "conn-github-com-default")
+	require.NoError(t, err)
+
+	_, err = w.svc.SetConnectionChats(t.Context(), serviceproxy.GitHubID, "default", true)
+	require.NoError(t, err)
+
+	gh, refused := w.openTo(serviceproxy.GitHubID, w.pi, "default", "api.github.com", w.chat)
+	require.Zero(t, refused)
+
+	return w, gh
+}
+
+// Scenario (issue #802): `gh api --paginate` lists a pull request's files. The first page is asked by
+// /repos/{owner}/{repo}; GitHub's Link sends the next ones to /repositories/{id}. The proxy resolves the id through
+// the same Connection (GitHub's GET /repositories/{id}, with the account's token), reads the page as the /repos
+// form's read and sends it on unchanged; nobody is asked. The id's name is kept: a third page looks nothing up.
+func TestAPagedListByARepositorysIDIsReadWithoutAsking(t *testing.T) {
+	t.Parallel()
+
+	w, gh := githubWorld(t, time.Minute)
+
+	require.Equal(t, http.StatusOK, gh.do(http.MethodGet, "/repos/kl3inIT/hypomnema/pulls/786/files?per_page=100", "",
+		nil).Status)
+	require.Equal(t, http.StatusOK, gh.do(http.MethodGet,
+		"/repositories/1447911125/pulls/786/files?per_page=100&page=2", "", nil).Status)
+	require.Equal(t, http.StatusOK, gh.do(http.MethodGet,
+		"/repositories/1447911125/pulls/786/files?per_page=100&page=3", "", nil).Status)
+
+	assert.Empty(t, w.approvals(""), "reading a page asks nobody")
+
+	received := w.service.received()
+	require.Len(t, received, 4, "the first page, the id's lookup, the second and the third page")
+	assert.Equal(t, "https://api.github.com/repositories/1447911125", received[1].URL)
+	assert.Equal(t, "Bearer "+realToken, received[1].Authorization, "the id is looked up through the Connection")
+	assert.Equal(t, "https://api.github.com/repositories/1447911125/pulls/786/files?page=2&per_page=100",
+		received[2].URL, "the page is sent on as gh asked it")
+	assert.Equal(t, "Bearer "+realToken, received[2].Authorization)
+	assert.Equal(t, "https://api.github.com/repositories/1447911125/pulls/786/files?page=3&per_page=100",
+		received[3].URL)
+	assert.Contains(t, w.logs.String(), "action=github.pulls.read")
+	assert.NotContains(t, w.logs.String(), realToken)
+}
+
+// Scenario (issue #802): an id the account cannot read (GitHub answers 404), and one GitHub answers with another
+// repository's id, are not resolved: the request stays github.unlisted and asks, and nothing is sent until the
+// owner answers. Rejected, it is never sent.
+func TestARepositorysIDThatIsNotResolvedAsks(t *testing.T) {
+	t.Parallel()
+
+	for _, id := range []string{"42", "77"} {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+
+			w, gh := githubWorld(t, time.Minute)
+			answered := make(chan answer, 1)
+
+			go func() { answered <- gh.do(http.MethodGet, "/repositories/"+id+"/pulls/1/files?page=2", "", nil) }()
+
+			asked := w.pending()
+			assert.Equal(t, "github.unlisted", asked.Action)
+
+			received := w.service.received()
+			require.Len(t, received, 1, "only the id's lookup reaches GitHub")
+			assert.Equal(t, "https://api.github.com/repositories/"+id, received[0].URL)
+
+			_, err := w.proxy.Decide(t.Context(), asked.ID, false, "")
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+			assert.Len(t, w.service.received(), 1)
+		})
+	}
+}
+
+// Scenario (issue #802): a request by a repository's id takes the action of its /repos/{owner}/{repo} form, whatever
+// its method: a comment, a merge, a branch's deletion and a change of the repository ask as they do by name, never as
+// a read, and the owner is shown which repository the id is.
+func TestAWriteByARepositorysIDTakesTheActionOfItsReposForm(t *testing.T) {
+	t.Parallel()
+
+	catalog, ok := serviceproxy.CatalogOf(serviceproxy.GitHubID)
+	require.True(t, ok)
+
+	writes := []struct{ method, rest string }{
+		{http.MethodPost, "/issues/1/comments"},
+		{http.MethodPut, "/pulls/1/merge"},
+		{http.MethodDelete, "/git/refs/heads/topic"},
+		{http.MethodPatch, ""},
+		{http.MethodPost, "/pulls"},
+	}
+
+	for _, write := range writes {
+		t.Run(write.method+write.rest, func(t *testing.T) {
+			t.Parallel()
+
+			want := catalog.Match(write.method, "api.github.com", "/repos/kl3inIT/hypomnema"+write.rest)
+			require.NotEqual(t, "github.unlisted", want.ID)
+			require.NotEqual(t, serviceproxy.Reads, want.Kind)
+
+			w, gh := githubWorld(t, time.Minute)
+			answered := make(chan answer, 1)
+
+			go func() {
+				answered <- gh.do(write.method, "/repositories/1447911125"+write.rest, "application/json",
+					[]byte(`{"body":"hi"}`))
+			}()
+
+			asked := w.pending()
+			assert.Equal(t, want.ID, asked.Action)
+			assert.Contains(t, asked.Payload, orchestration.Field{Label: "Repository", Value: "kl3inIT/hypomnema"})
+			assert.Len(t, w.service.received(), 1, "only the id's lookup is sent while the owner has not answered")
+
+			_, err := w.proxy.Decide(t.Context(), asked.ID, true, orchestration.ScopeOnce)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, (<-answered).Status)
+
+			received := w.service.received()
+			require.Len(t, received, 2)
+			assert.Equal(t, write.method, received[1].Method)
+			assert.Equal(t, "https://api.github.com/repositories/1447911125"+write.rest, received[1].URL,
+				"the request is sent on unchanged")
+		})
+	}
+}

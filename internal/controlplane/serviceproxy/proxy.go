@@ -136,6 +136,8 @@ type Proxy struct {
 	waiting map[string][]chan orchestration.Approval
 	// rechecked is when each Connection's access was last read again after a 403, by "integration:label".
 	rechecked map[string]time.Time
+	// repositories are the owner/name of GitHub repositories' ids, by Connection (issue #802).
+	repositories repositoryNames
 }
 
 // New returns a Proxy with a certificate authority of its own, made now and
@@ -360,8 +362,16 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
-	action, verdict, message, err := p.decide(ctx, s.catalog.Of(req, body, s.host), s, func(governing Action) asking {
-		return httpAsking(req, body, governing, s)
+	named, repository := p.actionOf(ctx, req, body, s)
+
+	action, verdict, message, err := p.decide(ctx, named, s, func(governing Action) asking {
+		q := httpAsking(req, body, governing, s)
+		if repository != "" {
+			// A request by a repository's id names it only by a number: the owner is told which it is (issue #802).
+			q.fields = append([]orchestration.Field{{Label: "Repository", Value: repository}}, q.fields...)
+		}
+
+		return q
 	})
 	if err != nil {
 		// Every error refuses.

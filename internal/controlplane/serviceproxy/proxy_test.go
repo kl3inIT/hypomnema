@@ -54,6 +54,8 @@ type service struct {
 	// status and body, when set, are its answer instead.
 	status int
 	body   string
+	// answers, when set, answers the requests it knows (ok), before status and body.
+	answers func(r *http.Request) (status int, body string, ok bool)
 }
 
 // refuse makes the service answer every request with status and body.
@@ -70,7 +72,14 @@ func (s *service) RoundTrip(r *http.Request) (*http.Response, error) {
 	s.mu.Lock()
 	s.got = append(s.got, sent{r.Method, r.URL.String(), r.Header.Get("Authorization"), body, r.Header.Clone()})
 	status, answer := s.status, s.body
+	answers := s.answers
 	s.mu.Unlock()
+
+	if answers != nil {
+		if st, b, ok := answers(r); ok {
+			status, answer = st, b
+		}
+	}
 
 	if status == 0 {
 		status, answer = http.StatusOK, `{"id":"from-the-service"}`
