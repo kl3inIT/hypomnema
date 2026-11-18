@@ -906,6 +906,57 @@ type TaskFollowUp struct {
 	CreatedAt int64
 }
 
+type Todo struct {
+	ID              string
+	Revision        int64
+	Title           string
+	Notes           string
+	DoneWhen        string
+	DueKind         string
+	DueDate         sql.NullString
+	DueZone         sql.NullString
+	DueAt           sql.NullInt64
+	OverdueAt       sql.NullInt64
+	AssigneeKind    string
+	Assignee        string
+	State           string
+	SnoozedUntil    sql.NullInt64
+	SourceKind      string
+	SourceID        string
+	SourceQuote     string
+	SourceRef       sql.NullString
+	CreatedByKind   string
+	CreatedBy       string
+	WorkKind        sql.NullString
+	WorkID          sql.NullString
+	ApprovalID      sql.NullString
+	DoneByKind      sql.NullString
+	DoneBy          sql.NullString
+	RecordedByKind  sql.NullString
+	RecordedBy      sql.NullString
+	ClosedHow       sql.NullString
+	CloseReason     string
+	Evidence        string
+	ClosedAt        sql.NullInt64
+	DuplicateOf     sql.NullString
+	IdempotencyKey  sql.NullString
+	IdempotencyHash sql.NullString
+	CreatedAt       int64
+	UpdatedAt       int64
+}
+
+type TodoEvent struct {
+	ID        int64
+	TodoID    string
+	At        int64
+	Revision  int64
+	ActorKind string
+	Actor     string
+	Kind      string
+	Before    string
+	After     string
+}
+
 type User struct {
 	ID           string
 	Name         string

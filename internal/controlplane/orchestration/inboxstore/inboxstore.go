@@ -1,0 +1,844 @@
+// Package inboxstore keeps the Inbox (issues #838, #845): the to-dos that have to happen, whoever does them (the
+// owner, a person he waits on, or a Bot), and the history of each. It is a domain store of the orchestration
+// database reached through the root package's Inbox(), as Omnara's storage facade reaches its stores (issue #404);
+// it imports the generated store and never the root package, writes only its own tables and reads the Bots and
+// Approvals through the shared queries.
+//
+// A to-do's fields follow Northstar's Task and Omi's action item (models/action_item.py: who, due, typed
+// evidence; models/task_due.py); its states Plane's Intake (db/models/intake.py: pending, accepted, rejected,
+// snoozed, duplicate) and Hermes's kanban (running, review, done); its history MemoryOS's meeting_minutes_event.
+// Every state moves only as the transitions in transitions.go allow, in one guarded write at the revision the
+// caller read (docs/conventions.md, "Transitions are guarded writes"), with its event in the same transaction.
+//
+// The store trusts its caller for who acts: the API layer takes the Actor from the authenticated principal, never
+// from a field the client sends.
+package inboxstore
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	_ "time/tzdata" // A due date's zone is an IANA name; the server may have no zoneinfo.
+	"unicode/utf8"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
+)
+
+// The states of a to-do.
+const (
+	// Proposed: a Bot found it; it waits for the owner to accept, drop or mark it duplicate. Left unanswered it
+	// stays proposed (owner, 2026-11-18).
+	Proposed = "proposed"
+	// Open: to be done.
+	Open = "open"
+	// Doing: a Bot is on it, in the attempt Work names.
+	Doing = "doing"
+	// Review: one of the Bot's actions waits for the owner's Approval.
+	Review = "review"
+	// Done, Dropped and Duplicate are closed; only the owner reopens them.
+	Done      = "done"
+	Dropped   = "dropped"
+	Duplicate = "duplicate"
+)
+
+// Closed says whether a state is one of the closed ones.
+func Closed(state string) bool { return state == Done || state == Dropped || state == Duplicate }
+
+// The kinds of Actor.
+const (
+	Owner  = "owner"
+	Bot    = "bot"
+	System = "system"
+)
+
+// Actor is who makes a change: the owner, a Bot (ID its id) or the system (ID what of it, such as "approvals").
+type Actor struct {
+	Kind string
+	ID   string
+}
+
+// The kinds of Due.
+const (
+	DueNone    = "none"
+	DueUnknown = "unknown"
+	DueDate    = "date"
+	DueInstant = "instant"
+)
+
+// Due is when a to-do is due: none, unknown, a calendar date in the owner's time zone (no time is made up for it)
+// or a moment with its time zone.
+type Due struct {
+	Kind string
+	// Date is YYYY-MM-DD, for a date.
+	Date string
+	// At is the moment, for an instant.
+	At time.Time
+	// Zone is the IANA time zone of a date or an instant.
+	Zone string
+}
+
+// The kinds of Assignee, and of who did a to-do.
+const (
+	Me      = "me"
+	Person  = "person"
+	ABot    = "bot"
+	Unknown = "unknown"
+)
+
+// Assignee is who does a to-do, or who did it: me (the owner), a person by name, a Bot by its id, or unknown.
+type Assignee struct {
+	Kind string
+	// Name is the person's name or the Bot's id.
+	Name string
+}
+
+// The kinds of Source.
+const (
+	// ByHand: the owner wrote it.
+	ByHand = "owner"
+	// FromChat: a Bot in a chat with the owner; ID is the chat.
+	FromChat = "chat"
+	// FromRoutine: a Bot in a Routine's run; ID is the run.
+	FromRoutine = "routine"
+)
+
+// Source is where a to-do came from, with the words it came from and a typed reference to them.
+type Source struct {
+	Kind  string
+	ID    string
+	Quote string
+	Ref   *Link
+}
+
+// The kinds of Link, Omi's typed source references.
+const (
+	LinkURL         = "url"
+	LinkChatMessage = "chat_message"
+	LinkMail        = "mail"
+	LinkRun         = "run"
+	LinkPullRequest = "pull_request"
+	LinkMeetingLine = "meeting_line"
+)
+
+var linkKinds = []string{LinkURL, LinkChatMessage, LinkMail, LinkRun, LinkPullRequest, LinkMeetingLine}
+
+// Link is a typed reference: evidence that a to-do is done, or where it came from.
+type Link struct {
+	Kind  string `json:"kind"`
+	Ref   string `json:"ref"`
+	Label string `json:"label,omitempty"`
+}
+
+// The kinds of Work.
+const (
+	WorkChat = "chat"
+	WorkRun  = "run"
+)
+
+// Work is a Bot's current attempt at a to-do: its chat or a Run.
+type Work struct {
+	Kind string
+	ID   string
+}
+
+// How a to-do was closed: by hand or by a Bot. Judged by AI and by time are kept for later parts and refused now.
+const (
+	ClosedByHand = "hand"
+	ClosedByBot  = "bot"
+	ClosedByAI   = "ai"
+	ClosedByTime = "time"
+)
+
+// Limits of what a to-do holds (issue #845, Data).
+const (
+	MaxTitle    = 300
+	MaxNotes    = 20_000
+	MaxDoneWhen = 1_000
+	MaxName     = 100
+	MaxQuote    = 2_000
+	MaxReason   = 2_000
+	MaxEvidence = 20
+	// MaxRef and MaxLabel bound one Link, MaxKey an idempotency key and MaxID an id given by the caller.
+	MaxRef   = 2_000
+	MaxLabel = 300
+	MaxKey   = 200
+	MaxID    = 200
+	// MaxPage is the most items one List returns; MaxEvents the most events Get returns, the latest.
+	MaxPage   = 200
+	MaxEvents = 500
+)
+
+// Todo is one to-do.
+type Todo struct {
+	ID       string
+	Revision int
+	Title    string
+	Notes    string
+	DoneWhen string
+	Due      Due
+	Assignee Assignee
+	State    string
+	// SnoozedUntil hides it until then; only on a proposed or open item.
+	SnoozedUntil *time.Time
+	Source       Source
+	CreatedBy    Actor
+	// Work is the Bot's attempt while doing or review.
+	Work *Work
+	// ApprovalID is the one pending Approval while review.
+	ApprovalID string
+	// DoneBy is who did it, RecordedBy who recorded it.
+	DoneBy      *Assignee
+	RecordedBy  *Actor
+	ClosedHow   string
+	CloseReason string
+	Evidence    []Link
+	ClosedAt    *time.Time
+	DuplicateOf string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	// Events is its history, oldest first; filled by Get only.
+	Events []Event
+}
+
+// Event is one change of a to-do.
+type Event struct {
+	ID       int64
+	At       time.Time
+	Revision int
+	Actor    Actor
+	// Kind is created, edited, state, snoozed or linked_approval.
+	Kind string
+	// Before and After are JSON objects of the fields that changed.
+	Before json.RawMessage
+	After  json.RawMessage
+}
+
+// The kinds of Event.
+const (
+	EventCreated        = "created"
+	EventEdited         = "edited"
+	EventState          = "state"
+	EventSnoozed        = "snoozed"
+	EventLinkedApproval = "linked_approval"
+)
+
+// Store keeps the Inbox.
+type Store struct {
+	db    *sql.DB
+	clock platform.Clock
+	newID func(prefix string) string
+	// signal wakes the orchestration's event readers after each commit.
+	signal func()
+}
+
+// New returns the Store over the orchestration database. signal is the root's, called after each commit as for
+// every other write.
+func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, signal func()) *Store {
+	return &Store{db: db, clock: clock, newID: newID, signal: signal}
+}
+
+func (s *Store) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
+	return storeutil.Write(ctx, s.db, s.clock, s.signal, fn)
+}
+
+func (s *Store) read() *store.Queries {
+	return store.New(s.db)
+}
+
+// NewTodo is what Create makes.
+type NewTodo struct {
+	Title    string
+	Notes    string
+	DoneWhen string
+	Due      Due
+	Assignee Assignee
+	// State is Open or Proposed.
+	State  string
+	Source Source
+	// IdempotencyKey, when given, makes a retried create return the first item.
+	IdempotencyKey string
+}
+
+// Create adds a to-do. The owner adds open items by hand; a Bot adds open items in a chat with the owner (Source
+// FromChat) and proposed ones in a Routine's run (Source FromRoutine). A create retried with the same
+// IdempotencyKey and the same request returns the first item and writes nothing; with another request it is a
+// conflict (docs/conventions.md, "Idempotency").
+func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error) {
+	n.Title = strings.TrimSpace(n.Title)
+	n.Assignee.Name = strings.TrimSpace(n.Assignee.Name)
+
+	if err := checkActor(actor); err != nil {
+		return Todo{}, err
+	}
+
+	if err := mayCreate(actor, n.State, n.Source.Kind); err != nil {
+		return Todo{}, err
+	}
+
+	if err := checkText(n.Title, n.Notes, n.DoneWhen); err != nil {
+		return Todo{}, err
+	}
+
+	due, err := dueRow(n.Due)
+	if err != nil {
+		return Todo{}, err
+	}
+
+	if err := checkSource(n.Source); err != nil {
+		return Todo{}, err
+	}
+
+	if utf8.RuneCountInString(n.IdempotencyKey) > MaxKey {
+		return Todo{}, fmt.Errorf("%w: an idempotency key is at most %d characters", storeerr.ErrInvalid, MaxKey)
+	}
+
+	ref, err := optionalJSON(n.Source.Ref)
+	if err != nil {
+		return Todo{}, err
+	}
+
+	hash, err := requestHash(actor, n)
+	if err != nil {
+		return Todo{}, err
+	}
+
+	var id string
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		if n.IdempotencyKey != "" {
+			first, err := q.GetTodoByIdempotencyKey(ctx, nullString(n.IdempotencyKey))
+
+			switch {
+			case err == nil && first.IdempotencyHash.String == hash:
+				id = first.ID
+
+				return nil
+			case err == nil:
+				return fmt.Errorf("%w: the idempotency key %q was used for another request", storeerr.ErrConflict,
+					n.IdempotencyKey)
+			case !errors.Is(err, sql.ErrNoRows):
+				return fmt.Errorf("reading the to-do of the idempotency key: %w", err)
+			}
+		}
+
+		if err := checkAssignee(ctx, q, n.Assignee); err != nil {
+			return err
+		}
+
+		id = s.newID("tdo")
+		if err := q.InsertTodo(ctx, store.InsertTodoParams{
+			ID: id, Title: n.Title, Notes: n.Notes, DoneWhen: n.DoneWhen,
+			DueKind: due.kind, DueDate: due.date, DueZone: due.zone, DueAt: due.at, OverdueAt: due.overdueAt,
+			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, State: n.State,
+			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceQuote: n.Source.Quote, SourceRef: ref,
+			CreatedByKind: actor.Kind, CreatedBy: actor.ID,
+			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
+			Now: now,
+		}); err != nil {
+			return fmt.Errorf("adding the to-do: %w", err)
+		}
+
+		row, err := q.GetTodo(ctx, id)
+		if err != nil {
+			return fmt.Errorf("reading the to-do added: %w", err)
+		}
+
+		return addEvent(ctx, q, row.ID, now, 1, actor, EventCreated, map[string]any{}, fields(row))
+	})
+	if err != nil {
+		return Todo{}, err
+	}
+
+	return s.get(ctx, s.read(), id)
+}
+
+// mayCreate is the creation rows of the transitions (issue #845): the owner adds open items by hand; a Bot adds
+// open items in a chat with the owner and proposed ones in a Routine's run (Plane's intake: what is found waits as
+// pending, what the owner asked for is an issue).
+func mayCreate(actor Actor, state, source string) error {
+	switch {
+	case state != Open && state != Proposed:
+		return fmt.Errorf("%w: a to-do starts open or proposed", storeerr.ErrInvalid)
+	case !slices.Contains([]string{ByHand, FromChat, FromRoutine}, source):
+		return fmt.Errorf("%w: unknown source %q", storeerr.ErrInvalid, source)
+	case actor.Kind == Owner && state == Open && source == ByHand:
+		return nil
+	case actor.Kind == Bot && state == Open && source == FromChat:
+		return nil
+	case actor.Kind == Bot && state == Proposed && source == FromRoutine:
+		return nil
+	}
+
+	return fmt.Errorf("%w: a %s cannot add a %s to-do from %s", storeerr.ErrForbidden, actor.Kind, state, source)
+}
+
+func checkActor(a Actor) error {
+	switch {
+	case a.Kind == Bot && a.ID == "":
+		return fmt.Errorf("%w: a Bot acts by its id", storeerr.ErrInvalid)
+	case a.Kind == Owner || a.Kind == Bot || a.Kind == System:
+		return nil
+	}
+
+	return fmt.Errorf("%w: unknown actor %q", storeerr.ErrInvalid, a.Kind)
+}
+
+func checkText(title, notes, doneWhen string) error {
+	switch {
+	case title == "" || utf8.RuneCountInString(title) > MaxTitle:
+		return fmt.Errorf("%w: a title is 1 to %d characters", storeerr.ErrInvalid, MaxTitle)
+	case utf8.RuneCountInString(notes) > MaxNotes:
+		return fmt.Errorf("%w: notes are at most %d characters", storeerr.ErrInvalid, MaxNotes)
+	case utf8.RuneCountInString(doneWhen) > MaxDoneWhen:
+		return fmt.Errorf("%w: done-when is at most %d characters", storeerr.ErrInvalid, MaxDoneWhen)
+	}
+
+	return nil
+}
+
+func checkSource(src Source) error {
+	switch {
+	case src.Kind == ByHand && src.ID != "":
+		return fmt.Errorf("%w: a to-do written by hand names no chat or run", storeerr.ErrInvalid)
+	case src.Kind != ByHand && (src.ID == "" || len(src.ID) > MaxID):
+		return fmt.Errorf("%w: a to-do from a %s names it", storeerr.ErrInvalid, src.Kind)
+	case utf8.RuneCountInString(src.Quote) > MaxQuote:
+		return fmt.Errorf("%w: a quote is at most %d characters", storeerr.ErrInvalid, MaxQuote)
+	case src.Ref != nil:
+		return checkLink(*src.Ref)
+	}
+
+	return nil
+}
+
+func checkLink(l Link) error {
+	switch {
+	case !slices.Contains(linkKinds, l.Kind):
+		return fmt.Errorf("%w: a link is one of %s, not %q", storeerr.ErrInvalid, strings.Join(linkKinds, ", "),
+			l.Kind)
+	case l.Ref == "" || utf8.RuneCountInString(l.Ref) > MaxRef:
+		return fmt.Errorf("%w: a link's reference is 1 to %d characters", storeerr.ErrInvalid, MaxRef)
+	case utf8.RuneCountInString(l.Label) > MaxLabel:
+		return fmt.Errorf("%w: a link's label is at most %d characters", storeerr.ErrInvalid, MaxLabel)
+	}
+
+	return nil
+}
+
+func checkEvidence(links []Link) error {
+	if len(links) > MaxEvidence {
+		return fmt.Errorf("%w: at most %d pieces of evidence", storeerr.ErrInvalid, MaxEvidence)
+	}
+
+	for _, l := range links {
+		if err := checkLink(l); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkAssignee checks who does it; a Bot must exist.
+func checkAssignee(ctx context.Context, q *store.Queries, a Assignee) error {
+	switch a.Kind {
+	case Me, Unknown:
+		if a.Name != "" {
+			return fmt.Errorf("%w: %s names no one", storeerr.ErrInvalid, a.Kind)
+		}
+
+		return nil
+	case Person:
+		if a.Name == "" || utf8.RuneCountInString(a.Name) > MaxName {
+			return fmt.Errorf("%w: a person's name is 1 to %d characters", storeerr.ErrInvalid, MaxName)
+		}
+
+		return nil
+	case ABot:
+		if _, err := q.GetBot(ctx, a.Name); err != nil {
+			return storeutil.NotFound(err, "Bot", a.Name)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: unknown assignee %q", storeerr.ErrInvalid, a.Kind)
+}
+
+// dueColumns is a Due as stored.
+type dueColumns struct {
+	kind          string
+	date, zone    sql.NullString
+	at, overdueAt sql.NullInt64
+}
+
+// dueRow checks a Due and gives its columns. A date's first moment in its zone orders it and the next day's makes it
+// overdue; neither is shown as a time.
+func dueRow(d Due) (dueColumns, error) {
+	switch d.Kind {
+	case DueNone, DueUnknown, "":
+		if d.Date != "" || !d.At.IsZero() || d.Zone != "" {
+			return dueColumns{}, fmt.Errorf("%w: a to-do without a due date has no date, time or zone",
+				storeerr.ErrInvalid)
+		}
+
+		kind := d.Kind
+		if kind == "" {
+			kind = DueNone
+		}
+
+		return dueColumns{kind: kind}, nil
+	case DueDate, DueInstant:
+	default:
+		return dueColumns{}, fmt.Errorf("%w: unknown due %q", storeerr.ErrInvalid, d.Kind)
+	}
+
+	loc, err := time.LoadLocation(d.Zone)
+	if err != nil || d.Zone == "" || d.Zone == "Local" {
+		return dueColumns{}, fmt.Errorf("%w: %q is not an IANA time zone", storeerr.ErrInvalid, d.Zone)
+	}
+
+	if d.Kind == DueInstant {
+		if d.At.IsZero() || d.Date != "" {
+			return dueColumns{}, fmt.Errorf("%w: a due moment has its time and no date", storeerr.ErrInvalid)
+		}
+
+		at := sql.NullInt64{Int64: d.At.UnixMilli(), Valid: true}
+
+		return dueColumns{kind: DueInstant, zone: nullString(d.Zone), at: at, overdueAt: at}, nil
+	}
+
+	day, err := time.ParseInLocation(time.DateOnly, d.Date, loc)
+	if err != nil || !d.At.IsZero() {
+		return dueColumns{}, fmt.Errorf("%w: a due date is YYYY-MM-DD, without a time", storeerr.ErrInvalid)
+	}
+
+	next := time.Date(day.Year(), day.Month(), day.Day()+1, 0, 0, 0, 0, loc)
+
+	return dueColumns{
+		kind: DueDate, date: nullString(d.Date), zone: nullString(d.Zone),
+		at:        sql.NullInt64{Int64: day.UnixMilli(), Valid: true},
+		overdueAt: sql.NullInt64{Int64: next.UnixMilli(), Valid: true},
+	}, nil
+}
+
+// requestHash is the hash of a create's request and who made it, kept with its idempotency key.
+func requestHash(actor Actor, n NewTodo) (string, error) {
+	n.IdempotencyKey = ""
+
+	b, err := json.Marshal(struct {
+		Actor Actor
+		New   NewTodo
+	}{actor, n})
+	if err != nil {
+		return "", fmt.Errorf("hashing the request: %w", err)
+	}
+
+	sum := sha256.Sum256(b)
+
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func keyed(key, hash string) string {
+	if key == "" {
+		return ""
+	}
+
+	return hash
+}
+
+// Get returns a to-do with its latest MaxEvents events, oldest first.
+func (s *Store) Get(ctx context.Context, id string) (Todo, error) {
+	return s.get(ctx, s.read(), id)
+}
+
+func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, error) {
+	row, err := q.GetTodo(ctx, id)
+	if err != nil {
+		return Todo{}, storeutil.NotFound(err, "to-do", id)
+	}
+
+	t, err := fromRow(row)
+	if err != nil {
+		return Todo{}, err
+	}
+
+	rows, err := q.ListTodoEvents(ctx, store.ListTodoEventsParams{TodoID: id, Lim: MaxEvents})
+	if err != nil {
+		return Todo{}, fmt.Errorf("reading the history of to-do %s: %w", id, err)
+	}
+
+	t.Events = make([]Event, 0, len(rows))
+	for _, r := range slices.Backward(rows) {
+		t.Events = append(t.Events, Event{
+			ID: r.ID, At: storeutil.Millis(r.At), Revision: int(r.Revision), Actor: Actor{Kind: r.ActorKind, ID: r.Actor},
+			Kind: r.Kind, Before: json.RawMessage(r.Before), After: json.RawMessage(r.After),
+		})
+	}
+
+	return t, nil
+}
+
+// Filter is which to-dos List returns and counts.
+type Filter struct {
+	// States are the states listed; none means every state that is not closed, or every state WithClosed.
+	States     []string
+	WithClosed bool
+	// Assignee, when given, lists only the items of that assignee.
+	Assignee *Assignee
+	// SourceKind, when given, lists only the items from that kind of source.
+	SourceKind string
+	// DueFrom and DueTo, when given, list only items due in [DueFrom, DueTo); a date is due from its first moment.
+	DueFrom, DueTo time.Time
+	// WithSnoozed lists snoozed items too.
+	WithSnoozed bool
+	// NeedsYou lists only the items NeedsYou counts.
+	NeedsYou bool
+}
+
+// Page is one page of List.
+type Page struct {
+	Items []Todo
+	// Total is how many items match the filter, every page together.
+	Total int
+	// Next is the cursor of the next page; empty on the last.
+	Next string
+}
+
+// List returns one page of the to-dos the filter matches, by due (those without one last), then created, after the
+// cursor of the previous page; limit is 1 to MaxPage, 0 for MaxPage.
+func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (Page, error) {
+	if limit == 0 {
+		limit = MaxPage
+	}
+
+	if limit < 0 || limit > MaxPage {
+		return Page{}, fmt.Errorf("%w: a page holds 1 to %d to-dos", storeerr.ErrInvalid, MaxPage)
+	}
+
+	cnt, err := s.filterParams(f)
+	if err != nil {
+		return Page{}, err
+	}
+
+	p := store.ListTodosParams{
+		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
+		SourceKind: cnt.SourceKind, DueFrom: cnt.DueFrom, DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed,
+		Now: cnt.Now, NeedsYou: cnt.NeedsYou, Lim: int64(limit) + 1,
+	}
+
+	if cursor != "" {
+		p.HasCursor = 1
+		if p.CursorDue, p.CursorAt, p.CursorID, err = decodeCursor(cursor); err != nil {
+			return Page{}, err
+		}
+	}
+
+	q := s.read()
+
+	rows, err := q.ListTodos(ctx, p)
+	if err != nil {
+		return Page{}, fmt.Errorf("listing the to-dos: %w", err)
+	}
+
+	total, err := q.CountTodos(ctx, cnt)
+	if err != nil {
+		return Page{}, fmt.Errorf("counting the to-dos: %w", err)
+	}
+
+	page := Page{Items: make([]Todo, 0, min(len(rows), limit)), Total: int(total)}
+
+	for i, row := range rows {
+		if i == limit {
+			last := rows[limit-1]
+			page.Next = encodeCursor(last)
+
+			break
+		}
+
+		t, err := fromRow(row)
+		if err != nil {
+			return Page{}, err
+		}
+
+		page.Items = append(page.Items, t)
+	}
+
+	return page, nil
+}
+
+// NeedsYou is how many distinct to-dos need the owner at now: not closed, not snoozed, and proposed, or in review
+// with a pending Approval, or his own and overdue. List's NeedsYou filter is the same predicate.
+func (s *Store) NeedsYou(ctx context.Context, now time.Time) (int, error) {
+	n, err := s.read().CountTodos(ctx, store.CountTodosParams{AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1})
+	if err != nil {
+		return 0, fmt.Errorf("counting the to-dos that need the owner: %w", err)
+	}
+
+	return int(n), nil
+}
+
+func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
+	p := store.CountTodosParams{Now: s.clock.Now().UnixMilli(), States: "[]"}
+
+	states := f.States
+	if len(states) == 0 && !f.WithClosed {
+		states = []string{Proposed, Open, Doing, Review}
+	}
+
+	if len(states) == 0 {
+		p.AnyState = 1
+	}
+
+	for _, st := range states {
+		if !slices.Contains([]string{Proposed, Open, Doing, Review, Done, Dropped, Duplicate}, st) {
+			return p, fmt.Errorf("%w: unknown state %q", storeerr.ErrInvalid, st)
+		}
+	}
+
+	b, err := json.Marshal(states)
+	if err != nil {
+		return p, fmt.Errorf("listing the states: %w", err)
+	}
+
+	p.States = string(b)
+
+	if f.Assignee != nil {
+		if !slices.Contains([]string{Me, Person, ABot, Unknown}, f.Assignee.Kind) {
+			return p, fmt.Errorf("%w: unknown assignee %q", storeerr.ErrInvalid, f.Assignee.Kind)
+		}
+
+		p.AssigneeKind, p.Assignee = f.Assignee.Kind, f.Assignee.Name
+	}
+
+	p.SourceKind = f.SourceKind
+
+	if !f.DueFrom.IsZero() {
+		p.DueFrom = f.DueFrom.UnixMilli()
+	}
+
+	if !f.DueTo.IsZero() {
+		p.DueTo = f.DueTo.UnixMilli()
+	}
+
+	if f.WithSnoozed {
+		p.WithSnoozed = 1
+	}
+
+	if f.NeedsYou {
+		p.NeedsYou = 1
+	}
+
+	return p, nil
+}
+
+// noDue orders the items without a due after every other, as the queries' coalesce does.
+const noDue = int64(9223372036854775807)
+
+func encodeCursor(r store.Todo) string {
+	due := noDue
+	if r.DueAt.Valid {
+		due = r.DueAt.Int64
+	}
+
+	raw := strconv.FormatInt(due, 10) + "|" + strconv.FormatInt(r.CreatedAt, 10) + "|" + r.ID
+
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func decodeCursor(c string) (due, at int64, id string, err error) {
+	bad := fmt.Errorf("%w: the cursor is not one List gave", storeerr.ErrInvalid)
+
+	raw, err := base64.RawURLEncoding.DecodeString(c)
+	if err != nil {
+		return 0, 0, "", bad
+	}
+
+	parts := strings.SplitN(string(raw), "|", 3)
+	if len(parts) != 3 {
+		return 0, 0, "", bad
+	}
+
+	due, err1 := strconv.ParseInt(parts[0], 10, 64)
+	at, err2 := strconv.ParseInt(parts[1], 10, 64)
+
+	if err1 != nil || err2 != nil || parts[2] == "" {
+		return 0, 0, "", bad
+	}
+
+	return due, at, parts[2], nil
+}
+
+// fromRow is a stored to-do.
+func fromRow(r store.Todo) (Todo, error) {
+	t := Todo{
+		ID: r.ID, Revision: int(r.Revision), Title: r.Title, Notes: r.Notes, DoneWhen: r.DoneWhen,
+		Due:          Due{Kind: r.DueKind, Date: r.DueDate.String, Zone: r.DueZone.String},
+		Assignee:     Assignee{Kind: r.AssigneeKind, Name: r.Assignee},
+		State:        r.State,
+		SnoozedUntil: storeutil.OptionalMillis(r.SnoozedUntil),
+		Source:       Source{Kind: r.SourceKind, ID: r.SourceID, Quote: r.SourceQuote},
+		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy},
+		ApprovalID:   r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
+		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String,
+		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
+	}
+
+	if r.DueKind == DueInstant {
+		t.Due.At = storeutil.Millis(r.DueAt.Int64)
+	}
+
+	if r.WorkKind.Valid {
+		t.Work = &Work{Kind: r.WorkKind.String, ID: r.WorkID.String}
+	}
+
+	if r.DoneByKind.Valid {
+		t.DoneBy = &Assignee{Kind: r.DoneByKind.String, Name: r.DoneBy.String}
+	}
+
+	if r.RecordedByKind.Valid {
+		t.RecordedBy = &Actor{Kind: r.RecordedByKind.String, ID: r.RecordedBy.String}
+	}
+
+	if r.SourceRef.Valid {
+		var ref Link
+		if err := json.Unmarshal([]byte(r.SourceRef.String), &ref); err != nil {
+			return Todo{}, fmt.Errorf("reading the source of to-do %s: %w", r.ID, err)
+		}
+
+		t.Source.Ref = &ref
+	}
+
+	if err := json.Unmarshal([]byte(r.Evidence), &t.Evidence); err != nil {
+		return Todo{}, fmt.Errorf("reading the evidence of to-do %s: %w", r.ID, err)
+	}
+
+	return t, nil
+}
+
+func nullString(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }
+
+func optionalJSON(v *Link) (sql.NullString, error) {
+	if v == nil {
+		return sql.NullString{}, nil
+	}
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("writing the link: %w", err)
+	}
+
+	return sql.NullString{String: string(b), Valid: true}, nil
+}
