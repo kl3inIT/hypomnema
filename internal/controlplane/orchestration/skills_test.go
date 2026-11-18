@@ -449,6 +449,10 @@ func TestAGuideGoesOnlyToAnAgentThatMayUseItsIntegration(t *testing.T) {
 	phone, _, err := w.s.AddNode(ctx, "phone", 1)
 	require.NoError(t, err)
 	require.NoError(t, w.s.NodeHello(ctx, phone.ID, Hello{WorktreeRoot: "/srv/wt", Device: DeviceAndroid}))
+	assert.Equal(t, []string{"pdf", "superset"}, names(offered(w.dispatch(taskOf(withSuperset())))))
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
+		"model: {provider: model-gateway}\ntools: [phone]\n")
+	require.NoError(t, err)
 	assert.Equal(t, []string{"android-device", "pdf", "superset"}, names(offered(w.dispatch(taskOf(withSuperset())))))
 
 	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
@@ -456,7 +460,10 @@ func TestAGuideGoesOnlyToAnAgentThatMayUseItsIntegration(t *testing.T) {
 
 	given, err := w.s.BotSkills(ctx, vmapBot.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"android-device", "pdf"}, names(given), "superset:vmaps is not on for chats")
+	assert.Equal(t, []string{"pdf"}, names(given), "phone is off and superset:vmaps is not on for chats")
+	vmapBot.Tools = []string{"phone"}
+	_, err = w.s.PutBot(ctx, vmapBot)
+	require.NoError(t, err)
 
 	_, err = w.s.SetConnectionChats(ctx, "superset", "vmaps", true)
 	require.NoError(t, err)
@@ -475,7 +482,7 @@ func TestAGuideGoesOnlyToAnAgentThatMayUseItsIntegration(t *testing.T) {
 
 	given, err = w.s.BotSkills(ctx, narrow.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"android-device", "pdf"}, names(given), "superset:vmaps is not on its list")
+	assert.Equal(t, []string{"pdf"}, names(given), "superset:vmaps is not on its list and phone is off")
 }
 
 // Scenario: the gitlab guide requires the kind gitlab, not a host (issue #740): a Bot gets it while it may use a

@@ -581,7 +581,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			imageSettings{Service: gateway, server: gatewayServer}).
 		WithAudio(botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
 			audioSettings{Service: gateway, speech: voice}).
-		WithBotTools(agents.BotTools)
+		WithBotTools(agents.BotTools).WithToolUnavailability(agents.ToolUnavailability)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
 	}

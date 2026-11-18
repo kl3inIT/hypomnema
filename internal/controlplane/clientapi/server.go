@@ -92,7 +92,8 @@ type Server struct {
 	audio         Audio
 	audioSettings AudioSettings
 	// botTools are the tools a Bot's pi gets in any chat (issue #723, agentapi.Server.BotTools); nil gives none.
-	botTools func(ctx context.Context, bot orchestration.Bot) []string
+	botTools           func(ctx context.Context, bot orchestration.Bot) []string
+	toolUnavailability func(context.Context, string) map[string]string
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
 	// shareGuesses counts unknown link tokens per address (issue #745), as logins counts wrong passwords.

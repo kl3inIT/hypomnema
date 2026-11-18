@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import { CircleAlert, Trash2 } from "lucide-react"
 
+import type { SkillAccess } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import {
@@ -28,12 +29,14 @@ export function SkillsField({
   id,
   skills,
   off,
+  access,
   onChange,
   description,
 }: {
   id: string
   skills: string[]
   off: string[]
+  access?: SkillAccess[]
   onChange: (change: { skills?: string[]; skillsOff?: string[] }) => void
   description: string
 }) {
@@ -41,6 +44,9 @@ export function SkillsField({
   const everyone = all.filter((s) => s.everyone)
   const free = pickable(all, skills)
   const described = new Map(all.map((s) => [s.name, s.latest.description]))
+  const missing = new Map(
+    access?.filter((skill) => skill.missing).map((skill) => [skill.name, skill.reason]),
+  )
 
   return (
     <Field>
@@ -66,6 +72,11 @@ export function SkillsField({
                   <span className="block truncate text-xs text-muted-foreground">
                     {s.latest.description}
                   </span>
+                  {missing.has(s.name) && (
+                    <span className="block text-xs text-muted-foreground">
+                      Missing: {missing.get(s.name)}
+                    </span>
+                  )}
                 </label>
                 <span className="shrink-0 text-xs text-muted-foreground">For everyone</span>
                 <Switch
@@ -95,6 +106,9 @@ export function SkillsField({
                   <p className="truncate text-xs text-muted-foreground">
                     {text ?? (all.length > 0 ? "No skill of this name any more." : "")}
                   </p>
+                  {missing.has(name) && (
+                    <p className="text-xs text-muted-foreground">Missing: {missing.get(name)}</p>
+                  )}
                 </div>
                 <Button
                   type="button"

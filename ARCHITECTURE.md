@@ -1441,7 +1441,8 @@ flowchart LR
     requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
     the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
     the owner's own sign-in among them, read as `hypomnema-pi` syncs its skills when pi starts for a
-    chat); both have the phone while a node holds one.
+    chat); either has the phone only while a node holds one and its effective tools include the phone family.
+    A worker's offer uses the same check, including for nodes that still write their own guide.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -1465,7 +1466,7 @@ flowchart LR
     every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
     guide once, from the node, until the node takes the release that leaves them to the store. The control plane
     keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
-  - Tools are switched the same way, `tools` and `tools_off` beside the skills (see "Tool switches" under "An
+  - Tools use a preset and exceptions beside the skills (see "Tool switches" under "An
     agent's tools").
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
@@ -3816,29 +3817,31 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web`, `hypomnema image` and `hypomnema audio` are.
 
-Tool switches (issue #536, step 7; #492, row 10; `internal/shared/agenttool/switches.go`, migration 00091): a
-profile's YAML and a Bot narrow the table above with two lists beside their skills, `tools: [...]` (only these;
-empty or left out, every tool the agent kind gets) and `tools_off: [...]` (never these; it wins), as OpenClaw's
-agent has `tools.allow` and `tools.deny` (`docs/gateway/config-tools/tool-policy.md`) and OpenMausBot's bot an Allow
-and an Exclude list (`docs/tool-selection.md`).
+Tool switches (issue #875, [research](docs/research/2026-11-18-tool-presets.md), `internal/shared/agenttool/switches.go`):
+a profile version and a Bot use `preset: full` by default (every family except phone) or `preset: report` (memory,
+artifacts, routines, web and Superset), then `tools` adds and `tools_off` removes; removal wins. A preset or addition
+does not give an agent a tool its kind cannot have or a Connection it cannot use. The migration converts the old
+allowlists to exceptions to `full` so existing access stays the same; unused bootstrap settings start at the default.
 
-- An entry is a tool's name or a family, the start of a name and one `*` at the end (`agent_browser_*`,
+- An entry is a tool name, a family name (`phone`), or the start of a name and one `*` at the end (`agent_browser_*`,
   `superset_*`, `whatsapp_*`, `device_*`, `web_*`, `node_*`; `*` alone is every tool), after OpenClaw's `*` wildcards and
   OpenMausBot's whole-server `mcp:mail:*`; a `*` elsewhere is refused. Each must name at least one of the control
-  plane's tools and be named once, in one list, or the profile or Bot is refused (`400`), as an unknown skill is.
+  plane's tools and appear once at most per list, or the profile or Bot is refused (`400`).
   `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).
 - Enforced where the tools are listed and again on every call: `/agent/v1/tools` and `/agent/v1/tools/call`, and
   the older routes (browser, phone, gateway, `/agent/v1/memory`). A tool switched off is left out of the list and its
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
-  gateway. A worker's switches are its Dispatch's profile version's, read at each call (a new version reaches the
-  next Dispatch, as skills do); a Bot's pi's are its Bot's, read at each call, so a change reaches a running pi at
-  its next call. The owner's token, the coordinator token and a Routine's script have no switches (no MCP).
+  gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
+  its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
+  reaches its running pi and workers at their next call. The owner's token, the coordinator token and a Routine's
+  script have no switches (no MCP).
 - Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
   `finish`) are not switched here.
-- Set with `profiles apply` (YAML), `bots set --tools a,b --tools-off c` (a change that names neither keeps them),
-  the main Bot from its chat (recorded and undone as its other changes), and the web's agent and Bot forms: a row per
-  family with a switch, which writes the family in `tools_off`; a list of only some tools or a single tool off is
-  set in the YAML or the CLI, shown under the rows and kept on save.
+- Set with `profiles apply` (YAML), `bots set --preset report --tools phone --tools-off web_fetch`, or the web's
+  profile and Bot forms. A Bot update that leaves out a setting keeps it. The detail API and the forms show saved
+  state per family and tool (`off`, `on` when a Run must supply something, `unavailable`, or `available`), its
+  reason and source, and which skill requirements are missing. A profile's view does not assume any Run or Bot;
+  its editable YAML uses the effective migrated settings without rewriting the original stored source.
 
 Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
 [research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's

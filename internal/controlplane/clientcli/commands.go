@@ -441,8 +441,8 @@ var commands = []command{
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
 			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
-			fs.String("tools", "", "only these Hypomnema tools, names or families (agent_browser_*) separated by "+
-				"commas; \"\" for every one")
+			fs.String("preset", "", "tool family preset: full (default) or report")
+			fs.String("tools", "", "additional Hypomnema tools or families, separated by commas; \"\" for none")
 			fs.String("tools-off", "", "the Hypomnema tools the bot does not get, names or families separated by commas; "+
 				"\"\" for none")
 			fs.String("connections", "", "only these connections, integration:label separated by commas; \"\" for none")

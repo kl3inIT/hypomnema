@@ -194,15 +194,16 @@ func (p *filmingPhone) dropped() []string {
 
 // filmRig is a control plane that keeps takes, with a node that films.
 type filmRig struct {
-	t      *testing.T
-	srv    *httptest.Server
-	svc    *orchestration.Service
-	store  *takes.Store
-	held   *filmingPhone
-	node   orchestration.Node
-	worker string
-	owner  string
-	agent  string
+	t        *testing.T
+	srv      *httptest.Server
+	svc      *orchestration.Service
+	store    *takes.Store
+	held     *filmingPhone
+	node     orchestration.Node
+	worker   string
+	dispatch string
+	owner    string
+	agent    string
 	// nodeToken is the node's own token.
 	nodeToken string
 }
@@ -265,8 +266,7 @@ func newFilmRig(t *testing.T, held *filmingPhone, store *takes.Store) *filmRig {
 		return !errors.Is(err, orchestration.ErrUnavailable)
 	}, wait, 20*time.Millisecond)
 
-	worker, err := svc.AddAgentSession(t.Context(), "dsp_1", nil)
-	require.NoError(t, err)
+	worker, dispatch := phoneDispatch(t, svc)
 
 	_, owner, err := svc.AddToken(t.Context(), "owner", bearertoken.Owner)
 	require.NoError(t, err)
@@ -274,8 +274,8 @@ func newFilmRig(t *testing.T, held *filmingPhone, store *takes.Store) *filmRig {
 	_, coordinator, err := svc.AddToken(t.Context(), "coordinator", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	return &filmRig{t: t, srv: srv, svc: svc, store: store, held: held, node: n, worker: worker, owner: owner,
-		agent: coordinator, nodeToken: token}
+	return &filmRig{t: t, srv: srv, svc: svc, store: store, held: held, node: n, worker: worker, dispatch: dispatch,
+		owner: owner, agent: coordinator, nodeToken: token}
 }
 
 // ownerTakes are the store as the owner deletes takes.
@@ -393,7 +393,7 @@ func TestAWorkerFilmsATakeTheOwnerWatches(t *testing.T) {
 	_, failed = r.tool(devicetool.Location, `{"latitude":21.0285,"longitude":105.8542}`)
 	require.False(t, failed)
 	r.held.mu.Lock()
-	assert.Contains(t, r.held.calls, `d-dsp_1 device_location {"latitude":21.0285,"longitude":105.8542}`)
+	assert.Contains(t, r.held.calls, `d-`+r.dispatch+` device_location {"latitude":21.0285,"longitude":105.8542}`)
 	r.held.mu.Unlock()
 
 	status, _, body := r.api(r.owner, http.MethodGet, "/takes/"+id, nil)
