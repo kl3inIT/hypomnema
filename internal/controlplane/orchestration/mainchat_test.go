@@ -62,7 +62,8 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 			VALUES ('rrn_a', 'rtn_a', 'schedule', 'running', 9000, 'cht_routine')`,
 		`INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, ended_at, output)
 			VALUES ('rrn_b', 'rtn_b', 'schedule', 'succeeded', 9000, 9001, 'done')`,
-		msgRow("cht_web", "owner", "", "the health page", "NULL", 2000) + `, '[{"name":"a.png","path":"attachments/cht_web/a.png","size":1}]')`,
+		msgRow("cht_web", "owner", "", "the health page", "NULL", 2000) +
+			`, '[{"name":"a.png","path":"attachments/cht_web/a.png","size":1}]')`,
 		msgRow("cht_web", "owner", "", "and its test", "NULL", 2500) + `, NULL)`,
 		msgRow("cht_cli", "owner", "", "from the terminal", "NULL", 2900) + `, NULL)`,
 		msgRow("cht_dm_owner", "owner", "", "from my Lark", "NULL", 9500) + `, NULL)`,

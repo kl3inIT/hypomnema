@@ -81,29 +81,22 @@ func TestNewChatAndTheCLIAtOnceEndInOneMainChat(t *testing.T) {
 		id := "cht_" + strings.Repeat("b", 26)
 
 		var (
-			wg  sync.WaitGroup
-			cli string
+			wg     sync.WaitGroup
+			web    *openapi.CreateChatResponse
+			cli    *openapi.OpenMainChatResponse
+			webErr error
+			cliErr error
 		)
 
-		wg.Go(func() {
-			r, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id})
-			assert.NoError(t, err)
-			assert.NotNil(t, r.JSON201)
-		})
-		wg.Go(func() {
-			r, err := owner.OpenMainChatWithResponse(ctx, openapi.MainChatRequest{})
-			assert.NoError(t, err)
-
-			if r.JSON200 != nil {
-				cli = r.JSON200.Id
-			} else if assert.NotNil(t, r.JSON201) {
-				cli = r.JSON201.Id
-			}
-		})
+		wg.Go(func() { web, webErr = owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id}) })
+		wg.Go(func() { cli, cliErr = owner.OpenMainChatWithResponse(ctx, openapi.MainChatRequest{}) })
 		wg.Wait()
 
+		require.NoError(t, webErr)
+		require.NoError(t, cliErr)
+		require.NotNil(t, web.JSON201, "%s", web.Body)
+		assert.True(t, cli.JSON200 != nil || cli.JSON201 != nil, "%s", cli.Body)
 		assert.Equal(t, id, mainChat(t, owner, orchestration.DefaultBotID))
-		assert.NotEmpty(t, cli)
 	}
 }
 
