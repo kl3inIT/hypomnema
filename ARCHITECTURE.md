@@ -2942,12 +2942,19 @@ capabilities do not exist yet.
     `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only the token of that chat's pi gets it: a chat's id
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
-    `hypomnema pi-models`: one provider of pi, `hypomnema`, with every model the gateway serves (issue #549), each
+    `hypomnema pi-models`: the provider `hypomnema` has every model the gateway serves (issue #549), each
     under its gateway name and with its subscription's wire: `anthropic-messages` at the gateway's root for a
     Claude subscription's model, `openai-responses` at `/v1` for a Codex subscription's, OpenAI chat for the rest
     (measured on zm on 2026-11-15: a Claude turn is about a fifth smaller on Messages with the same cache, and
     Codex's cache is the same on Responses). The supervisor gives pi `--provider hypomnema` and the gateway name,
-    and makes the chat's key for that name. A Bot that names no model runs on Claude Opus 5.5 under the Claude
+    and makes the chat's key for that name. A Bot with an explicit gateway model can also have up to five ordered
+    gateway fallbacks (`bots.fallbacks`, migration 00122, issue #870), set on its page or with `bots set --fallbacks`
+    and shown by `bots show`. A chat using that Bot's model uses the `hypomnema-fallback` provider in `models.json`,
+    which speaks Chat Completions so the gateway can switch vendors without replaying the turn. It tries the
+    model's own targets and accounts first; when all are resting or refuse access, it tries the Bot's backups in
+    order before sending an answer. The key still only accepts requests for the primary model, and usage records
+    the model that served it. A chat that chooses its own model keeps its own wire and does not use the Bot's
+    fallbacks. A Bot that names no model runs on Claude Opus 5.5 under the Claude
     subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
     `defaultProvider` and `defaultModel` when the gateway serves it, and the pages call it "Default (Claude Opus
     5.5)"; without it pi takes the first model it is given. An omp worker is given the same wire for its model, as the offer's
@@ -4184,11 +4191,12 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
   standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only in the first round; findings that make a change incorrect are reported with an offer to send them
-  to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
+  the spec only in the first round; findings that make a change incorrect are sent to the change's worker as a
+  follow-up without asking the owner (issue #871; owner, 2026-11-18), and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
-  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; a review first reads
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
+  and the owner told in one line, with no question; a review first reads
   what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
   so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which

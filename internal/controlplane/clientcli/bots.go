@@ -54,6 +54,9 @@ func memoryEntries(b openapi.Bot) []string {
 func printBot(e *env, b *openapi.Bot) {
 	e.printf("%s\t%s\t%s\tmemory %d/%d\n", b.Id, botLabel(*b), botModel(*b), utf8.RuneCountInString(b.Memory),
 		b.MemoryLimit)
+	if len(b.Fallbacks) > 0 {
+		e.printf("fallbacks: %s\n", strings.Join(b.Fallbacks, ", "))
+	}
 
 	if len(b.Skills) > 0 {
 		e.printf("skills: %s\n", strings.Join(b.Skills, ", "))
@@ -355,6 +358,8 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			set.Provider = &v
 		case "model":
 			set.Model = &v
+		case "fallbacks":
+			set.Fallbacks = list(v)
 		case "effort":
 			set.Effort = &v
 		case "skills":

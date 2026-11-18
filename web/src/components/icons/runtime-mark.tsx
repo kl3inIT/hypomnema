@@ -45,7 +45,7 @@ function PiMark({ className }: { className?: string }) {
 }
 
 // opencode's mark, from OpenMausBot's ProviderIcons.tsx as the three above.
-function OpenCodeMark({ className }: { className?: string }) {
+export function OpenCodeMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={cn("fill-foreground", className)} aria-hidden>
       <path fillRule="evenodd" d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
