@@ -158,7 +158,7 @@ func (s *signedIn) Import(ctx context.Context, runtime string, raw []byte, label
 // UseReset uses one of the account's resets as a vendor does: the same
 // request sent again uses no second one, an account with none is refused,
 // and the windows start again.
-func (s *signedIn) UseReset(_ context.Context, id, requestID string) (subscription.Limits, error) {
+func (s *signedIn) UseReset(_ context.Context, id, requestID, _ string) (subscription.Limits, error) {
 	if strings.ContainsAny(requestID, " !") {
 		return subscription.Limits{}, subscription.ErrBadResetRequest
 	}

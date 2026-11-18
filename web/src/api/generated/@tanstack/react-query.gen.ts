@@ -1921,7 +1921,7 @@ export const getAccountLimitsOptions = (options: Options<GetAccountLimitsData>) 
 /**
  * Use one of an account's limit resets, which starts its used-up limits again now; only the owner
  *
- * A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+ * A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
  */
 export const redeemAccountLimitResetMutation = (options?: Partial<Options<RedeemAccountLimitResetData>>): UseMutationOptions<RedeemAccountLimitResetResponse, RedeemAccountLimitResetError, Options<RedeemAccountLimitResetData>> => {
   const mutationOptions: UseMutationOptions<RedeemAccountLimitResetResponse, RedeemAccountLimitResetError, Options<RedeemAccountLimitResetData>> = {
