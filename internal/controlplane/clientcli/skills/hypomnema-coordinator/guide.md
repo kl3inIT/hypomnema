@@ -99,6 +99,15 @@ what a profile was called or did before.
   on the Dispatch): the new worker continues in the same worktree and is told to look at the files and at any
   pull request first. It is not handed off after a request to one of the owner's accounts was approved for it.
 
+- An escalation of kind `repeated_failure` says a Task's worker failed again for the same reason as its previous
+  failed attempt: its `reason` is the failure class (with the cause when the worker was lost), `count` how many
+  attempts in a row failed so, and `dispatches` which. Read the Task (`hypomnema tasks show <task_id> --json`) and
+  tell the owner the reason, the count and what the last attempt reported. Change nothing on your own: the Task is
+  retried as before, and whether to change its spec, profile or model is the owner's choice.
+- `hypomnema tasks show <task_id> --json` and `hypomnema runs show <run_id> --json` say what a Task or a Run used
+  (`usage`): the gateway's requests, tokens and cost at API prices, and the tokens a runtime outside the gateway
+  reported. Give it when the owner asks what work cost.
+
 ## Task specs
 
 A worker sees its spec, the repository and its branch; it does not see this conversation or the other Tasks, and

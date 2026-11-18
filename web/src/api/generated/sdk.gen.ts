@@ -1159,7 +1159,9 @@ export const revokeGatewayKey = <ThrowOnError extends boolean = true>(options: O
 });
 
 /**
- * What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+ * What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+ *
+ * 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
  */
 export const getGatewayUsage = <ThrowOnError extends boolean = true>(options: Options<GetGatewayUsageData, ThrowOnError>): RequestResult<GetGatewayUsageResponses, GetGatewayUsageErrors, ThrowOnError> => (options.client ?? client).get<GetGatewayUsageResponses, GetGatewayUsageErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

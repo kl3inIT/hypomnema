@@ -53,7 +53,9 @@ func (s *Server) GetGatewayUsage(ctx context.Context, req openapi.GetGatewayUsag
 		Totals:  toUsageCounts(report.Totals),
 		Buckets: make([]openapi.GatewayUsageBucket, 0, len(report.Buckets)),
 		ByModel: toUsageGroups(report.ByModel, nil), ByKey: s.nameKeyGroups(ctx, toUsageGroups(report.ByKey, nil)),
-		ByAccount: toUsageGroups(report.ByAccount, accounts),
+		ByAccount:  toUsageGroups(report.ByAccount, accounts),
+		ByProvider: toPerformance(report.ByProvider, nil), SpeedByAccount: toPerformance(report.SpeedByAccount, accounts),
+		Ledger: report.Ledger,
 	}
 
 	for _, b := range report.Buckets {
@@ -86,6 +88,14 @@ func (s *Server) ListGatewayRequests(ctx context.Context, req openapi.ListGatewa
 			Outcome: openapi.GatewayRequestOutcome(u.Outcome), Status: u.Status,
 			PromptTokens: u.Tokens.Prompt, CachedTokens: u.Tokens.Cached, CompletionTokens: u.Tokens.Completion,
 			ReasoningTokens: u.Tokens.Reasoning, Estimated: u.Tokens.Estimated, DurationMs: u.Duration.Milliseconds(),
+		}
+
+		if u.TTFT != nil {
+			item.TtftMs = ptr(u.TTFT.Milliseconds())
+		}
+
+		if tps, ok := u.TokensPerSecond(); ok {
+			item.TokensPerSecond = ptr(float32(tps))
 		}
 
 		if u.AccountID != "" {
@@ -147,7 +157,8 @@ func (s *Server) accountNames(ctx context.Context) map[string]accountName {
 }
 
 // The groups of the usage by key that are not one of the owner's keys (issue #626): every chat's keys of a Bot,
-// every worker's, and the chats' keys whose Bot is not known.
+// every worker's, and the chats' keys whose Bot is not known; and in a period read from the daily ledger, which
+// names no key, the owner's keys together (issue #856).
 const (
 	usageWorkers = "workers"
 	usageChats   = "chats"
@@ -170,6 +181,8 @@ func (s *Server) nameKeyGroups(ctx context.Context, groups []openapi.GatewayUsag
 			groups[i].Name = "Workers"
 		case g.Id == usageChats:
 			groups[i].Name = "Chats of a Bot not known"
+		case g.Id == modelgateway.CallerOwner && g.Name == "":
+			groups[i].Name = "Your keys"
 		case g.Name == "":
 			groups[i].Name = "Bot " + cmp.Or(bots[g.Id], g.Id)
 		}
@@ -196,6 +209,49 @@ func toUsageGroups(groups []modelgateway.UsageGroup, accounts map[string]account
 		if a, ok := accounts[g.ID]; ok {
 			runtime := a.runtime
 			item.Name, item.Runtime = a.label, &runtime
+		}
+
+		out = append(out, item)
+	}
+
+	return out
+}
+
+// toPerformance is the speed comparison, an account named by its label.
+func toPerformance(
+	groups []modelgateway.PerformanceGroup, accounts map[string]accountName,
+) []openapi.GatewayPerformance {
+	out := make([]openapi.GatewayPerformance, 0, len(groups))
+
+	ms := func(d *time.Duration) *int64 {
+		if d == nil {
+			return nil
+		}
+
+		return ptr(d.Milliseconds())
+	}
+
+	for _, g := range groups {
+		item := openapi.GatewayPerformance{
+			Provider: g.Provider, Model: g.Model, Requests: g.Requests, Ok: g.OK, Failed: g.Failed,
+			ClientGone: g.ClientGone, CostMicros: g.CostMicros, Exact: g.Exact,
+			TtftP50Ms: ms(g.TTFTP50), TtftP95Ms: ms(g.TTFTP95), LatencyP50Ms: ms(g.LatencyP50),
+			LatencyP95Ms: ms(g.LatencyP95), TtftAvgMs: ms(g.TTFTAvg), LatencyAvgMs: ms(g.LatencyAvg),
+		}
+
+		if rate, ok := g.SuccessRate(); ok {
+			item.SuccessRate = ptr(float32(rate))
+		}
+
+		if g.TokensPerSecond != nil {
+			item.TokensPerSecond = ptr(float32(*g.TokensPerSecond))
+		}
+
+		if g.AccountID != "" {
+			item.AccountId = ptr(g.AccountID)
+			if a, ok := accounts[g.AccountID]; ok {
+				item.AccountLabel, item.Runtime = ptr(a.label), ptr(a.runtime)
+			}
 		}
 
 		out = append(out, item)

@@ -292,6 +292,20 @@ sequenceDiagram
   breaker) with "Stopped after 3 identical errors: <tool>: <error>" as its summary (`dispatches.stalled_reason`),
   not `canceled`. A Task whose last two Dispatches failed with tool results and not one success fails at once,
   "Stopped after 2 attempts without a successful tool call", instead of being retried.
+- A Dispatch that settles `failed` with the same failure class as its Task's previous failed Dispatch, and the same
+  unknown cause when it was unknown (read from its status event, since settling clears the column), raises an
+  escalation of kind `repeated_failure` (issue [#856](https://github.com/kl3inIT/hypomnema/issues/856), after
+  OpenClaw's Workboard repeated failures and Hermes's `BLOCK_RECURRENCE_LIMIT = 2`): its `reason` is the class (with
+  `:<cause>`), `count` the failed Dispatches in a row for it and `dispatches` their ids, newest first. It wakes the
+  Run's chat as every escalation does; the Task's retries and the breaker go on unchanged.
+- What a Task and a Run used (issue #856): when a Dispatch settles, `dispatch_usage` (migration 00121) keeps the sums
+  of the model gateway's requests sent on its keys (`gateway_keys.dispatch_id`): requests, tokens, `cost_micros`
+  and `unpriced`, so they outlive the gateway's 31-day purge. `TaskUsage` and `RunUsage` add each Dispatch's from
+  the request rows while they are kept or from the kept sums, whichever counts more requests (a stream recorded after
+  the Dispatch settled still counts); a Dispatch that sent the gateway nothing adds the tokens its runtime reported
+  in its result, with no cost. `GET /tasks/{id}` and `GET /runs/{id}` (the Run and each of its Tasks) carry it as
+  `usage`; `hypomnema tasks show` and `runs show` print it as "used:", the Task's panel as "Used" and a chat's
+  docked Run under its Tasks.
 - Questions: a worker asks the coordinator or the owner. A `wait` question keeps the worker running, pauses its stall
   and duration timers, and its answer reaches the node in the heartbeat reply until the node acknowledges it. A
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
@@ -3058,8 +3072,9 @@ capabilities do not exist yet.
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
-  `GET /gateway/usage?period=24h|7d|30d&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day else,
-  starting at the viewer's midnight; the counts by model, by key and by account, an account named by its label; by
+  `GET /gateway/usage?period=24h|7d|30d|90d|12m&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day
+  else, starting at the viewer's midnight; 90 days a bar a UTC day and 12 months a bar a calendar month, read from
+  the daily ledger below with `ledger: true`, the owner's keys then counted together as `owner`; the counts by model, by key and by account, an account named by its label; by
   key counts every chat key of a Bot under the Bot, which a chat's key names (`gateway_keys.bot_id`), every Dispatch
   key under "Workers", and each key the owner made under its name, issue
   [#626](https://github.com/kl3inIT/hypomnema/issues/626)) and
@@ -3067,6 +3082,14 @@ capabilities do not exist yet.
   request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
   owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
   model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
+  Its Performance table (issue [#856](https://github.com/kl3inIT/hypomnema/issues/856), after new-api's
+  `perf_metrics`, 9router-go's usage by provider and OmniRoute's speed ranking) compares the text models (not
+  `web/`, `audio/`, `image/`) by provider and the model it served (`by_provider`) and by subscription account
+  (`speed_by_account`): requests, the success rate (answered over all but those whose client left), time to first
+  token and whole-call latency over the answered requests (p50, p95 under it, nearest rank, computed in Go from the
+  rows), the median output tokens a second, and the cost. From the ledger it shows averages only (`exact: false`).
+  A request's sheet shows its time to first token and tokens a second. The requests themselves are listed for
+  periods of 30 days or less. `hypomnema gateway usage --by provider|account [--period 7d]` prints the same table.
   Every count carries `cost_micros` and `unpriced` (requests with tokens and no price), a request its cost; the
   page shows them as "API cost", a `+` when part is unpriced. Each kind is shown in its own unit (issue #723,
   decisions 3.2 to 3.6): a tile each for the web searches, the audio heard, the characters spoken and the images
@@ -3315,6 +3338,18 @@ capabilities do not exist yet.
   it, as a subscription's tokens are. `unpriced` counts rows with tokens or units and no cost. The report's counts
   (`GatewayUsageCounts`) add `web_searches`, `audio_seconds`, `characters` and `images`. No row holds a query, a
   URL, a prompt, a transcript or the spoken text.
+  Since migration 00121 (issue #856) a row also holds its time to first token (`ttft_ms`): from the gateway
+  receiving the request to the first chunk it wrote to the client, measured where each streaming route writes
+  (chat's `relayStream`, Messages' `relayMessages` and `relayFromChat`, Responses' `relayResponses`, so every
+  adapter behind them); NULL for an answer that is not a stream. Output tokens a second are
+  `completion_tokens / ((duration_ms - ttft_ms) / 1000)`, computed when read, never stored, and left out for an
+  estimated row or one whose generation took no time (OmniRoute's `generationThroughput.ts`).
+  With each row the same transaction upserts `gateway_usage_daily`, the daily ledger (after LiteLLM's
+  `LiteLLM_DailyUserSpend`): a row a UTC day, caller (a Bot's id, `workers`, `chats` or `owner`, as the usage by
+  key groups keys, naming none), model, provider, upstream model and account, with requests, ok, failed,
+  client_gone, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
+  `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
+  it; migration 00121 filled it from the rows then kept.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. A chat orchestration
   deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's

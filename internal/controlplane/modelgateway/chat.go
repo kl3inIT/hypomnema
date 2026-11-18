@@ -298,7 +298,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record := Usage{KeyID: key.ID, Model: model.Name, Stream: req.stream}
+	record := Usage{KeyID: key.ID, Model: model.Name, Stream: req.stream, started: started}
 	serving, served := withServed(r)
 	s.serveChat(w, serving, req, model, key.ID, &record)
 	record.AccountID = served.id
@@ -518,6 +518,7 @@ func (s *Server) relayStream(
 		sent += len(payload)
 
 		flush()
+		record.firstChunk(s.svc.clock.Now())
 	}
 
 	switch {

@@ -97,11 +97,19 @@ func runsShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, run, func() {
 		e.printf("run %s (%s) %s\n%s\n", run.Id, run.Status, val(run.Repo), run.Objective)
 
+		if run.Usage != nil {
+			e.printf("used: %s\n", usageLine(*run.Usage))
+		}
+
 		for _, t := range run.Tasks {
 			e.printf("  %s\t%s\t%s\n", t.Id, taskState(t.Status, t.BlockedReason), firstLine(t.Spec))
 
 			if w := val(t.WaitingReason); w != "" {
 				e.printf("    waiting: %s\n", waitingLine(w))
+			}
+
+			if t.Usage != nil && t.Usage.Dispatches > 0 {
+				e.printf("    used: %s\n", usageLine(*t.Usage))
 			}
 		}
 	})

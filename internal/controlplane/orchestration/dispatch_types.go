@@ -294,6 +294,11 @@ const (
 	// accounts wait for a limit to reset. Once per Run for each stretch of
 	// the limit, as OpenMausBot tells a bot's owner once (limit-notices.ts).
 	EscalationFallback EscalationKind = "fallback"
+	// EscalationRepeatedFailure: a Task's Dispatch failed with the same
+	// failure class, and the same unknown cause, as its previous failed
+	// Dispatch (issue #856). Raised at each such failure from the second; the
+	// Task is not stopped, its retries go on.
+	EscalationRepeatedFailure EscalationKind = "repeated_failure"
 )
 
 // Reasons a Task is unplaceable.
@@ -344,6 +349,10 @@ type Escalation struct {
 	Profile  string
 	Fallback string
 	Until    int64
+	// Count and Dispatches say how many failed Dispatches in a row a
+	// repeated failure counts, and which, newest first.
+	Count      int
+	Dispatches []string
 }
 
 // Reaped is what one Reap did.

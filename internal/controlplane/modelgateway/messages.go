@@ -134,7 +134,7 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 		call.session = claudeSession(key.ID)
 	}
 
-	record := Usage{KeyID: key.ID, Model: model.Name, Stream: call.req.Stream}
+	record := Usage{KeyID: key.ID, Model: model.Name, Stream: call.req.Stream, started: started}
 	serving, served := withServed(r)
 	s.passMessages(w, serving, call, model, &record)
 	record.AccountID = served.id
@@ -466,6 +466,8 @@ func (s *Server) relayFromChat(
 			flusher.Flush()
 		}
 
+		record.firstChunk(s.svc.clock.Now())
+
 		return true
 	}
 
@@ -688,9 +690,10 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 		answered = completed
 		sent += len(line)
 
-		// An empty line ends an event.
+		// An empty line ends an event; the first event passed on is the first chunk (issue #856).
 		if len(line) == 0 {
 			flush()
+			record.firstChunk(s.svc.clock.Now())
 		}
 	}
 
