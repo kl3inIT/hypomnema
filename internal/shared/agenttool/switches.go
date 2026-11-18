@@ -209,8 +209,8 @@ var ToolFamilies = []ToolFamily{
 			"not to send it in a chat, to sign in himself in your tab, and to change that password."},
 	{Name: "phone", Description: "The phone a node holds", Pattern: devicetool.Prefix + "*",
 		Tools: []string{devicetool.Screen, devicetool.Layout, devicetool.Tap, devicetool.Swipe, devicetool.Type,
-			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.VideoStart, devicetool.VideoSay,
-			devicetool.VideoStop, devicetool.VideoStatus},
+			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.Location, devicetool.VideoStart,
+			devicetool.VideoSay, devicetool.VideoStop, devicetool.VideoStatus, devicetool.VideoList},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
 			"and tap its numbered boxes. Never sign in to an account on it, and never buy or pay: ask the owner. " +

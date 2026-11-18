@@ -166,6 +166,8 @@ func (m *Manager) runTool(ctx context.Context, agent string, c devicetool.Call) 
 		return answer, true
 	case devicetool.Logcat:
 		return m.logcat(ctx, c), false
+	case devicetool.Location:
+		return m.location(ctx, c), true
 	default:
 		return failed("no such phone tool: " + c.Tool), false
 	}
@@ -459,6 +461,26 @@ func (m *Manager) launch(ctx context.Context, pkg string) nodeproto.DeviceAnswer
 	}
 
 	return text("Opened " + pkg + ".")
+}
+
+// location sets the emulator's GPS with its console's `geo fix`, sent
+// twice, the second time with "," for ".", as Appium sets an emulator's
+// (devicetool's location.go). adb's `emu` passes the console's auth token
+// itself, as `emu kill` does when the phone stops.
+func (m *Manager) location(ctx context.Context, c devicetool.Call) nodeproto.DeviceAnswer {
+	for _, args := range [][]string{devicetool.GeoFix(c), devicetool.GeoFixComma(c)} {
+		out, err := m.adb(ctx, toolWithin, append([]string{"-s", serial, "emu", "geo", "fix"}, args...)...)
+		if why := failure(out, err); why != "" {
+			return failed("The location could not be set: " + why)
+		}
+	}
+
+	said := "The phone's location is now " + c.Latitude + ", " + c.Longitude
+	if c.Altitude != "" {
+		said += ", " + c.Altitude + " m high"
+	}
+
+	return text(said + ". An app may take a few seconds to see it.")
 }
 
 // logcat reads the last lines of the phone's log, as Orca's logcat does

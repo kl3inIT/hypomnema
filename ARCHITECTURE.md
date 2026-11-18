@@ -700,7 +700,11 @@ sequenceDiagram
     `adb shell input keyevent` with back 4, home 3, recents 187 and enter 66, as Orca and OpenMausBot press keys,
     since Android CLI's `input key` took 1.3 to 3.5 s a press (issue #584); `device_launch` is `adb shell monkey -p <package> -c
     android.intent.category.LAUNCHER 1` (Orca, OpenMausBot); `device_logcat` is `adb logcat -d -v threadtime -t
-    N [*:<level>]` (Orca), with only the last lines holding a text when one is given. Android CLI runs with
+    N [*:<level>]` (Orca), with only the last lines holding a text when one is given; `device_location
+    {latitude, longitude, altitude?}` sets the emulator's GPS as Appium sets an emulator's (notice in
+    `third_party/appium-settings`; issue #851): each value rounded up to 5 decimals, latitude -90..90 and
+    longitude -180..180 or refused, then `adb emu geo fix <lon> <lat> [<alt>]` sent twice, the second time with `,`
+    for `.` (an emulator bug's workaround). Android CLI runs with
     `--no-metrics` and `--sdk` and `ANDROID_SDK_ROOT` set to the phone's SDK, against the adb server the phone
     started; a failure it prints as `Error:` with exit 0 is a failure.
   - The control plane passes a call on the socket of the node that holds the phone (`device_call`, with the
@@ -774,7 +778,9 @@ sequenceDiagram
   - Filming (issue #817, step 1 of 3 of agent-made demo videos; [research](docs/research/2026-11-18-agent-recorded-phone-demo-video.md)).
     An agent films the phone as a **take** (see the glossary) with `video_start {title, request_id}`, `video_say
     {take, text, tap?, chapter?}` right before each action, `video_stop {take}` and `video_status {take}`
-    (`internal/shared/devicetool/video.go`, after autodemo's camera tools). They are listed, routed and switched
+    (`internal/shared/devicetool/video.go`, after autodemo's camera tools), and `video_list {state?}`, which the
+    control plane answers alone: the calling agent's own takes (id, title, state, ended_by, start, length), the
+    newest 20, as the owner's `GET /takes` restricted to the agent, never another's and never a file (issue #851). They are listed, routed and switched
     with the phone's tools: a worker's tools server and a Bot's `hypomnema mcp` pass every `device_*` and `video_*`
     name to the phone's routes (`devicetool.Routed`), and the phone family's switch `device_*` names them too
     (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and `video_end` are never
@@ -784,6 +790,9 @@ sequenceDiagram
     While it lives another agent's phone calls are answered "The phone is filming for …" and reach no node;
     `video_say` and `video_stop` name the take, and one naming another is refused or, for a stop, answered with
     that take's state. A start retried with its request id answers the same take; a stop twice the same state.
+    A take whose lease ends is recorded `finalizing` with its end at once, before the node answers, and the store
+    never makes an ended take `recording` or `paused` again (a node's answer sent before the stop and kept after
+    it), so `video_status` after a stop is never `recording` (issue #851).
     The phone's sweep (every few seconds) ends the take as `work_end` once the Dispatch is settled or its worker
     exited without a report, or the Bot's turn mark changed (it settled, was cut, or another turn began), as
     `phone_end` once the node says its phone is not running; a node that went offline is told at its next hello.
