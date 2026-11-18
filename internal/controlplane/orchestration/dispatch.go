@@ -1110,17 +1110,18 @@ func (s *Service) reapQueued(ctx context.Context, q *store.Queries, now int64, o
 
 		out.Expired = append(out.Expired, id)
 
-		recent, err := q.RecentDispatchStatusesOfNode(ctx, store.RecentDispatchStatusesOfNodeParams{
-			NodeID: d.NodeID, N: ExpiriesBeforeUnavailable,
-		})
-		if err != nil {
-			return fmt.Errorf("reading recent dispatches of node %s: %w", d.NodeID, err)
+		if flagged[d.NodeID] {
+			continue
 		}
 
-		allExpired := len(recent) == ExpiriesBeforeUnavailable &&
-			!slices.ContainsFunc(recent, func(st string) bool { return DispatchStatus(st) != DispatchExpired })
+		recent, err := q.CountRecentNodeExpiries(ctx, store.CountRecentNodeExpiriesParams{
+			NodeID: d.NodeID, Since: now - NodeExpiryWindow.Milliseconds(),
+		})
+		if err != nil {
+			return fmt.Errorf("counting recent expiries of node %s: %w", d.NodeID, err)
+		}
 
-		if allExpired && !flagged[d.NodeID] {
+		if recent >= ExpiriesBeforeUnavailable {
 			flagged[d.NodeID] = true
 
 			if err := q.MarkNodeUnavailable(ctx, store.MarkNodeUnavailableParams{Now: now, ID: d.NodeID}); err != nil {
