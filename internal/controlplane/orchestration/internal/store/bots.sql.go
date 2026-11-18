@@ -49,7 +49,7 @@ func (q *Queries) DeleteBot(ctx context.Context, id string) error {
 }
 
 const getBot = `-- name: GetBot :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks FROM bots WHERE id = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, main_chat FROM bots WHERE id = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -77,12 +77,13 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.ConnectionScopes,
 		&i.GuaranteedDispatches,
 		&i.Fallbacks,
+		&i.MainChat,
 	)
 	return i, err
 }
 
 const getBotByName = `-- name: GetBotByName :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks FROM bots WHERE name = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, main_chat FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
@@ -110,6 +111,7 @@ func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
 		&i.ConnectionScopes,
 		&i.GuaranteedDispatches,
 		&i.Fallbacks,
+		&i.MainChat,
 	)
 	return i, err
 }
@@ -308,7 +310,7 @@ func (q *Queries) ListBotModels(ctx context.Context) ([]ListBotModelsRow, error)
 }
 
 const listBots = `-- name: ListBots :many
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks FROM bots ORDER BY created_at, name
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, main_chat FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -342,6 +344,7 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.ConnectionScopes,
 			&i.GuaranteedDispatches,
 			&i.Fallbacks,
+			&i.MainChat,
 		); err != nil {
 			return nil, err
 		}

@@ -3962,6 +3962,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: bot
+          in: query
+          description: Only the chats of the Bot of this id (issue #471), as its page lists them.
+          schema: { type: string }
       responses:
         "200":
           description: The chats.
@@ -3972,6 +3976,10 @@ paths:
     post:
       operationId: CreateChat
       summary: Start a chat with the coordinator
+      description: >-
+        The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's
+        former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a
+        click on the Bot opens.
       requestBody:
         required: true
         content:
@@ -3980,6 +3988,31 @@ paths:
       responses:
         "201":
           description: The chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chat" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/main:
+    post:
+      operationId: OpenMainChat
+      summary: A Bot's main chat, made when it has none
+      description: >-
+        The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or
+        whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients
+        writing to the Bot at once end in one main chat.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MainChatRequest" }
+      responses:
+        "200":
+          description: The Bot's main chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chat" }
+        "201":
+          description: The Bot's main chat, made now.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Chat" }
@@ -7820,6 +7853,11 @@ components:
         pinned:
           type: boolean
           description: Listed in the sidebar's Pinned section, under the main Bot.
+        main_chat:
+          type: string
+          description: >-
+            The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue
+            #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
         provider: { type: string }
         model: { type: string }
         fallbacks:
@@ -8451,6 +8489,13 @@ components:
         effort:
           type: string
           description: The chat's own effort, one of the model gateway's levels; its Bot's when left out.
+    MainChatRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        bot:
+          type: string
+          description: The id of the Bot; the main Bot when left out.
     ChatDeleted:
       type: object
       additionalProperties: false
@@ -8622,6 +8667,11 @@ components:
           type: boolean
           description: A coordinator is configured to answer; false means messages are kept and nothing answers.
         context_usage: { $ref: "#/components/schemas/ChatContextUsage" }
+        last_line:
+          type: string
+          description: >-
+            The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a
+            list only, absent before either wrote.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     ChatContextUsage:

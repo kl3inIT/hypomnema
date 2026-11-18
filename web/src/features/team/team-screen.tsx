@@ -83,7 +83,7 @@ export function TeamScreen({
     }
   }, [task, cards, chatList])
 
-  // A Bot opens its chat that waits, else the one that works, else its newest, else a new chat with it
+  // A Bot opens its chat that waits on the owner, else its main chat (issue #471), else a new chat with it
   // (OpenMausBot's openBot).
   const openBot = (bot: TeamBot) =>
     bot.chat

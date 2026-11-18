@@ -23,10 +23,10 @@ import (
 // owner's tokens use them (policy.go). Messages are read with a cursor and
 // an optional wait, as events are.
 
-// ListChats returns the chats, the most recently active first.
+// ListChats returns the chats, of one Bot when the request names one, the most recently active first.
 func (s *Server) ListChats(ctx context.Context, req openapi.ListChatsRequestObject,
 ) (openapi.ListChatsResponseObject, error) {
-	chats, err := s.svc.ListChats(ctx, val(req.Params.Limit))
+	chats, err := s.svc.ListChats(ctx, val(req.Params.Bot), val(req.Params.Limit))
 	if err != nil {
 		return nil, err
 	}
@@ -39,11 +39,11 @@ func (s *Server) ListChats(ctx context.Context, req openapi.ListChatsRequestObje
 	return out, nil
 }
 
-// CreateChat starts a chat.
+// CreateChat starts a chat, which becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new.
 func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestObject,
 ) (openapi.CreateChatResponseObject, error) {
 	b := req.Body
-	chat, err := s.svc.CreateChatWithID(ctx, val(b.Id), val(b.Bot), val(b.Title), orchestration.ChatModel{
+	chat, err := s.svc.StartMainChat(ctx, val(b.Id), val(b.Bot), val(b.Title), orchestration.ChatModel{
 		Provider: val(b.Provider), Model: val(b.Model), Effort: val(b.Effort),
 	})
 	if err != nil {
@@ -51,6 +51,21 @@ func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestOb
 	}
 
 	return openapi.CreateChat201JSONResponse(s.toChat(chat)), nil
+}
+
+// OpenMainChat returns a Bot's main chat, made when the Bot has none (issue #471): what `hypomnema chat` writes to.
+func (s *Server) OpenMainChat(ctx context.Context, req openapi.OpenMainChatRequestObject,
+) (openapi.OpenMainChatResponseObject, error) {
+	chat, made, err := s.svc.OpenMainChat(ctx, val(req.Body.Bot))
+	if err != nil {
+		return nil, err
+	}
+
+	if made {
+		return openapi.OpenMainChat201JSONResponse(s.toChat(chat)), nil
+	}
+
+	return openapi.OpenMainChat200JSONResponse(s.toChat(chat)), nil
 }
 
 // UpdateChat changes the model and effort the chat runs with (issue #369); the supervisor gives pi the change before
@@ -289,7 +304,7 @@ func chatMessageList(msgs []orchestration.ChatMessage, after int64, display orch
 func (s *Server) toChat(c orchestration.Chat) openapi.Chat {
 	out := openapi.Chat{
 		Id: c.ID, Title: c.Title, Bot: c.Bot, Provider: opt(c.Choice.Provider), Model: opt(c.Choice.Model),
-		Effort: opt(c.Choice.Effort), CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Effort: opt(c.Choice.Effort), LastLine: opt(c.LastLine), CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 
 	if s.coordinator != nil {

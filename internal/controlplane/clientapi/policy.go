@@ -251,6 +251,7 @@ var policies = map[string]policy{
 
 	"ListChats":        {scope: scopeOwner},
 	"CreateChat":       {scope: scopeOwner},
+	"OpenMainChat":     {scope: scopeOwner},
 	"GetChat":          {scope: scopeOwner},
 	"UpdateChat":       {scope: scopeOwner},
 	"DeleteChat":       {scope: scopeOwner},

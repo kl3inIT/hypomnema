@@ -84,7 +84,9 @@ type Chat struct {
 	// Choice is the model and effort the chat runs with, each empty when it is the Bot's (issue #369).
 	Choice ChatModel
 	// Usage is how full its context window is, nil before pi first reported it (issue #384).
-	Usage     *ContextUsage
+	Usage *ContextUsage
+	// LastLine is the first line of its latest message of the owner or its Bot, read in a list only (issue #471).
+	LastLine  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -380,6 +382,56 @@ func IsChatID(id string) bool { return platform.IsID(ChatIDPrefix, id) }
 // (issue #369, as t3code's draft thread keeps its model); an empty one is the
 // Bot's.
 func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
+	return s.createChat(ctx, id, bot, title, m, false)
+}
+
+// StartMainChat is CreateChatWithID for the web's New chat and the CLI's --new (issue #471): the chat made becomes
+// its Bot's main chat, the one a click on the Bot opens, as OpenClaw's /new starts a new session under the agent's
+// main key (docs/concepts/session.md). The Bot's former main chat stays as it was, with its id and whatever still
+// runs in it; it is only no longer the Bot's row. Lark's chats and a Routine's never take this path.
+func (s *Service) StartMainChat(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
+	return s.createChat(ctx, id, bot, title, m, true)
+}
+
+// OpenMainChat returns a Bot's main chat, the main Bot's when bot is empty, making it when the Bot has none (issue
+// #471): a Bot that never had one, or whose main chat was deleted. It reads and makes in one write, so the web and
+// the CLI writing to a Bot at once end in one main chat. made says it was made now.
+func (s *Service) OpenMainChat(ctx context.Context, bot string) (chat Chat, made bool, err error) {
+	if bot == "" {
+		bot = DefaultBotID
+	}
+
+	var id string
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		row, err := q.GetBot(ctx, bot)
+		if err != nil {
+			return notFound(err, "bot", bot)
+		}
+
+		if row.MainChat.Valid {
+			id, made = row.MainChat.String, false
+
+			return nil
+		}
+
+		id, made = s.newID(ChatIDPrefix), true
+		if err := q.InsertChat(ctx, store.InsertChatParams{ID: id, Title: untitled, Bot: bot, Now: now}); err != nil {
+			return err
+		}
+
+		return q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(id), Bot: bot})
+	})
+	if err != nil {
+		return Chat{}, false, fmt.Errorf("opening the main chat of bot %s: %w", bot, err)
+	}
+
+	chat, err = s.GetChat(ctx, id)
+
+	return chat, made, err
+}
+
+func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatModel, main bool) (Chat, error) {
 	if id == "" {
 		id = s.newID(ChatIDPrefix)
 	} else if !IsChatID(id) {
@@ -416,10 +468,18 @@ func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m
 			return err
 		}
 
-		return q.InsertChat(ctx, store.InsertChatParams{
+		if err := q.InsertChat(ctx, store.InsertChatParams{
 			ID: id, Title: title, Bot: bot, Provider: nullString(m.Provider), Model: nullString(m.Model),
 			Effort: nullString(m.Effort), Now: now,
-		})
+		}); err != nil {
+			return err
+		}
+
+		if !main {
+			return nil
+		}
+
+		return q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(id), Bot: bot})
 	}); err != nil {
 		return Chat{}, fmt.Errorf("creating a chat: %w", err)
 	}
@@ -437,16 +497,19 @@ func (s *Service) GetChat(ctx context.Context, id string) (Chat, error) {
 	return chatFromRow(row), nil
 }
 
-// ListChats returns the chats, the most recently active first.
-func (s *Service) ListChats(ctx context.Context, limit int) ([]Chat, error) {
-	rows, err := s.read().ListChats(ctx, int64(pageLimit(limit)))
+// ListChats returns the chats, of one Bot when bot names one, the most recently active first, each with its last
+// line.
+func (s *Service) ListChats(ctx context.Context, bot string, limit int) ([]Chat, error) {
+	rows, err := s.read().ListChats(ctx, store.ListChatsParams{Bot: bot, Lim: int64(pageLimit(limit))})
 	if err != nil {
 		return nil, fmt.Errorf("listing chats: %w", err)
 	}
 
 	out := make([]Chat, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, chatFromRow(r))
+		c := chatFromRow(r.Chat)
+		c.LastLine = lastLine(r.LastText)
+		out = append(out, c)
 	}
 
 	return out, nil
@@ -454,7 +517,8 @@ func (s *Service) ListChats(ctx context.Context, limit int) ([]Chat, error) {
 
 // DeleteChat deletes a chat for good (issue #484), as OpenMausBot deletes a room, Hermes a session and opencode a
 // session, with no archive: its messages, setup changes, artifacts and Lark chat go; Runs, their Routines' runs and
-// approvals made in it stay and lose the chat; its gateway keys are revoked and kept. A chat a Routine tells its runs
+// approvals made in it stay and lose the chat; its gateway keys are revoked and kept. A Bot's main chat deleted
+// leaves the Bot without one until the next message from the web or the CLI makes another (issue #471). A chat a Routine tells its runs
 // in, or whose Routine's run is live, is refused, as OpenMausBot refuses a working room (409): the Routine is removed
 // or stopped first. Whether pi works in it is the supervisor's to know; the caller refuses that first. The chat is
 // returned: its files, outside the database, are the caller's to remove after the commit.
@@ -529,7 +593,7 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 		},
 		q.DeleteSetupChangesOfChat,
 		func(ctx context.Context, id string) error { return channelstore.DeleteChannelChatOfChatTx(ctx, q, id) },
-		q.DeleteArtifactsOfChat, q.DeleteChatQueue, q.DeleteChatMessages, q.DeleteChat,
+		q.ClearMainChat, q.DeleteArtifactsOfChat, q.DeleteChatQueue, q.DeleteChatMessages, q.DeleteChat,
 	}
 	for _, step := range steps {
 		if err := step(ctx, id); err != nil {
@@ -547,6 +611,23 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 	}
 
 	return q.DeleteUnusedArtifactBlobs(ctx, string(candidates))
+}
+
+// lastLine is a message's first line that has text, at most 120 characters, as a row shows it.
+func lastLine(text string) string {
+	for line := range strings.SplitSeq(text, "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+
+		if r := []rune(line); len(r) > 120 {
+			line = string(r[:120])
+		}
+
+		return line
+	}
+
+	return ""
 }
 
 func pageLimit(limit int) int {

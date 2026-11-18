@@ -2835,6 +2835,10 @@ export type Bot = {
    * Listed in the sidebar's Pinned section, under the main Bot.
    */
   pinned: boolean;
+  /**
+   * The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
+   */
+  main_chat?: string;
   provider?: string;
   model?: string;
   /**
@@ -3408,6 +3412,13 @@ export type NewChat = {
   effort?: string;
 };
 
+export type MainChatRequest = {
+  /**
+   * The id of the Bot; the main Bot when left out.
+   */
+  bot?: string;
+};
+
 /**
  * What a chat's deletion left on the coordinator's machine.
  */
@@ -3614,6 +3625,10 @@ export type Chat = {
    */
   coordinator: boolean;
   context_usage?: ChatContextUsage;
+  /**
+   * The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a list only, absent before either wrote.
+   */
+  last_line?: string;
   created_at: string;
   updated_at: string;
 };
@@ -10553,6 +10568,10 @@ export type ListChatsData = {
   path?: never;
   query?: {
     limit?: number;
+    /**
+     * Only the chats of the Bot of this id (issue
+     */
+    bot?: string;
   };
   url: '/chats';
 };
@@ -10599,6 +10618,35 @@ export type CreateChatResponses = {
 };
 
 export type CreateChatResponse = CreateChatResponses[keyof CreateChatResponses];
+
+export type OpenMainChatData = {
+  body: MainChatRequest;
+  path?: never;
+  query?: never;
+  url: '/chats/main';
+};
+
+export type OpenMainChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMainChatError = OpenMainChatErrors[keyof OpenMainChatErrors];
+
+export type OpenMainChatResponses = {
+  /**
+   * The Bot's main chat.
+   */
+  200: Chat;
+  /**
+   * The Bot's main chat, made now.
+   */
+  201: Chat;
+};
+
+export type OpenMainChatResponse = OpenMainChatResponses[keyof OpenMainChatResponses];
 
 export type DeleteChatData = {
   body?: never;

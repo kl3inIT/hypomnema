@@ -313,7 +313,7 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		Tools: append([]string{}, b.Tools...), ToolsOff: append([]string{}, b.ToolsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), GuaranteedDispatches: b.Guarantee(),
-		Position: b.Position, Pinned: b.Pinned,
+		Position: b.Position, Pinned: b.Pinned, MainChat: opt(b.MainChat),
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }

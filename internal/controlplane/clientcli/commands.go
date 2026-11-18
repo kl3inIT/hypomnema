@@ -167,12 +167,12 @@ var commands = []command{
 	},
 	{
 		name: "chat", args: "[message]", max: -1,
-		summary: "write to a Bot on the server (the main Bot unless --bot) and print its replies; " +
+		summary: "write to a Bot's main chat on the server (the main Bot unless --bot) and print its replies; " +
 			"without a message, show the chat",
 		flags: func(fs *flag.FlagSet) {
-			fs.String("chat", "", "the chat to use (default the most recent)")
-			fs.String("bot", "", "start a new chat with this Bot, by its id from bots list")
-			fs.Bool("new", false, "start a new chat")
+			fs.String("chat", "", "the chat to use (default the Bot's main chat)")
+			fs.String("bot", "", "the Bot to write to, by its id from bots list (default the main Bot)")
+			fs.Bool("new", false, "start a new chat, which becomes the Bot's main chat")
 			fs.String("text-file", "", "read the message from this file, or - for standard input")
 			fs.String("timeout", "10m", "stop printing replies after this long")
 			fs.Int("last", 20, "without a message, how many messages to show")
@@ -181,7 +181,11 @@ var commands = []command{
 	},
 	{
 		name: "chats", summary: "the chats with the coordinator, the most recently active first",
-		flags: jsonFlag, run: chatsList,
+		flags: func(fs *flag.FlagSet) {
+			fs.String("bot", "", "only the chats of this Bot, by its id from bots list")
+			jsonFlag(fs)
+		},
+		run: chatsList,
 	},
 	{
 		name: "chats rm", args: "<chat>", min: 1, max: 1,

@@ -150,6 +150,7 @@ type Bot struct {
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
 	Fallbacks            string
+	MainChat             sql.NullString
 }
 
 type Channel struct {

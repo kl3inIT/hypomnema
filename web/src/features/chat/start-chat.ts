@@ -5,6 +5,8 @@ import "@/api/client"
 import { createChat, sendChatMessage } from "@/api/generated/sdk.gen"
 import type { Chat, ChatAttachment } from "@/api/generated/types.gen"
 import { listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
+import { useRefreshBots } from "@/features/bots/use-bots"
+import { everyCall } from "@/lib/query-keys"
 
 import type { ChatChoice } from "./chat-model-state"
 
@@ -13,7 +15,8 @@ import type { ChatChoice } from "./chat-model-state"
 // server's first when none is. A chat made whose first message was refused is not made again: sending again sends
 // the message to it, as t3code keeps the thread a send may have started (chatViewSend.ts, uncertainSubmissions).
 // The New chat page and a pane's new chat tab start a chat alike, with the model and effort chosen there (issue
-// #369); what is not chosen is the Bot's.
+// #369); what is not chosen is the Bot's. The chat made becomes its Bot's main chat (issue #471), on the server
+// as soon as it is made, so the Bots are read again with the chats.
 export function useStartChat(
   id: string,
   bot: string | undefined,
@@ -21,6 +24,7 @@ export function useStartChat(
   onStarted: (chat: Chat) => Promise<void> | void,
 ) {
   const queryClient = useQueryClient()
+  const refreshBots = useRefreshBots()
   const made = useRef<Chat | null>(null)
 
   return useMutation({
@@ -46,7 +50,9 @@ export function useStartChat(
       return chat
     },
     onSuccess: async (chat) => {
-      await queryClient.invalidateQueries({ queryKey: listChatsQueryKey() })
+      // The Bots are read again without waiting: the page goes on whether or not they are read.
+      void refreshBots()
+      await queryClient.invalidateQueries({ queryKey: everyCall(listChatsQueryKey()) })
       await onStarted(chat)
     },
   })

@@ -2569,6 +2569,9 @@ type Bot struct {
 	// Main The main Bot: always there, never removed, a chat that names no Bot talks with it, and it alone changes Bots and profiles from its chat.
 	Main bool `json:"main"`
 
+	// MainChat The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
+	MainChat *string `json:"main_chat,omitempty"`
+
 	// Memory What the Bot keeps across chats, one entry per line.
 	Memory string `json:"memory"`
 
@@ -2742,6 +2745,9 @@ type Chat struct {
 	// Effort The chat's own effort, one of the model gateway's levels; absent when it is its Bot's.
 	Effort *string `json:"effort,omitempty"`
 	Id     string  `json:"id"`
+
+	// LastLine The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a list only, absent before either wrote.
+	LastLine *string `json:"last_line,omitempty"`
 
 	// Model The chat's own model (issue
 	Model *string `json:"model,omitempty"`
@@ -3830,6 +3836,12 @@ type MachineProviderKind string
 // MachineProviderList defines model for MachineProviderList.
 type MachineProviderList struct {
 	Data []MachineProvider `json:"data"`
+}
+
+// MainChatRequest defines model for MainChatRequest.
+type MainChatRequest struct {
+	// Bot The id of the Bot; the main Bot when left out.
+	Bot *string `json:"bot,omitempty"`
 }
 
 // Me defines model for Me.
@@ -6272,6 +6284,9 @@ type DeleteBotParams struct {
 // ListChatsParams defines parameters for ListChats.
 type ListChatsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Bot Only the chats of the Bot of this id (issue
+	Bot *string `form:"bot,omitempty" json:"bot,omitempty"`
 }
 
 // ListChatMessagesParams defines parameters for ListChatMessages.
@@ -6735,6 +6750,9 @@ type AddLarkChannelPersonJSONRequestBody = NewLarkChannelPerson
 
 // CreateChatJSONRequestBody defines body for CreateChat for application/json ContentType.
 type CreateChatJSONRequestBody = NewChat
+
+// OpenMainChatJSONRequestBody defines body for OpenMainChat for application/json ContentType.
+type OpenMainChatJSONRequestBody = MainChatRequest
 
 // UpdateChatJSONRequestBody defines body for UpdateChat for application/json ContentType.
 type UpdateChatJSONRequestBody = ChatChange
@@ -7533,6 +7551,8 @@ type ClientInterface interface {
 
 	// CreateChatWithBody Start a chat with the coordinator
 	//
+	// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /chats (the `CreateChat` operationId).
@@ -7540,10 +7560,30 @@ type ClientInterface interface {
 
 	// CreateChat Start a chat with the coordinator
 	//
+	// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with POST /chats (the `CreateChat` operationId).
 	CreateChat(ctx context.Context, body CreateChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenMainChatWithBody A Bot's main chat, made when it has none
+	//
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+	OpenMainChatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenMainChat A Bot's main chat, made when it has none
+	//
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+	OpenMainChat(ctx context.Context, body OpenMainChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteChat Delete a chat for good; only the owner
 	//
@@ -10589,6 +10629,8 @@ func (c *Client) ListChats(ctx context.Context, params *ListChatsParams, reqEdit
 
 // CreateChatWithBody Start a chat with the coordinator
 //
+// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+//
 // Takes any type of body and a specified content type.
 //
 // Corresponds with POST /chats (the `CreateChat` operationId).
@@ -10606,11 +10648,51 @@ func (c *Client) CreateChatWithBody(ctx context.Context, contentType string, bod
 
 // CreateChat Start a chat with the coordinator
 //
+// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+//
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with POST /chats (the `CreateChat` operationId).
 func (c *Client) CreateChat(ctx context.Context, body CreateChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateChatRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenMainChatWithBody A Bot's main chat, made when it has none
+//
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+func (c *Client) OpenMainChatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenMainChatRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenMainChat A Bot's main chat, made when it has none
+//
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+func (c *Client) OpenMainChat(ctx context.Context, body OpenMainChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenMainChatRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -17123,6 +17205,18 @@ func NewListChatsRequest(server string, params *ListChatsParams) (*http.Request,
 
 		}
 
+		if params.Bot != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if encoded := queryValues.Encode(); encoded != "" {
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
@@ -17158,6 +17252,46 @@ func NewCreateChatRequestWithBody(server string, contentType string, body io.Rea
 	}
 
 	operationPath := fmt.Sprintf("/chats")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewOpenMainChatRequest calls the generic OpenMainChat builder with application/json body
+func NewOpenMainChatRequest(server string, body OpenMainChatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewOpenMainChatRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewOpenMainChatRequestWithBody constructs an http.Request for the OpenMainChat method, with any body, and a specified content type
+func NewOpenMainChatRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/main")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -26863,6 +26997,8 @@ type ClientWithResponsesInterface interface {
 
 	// CreateChatWithBodyWithResponse Start a chat with the coordinator
 	//
+	// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /chats (the `CreateChat` operationId).
@@ -26870,10 +27006,30 @@ type ClientWithResponsesInterface interface {
 
 	// CreateChatWithResponse Start a chat with the coordinator
 	//
+	// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /chats (the `CreateChat` operationId).
 	CreateChatWithResponse(ctx context.Context, body CreateChatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateChatResponse, error)
+
+	// OpenMainChatWithBodyWithResponse A Bot's main chat, made when it has none
+	//
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+	OpenMainChatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenMainChatResponse, error)
+
+	// OpenMainChatWithResponse A Bot's main chat, made when it has none
+	//
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+	OpenMainChatWithResponse(ctx context.Context, body OpenMainChatJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenMainChatResponse, error)
 
 	// DeleteChatWithResponse Delete a chat for good; only the owner
 	//
@@ -31302,6 +31458,61 @@ func (r CreateChatResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CreateChatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type OpenMainChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Chat
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Chat
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r OpenMainChatResponse) GetJSON200() *Chat {
+	return r.JSON200
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r OpenMainChatResponse) GetJSON201() *Chat {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r OpenMainChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r OpenMainChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OpenMainChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OpenMainChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OpenMainChatResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -41377,6 +41588,8 @@ func (c *ClientWithResponses) ListChatsWithResponse(ctx context.Context, params 
 
 // CreateChatWithBodyWithResponse Start a chat with the coordinator
 //
+// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+//
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /chats (the `CreateChat` operationId).
@@ -41390,6 +41603,8 @@ func (c *ClientWithResponses) CreateChatWithBodyWithResponse(ctx context.Context
 
 // CreateChatWithResponse Start a chat with the coordinator
 //
+// The chat made becomes its Bot's main chat (issue #471): the web's New chat and the CLI's --new. The Bot's former main chat stays as it was, with its id and whatever still runs in it; it is only no longer the one a click on the Bot opens.
+//
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /chats (the `CreateChat` operationId).
@@ -41399,6 +41614,36 @@ func (c *ClientWithResponses) CreateChatWithResponse(ctx context.Context, body C
 		return nil, err
 	}
 	return ParseCreateChatResponse(rsp)
+}
+
+// OpenMainChatWithBodyWithResponse A Bot's main chat, made when it has none
+//
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+func (c *ClientWithResponses) OpenMainChatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenMainChatResponse, error) {
+	rsp, err := c.OpenMainChatWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenMainChatResponse(rsp)
+}
+
+// OpenMainChatWithResponse A Bot's main chat, made when it has none
+//
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats/main (the `OpenMainChat` operationId).
+func (c *ClientWithResponses) OpenMainChatWithResponse(ctx context.Context, body OpenMainChatJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenMainChatResponse, error) {
+	rsp, err := c.OpenMainChat(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenMainChatResponse(rsp)
 }
 
 // DeleteChatWithResponse Delete a chat for good; only the owner
@@ -46615,6 +46860,46 @@ func ParseCreateChatResponse(rsp *http.Response) (*CreateChatResponse, error) {
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Chat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOpenMainChatResponse parses an HTTP response from a OpenMainChatWithResponse call
+func ParseOpenMainChatResponse(rsp *http.Response) (*OpenMainChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OpenMainChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Chat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
 		var dest Chat
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -53064,6 +53349,9 @@ type ServerInterface interface {
 	// CreateChat Start a chat with the coordinator
 	// (POST /chats)
 	CreateChat(w http.ResponseWriter, r *http.Request)
+	// OpenMainChat A Bot's main chat, made when it has none
+	// (POST /chats/main)
+	OpenMainChat(w http.ResponseWriter, r *http.Request)
 	// DeleteChat Delete a chat for good; only the owner
 	// (DELETE /chats/{chat_id})
 	DeleteChat(w http.ResponseWriter, r *http.Request, chatId ChatID)
@@ -54978,6 +55266,19 @@ func (siw *ServerInterfaceWrapper) ListChats(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "bot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bot", r.URL.Query(), &params.Bot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListChats(w, r, params)
 	}))
@@ -54994,6 +55295,20 @@ func (siw *ServerInterfaceWrapper) CreateChat(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateChat(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OpenMainChat operation middleware
+func (siw *ServerInterfaceWrapper) OpenMainChat(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenMainChat(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61599,6 +61914,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meeting-words", wrapper.SetMeetingWords)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats", wrapper.ListChats)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats", wrapper.CreateChat)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/main", wrapper.OpenMainChat)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/chats/{chat_id}", wrapper.DeleteChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}", wrapper.GetChat)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/chats/{chat_id}", wrapper.UpdateChat)
@@ -63586,6 +63902,59 @@ type CreateChatdefaultJSONResponse struct {
 }
 
 func (response CreateChatdefaultJSONResponse) VisitCreateChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenMainChatRequestObject struct {
+	Body *OpenMainChatJSONRequestBody
+}
+
+type OpenMainChatResponseObject interface {
+	VisitOpenMainChatResponse(w http.ResponseWriter) error
+}
+
+type OpenMainChat200JSONResponse Chat
+
+func (response OpenMainChat200JSONResponse) VisitOpenMainChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenMainChat201JSONResponse Chat
+
+func (response OpenMainChat201JSONResponse) VisitOpenMainChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenMainChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response OpenMainChatdefaultJSONResponse) VisitOpenMainChatResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -71431,6 +71800,9 @@ type StrictServerInterface interface {
 	// CreateChat Start a chat with the coordinator
 	// (POST /chats)
 	CreateChat(ctx context.Context, request CreateChatRequestObject) (CreateChatResponseObject, error)
+	// OpenMainChat A Bot's main chat, made when it has none
+	// (POST /chats/main)
+	OpenMainChat(ctx context.Context, request OpenMainChatRequestObject) (OpenMainChatResponseObject, error)
 	// DeleteChat Delete a chat for good; only the owner
 	// (DELETE /chats/{chat_id})
 	DeleteChat(ctx context.Context, request DeleteChatRequestObject) (DeleteChatResponseObject, error)
@@ -73473,6 +73845,37 @@ func (sh *strictHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateChatResponseObject); ok {
 		if err := validResponse.VisitCreateChatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OpenMainChat operation middleware
+func (sh *strictHandler) OpenMainChat(w http.ResponseWriter, r *http.Request) {
+	var request OpenMainChatRequestObject
+
+	var body OpenMainChatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenMainChat(ctx, request.(OpenMainChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenMainChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenMainChatResponseObject); ok {
+		if err := validResponse.VisitOpenMainChatResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

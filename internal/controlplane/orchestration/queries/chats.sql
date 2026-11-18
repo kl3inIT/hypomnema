@@ -16,7 +16,26 @@ WHERE id = @id;
 SELECT * FROM chats WHERE id = @id;
 
 -- name: ListChats :many
-SELECT * FROM chats ORDER BY updated_at DESC, id LIMIT @lim;
+-- The chats, of one Bot when @bot names one, each with the start of its latest line of the owner or its Bot (issue
+-- #471): the sidebar's row of a Bot shows its main chat's. A reply of thinking alone has no text and is passed over.
+SELECT sqlc.embed(chats),
+       CAST(coalesce((
+           SELECT substr(m.text, 1, 400) FROM chat_messages m
+           WHERE m.chat_id = chats.id AND m.role IN ('owner', 'coordinator') AND trim(m.text) <> ''
+           ORDER BY m.seq DESC LIMIT 1
+       ), '') AS TEXT) AS last_text
+FROM chats
+WHERE CAST(@bot AS TEXT) = '' OR chats.bot_id = CAST(@bot AS TEXT)
+ORDER BY chats.updated_at DESC, chats.id LIMIT @lim;
+
+-- name: SetBotMainChat :exec
+-- The chat becomes its Bot's main chat (issue #471): the web's New chat, the CLI's --new, or the first message to a
+-- Bot that has none.
+UPDATE bots SET main_chat = @chat_id WHERE id = @bot;
+
+-- name: ClearMainChat :exec
+-- A deleted chat is no Bot's main chat any more; the next message from the web or the CLI makes another.
+UPDATE bots SET main_chat = NULL WHERE main_chat = CAST(@chat_id AS TEXT);
 
 -- name: TouchChat :exec
 UPDATE chats SET updated_at = @now WHERE id = @id;
