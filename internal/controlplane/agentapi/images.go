@@ -62,7 +62,8 @@ func imageTool(bot bool) agenttool.BrowserTool {
 		Name: agenttool.ToolGenerateImage,
 		Description: "Make one image from a description, or edit the images you name, through the owner's image " +
 			"subscriptions. " + saved +
-			"Call it only when the task asks for an image; for several, call it once an image. It takes a minute " +
+			"Use it only when the task asks for an image; for several, call it once an image. To look at an image " +
+			"you have, read its file instead. It takes a minute " +
 			"or so: do not repeat a call that is still running. Write the prompt in English, concrete and visual: " +
 			"the subject, the style, the composition, the light, and any text that must appear, word for word. " +
 			"To edit, name the image files and say what to keep as well as what to change. A rate limit says " +

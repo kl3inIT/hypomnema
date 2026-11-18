@@ -68,7 +68,9 @@ func museToolList(names []string) []agenttool.BrowserTool {
 		out = append(out, agenttool.BrowserTool{
 			Name: agenttool.ToolMuseAsk,
 			Description: "Ask Muse, Meta's research agent, a research question through the owner's Muse accounts: " +
-				"it searches and reads the web itself and answers with its sources. It takes minutes; do not repeat " +
+				"it searches and reads the web itself and answers with its sources. Use it for a question that needs " +
+				"many sources read and weighed (a market, a field, a comparison); for a fact or one page, the web's " +
+				"tools answer in seconds instead. It takes minutes; do not repeat " +
 				"a call that is still running. Give `thread` to continue a thread a former answer named; leave it out " +
 				"to start a new one. Answers the text, its links, the files kept, the thread, the account and the " +
 				"outcome (answered, interrupted, unknown, asks_permission, error); an answer with no link is marked " +
@@ -88,7 +90,8 @@ func museToolList(names []string) []agenttool.BrowserTool {
 		out = append(out, agenttool.BrowserTool{
 			Name: agenttool.ToolMuseChats,
 			Description: "List the Muse threads asked through Hypomnema, the latest first, with their last " +
-				"question; with `query`, those whose questions or answers contain its words. " + museData,
+				"question; with `query`, those whose questions or answers contain its words. Use it to find a former " +
+				"thread before asking Muse again. " + museData,
 			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 				`"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":200}}}`),
 		})
@@ -98,7 +101,8 @@ func museToolList(names []string) []agenttool.BrowserTool {
 		out = append(out, agenttool.BrowserTool{
 			Name: agenttool.ToolMuseMessages,
 			Description: "Read back the questions and Muse's answers of a thread, in order, or with `query` every " +
-				"one that contains its words: the text, the links, the files kept and the outcome. " + museData,
+				"one that contains its words: the text, the links, the files kept and the outcome. Use it to reread an " +
+				"answer instead of asking Muse again. " + museData,
 			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{` +
 				`"thread":{"type":"string"},"query":{"type":"string"},` +
 				`"limit":{"type":"integer","minimum":1,"maximum":200}}}`),

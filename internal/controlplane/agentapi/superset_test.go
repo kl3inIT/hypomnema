@@ -188,9 +188,22 @@ func TestAWorkerAndABotUseSupersetByItsToolsWhenGivenTheAccount(t *testing.T) {
 		"superset_dashboards", "superset_dashboard", "superset_chart_data", "superset_filter_values", "superset_api",
 	}, toolNames(tools))
 	assert.NotContains(t, string(tools[0].InputSchema), "account", "one account: nothing to name")
+
+	for _, tool := range tools {
+		assert.Contains(t, tool.Description, "Use it", "each says when to use it (#789): "+tool.Name)
+	}
 	assert.Empty(t, w.supersetToolsOf(other), "a Run not given the account")
 	assert.Empty(t, w.supersetToolsOf(pi), "not on for chats yet")
 	assert.Empty(t, w.tools(coordinator))
+
+	// The worker given the account is told when to use Superset in its "Tools" block; the other is not (#789).
+	for key, given := range map[string]bool{worker: true, other: false} {
+		session, err := w.svc.AgentSessionOf(ctx, key)
+		require.NoError(t, err)
+
+		block := agenttool.ToolGuide(w.agents.WorkerTools(ctx, session.DispatchID, key))
+		assert.Equal(t, given, strings.Contains(block, "\n- Superset: "), block)
+	}
 
 	for _, key := range []string{pi, other} {
 		status, text, _ := w.use(key, "superset_dashboards", `{}`)

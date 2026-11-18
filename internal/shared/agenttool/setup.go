@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 // The guides that teach an agent each Integration's tool (issue #103,
@@ -109,18 +107,13 @@ func IntegrationsOf(uses []string) []string {
 }
 
 // Brief is what an agent is told about the accounts it may use: which, and
-// the command for each Integration (Superset's tools for Superset); and about
-// the phone when it is given one (device). It goes into a worker's first
-// message. Each one's guide is a skill the worker's CLI finds by itself
-// (issue #536), so it is not named here.
-func Brief(uses []string, device string) string {
+// the command for each Integration (Superset's tools for Superset). It goes
+// into a worker's first message. Each one's guide is a skill the worker's CLI
+// finds by itself (issue #536), so it is not named here; what the phone's
+// tools are for is the phone's line of the "Tools" block (ToolGuide, issue
+// #789), which a Bot gets too.
+func Brief(uses []string) string {
 	var b strings.Builder
-
-	if device == nodeproto.DeviceAndroid {
-		b.WriteString("\nAn Android phone is shared by the workers; its device_* tools drive it, one call at a " +
-			"time. Look with device_screen before each action and tap its numbered boxes. Never sign in to an " +
-			"account on it, and never buy or pay: ask the owner.\n")
-	}
 
 	if len(uses) == 0 {
 		return b.String()

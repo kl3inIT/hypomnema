@@ -241,3 +241,75 @@ tools, which are the ones Hypomnema's Bots use. So that route would reach worker
 4. **(Only if question 2 is yes) prices per unit**, generated from LiteLLM's price map beside models.dev.
 
 Checks for each PR: `make verify`; `make migration-check` before merging PR 3.
+
+## 7. Every tool family in the one standard (issue #789, 2026-11-18)
+
+Read on `main` at dc3f458. Three references were cloned again into `.tmp/ref/`: Hermes `730d593f`, OpenClaw
+`4a44f2031` and OpenMausBot `c175749`. The design was posted on #789
+(https://github.com/kl3inIT/hypomnema/issues/789#issuecomment-6968670734).
+
+### What Hypomnema had (checked in code)
+
+- `agenttool.ToolFamilies` (`internal/shared/agenttool/switches.go:117-121`) had a `WhenToUse` line for web,
+  images and audio only. Memory, artifacts, routines, muse, superset, whatsapp, zalo, nodes, browser and phone had
+  none.
+- The block was built from the tools every task or chat has (`internal/controlplane/agentapi/guide.go`). It left
+  out Superset, WhatsApp, Zalo and the phone.
+- The guidance on the browser, Routines, artifacts and the skills of `gws`, `lark-cli`, `gh`, `glab` and Superset
+  was only in the Bots' `deploy/coordinator/AGENTS.md`. Workers never got it.
+- A worker's phone rules were in `agenttool.Brief` (`setup.go`), which Bots never get.
+
+### How each tool's line and description are written
+
+- **Hermes.**
+  - Each tool's schema description reads: what it does, then WHEN, then SKIP/instead.
+    - `tools/memory_tool.py:373-397`: HOW, WHEN, IF FULL, TARGETS, SKIP.
+    - `tools/web_tools.py:543`: "If a URL fails, times out, or needs JS, login or clicks, use a browser tool
+      instead".
+    - `tools/cronjob_tools.py:1133-1135`: "always list first — never guess job IDs", "Prefer updating an existing
+      job over creating near-duplicates".
+  - The browser's: "Drive a real browser for JS pages, logins, forms and clicks" (`tools/browser_use_cli.py:909-911`).
+- **OpenClaw.**
+  - The prompt has one short summary per visible tool, in a fixed core order and then alphabetically
+    (`src/agents/system-prompt-tool-list.ts:20-92`).
+  - Descriptions are terse: `web_fetch` is "Fetch URL; extract readable markdown/text. Lightweight; no browser
+    automation." (`src/agents/tools/web-fetch.ts:516`).
+  - The browser's description lists its actions and the profile choice
+    (`extensions/browser/src/browser-tool-description.ts:54-60`).
+- **OpenMausBot.**
+  - Descriptions say what to use instead:
+    - `attach_file`: "Do this instead of pasting a VM path as a link" (`server/drivers/agents-catalog.ts:311`);
+    - `send_voice_note`: "use ordinary text otherwise" (`:499`);
+    - `memory_update`: "use this, never direct file writes" (`:517`).
+  - One catalog serves every bot, filtered by the bot's profile (`:821-857`).
+
+### How shared guidance combines with an agent kind's own
+
+- **Hermes.**
+  - The tool guidance is put in only for tools the session has (`agent/system_prompt.py:289-313`,
+    `_tool_guidance_block`). A line whose tool is absent is dropped (`agent/prompt_builder.py:501-533`).
+  - It sits in the stable tier (`agent/system_prompt.py:585-595`), before the context files: the per-agent
+    `AGENTS.md` and SOUL (`:803-809`).
+- **OpenClaw.**
+  - Tool-gated workflow hints follow the tooling section (`src/agents/system-prompt.ts:598-653`). The automations
+    hint is "restate schedule+task plainly, get a yes, create it, then force `run` once as a visible test; failed
+    test => say so and remove it" (`:625-628`), which is Hypomnema's Routines rule.
+  - A sub-agent with tools gets the same tooling section (`:415-417`).
+  - The workspace file only guides: "The AGENTS.md Tools section guides usage; it never grants availability"
+    (`system-prompt-tool-list.ts:124`).
+- **OpenMausBot.**
+  - Every bot that has the browser mounted gets the browser's rules as a paragraph of the system prompt
+    (`server/browser/prompt.ts:4-5`, chosen in `server/host/browser.ts:454-455`). The paragraph includes the
+    sign-in rule "Never … ask for passwords or one-time codes in chat" (`server/system-prompt.ts:133-134`).
+  - The shared parts come before the bot's own: persona, every-bot rules, soul, then the parts
+    (`server/system-prompt.ts:89-111`).
+
+**Common default.** The when-to-use is in the tool's description. A short block covers only the tools present. A
+tool's standing rules travel with the tool's guidance, so every agent with the tool gets them. The per-agent file
+keeps the agent's own way of working.
+
+**Not found in any reference.**
+
+- A line that points a command-line tool (reached through a proxy) to its skill, in the same block as the MCP
+  tools. Hypomnema does it because the owner asked for one standard (2026-11-18): this is inference.
+- A research agent like Muse, so the Muse-vs-web line is inference too.

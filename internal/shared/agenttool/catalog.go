@@ -65,6 +65,10 @@ type Def struct {
 	// reads the host it acts on from.
 	HostKind string
 	HostEnv  string
+	// WhenToUse is the tool's line of an agent's "Tools" block (ToolGuide, issue #789): which skill to load for
+	// what, and that the command is signed in already. A CLI is not a family of the control plane's tools
+	// (ToolFamilies), so its line is kept here, beside its pin, the one source for it. Empty leaves it out.
+	WhenToUse string
 }
 
 // Release is one system's release file of a tool.
@@ -165,6 +169,8 @@ func GoogleWorkspaceCLI() Def {
 	return Def{
 		Integration: "google", Name: "gws", Version: version,
 		TokenEnv: "GOOGLE_WORKSPACE_CLI_TOKEN",
+		WhenToUse: "When you are asked about the owner's mail, calendar or files, load the `google-workspace` skill " +
+			"and follow it: `gws` is already signed in to the Google accounts you were given; never log in yourself.",
 		// gws takes a proxy and a CA file from the environment and speaks HTTP/1.1 (tried on 2026-11-11).
 		Releases: map[string]Release{
 			"linux/amd64": {
@@ -205,6 +211,9 @@ func LarkCLI() Def {
 	//nolint:gosec // The names of variables and public addresses; no credential is here.
 	return Def{
 		Integration: "lark", Name: "lark-cli", Version: version,
+		WhenToUse: "When you are asked about something in Lark (a document, a sheet, a Base, a wiki page, a " +
+			"message), load the `lark` skill and follow it: `lark-cli` is already signed in as the Lark app you " +
+			"were given, and acts as that app, not as the owner.",
 		TokenEnv:     "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
 		ClientEnv:    "LARKSUITE_CLI_APP_ID",
 		UserTokenEnv: "LARKSUITE_CLI_USER_ACCESS_TOKEN",
@@ -298,6 +307,9 @@ func GitHubCLI() Def {
 	return Def{
 		Integration: "github.com", Name: "gh", Version: version,
 		TokenEnv: "GH_TOKEN",
+		WhenToUse: "When you are asked about something on GitHub (an issue, a pull request, why CI failed), load " +
+			"the `github` skill and follow it: `gh` is already signed in to the github.com account you were given; " +
+			"it reads freely, and what it would write waits for the owner's approval.",
 		Env: []string{
 			"GH_HOST=github.com", "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1",
 			"GH_NO_EXTENSION_UPDATE_NOTIFIER=1", "GH_SPINNER_DISABLED=1", "GH_TELEMETRY=false",
@@ -342,7 +354,11 @@ func GitLabCLI() Def {
 		Integration: "gitlab", Name: "glab", Version: version,
 		HostKind: "gitlab", HostEnv: "GITLAB_HOST",
 		TokenEnv: "GITLAB_TOKEN",
-		Env:      []string{"GLAB_CHECK_UPDATE=false", "GLAB_SEND_TELEMETRY=false", "GLAB_NO_PROMPT=true"},
+		WhenToUse: "When you are asked about something on a GitLab host, gitlab.com or a company's server (an " +
+			"issue, a merge request, why a pipeline failed), load the `gitlab` skill and follow it: `glab` is " +
+			"already signed in to the GitLab accounts you were given; it reads freely, and what it would write " +
+			"waits for the owner's approval.",
+		Env: []string{"GLAB_CHECK_UPDATE=false", "GLAB_SEND_TELEMETRY=false", "GLAB_NO_PROMPT=true"},
 		Unset: []string{
 			"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_HOST", "GITLAB_URI",
 			"GL_HOST", "GITLAB_REPO", "GLAB_PROXY",
