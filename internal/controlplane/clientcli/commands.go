@@ -436,6 +436,7 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("provider", "", "the provider of the model, when more than one offers it")
 			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
+			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas; empty clears them")
 			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")

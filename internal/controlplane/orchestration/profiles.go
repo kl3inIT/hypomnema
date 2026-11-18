@@ -94,9 +94,11 @@ func GatewayModelName(kind, provider, model string) string {
 	return model
 }
 
-// PiProvider is the one provider of pi's models.json (clientcli pi-models): every model the gateway serves, each
+// PiProvider is the default provider of pi's models.json (clientcli pi-models): every model the gateway serves, each
 // under its gateway name with the wire of its subscription (issue #549).
 const PiProvider = "hypomnema"
+
+const PiFallbackProvider = "hypomnema-fallback"
 
 // PiModel is a chat's model as pi names it: the gateway's name under PiProvider when the gateway serves it, as it
 // was otherwise.

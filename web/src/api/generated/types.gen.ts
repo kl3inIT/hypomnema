@@ -2837,6 +2837,10 @@ export type Bot = {
   pinned: boolean;
   provider?: string;
   model?: string;
+  /**
+   * Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+   */
+  fallbacks: Array<string>;
   effort?: string;
   /**
    * What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
@@ -3173,6 +3177,10 @@ export type BotOrder = {
 export type BotSettings = {
   provider?: string;
   model?: string;
+  /**
+   * Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
+   */
+  fallbacks?: Array<string>;
   effort?: string;
   persona?: string;
   /**

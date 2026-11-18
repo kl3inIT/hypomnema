@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -300,7 +301,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: req.stream, started: started}
 	serving, served := withServed(r)
-	s.serveChat(w, serving, req, model, key.ID, &record)
+	s.serveChat(w, serving, req, model, key, &record)
 	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 
@@ -315,23 +316,78 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 // pass on, and fills the record. The next target is tried only while nothing
 // has been sent to the client, as every reference does.
 func (s *Server) serveChat(
-	w http.ResponseWriter, r *http.Request, req chatRequest, model Model, keyID string, record *Usage,
+	w http.ResponseWriter, r *http.Request, req chatRequest, model Model, key Key, record *Usage,
 ) {
+	ctx := r.Context()
+	fallbacks := sync.OnceValue(func() []string {
+		if key.ChatID == "" || s.chatFallbacks == nil || ctx.Err() != nil {
+			return nil
+		}
+		names, err := s.chatFallbacks(ctx, key.ChatID, model.Name)
+		if err != nil {
+			s.logger.WarnContext(ctx, "reading Bot fallbacks", slog.String("error", err.Error()))
+		}
+		return names
+	})
+	hasFallbacks := func() bool { return len(fallbacks()) != 0 }
+
+	resp, exhausted := s.tryChat(ctx, req, model, key.ID, record, hasFallbacks)
+	if exhausted {
+		for _, name := range fallbacks() {
+			if ctx.Err() != nil {
+				break
+			}
+			fallback, err := s.svc.GetModel(ctx, name)
+			if err != nil || fallback.Capability != CapabilityChat {
+				continue
+			}
+			if resp != nil {
+				drain(resp)
+			}
+			record.Model = fallback.Name
+			resp, exhausted = s.tryChat(ctx, req, fallback, key.ID, record, hasFallbacks)
+			if !exhausted {
+				break
+			}
+		}
+	}
+
+	if resp != nil {
+		s.relay(w, r, req, resp, record)
+		_ = resp.Body.Close()
+
+		return
+	}
+	if ctx.Err() != nil {
+		record.Outcome = OutcomeClientGone
+
+		return
+	}
+
+	record.Outcome = OutcomeTransportError
+	writeError(w, http.StatusBadGateway, typeServer, "upstream_unavailable",
+		fmt.Sprintf("no provider of model %q could be reached", record.Model))
+}
+
+func (s *Server) tryChat(
+	ctx context.Context, req chatRequest, model Model, keyID string, record *Usage, hasFallbacks func() bool,
+) (*http.Response, bool) {
+	exhausted := len(model.Targets) > 0
 	for i, target := range model.Targets {
 		last := i == len(model.Targets)-1
-		noteServed(r.Context(), "")
-		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.UpstreamModel
+		noteServed(ctx, "")
+		record.Attempts++
+		record.Provider, record.UpstreamModel = target.Provider, target.UpstreamModel
 		record.Status = 0
 
-		resp, err := s.send(r.Context(), chatCall{req: req, keyID: keyID, model: model.Name}, target)
+		resp, err := s.send(ctx, chatCall{req: req, keyID: keyID, model: model.Name}, target)
 		if err != nil {
-			if r.Context().Err() != nil {
-				record.Outcome = OutcomeClientGone
-
-				return
+			if ctx.Err() != nil {
+				return nil, false
 			}
+			exhausted = exhausted && errors.Is(err, ErrNoAccount)
 
-			s.logger.WarnContext(r.Context(), "a gateway target gave no answer",
+			s.logger.WarnContext(ctx, "a gateway target gave no answer",
 				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
 				slog.String("model", model.Name), slog.String("error", err.Error()))
 
@@ -339,25 +395,29 @@ func (s *Server) serveChat(
 		}
 
 		record.Status = resp.StatusCode
+		refused := accountRefused(resp.StatusCode)
+		exhausted = exhausted && refused
 
-		if retryable(resp.StatusCode) && !last {
+		if !last && (retryable(resp.StatusCode) || (refused && hasFallbacks())) {
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBytes))
 			_ = resp.Body.Close()
 
 			continue
 		}
 
-		s.relay(w, r, req, resp, record)
-		_ = resp.Body.Close()
-
-		return
+		return resp, exhausted
 	}
 
-	// No target answered at all: a retriable 502, not a 500 (Bifrost, issue #4496).
-	record.Outcome = OutcomeTransportError
+	return nil, exhausted
+}
 
-	writeError(w, http.StatusBadGateway, typeServer, "upstream_unavailable",
-		fmt.Sprintf("no provider of model %q could be reached", model.Name))
+func accountRefused(status int) bool {
+	switch status {
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests:
+		return true
+	default:
+		return false
+	}
 }
 
 // send makes one attempt at one target and returns the answer in OpenAI's

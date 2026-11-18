@@ -22,6 +22,7 @@ const main: Bot = {
   persona: "",
   memory: "",
   memory_limit: 2200,
+  fallbacks: [],
   skills: [],
   skills_off: [],
   preset: "full",

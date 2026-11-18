@@ -25,6 +25,7 @@ const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
   persona: "",
   memory: "",
   memory_limit: 2200,
+  fallbacks: [],
   skills: [],
   skills_off: [],
   preset: "full",
