@@ -776,7 +776,7 @@ func (s *Service) ResumeNode(ctx context.Context, nodeID string) error {
 
 // GetNode returns one node, with whether it is connected and its load.
 func (s *Service) GetNode(ctx context.Context, id string) (Node, error) {
-	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli())
+	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli(), nil)
 	if err != nil {
 		return Node{}, err
 	}
@@ -791,7 +791,7 @@ func (s *Service) GetNode(ctx context.Context, id string) (Node, error) {
 
 // ListNodes returns every node by name.
 func (s *Service) ListNodes(ctx context.Context) ([]Node, error) {
-	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli())
+	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -904,7 +904,7 @@ func (s *Service) MoveAccount(ctx context.Context, id string, up bool) error {
 
 // ListAccounts returns every account by runtime and position.
 func (s *Service) ListAccounts(ctx context.Context) ([]Account, error) {
-	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli())
+	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli(), nil)
 	if err != nil {
 		return nil, err
 	}

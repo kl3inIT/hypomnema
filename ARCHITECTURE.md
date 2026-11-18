@@ -1530,7 +1530,7 @@ flowchart LR
   control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise). Which of them serves a
   request is the gateway's to choose; while every one cools down (the gateway's cooldowns are in the table node
   accounts cool in), the profile is `ReasonAccountsCooling` until the first is free, and its Task waits or goes to a
-  fallback as under a node's cooling accounts (issue #756). Only accounts the gateway can serve under count: one with no tokens or whose login was refused (the subscription service's `Unusable`, given to the scheduler as `GatewayLogins`) does not hide that the rest cool. A worker the gateway refused (`rate_limited`) holds its Task until the first of those accounts is free, not the reset the worker named (the last refusal of the accounts its request tried); a Task a fallback may take is not held while every account cools, as the scheduler hands it off. When one account is free, or the profile's model is one of the gateway's own table whose accounts the scheduler cannot see, the Task is held for `RateLimitCooldown` (or the named reset, for the latter), hand-off or not, so a refused worker is never started again at once. A Task's own model picks its provider again, as it is checked when the Task
+  fallback as under a node's cooling accounts (issue #756). A model of the gateway's own table whose targets are all subscriptions (as `deploy/profiles/reviewer-codex.yaml` asks for), or `<subscription>/<model>` named under the gateway provider, is seen the same way, through the accounts of every target's subscription. Only accounts the gateway can serve under count: one with no tokens or whose login was refused (the subscription service's `Unusable`, given to the scheduler as `GatewayLogins` and read both when it schedules and when a worker's limit settles) does not hide that the rest cool. A worker the gateway refused (`rate_limited`) holds its Task until the first of those accounts is free, not the reset the worker named (the last refusal of the accounts its request tried); a Task a fallback may take is not held while every account cools, as the scheduler hands it off at once. When one account is free now, the Task is not held. When the profile's model has a target that is not a subscription, whose accounts the scheduler cannot see, the Task is held until the named reset, else for `RateLimitCooldown`, hand-off or not, so a refused worker is not started again at once. A Task's own model picks its provider again, as it is checked when the Task
   is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
@@ -1656,8 +1656,9 @@ flowchart LR
   `fallback_until`, when its first account is free; the first such Dispatch of a Run for one `fallback_until` is
   escalated (`fallback`, with `profile`, `fallback` and `until`), so a coordinator hears of one stretch of a limit
   once. Each pass starts from the Task's own profile, so work returns when the limit has reset. A profile whose
-  model the gateway serves under a subscription moves when every account the control plane keeps of it cools
-  (issue #756); one of the gateway's own table never does. The Agents
+  model the gateway serves under subscriptions moves when every account the control plane keeps of them cools
+  (issue #756), a model of the gateway's own table too when its targets are all subscriptions; one with another
+  target never does. The Agents
   page edits the list, and a Task's card says which profile it stands in for.
   A Task whose worker met the limit under way is handed off (issue #187, after Orca's hand-off of a session to
   another agent and OpenMausBot's resending of a limited turn;

@@ -176,6 +176,38 @@ func (q *Queries) DeleteProvider(ctx context.Context, name string) (int64, error
 	return result.RowsAffected()
 }
 
+const gatewayModelTargetKinds = `-- name: GatewayModelTargetKinds :many
+SELECT providers.kind FROM gateway_model_targets
+JOIN providers ON providers.name = gateway_model_targets.provider
+WHERE gateway_model_targets.model = ?1
+ORDER BY gateway_model_targets.position
+`
+
+// The kind of each provider a model of the gateway's own table is served from, in the order the gateway tries
+// them (issue #756).
+func (q *Queries) GatewayModelTargetKinds(ctx context.Context, model string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, gatewayModelTargetKinds, model)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var kind string
+		if err := rows.Scan(&kind); err != nil {
+			return nil, err
+		}
+		items = append(items, kind)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getProfile = `-- name: GetProfile :one
 SELECT name, current_version_id, created_at, updated_at, deleted_at FROM profiles WHERE name = ?1 AND deleted_at IS NULL
 `

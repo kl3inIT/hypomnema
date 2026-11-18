@@ -21,6 +21,14 @@ import (
 func reviewerWorld(t *testing.T) (*world, Node, Profile) {
 	t.Helper()
 
+	return reviewerWorldOn(t, "codex-subscription", nil)
+}
+
+// reviewerWorldOn is reviewerWorld with the Codex reviewer's model on the given provider, gpt-6.1-sol; before is
+// done to the world before the profiles are applied.
+func reviewerWorldOn(t *testing.T, provider string, before func(*world)) (*world, Node, Profile) {
+	t.Helper()
+
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
@@ -30,10 +38,14 @@ func reviewerWorld(t *testing.T) (*world, Node, Profile) {
 	both := w.addNode("node_both", 4, "claude", "codex")
 	require.NoError(t, w.s.DrainNode(ctx, w.node.ID))
 
+	if before != nil {
+		before(w)
+	}
+
 	backup, _, err := w.s.ApplyProfile(ctx, "", deployProfile(t, "reviewer-claude.yaml"))
 	require.NoError(t, err)
 
-	codex := strings.NewReplacer("<gateway provider>", "codex-subscription", "<gateway model>", "gpt-6.1-sol").
+	codex := strings.NewReplacer("<gateway provider>", provider, "<gateway model>", "gpt-6.1-sol").
 		Replace(deployProfile(t, "reviewer-codex.yaml"))
 	reviewer, _, err := w.s.ApplyProfile(ctx, "", codex)
 	require.NoError(t, err)
@@ -282,4 +294,177 @@ func TestATaskWaitsForTheFirstAccountFreeNotTheLastRefusal(t *testing.T) {
 	w.advance(61 * time.Minute)
 	w.alive(both)
 	assert.Len(t, w.schedule().Created, 1, "the first account is free again")
+}
+
+// codexAlias makes gpt-6.1-sol a model of the gateway's own table served from the Codex subscription, and offers it
+// under the world's model gateway: what deploy/profiles/reviewer-codex.yaml asks the owner to name.
+func (w *world) codexAlias() {
+	w.t.Helper()
+
+	_, err := w.s.ApplyProvider(w.t.Context(), "",
+		"name: model-gateway\nkind: model_gateway\nmodels: [claude-opus-5-5, claude-sonnet-5-5, gpt-6.1-sol]\n")
+	require.NoError(w.t, err)
+
+	_, err = w.db.ExecContext(w.t.Context(), `INSERT INTO gateway_models (name, capability, source, created_at, updated_at)
+		VALUES ('gpt-6.1-sol', 'chat', 'name: gpt-6.1-sol', 1, 1)`)
+	require.NoError(w.t, err)
+
+	_, err = w.db.ExecContext(w.t.Context(), `INSERT INTO gateway_model_targets (model, position, provider, upstream_model)
+		VALUES ('gpt-6.1-sol', 0, 'codex-subscription', 'gpt-6.1-sol')`)
+	require.NoError(w.t, err)
+}
+
+// Scenario (second review of PR #786, finding 1): the Codex reviewer runs on a model of the gateway's own table,
+// served from the Codex subscription, as reviewer-codex.yaml asks. Its two Codex accounts cool for one and two
+// hours and the worker names the last refusal's reset, a day away. A review not started starts under
+// reviewer-claude; one under way is handed to reviewer-claude at once; a profile with no fallback waits for the
+// first account, not the day.
+func TestAReviewOnAGatewayModelSeesItsCodexAccountsCool(t *testing.T) {
+	t.Parallel()
+
+	w, both, backup := reviewerWorldOn(t, "model-gateway", (*world).codexAlias)
+	ctx := t.Context()
+
+	w.loginAccount("acc_codex_2", "codex")
+	_, _, err := w.s.ApplyProfile(ctx, "",
+		"name: codex-alone\ndescription: d\nruntime: codex\nmodel: {provider: model-gateway, name: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	tasks := w.tasks(
+		NewTask{Ref: "r", Profile: "reviewer", Spec: "review PR #786"},
+		NewTask{Ref: "alone", Profile: "codex-alone", Spec: "alone"},
+	)
+
+	created := w.schedule().Created
+	require.Len(t, created, 2)
+
+	byTask := map[string]Dispatch{}
+	for _, id := range created {
+		d := w.dispatchOf(id)
+		byTask[d.TaskID] = d
+		assert.Equal(t, "codex", w.conversation(d.ConversationID).Runtime)
+	}
+
+	first, last, named := t0.Add(time.Hour), t0.Add(2*time.Hour), t0.Add(24*time.Hour)
+	require.NoError(t, w.s.CoolAccount(ctx, "codex", "acc_gateway_codex", first, "usage limit"))
+	require.NoError(t, w.s.CoolAccount(ctx, "codex", "acc_codex_2", last, "usage limit"))
+
+	for _, task := range tasks {
+		require.NoError(t, w.finish(w.begin(byTask[task.ID].ID), Outcome{Class: FailureRateLimited, ResetsAt: &named}))
+	}
+
+	assert.Nil(t, w.task(tasks[0].ID).NotBefore, "a review a backup may take is not held")
+	require.NotNil(t, w.task(tasks[1].ID).NotBefore)
+	assert.Equal(t, first, *w.task(tasks[1].ID).NotBefore, "the first account, not the reset the worker named")
+
+	w.tasks(NewTask{Ref: "new", Profile: "reviewer", Spec: "review PR #790"})
+
+	out := w.schedule()
+	require.Len(t, out.Created, 2, "the review under way and the new one, both on Claude")
+
+	for _, id := range out.Created {
+		d := w.dispatchOf(id)
+		assert.Equal(t, backup.VersionID, d.ProfileVersionID)
+		assert.Equal(t, "reviewer", d.FallbackFor)
+		require.NotNil(t, d.FallbackUntil)
+		assert.Equal(t, first, *d.FallbackUntil)
+		assert.Equal(t, d.TaskID == tasks[0].ID, d.Handoff)
+	}
+
+	profiles, err := w.s.ListProfiles(ctx)
+	require.NoError(t, err)
+
+	i := slices.IndexFunc(profiles, func(p Profile) bool { return p.Name == "reviewer" })
+	require.GreaterOrEqual(t, i, 0)
+	assert.Equal(t, ReasonAccountsCooling, profiles[i].Availability.Reason)
+
+	w.advance(61 * time.Minute)
+	w.alive(both)
+
+	after := w.schedule().Created
+	require.Len(t, after, 1, "the first account is free again")
+	assert.Equal(t, tasks[1].ID, w.dispatchOf(after[0]).TaskID)
+}
+
+// Scenario (second review of PR #786, finding 2): of the two Codex accounts, one cools for ten seconds and the
+// other's login was refused for good. When a worker's limit settles, the one that cannot sign in does not hide
+// that the usable one cools: a review is handed to reviewer-claude at once, and a profile with no fallback waits
+// the ten seconds, not RateLimitCooldown.
+func TestAnAccountThatCannotSignInDoesNotHideTheCoolingWhenALimitSettles(t *testing.T) {
+	t.Parallel()
+
+	w, both, backup := reviewerWorld(t)
+	ctx := t.Context()
+
+	w.loginAccount("acc_codex_refused", "codex")
+	w.s.SetGatewayLogins(func(context.Context) (map[string]bool, error) {
+		return map[string]bool{"acc_codex_refused": true}, nil
+	})
+
+	_, _, err := w.s.ApplyProfile(ctx, "",
+		"name: codex-alone\ndescription: d\nruntime: codex\nmodel: {provider: codex-subscription, name: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	tasks := w.tasks(
+		NewTask{Ref: "r", Profile: "reviewer", Spec: "review PR #786"},
+		NewTask{Ref: "alone", Profile: "codex-alone", Spec: "alone"},
+	)
+
+	created := w.schedule().Created
+	require.Len(t, created, 2)
+
+	resets := t0.Add(10 * time.Second)
+	require.NoError(t, w.s.CoolAccount(ctx, "codex", "acc_gateway_codex", resets, "usage limit"))
+
+	for _, id := range created {
+		require.NoError(t, w.finish(w.begin(id), Outcome{Class: FailureRateLimited}))
+	}
+
+	assert.Nil(t, w.task(tasks[0].ID).NotBefore)
+	require.NotNil(t, w.task(tasks[1].ID).NotBefore)
+	assert.Equal(t, resets, *w.task(tasks[1].ID).NotBefore)
+
+	out := w.schedule().Created
+	require.Len(t, out, 1)
+
+	d := w.dispatchOf(out[0])
+	assert.Equal(t, tasks[0].ID, d.TaskID)
+	assert.Equal(t, backup.VersionID, d.ProfileVersionID)
+	assert.True(t, d.Handoff)
+
+	w.advance(11 * time.Second)
+	w.alive(both)
+
+	after := w.schedule().Created
+	require.Len(t, after, 1, "the usable account is free again")
+	assert.Equal(t, tasks[1].ID, w.dispatchOf(after[0]).TaskID)
+}
+
+// Scenario (second review of PR #786, finding 3): the Codex account's cooldown ended at second 2 and a worker's
+// limit settles at second 3. An account is usable now, so the Task is not held: it runs again at once.
+func TestATaskIsNotHeldPastAnAccountAlreadyFree(t *testing.T) {
+	t.Parallel()
+
+	w, both, _ := reviewerWorld(t)
+	ctx := t.Context()
+
+	_, _, err := w.s.ApplyProfile(ctx, "",
+		"name: codex-alone\ndescription: d\nruntime: codex\nmodel: {provider: codex-subscription, name: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	task := w.tasks(NewTask{Ref: "alone", Profile: "codex-alone", Spec: "alone"})[0]
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+
+	require.NoError(t, w.s.CoolAccount(ctx, "codex", "acc_gateway_codex", t0.Add(2*time.Second), "usage limit"))
+	w.advance(3 * time.Second)
+	w.alive(both)
+
+	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureRateLimited}))
+
+	if nb := w.task(task.ID).NotBefore; nb != nil {
+		assert.False(t, nb.After(t0.Add(3*time.Second)), "held to %s", nb)
+	}
+
+	assert.Len(t, w.schedule().Created, 1, "it runs again at once")
 }

@@ -70,7 +70,9 @@ func requestOf(v store.ProfileVersion) request {
 	return r
 }
 
-func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement, error) {
+// loadPlacement reads the scheduler's view of the nodes and accounts. unusable are the accounts the gateway cannot
+// serve under (Service.unusableLogins, read before the transaction); nil where no gateway cooling is asked.
+func loadPlacement(ctx context.Context, q *store.Queries, now int64, unusable map[string]bool) (*placement, error) {
 	nodes, err := q.ListNodes(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing nodes: %w", err)
@@ -98,7 +100,7 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 
 	p := &placement{
 		now: now, nodes: map[string]*nodeLoad{}, groups: map[string]int{}, accounts: accounts,
-		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{},
+		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{}, unusable: unusable,
 	}
 
 	for _, row := range nodes {
@@ -337,7 +339,7 @@ func (p *placement) serves(n *nodeLoad, runtime string) error {
 // root, then an account that is not cooling down, or none for a model the
 // gateway serves. A node at its limit still counts: the Task waits its turn.
 // A runtime that runs only through the gateway cannot start without it.
-func (p *placement) availability(runtime string, gateway bool, accounts string) Availability {
+func (p *placement) availability(runtime string, gateway bool, accounts []string) Availability {
 	if !gateway && gatewayOnly(runtime) {
 		return Availability{Reason: ReasonNeedsGateway}
 	}
@@ -639,47 +641,48 @@ const MuseRuntime = "muse"
 // control plane keeps is the gateway's to serve.
 func runsOnNode(a store.Account) bool { return !a.SecretRef.Valid }
 
-// gatewayHasAccount reports whether the control plane keeps an active account of the runtime for the gateway to
-// serve a subscription under; a model of the gateway's own table (no runtime) needs none here. Which of them serves
-// a request is the gateway's to choose; when every one cools, gatewayCooling says so.
-func (p *placement) gatewayHasAccount(runtime string) bool {
-	if runtime == "" {
+// gatewayHasAccount reports whether the control plane keeps an active account, of one of the runtimes, for the
+// gateway to serve a subscription under; a model the gateway serves from what the scheduler cannot see (nil
+// runtimes, gatewayAccounts) needs none here. Which of them serves a request is the gateway's to choose; when
+// every one cools, gatewayCooling says so.
+func (p *placement) gatewayHasAccount(runtimes []string) bool {
+	if runtimes == nil {
 		return true
 	}
 
 	return slices.ContainsFunc(p.accounts, func(a store.Account) bool {
-		return a.Runtime == runtime && AccountStatus(a.Status) == AccountActive && !runsOnNode(a)
+		return slices.Contains(runtimes, a.Runtime) && AccountStatus(a.Status) == AccountActive && !runsOnNode(a)
 	})
 }
 
-// gatewayCooling reports whether every active account of the runtime the control plane keeps for the gateway
+// gatewayCooling reports whether every active account of the runtimes the control plane keeps for the gateway
 // cools down after a limit, and when the first is free again (issue #756). The gateway cools its own accounts
 // (modelgateway accounts.go, cool) in the table node accounts cool in, and answers a worker's every call with a
 // usage limit until one is free: a worker started then ends at once. So a Task waits for the reset, or goes to a
 // backup of its profile, as for the accounts a node holds (pickAccount), and as OpenClaw skips a model whose auth
-// profiles all cool (src/agents/model-fallback-runner.ts:411-439). The accounts are those the gateway can serve
-// under: an active one with tokens whose login was not refused (unusable, subscription.Service.Token), so one that
-// cannot sign in does not hide that the rest cool. false for a model of the gateway's own table, and when the
-// control plane keeps no such account.
-func (p *placement) gatewayCooling(runtime string) (int64, bool) {
-	if runtime == "" {
-		return 0, false
-	}
-
+// profiles all cool (src/agents/model-fallback-runner.ts:411-439). The runtimes are those of a subscription, or
+// of each target of a model of the gateway's own table, which the gateway tries in turn (gatewayAccounts). The
+// accounts are those the gateway can serve under: an active one with tokens whose login was not refused
+// (unusable, subscription.Service.Token), so one that cannot sign in does not hide that the rest cool. false when
+// one of them is free, for a model served from what the scheduler cannot see (nil), and when the control plane
+// keeps no such account.
+func (p *placement) gatewayCooling(runtimes []string) (int64, bool) {
 	var first int64
 
-	for _, a := range p.accounts {
-		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || runsOnNode(a) || p.unusable[a.ID] {
-			continue
-		}
+	for _, runtime := range runtimes {
+		for _, a := range p.accounts {
+			if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || runsOnNode(a) || p.unusable[a.ID] {
+				continue
+			}
 
-		until, ok := p.cooling[[2]string{runtime, a.ID}]
-		if !ok {
-			return 0, false
-		}
+			until, ok := p.cooling[[2]string{runtime, a.ID}]
+			if !ok {
+				return 0, false
+			}
 
-		if first == 0 || until < first {
-			first = until
+			if first == 0 || until < first {
+				first = until
+			}
 		}
 	}
 

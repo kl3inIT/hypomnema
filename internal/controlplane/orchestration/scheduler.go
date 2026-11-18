@@ -41,12 +41,10 @@ func (s *Service) Schedule(ctx context.Context) (Scheduled, error) {
 	}
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
-		p, err := loadPlacement(ctx, q, now)
+		p, err := loadPlacement(ctx, q, now, unusable)
 		if err != nil {
 			return err
 		}
-
-		p.unusable = unusable
 
 		ids, err := q.ListSchedulableTaskIDs(ctx, now)
 		if err != nil {
