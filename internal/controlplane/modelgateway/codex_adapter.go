@@ -188,13 +188,9 @@ func (s *Server) codexCall(ctx context.Context, token *AccountToken, built codex
 		return resp, err
 	}
 
-	drain(resp)
-
-	if *token, err = s.accounts.TokenAfterRefusal(ctx, *token); err != nil {
-		return nil, err
-	}
-
-	return s.codexPost(ctx, *token, built)
+	return s.retryRefusedAccount(ctx, resp, token, func(fresh AccountToken) (*http.Response, error) {
+		return s.codexPost(ctx, fresh, built)
+	})
 }
 
 // codexPost sends a built request under an account, as the Codex CLI would.

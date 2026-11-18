@@ -105,12 +105,20 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 		UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, Tasks: make([]openapi.TaskDetail, 0, len(tasks)),
 	}
 
+	total, byTask, err := s.svc.RunUsage(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	out.Usage = ptr(toWorkUsage(total))
+
 	for _, t := range tasks {
 		detail, err := s.taskDetail(ctx, t)
 		if err != nil {
 			return nil, err
 		}
 
+		detail.Usage = ptr(toWorkUsage(byTask[t.ID]))
 		out.Tasks = append(out.Tasks, detail)
 	}
 
@@ -212,6 +220,13 @@ func (s *Server) GetTask(ctx context.Context, req openapi.GetTaskRequestObject) 
 	if err != nil {
 		return nil, err
 	}
+
+	usage, err := s.svc.TaskUsage(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	detail.Usage = ptr(toWorkUsage(usage))
 
 	return openapi.GetTask200JSONResponse(detail), nil
 }

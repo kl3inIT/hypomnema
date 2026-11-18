@@ -511,9 +511,9 @@ func (p *placement) accountUsable(runtime, id string) (usable, cooling bool) {
 // scores, as Kubernetes filters with NodeResourcesFit before scoring
 // (helper/resource_fit.go:136-145) and Nomad ranks only Ready() nodes
 // (structs.go:2168-2170). The filter is checkNode, the fit by requests among
-// it; a node low on memory is skipped (lowMemory). The highest score wins
-// (better).
-func (p *placement) pickNode(runtime string, host where) *nodeLoad {
+// it; a node low on memory is skipped (lowMemory). The highest-ranked node
+// wins (better).
+func (p *placement) pickNode(runtime string, host where, recentExpiries map[string]bool) *nodeLoad {
 	var best *nodeLoad
 
 	for _, n := range p.order {
@@ -522,7 +522,7 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 			continue
 		}
 
-		if best == nil || p.better(n, best, host.req) {
+		if best == nil || p.better(n, best, host.req, recentExpiries) {
 			best = n
 		}
 	}
@@ -531,8 +531,8 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 }
 
 // better reports whether node a goes before node b for a Dispatch of the
-// request: a higher score, then more allocatable memory left by requests, then
-// the smaller id.
+// request: a node without a recent expiry for the Task (Nomad's rescheduling
+// penalty), then a higher score, more memory left by requests, and the smaller id.
 //
 // A node's score is its free capacity, 0 to 1: the mean of its free share by
 // requests and its measured free CPU and memory shares. From Kubernetes
@@ -545,7 +545,11 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 // as Jenkins Least Load ranks by idle executors (LeastLoadBalancer.java:443-470),
 // then by id, as Orca's relay does (assignment-store.ts:8164), to keep
 // placement reproducible.
-func (p *placement) better(a, b *nodeLoad, r request) bool {
+func (p *placement) better(a, b *nodeLoad, r request, recentExpiries map[string]bool) bool {
+	if recentExpiries[a.row.ID] != recentExpiries[b.row.ID] {
+		return !recentExpiries[a.row.ID]
+	}
+
 	// The sum of the three shares orders as their mean does. Each sum is
 	// computed the same way, so equal nodes tie exactly.
 	if sa, sb := a.free(r)+p.measured(a), b.free(r)+p.measured(b); sa != sb {

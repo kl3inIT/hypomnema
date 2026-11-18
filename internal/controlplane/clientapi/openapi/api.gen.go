@@ -2014,19 +2014,25 @@ func (e WorkspaceEntryType) Valid() bool {
 
 // Defines values for GetGatewayUsageParamsPeriod.
 const (
+	GetGatewayUsageParamsPeriodN12m GetGatewayUsageParamsPeriod = "12m"
 	GetGatewayUsageParamsPeriodN24h GetGatewayUsageParamsPeriod = "24h"
 	GetGatewayUsageParamsPeriodN30d GetGatewayUsageParamsPeriod = "30d"
 	GetGatewayUsageParamsPeriodN7d  GetGatewayUsageParamsPeriod = "7d"
+	GetGatewayUsageParamsPeriodN90d GetGatewayUsageParamsPeriod = "90d"
 )
 
 // Valid indicates whether the value is a known member of the GetGatewayUsageParamsPeriod enum.
 func (e GetGatewayUsageParamsPeriod) Valid() bool {
 	switch e {
+	case GetGatewayUsageParamsPeriodN12m:
+		return true
 	case GetGatewayUsageParamsPeriodN24h:
 		return true
 	case GetGatewayUsageParamsPeriodN30d:
 		return true
 	case GetGatewayUsageParamsPeriodN7d:
+		return true
+	case GetGatewayUsageParamsPeriodN90d:
 		return true
 	default:
 		return false
@@ -2551,6 +2557,9 @@ type Bot struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Effort      *string   `json:"effort,omitempty"`
 
+	// Fallbacks Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+	Fallbacks []string `json:"fallbacks"`
+
 	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
 	GuaranteedDispatches int `json:"guaranteed_dispatches"`
 
@@ -2626,6 +2635,9 @@ type BotSettings struct {
 	// Connections What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
 	Connections *AllowList `json:"connections,omitempty"`
 	Effort      *string    `json:"effort,omitempty"`
+
+	// Fallbacks Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
+	Fallbacks *[]string `json:"fallbacks,omitempty"`
 
 	// GuaranteedDispatches The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
 	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
@@ -3307,6 +3319,41 @@ type GatewayModelTokens struct {
 	Value *int64 `json:"value,omitempty"`
 }
 
+// GatewayPerformance The speed and reliability of a provider's model, or of a subscription account, over the requests to the text models. Time to first token is over the answered streams, latency over the answered requests, tokens a second (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+type GatewayPerformance struct {
+	AccountId    *string `json:"account_id,omitempty"`
+	AccountLabel *string `json:"account_label,omitempty"`
+
+	// ClientGone The requests whose client left first; they count neither as answered nor as failed.
+	ClientGone int64 `json:"client_gone"`
+	CostMicros int64 `json:"cost_micros"`
+
+	// Exact Read from each request, with percentiles and the median tokens a second; false from the ledger.
+	Exact        bool   `json:"exact"`
+	Failed       int64  `json:"failed"`
+	LatencyAvgMs *int64 `json:"latency_avg_ms,omitempty"`
+	LatencyP50Ms *int64 `json:"latency_p50_ms,omitempty"`
+	LatencyP95Ms *int64 `json:"latency_p95_ms,omitempty"`
+
+	// Model The model the provider served; empty for an account.
+	Model    string `json:"model"`
+	Ok       int64  `json:"ok"`
+	Provider string `json:"provider"`
+	Requests int64  `json:"requests"`
+
+	// Runtime An account's runtime (claude, codex, antigravity).
+	Runtime *string `json:"runtime,omitempty"`
+
+	// SuccessRate The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+	SuccessRate *float32 `json:"success_rate,omitempty"`
+
+	// TokensPerSecond The median of the requests' output tokens a second; from the ledger, all tokens over all time.
+	TokensPerSecond *float32 `json:"tokens_per_second,omitempty"`
+	TtftAvgMs       *int64   `json:"ttft_avg_ms,omitempty"`
+	TtftP50Ms       *int64   `json:"ttft_p50_ms,omitempty"`
+	TtftP95Ms       *int64   `json:"ttft_p95_ms,omitempty"`
+}
+
 // GatewayRequest defines model for GatewayRequest.
 type GatewayRequest struct {
 	// AccountId The subscription account of the last attempt; absent for an API provider.
@@ -3358,8 +3405,14 @@ type GatewayRequest struct {
 	ReasoningTokens int64  `json:"reasoning_tokens"`
 
 	// Status The provider's HTTP status; 0 when it gave none.
-	Status        int    `json:"status"`
-	Stream        bool   `json:"stream"`
+	Status int  `json:"status"`
+	Stream bool `json:"stream"`
+
+	// TokensPerSecond The output tokens over the time after the first token; absent when the request was not a stream, its counts were estimated, or it had no output.
+	TokensPerSecond *float32 `json:"tokens_per_second,omitempty"`
+
+	// TtftMs Time to first token: from the gateway receiving the request to the first chunk it streamed to the client; absent for an answer that is not a stream.
+	TtftMs        *int64 `json:"ttft_ms,omitempty"`
 	UpstreamModel string `json:"upstream_model"`
 
 	// WebSearches The web searches the request made: 1 for an answered web/search, and a model's own searches beside its tokens; absent when none.
@@ -3385,9 +3438,14 @@ type GatewayUsage struct {
 	ByAccount     []GatewayUsageGroup  `json:"by_account"`
 	ByKey         []GatewayUsageGroup  `json:"by_key"`
 	ByModel       []GatewayUsageGroup  `json:"by_model"`
-	Since         time.Time            `json:"since"`
-	Totals        GatewayUsageCounts   `json:"totals"`
-	Until         time.Time            `json:"until"`
+	ByProvider    []GatewayPerformance `json:"by_provider"`
+
+	// Ledger Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner", and no percentiles.
+	Ledger         bool                 `json:"ledger"`
+	Since          time.Time            `json:"since"`
+	SpeedByAccount []GatewayPerformance `json:"speed_by_account"`
+	Totals         GatewayUsageCounts   `json:"totals"`
+	Until          time.Time            `json:"until"`
 }
 
 // GatewayUsageBucket defines model for GatewayUsageBucket.
@@ -5007,6 +5065,9 @@ type RunDetail struct {
 	Tasks     []TaskDetail `json:"tasks"`
 	UpdatedAt time.Time    `json:"updated_at"`
 
+	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+	Usage *WorkUsage `json:"usage,omitempty"`
+
 	// Uses The Connections the Run's workers may use, each as integration:label.
 	Uses *[]string `json:"uses,omitempty"`
 }
@@ -5610,6 +5671,9 @@ type TaskDetail struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
+	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+	Usage *WorkUsage `json:"usage,omitempty"`
+
 	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
@@ -5890,6 +5954,34 @@ type WebSearchUsage struct {
 	// MonthDollars What this month's calls cost, as the provider said in each answer (Exa).
 	MonthDollars *float32       `json:"month_dollars,omitempty"`
 	Today        WebSearchTally `json:"today"`
+}
+
+// WorkUsage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+type WorkUsage struct {
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	CachedTokens     int64 `json:"cached_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+
+	// CostMicros The gateway requests' cost at the vendor's API price, in micro-dollars.
+	CostMicros int64 `json:"cost_micros"`
+	Dispatches int   `json:"dispatches"`
+
+	// GatewayDispatches The Dispatches that sent the gateway requests.
+	GatewayDispatches int   `json:"gateway_dispatches"`
+	PromptTokens      int64 `json:"prompt_tokens"`
+	ReasoningTokens   int64 `json:"reasoning_tokens"`
+
+	// Reported The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+	Reported struct {
+		CacheRead  int64 `json:"cache_read"`
+		CacheWrite int64 `json:"cache_write"`
+		Input      int64 `json:"input"`
+		Output     int64 `json:"output"`
+	} `json:"reported"`
+	Requests int64 `json:"requests"`
+
+	// Unpriced The gateway requests the price book has no price for.
+	Unpriced int64 `json:"unpriced"`
 }
 
 // Workspace defines model for Workspace.
@@ -7951,7 +8043,9 @@ type ClientInterface interface {
 	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
 	SetMuseTools(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+	//
+	// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 	//
 	// Corresponds with GET /gateway/usage (the `GetGatewayUsage` operationId).
 	GetGatewayUsage(ctx context.Context, params *GetGatewayUsageParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -11745,7 +11839,9 @@ func (c *Client) SetMuseTools(ctx context.Context, body SetMuseToolsJSONRequestB
 	return c.Client.Do(req)
 }
 
-// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+//
+// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 //
 // Corresponds with GET /gateway/usage (the `GetGatewayUsage` operationId).
 func (c *Client) GetGatewayUsage(ctx context.Context, params *GetGatewayUsageParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -27341,7 +27437,9 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /gateway/muse/tools (the `SetMuseTools` operationId).
 	SetMuseToolsWithResponse(ctx context.Context, body SetMuseToolsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMuseToolsResponse, error)
 
-	// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+	//
+	// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -42297,7 +42395,9 @@ func (c *ClientWithResponses) SetMuseToolsWithResponse(ctx context.Context, body
 	return ParseSetMuseToolsResponse(rsp)
 }
 
-// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+// GetGatewayUsageWithResponse What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+//
+// 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -53120,7 +53220,7 @@ type ServerInterface interface {
 	// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
 	// (PUT /gateway/muse/tools)
 	SetMuseTools(w http.ResponseWriter, r *http.Request)
-	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
 	// (GET /gateway/usage)
 	GetGatewayUsage(w http.ResponseWriter, r *http.Request, params GetGatewayUsageParams)
 	// ListGatewayRequests The requests of a period, newest first, a page at a time; only the owner
@@ -71487,7 +71587,7 @@ type StrictServerInterface interface {
 	// SetMuseTools Switch the Muse tools of workers and Bots on or off; only the owner
 	// (PUT /gateway/muse/tools)
 	SetMuseTools(ctx context.Context, request SetMuseToolsRequestObject) (SetMuseToolsResponseObject, error)
-	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+	// GetGatewayUsage What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
 	// (GET /gateway/usage)
 	GetGatewayUsage(ctx context.Context, request GetGatewayUsageRequestObject) (GetGatewayUsageResponseObject, error)
 	// ListGatewayRequests The requests of a period, newest first, a page at a time; only the owner

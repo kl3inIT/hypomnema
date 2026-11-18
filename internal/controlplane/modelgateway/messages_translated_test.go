@@ -112,6 +112,7 @@ func TestClaudeCodeIsServedFromAChatProvider(t *testing.T) {
 	usage := g.lastUsage(t)
 	assert.Equal(t, modelgateway.OutcomeOK, usage.Outcome)
 	assert.Equal(t, "p1", usage.Provider)
+	assert.NotNil(t, usage.TTFT, "a stream turned from chat has its time to first token (issue #856)")
 	assert.Equal(t, modelgateway.Tokens{Prompt: 30, Completion: 9, Cached: 20}, usage.Tokens)
 }
 

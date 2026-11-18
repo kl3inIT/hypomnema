@@ -11,10 +11,11 @@ request open for the review.
    changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
    does not answer, nothing waits for it: go on with the review. Workers and reviewers never ask it (owner,
    2026-11-17, issue #766).
-2. Pick the reviewer from `hypomnema profiles list --json`: a profile whose description says it reviews, and says
-   it is for this kind of change. The descriptions say which reviewer goes with which author, so that the worker
-   that reviews is not the kind that wrote the change; go by them. When the only reviewer that can run is of the
-   author's own kind, use it and say in your report that the review was not independent.
+2. Check `hypomnema profiles list --json` and pick a reviewer from another vendor than the PR's author, as
+   Omnigent's Polly does (owner, 2026-11-18, issue #870). Use `reviewer` (GPT) for a Claude author and
+   `reviewer-claude` for a GPT author (including `implementer-codex`). For a DeepSeek author, use `reviewer`,
+   or `reviewer-claude` if it cannot run. Use `reviewer-deepseek` only when the chosen independent reviewer
+   cannot run and the author was not DeepSeek. If no independent reviewer can run, say so and hold the PR.
 3. Create the review as a Task in the same Run:
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
@@ -40,9 +41,8 @@ request open for the review.
    Report the pull request as reviewed, then report what the author says: merged, auto-merge on, or what the
    repository lacks for it, which the owner settles. You never merge nor turn on auto-merge yourself.
    CodeRabbit is never a condition of its own: its findings count through the verdict, as in step 3.
-6. Findings that make the change incorrect: report them to the owner as the reviewer gave them, and offer to send
-   them to the worker that made the change. Once the owner agrees, send them as a follow-up on that Task, the
-   findings pasted word for word:
+6. Findings that make the change incorrect: send them to the worker that made the change at once, without asking
+   the owner (owner, 2026-11-18, issue #871), as a follow-up on that Task, the findings pasted word for word:
    ```text
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```
@@ -55,7 +55,8 @@ request open for the review.
    - `## Still disputed`: each finding the author did not fix and said why, or none.
 
    Ask the reviewer to say, for each earlier finding, whether it is fixed, still open or disputed, and to report
-   new findings as before. After two rounds that still leave findings that make the change incorrect, stop and tell
-   the owner what does not converge.
+   new findings as before. Review and fix go on for up to three rounds. After three rounds that still leave findings
+   that make the change incorrect, stop: leave the pull request open with auto-merge off, add no Task, and tell the
+   owner in one line what does not converge. It is a report, not a question; nothing waits for an answer.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.

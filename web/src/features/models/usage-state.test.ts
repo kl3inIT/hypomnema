@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest"
 
-import { cost, duration, money, share, tiles, tokens, units, unitsOf } from "./usage-state"
+import type { GatewayPerformance } from "@/api/generated/types.gen"
+
+import {
+  cost,
+  duration,
+  money,
+  percent,
+  rate,
+  requestPeriod,
+  share,
+  speed,
+  successTone,
+  tiles,
+  tokens,
+  units,
+  unitsOf,
+  workUsage,
+} from "./usage-state"
 
 describe("tokens", () => {
   it("says a count short without losing its zeros", () => {
@@ -107,5 +124,90 @@ describe("units", () => {
     const quiet = { ...counts, web_searches: 0, audio_seconds: 0, characters: 0, images: 0 }
     expect(unitsOf(quiet)).toBe("")
     expect(tiles(quiet)).toHaveLength(7)
+  })
+})
+
+describe("performance", () => {
+  const row: GatewayPerformance = {
+    provider: "claude-subscription",
+    model: "claude-opus-5-5",
+    requests: 12,
+    ok: 10,
+    failed: 1,
+    client_gone: 1,
+    cost_micros: 120,
+    exact: true,
+    success_rate: 10 / 11,
+    ttft_p50_ms: 640,
+    ttft_p95_ms: 1900,
+    latency_p50_ms: 12_400,
+    latency_p95_ms: 30_000,
+    ttft_avg_ms: 700,
+    latency_avg_ms: 13_000,
+    tokens_per_second: 84.25,
+  }
+
+  it("says the medians from the requests and the averages from the ledger", () => {
+    expect(speed(row)).toEqual({ ttft: "640 ms", latency: "12.4 s", rate: "84.3 tok/s" })
+    expect(speed({ ...row, exact: false })).toEqual({
+      ttft: "700 ms",
+      latency: "13 s",
+      rate: "84.3 tok/s",
+    })
+    expect(speed({ ...row, ttft_p50_ms: undefined, tokens_per_second: undefined })).toEqual({
+      ttft: "—",
+      latency: "12.4 s",
+      rate: "—",
+    })
+  })
+
+  it("says a success rate and its tone", () => {
+    expect(percent(10 / 11)).toBe("90.9%")
+    expect(percent(1)).toBe("100%")
+    expect(percent(undefined)).toBe("—")
+    expect(successTone(0.995)).toBe("success")
+    expect(successTone(0.96)).toBe("warning")
+    expect(successTone(0.5)).toBe("destructive")
+    expect(rate(312.4)).toBe("312 tok/s")
+  })
+
+  it("lists the requests only of the periods they are kept for", () => {
+    expect(requestPeriod("30d")).toBe("30d")
+    expect(requestPeriod("90d")).toBeUndefined()
+    expect(requestPeriod("12m")).toBeUndefined()
+  })
+})
+
+describe("workUsage", () => {
+  const none = {
+    dispatches: 1,
+    gateway_dispatches: 0,
+    requests: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    cached_tokens: 0,
+    reasoning_tokens: 0,
+    cache_write_tokens: 0,
+    cost_micros: 0,
+    unpriced: 0,
+    reported: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+  }
+
+  it("says the gateway's cost and the tokens a runtime reported", () => {
+    expect(workUsage(undefined)).toBeUndefined()
+    expect(workUsage(none)).toBeUndefined()
+    expect(
+      workUsage({
+        ...none,
+        requests: 3,
+        prompt_tokens: 1_200_000,
+        completion_tokens: 30_000,
+        cost_micros: 4_210_000,
+        unpriced: 1,
+        reported: { input: 1200, output: 300, cache_read: 9000, cache_write: 0 },
+      }),
+    ).toBe(
+      "$4.21+ at API prices · 1.2M in, 30k out · 3 requests · 10.2k in, 300 out as its runtime reported",
+    )
   })
 })

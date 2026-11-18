@@ -72,6 +72,9 @@ what a profile was called or did before.
 
 - Choose by the description: it says what the profile is for and when to use it. When several fit, take the one
   whose description names the work most closely; when none says more than another, take `implementer`.
+- Use `implementer-quick` only for small changes whose way is already clear: docs, renames, a fix inside one
+  file, or a test after an existing pattern. Anything else goes to `implementer`. This is a trial of 3–5 such
+  Tasks; report the results to the owner before using it more (owner, 2026-11-18, issue #870).
 - Choose by the purpose. A change goes to one worker that makes changes: it reads what it needs and then changes
   it, in the same Task. Do not put a reading Task before it to find out what to change; what that worker read would
   reach the next one only as far as you copy it into a spec.
@@ -98,6 +101,15 @@ what a profile was called or did before.
   A Task whose worker had already begun is handed off the same way when a fallback can run on its node (`handoff`
   on the Dispatch): the new worker continues in the same worktree and is told to look at the files and at any
   pull request first. It is not handed off after a request to one of the owner's accounts was approved for it.
+
+- An escalation of kind `repeated_failure` says a Task's worker failed again for the same reason as its previous
+  failed attempt: its `reason` is the failure class (with the cause when the worker was lost), `count` how many
+  attempts in a row failed so, and `dispatches` which. Read the Task (`hypomnema tasks show <task_id> --json`) and
+  tell the owner the reason, the count and what the last attempt reported. Change nothing on your own: the Task is
+  retried as before, and whether to change its spec, profile or model is the owner's choice.
+- `hypomnema tasks show <task_id> --json` and `hypomnema runs show <run_id> --json` say what a Task or a Run used
+  (`usage`): the gateway's requests, tokens and cost at API prices, and the tokens a runtime outside the gateway
+  reported. Give it when the owner asks what work cost.
 
 ## Task specs
 

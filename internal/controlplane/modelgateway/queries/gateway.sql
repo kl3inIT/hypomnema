@@ -77,11 +77,58 @@ UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           audio_ms, characters, web_searches, images, created_at)
+                           audio_ms, characters, web_searches, images, ttft_ms, created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
         @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model,
-        @audio_ms, @characters, @web_searches, @images, @now);
+        @audio_ms, @characters, @web_searches, @images, @ttft_ms, @now);
+
+-- name: AddGatewayUsageDaily :exec
+-- One request added to the daily ledger (issue #856), in the transaction that writes its row: its UTC day, and the
+-- caller its key counts under, as UsageByKey groups them, without the key.
+INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
+                                 client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
+                                 cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced,
+                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens)
+SELECT CAST(@day AS INTEGER),
+       CAST(CASE
+           WHEN k.bot_id IS NOT NULL THEN k.bot_id
+           WHEN k.dispatch_id IS NOT NULL OR (k.name LIKE 'dispatch-%' AND length(k.name) = 35) THEN 'workers'
+           WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
+           ELSE 'owner' END AS TEXT),
+       CAST(@model AS TEXT), CAST(@provider AS TEXT), CAST(@upstream_model AS TEXT), CAST(@account_id AS TEXT), 1,
+       CAST(@ok AS INTEGER), CAST(@failed AS INTEGER), CAST(@client_gone AS INTEGER),
+       CAST(@prompt_tokens AS INTEGER), CAST(@completion_tokens AS INTEGER), CAST(@cached_tokens AS INTEGER),
+       CAST(@reasoning_tokens AS INTEGER), CAST(@cache_write_tokens AS INTEGER), CAST(@web_searches AS INTEGER),
+       CAST(@audio_ms AS INTEGER), CAST(@characters AS INTEGER), CAST(@images AS INTEGER),
+       CAST(@cost_micros AS INTEGER), CAST(@unpriced AS INTEGER), CAST(@ok_duration_ms AS INTEGER),
+       CAST(@ttft_ms AS INTEGER), CAST(@ttft_count AS INTEGER), CAST(@generation_ms AS INTEGER),
+       CAST(@generation_tokens AS INTEGER)
+FROM gateway_keys k WHERE k.id = CAST(@key_id AS TEXT)
+ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE SET
+    requests = requests + excluded.requests, ok = ok + excluded.ok, failed = failed + excluded.failed,
+    client_gone = client_gone + excluded.client_gone, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+    completion_tokens = completion_tokens + excluded.completion_tokens,
+    cached_tokens = cached_tokens + excluded.cached_tokens, reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+    cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
+    web_searches = web_searches + excluded.web_searches, audio_ms = audio_ms + excluded.audio_ms,
+    characters = characters + excluded.characters, images = images + excluded.images,
+    cost_micros = cost_micros + excluded.cost_micros, unpriced = unpriced + excluded.unpriced,
+    ok_duration_ms = ok_duration_ms + excluded.ok_duration_ms, ttft_ms = ttft_ms + excluded.ttft_ms,
+    ttft_count = ttft_count + excluded.ttft_count, generation_ms = generation_ms + excluded.generation_ms,
+    generation_tokens = generation_tokens + excluded.generation_tokens;
+
+-- name: ListGatewayUsageDaily :many
+-- The ledger's rows from a UTC day on, for the periods longer than the request rows are kept.
+SELECT * FROM gateway_usage_daily WHERE day >= @since ORDER BY day, caller, model, provider, upstream_model, account_id;
+
+-- name: ListPerformanceSamples :many
+-- The requests to the text models since a moment (issue #856), for the speed by provider and model and by
+-- account: the percentiles need each request, not sums.
+SELECT provider, upstream_model, account_id, outcome, duration_ms, ttft_ms, completion_tokens, estimated, cost_micros
+FROM gateway_usage
+WHERE created_at >= @since AND model NOT LIKE 'web/%' AND model NOT LIKE 'audio/%' AND model NOT LIKE 'image/%'
+ORDER BY created_at;
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id

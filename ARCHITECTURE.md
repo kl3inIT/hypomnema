@@ -223,7 +223,7 @@ sequenceDiagram
     participant W as Worker
     participant G as Git host
     C->>CP: create a Run (repository, base branch), then Tasks with dependencies
-    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room for its request (and under its cap, if set) and 1 GiB of memory available,<br/>an account or a gateway model; the Bot furthest below its guaranteed share goes first
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: among nodes that fit, prefer those without a recent expiry for the Task, then the most free capacity;<br/>an account or a gateway model; the Bot furthest below its guaranteed share goes first
     CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
     N->>CP: accept (new epoch, 90 s lease)
     N->>N: fetch the skills, add the Task's worktree, start the shim
@@ -281,8 +281,10 @@ sequenceDiagram
   back-off before each retry; rate limits cool the account (runtime, account) down on every node and are not counted; a login
   that is needed blocks the Task. Every node call carries a request id and is answered once (receipts).
 - `Reap` applies the timers in `limits.go`: queued Dispatches expire after 5 min, lost leases and unconfirmed stops
-  are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
-  returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
+  are marked, and stalls (15 min without progress), Dispatches past 4 h and open questions to the owner after 1 h,
+  then daily, are returned as escalations. Three unclaimed Dispatches expiring on a node within 30 min mark it
+  unavailable and raise `node_unavailable`, even if it holds running claims (issue #858, after Nezha's windowed
+  offline rule and Kubernetes' unreachable taint). Nothing is killed.
 - A worker that loops is judged from its transcript (issue #359, after OpenMausBot's runtime contract, OpenHands'
   `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded.
   The same tool with the same input failing with the same text three times in a
@@ -290,6 +292,20 @@ sequenceDiagram
   breaker) with "Stopped after 3 identical errors: <tool>: <error>" as its summary (`dispatches.stalled_reason`),
   not `canceled`. A Task whose last two Dispatches failed with tool results and not one success fails at once,
   "Stopped after 2 attempts without a successful tool call", instead of being retried.
+- A Dispatch that settles `failed` with the same failure class as its Task's previous failed Dispatch, and the same
+  unknown cause when it was unknown (read from its status event, since settling clears the column), raises an
+  escalation of kind `repeated_failure` (issue [#856](https://github.com/kl3inIT/hypomnema/issues/856), after
+  OpenClaw's Workboard repeated failures and Hermes's `BLOCK_RECURRENCE_LIMIT = 2`): its `reason` is the class (with
+  `:<cause>`), `count` the failed Dispatches in a row for it and `dispatches` their ids, newest first. It wakes the
+  Run's chat as every escalation does; the Task's retries and the breaker go on unchanged.
+- What a Task and a Run used (issue #856): when a Dispatch settles, `dispatch_usage` (migration 00121) keeps the sums
+  of the model gateway's requests sent on its keys (`gateway_keys.dispatch_id`): requests, tokens, `cost_micros`
+  and `unpriced`, so they outlive the gateway's 31-day purge. `TaskUsage` and `RunUsage` add each Dispatch's from
+  the request rows while they are kept or from the kept sums, whichever counts more requests (a stream recorded after
+  the Dispatch settled still counts); a Dispatch that sent the gateway nothing adds the tokens its runtime reported
+  in its result, with no cost. `GET /tasks/{id}` and `GET /runs/{id}` (the Run and each of its Tasks) carry it as
+  `usage`; `hypomnema tasks show` and `runs show` print it as "used:", the Task's panel as "Used" and a chat's
+  docked Run under its Tasks.
 - Questions: a worker asks the coordinator or the owner. A `wait` question keeps the worker running, pauses its stall
   and duration timers, and its answer reaches the node in the heartbeat reply until the node acknowledges it. A
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
@@ -318,9 +334,9 @@ sequenceDiagram
   counts). With each heartbeat it sends what it measured: CPU in use since the heartbeat before, memory in use, the
   worktree volume's use, the one-minute load average and, on a machine with NVIDIA GPUs, each GPU's use, memory,
   temperature and power (read with `nvidia-smi` once a heartbeat, after Beszel's agent); only the latest measurement is kept, with its time
-  (`GET /nodes` shows it as `stats`). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
-  a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
-  its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
+  (`GET /nodes` shows it as `stats`). A node can be drained and resumed; once the reaper marks it unavailable, it
+  stays so until its next hello or a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no
+  longer listed or placed on, and its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
   disabled) are kept here with no secret value. One the owner logged in on the control plane (below) also has the
   vendor's id of the account, its email and plan, the name of the vault secret holding its tokens, and how its
   refreshes went; placement leaves these alone, since no node holds their tokens.
@@ -837,6 +853,30 @@ sequenceDiagram
     pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
     A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
     seek into a file's last sample.
+  - Making a video of a take (issue #818, part 1 of 3: the compose core; the revisions, runner, voice, captions,
+    access and Studio are parts 2 and 3, and nothing calls the core yet). The control plane installs a pinned
+    static ffmpeg and ffprobe (`internal/controlplane/videos/ffmpeg`, BtbN/FFmpeg-Builds' GPL build n9.0.2 for
+    linux/amd64 and linux/arm64, as a node installs scrcpy-server): at start, in the background, unless
+    `HYPOMNEMA_FFMPEG=0`, into `ffmpeg/` beside the database, the file's size and SHA-256 checked, ffmpeg, ffprobe
+    and the license taken out into `<version>.tmp`, run there (`-filters` has `freezedetect`, `subtitles` and `ass`,
+    `-encoders` `libx264` and `aac`), then renamed into `<version>/` and named by `current`; the build `current`
+    named before stays in use until the new one passes, and is removed then. A failed install is logged and tried
+    again at the next use. The programs are called by these absolute paths, never through PATH, and Be Vietnam Pro
+    SemiBold (OFL, embedded; `third_party/be-vietnam-pro`) is written to `ffmpeg/fonts/` for the captions.
+    `internal/controlplane/videos/compose` is aidemo's compose ported to Go (MIT, `third_party/aidemo`): a take's
+    scenes are its steps, steps at the same time one scene, each from its step to the next (the last to the take's
+    end), the first from the take's start with the span before its step a lead-in cut as an idle span; a take with
+    no steps is refused. Motionless spans are what `freezedetect` finds in each segment (1.5 s, noise 0.003) and
+    the still tail after a segment's `last_frame_ms`; a scene's spans, clipped to it but for its first and last
+    300 ms and the 600 ms after its tap, are cut to their first 400 ms. The kept footage, cut from every segment it
+    overlaps and scaled to 720×1280 (9:16) or 1280×720 (16:9) with "contain", is retimed to the scene's voice and
+    300 ms within 0.5x-1.6x, its last frame held when still short and its tail trimmed when still long; a scene
+    over a segment `freezedetect` fails on is kept whole, with a warning. A tap's ring, autodemo's ripple (MIT,
+    `third_party/autodemo`), is drawn for 0.5 s from the tap's step, its point scaled from the screen's pixels
+    to the video's; each scene's voice is padded to its scene's length, captions (an ASS file) burned in when
+    given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
+    a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
+    scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1724,8 +1764,10 @@ flowchart LR
   those with the most free capacity that has the runtime and a worktree root (issue #731): its score is the mean of
   its free share by requests (the mean of `1 − requested/allocatable` over CPU and memory, the new Dispatch
   counted), CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated
-  averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id,
-  and each Dispatch a pass places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`),
+  averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id.
+  A node where one of the Task's Dispatches expired in the last hour is considered only if no other node fits
+  (issue #858, after Nomad's rescheduling penalty). Each Dispatch a pass places counts at once, so one pass spreads.
+  Stats older than 30 s (`NodeOfflineAfter`),
   or never reported, or a node that never said its memory, count 0 for its measured CPU and memory shares, so only
   its free share by requests scores it; it is not refused (Trimaran scores a node without metrics at the minimum),
   and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
@@ -2931,12 +2973,19 @@ capabilities do not exist yet.
     `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only the token of that chat's pi gets it: a chat's id
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
-    `hypomnema pi-models`: one provider of pi, `hypomnema`, with every model the gateway serves (issue #549), each
+    `hypomnema pi-models`: the provider `hypomnema` has every model the gateway serves (issue #549), each
     under its gateway name and with its subscription's wire: `anthropic-messages` at the gateway's root for a
     Claude subscription's model, `openai-responses` at `/v1` for a Codex subscription's, OpenAI chat for the rest
     (measured on zm on 2026-11-15: a Claude turn is about a fifth smaller on Messages with the same cache, and
     Codex's cache is the same on Responses). The supervisor gives pi `--provider hypomnema` and the gateway name,
-    and makes the chat's key for that name. A Bot that names no model runs on Claude Opus 5.5 under the Claude
+    and makes the chat's key for that name. A Bot with an explicit gateway model can also have up to five ordered
+    gateway fallbacks (`bots.fallbacks`, migration 00122, issue #870), set on its page or with `bots set --fallbacks`
+    and shown by `bots show`. A chat using that Bot's model uses the `hypomnema-fallback` provider in `models.json`,
+    which speaks Chat Completions so the gateway can switch vendors without replaying the turn. It tries the
+    model's own targets and accounts first; when all are resting or refuse access, it tries the Bot's backups in
+    order before sending an answer. The key still only accepts requests for the primary model, and usage records
+    the model that served it. A chat that chooses its own model keeps its own wire and does not use the Bot's
+    fallbacks. A Bot that names no model runs on Claude Opus 5.5 under the Claude
     subscription (owner, 2026-11-15): `hypomnema pi-settings` gives pi `claude-subscription/claude-opus-5-5` as its
     `defaultProvider` and `defaultModel` when the gateway serves it, and the pages call it "Default (Claude Opus
     5.5)"; without it pi takes the first model it is given. An omp worker is given the same wire for its model, as the offer's
@@ -3061,8 +3110,9 @@ capabilities do not exist yet.
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
-  `GET /gateway/usage?period=24h|7d|30d&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day else,
-  starting at the viewer's midnight; the counts by model, by key and by account, an account named by its label; by
+  `GET /gateway/usage?period=24h|7d|30d|90d|12m&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day
+  else, starting at the viewer's midnight; 90 days a bar a UTC day and 12 months a bar a calendar month, read from
+  the daily ledger below with `ledger: true`, the owner's keys then counted together as `owner`; the counts by model, by key and by account, an account named by its label; by
   key counts every chat key of a Bot under the Bot, which a chat's key names (`gateway_keys.bot_id`), every Dispatch
   key under "Workers", and each key the owner made under its name, issue
   [#626](https://github.com/kl3inIT/hypomnema/issues/626)) and
@@ -3070,6 +3120,14 @@ capabilities do not exist yet.
   request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
   owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
   model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
+  Its Performance table (issue [#856](https://github.com/kl3inIT/hypomnema/issues/856), after new-api's
+  `perf_metrics`, 9router-go's usage by provider and OmniRoute's speed ranking) compares the text models (not
+  `web/`, `audio/`, `image/`) by provider and the model it served (`by_provider`) and by subscription account
+  (`speed_by_account`): requests, the success rate (answered over all but those whose client left), time to first
+  token and whole-call latency over the answered requests (p50, p95 under it, nearest rank, computed in Go from the
+  rows), the median output tokens a second, and the cost. From the ledger it shows averages only (`exact: false`).
+  A request's sheet shows its time to first token and tokens a second. The requests themselves are listed for
+  periods of 30 days or less. `hypomnema gateway usage --by provider|account [--period 7d]` prints the same table.
   Every count carries `cost_micros` and `unpriced` (requests with tokens and no price), a request its cost; the
   page shows them as "API cost", a `+` when part is unpriced. Each kind is shown in its own unit (issue #723,
   decisions 3.2 to 3.6): a tile each for the web searches, the audio heard, the characters spoken and the images
@@ -3332,6 +3390,18 @@ capabilities do not exist yet.
   it, as a subscription's tokens are. `unpriced` counts rows with tokens or units and no cost. The report's counts
   (`GatewayUsageCounts`) add `web_searches`, `audio_seconds`, `characters` and `images`. No row holds a query, a
   URL, a prompt, a transcript or the spoken text.
+  Since migration 00121 (issue #856) a row also holds its time to first token (`ttft_ms`): from the gateway
+  receiving the request to the first chunk it wrote to the client, measured where each streaming route writes
+  (chat's `relayStream`, Messages' `relayMessages` and `relayFromChat`, Responses' `relayResponses`, so every
+  adapter behind them); NULL for an answer that is not a stream. Output tokens a second are
+  `completion_tokens / ((duration_ms - ttft_ms) / 1000)`, computed when read, never stored, and left out for an
+  estimated row or one whose generation took no time (OmniRoute's `generationThroughput.ts`).
+  With each row the same transaction upserts `gateway_usage_daily`, the daily ledger (after LiteLLM's
+  `LiteLLM_DailyUserSpend`): a row a UTC day, caller (a Bot's id, `workers`, `chats` or `owner`, as the usage by
+  key groups keys, naming none), model, provider, upstream model and account, with requests, ok, failed,
+  client_gone, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
+  `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
+  it; migration 00121 filled it from the rows then kept.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. A chat orchestration
   deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's
@@ -4166,11 +4236,12 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
   standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only in the first round; findings that make a change incorrect are reported with an offer to send them
-  to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
+  the spec only in the first round; findings that make a change incorrect are sent to the change's worker as a
+  follow-up without asking the owner (issue #871; owner, 2026-11-18), and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
-  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; a review first reads
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
+  and the owner told in one line, with no question; a review first reads
   what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
   so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
@@ -5059,6 +5130,8 @@ internal/controlplane/serviceproxy  the one service proxy: an account's token ad
 internal/controlplane/skillssh  search of skills.sh and its audits, as the skills CLI does
 internal/controlplane/superset  Superset's API for agents: charts' data and the queries a chart runs
 internal/controlplane/vault  the vault: encrypted secrets and their versions, the keyring, rewrap
+internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
+internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run with the registry of runtimes, and the systemd unit

@@ -117,7 +117,8 @@ func TestRunEventsWakeTheirChatOnce(t *testing.T) {
 // Scenario: the web reads a chat whose Run has a Task done, a Task failed
 // and a question to the coordinator. Each wake-up comes with what its event
 // says, the Run, the Task, the question and the status; the owner's message
-// has none, and pi is given the rows without it.
+// has none, and pi is given the rows without it. The failed Task's second and
+// third failures for the same reason were escalated (issue #856).
 func TestAWakeUpComesWithItsEvent(t *testing.T) {
 	t.Parallel()
 
@@ -146,11 +147,17 @@ func TestAWakeUpComesWithItsEvent(t *testing.T) {
 
 	msgs, err := w.s.ListChatMessages(ctx, chat.ID, 0, 0)
 	require.NoError(t, err)
-	require.Len(t, msgs, 4)
+	require.Len(t, msgs, 6)
 	assert.Nil(t, msgs[0].Wake, "an owner message reports no event")
 
+	repeated := WakeEvent{
+		Event: EventEscalation, RunID: w.run.ID, TaskID: tasks[1].ID, Escalation: "repeated_failure",
+		Reason: "worker_error",
+	}
 	want := []WakeEvent{
 		{Event: EventTaskStatus, RunID: w.run.ID, TaskID: tasks[0].ID, Status: "succeeded"},
+		repeated,
+		repeated,
 		{Event: EventTaskStatus, RunID: w.run.ID, TaskID: tasks[1].ID, Status: "failed",
 			Reason: "3 failed attempts; the last: worker_error"},
 		{Event: EventQuestionOpened, RunID: w.run.ID, TaskID: tasks[2].ID, QuestionID: question},
@@ -163,7 +170,7 @@ func TestAWakeUpComesWithItsEvent(t *testing.T) {
 
 	undelivered, err := w.s.Undelivered(ctx, chat.ID)
 	require.NoError(t, err)
-	require.Len(t, undelivered, 4)
+	require.Len(t, undelivered, 6)
 	assert.Nil(t, undelivered[1].Wake, "pi reads the wake-up's text, not its event")
 }
 

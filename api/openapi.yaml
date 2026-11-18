@@ -1922,12 +1922,18 @@ paths:
   /gateway/usage:
     get:
       operationId: GetGatewayUsage
-      summary: What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+      summary: >-
+        What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text
+        models' speed and reliability by provider and by account; only the owner
+      description: >-
+        24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a
+        calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together,
+        and the speed has averages, not percentiles (ledger is true).
       parameters:
         - name: period
           in: query
           required: true
-          schema: { type: string, enum: ["24h", "7d", "30d"] }
+          schema: { type: string, enum: ["24h", "7d", "30d", "90d", "12m"] }
         - name: utc_offset_minutes
           in: query
           description: The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
@@ -4708,9 +4714,46 @@ components:
         - type: object
           required: [tasks]
           properties:
+            usage: { $ref: "#/components/schemas/WorkUsage" }
             tasks:
               type: array
               items: { $ref: "#/components/schemas/TaskDetail" }
+    WorkUsage:
+      type: object
+      description: >-
+        What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's
+        keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose
+        runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+      required: [dispatches, gateway_dispatches, requests, prompt_tokens, completion_tokens, cached_tokens,
+        reasoning_tokens, cache_write_tokens, cost_micros, unpriced, reported]
+      properties:
+        dispatches: { type: integer }
+        gateway_dispatches:
+          type: integer
+          description: The Dispatches that sent the gateway requests.
+        requests: { type: integer, format: int64 }
+        prompt_tokens: { type: integer, format: int64 }
+        completion_tokens: { type: integer, format: int64 }
+        cached_tokens: { type: integer, format: int64 }
+        reasoning_tokens: { type: integer, format: int64 }
+        cache_write_tokens: { type: integer, format: int64 }
+        cost_micros:
+          type: integer
+          format: int64
+          description: The gateway requests' cost at the vendor's API price, in micro-dollars.
+        unpriced:
+          type: integer
+          format: int64
+          description: The gateway requests the price book has no price for.
+        reported:
+          type: object
+          description: The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+          required: [input, output, cache_read, cache_write]
+          properties:
+            input: { type: integer, format: int64 }
+            output: { type: integer, format: int64 }
+            cache_read: { type: integer, format: int64 }
+            cache_write: { type: integer, format: int64 }
     RunList:
       type: object
       required: [data]
@@ -4790,6 +4833,7 @@ components:
         - $ref: "#/components/schemas/Task"
         - type: object
           properties:
+            usage: { $ref: "#/components/schemas/WorkUsage" }
             latest_dispatch: { $ref: "#/components/schemas/Dispatch" }
             follow_ups:
               type: array
@@ -7100,10 +7144,62 @@ components:
           type: string
           description: An account's runtime (claude, codex, antigravity, opencode_go).
         counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
+    GatewayPerformance:
+      type: object
+      description: >-
+        The speed and reliability of a provider's model, or of a subscription account, over the requests to the text
+        models. Time to first token is over the answered streams, latency over the answered requests, tokens a second
+        (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+      required: [provider, model, requests, ok, failed, client_gone, cost_micros, exact]
+      properties:
+        provider: { type: string }
+        model:
+          type: string
+          description: The model the provider served; empty for an account.
+        account_id: { type: string }
+        account_label: { type: string }
+        runtime:
+          type: string
+          description: An account's runtime (claude, codex, antigravity).
+        requests: { type: integer, format: int64 }
+        ok: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        client_gone:
+          type: integer
+          format: int64
+          description: The requests whose client left first; they count neither as answered nor as failed.
+        success_rate:
+          type: number
+          description: The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+        cost_micros: { type: integer, format: int64 }
+        exact:
+          type: boolean
+          description: Read from each request, with percentiles and the median tokens a second; false from the ledger.
+        ttft_p50_ms: { type: integer, format: int64 }
+        ttft_p95_ms: { type: integer, format: int64 }
+        latency_p50_ms: { type: integer, format: int64 }
+        latency_p95_ms: { type: integer, format: int64 }
+        ttft_avg_ms: { type: integer, format: int64 }
+        latency_avg_ms: { type: integer, format: int64 }
+        tokens_per_second:
+          type: number
+          description: The median of the requests' output tokens a second; from the ledger, all tokens over all time.
     GatewayUsage:
       type: object
-      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account]
+      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account, by_provider,
+        speed_by_account, ledger]
       properties:
+        ledger:
+          type: boolean
+          description: >-
+            Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner",
+            and no percentiles.
+        by_provider:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayPerformance" }
+        speed_by_account:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayPerformance" }
         since: { type: string, format: date-time }
         until: { type: string, format: date-time }
         bucket_seconds:
@@ -7179,6 +7275,17 @@ components:
           type: boolean
           description: The provider reported no usage; the counts are the sizes divided by four.
         duration_ms: { type: integer, format: int64 }
+        ttft_ms:
+          type: integer
+          format: int64
+          description: >-
+            Time to first token: from the gateway receiving the request to the first chunk it streamed to the
+            client; absent for an answer that is not a stream.
+        tokens_per_second:
+          type: number
+          description: >-
+            The output tokens over the time after the first token; absent when the request was not a stream, its
+            counts were estimated, or it had no output.
         audio_seconds:
           type: number
           description: The seconds of the recording an audio transcription heard; absent for other requests.
@@ -7691,7 +7798,7 @@ components:
     Bot:
       type: object
       required:
-        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
+        [id, name, main, position, pinned, fallbacks, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
          connections, workers, scopes, tool_display, guaranteed_dispatches, created_at, updated_at]
       properties:
         id:
@@ -7715,6 +7822,11 @@ components:
           description: Listed in the sidebar's Pinned section, under the main Bot.
         provider: { type: string }
         model: { type: string }
+        fallbacks:
+          type: array
+          maxItems: 5
+          items: { type: string }
+          description: Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
         effort: { type: string }
         persona:
           type: string
@@ -8052,6 +8164,11 @@ components:
       properties:
         provider: { type: string }
         model: { type: string }
+        fallbacks:
+          type: array
+          maxItems: 5
+          items: { type: string }
+          description: Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
         effort: { type: string }
         persona: { type: string }
         skills:

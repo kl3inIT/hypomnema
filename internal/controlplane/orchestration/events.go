@@ -230,6 +230,10 @@ func emitEscalation(ctx context.Context, q *store.Queries, now int64, e Escalati
 		ev.payload["account_ref"] = e.AccountRef
 	}
 
+	if e.Count > 0 {
+		ev.payload["count"], ev.payload["dispatches"] = e.Count, e.Dispatches
+	}
+
 	if e.Profile != "" {
 		ev.payload["profile"], ev.payload["fallback"] = e.Profile, e.Fallback
 		ev.payload["until"] = millis(e.Until).Format(time.RFC3339)

@@ -149,6 +149,7 @@ type Bot struct {
 	ToolsOff             string
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
+	Fallbacks            string
 }
 
 type Channel struct {
@@ -369,6 +370,19 @@ type DispatchSkill struct {
 	Digest     string
 }
 
+type DispatchUsage struct {
+	DispatchID       string
+	Requests         int64
+	PromptTokens     int64
+	CompletionTokens int64
+	CachedTokens     int64
+	ReasoningTokens  int64
+	CacheWriteTokens int64
+	CostMicros       int64
+	Unpriced         int64
+	RecordedAt       int64
+}
+
 type Event struct {
 	Seq        int64
 	Kind       string
@@ -468,6 +482,36 @@ type GatewayUsage struct {
 	Characters         int64
 	WebSearches        int64
 	Images             int64
+	TtftMs             sql.NullInt64
+}
+
+type GatewayUsageDaily struct {
+	Day              int64
+	Caller           string
+	Model            string
+	Provider         string
+	UpstreamModel    string
+	AccountID        string
+	Requests         int64
+	Ok               int64
+	Failed           int64
+	ClientGone       int64
+	PromptTokens     int64
+	CompletionTokens int64
+	CachedTokens     int64
+	ReasoningTokens  int64
+	CacheWriteTokens int64
+	WebSearches      int64
+	AudioMs          int64
+	Characters       int64
+	Images           int64
+	CostMicros       int64
+	Unpriced         int64
+	OkDurationMs     int64
+	TtftMs           int64
+	TtftCount        int64
+	GenerationMs     int64
+	GenerationTokens int64
 }
 
 type GitHost struct {

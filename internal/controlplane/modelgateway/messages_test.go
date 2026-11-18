@@ -103,6 +103,7 @@ func TestClaudeCodeIsServedFromTheClaudeSubscription(t *testing.T) {
 	usage := g.lastUsage(t)
 	assert.Equal(t, modelgateway.OutcomeOK, usage.Outcome)
 	assert.True(t, usage.Stream)
+	assert.NotNil(t, usage.TTFT, "a streamed answer has its time to first token (issue #856)")
 	assert.Equal(t, modelgateway.Tokens{Prompt: 16, Completion: 7, Cached: 4}, usage.Tokens)
 }
 
@@ -147,6 +148,7 @@ func TestAnotherAnthropicClientIsPresentedAsClaudeCode(t *testing.T) {
 
 	usage := g.lastUsage(t)
 	assert.False(t, usage.Stream)
+	assert.Nil(t, usage.TTFT, "a whole answer has no time to first token")
 	assert.Equal(t, modelgateway.Tokens{Prompt: 10, Completion: 3}, usage.Tokens)
 }
 
