@@ -550,7 +550,10 @@ sequenceDiagram
     a new one from the cookies given (`ErrPageGone` meanwhile). `DisposeContext` closes one. The owner's own path
     runs while he holds the browser, as his input does: `OpenOwnerTab` loads an address in his tab,
     `ProfileCookies` reads the shared profile's cookies of a domain and `ClearProfileCookies` removes them (set
-    again expired). The Muse pool is their one caller; no agent reaches a context, and none is listed as a tab.
+    again expired). `EvaluateOwnerTab` runs a script in the owner's tab, in the page's own world, attached to it
+    on a DevTools connection of its own (issue #798): it is the control plane's step there, refused with `ErrHeld`
+    under the hold as a context's are, and `ErrNoSuchTab` with no owner's tab. The Muse pool is their one caller;
+    no agent reaches a context, and none is listed as a tab.
   - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
     from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
     `GET /api/v1/browser`, read again every five seconds, whose `chat_id` is a chat of the pane, its Bot's and its
@@ -3326,10 +3329,13 @@ not checked against the live site in the change that wrote them.
   turn, so two accounts' questions do not run at once either.
 - Sign-in: the Muse page opens muse.ai in the owner's tab (`POST /gateway/muse/sign-in`) and shows it with its
   control button; the dialog polls `POST /gateway/muse/sign-in/check` every two seconds. Once the shared profile
-  holds muse.ai's two required cookies and muse.ai's `POST /api/auth/check`, asked by the control plane with them,
-  answers `ok` with a `viewer_id` (Muse-Chat-MCP's `login()`), they are kept as a new account (named, or "Muse"
-  and the end of its id) or as the account signed in again (its old context closed), and cleared from the shared
-  profile. Meta's own cookies stay there. The capture runs while the owner holds the browser.
+  holds muse.ai's two required cookies and muse.ai's `POST /api/auth/check`, fetched from inside the owner's
+  muse.ai tab (`EvaluateOwnerTab`; Muse-Chat-MCP's `checkAuth()` and `login()`, `muse-driver.mjs:162-224`),
+  answers `ok` with a `viewer_id`, they are kept as a new account (named, or "Muse" and the end of its id) or as
+  the account signed in again (its old context closed), and cleared from the shared profile. Meta's own cookies
+  stay there. muse.ai answers 403 to the same request from the control plane's own HTTP client (issue #798), so
+  there is none. While the owner holds the browser the check does not run: the dialog says "Signed in? Give
+  control back to finish adding the account." and keeps polling, and nothing is saved until the check says ok.
 - States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
   refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
   not `assigned`, or its machine not `RUNNING`); page not ready (no ready composer within 30 s); resting (out of

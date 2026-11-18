@@ -15,7 +15,9 @@ package browser
 // and one that was running when the owner took it answers ErrHeld, its
 // result dropped. What the owner does in his own tab (OpenOwnerTab,
 // ProfileCookies, ClearProfileCookies) is the owner's own path, as his input
-// in a view is (human, view.go), and does not wait for the hold.
+// in a view is (human, view.go), and does not wait for the hold; a script the
+// control plane runs in that tab (EvaluateOwnerTab) is its own step, refused
+// under the hold as a context's are.
 
 import (
 	"context"
@@ -23,6 +25,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -310,26 +314,38 @@ func (p *Page) Navigate(ctx context.Context, address string) error {
 // Evaluate runs a script in the page, awaiting a promise it returns, and
 // decodes its value into result when that is not nil.
 func (p *Page) Evaluate(ctx context.Context, expression string, result any) error {
-	var evaluated struct {
-		Result struct {
-			Value json.RawMessage `json:"value"`
-		} `json:"result"`
-		ExceptionDetails *struct {
-			Text      string `json:"text"`
-			Exception *struct {
-				Description string `json:"description"`
-			} `json:"exception"`
-		} `json:"exceptionDetails"`
-	}
+	var got evaluation
 
-	err := p.step(ctx, "Runtime.evaluate", map[string]any{
-		"expression": expression, "awaitPromise": true, "returnByValue": true,
-	}, &evaluated)
-	if err != nil {
+	if err := p.step(ctx, "Runtime.evaluate", evaluate(expression), &got); err != nil {
 		return err
 	}
 
-	if x := evaluated.ExceptionDetails; x != nil {
+	return got.decode(result)
+}
+
+// evaluation is Runtime.evaluate's answer.
+type evaluation struct {
+	Result struct {
+		Value json.RawMessage `json:"value"`
+	} `json:"result"`
+	ExceptionDetails *struct {
+		Text      string `json:"text"`
+		Exception *struct {
+			Description string `json:"description"`
+		} `json:"exception"`
+	} `json:"exceptionDetails"`
+}
+
+// evaluate is Runtime.evaluate's parameters for a script whose promise is
+// awaited and whose value is returned.
+func evaluate(expression string) map[string]any {
+	return map[string]any{"expression": expression, "awaitPromise": true, "returnByValue": true}
+}
+
+// decode decodes the script's value into result when that is not nil, or
+// reports the script's exception.
+func (v evaluation) decode(result any) error {
+	if x := v.ExceptionDetails; x != nil {
 		text := x.Text
 		if x.Exception != nil && x.Exception.Description != "" {
 			text = x.Exception.Description
@@ -338,11 +354,11 @@ func (p *Page) Evaluate(ctx context.Context, expression string, result any) erro
 		return fmt.Errorf("the page's script failed: %s", lastLine(text))
 	}
 
-	if result == nil || len(evaluated.Result.Value) == 0 {
+	if result == nil || len(v.Result.Value) == 0 {
 		return nil
 	}
 
-	return json.Unmarshal(evaluated.Result.Value, result)
+	return json.Unmarshal(v.Result.Value, result)
 }
 
 // InsertText types text into the focused element, as an input method does.
@@ -447,6 +463,81 @@ func (e *Engine) OpenOwnerTab(ctx context.Context, address string) error {
 	e.mu.Unlock()
 
 	return nil
+}
+
+// EvaluateOwnerTab runs a script in the owner's own tab, in the page's own
+// world, as Page.Evaluate does in a context's tab: for a request the page
+// must make from its own origin, such as muse.ai's sign-in check, which
+// muse.ai refuses from any other client (issue #798; Muse-Chat-MCP's
+// checkAuth, muse-driver.mjs:162-185, evaluates it in its page too). It is
+// the control plane's step in the owner's tab, not the owner's: while the
+// owner holds the browser it is refused with ErrHeld, and one that was
+// running when he took it answers ErrHeld, its result dropped. With no
+// owner's tab open it answers ErrNoSuchTab.
+func (e *Engine) EvaluateOwnerTab(ctx context.Context, expression string, result any) error {
+	if !e.control.Enter() {
+		return ErrHeld
+	}
+
+	got, err := e.evaluateOwnerTab(ctx, expression)
+
+	if e.control.Leave() {
+		return ErrHeld
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return got.decode(result)
+}
+
+func (e *Engine) evaluateOwnerTab(ctx context.Context, expression string) (evaluation, error) {
+	e.mu.Lock()
+	cdp := e.cdp
+	e.mu.Unlock()
+
+	// agent-browser keeps the tab the owner's session is pinned to in a file, as Tabs reads it.
+	var bound struct {
+		TargetID string `json:"targetId"`
+	}
+
+	raw, err := os.ReadFile(filepath.Join(e.sockets(), sessionName(OwnerTab)+boundTab))
+	if cdp == "" || err != nil || json.Unmarshal(raw, &bound) != nil || bound.TargetID == "" {
+		return evaluation{}, fmt.Errorf("%w: %s", ErrNoSuchTab, OwnerTab)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+
+	// Attached on a connection of its own, as readFavicon is, and detached after.
+	conn, err := dialCDP(ctx, cdp, nil)
+	if err != nil {
+		return evaluation{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	defer conn.close()
+
+	var attached struct {
+		SessionID string `json:"sessionId"`
+	}
+
+	err = conn.send(ctx, "Target.attachToTarget",
+		map[string]any{"targetId": bound.TargetID, "flatten": true}, "", &attached)
+	if err != nil || attached.SessionID == "" {
+		return evaluation{}, fmt.Errorf("%w: %s: %w", ErrNoSuchTab, OwnerTab, err)
+	}
+
+	defer func() {
+		_ = conn.send(ctx, "Target.detachFromTarget", map[string]any{"sessionId": attached.SessionID}, "", nil)
+	}()
+
+	var got evaluation
+
+	if err := conn.send(ctx, "Runtime.evaluate", evaluate(expression), attached.SessionID, &got); err != nil {
+		return evaluation{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+
+	return got, nil
 }
 
 // ProfileCookies are the cookies of the shared profile, the agents' and the

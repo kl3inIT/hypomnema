@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -179,6 +178,11 @@ type fakeBrowser struct {
 	renewed string
 	profile []browser.Cookie
 	cleared []browser.Cookie
+	// owner is what the sign-in check fetched in the owner's tab answers; nil is ok, with a viewer made of
+	// the profile's session cookie. ownerScripts are the scripts run there.
+	owner        map[string]any
+	ownerErr     error
+	ownerScripts []string
 	// gate, when set, is waited on by every chat read after the send.
 	gate chan struct{}
 }
@@ -288,6 +292,38 @@ func (f *fakeBrowser) DisposeContext(_ context.Context, key string) {
 
 func (f *fakeBrowser) OpenOwnerTab(context.Context, string) error { return nil }
 
+func (f *fakeBrowser) EvaluateOwnerTab(_ context.Context, expression string, result any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.held {
+		return browser.ErrHeld
+	}
+
+	f.ownerScripts = append(f.ownerScripts, expression)
+
+	if f.ownerErr != nil {
+		return f.ownerErr
+	}
+
+	answer := f.owner
+	if answer == nil {
+		viewer := ""
+		if len(f.profile) > 0 {
+			viewer = "viewer-" + f.profile[0].Value
+		}
+
+		answer = map[string]any{"status": 200, "ok": true, "viewer": viewer}
+	}
+
+	raw, err := json.Marshal(answer)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(raw, result)
+}
+
 func (f *fakeBrowser) ProfileCookies(context.Context, string) ([]browser.Cookie, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -345,9 +381,6 @@ func newPool(t *testing.T, labels ...string) *pool {
 	st := openTestStore(t)
 	p.Service = newService(Config{
 		Accounts: p.accounts, Secrets: p.vault, Browser: p.browser, SecretName: secretName, Clock: p.clock,
-		Check: func(_ context.Context, cookies []browser.Cookie) (string, error) {
-			return "viewer-" + cookies[0].Value, nil
-		},
 	}, st, &media{dir: t.TempDir(), http: http.DefaultClient, store: st})
 	p.t = fastTimings
 
@@ -724,21 +757,37 @@ func (g *goneEval) Evaluate(ctx context.Context, script string, out any) error {
 	return g.Page.Evaluate(ctx, script, out)
 }
 
-// The sign-in is captured while the owner holds the browser: it waits for
-// muse.ai's session, adds the account with its jar, and clears muse.ai's
-// cookies from the shared profile; signing in again replaces the jar.
+// A sign-in is captured once the check fetched in the owner's tab answers
+// ok: while the owner holds the browser it is not run, he is asked to give
+// control back and nothing is saved; then the account is added with muse.ai's
+// cookies only, which leave the shared profile; signing in again replaces the
+// jar.
 func TestASignInIsCapturedAndClearedFromTheProfile(t *testing.T) {
 	t.Parallel()
 
 	p := newPool(t)
-	p.browser.held = true
 
 	in, err := p.SignInCheck(t.Context(), "", "research")
 	require.NoError(t, err)
 	assert.False(t, in.Done)
 	assert.Contains(t, in.Waiting, "waiting")
+	assert.Empty(t, p.browser.ownerScripts, "no session in the profile, nothing asked")
 
 	p.browser.profile = append(signedInJar("s1"), browser.Cookie{Name: "c_user", Value: "1", Domain: ".facebook.com"})
+	p.browser.held = true
+
+	in, err = p.SignInCheck(t.Context(), "", "research")
+	require.NoError(t, err)
+	assert.False(t, in.Done)
+	assert.Equal(t, "Signed in? Give control back to finish adding the account.", in.Waiting)
+	assert.Empty(t, p.vault.jar(secretName("acc_1")), "nothing is saved while the owner holds the browser")
+	assert.Empty(t, p.browser.cleared)
+
+	accounts, err := p.Accounts(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, accounts)
+
+	p.browser.held = false
 
 	in, err = p.SignInCheck(t.Context(), "", "research")
 	require.NoError(t, err)
@@ -748,6 +797,7 @@ func TestASignInIsCapturedAndClearedFromTheProfile(t *testing.T) {
 	assert.Equal(t, "unknown", in.Account.Usage)
 	assert.Len(t, p.vault.jar(secretName("acc_1")), 2, "only muse.ai's cookies are kept")
 	assert.Len(t, p.browser.cleared, 2, "only muse.ai's cookies are cleared")
+	assert.Equal(t, []string{ownerAuthCheck}, p.browser.ownerScripts, "the check is fetched in the owner's tab")
 
 	p.browser.profile = signedInJar("s2")
 
@@ -757,37 +807,62 @@ func TestASignInIsCapturedAndClearedFromTheProfile(t *testing.T) {
 	assert.Equal(t, "s2", p.vault.jar(secretName("acc_1"))[0].Value)
 	assert.Contains(t, p.browser.disposed, "acc_1", "the old context goes")
 
-	accounts, err := p.Accounts(t.Context())
+	accounts, err = p.Accounts(t.Context())
 	require.NoError(t, err)
 	assert.Len(t, accounts, 1, "signing in again adds no account; other runtimes are not Muse's")
 }
 
-// muse.ai's sign-in check: ok with a viewer, 401, 403.
-func TestTheSignInCheck(t *testing.T) {
+// The check fetched in the owner's tab: ok with a viewer adds the account;
+// 401, ok false or no viewer wait for the sign-in; 403 says muse.ai refused;
+// a tab not on muse.ai or not open waits; anything else is an error. Only ok
+// saves anything.
+func TestTheSignInCheckInTheOwnersTab(t *testing.T) {
 	t.Parallel()
 
-	answer := ""
-	status := http.StatusOK
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/auth/check", r.URL.Path)
-		assert.Contains(t, r.Header.Get("Cookie"), "hatch_sess=s")
-		w.WriteHeader(status)
-		_, _ = w.Write([]byte(answer))
-	}))
-	defer srv.Close()
+	for _, tc := range []struct {
+		name    string
+		answer  map[string]any
+		err     error
+		waiting string
+		failed  bool
+	}{
+		{"401", map[string]any{"status": 401, "ok": false}, nil, "finish signing in", false},
+		{"ok false", map[string]any{"status": 200, "ok": false}, nil, "finish signing in", false},
+		{"no viewer", map[string]any{"status": 200, "ok": true, "viewer": ""}, nil, "finish signing in", false},
+		{"403", map[string]any{"status": 403, "ok": false}, nil, "muse.ai refused this session", false},
+		{"not on muse.ai", map[string]any{"status": -1}, nil, "waiting for its session", false},
+		{"no owner's tab", nil, browser.ErrNoSuchTab, "waiting for its session", false},
+		{"fetch failed", map[string]any{"status": 0, "error": "TypeError: Failed to fetch"}, nil, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	answer = `{"ok":true,"viewer_id":12345}`
-	viewer, err := checkSignIn(t.Context(), srv.Client(), srv.URL, signedInJar("s"))
+			p := newPool(t)
+			p.browser.profile = signedInJar("s1")
+			p.browser.owner, p.browser.ownerErr = tc.answer, tc.err
+
+			in, err := p.SignInCheck(t.Context(), "", "research")
+			if tc.failed {
+				require.ErrorIs(t, err, ErrUnavailable)
+			} else {
+				require.NoError(t, err)
+				assert.False(t, in.Done)
+				assert.Contains(t, in.Waiting, tc.waiting)
+			}
+
+			assert.Empty(t, p.vault.jar(secretName("acc_1")), "nothing is saved")
+			assert.Empty(t, p.browser.cleared, "the profile keeps its cookies")
+		})
+	}
+
+	p := newPool(t)
+	p.browser.profile = signedInJar("s1")
+	p.browser.owner = map[string]any{"status": 200, "ok": true, "viewer": "12345"}
+
+	in, err := p.SignInCheck(t.Context(), "", "")
 	require.NoError(t, err)
-	assert.Equal(t, "12345", viewer)
-
-	answer = `{"ok":false}`
-	_, err = checkSignIn(t.Context(), srv.Client(), srv.URL, signedInJar("s"))
-	require.ErrorIs(t, err, ErrNeedsSignIn)
-
-	status = http.StatusForbidden
-	_, err = checkSignIn(t.Context(), srv.Client(), srv.URL, signedInJar("s"))
-	require.ErrorIs(t, err, ErrRefused)
+	require.True(t, in.Done)
+	assert.Equal(t, "Muse 12345", in.Account.Label, "an unnamed account is named after its viewer")
 }
 
 // What an agent asks is checked before any account is taken.

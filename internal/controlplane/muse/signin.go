@@ -2,21 +2,20 @@ package muse
 
 // Sign-in (issue #782, row 6): the owner signs in to muse.ai in his own tab
 // of the shared browser, which he watches and controls; once muse.ai's
-// POST /api/auth/check answers ok with a viewer_id for the shared profile's
-// muse.ai cookies, they are copied into the account's vault secret (its
-// context is made from it at its next use) and cleared from the shared
-// profile. Meta's own cookies stay there. The check is Muse-Chat-MCP's
-// login() (muse-driver.mjs:162-224), made here by the control plane with the
-// cookies rather than from the page: the capture is the owner's own path and
-// runs while he holds the browser, as his input does (browser/view.go,
-// human), which a page step of the hold would not.
+// POST /api/auth/check answers ok with a viewer_id, the shared profile's
+// muse.ai cookies are copied into the account's vault secret (its context is
+// made from it at its next use) and cleared from the shared profile. Meta's
+// own cookies stay there. The check is Muse-Chat-MCP's login() and checkAuth()
+// (muse-driver.mjs:162-224): fetched from inside the owner's muse.ai tab, as
+// muse.ai answers 403 to the same request from any other client (issue #798).
+// It is a step of the control plane in that tab, so it waits for the owner to
+// give the browser back; nothing is saved before it answers ok.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -72,9 +71,13 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 		return SignIn{Waiting: "Sign in to Muse in the browser; waiting for its session."}, nil
 	}
 
-	viewer, err := s.cfg.Check(ctx, cookies)
+	viewer, err := s.checkOwnerTab(ctx)
 
 	switch {
+	case errors.Is(err, browser.ErrHeld):
+		return SignIn{Waiting: "Signed in? Give control back to finish adding the account."}, nil
+	case errors.Is(err, browser.ErrNoSuchTab), errors.Is(err, errNotOnMuse):
+		return SignIn{Waiting: "Sign in to Muse in the browser; waiting for its session."}, nil
 	case errors.Is(err, ErrNeedsSignIn):
 		return SignIn{Waiting: "Muse does not take the session yet; finish signing in."}, nil
 	case errors.Is(err, ErrRefused):
@@ -179,42 +182,34 @@ func shortViewer(viewer string) string {
 	return viewer
 }
 
-// checkSignIn asks site's POST /api/auth/check with the cookies.
-func checkSignIn(ctx context.Context, client *http.Client, site string, cookies []browser.Cookie) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, site+"/api/auth/check", strings.NewReader("{}"))
-	if err != nil {
+// errNotOnMuse reports an owner's tab that is not on muse.ai, from which the
+// check cannot be fetched.
+var errNotOnMuse = errors.New("the owner's tab is not on muse.ai")
+
+// checkOwnerTab fetches muse.ai's sign-in check in the owner's tab and
+// answers the account's Muse id.
+func (s *Service) checkOwnerTab(ctx context.Context) (string, error) {
+	var auth struct {
+		Status int    `json:"status"`
+		OK     bool   `json:"ok"`
+		Viewer string `json:"viewer"`
+		Error  string `json:"error"`
+	}
+
+	if err := s.cfg.Browser.EvaluateOwnerTab(ctx, ownerAuthCheck, &auth); err != nil {
 		return "", err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-
-	for _, c := range cookies {
-		req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value}) //nolint:gosec // A request header, not a cookie set.
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("%w: asking muse.ai: %w", ErrUnavailable, err)
-	}
-	defer resp.Body.Close() //nolint:errcheck // Read or failed.
-
-	var body struct {
-		OK     bool `json:"ok"`
-		Viewer any  `json:"viewer_id"`
-	}
-
-	_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body)
-
 	switch {
-	case resp.StatusCode == http.StatusForbidden:
+	case auth.Status == -1:
+		return "", errNotOnMuse
+	case auth.Status == http.StatusForbidden:
 		return "", ErrRefused
-	case resp.StatusCode == http.StatusUnauthorized || (resp.StatusCode == http.StatusOK && !body.OK):
+	case auth.Status == http.StatusUnauthorized || (auth.Status == http.StatusOK && (!auth.OK || auth.Viewer == "")):
 		return "", ErrNeedsSignIn
-	case resp.StatusCode != http.StatusOK:
-		return "", fmt.Errorf("%w: muse.ai answered %d", ErrUnavailable, resp.StatusCode)
-	case body.Viewer == nil || fmt.Sprint(body.Viewer) == "":
-		return "", ErrNeedsSignIn
+	case auth.Status != http.StatusOK:
+		return "", fmt.Errorf("%w: muse.ai's sign-in check answered %d %s", ErrUnavailable, auth.Status, auth.Error)
 	}
 
-	return fmt.Sprint(body.Viewer), nil
+	return auth.Viewer, nil
 }
