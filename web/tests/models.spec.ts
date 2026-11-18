@@ -475,6 +475,39 @@ const fits = (page: Page) =>
 const card = (page: Page, name: string) =>
   page.getByTestId("subscription-card").filter({ has: page.getByText(name, { exact: true }) })
 
+for (const theme of ["light", "dark"] as const) {
+  test(`OpenCode Go shows its provider and model marks in ${theme}`, async ({ page }) => {
+    const names = [
+      "glm-5.3",
+      "kimi-k3",
+      "deepseek-v4-pro",
+      "minimax-m3",
+      "qwen3.8-max",
+      "mimo-v2.6-pro",
+    ]
+    await fakeServer(page)
+    await page.addInitScript((theme) => localStorage.setItem("theme", theme), theme)
+    await page.route("**/api/v1/providers", (route) =>
+      route.fulfill({
+        json: { data: [provider("opencode-go", "opencode_go", names), ...providers] },
+      }),
+    )
+    await page.goto("/settings/models")
+
+    if (theme === "dark") await expect(page.locator("html")).toHaveClass(/dark/)
+    else await expect(page.locator("html")).not.toHaveClass(/dark/)
+
+    const go = card(page, "OpenCode Go")
+    await expect(go.locator('[data-slot="card-title"] svg:not(.lucide)')).toBeVisible()
+    for (const name of names) {
+      await expect(go.getByTitle(name, { exact: true }).locator("svg:not(.lucide)")).toBeVisible()
+    }
+    expect(await fits(page)).toBe(true)
+    await go.scrollIntoViewIfNeeded()
+    await shot(page, `models-opencode-go-${theme}`)
+  })
+}
+
 // Scenario: the owner opens Models from Settings. Each subscription shows whether it serves now and its accounts
 // in the order the gateway tries them, each with the one thing wrong with it; the gateway's models show where
 // each is served from, in order, and which an agent may name.

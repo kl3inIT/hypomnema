@@ -63,6 +63,9 @@ Each adapted file names its source.
   Copyright (c) 2023 LobeHub. Parallel's, TinyFish's and You.com's are the marks their websites serve, fetched
   2026-11-14: https://parallel.ai/views/icons/logo-parallel.svg, https://www.tinyfish.ai/TF-Logos/Icon/SVG/TF_ICON.svg
   and https://you.com/icon.svg. Each mark belongs to its brand.
+- The DeepSeek, Zhipu, Kimi, MiniMax, Qwen, Xiaomi MiMo, LongCat and xAI marks in
+  `src/components/icons/brand-icons.tsx` are LobeHub's mono icons (@lobehub/icons 6.16.0,
+  https://github.com/lobehub/lobe-icons), used under the [MIT License](#lobehub). Each mark belongs to its brand.
 - Apache Superset's mark there is the path of Simple Icons (https://github.com/simple-icons/simple-icons,
   icons/apachesuperset.svg), CC0 1.0. Apache Superset and its logo are trademarks of The Apache Software
   Foundation.
@@ -151,6 +154,32 @@ Each adapted file names its source.
 - The YAML editor of an agent (`src/features/agents/yaml-editor.tsx`, `monaco-environment.ts`, `yaml.worker.js`)
   is adapted from Omnara (frontend/apps/web/src/components/agents/AgentConfigYamlEditor.tsx,
   monacoEnvironment.ts, yaml.worker.js, and src/styles/editor.ts), Apache License 2.0.
+
+## LobeHub
+
+```text
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## t3code
 
