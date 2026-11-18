@@ -2163,6 +2163,23 @@ flowchart LR
     - **On the web** the Integrations page has a Superset card: add an account (name, address, user name,
       password), see its user name, address, version and whether the last sign-in worked, what agents may do
       with it, "Use in chats", connect again, disconnect.
+  - A Connection may name a proxy ([issue #850](https://github.com/kl3inIT/hypomnema/issues/850),
+    `internal/controlplane/connproxy`; [setup](deploy/integrations/private-network.md)): `socks5://`, `socks5h://`,
+    `http://` or `https://` with a host and a port, no user or path (`connproxy.Parse`), in the `proxy` column of
+    `connections`, as Metabase's database details carry their own tunnel. Its requests, the sign-in of an account
+    Connection included, go through it (a transport per proxy, kept); every other Connection goes direct. When the
+    proxy cannot reach the service, the request fails with "cannot reach <host> through <proxy>", and an account
+    Connection is not marked as needing a new sign-in. Set with `PATCH .../connections/{label}` (`proxy`, owner
+    only), `hypomnema integrations proxy <integration>:<label> <proxy>|off`, `integrations connect superset
+    --proxy`, and the account's "Proxy" dialog on the Integrations page, which shows "Through <proxy>".
+    - A dial address (`dial_address`, `connproxy.ParseDial`: a host or an IP, with a port or not) is where a
+      Connection's requests are dialed instead of their host's, as curl's `--resolve`: the connection, and a
+      proxy's CONNECT or SOCKS5 target, is that address, while the Host header and the TLS server name stay the
+      host's, so the certificate is still checked against the real name. A temporary way round a name that does
+      not resolve where the control plane runs, cleared once it does; no reference BI tool has it (Metabase and
+      Grafana tunnel to a host they resolve). Set the same ways (`dial_address`, `integrations dial-address
+      <integration>:<label> <host[:port]>|off`, `integrations connect superset --dial-address`, "Connect to
+      (temporary)" in the Proxy dialog, shown as "Dialed at <address> (temporary)").
   - AWS is an Integration of kind `role` ([issue #331](https://github.com/kl3inIT/hypomnema/issues/331),
     `internal/controlplane/integration/aws.go`; [setup](deploy/integrations/aws.md)): the owner's AWS accounts,
     one role a Connection, as the AWS CLI has a profile with the key and a profile a role.

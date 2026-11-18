@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -25,6 +26,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -1491,6 +1493,49 @@ func (s *signIns) SetChats(_ context.Context, _, label string, allowed bool) (in
 	return integration.Connection{}, integration.ErrNotFound
 }
 
+// SetProxy keeps a Connection's proxy as the integration service does, read by connproxy.Parse.
+func (s *signIns) SetProxy(_ context.Context, _, label, proxy string) (integration.Connection, error) {
+	address, err := connproxy.Parse(proxy)
+	if err != nil {
+		return integration.Connection{}, fmt.Errorf("%w: %w", integration.ErrInvalid, err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.connections {
+		if s.connections[i].Label == label {
+			s.connections[i].Proxy = address
+
+			return s.connections[i], nil
+		}
+	}
+
+	return integration.Connection{}, integration.ErrNotFound
+}
+
+// SetDialAddress keeps a Connection's dial address as the integration service does, read by
+// connproxy.ParseDial.
+func (s *signIns) SetDialAddress(_ context.Context, _, label, dial string) (integration.Connection, error) {
+	address, err := connproxy.ParseDial(dial)
+	if err != nil {
+		return integration.Connection{}, fmt.Errorf("%w: %w", integration.ErrInvalid, err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.connections {
+		if s.connections[i].Label == label {
+			s.connections[i].DialAddress = address
+
+			return s.connections[i], nil
+		}
+	}
+
+	return integration.Connection{}, integration.ErrNotFound
+}
+
 // Check gives a Google Connection the access the test set for it, as reading it again at Google would.
 func (s *signIns) Check(_ context.Context, _, label string) (integration.Connection, error) {
 	s.mu.Lock()
@@ -1676,7 +1721,34 @@ func TestSigningAGoogleAccountInFromTheCLI(t *testing.T) {
 	_, err = w.cmd(t, "integrations", "chats", "google:personal", "maybe")
 	require.ErrorContains(t, err, "on or off")
 
+	// A service in a private network is reached through a local proxy (issue #850); off sends it direct again.
+	out, err = w.cmd(t, "integrations", "proxy", "google:personal", "socks5://127.0.0.1:1055")
+	require.NoError(t, err)
+	assert.Equal(t, "google:personal reaches its service through socks5://127.0.0.1:1055\n", out)
+
+	_, err = w.cmd(t, "integrations", "proxy", "google:personal", "socks5://me:secret@127.0.0.1:1055")
+	require.ErrorContains(t, err, "a host and a port")
+
+	out, err = w.cmd(t, "integrations", "proxy", "google:personal", "off")
+	require.NoError(t, err)
+	assert.Equal(t, "google:personal reaches its service direct\n", out)
+
+	// While its name does not resolve, it is dialed at an address, as curl's --resolve; off dials the name again.
+	out, err = w.cmd(t, "integrations", "dial-address", "google:personal", "100.64.0.7:443")
+	require.NoError(t, err)
+	assert.Equal(t, "google:personal dials its service at 100.64.0.7:443; clear it once its name resolves\n", out)
+
+	_, err = w.cmd(t, "integrations", "dial-address", "google:personal", "https://100.64.0.7")
+	require.ErrorContains(t, err, "a host or an IP")
+
+	out, err = w.cmd(t, "integrations", "dial-address", "google:personal", "off")
+	require.NoError(t, err)
+	assert.Equal(t, "google:personal dials its service by its name\n", out)
+
 	w.login(t, bearertoken.Coordinator)
+
+	_, err = w.cmd(t, "integrations", "proxy", "google:personal", "socks5://127.0.0.1:1055")
+	require.Error(t, err, "only the owner sets a proxy")
 
 	out, err = w.cmd(t, "integrations", "list")
 	require.NoError(t, err)

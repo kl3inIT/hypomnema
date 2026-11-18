@@ -1,6 +1,15 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Copy, ExternalLink, Plug, Plus, RefreshCw, Smartphone, UserRound } from "lucide-react"
+import {
+  Copy,
+  ExternalLink,
+  Plug,
+  Plus,
+  RefreshCw,
+  Smartphone,
+  UserRound,
+  Waypoints,
+} from "lucide-react"
 import QRCode from "qrcode"
 import {
   useEffect,
@@ -18,6 +27,7 @@ import {
   beginIntegrationSignIn,
   completeIntegrationSignIn,
   deleteIntegrationConnection,
+  patchIntegrationConnection,
   putIntegrationConnection,
 } from "@/api/generated/sdk.gen"
 import {
@@ -361,6 +371,15 @@ function AccountItem({
                 </span>
               </>
             )}
+            {connection.proxy && (
+              <span className="inline-flex items-center gap-1.5 break-all">
+                <Waypoints className="size-4 shrink-0" aria-hidden />
+                {`Through ${connection.proxy}`}
+              </span>
+            )}
+            {connection.dial_address && (
+              <span className="break-all">{`Dialed at ${connection.dial_address} (temporary)`}</span>
+            )}
             {device && connection.session && <span>{sessionSays(connection.session)}</span>}
             {device && connection.session?.phone_sync && (
               <span>{phoneSyncSays(connection.session.phone_sync)}</span>
@@ -409,6 +428,7 @@ function AccountItem({
               }
             />
           )}
+          {!device && <ProxyDialog service={service} connection={connection} />}
           {role && (
             <ConnectRoleDialog
               service={service}
@@ -1523,6 +1543,148 @@ function UserSignInDialog({
 
 // ChatsSwitch is the owner's say on whether the coordinator may use an account: off until he turns it on. On, pi
 // may use it in any chat and give it to the Runs it creates (issue #103). No agent uses an account by default.
+// proxySchema is a proxy as the control plane takes it (connproxy.Parse): SOCKS5 or HTTP, a host and a port, no
+// user or path; empty sends the requests direct.
+const proxySchema = z.object({
+  proxy: z
+    .string()
+    .trim()
+    .max(256)
+    .refine(
+      (value) => value === "" || /^(socks5h?|https?):\/\/[^/@?#\s]+:\d+\/?$/.test(value),
+      "A proxy is socks5:// or http:// with a host and a port, such as socks5://127.0.0.1:1055",
+    ),
+  dial: z
+    .string()
+    .trim()
+    .max(256)
+    .refine(
+      (value) => !/[/@?#\s]/.test(value),
+      "A host or an IP, with a port or not, such as 100.64.0.7:443",
+    ),
+})
+
+// ProxyDialog sets the proxy a Connection's requests to its service go through (issue #850): a service in a private
+// network, reached through a local proxy such as a userspace Tailscale's, as Metabase's database details carry
+// their own tunnel. Empty sends them direct.
+function ProxyDialog({
+  service,
+  connection,
+}: {
+  service: Integration
+  connection: IntegrationConnection
+}) {
+  const formId = useId()
+  const refresh = useRefreshServices()
+  const [open, setOpen] = useState(false)
+
+  const save = useMutation({
+    mutationFn: ({ proxy, dial }: { proxy: string; dial: string }) =>
+      patchIntegrationConnection({
+        path: { integration: service.id, label: connection.label },
+        body: { proxy, dial_address: dial },
+      }),
+  })
+
+  const form = useForm({
+    defaultValues: { proxy: connection.proxy ?? "", dial: connection.dial_address ?? "" },
+    validators: { onSubmit: proxySchema },
+    onSubmit: async ({ value }) => {
+      const proxy = value.proxy.trim()
+      try {
+        await save.mutateAsync({ proxy, dial: value.dial.trim() })
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
+      await refresh()
+      change(false)
+      said(
+        proxy
+          ? `${connection.label} reaches ${service.name} through ${proxy}`
+          : `${connection.label} reaches ${service.name} direct`,
+      )
+    },
+  })
+
+  function change(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      form.reset()
+      save.reset()
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger
+        render={
+          <Button variant="ghost" size="sm">
+            <Waypoints data-icon="inline-start" />
+            Proxy
+          </Button>
+        }
+      />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{`Proxy of ${connection.label}`}</DialogTitle>
+          <DialogDescription>
+            {`For a ${service.name} in a private network: its requests, signing in included, go through this proxy on the control plane's machine, such as a Tailscale logged in to that network. Leave it empty to reach ${service.name} direct.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              <form.Field name="proxy">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Proxy"
+                    placeholder="socks5://127.0.0.1:1055"
+                    description="SOCKS5 or HTTP, with a host and a port. No user name or password."
+                  />
+                )}
+              </form.Field>
+              <form.Field name="dial">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Connect to (temporary)"
+                    placeholder="100.64.0.7:443"
+                    description="Only while the service's name does not resolve: the address to dial instead, as curl's --resolve. Its name and certificate are still checked. Clear it once the name works."
+                  />
+                )}
+              </form.Field>
+            </FieldGroup>
+            <ErrorAlert error={save.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button
+            type="submit"
+            form={formId}
+            focusableWhenDisabled={save.isPending}
+            disabled={save.isPending}
+          >
+            {save.isPending && <Spinner data-icon="inline-start" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ChatsSwitch({
   service,
   connection,
