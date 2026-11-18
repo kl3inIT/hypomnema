@@ -460,6 +460,9 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 	status, headers, body = g.call(t, g.key, askSol+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
 	assert.Contains(t, body, "account_unavailable")
+	// The backend's own shape for a used-up plan, so the Codex CLI ends its turn (issue #756).
+	assert.Contains(t, body, `"type":"usage_limit_reached"`)
+	assert.Contains(t, body, fmt.Sprintf(`"resets_at":%d`, resets.Unix()))
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, 1, got.calls(), "a cooling account is not sent to the backend")
 

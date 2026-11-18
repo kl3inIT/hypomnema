@@ -1574,7 +1574,12 @@ flowchart LR
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
-  `reviewer` itself run on Codex with the seeded reviewer's instruction. Migration 00111 (issue #766; owner,
+  `reviewer` itself run on Codex with the seeded reviewer's instruction. `reviewer-claude.yaml` (issue #756) is
+  the same instruction on Claude Code under the Claude subscription, with one paragraph more, that a review of a
+  Claude author's change says it was not independent; no migration seeds it, as the seeded `reviewer` already runs
+  on Claude. It is not in the Codex reviewer's `fallbacks` yet: the scheduler does not see the gateway's accounts
+  cool, and a Task that may hand off is not held after a limit, so a refused review would start on Codex again at
+  once (issue #803). Migration 00111 (issue #766; owner,
   2026-11-17) makes a new version of the seeded reviewer, where `pfv_seed5_reviewer` is still current, that reads
   first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
   and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
@@ -2945,7 +2950,13 @@ capabilities do not exist yet.
   - Inside one request the next account is tried when one answers 401 (after one refresh of its tokens), 402, 403,
     429, 502, 503 or 504, each account once and only before anything was sent to the client (9router-go, CLIProxyAPI).
     When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
-    the time the first is free (CLIProxyAPI).
+    the time the first is free (CLIProxyAPI). For Codex accounts, when the first is free in more than a minute
+    (OpenClaw's `maxRetryDelayMs`, past which a 429 fails over), that 429 has the backend's own shape for a used-up
+    plan, `{"error":{"type":"usage_limit_reached","code":"account_unavailable","resets_at":<unix>}}` (issue #756):
+    the Codex CLI ends its turn on that type, where it retries any other 429 after the whole `Retry-After`, five
+    times, and a worker would wait for hours with no word (codex-rs 0.169.0 `codex-api/src/api_bridge.rs:221-252`,
+    `core/src/responses_retry.rs:142-167`). The node reports that turn `rate_limited`, and the scheduler waits
+    `RateLimitCooldown` before it runs the Task again.
   - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
