@@ -204,6 +204,7 @@ export function duration(ms: number): string {
 
 // runtimeKind is the provider kind whose mark an account of a runtime wears.
 export function runtimeKind(runtime: string | undefined): string {
+  if (runtime === "opencode_go") return "opencode_go"
   return runtime ? `${runtime}_subscription` : ""
 }
 
@@ -212,6 +213,7 @@ export function providerKind(provider: string): string {
   if (provider.startsWith("claude")) return "claude_subscription"
   if (provider.startsWith("codex")) return "codex_subscription"
   if (provider.startsWith("antigravity")) return "antigravity_subscription"
+  if (provider.startsWith("opencode-go")) return "opencode_go"
   return ""
 }
 

@@ -91,6 +91,7 @@ var chatAdapters = map[string]chatAdapter{
 	"codex_subscription":       codexSubscription{},
 	"antigravity_subscription": antigravitySubscription{},
 	"claude_subscription":      claudeSubscription{},
+	openCodeGoKind:             openCodeGo{},
 }
 
 // openAICompatible serves any provider that takes OpenAI's chat format at

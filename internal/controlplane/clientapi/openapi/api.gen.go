@@ -814,6 +814,7 @@ const (
 	GatewayModelSourceAntigravity GatewayModelSource = "antigravity"
 	GatewayModelSourceCodex       GatewayModelSource = "codex"
 	GatewayModelSourceModelsDev   GatewayModelSource = "models_dev"
+	GatewayModelSourceOpencodeGo  GatewayModelSource = "opencode_go"
 	GatewayModelSourceSet         GatewayModelSource = "set"
 	GatewayModelSourceUnknown     GatewayModelSource = "unknown"
 )
@@ -826,6 +827,8 @@ func (e GatewayModelSource) Valid() bool {
 	case GatewayModelSourceCodex:
 		return true
 	case GatewayModelSourceModelsDev:
+		return true
+	case GatewayModelSourceOpencodeGo:
 		return true
 	case GatewayModelSourceSet:
 		return true
@@ -1195,13 +1198,16 @@ func (e NewNodeDevice) Valid() bool {
 
 // Defines values for NewTokenAccountRuntime.
 const (
-	NewTokenAccountRuntimeClaude NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeClaude     NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeOpencodeGo NewTokenAccountRuntime = "opencode_go"
 )
 
 // Valid indicates whether the value is a known member of the NewTokenAccountRuntime enum.
 func (e NewTokenAccountRuntime) Valid() bool {
 	switch e {
 	case NewTokenAccountRuntimeClaude:
+		return true
+	case NewTokenAccountRuntimeOpencodeGo:
 		return true
 	default:
 		return false
@@ -1342,28 +1348,31 @@ func (e ProfileUnavailableReason) Valid() bool {
 
 // Defines values for ProviderKind.
 const (
-	Anthropic               ProviderKind = "anthropic"
-	AntigravitySubscription ProviderKind = "antigravity_subscription"
-	ClaudeSubscription      ProviderKind = "claude_subscription"
-	CodexSubscription       ProviderKind = "codex_subscription"
-	ModelGateway            ProviderKind = "model_gateway"
-	OpenaiCompatible        ProviderKind = "openai_compatible"
+	ProviderKindAnthropic               ProviderKind = "anthropic"
+	ProviderKindAntigravitySubscription ProviderKind = "antigravity_subscription"
+	ProviderKindClaudeSubscription      ProviderKind = "claude_subscription"
+	ProviderKindCodexSubscription       ProviderKind = "codex_subscription"
+	ProviderKindModelGateway            ProviderKind = "model_gateway"
+	ProviderKindOpenaiCompatible        ProviderKind = "openai_compatible"
+	ProviderKindOpencodeGo              ProviderKind = "opencode_go"
 )
 
 // Valid indicates whether the value is a known member of the ProviderKind enum.
 func (e ProviderKind) Valid() bool {
 	switch e {
-	case Anthropic:
+	case ProviderKindAnthropic:
 		return true
-	case AntigravitySubscription:
+	case ProviderKindAntigravitySubscription:
 		return true
-	case ClaudeSubscription:
+	case ProviderKindClaudeSubscription:
 		return true
-	case CodexSubscription:
+	case ProviderKindCodexSubscription:
 		return true
-	case ModelGateway:
+	case ProviderKindModelGateway:
 		return true
-	case OpenaiCompatible:
+	case ProviderKindOpenaiCompatible:
+		return true
+	case ProviderKindOpencodeGo:
 		return true
 	default:
 		return false
@@ -3235,7 +3244,7 @@ type GatewayModelEffort string
 type GatewayModelEfforts struct {
 	ModelsDev *[]GatewayModelEffort `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource    `json:"source"`
 	Value  *[]GatewayModelEffort `json:"value,omitempty"`
 }
@@ -3244,7 +3253,7 @@ type GatewayModelEfforts struct {
 type GatewayModelInput struct {
 	ModelsDev *[]GatewayModelInputKind `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource       `json:"source"`
 	Value  *[]GatewayModelInputKind `json:"value,omitempty"`
 }
@@ -3269,7 +3278,7 @@ type GatewayModelPrice struct {
 type GatewayModelReasoning struct {
 	ModelsDev *bool `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource `json:"source"`
 	Value  *bool              `json:"value,omitempty"`
 }
@@ -3283,7 +3292,7 @@ type GatewayModelSettings struct {
 	Reasoning     *bool                    `json:"reasoning,omitempty"`
 }
 
-// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 type GatewayModelSource string
 
 // GatewayModelTarget defines model for GatewayModelTarget.
@@ -3297,7 +3306,7 @@ type GatewayModelTokens struct {
 	// ModelsDev What models.dev gives, when it gives one.
 	ModelsDev *int64 `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
 	Source GatewayModelSource `json:"source"`
 
 	// Value The number of tokens used; absent when unknown.
@@ -3480,7 +3489,7 @@ type GatewayUsageGroup struct {
 	// Name The model's or the key's name, or the account's label; empty for an account since removed.
 	Name string `json:"name"`
 
-	// Runtime An account's runtime (claude, codex, antigravity).
+	// Runtime An account's runtime (claude, codex, antigravity, opencode_go).
 	Runtime *string `json:"runtime,omitempty"`
 }
 
@@ -4473,14 +4482,14 @@ type NewTokenAccount struct {
 	// Label The account's name for the owner; a token names no e-mail.
 	Label string `json:"label"`
 
-	// Runtime The kind of subscription; only Claude gives a token to paste.
+	// Runtime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
 	Runtime NewTokenAccountRuntime `json:"runtime"`
 
-	// Token The token `claude setup-token` prints, one line.
+	// Token The token `claude setup-token` prints, or the OpenCode Go key, one line.
 	Token *string `json:"token,omitempty"`
 }
 
-// NewTokenAccountRuntime The kind of subscription; only Claude gives a token to paste.
+// NewTokenAccountRuntime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
 type NewTokenAccountRuntime string
 
 // Node defines model for Node.

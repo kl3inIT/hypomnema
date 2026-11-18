@@ -153,15 +153,17 @@ func (s *Server) serveResponses(
 
 	for _, target := range model.Targets {
 		u, _, err := s.svc.upstreamFor(ctx, target)
-		if err == nil && u.Kind == "codex_subscription" {
+		// An OpenCode Go model served on Responses is passed the request too (issue #854).
+		if err == nil && (u.Kind == "codex_subscription" ||
+			(u.Kind == openCodeGoKind && s.svc.goWire(ctx, u.Model) == goWireResponses)) {
 			targets = append(targets, u)
 		}
 	}
 
 	if len(targets) == 0 || s.accounts == nil {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "model_not_served_here",
-			fmt.Sprintf("model %q is not served from a Codex subscription, the one kind /v1/responses passes on to",
-				model.Name))
+			fmt.Sprintf("model %q is not served from a Codex subscription or an OpenCode Go model on Responses, "+
+				"the ones /v1/responses passes on to", model.Name))
 
 		return
 	}
@@ -172,28 +174,14 @@ func (s *Server) serveResponses(
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.Model
 		record.Status = 0
 
-		built, err := codex.PassThrough(raw, codex.PassOptions{Model: target.Model, Session: session})
-		if err != nil {
-			writeError(w, http.StatusBadRequest, typeInvalidRequest, "invalid_request", err.Error())
+		resp, err := s.passResponses(ctx, raw, session, target)
+
+		var bad *badMessagesError
+		if errors.As(err, &bad) {
+			writeError(w, http.StatusBadRequest, typeInvalidRequest, "invalid_request", bad.Error())
 
 			return
 		}
-
-		resp, err := s.underAccounts(ctx, codexRuntime, built.CacheKey, nil,
-			func(token AccountToken) (*http.Response, error) {
-				resp, err := s.codexCall(ctx, &token, built)
-				if err != nil {
-					return nil, err
-				}
-
-				if resp.StatusCode != http.StatusOK {
-					return s.codexRefused(ctx, token, resp), nil
-				}
-
-				s.accountState.served(token.AccountID)
-
-				return resp, nil
-			})
 		if err != nil {
 			if ctx.Err() != nil {
 				record.Outcome = OutcomeClientGone
@@ -240,6 +228,44 @@ func (s *Server) serveResponses(
 
 	writeError(w, http.StatusBadGateway, typeServer, "upstream_unavailable",
 		fmt.Sprintf("no provider of model %q could be reached", model.Name))
+}
+
+// passResponses sends a Responses request to one target: a Codex subscription
+// under its accounts, or an OpenCode Go model under the Go keys, the client's
+// body with the model's name at Go and as a stream (issue #854). A body that
+// cannot be sent, the client's to fix, is a *badMessagesError.
+func (s *Server) passResponses(
+	ctx context.Context, raw []byte, session string, target upstream,
+) (*http.Response, error) {
+	if target.Kind == openCodeGoKind {
+		body, err := withModel(raw, target.Model, map[string]json.RawMessage{"stream": json.RawMessage("true")})
+		if err != nil {
+			return nil, &badMessagesError{err: err}
+		}
+
+		return s.underGo(ctx, openCodeGoSession(session), goWireResponses, body, "text/event-stream", nil)
+	}
+
+	built, err := codex.PassThrough(raw, codex.PassOptions{Model: target.Model, Session: session})
+	if err != nil {
+		return nil, &badMessagesError{err: err}
+	}
+
+	return s.underAccounts(ctx, codexRuntime, built.CacheKey, nil,
+		func(token AccountToken) (*http.Response, error) {
+			resp, err := s.codexCall(ctx, &token, built)
+			if err != nil {
+				return nil, err
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				return s.codexRefused(ctx, token, resp), nil
+			}
+
+			s.accountState.served(token.AccountID)
+
+			return resp, nil
+		})
 }
 
 // relayResponses copies the backend's event stream to the client line for

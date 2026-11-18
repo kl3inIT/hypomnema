@@ -71,6 +71,32 @@ func TestAFolderIsAPageWithItsData(t *testing.T) {
 	require.ErrorIs(t, err, artifactpack.ErrInvalid)
 }
 
+func TestAFolderCarriesDownloadableDocuments(t *testing.T) {
+	t.Parallel()
+
+	mediaTypes := map[string]string{
+		"report.XLSX":  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"summary.docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"slides.pptx":  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"report.pdf":   "application/pdf",
+	}
+	files := []artifactpack.File{{Path: "index.html"}}
+	for name := range mediaTypes {
+		files = append(files, artifactpack.File{Path: name})
+	}
+
+	pack, err := artifactpack.Check(files)
+	require.NoError(t, err)
+	require.Len(t, pack.Files, len(files))
+	assert.Equal(t, artifactpack.TypeHTML, pack.Type)
+	for _, file := range pack.Files {
+		if expected, ok := mediaTypes[file.Path]; ok {
+			assert.True(t, artifactpack.PageDownload(file.Path), file.Path)
+			assert.Equal(t, expected, artifactpack.MediaType(pack, file), file.Path)
+		}
+	}
+}
+
 // Scenario: the limits are OpenMausBot's: a page is at most 256 KB, all the files 5 MB, a folder 200 files. Over
 // any, the Bot is told the limit; at the limit it passes. The same files make the same digest whatever their order.
 func TestAnArtifactIsBounded(t *testing.T) {
@@ -146,7 +172,9 @@ func TestReadTakesWhatAPageCarries(t *testing.T) {
 	write("dash/data/sales.csv", "a,b")
 	write("dash/.env", "SECRET=1")
 	write("dash/node_modules/x/index.js", "x")
-	write("dash/notes.docx", "doc")
+	write("dash/report.xlsx", "sheet")
+	write("dash/notes.docm", "doc")
+	write("dash/run.exe", "exe")
 	write("report.pdf", "%PDF-1.4")
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.json"), []byte("{}"), 0o600))
 
@@ -156,12 +184,13 @@ func TestReadTakesWhatAPageCarries(t *testing.T) {
 
 	files, skipped, err := artifactpack.Read(dir, "dash")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"data/sales.csv", "index.html"}, paths(files))
+	assert.Equal(t, []string{"data/sales.csv", "index.html", "report.xlsx"}, paths(files))
 
 	note := artifactpack.SkippedNote(skipped)
 	assert.Contains(t, note, ".env (hidden)")
 	assert.Contains(t, note, "node_modules/ (packages)")
-	assert.Contains(t, note, "notes.docx (not a kind of file a page loads)")
+	assert.Contains(t, note, "notes.docm (not a kind of file a page loads)")
+	assert.Contains(t, note, "run.exe (not a kind of file a page loads)")
 
 	if runtime.GOOS != "windows" {
 		assert.Contains(t, note, "out.json (a link out of the folder)")

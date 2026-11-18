@@ -7142,7 +7142,7 @@ components:
           description: The model's or the key's name, or the account's label; empty for an account since removed.
         runtime:
           type: string
-          description: An account's runtime (claude, codex, antigravity).
+          description: An account's runtime (claude, codex, antigravity, opencode_go).
         counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
     GatewayPerformance:
       type: object
@@ -7320,8 +7320,10 @@ components:
       properties:
         runtime:
           type: string
-          enum: [claude]
-          description: The kind of subscription; only Claude gives a token to paste.
+          enum: [claude, opencode_go]
+          description: >-
+            The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go,
+            whose Console API key is the account (issue #854).
         label:
           type: string
           minLength: 1
@@ -7332,7 +7334,7 @@ components:
           minLength: 1
           maxLength: 4096
           writeOnly: true
-          description: The token `claude setup-token` prints, one line.
+          description: The token `claude setup-token` prints, or the OpenCode Go key, one line.
     NewAccountImport:
       type: object
       required: [runtime, credentials]
@@ -7528,8 +7530,9 @@ components:
       description: >-
         Where a value comes from; codex is the window Codex itself gives a Codex
         subscription's model, antigravity the window or largest output
-        CLIProxyAPI's registry gives an Antigravity subscription's model.
-      enum: [set, models_dev, codex, antigravity, unknown]
+        CLIProxyAPI's registry gives an Antigravity subscription's model,
+        opencode_go the one OpenCode Go's model list gives a Go model.
+      enum: [set, models_dev, codex, antigravity, opencode_go, unknown]
     GatewayModelInputKind:
       type: string
       enum: [text, image]
@@ -8364,6 +8367,7 @@ components:
             - claude_subscription
             - codex_subscription
             - antigravity_subscription
+            - opencode_go
             - model_gateway
         base_url: { type: string }
         api_key_ref:

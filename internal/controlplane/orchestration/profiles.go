@@ -46,6 +46,9 @@ const (
 	// ProviderAntigravitySubscription is served by the model gateway only: no
 	// worker's CLI runs under an Antigravity account.
 	ProviderAntigravitySubscription = "antigravity_subscription"
+	// ProviderOpenCodeGo is OpenCode Go (issue #854), served by the model gateway only under the Go keys the
+	// owner pastes (OpenCodeGoRuntime).
+	ProviderOpenCodeGo = "opencode_go"
 	// ProviderModelGateway is the control plane's own model gateway: a worker
 	// under it calls the gateway with a key made for its Dispatch, and which
 	// account or API serves the model is the gateway's business (issue #107).
@@ -62,7 +65,7 @@ const GatewayAccountRef = "gateway"
 // active connection and CLIProxyAPI's registry fills from its logged-in accounts), so a model chosen under a
 // subscription runs through the gateway: no subscription token leaves the control plane (issue #381).
 var subscriptionKinds = []string{
-	ProviderClaudeSubscription, ProviderCodexSubscription, ProviderAntigravitySubscription,
+	ProviderClaudeSubscription, ProviderCodexSubscription, ProviderAntigravitySubscription, ProviderOpenCodeGo,
 }
 
 // throughGateway reports whether a provider of the kind is reached through the model gateway: the gateway itself,
@@ -77,6 +80,7 @@ var subscriptionAccounts = map[string]string{
 	ProviderClaudeSubscription:      TokenRuntime,
 	ProviderCodexSubscription:       "codex",
 	ProviderAntigravitySubscription: "antigravity",
+	ProviderOpenCodeGo:              OpenCodeGoRuntime,
 }
 
 // GatewayModelName is the name the gateway serves a provider's model under: "<provider>/<model>" for a
@@ -990,7 +994,7 @@ func padded(v []int, n int) []int {
 func validProvider(in providerSource) error {
 	kinds := []string{
 		ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription,
-		ProviderAntigravitySubscription, ProviderModelGateway,
+		ProviderAntigravitySubscription, ProviderOpenCodeGo, ProviderModelGateway,
 	}
 
 	switch {

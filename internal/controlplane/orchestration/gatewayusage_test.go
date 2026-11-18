@@ -55,7 +55,7 @@ func TestMigrationAddsTheCacheWrittenForAnHour(t *testing.T) {
 	assert.Equal(t, 1, n)
 }
 
-// Scenario: a database from before the daily ledger (migration 00119, issue #856). The ledger starts from the
+// Scenario: a database from before the daily ledger (migration 00121, issue #856). The ledger starts from the
 // request rows still kept, one row a UTC day, caller, model, provider and account; the way back drops it.
 func TestMigrationFillsTheDailyLedgerFromTheRequests(t *testing.T) {
 	t.Parallel()
@@ -67,7 +67,7 @@ func TestMigrationFillsTheDailyLedgerFromTheRequests(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 118)
+	_, err = p.UpTo(ctx, 120)
 	require.NoError(t, err)
 
 	day := int64(20_000) * 86_400_000
@@ -98,6 +98,6 @@ func TestMigrationFillsTheDailyLedgerFromTheRequests(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage_daily`).Scan(&days))
 	assert.Equal(t, 2, days, "the next day has a row of its own")
 
-	_, err = p.DownTo(ctx, 118)
+	_, err = p.DownTo(ctx, 120)
 	require.NoError(t, err)
 }

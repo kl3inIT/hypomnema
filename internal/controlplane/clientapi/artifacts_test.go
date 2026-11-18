@@ -128,7 +128,8 @@ func TestAFolderPagesFilesLoadFromItsFramesAddressOnly(t *testing.T) {
 	shown := w.show(pi, "Sales", "",
 		artifactpack.File{Path: "index.html", Data: []byte("<script src=app.js></script>")},
 		artifactpack.File{Path: "app.js", Data: []byte("draw()")},
-		artifactpack.File{Path: "data/sales.csv", Data: []byte("day,total")})
+		artifactpack.File{Path: "data/sales.csv", Data: []byte("day,total")},
+		artifactpack.File{Path: "reports/sales.xlsx", Data: []byte("PK\x03\x04 a workbook")})
 	require.Equal(t, http.StatusCreated, shown.StatusCode(), string(shown.Body))
 	a := shown.JSON201
 
@@ -190,6 +191,17 @@ func TestAFolderPagesFilesLoadFromItsFramesAddressOnly(t *testing.T) {
 	assert.Equal(t, "*", csv.header.Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "no-referrer", csv.header.Get("Referrer-Policy"))
 	assert.Equal(t, "private, no-store", csv.header.Get("Cache-Control"))
+	assert.Empty(t, csv.header.Get("Content-Disposition"))
+
+	workbook := get(http.MethodGet, folder+"reports/sales.xlsx")
+	require.Equal(t, http.StatusOK, workbook.status, workbook.text)
+	assert.Equal(t, "PK\x03\x04 a workbook", workbook.text)
+	assert.Equal(t, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		workbook.header.Get("Content-Type"))
+	assert.Equal(t, "attachment; filename=sales.xlsx", workbook.header.Get("Content-Disposition"))
+	for header := range frameHeaders {
+		assert.Equal(t, csv.header.Get(header), workbook.header.Get(header), header)
+	}
 
 	page := get(http.MethodGet, folder+"index.html", "hyp.example")
 	require.Equal(t, http.StatusOK, page.status, page.text)

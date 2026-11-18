@@ -37,6 +37,9 @@ type Config struct {
 	// empty: Google's. Tests name their own.
 	AntigravityBaseURL     string
 	AntigravityManifestURL string
+	// OpenCodeGoBaseURL is OpenCode Go's inference root; empty: opencode.ai's.
+	// Tests name their own.
+	OpenCodeGoBaseURL string
 	// Web searches the web and reads pages for /v1/search and /v1/web/fetch
 	// (issue #354); nil: those routes answer that there is none.
 	Web *websearch.Service
@@ -58,6 +61,8 @@ type Server struct {
 	// of Antigravity accounts while the gateway runs.
 	antigravityURL string
 	antigravity    *antigravityState
+	// goURL is OpenCode Go's inference root (issue #854).
+	goURL string
 	// accountState is what is remembered of every built-in provider's accounts.
 	accountState *accountState
 	// web serves the web's search and pages; nil when the control plane gave none.
@@ -94,6 +99,10 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		cfg.ClaudeBaseURL = claudeBaseURL
 	}
 
+	if cfg.OpenCodeGoBaseURL == "" {
+		cfg.OpenCodeGoBaseURL = openCodeGoBaseURL
+	}
+
 	if cfg.AntigravityBaseURL == "" {
 		cfg.AntigravityBaseURL = cloudcode.DailyHost
 	}
@@ -104,6 +113,7 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		claudeURL:      strings.TrimRight(cfg.ClaudeBaseURL, "/"),
 		antigravityURL: strings.TrimRight(cfg.AntigravityBaseURL, "/"),
 		antigravity:    newAntigravityState(cfg.AntigravityManifestURL, svc.clock.Now),
+		goURL:          strings.TrimRight(cfg.OpenCodeGoBaseURL, "/"),
 		accountState:   newAccountState(),
 		web:            cfg.Web,
 		imageClient:    &http.Client{Transport: imageTransport},
