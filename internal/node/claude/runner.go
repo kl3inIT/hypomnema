@@ -91,9 +91,13 @@ func (rt *ClaudeRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.
 	}
 
 	write := func(dir string, hostEnv []string) (shim.Spec, error) {
+		denied := disallowedTools
+		if o.RoleRouted && o.Profile == "planner" {
+			denied = "AskUserQuestion,WebSearch,WebFetch"
+		}
 		argv := []string{rt.Claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 			"--permission-mode", "manual", "--permission-prompt-tool", "stdio",
-			"--mcp-config", filepath.Join(dir, mcpFile), "--strict-mcp-config", "--disallowedTools", disallowedTools}
+			"--mcp-config", filepath.Join(dir, mcpFile), "--strict-mcp-config", "--disallowedTools", denied}
 		if session := runner.Session(d); session != "" {
 			argv = append(argv, "--resume", session)
 		}

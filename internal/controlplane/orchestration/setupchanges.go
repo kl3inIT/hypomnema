@@ -66,6 +66,7 @@ type botSettings struct {
 	Persona     string    `json:"persona,omitempty"`
 	Skills      []string  `json:"skills,omitempty"`
 	SkillsOff   []string  `json:"skills_off,omitempty"`
+	Preset      string    `json:"preset,omitempty"`
 	Tools       []string  `json:"tools,omitempty"`
 	ToolsOff    []string  `json:"tools_off,omitempty"`
 	Connections AllowList `json:"connections"`
@@ -88,7 +89,8 @@ func settingsOfBot(b Bot) botSettings {
 	return botSettings{
 		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		Fallbacks: b.Fallbacks,
-		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
+		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
+		Connections: b.Connections, Workers: b.Workers,
 		ToolDisplay: display, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
 	}
 }
@@ -104,7 +106,8 @@ func (b botSettings) bot(id string) Bot {
 	return Bot{
 		ID: id, Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		Fallbacks: b.Fallbacks,
-		SkillsOff: b.SkillsOff, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
+		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
+		Connections: b.Connections, Workers: b.Workers,
 		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
 	}
 }
@@ -420,7 +423,7 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 		return err
 	}
 
-	if err := checkTools(b.Tools, b.ToolsOff); err != nil {
+	if err := checkTools(b.Preset, b.Tools, b.ToolsOff); err != nil {
 		return err
 	}
 
@@ -475,7 +478,7 @@ func (s *Service) undoProfile(ctx context.Context, q *store.Queries, now int64, 
 		ID: id, Profile: r.Name, Version: current.Version + 1, Source: before.Source, Digest: before.Digest,
 		Description: before.Description, Runtime: before.Runtime, Provider: before.Provider, Model: before.Model,
 		Effort: before.Effort, Instruction: before.Instruction, Fallbacks: before.Fallbacks, Skills: before.Skills,
-		SkillsOff: before.SkillsOff, Tools: before.Tools, ToolsOff: before.ToolsOff,
+		SkillsOff: before.SkillsOff, Preset: before.Preset, Tools: before.Tools, ToolsOff: before.ToolsOff,
 		CpuRequestMillis: before.CpuRequestMillis, MemoryRequestBytes: before.MemoryRequestBytes, Now: now,
 	})
 }

@@ -3,9 +3,38 @@ package orchestration
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
+
+type RoleMetric struct {
+	Role, Kind, Runtime, Model                        string
+	ChainEntry                                        *int
+	Attempts, Succeeded, Failed, CostMicros, Unpriced int64
+}
+
+func (s *Service) RoleMetrics(ctx context.Context, since time.Time) ([]RoleMetric, error) {
+	if since.IsZero() {
+		since = s.clock.Now().AddDate(0, 0, -14)
+	}
+	rows, err := s.read().RoleMetrics(ctx, nullMillis(&since))
+	if err != nil {
+		return nil, fmt.Errorf("reading role metrics: %w", err)
+	}
+	out := make([]RoleMetric, 0, len(rows))
+	for _, row := range rows {
+		metric := RoleMetric{Role: row.Role, Kind: row.Kind, Runtime: row.Runtime, Model: row.Model,
+			Attempts: row.Attempts, Succeeded: row.Succeeded, Failed: row.Failed, CostMicros: row.CostMicros,
+			Unpriced: row.Unpriced}
+		if row.ChainEntry.Valid {
+			entry := int(row.ChainEntry.Int64)
+			metric.ChainEntry = &entry
+		}
+		out = append(out, metric)
+	}
+	return out, nil
+}
 
 // What a Task and a Run used (issue #856), as Omnigent shows a session's cost (cli.py:7363-7404), Orca attributes
 // usage to a run and Companion keeps a run's costUsd: the model gateway's requests of each Dispatch, found through
