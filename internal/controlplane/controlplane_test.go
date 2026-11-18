@@ -113,6 +113,7 @@ func TestServeServesTheProfilerOnItsOwnListener(t *testing.T) {
 	require.NoError(t, controlplane.Migrate(t.Context(), cfg, io.Discard))
 
 	cfg.HTTPAddr = "127.0.0.1:0"
+	cfg.FFmpegOff = true
 	log := &startedLog{started: make(chan string, 1), profiler: make(chan string, 1)}
 	ctx, cancel := context.WithCancel(t.Context())
 	served := make(chan error, 1)
@@ -229,6 +230,7 @@ func serve(t *testing.T, ctx context.Context, cfg controlplane.Config) (string, 
 	t.Helper()
 
 	cfg.HTTPAddr = "127.0.0.1:0"
+	cfg.FFmpegOff = true // No test downloads ffmpeg.
 	log := &startedLog{started: make(chan string, 1)}
 	served := make(chan error, 1)
 
