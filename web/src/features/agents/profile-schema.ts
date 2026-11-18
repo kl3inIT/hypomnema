@@ -8,7 +8,7 @@ export const profileSchema = {
   title: "Hypomnema profile",
   type: "object",
   additionalProperties: false,
-  required: ["name", "description", "runtime"],
+  required: ["name", "description"],
   properties: {
     name: {
       type: "string",

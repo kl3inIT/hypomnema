@@ -56,6 +56,7 @@ func toTask(t orchestration.Task) openapi.Task {
 
 	return openapi.Task{
 		Id: t.ID, RunId: t.RunID, Position: t.Position, Profile: t.Profile, Spec: t.Spec,
+		Kind:    openapi.TaskKind(t.Kind),
 		Runtime: ptr(t.Runtime), Model: ptr(t.Model), Effort: ptr(t.Effort),
 		Status: openapi.TaskStatus(t.Status), BlockedReason: reason, FailureCount: t.FailureCount,
 		Result: ptr(t.Result), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, FinishedAt: t.FinishedAt,
@@ -97,6 +98,7 @@ func toDispatch(d orchestration.Dispatch) openapi.Dispatch {
 		Id: d.ID, TaskId: d.TaskID, NodeId: d.NodeID, Status: openapi.DispatchStatus(d.Status), Epoch: d.Epoch,
 		FailureClass: ptr(string(d.FailureClass)), UnknownCause: ptr(string(d.UnknownCause)),
 		Model: ptr(d.Model), Effort: ptr(d.Effort), ProfileVersionId: ptr(d.ProfileVersionID),
+		ChainEntry: d.ChainEntry, Runtime: ptr(d.Runtime),
 		FallbackFor: ptr(d.FallbackFor), FallbackUntil: d.FallbackUntil, Handoff: ptr(d.Handoff),
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 		StartedAt: d.StartedAt, ProgressAt: d.ProgressAt, SettledAt: d.SettledAt, WaitingSince: d.WaitingSince,
@@ -272,6 +274,7 @@ func float32Ptr(v *float64) *float32 {
 func fromNewTask(t openapi.NewTask) orchestration.NewTask {
 	return orchestration.NewTask{
 		Ref: t.Ref, Profile: val(t.Profile), Spec: t.Spec, Runtime: val(t.Runtime), Model: val(t.Model),
+		Kind: string(val(t.Kind)), ReviewOf: val(t.ReviewOf),
 		Effort:    val(t.Effort),
 		DependsOn: val(t.DependsOn),
 	}

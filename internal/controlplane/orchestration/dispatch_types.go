@@ -125,6 +125,8 @@ type Dispatch struct {
 	Effort string
 	// ProfileVersionID is the profile version it ran with; empty before profiles.
 	ProfileVersionID string
+	ChainEntry       *int
+	Runtime          string
 	// FallbackFor is the profile the Task asked for, when the Dispatch ran
 	// under a backup of it because every account of that profile's runtime
 	// waited for a limit to reset; FallbackUntil is when the first was to be

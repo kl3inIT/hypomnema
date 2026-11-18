@@ -134,6 +134,7 @@ export type Task = {
   run_id: string;
   position: number;
   profile: string;
+  kind: TaskKind;
   spec: string;
   runtime?: string;
   model?: string;
@@ -196,6 +197,24 @@ export type NewTasks = {
   tasks: Array<NewTask>;
 };
 
+export type TaskKind = 'broad' | 'narrow' | 'quick';
+
+export type RoleMetric = {
+  role: string;
+  kind: TaskKind;
+  runtime: string;
+  model: string;
+  /**
+   * One-based position in the Task's effective routing chain.
+   */
+  chain_entry?: number;
+  attempts: number;
+  succeeded: number;
+  failed: number;
+  cost_micros: number;
+  unpriced: number;
+};
+
 export type NewTask = {
   /**
    * Names the Task within this request, for depends_on.
@@ -205,6 +224,11 @@ export type NewTask = {
    * The profile it runs with; implementer when left out.
    */
   profile?: string;
+  kind?: TaskKind;
+  /**
+   * The succeeded Task in this Run a reviewer checks; its vendor is excluded.
+   */
+  review_of?: string;
   spec: string;
   runtime?: string;
   model?: string;
@@ -231,6 +255,14 @@ export type Dispatch = {
    * The profile version it ran with; absent for Dispatches from before profiles.
    */
   profile_version_id?: string;
+  /**
+   * One-based position in the Task's effective routing chain.
+   */
+  chain_entry?: number;
+  /**
+   * The worker runtime selected by role routing.
+   */
+  runtime?: string;
   /**
    * The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
    */
@@ -9432,6 +9464,86 @@ export type RevokeRoutineGrantResponses = {
 };
 
 export type RevokeRoutineGrantResponse = RevokeRoutineGrantResponses[keyof RevokeRoutineGrantResponses];
+
+export type GetRoleRoutingData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/role-routing';
+};
+
+export type GetRoleRoutingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetRoleRoutingError = GetRoleRoutingErrors[keyof GetRoleRoutingErrors];
+
+export type GetRoleRoutingResponses = {
+  /**
+   * The effective mapping as YAML.
+   */
+  200: Source;
+};
+
+export type GetRoleRoutingResponse = GetRoleRoutingResponses[keyof GetRoleRoutingResponses];
+
+export type PutRoleRoutingData = {
+  body: Source;
+  path?: never;
+  query?: never;
+  url: '/role-routing';
+};
+
+export type PutRoleRoutingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutRoleRoutingError = PutRoleRoutingErrors[keyof PutRoleRoutingErrors];
+
+export type PutRoleRoutingResponses = {
+  /**
+   * The mapping was stored.
+   */
+  204: void;
+};
+
+export type PutRoleRoutingResponse = PutRoleRoutingResponses[keyof PutRoleRoutingResponses];
+
+export type GetRoleMetricsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Start of the period; defaults to 14 days ago.
+     */
+    since?: string;
+  };
+  url: '/role-routing/metrics';
+};
+
+export type GetRoleMetricsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetRoleMetricsError = GetRoleMetricsErrors[keyof GetRoleMetricsErrors];
+
+export type GetRoleMetricsResponses = {
+  /**
+   * Worker metrics.
+   */
+  200: Array<RoleMetric>;
+};
+
+export type GetRoleMetricsResponse = GetRoleMetricsResponses[keyof GetRoleMetricsResponses];
 
 export type ListProfilesData = {
   body?: never;

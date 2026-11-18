@@ -571,6 +571,7 @@ type Offer struct {
 	TaskID     string `json:"task_id"`
 	RunID      string `json:"run_id"`
 	Profile    string `json:"profile"`
+	RoleRouted bool   `json:"role_routed,omitempty"`
 	// Instruction is the profile's, added to the worker's built-in instructions.
 	Instruction string `json:"instruction,omitempty"`
 	// Memory is what the agent keeps across its workers, and OwnerMemory what

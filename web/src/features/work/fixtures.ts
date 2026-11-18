@@ -18,6 +18,7 @@ export const task = (id: string, runId: string, m: Partial<TaskDetail> = {}): Ta
   run_id: runId,
   position: 1,
   profile: "implementer",
+  kind: "broad",
   spec: `spec of ${id}`,
   status: "running",
   failure_count: 0,

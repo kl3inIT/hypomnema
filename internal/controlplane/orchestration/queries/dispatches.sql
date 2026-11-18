@@ -29,10 +29,10 @@ UPDATE conversations SET cli_session_ref = @cli_session_ref, updated_at = @now W
 -- name: InsertDispatch :exec
 INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id, follow_up_id,
                         model, effort, profile_version_id, fallback_for, fallback_until, handoff, cpu_millis,
-                        memory_bytes, created_at, updated_at)
+                        memory_bytes, created_at, updated_at, role_chain, chain_entry)
 VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id, @follow_up_id,
         @model, @effort, @profile_version_id, @fallback_for, @fallback_until, @handoff, @cpu_millis, @memory_bytes,
-        @now, @now);
+        @now, @now, @role_chain, @chain_entry);
 
 -- name: CountFallbacksOfTask :one
 -- The Dispatches of a Task that ran under a backup of its profile: a Task is handed off once.

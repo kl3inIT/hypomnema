@@ -334,6 +334,8 @@ type Dispatch struct {
 	FollowUpID       sql.NullString
 	CpuMillis        int64
 	MemoryBytes      int64
+	RoleChain        string
+	ChainEntry       sql.NullInt64
 	DeclinedLowDisk  int64
 }
 
@@ -781,6 +783,11 @@ type RestartBoot struct {
 	At int64
 }
 
+type RoleRouting struct {
+	ID     int64
+	Source string
+}
+
 type Routine struct {
 	ID             string
 	BotID          string
@@ -945,6 +952,8 @@ type Task struct {
 	NotBefore         sql.NullInt64
 	CancelRequestedAt sql.NullInt64
 	WaitingReason     sql.NullString
+	Kind              string
+	AuthorVendor      string
 }
 
 type TaskDep struct {
