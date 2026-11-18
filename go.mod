@@ -5,11 +5,13 @@ go 1.27.4
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.3
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
+	github.com/abema/go-mp4 v1.7.4
 	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.21.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.344.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.52.0
 	github.com/aws/smithy-go v1.28.9
+	github.com/bluenviron/mediacommon/v2 v2.10.1-0.20261117172054-75fa748e4fd8
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/getkin/kin-openapi v0.153.0
