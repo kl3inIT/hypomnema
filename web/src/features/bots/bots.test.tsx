@@ -7,7 +7,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router"
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { choose, options } from "@/test/choose"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
@@ -15,6 +15,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import type {
   Bot,
   BotSettings,
+  GitHost,
   Integration,
   Model,
   Profile,
@@ -25,6 +26,12 @@ import { BotScreen, NewBotScreen } from "./bot-screen"
 import { BotsScreen } from "./bots-screen"
 import { emptyDraft, memoryEntries, memoryUsed, problem, settingsOf } from "./bots-state"
 import { SidebarProvider } from "@/components/ui/sidebar"
+import { GitHubIcon, GitLabIcon } from "@/components/icons/brand-icons"
+import type { ReactElement } from "react"
+
+// mark is the drawing of the mark in a list item; markOf is a mark's own drawing, to compare it with.
+const mark = (item: HTMLElement) => item.querySelector("svg")?.innerHTML
+const markOf = (icon: ReactElement) => render(icon).container.querySelector("svg")?.innerHTML
 
 beforeEach(() => {
   window.localStorage.clear()
@@ -91,6 +98,7 @@ function server(
     remove?: (name: string) => Response | undefined
     skills?: Skill[]
     integrations?: Integration[]
+    hosts?: GitHost[]
     profiles?: Profile[]
     // hold keeps a PUT unanswered until it resolves.
     hold?: Promise<void>
@@ -111,6 +119,7 @@ function server(
     if (request.method === "GET" && path === "/integrations")
       return json({ data: opts.integrations ?? [] })
     if (request.method === "GET" && path === "/profiles") return json({ data: opts.profiles ?? [] })
+    if (request.method === "GET" && path === "/hosts") return json({ data: opts.hosts ?? [] })
 
     const one = /^\/bots\/([^/]+)$/.exec(path)
     const found = one && bots.find((b) => b.id === one[1])
@@ -337,6 +346,38 @@ test("a card says which Connections the Bot works with", async () => {
       .map((item) => item.textContent),
   ).toEqual(["Superset · prod", "Lark · report"])
   expect(screen.getByRole("article", { name: "quiet" })).toHaveTextContent("Works with:No account")
+})
+
+// Scenario: a Bot may use a git host's Connection; its card shows the host's mark, GitHub's or GitLab's by the host's
+// kind, as the Integrations page does, not a plain plug (issue #824).
+test("a git host Connection a Bot works with shows its host's mark", async () => {
+  const host = (name: string, kind: GitHost["kind"]): GitHost => ({
+    host: name,
+    kind,
+    has_token: true,
+    connections: ["default"],
+    known: name === "github.com",
+  })
+  server(
+    [
+      bot("coder", {
+        connections: { limited: true, names: ["github.com:default", "git.example.com:ci"] },
+      }),
+    ],
+    { hosts: [host("github.com", "github"), host("git.example.com", "gitlab")] },
+  )
+  open("/bots")
+
+  const card = await screen.findByRole("article", { name: "coder" })
+  const items = within(card).getAllByRole("listitem")
+  expect(items.map((item) => item.textContent)).toEqual([
+    "github.com · default",
+    "git.example.com · ci",
+  ])
+  const github = markOf(<GitHubIcon />)
+  const gitlab = markOf(<GitLabIcon />)
+  await waitFor(() => expect(mark(items[0]!)).toBe(github))
+  expect(mark(items[1]!)).toBe(gitlab)
 })
 
 // Scenario: the owner prefers the table; the choice is kept in this browser, and the table says the same things.

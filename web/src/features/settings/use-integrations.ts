@@ -12,11 +12,18 @@ import {
   listReposOptions,
   listReposQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
-import type { GitHost } from "@/api/generated/types.gen"
+import type { GitHost, GitHostKind } from "@/api/generated/types.gen"
 import { everyCall } from "@/lib/query-keys"
 
 export function useHosts() {
   return useQuery({ ...listGitHostsOptions(), select: (page) => page.data })
+}
+
+// useHostKinds maps each git host to its kind, for the mark of a Bot's Connection that names the host (issue #824).
+export function useHostKinds(): Record<string, GitHostKind> {
+  const hosts = useHosts()
+
+  return Object.fromEntries((hosts.data ?? []).map((host) => [host.host, host.kind]))
 }
 
 // useRefreshHosts reads the git hosts again after one changes: every cached read of their list.
