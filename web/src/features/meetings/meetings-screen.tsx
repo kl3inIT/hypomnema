@@ -32,12 +32,12 @@ import {
   fromText,
   percent,
   speakersText,
-  speakerTone,
   stageNames,
   stageOf,
   whenText,
   type Stage,
 } from "./meetings-state"
+import { SpeakerBadge } from "./speaker-badge"
 import { UploadMeeting } from "./upload-meeting"
 import { useMeetingActions, useMeetings } from "./use-meetings"
 
@@ -232,8 +232,8 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
   )
 }
 
-// Voices are a card's speakers as the meeting's transcript shows them: each voice's color and its share of the talk
-// (issue #799).
+// Voices are a card's speakers as the meeting's transcript shows them: each voice's badge and its share of the talk
+// (issues #799, #807).
 function Voices({ meeting }: { meeting: Meeting }) {
   if (meeting.speakers.length === 0) return "—"
 
@@ -245,10 +245,7 @@ function Voices({ meeting }: { meeting: Meeting }) {
     >
       {meeting.speakers.map((s) => (
         <li key={s.label} className="flex shrink-0 items-center gap-1.5">
-          <span
-            className={cn("size-2 rounded-full", speakerTone(meeting.speakers, s.label).dot)}
-            aria-hidden
-          />
+          <SpeakerBadge speakers={meeting.speakers} label={s.label} size="sm" />
           <span>{s.name}</span>
           <span className="text-muted-foreground tabular-nums">{percent(s.share)}</span>
         </li>

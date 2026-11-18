@@ -36,6 +36,7 @@
   --color-speaker-4: var(--speaker-4);
   --color-speaker-5: var(--speaker-5);
   --color-speaker-6: var(--speaker-6);
+  --color-speaker-content: var(--speaker-content);
   /* The Team page's one motion: a live link's dashes flow toward the machine (OpenMausBot's link-flow). */
   --animate-link-flow: link-flow 1.1s linear infinite;
   --color-sidebar-ring: var(--sidebar-ring);
@@ -167,14 +168,17 @@
   --status-failed-soft: color-mix(in srgb, var(--color-red-500) 8%, transparent);
   --status-queued: var(--muted-foreground);
   --status-queued-soft: var(--muted);
-  /* A meeting's voices (issue #721): one color each, in the order they first spoke, as the prototype and Otter
-     tell speakers apart; a seventh takes the first again. */
-  --speaker-1: var(--color-blue-600);
-  --speaker-2: var(--color-pink-600);
-  --speaker-3: var(--color-emerald-600);
-  --speaker-4: var(--color-amber-600);
-  --speaker-5: var(--color-violet-600);
-  --speaker-6: var(--color-cyan-600);
+  /* A meeting's voices (issues #721, #807): the fill of each voice's badge, in the order they first spoke, and the
+     ink of the number or initial on it, as MemoryOS's tokens (web/src/styles/tokens.css): pastel under dark ink on
+     the light theme, a deeper step under white ink on the dark one. Orange and green are left out: they are the
+     colors of a stage needing the owner and of one done. A seventh voice takes the first again. */
+  --speaker-1: #a9c7ff;
+  --speaker-2: #f7b3d2;
+  --speaker-3: #9fdde3;
+  --speaker-4: #cbb8f8;
+  --speaker-5: #c3cbdb;
+  --speaker-6: #f4a9a8;
+  --speaker-content: #1c1c22;
 }
 
 .dark {
@@ -213,12 +217,13 @@
   --status-needs-you: var(--color-amber-400);
   --status-failed: var(--color-red-400);
   --status-failed-soft: color-mix(in srgb, var(--color-red-500) 16%, transparent);
-  --speaker-1: var(--color-blue-400);
-  --speaker-2: var(--color-pink-400);
-  --speaker-3: var(--color-emerald-400);
-  --speaker-4: var(--color-amber-400);
-  --speaker-5: var(--color-violet-400);
-  --speaker-6: var(--color-cyan-400);
+  --speaker-1: #6b93ea;
+  --speaker-2: #dd75a6;
+  --speaker-3: #3aa3b0;
+  --speaker-4: #9a82e6;
+  --speaker-5: #8490ab;
+  --speaker-6: #dc7478;
+  --speaker-content: #ffffff;
 }
 
 @layer base {
