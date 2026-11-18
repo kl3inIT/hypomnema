@@ -138,7 +138,7 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 	}
 
 	// An account Google wants verified is not asked before its next try (issue #822).
-	if err := s.verifyWaits(a.Account); err != nil {
+	if err := s.verifyWaits(a.Verification); err != nil {
 		return Limits{}, err
 	}
 
@@ -326,6 +326,10 @@ func (c *Claude) LimitsInHeaders(h http.Header) []Window {
 // usableToken is an account's access token, refreshed first when it is about
 // to end.
 func (s *Service) usableToken(ctx context.Context, a Account) (Token, error) {
+	if err := s.verifyWaits(a.Verification); err != nil {
+		return Token{}, err
+	}
+
 	if a.State != StateActive {
 		return Token{}, fmt.Errorf("%w: account %s is %s", ErrNoTokens, a.ID, cmpState(a.State))
 	}

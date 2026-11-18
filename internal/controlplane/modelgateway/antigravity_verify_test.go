@@ -250,7 +250,9 @@ func TestReview826RestingRetryMustReleaseOriginalAccount(t *testing.T) {
 	gateway := newAntigravityGateway(t, backend, account)
 
 	for attempt := range 3 {
-		gateway.call(t, gateway.key, askFlash+`}`)
+		status, _, body := gateway.call(t, gateway.key, askFlash+`}`)
+		require.Equal(t, http.StatusServiceUnavailable, status, body)
+		assert.Contains(t, body, "account_verification_required")
 		require.Equal(t, attempt+1, got.calls())
 
 		account.mu.Lock()
@@ -261,4 +263,64 @@ func TestReview826RestingRetryMustReleaseOriginalAccount(t *testing.T) {
 	status, _, body := gateway.call(t, gateway.key, askFlash+`}`)
 	require.Equal(t, http.StatusOK, status, body)
 	assert.Equal(t, 4, got.calls())
+}
+
+type markedAfterPick struct{ *verifyingAccounts }
+
+func (a markedAfterPick) Token(
+	ctx context.Context, runtime, session string, skip ...string,
+) (modelgateway.AccountToken, error) {
+	token, err := a.verifyingAccounts.Token(ctx, runtime, session, skip...)
+	if err == nil && token.AccountID == "acc_1" {
+		_, err = a.NeedsVerification(ctx, token.AccountID, "https://accounts.google.com/x", "")
+	}
+
+	return token, err
+}
+
+func (a markedAfterPick) CheckVerification(_ context.Context, id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.cooled[id].After(time.Now()) {
+		return modelgateway.ErrAccountResting
+	}
+
+	return nil
+}
+
+func TestReview826MarkedAccountDoesNotSendAfterPicking(t *testing.T) {
+	t.Parallel()
+
+	for _, route := range []string{"chat", "images"} {
+		t.Run(route, func(t *testing.T) {
+			t.Parallel()
+
+			account := markedAfterPick{&verifyingAccounts{googleAccount: googleAccount{accounts: accounts{
+				ids: []string{"acc_1", "acc_2"},
+			}}}}
+			var got *seen
+			var status int
+			var body string
+
+			if route == "chat" {
+				backend, requests := cloudCode(t, stream(geminiEvents...))
+				got = requests
+				gateway := newAntigravityGateway(t, backend, account)
+				status, _, body = gateway.call(t, gateway.key, askFlash+`}`)
+			} else {
+				backend, requests := imageBackend(t, "/v1internal:generateContent",
+					answerWith(http.StatusOK, antigravityImageAnswer))
+				got = requests
+				gateway := newImageGateway(t, account, "", backend.URL)
+				status, _, body = gateway.post(t, "/v1/images/generations", gateway.key,
+					`{"prompt":"a fox","provider":"antigravity"}`)
+			}
+
+			require.Equal(t, http.StatusOK, status, body)
+			require.Equal(t, 1, got.calls())
+			header, _ := got.last(t)
+			assert.Equal(t, "Bearer acc_2-access-0", header.Get("Authorization"))
+		})
+	}
 }

@@ -74,7 +74,7 @@ func (s *Server) retryRefusedAccount(
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
 	fresh, err := s.accounts.TokenAfterRefusal(ctx, *token)
-	if err != nil && ctx.Err() == nil {
+	if err != nil && ctx.Err() == nil && !errors.Is(err, ErrAccountResting) {
 		return resp, nil
 	}
 

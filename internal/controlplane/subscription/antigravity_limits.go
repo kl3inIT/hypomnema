@@ -31,7 +31,7 @@ func (a *Antigravity) Limits(ctx context.Context, token Token) ([]Window, error)
 	for _, host := range a.opt.CodeAssistHosts {
 		address := strings.TrimRight(host, "/") + "/" + cloudcode.APIVersion + ":retrieveUserQuotaSummary"
 
-		err := a.call(ctx, http.MethodPost, address, token.AccessToken, map[string]string{"project": token.Project}, &answer)
+		err := a.call(ctx, http.MethodPost, address, token, map[string]string{"project": token.Project}, &answer)
 		if err != nil {
 			if verify := (*VerificationError)(nil); errors.As(err, &verify) {
 				return nil, err // The other host would say the same.

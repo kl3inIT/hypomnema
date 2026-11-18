@@ -81,7 +81,8 @@ type Token struct {
 	Version int
 	// Verifying says Google asked for the account to be verified and this is
 	// its next try (issue #822): a call that works clears the mark (Verified).
-	Verifying bool
+	Verifying         bool
+	checkVerification func(context.Context) error
 }
 
 // Identity is who an account is at its vendor. None of it is secret.
@@ -146,6 +147,7 @@ type Accounts interface {
 		ctx context.Context, in orchestration.AccountLogin, secretRef func(accountID string) string,
 	) (orchestration.Account, error)
 	ListAccounts(ctx context.Context) ([]orchestration.Account, error)
+	AccountVerification(ctx context.Context, id string) (*orchestration.AccountVerification, error)
 	SetAccountPlan(ctx context.Context, id, email, plan string) error
 	CoolAccount(ctx context.Context, runtime, id string, until time.Time, reason string) error
 	RecordAccountRefresh(ctx context.Context, id string, r orchestration.AccountRefresh) error
@@ -530,15 +532,23 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 			continue
 		}
 
-		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(now) < useLead {
-			if err := s.refresh(ctx, a, 0); err != nil {
+		token, err := s.usableToken(ctx, a)
+		if err != nil {
+			var verify *VerificationError
+			if !errors.As(err, &verify) {
 				return Token{}, err
 			}
+
+			if free == nil || verify.RetryAt.Before(*free) {
+				free = &verify.RetryAt
+			}
+
+			continue
 		}
 
 		s.keepPin(runtime, session, a.ID, now)
 
-		return s.tokenOf(ctx, a.Account)
+		return token, nil
 	}
 
 	if free != nil {
@@ -613,10 +623,6 @@ func (s *Service) startIndex(runtime, session string, n int, fresh bool) int {
 func (s *Service) TokenAfterRefusal(ctx context.Context, refused Token) (Token, error) {
 	a, err := s.Get(ctx, refused.AccountID)
 	if err != nil {
-		return Token{}, err
-	}
-
-	if err := s.verifyWaits(a.Account); err != nil {
 		return Token{}, err
 	}
 
@@ -715,17 +721,7 @@ func vendorToken[T any](ctx context.Context, s *Service, id string) (T, Token, e
 		return none, Token{}, fmt.Errorf("%w: %s", ErrNoModelList, a.Runtime)
 	}
 
-	if a.State != StateActive {
-		return none, Token{}, fmt.Errorf("%w: account %s is %s", ErrNoTokens, id, cmpState(a.State))
-	}
-
-	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
-		if err := s.refresh(ctx, a, 0); err != nil {
-			return none, Token{}, err
-		}
-	}
-
-	token, err := s.tokenOf(ctx, a.Account)
+	token, err := s.usableToken(ctx, a)
 	if err != nil {
 		return none, Token{}, err
 	}
@@ -766,12 +762,6 @@ func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until
 }
 
 func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, error) {
-	// No token of an account Google wants verified is given before its next try (issue #822): every path that hands
-	// one out comes here, the retry after a 401 too (TokenAfterRefusal), so nothing is sent to Google early.
-	if err := s.verifyWaits(a); err != nil {
-		return Token{}, err
-	}
-
 	name, ok := vault.NameFromRef(a.SecretRef)
 	if !ok {
 		return Token{}, fmt.Errorf("%w: account %s", ErrNoTokens, a.ID)
@@ -790,10 +780,21 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, 
 		access = opened.Payload[vault.KeyValue]
 	}
 
-	return Token{
+	token := Token{
 		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: access,
-		Project: a.Project, Plan: a.Plan, Version: opened.Version, Verifying: a.Verification != nil,
-	}, nil
+		Project: a.Project, Plan: a.Plan, Version: opened.Version,
+	}
+	if a.Runtime == antigravityRuntime {
+		mark, err := s.currentVerification(ctx, a.ID)
+		if err != nil {
+			return Token{}, err
+		}
+
+		token.Verifying = mark != nil
+		token.checkVerification = func(ctx context.Context) error { return s.CheckVerification(ctx, a.ID) }
+	}
+
+	return token, nil
 }
 
 // RefreshDue refreshes every account whose access token ends within its
@@ -824,6 +825,9 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 		if a.Refresh.RetryAt != nil && now.Before(*a.Refresh.RetryAt) {
 			continue
 		}
+		if s.verifyWaits(a.Verification) != nil {
+			continue
+		}
 
 		// Accounts are refreshed one after another with a pause between
 		// them, as 9router-go's background refresh does.
@@ -835,11 +839,15 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 			}
 		}
 
-		refreshed = true
-
 		if err := s.refresh(ctx, a, 0); err != nil {
+			var verify *VerificationError
+			if errors.As(err, &verify) {
+				continue
+			}
+
 			failed = append(failed, err)
 		}
+		refreshed = true
 	}
 
 	return errors.Join(failed...)
@@ -873,6 +881,21 @@ func (s *Service) refresh(ctx context.Context, a Account, stale int) error {
 		return fmt.Errorf("%w: %q", ErrUnknownVendor, a.Runtime)
 	}
 
+	exchange := vendor.Refresh
+	if a.Runtime == antigravityRuntime {
+		if err := s.CheckVerification(ctx, a.ID); err != nil {
+			return err
+		}
+
+		exchange = func(ctx context.Context, payload vault.Payload) (vault.Refreshed, error) {
+			if err := s.CheckVerification(ctx, a.ID); err != nil {
+				return vault.Refreshed{}, err
+			}
+
+			return vendor.Refresh(ctx, payload)
+		}
+	}
+
 	name, ok := vault.NameFromRef(a.SecretRef)
 	if !ok || a.State == StateNoTokens {
 		return fmt.Errorf("%w: account %s", ErrNoTokens, a.ID)
@@ -887,11 +910,27 @@ func (s *Service) refresh(ctx context.Context, a Account, stale int) error {
 		stale = opened.Version
 	}
 
-	refreshed, err := s.vault.Refresh(ctx, name, stale, vendor.Refresh)
+	refreshed, err := s.vault.Refresh(ctx, name, stale, exchange)
 	if err != nil {
-		return errors.Join(
+		var verify *VerificationError
+		if errors.As(err, &verify) {
+			return verify
+		}
+
+		failed := errors.Join(
 			fmt.Errorf("refreshing account %s: %w", a.ID, err),
 			s.accounts.RecordAccountRefresh(ctx, a.ID, s.failed(a, err)))
+		if a.Runtime == antigravityRuntime {
+			if rest := s.CheckVerification(ctx, a.ID); rest != nil {
+				if errors.As(rest, &verify) {
+					return verify
+				}
+
+				return errors.Join(rest, failed)
+			}
+		}
+
+		return failed
 	}
 
 	if err := s.accounts.RecordAccountRefresh(ctx, a.ID, orchestration.AccountRefresh{}); err != nil {

@@ -269,3 +269,154 @@ func TestReview826MarkedAccountMustNotRefreshBeforeGate(t *testing.T) {
 	assert.Equal(t, t0.Add(10*time.Minute), verify.RetryAt)
 	assert.False(t, refreshed.Load(), "the account must not be refreshed while waiting for verification")
 }
+
+type verificationRead func(context.Context, *subscription.Service, string) error
+
+var verificationReads = map[string]verificationRead{
+	"models": func(ctx context.Context, subs *subscription.Service, id string) error {
+		_, err := subs.Models(ctx, id)
+
+		return err
+	},
+	"roster": func(ctx context.Context, subs *subscription.Service, id string) error {
+		_, err := subs.Roster(ctx, id)
+
+		return err
+	},
+	"limits": func(ctx context.Context, subs *subscription.Service, id string) error {
+		_, err := subs.Limits(ctx, id, true)
+
+		return err
+	},
+}
+
+func markDuringCall(t *testing.T, world *antigravityWorld, id string) func(context.Context) {
+	t.Helper()
+
+	return func(ctx context.Context) {
+		_, err := world.subs.NeedsVerification(ctx, id, verifyLink, "Verify your account to continue.")
+		assert.NoError(t, err)
+	}
+}
+
+func TestReview826MarkDuringRefreshStopsTokenAndReads(t *testing.T) {
+	t.Parallel()
+
+	reads := map[string]verificationRead{
+		"token": func(ctx context.Context, subs *subscription.Service, _ string) error {
+			_, err := subs.Token(ctx, "antigravity", "")
+
+			return err
+		},
+	}
+	for name, read := range verificationReads {
+		reads[name] = read
+	}
+
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			world := newAntigravityWorld(t, ideSecret)
+			account, err := world.login()
+			require.NoError(t, err)
+			world.clock.advance(time.Hour)
+			world.google.set(func(fake *google) { fake.onRefresh = markDuringCall(t, world, account.ID) })
+
+			err = read(t.Context(), world.subs, account.ID)
+			if name == "token" {
+				var cooling *subscription.CoolingError
+				require.ErrorAs(t, err, &cooling)
+			} else {
+				var verify *subscription.VerificationError
+				require.ErrorAs(t, err, &verify)
+				assert.Equal(t, verifyLink, verify.URL)
+			}
+
+			world.google.set(func(fake *google) { assert.Equal(t, []string{"", "daily"}, fake.hosts) })
+		})
+	}
+}
+
+func TestReview826MarkDuringFailedRefreshWinsAfterRefusal(t *testing.T) {
+	t.Parallel()
+
+	world := newAntigravityWorld(t, ideSecret)
+	account, err := world.login()
+	require.NoError(t, err)
+	refused, err := world.subs.Token(t.Context(), "antigravity", "")
+	require.NoError(t, err)
+	world.google.set(func(fake *google) {
+		fake.revoked = true
+		fake.onRefresh = markDuringCall(t, world, account.ID)
+	})
+
+	_, err = world.subs.TokenAfterRefusal(t.Context(), refused)
+	var verify *subscription.VerificationError
+	require.ErrorAs(t, err, &verify)
+	assert.Equal(t, verifyLink, verify.URL)
+}
+
+func TestReview826MarkedAccountDoesNotRefreshThroughAnyEntryPoint(t *testing.T) {
+	t.Parallel()
+
+	reads := map[string]verificationRead{
+		"models": verificationReads["models"],
+		"roster": verificationReads["roster"],
+		"manual": func(ctx context.Context, subs *subscription.Service, id string) error {
+			_, err := subs.Refresh(ctx, id)
+
+			return err
+		},
+		"background": func(ctx context.Context, subs *subscription.Service, _ string) error {
+			return subs.RefreshDue(ctx)
+		},
+	}
+
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			world := newAntigravityWorld(t, ideSecret)
+			account, err := world.login()
+			require.NoError(t, err)
+			world.clock.advance(time.Hour)
+			markDuringCall(t, world, account.ID)(t.Context())
+			var refreshed atomic.Bool
+			world.google.set(func(fake *google) {
+				fake.revoked = true
+				fake.onRefresh = func(context.Context) { refreshed.Store(true) }
+			})
+
+			err = read(t.Context(), world.subs, account.ID)
+			assert.False(t, refreshed.Load())
+			if name == "background" {
+				require.NoError(t, err)
+			} else {
+				var verify *subscription.VerificationError
+				require.ErrorAs(t, err, &verify)
+			}
+		})
+	}
+}
+
+func TestReview826MarkedAccountDoesNotReachSecondHost(t *testing.T) {
+	t.Parallel()
+
+	for name, read := range verificationReads {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			world := newAntigravityWorld(t, ideSecret)
+			account, err := world.login()
+			require.NoError(t, err)
+			world.google.set(func(fake *google) { fake.onDailyRead = markDuringCall(t, world, account.ID) })
+
+			err = read(t.Context(), world.subs, account.ID)
+			world.google.set(func(fake *google) { assert.Equal(t, []string{"", "daily", "daily"}, fake.hosts) })
+			var verify *subscription.VerificationError
+			require.ErrorAs(t, err, &verify)
+			assert.Equal(t, 1, world.verification(account.ID).Verification.Failures)
+		})
+	}
+}

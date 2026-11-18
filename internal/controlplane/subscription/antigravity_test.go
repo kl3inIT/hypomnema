@@ -47,8 +47,9 @@ type google struct {
 	// dailyRefuses makes the daily host answer 403 to loadCodeAssist.
 	dailyRefuses bool
 	// revoked makes the refresh token refused for good.
-	revoked   bool
-	onRefresh func(context.Context)
+	revoked     bool
+	onRefresh   func(context.Context)
+	onDailyRead func(context.Context)
 	// user is who logs in next: Google's id and the email.
 	user  string
 	email string
@@ -87,7 +88,7 @@ func newGoogle(t *testing.T) *google {
 		mux.HandleFunc("POST /"+host+"/v1internal:fetchAvailableModels", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
 
-			if g.asksToVerify(w) {
+			if g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
 				return
 			}
 
@@ -116,7 +117,7 @@ func newGoogle(t *testing.T) *google {
 		mux.HandleFunc("POST /"+host+"/v1internal:retrieveUserQuotaSummary", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
 
-			if g.asksToVerify(w) {
+			if g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
 				return
 			}
 
@@ -153,6 +154,21 @@ func newGoogle(t *testing.T) *google {
 	t.Cleanup(g.srv.Close)
 
 	return g
+}
+
+func (g *google) dailyReadUnavailable(w http.ResponseWriter, r *http.Request, host string) bool {
+	g.mu.Lock()
+	onRead := g.onDailyRead
+	g.mu.Unlock()
+
+	if host != "daily" || onRead == nil {
+		return false
+	}
+
+	onRead(r.Context())
+	w.WriteHeader(http.StatusServiceUnavailable)
+
+	return true
 }
 
 // asksToVerify answers 403 VALIDATION_REQUIRED, as Google does to an account it wants verified (CLIProxyAPI#6182),

@@ -171,30 +171,21 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 	}
 
 	resp, err := s.antigravityPost(ctx, token, built)
-	if err != nil {
-		release()
-
-		return nil, err
-	}
-
 	// A token the backend refuses is refreshed once, and the request sent again.
-	if resp.StatusCode == http.StatusUnauthorized {
+	if err == nil && resp.StatusCode == http.StatusUnauthorized {
 		resp, err = s.retryRefusedAccount(ctx, resp, &token, func(fresh AccountToken) (*http.Response, error) {
 			return s.antigravityPost(ctx, fresh, built)
 		})
+	}
 
+	if err != nil {
+		release()
 		if errors.Is(err, ErrAccountResting) {
-			release()
-
 			// Marked meanwhile by another request (issue #822): the next account serves this one.
 			return antigravityResting(), nil
 		}
 
-		if err != nil {
-			release()
-
-			return nil, err
-		}
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -247,6 +238,10 @@ func (s *Server) antigravityPost(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("User-Agent", s.antigravity.identity.UserAgent(ctx))
+
+	if err := s.checkAntigravityVerification(ctx, token.AccountID); err != nil {
+		return nil, err
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -337,6 +332,18 @@ type groupQuota interface {
 type verifications interface {
 	NeedsVerification(ctx context.Context, accountID, url, message string) (time.Time, error)
 	Verified(ctx context.Context, accountID string) error
+}
+
+type verificationChecker interface {
+	CheckVerification(ctx context.Context, accountID string) error
+}
+
+func (s *Server) checkAntigravityVerification(ctx context.Context, id string) error {
+	if accounts, ok := s.accounts.(verificationChecker); ok {
+		return accounts.CheckVerification(ctx, id)
+	}
+
+	return nil
 }
 
 // antigravityNeedsVerification marks an account Google wants verified, so the

@@ -36,6 +36,27 @@ type AccountVerification struct {
 	RetryAt time.Time
 }
 
+// AccountVerification reads the current mark without loading account placement.
+func (s *Service) AccountVerification(ctx context.Context, id string) (*AccountVerification, error) {
+	row, err := s.read().GetAccount(ctx, id)
+	if err != nil {
+		return nil, notFound(err, "account", id)
+	}
+
+	return verificationFromRow(row), nil
+}
+
+func verificationFromRow(row store.Account) *AccountVerification {
+	if !row.VerifyAskedAt.Valid {
+		return nil
+	}
+
+	return &AccountVerification{
+		URL: row.VerifyUrl.String, Message: row.VerifyMessage.String, AskedAt: millis(row.VerifyAskedAt.Int64),
+		Failures: int(row.VerifyFailures), RetryAt: millis(row.VerifyRetryAt.Int64),
+	}
+}
+
 // MarkAccountVerification records that Google asked for an account to be
 // verified, and returns the mark. wait gives how long the account rests after
 // the nth answer in a row that asked. An answer to a request sent before the

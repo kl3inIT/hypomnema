@@ -199,7 +199,8 @@ func (a *Antigravity) login(ctx context.Context, code string) (Login, error) {
 		Email string `json:"email"`
 	}
 
-	if err := a.call(ctx, http.MethodGet, a.opt.UserInfoURL, tokens.AccessToken, nil, &user); err != nil {
+	token := Token{AccessToken: tokens.AccessToken}
+	if err := a.call(ctx, http.MethodGet, a.opt.UserInfoURL, token, nil, &user); err != nil {
 		return Login{}, fmt.Errorf("reading who logged in: %w", err)
 	}
 
@@ -320,7 +321,7 @@ func (a *Antigravity) roster(ctx context.Context, token Token) (map[string]antig
 
 		address := strings.TrimRight(host, "/") + "/" + cloudcode.APIVersion + ":fetchAvailableModels"
 
-		err := a.call(ctx, http.MethodPost, address, token.AccessToken, map[string]string{"project": token.Project}, &answer)
+		err := a.call(ctx, http.MethodPost, address, token, map[string]string{"project": token.Project}, &answer)
 		if err != nil {
 			if verify := (*VerificationError)(nil); errors.As(err, &verify) {
 				return nil, err // The other host would say the same.
@@ -460,9 +461,10 @@ func (e *VerificationError) Error() string {
 func (a *Antigravity) projectAt(ctx context.Context, host, accessToken string) (project, tier string, err error) {
 	base := strings.TrimRight(host, "/") + "/" + cloudcode.APIVersion
 	metadata := map[string]string{"ideType": "ANTIGRAVITY"}
+	token := Token{AccessToken: accessToken}
 
 	var loaded codeAssist
-	if err := a.call(ctx, http.MethodPost, base+":loadCodeAssist", accessToken,
+	if err := a.call(ctx, http.MethodPost, base+":loadCodeAssist", token,
 		map[string]any{"metadata": metadata}, &loaded); err != nil {
 		return "", "", err
 	}
@@ -505,7 +507,7 @@ func (a *Antigravity) projectAt(ctx context.Context, host, accessToken string) (
 	}
 
 	onboard := map[string]any{"tierId": tier, "metadata": metadata}
-	if err := a.call(ctx, http.MethodPost, base+":onboardUser", accessToken, onboard, &operation); err != nil {
+	if err := a.call(ctx, http.MethodPost, base+":onboardUser", token, onboard, &operation); err != nil {
 		return "", "", err
 	}
 
@@ -521,9 +523,9 @@ func (a *Antigravity) projectAt(ctx context.Context, host, accessToken string) (
 		// The operation is asked for by its name, as Google's client does;
 		// one with no name is asked for again as the references do.
 		if operation.Name != "" {
-			err = a.call(ctx, http.MethodGet, base+"/"+operation.Name, accessToken, nil, &operation)
+			err = a.call(ctx, http.MethodGet, base+"/"+operation.Name, token, nil, &operation)
 		} else {
-			err = a.call(ctx, http.MethodPost, base+":onboardUser", accessToken, onboard, &operation)
+			err = a.call(ctx, http.MethodPost, base+":onboardUser", token, onboard, &operation)
 		}
 
 		if err != nil {
@@ -557,7 +559,7 @@ func projectID(raw json.RawMessage) string {
 // call sends one request to Google under the account, as the IDE would: the
 // token and the IDE's user agent, and no other Google header, since those
 // made the backend refuse (9router, opencode-antigravity-auth).
-func (a *Antigravity) call(ctx context.Context, method, address, accessToken string, body, into any) error {
+func (a *Antigravity) call(ctx context.Context, method, address string, token Token, body, into any) error {
 	var payload io.Reader
 
 	if body != nil {
@@ -574,11 +576,16 @@ func (a *Antigravity) call(ctx context.Context, method, address, accessToken str
 		return fmt.Errorf("building the request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("User-Agent", a.identity.UserAgent(ctx))
 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if token.checkVerification != nil {
+		if err := token.checkVerification(ctx); err != nil {
+			return err
+		}
 	}
 
 	status, answer, err := a.do(req)

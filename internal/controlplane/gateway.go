@@ -96,6 +96,12 @@ func (g gatewayAccounts) NeedsVerification(ctx context.Context, accountID, url, 
 	return g.subs.NeedsVerification(ctx, accountID, url, message)
 }
 
+func (g gatewayAccounts) CheckVerification(ctx context.Context, accountID string) error {
+	_, err := accountToken(subscription.Token{}, g.subs.CheckVerification(ctx, accountID))
+
+	return err
+}
+
 // Verified clears that mark once a call works under the account.
 func (g gatewayAccounts) Verified(ctx context.Context, accountID string) error {
 	return g.subs.Verified(ctx, accountID)

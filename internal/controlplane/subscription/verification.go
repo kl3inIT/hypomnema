@@ -61,13 +61,30 @@ func (s *Service) Verified(ctx context.Context, accountID string) error {
 
 // verifyWaits refuses to call Google under an account that rests until its
 // next try, so nothing asks it before then; the error carries Google's link.
-func (s *Service) verifyWaits(a orchestration.Account) error {
-	v := a.Verification
+func (s *Service) verifyWaits(v *orchestration.AccountVerification) error {
 	if v == nil || !v.RetryAt.After(s.clock.Now()) {
 		return nil
 	}
 
 	return &VerificationError{Message: v.Message, URL: v.URL, AskedAt: v.AskedAt, RetryAt: v.RetryAt}
+}
+
+// CheckVerification rechecks the account immediately before a request to Google.
+func (s *Service) CheckVerification(ctx context.Context, accountID string) error {
+	_, err := s.currentVerification(ctx, accountID)
+
+	return err
+}
+
+func (s *Service) currentVerification(
+	ctx context.Context, accountID string,
+) (*orchestration.AccountVerification, error) {
+	mark, err := s.accounts.AccountVerification(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return mark, s.verifyWaits(mark)
 }
 
 // noteVerification records what a call under an account said of its
@@ -78,6 +95,10 @@ func (s *Service) noteVerification(ctx context.Context, token Token, err error) 
 
 	switch {
 	case errors.As(err, &verify):
+		if !verify.RetryAt.IsZero() {
+			return err
+		}
+
 		retry, markErr := s.NeedsVerification(ctx, token.AccountID, verify.URL, verify.Message)
 		if markErr != nil {
 			return errors.Join(err, markErr)

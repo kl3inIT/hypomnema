@@ -2866,8 +2866,10 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   try. The gateway passes a marked account over until its next try, as a cooling one, and the models list and the
   limits do not ask Google before it either; the tries come after 10 minutes, 1 hour, 6 hours, then every day
   (opencode-antigravity-auth PR #338). An answer to a request sent before the mark, while the account rests,
-  updates the link but not the schedule; no path hands out the account's token before its next try, the retry
-  after a 401 included, so such a request goes to the next account. The link kept is the `validation_url` of the
+  updates the link but not the schedule. The current mark is checked before an OAuth refresh (manual or
+  background included), before handing out a token, and before each request with it (including a second host).
+  A mark made during a failed refresh wins over the OAuth error for routing, so the gateway tries the next
+  account. The link kept is the `validation_url` of the
   `VALIDATION_REQUIRED` detail itself, none when it names none. The first call that works under the account clears
   the mark (a chat only once its answer has ended well, not at its 200), and so does signing it in again
   (opencode-antigravity-auth issue #589). `GET /accounts` gives the mark as `verification`
