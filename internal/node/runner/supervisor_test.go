@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -437,14 +436,10 @@ func TestTheJournalIsReadOnceAcrossARestart(t *testing.T) {
 }
 
 // Scenario: the control plane takes back a Dispatch whose worker no daemon
-// follows, as after a restart. Release kills the shim found by its PID file
+// follows, as after a restart. Release reaches the shim at its private socket
 // and removes the run directory.
 func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	t.Parallel()
-
-	if runtime.GOOS == "windows" {
-		t.Skip("a node runs on Linux: on Windows the shim's worker is in no group to kill")
-	}
 
 	g := newRig(t, "hang")
 	g.start(newReporter())
@@ -457,6 +452,16 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 
 	assert.NoDirExists(t, dir)
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 20*time.Second, 20*time.Millisecond)
+}
+
+func TestAnUnconfirmedExitDoesNotConfirmCancellation(t *testing.T) {
+	t.Parallel()
+	report := newReporter()
+	sup := &Supervisor{}
+	sup.ended(t.Context(), &Worker{stopping: true, r: report, turn: &fakeTurn{}}, shim.Exit{Unconfirmed: true})
+	assert.Zero(t, report.stopped)
+	assert.Zero(t, report.exited)
+	assert.Empty(t, report.finished)
 }
 
 // Scenario: the worker asks the owner through its tool. The question is

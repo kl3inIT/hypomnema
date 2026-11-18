@@ -302,7 +302,7 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 	if json.Unmarshal(line, &e) != nil {
 		return
 	}
-	if e.Type != "keep_alive" {
+	if e.Type != "keep_alive" && !t.wait.Idle {
 		t.wait.IdleAt = time.Time{}
 	}
 
@@ -321,17 +321,21 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 			}
 		}
 	case e.Type == "control_request":
+		t.wait.Idle = false
 		t.wait.Active = true
 		permission(ctx, w, e)
 	case e.Type == "system" && e.Subtype == "session_state_changed":
 		switch e.State {
 		case "idle":
+			t.wait.Idle = true
 			t.wait.Running = false
 			t.wait.Active = false
 		case "requires_action":
+			t.wait.Idle = false
 			t.wait.Running = false
 			t.wait.Active = true
 		case "running":
+			t.wait.Idle = false
 			t.wait.Running = true
 		}
 	case e.Type == "system" && e.Subtype == "background_tasks_changed" && e.Tasks != nil:
@@ -344,10 +348,12 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 		}
 	case e.Type == "assistant" || e.Type == "user":
 		if e.Type == "assistant" && e.Parent == "" {
+			t.wait.Idle = false
 			t.wait.Active = true
 		}
 		t.trackTools(ctx, w, e)
 	case e.Type == "stream_event" && e.Parent == "":
+		t.wait.Idle = false
 		t.wait.Active = true
 	case e.Type == "result":
 		t.onResult(ctx, w, e)

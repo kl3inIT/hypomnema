@@ -4374,18 +4374,24 @@ Node (`internal/node`):
     worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
-    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt and closes stdin; a worker still
-    alive after 30 s is killed. On Linux the shim adopts orphaned descendants; force-stop freezes and rescans
-    its process tree before sending SIGKILL, including Claude Bash jobs in separate sessions.
+    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt
+    and closes stdin. If the worker is still alive after 30 s, the Supervisor asks the shim to kill it over the
+    Dispatch's private socket, not by a recorded PID.
+    Linux and macOS check ancestry and process start time before signaling descendants, including Claude Bash
+    jobs in separate sessions. After a bounded freeze attempt the shim sends SIGKILL even if a child cannot
+    freeze. Linux adopts and reaps orphans without consuming the CLI's exit status. Windows runs the worker in
+    a Job Object. If the shim cannot confirm the stop, the node records an error without inventing a signal.
   - Reported:
     - the session id from `system/init`, as started;
     - a Dispatch can include a follow-up turn from background Bash. A successful `result` while Claude reports
       background Bash or queued turns does not close stdin; permission replies still go over the same pipe.
       If the background work settles without another result, the node closes stdin after 2 s with no pending
-      background work, queued turn, tool call, or active turn, and uses the most recent result. A `running`
+      background work, queued turn, tool call, or active turn, and uses the most recent result. An explicit
+      `idle` with no background Bash gives stale queue counts or missing tool results 5 s to settle, then closes
+      stdin unless new turn activity arrives. A `running`
       state keeps stdin open even when Claude does not emit partial messages. The hold survives adoption.
       A result with no outstanding work, a terminal error, or a result after `finish` also closes stdin.
-      Within a held continuation, the node kills the shim's process tree and records a signaled exit if Claude stays
+      Within a held continuation, the shim stops the worker and records its exit if Claude stays
       alive for 30 s after stdin closes. There is no elapsed-time cutoff while work remains pending; the control
       plane's 4-hour mark only warns (issue #867).
     - if Claude's journal matches an explicit `finish` call to a closed-stdio permission error, the node validates

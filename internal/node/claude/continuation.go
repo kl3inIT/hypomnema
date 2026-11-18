@@ -9,25 +9,31 @@ import (
 )
 
 const (
-	settleWait = 2 * time.Second
-	closeGrace = 30 * time.Second
+	settleWait     = 2 * time.Second
+	staleWorkGrace = 5 * time.Second
+	closeGrace     = 30 * time.Second
 )
 
 type continuation struct {
 	Held    bool      `json:"held,omitempty"`
 	Active  bool      `json:"active,omitempty"`
 	Running bool      `json:"running,omitempty"`
+	Idle    bool      `json:"idle,omitempty"`
 	IdleAt  time.Time `json:"idle_at,omitzero"`
 	CloseBy time.Time `json:"close_by,omitzero"`
 	Failure string    `json:"failure,omitempty"`
 }
 
 func (t *turn) armIdle(now time.Time) {
-	if !t.wait.Held || !t.wait.CloseBy.IsZero() || t.background || t.result == nil || t.result.Queued > 0 ||
-		t.wait.Active || t.wait.Running || len(t.toolCalls) > 0 {
+	staleHints := t.result != nil && t.result.Queued > 0 || len(t.toolCalls) > 0
+	if !t.wait.Held || !t.wait.CloseBy.IsZero() || t.background || t.result == nil ||
+		t.wait.Active || t.wait.Running || (staleHints && !t.wait.Idle) {
 		t.wait.IdleAt = time.Time{}
 	} else if t.wait.IdleAt.IsZero() {
 		t.wait.IdleAt = now.Add(settleWait)
+		if staleHints {
+			t.wait.IdleAt = now.Add(staleWorkGrace)
+		}
 	}
 }
 

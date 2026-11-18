@@ -61,8 +61,8 @@ func TestRealClaudeBackgroundBash(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if test.killTree && runtime.GOOS != "linux" {
-				t.Skip("Linux process-tree invariant")
+			if test.killTree && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+				t.Skip("the detached Bash scenario uses Unix process sessions")
 			}
 			g := newRig(t, "")
 			api := backgroundModel(t, test.command, test.input, test.slowStream)
@@ -125,10 +125,8 @@ func testDetachedBashCleanup(t *testing.T, g *rig, r *reporter, root *os.Root, r
 		journal, err := root.ReadFile(shim.JournalFile)
 		return err == nil && strings.Contains(string(journal), `"result":"waiting"`)
 	}, 5*time.Second, 25*time.Millisecond)
-	pid, err := shim.PID(runDir)
-	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(g.worktree, "background-pid"))
-	require.NoError(t, shim.KillAndRecordExit(runDir, pid, "integration test cleanup"))
+	require.NoError(t, shim.Stop(t.Context(), runDir, "integration test cleanup"))
 	r.wait(t)
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "signaled", r.finished[0].Exit.Kind)

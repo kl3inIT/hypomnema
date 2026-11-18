@@ -318,13 +318,13 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	}
 
 	if err := waitSocket(ctx, dir); err != nil {
-		_ = shim.Kill(pid)
+		_ = shim.Stop(ctx, dir, "the shim did not open its input socket")
 
 		return err
 	}
 
 	if err := shim.Send(ctx, dir, launch.First...); err != nil {
-		_ = shim.Kill(pid)
+		_ = shim.Stop(ctx, dir, "the shim did not accept the initial input")
 
 		return err
 	}
@@ -425,9 +425,7 @@ func (s *Supervisor) Stop(id string) {
 
 	interrupt := w.turn.Interrupt()
 	if interrupt == nil {
-		if pid := w.shimPID(); pid > 0 {
-			_ = shim.Kill(pid)
-		}
+		w.Report(context.Background(), shim.Stop(context.Background(), w.dir, "the worker was asked to stop"))
 
 		return
 	}
@@ -435,8 +433,8 @@ func (s *Supervisor) Stop(id string) {
 	_ = shim.Send(context.Background(), w.dir, interrupt, []byte(shim.CloseLine))
 
 	time.AfterFunc(stopGrace, func() {
-		if _, done, _ := shim.ReadExit(w.dir); !done && w.shimPID() > 0 {
-			_ = shim.Kill(w.shimPID())
+		if s.get(id) == w {
+			w.Report(context.Background(), shim.Stop(context.Background(), w.dir, "the worker did not exit after an interrupt"))
 		}
 	})
 }
@@ -445,7 +443,7 @@ func (s *Supervisor) Stop(id string) {
 // the worker's journal reader has, so nothing of the worker is reported
 // after it (Omnara's closeOutputWatch cancels its reader and waits for it to
 // be done). The reader never calls Release: its reports are queued, not
-// answered. The shim is found by its PID file, so a worker no daemon follows
+// answered. The shim is reached at its private socket, so a worker no daemon follows
 // is killed too.
 func (s *Supervisor) Release(id string) {
 	w := s.drop(id)
@@ -456,8 +454,8 @@ func (s *Supervisor) Release(id string) {
 		<-w.done
 	}
 
-	if pid, err := shim.PID(dir); err == nil {
-		_ = shim.Kill(pid)
+	if _, err := os.Stat(filepath.Join(dir, shim.SocketFile)); err == nil {
+		_ = shim.Stop(context.Background(), dir, "the worker was released")
 	}
 
 	_ = os.RemoveAll(dir)
@@ -599,9 +597,9 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 			if changed {
 				writeCheckpoint(w.dir, offset, w.turn.State())
 			}
-			if pid := w.shimPID(); reason != "" && pid > 0 {
+			if reason != "" {
 				forceStopping = true
-				w.Report(ctx, shim.KillAndRecordExit(w.dir, pid, reason))
+				w.Report(ctx, shim.Stop(ctx, w.dir, reason))
 			}
 		}
 		if !forceStopping && n == 0 && ctx.Err() == nil {
@@ -699,7 +697,9 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 
 	switch {
 	case stopping:
-		w.Report(ctx, w.r.Stopped(ctx))
+		if !exit.Unconfirmed {
+			w.Report(ctx, w.r.Stopped(ctx))
+		}
 
 		return
 	case !started && !res.Done:

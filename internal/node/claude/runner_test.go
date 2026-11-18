@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -120,6 +121,22 @@ func fakeClaude(mode string) int {
 				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Write", "input": map[string]any{"x": 1}},
 			})
 		case msg.Type == "control_response" && msg.Response.RequestID == "perm_1":
+			if mode == "stale-queue" || mode == "stale-tool" {
+				if mode == "stale-queue" {
+					emit(out, map[string]any{"type": "result", "subtype": "success", "result": "waiting", "queued_turn_count": 1})
+					emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "running"})
+				} else {
+					emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
+						"tasks": []map[string]string{{"task_type": "local_bash"}}})
+					emit(out, map[string]any{"type": "result", "subtype": "success", "result": "waiting"})
+					emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+						{"type": "tool_use", "id": "stale", "name": "Bash"},
+					}}})
+					emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+				}
+				emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
+				continue
+			}
 			if mode == "idle-after-background" || mode == "stuck-after-eof" {
 				emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
 					"tasks": []map[string]string{{"task_id": "bg", "task_type": "local_bash"}}})
@@ -546,6 +563,26 @@ func TestBackgroundSettlesWithoutAnotherResult(t *testing.T) {
 	assert.Equal(t, "stopped without finish: waiting", r.finished[0].Summary)
 }
 
+func TestIdleSupersedesStaleWork(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"stale-queue", "stale-tool"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			g := newRig(t, mode)
+			r := newReporter("dsp_1")
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+			t.Cleanup(func() { g.sup.Release(r.ID()) })
+			select {
+			case <-r.done:
+			case <-time.After(8 * time.Second):
+				t.Fatal("stale work kept stdin open after idle")
+			}
+			require.Len(t, r.finished, 1)
+			assert.Equal(t, "stopped without finish: waiting", r.finished[0].Summary)
+		})
+	}
+}
+
 func TestBackgroundContinuationThatIgnoresEOFIsKilled(t *testing.T) {
 	t.Parallel()
 
@@ -565,10 +602,15 @@ func TestBackgroundContinuationThatIgnoresEOFIsKilled(t *testing.T) {
 	exit, done, err := shim.ReadExit(dir)
 	require.NoError(t, err)
 	require.True(t, done, "the transcript can deliver the journal's final lines")
-	assert.Equal(t, -1, exit.Code)
-	assert.Equal(t, "signaled", r.finished[0].Exit.Kind)
-	assert.NotEmpty(t, r.finished[0].Exit.Signal)
-	assert.Nil(t, r.finished[0].Exit.Code)
+	if runtime.GOOS == "windows" {
+		assert.Equal(t, "exited", r.finished[0].Exit.Kind)
+		assert.Empty(t, exit.Signal)
+	} else {
+		assert.Equal(t, -1, exit.Code)
+		assert.Equal(t, "signaled", r.finished[0].Exit.Kind)
+		assert.NotEmpty(t, r.finished[0].Exit.Signal)
+		assert.Nil(t, r.finished[0].Exit.Code)
+	}
 	pid, err := shim.PID(dir)
 	require.NoError(t, err)
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 3*time.Second, 20*time.Millisecond)

@@ -13,6 +13,7 @@ package shim
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,11 @@ const (
 // CloseLine is the line that closes the worker's stdin.
 const CloseLine = `{"type":"shim_close"}`
 
+type stopRequest struct {
+	Type   string `json:"type"`
+	Reason string `json:"reason"`
+}
+
 // maxLine bounds one journal line (a stream-JSON event).
 const maxLine = 16 << 20
 
@@ -52,9 +58,10 @@ type Spec struct {
 
 // Exit is how the worker ended.
 type Exit struct {
-	Code   int    `json:"code"`
-	Signal string `json:"signal,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Code        int    `json:"code"`
+	Signal      string `json:"signal,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Unconfirmed bool   `json:"unconfirmed,omitempty"`
 }
 
 // WriteSpec writes the spec a shim will run into dir, private to the owner.
@@ -73,7 +80,12 @@ func WriteSpec(dir string, s Spec) error {
 
 // Main runs the shim over dir until its worker exits.
 func Main(ctx context.Context, dir string) error {
-	raw, err := os.ReadFile(filepath.Join(dir, SpecFile)) //nolint:gosec // the daemon's own directory
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	raw, err := root.ReadFile(SpecFile)
 	if err != nil {
 		return fmt.Errorf("reading the spec: %w", err)
 	}
@@ -85,34 +97,36 @@ func Main(ctx context.Context, dir string) error {
 
 	// The spec holds the worker's environment, credentials included; it is
 	// not needed once the worker runs.
-	if err := os.Remove(filepath.Join(dir, SpecFile)); err != nil {
+	if err := root.Remove(SpecFile); err != nil {
 		return fmt.Errorf("removing the spec: %w", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, PIDFile), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+	if err := root.WriteFile(PIDFile, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		return fmt.Errorf("writing the pid file: %w", err)
 	}
 
-	//nolint:gosec // the daemon's own directory
-	journal, err := os.OpenFile(filepath.Join(dir, JournalFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	journal, err := root.OpenFile(JournalFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("opening the journal: %w", err)
 	}
 	defer journal.Close() //nolint:errcheck // every line was synced when written
 
-	//nolint:gosec // the daemon's own directory
-	stderr, err := os.OpenFile(filepath.Join(dir, StderrFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	stderr, err := root.OpenFile(StderrFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("opening the stderr log: %w", err)
 	}
 	defer stderr.Close() //nolint:errcheck // nothing is left to report it to
 
-	_ = os.Remove(filepath.Join(dir, SocketFile))
+	_ = root.Remove(SocketFile)
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "unix", filepath.Join(dir, SocketFile))
 	if err != nil {
 		return fmt.Errorf("listening on the input socket: %w", err)
 	}
+	if socket, ok := ln.(*net.UnixListener); ok {
+		socket.SetUnlinkOnClose(false)
+	}
+	defer func() { _ = root.Remove(SocketFile) }()
 	defer ln.Close() //nolint:errcheck // the shim is exiting
 
 	cmd := exec.CommandContext(ctx, spec.Argv[0], spec.Argv[1:]...) //nolint:gosec // the daemon's own spec
@@ -128,21 +142,49 @@ func Main(ctx context.Context, dir string) error {
 		return err
 	}
 
-	if err := prepareWorker(); err != nil {
-		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
+	if _, err := root.Stat(ExitFile); err == nil {
+		return nil
 	}
-	if err := cmd.Start(); err != nil {
-		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
+	stop, err := startWorker(cmd)
+	if err != nil {
+		return writeExit(root, Exit{Code: -1, Error: err.Error()})
 	}
+	defer stop.close()
+	stopReaping := reapOrphans(cmd.Process.Pid)
+	defer stopReaping()
 
 	in := &input{w: stdin}
+	stopping := make(chan string, 1)
+	go accept(ln, in, stopping)
+	finished := make(chan Exit, 1)
+	go func() {
+		copyErr := copyLines(stdout, journal)
+		waitErr := cmd.Wait()
+		finished <- exitOf(cmd, errors.Join(copyErr, waitErr))
+	}()
 
-	go accept(ln, in)
-
-	copyErr := copyLines(stdout, journal)
-	waitErr := cmd.Wait()
-
-	return writeExit(dir, exitOf(cmd, errors.Join(copyErr, waitErr)))
+	select {
+	case exit := <-finished:
+		return writeExit(root, exit)
+	case reason := <-stopping:
+		signaled, err := stop.kill()
+		exit := Exit{Code: -1, Error: reason}
+		if signaled {
+			exit.Signal = killSignal()
+		}
+		if err != nil {
+			exit.Error = errors.Join(errors.New(reason), err).Error()
+		}
+		select {
+		case actual := <-finished:
+			exit.Code = actual.Code
+			if actual.Signal != "" {
+				exit.Signal = actual.Signal
+			}
+		case <-time.After(250 * time.Millisecond):
+		}
+		return writeExit(root, exit)
+	}
 }
 
 // input serializes writes to the worker's stdin from every client.
@@ -170,7 +212,7 @@ func (in *input) line(b []byte) {
 	_, _ = in.w.Write(append(b, '\n'))
 }
 
-func accept(ln net.Listener, in *input) {
+func accept(ln net.Listener, in *input, stopping chan<- string) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -184,6 +226,14 @@ func accept(ln net.Listener, in *input) {
 			sc.Buffer(make([]byte, 64<<10), maxLine)
 
 			for sc.Scan() {
+				var request stopRequest
+				if json.Unmarshal(sc.Bytes(), &request) == nil && request.Type == "shim_stop" {
+					select {
+					case stopping <- request.Reason:
+					default:
+					}
+					return
+				}
 				in.line(append([]byte(nil), sc.Bytes()...))
 			}
 		}()
@@ -236,22 +286,18 @@ func exitOf(cmd *exec.Cmd, err error) Exit {
 	return out
 }
 
-func writeExit(dir string, e Exit) error {
-	return saveExit(dir, e, ExitFile+".tmp")
-}
-
-func saveExit(dir string, e Exit, tempName string) error {
+func writeExit(root *os.Root, e Exit) error {
 	raw, err := json.Marshal(e)
 	if err != nil {
 		return err
 	}
 
-	tmp := filepath.Join(dir, tempName)
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	tmp := ExitFile + ".tmp"
+	if err := root.WriteFile(tmp, raw, 0o600); err != nil {
 		return fmt.Errorf("writing the exit file: %w", err)
 	}
 
-	return os.Rename(tmp, filepath.Join(dir, ExitFile))
+	return root.Rename(tmp, ExitFile)
 }
 
 // ReadExit returns the worker's exit, if it has exited.
@@ -273,20 +319,62 @@ func ReadExit(dir string) (Exit, bool, error) {
 	return e, true, nil
 }
 
-// KillAndRecordExit ends a timed-out worker and leaves its transcript eligible for final delivery.
-func KillAndRecordExit(dir string, pid int, reason string) error {
-	if err := Kill(pid); err != nil {
-		return fmt.Errorf("killing a timed-out shim: %w", err)
+// Stop asks the shim at this Dispatch's socket to kill its own worker and waits for its exit record.
+func Stop(ctx context.Context, dir, reason string) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
 	}
-
-	if _, done, _ := ReadExit(dir); done {
+	defer func() { _ = root.Close() }()
+	identity, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+	defer cancel()
+	if _, err := root.Stat(ExitFile); err == nil {
 		return nil
 	}
-	return saveExit(dir, Exit{Code: -1, Signal: killSignal(), Error: reason}, ExitFile+".kill.tmp")
+	line, err := json.Marshal(stopRequest{Type: "shim_stop", Reason: reason})
+	if err != nil {
+		return err
+	}
+	sendErr := send(ctx, dir, identity, line)
+	for sendErr == nil {
+		if _, err := root.Stat(ExitFile); err == nil {
+			return nil
+		}
+		select {
+		case <-time.After(25 * time.Millisecond):
+			continue
+		case <-ctx.Done():
+			sendErr = ctx.Err()
+		}
+	}
+	if _, err := root.Stat(ExitFile); err == nil {
+		return nil
+	}
+	raw, err := json.Marshal(Exit{Code: -1, Error: errors.Join(errors.New(reason), sendErr).Error(), Unconfirmed: true})
+	if err != nil {
+		return err
+	}
+	temp := ExitFile + "." + rand.Text()
+	if err := root.WriteFile(temp, raw, 0o600); err != nil {
+		return err
+	}
+	defer func() { _ = root.Remove(temp) }()
+	if err := root.Link(temp, ExitFile); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	return nil
 }
 
 // Send writes lines to a running shim's worker.
 func Send(ctx context.Context, dir string, lines ...[]byte) error {
+	return send(ctx, dir, nil, lines...)
+}
+
+func send(ctx context.Context, dir string, identity os.FileInfo, lines ...[]byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -295,6 +383,12 @@ func Send(ctx context.Context, dir string, lines ...[]byte) error {
 		return fmt.Errorf("connecting to the shim: %w", err)
 	}
 	defer conn.Close() //nolint:errcheck // written lines are already sent
+	if identity != nil {
+		current, err := os.Stat(dir)
+		if err != nil || !os.SameFile(identity, current) {
+			return errors.New("the shim's directory changed while connecting")
+		}
+	}
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetWriteDeadline(deadline)
