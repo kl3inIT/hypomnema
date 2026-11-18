@@ -1590,7 +1590,12 @@ flowchart LR
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
-  `reviewer` itself run on Codex with the seeded reviewer's instruction. Migration 00111 (issue #766; owner,
+  `reviewer` itself run on Codex with the seeded reviewer's instruction. `reviewer-claude.yaml` (issue #756) is
+  the same instruction on Claude Code under the Claude subscription, with one paragraph more, that a review of a
+  Claude author's change says it was not independent; no migration seeds it, as the seeded `reviewer` already runs
+  on Claude. It is not in the Codex reviewer's `fallbacks` yet: the scheduler does not see the gateway's accounts
+  cool, and a Task that may hand off is not held after a limit, so a refused review would start on Codex again at
+  once (issue #803). Migration 00111 (issue #766; owner,
   2026-11-17) makes a new version of the seeded reviewer, where `pfv_seed5_reviewer` is still current, that reads
   first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
   and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
@@ -2845,6 +2850,12 @@ capabilities do not exist yet.
     asked for. The chat answer comes back as Anthropic's: a text, thinking or tool_use block per part, a tool call's
     arguments sent whole when it ends, `finish_reason` as `stop_reason`, the input counted without the cached part.
     `count_tokens` for a model with no Claude target is estimated (bytes / 4), as 9router-go and 9router do.
+  - A target that answers 400 because it could not process an image ("could not process image", "image data you
+    provided does not represent a valid image", "failed to decode image") is asked once more without the request's
+    images: each image block, in a message or a `tool_result`, becomes an "omitted image" text block, its
+    `cache_control` kept (issue #796; Hermes `_strip_request_images_and_retry`, OpenClaw
+    `sanitizeContentBlocksImages`). The client's history still holds the image, so each later turn of that chat
+    is refused once and asked again.
 - Every gateway route reads the key from `Authorization: Bearer` or `x-api-key`.
 - `POST /v1/search` `{query, max_results?, provider?}` answers `{provider, query, results: [{title, url, snippet,
   published_at?}], cached, errors?}` and `POST /v1/web/fetch` `{url}` answers `{url, title, content, truncated}`
@@ -2955,7 +2966,13 @@ capabilities do not exist yet.
   - Inside one request the next account is tried when one answers 401 (after one refresh of its tokens), 402, 403,
     429, 502, 503 or 504, each account once and only before anything was sent to the client (9router-go, CLIProxyAPI).
     When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
-    the time the first is free (CLIProxyAPI).
+    the time the first is free (CLIProxyAPI). For Codex accounts, when the first is free in more than a minute
+    (OpenClaw's `maxRetryDelayMs`, past which a 429 fails over), that 429 has the backend's own shape for a used-up
+    plan, `{"error":{"type":"usage_limit_reached","code":"account_unavailable","resets_at":<unix>}}` (issue #756):
+    the Codex CLI ends its turn on that type, where it retries any other 429 after the whole `Retry-After`, five
+    times, and a worker would wait for hours with no word (codex-rs 0.169.0 `codex-api/src/api_bridge.rs:221-252`,
+    `core/src/responses_retry.rs:142-167`). The node reports that turn `rate_limited`, and the scheduler waits
+    `RateLimitCooldown` before it runs the Task again.
   - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
@@ -3356,8 +3373,13 @@ not checked against the live site in the change that wrote them.
   control back to finish adding the account." and keeps polling, and nothing is saved until the check says ok.
 - States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
   refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
-  not `assigned`, or its machine not `RUNNING`); page not ready (no ready composer within 30 s); resting (out of
-  quota). Each question first asks `/api/auth/check` and `/api/session` from the account's page.
+  not `assigned`); page not ready (no ready composer within 30 s); resting (out of
+  quota). Each question first asks `/api/auth/check` and `/api/session` from the account's page. A machine
+  (`vm_state`) that is not `RUNNING` never refuses the account (issue #810, as www222fff/muse2api's
+  `upstream/muse.py:121-170` and czg86389-hub's `engine.py:607-650`): with a `vm_id` and not `DISABLED`, the page
+  POSTs `/api/hatch/vm/wake` and reads `/api/session` every 2 s for up to 20 s for `RUNNING`; then the question is
+  asked whatever was seen, logged as `muse.vm_wake`, and a machine not seen running (or `DISABLED`, not woken) is
+  the signed-in account's cause.
 - Pool: a thread is kept with its account in `muse.db` for good; continuing it uses that account, and when it is
   off, resting or removed the call says so instead of moving the thread. A new thread takes the first account in
   order that is on and not resting or needing a sign-in; one that fails its check before anything was sent is

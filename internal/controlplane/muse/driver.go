@@ -65,6 +65,8 @@ type timings struct {
 	total time.Duration
 	// threadID is how long the thread's address is waited for.
 	threadID time.Duration
+	// wakePoll is how often a woken machine's state is read; wakeConfirm how long it is waited for.
+	wakePoll, wakeConfirm time.Duration
 }
 
 var defaultTimings = timings{
@@ -72,6 +74,8 @@ var defaultTimings = timings{
 	sendConfirm: 3 * time.Second, resend: 25 * time.Second, sendFail: 60 * time.Second,
 	stable: 1200 * time.Millisecond, firstToken: 75 * time.Second, stall: 45 * time.Second,
 	undelivered: 30 * time.Second, total: 300 * time.Second, threadID: 2 * time.Second,
+	// www's upstream/muse.py:149-170 waits 20 s for RUNNING.
+	wakePoll: 2 * time.Second, wakeConfirm: 20 * time.Second,
 }
 
 // MaxDeadline bounds the deadline a caller may give a question: within the
@@ -165,23 +169,33 @@ type pageInfo struct {
 	Login    bool   `json:"login"`
 }
 
+// session is what /api/session says of the account's workspace.
+type session struct {
+	Status  int    `json:"status"`
+	Session string `json:"session"`
+	VMID    string `json:"vmId"`
+	VM      string `json:"vm"`
+}
+
 // checkAccount asks muse.ai whether the tab is signed in and its workspace
 // assigned: ErrNeedsSignIn on 401, ErrRefused on 403, ErrWorkspace when the
-// session is not assigned. It answers the account's Muse id.
-func (d *driver) checkAccount(ctx context.Context) (string, error) {
+// session is not assigned. A machine that is not running is woken and never
+// refuses the account (issue #810). It answers the account's Muse id, and a
+// note on its machine when it was not seen running.
+func (d *driver) checkAccount(ctx context.Context) (viewer, note string, err error) {
 	var info pageInfo
 	if err := d.eval(ctx, pageState, &info); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// The checks are fetched from muse.ai's own origin.
 	if !strings.HasSuffix(info.Host, "muse.ai") {
 		if err := held(d.page.Navigate(ctx, Site+"/thread/new")); err != nil {
-			return "", err
+			return "", "", err
 		}
 
 		if err := d.untilLoaded(ctx); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
 
@@ -193,40 +207,104 @@ func (d *driver) checkAccount(ctx context.Context) (string, error) {
 	}
 
 	if err := d.eval(ctx, authCheck, &auth); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	switch {
 	case auth.Status == 401 || (auth.Status == 200 && !auth.OK):
-		return "", ErrNeedsSignIn
+		return "", "", ErrNeedsSignIn
 	case auth.Status == 403:
-		return "", ErrRefused
+		return "", "", ErrRefused
 	case !auth.OK:
-		return "", fmt.Errorf("%w: the sign-in check answered %d %s", ErrPageNotReady, auth.Status, auth.Error)
+		return "", "", fmt.Errorf("%w: the sign-in check answered %d %s", ErrPageNotReady, auth.Status, auth.Error)
 	}
 
-	var session struct {
-		Status  int    `json:"status"`
-		Session string `json:"session"`
-		VM      string `json:"vm"`
-	}
-
-	if err := d.eval(ctx, sessionCheck, &session); err != nil {
-		return "", err
+	var s session
+	if err := d.eval(ctx, sessionCheck, &s); err != nil {
+		return "", "", err
 	}
 
 	switch {
-	case session.Status == 401:
-		return "", ErrNeedsSignIn
-	case session.Status == 403:
-		return "", ErrRefused
-	case session.Session != "assigned":
-		return "", fmt.Errorf("%w: its session is %q", ErrWorkspace, orUnknown(session.Session))
-	case session.VM != "" && !strings.EqualFold(session.VM, "RUNNING"):
-		return "", fmt.Errorf("%w: its machine is %s", ErrWorkspace, strings.ToLower(session.VM))
+	case s.Status == 401:
+		return "", "", ErrNeedsSignIn
+	case s.Status == 403:
+		return "", "", ErrRefused
+	case s.Session != "assigned":
+		return "", "", fmt.Errorf("%w: its session is %q", ErrWorkspace, orUnknown(s.Session))
 	}
 
-	return auth.Viewer, nil
+	note, err = d.wake(ctx, s)
+
+	return auth.Viewer, note, err
+}
+
+// wake wakes the account's machine when it is not running, as both
+// references do before a question (www's upstream/muse.py:121-141, czg's
+// engine.py:607-650): POST /api/hatch/vm/wake, then /api/session read every
+// wakePoll until RUNNING or wakeConfirm passes. The wake's own status says
+// little (403 for a machine already running), and a machine not confirmed
+// running does not refuse the account: the question is still asked. A
+// DISABLED machine is not woken, as neither reference wakes it. It answers a
+// note on the machine when it was not seen running.
+func (d *driver) wake(ctx context.Context, s session) (string, error) {
+	state := strings.ToUpper(s.VM)
+
+	switch {
+	case state == "RUNNING":
+		return "", nil
+	case state == "DISABLED":
+		d.logger.WarnContext(ctx, "the Muse account's machine is disabled; asking anyway",
+			slog.String("event", "muse.vm_disabled"))
+
+		return "its machine is disabled", nil
+	case s.VMID == "":
+		d.logger.InfoContext(ctx, "muse.ai named no machine to wake; asking anyway",
+			slog.String("event", "muse.vm_unknown"), slog.String("vm_state", orUnknown(s.VM)))
+
+		return "", nil
+	}
+
+	var woke struct {
+		Status int    `json:"status"`
+		Error  string `json:"error"`
+	}
+
+	if err := d.eval(ctx, vmWake(s.VMID), &woke); err != nil {
+		return "", err
+	}
+
+	end := d.now().Add(d.t.wakeConfirm)
+	seen := ""
+
+	for {
+		if err := d.sleep(ctx, d.t.wakePoll); err != nil {
+			return "", err
+		}
+
+		var now session
+		if err := d.eval(ctx, sessionCheck, &now); err != nil {
+			return "", err
+		}
+
+		// A read that did not answer costs only that read: unknown is not a machine down.
+		if now.Status == 200 && now.VM != "" {
+			seen = strings.ToUpper(now.VM)
+		}
+
+		if seen == "RUNNING" || d.now().After(end) {
+			break
+		}
+	}
+
+	d.logger.InfoContext(ctx, "the Muse account's machine was woken", slog.String("event", "muse.vm_wake"),
+		slog.String("vm_state", orUnknown(s.VM)), slog.Int("wake_status", woke.Status),
+		slog.String("vm_state_after", orUnknown(seen)))
+
+	if seen == "RUNNING" {
+		return "", nil
+	}
+
+	return fmt.Sprintf("its machine was woken and is %s, not seen running", strings.ToLower(orUnknown(seen))), nil
 }
 
 // untilLoaded waits for a navigation to land on muse.ai.

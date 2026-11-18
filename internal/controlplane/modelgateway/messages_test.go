@@ -361,3 +361,79 @@ func TestMessagesCountTheModelsOwnWebSearches(t *testing.T) {
 		})
 	}
 }
+
+// Scenario: a Bot's chat holds a photo Anthropic cannot process, from a tool
+// result of an earlier turn, and the client sends it again on every turn
+// (issue #796). The gateway asks again without the image, with a line in its
+// place, so this turn and the next are answered instead of failing.
+func TestAnImageTheProviderCannotProcessIsLeftOutAndAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	answer := `{"id":"msg_1","type":"message","content":[{"type":"text","text":"done"}],` +
+		`"usage":{"input_tokens":3,"output_tokens":1}}`
+	var got *seen
+
+	backend, got, _ := anthropicBackend(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		got.mu.Lock()
+		body := got.bodies[len(got.bodies)-1]
+		got.mu.Unlock()
+
+		if strings.Contains(body, `"type":"image"`) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"invalid_request_error",`+
+				`"message":"messages.1.content.0.content.1: Could not process image"}}`)
+
+			return
+		}
+
+		_, _ = io.WriteString(w, answer)
+	})
+	g := newClaudeGateway(t, backend, &accounts{})
+
+	turn := func(ask string) string {
+		return `{"model":"sol","max_tokens":100,"stream":false,"messages":[` +
+			`{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"zalo_media","input":{}}]},` +
+			`{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[` +
+			`{"type":"text","text":"photo from Laura"},` +
+			`{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"AAAA"}}]}]},` +
+			`{"role":"user","content":"` + ask + `"}]}`
+	}
+
+	for n, ask := range []string{"what is in it?", "do not open any image"} {
+		status, _, body := g.send(t, "/v1/messages", turn(ask), claudeCodeHeaders(g.key)...)
+		require.Equal(t, http.StatusOK, status, "turn %d: %s", n+1, body)
+		assert.JSONEq(t, answer, body)
+
+		_, sent := got.last(t)
+		assert.NotContains(t, sent, `"type":"image"`)
+		assert.Contains(t, sent, `"text":"photo from Laura"`, "the rest of the tool result stays")
+		assert.Contains(t, sent, "omitted image")
+		assert.Equal(t, modelgateway.OutcomeOK, g.lastUsage(t).Outcome)
+	}
+
+	assert.Equal(t, 4, got.calls(), "each turn: the refused call, then one without the image")
+}
+
+// Scenario: a refusal about something else is passed on as it came, and the
+// request is not sent again.
+func TestARefusalNotAboutAnImageIsNotAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	refusal := `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: too large"}}`
+	backend, got, _ := anthropicBackend(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, refusal)
+	})
+	g := newClaudeGateway(t, backend, &accounts{})
+
+	ask := `{"model":"sol","max_tokens":1,"messages":[{"role":"user","content":[` +
+		`{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}]}]}`
+
+	status, _, body := g.send(t, "/v1/messages", ask, claudeCodeHeaders(g.key)...)
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.JSONEq(t, refusal, body)
+	assert.Equal(t, 1, got.calls())
+}

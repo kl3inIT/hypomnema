@@ -30,12 +30,14 @@ import {
   actionsText,
   byDay,
   fromText,
+  percent,
   speakersText,
   stageNames,
   stageOf,
   whenText,
   type Stage,
 } from "./meetings-state"
+import { SpeakerBadge } from "./speaker-badge"
 import { UploadMeeting } from "./upload-meeting"
 import { useMeetingActions, useMeetings } from "./use-meetings"
 
@@ -217,9 +219,7 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
           {whenText(meeting)}
         </Row>
         <Row icon={<UsersRound />} label="Speakers">
-          <span className="truncate" title={speakersText(meeting)}>
-            {speakersText(meeting) || "—"}
-          </span>
+          <Voices meeting={meeting} />
         </Row>
         <Row icon={<ListChecks />} label="Actions">
           {stageOf(meeting) === "ready" ? actionsText(meeting) : "—"}
@@ -229,6 +229,62 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
         </Row>
       </dl>
     </Link>
+  )
+}
+
+// Voices are a card's speakers as the meeting's transcript shows them: each voice's badge and its share of the talk
+// (issues #799, #807). Past two voices the names no longer fit a line, so only the badges stay, overlapped as
+// shadcn's AvatarGroup (components/ui/avatar.tsx), the first five and a count of the rest; each badge names its voice
+// on hover (owner, 2026-11-18).
+function Voices({ meeting }: { meeting: Meeting }) {
+  if (meeting.speakers.length === 0) return "—"
+
+  if (meeting.speakers.length > namedVoices) {
+    const shown = meeting.speakers.slice(0, stackedVoices)
+    const rest = meeting.speakers.length - shown.length
+
+    return (
+      <ul aria-label="Speakers" className="flex -space-x-1.5" title={speakersText(meeting)}>
+        {shown.map((s) => (
+          <li
+            key={s.label}
+            aria-label={`${s.name} ${percent(s.share)}`}
+            title={`${s.name} ${percent(s.share)}`}
+            className="flex"
+          >
+            <SpeakerBadge
+              speakers={meeting.speakers}
+              label={s.label}
+              className="ring-2 ring-card"
+            />
+          </li>
+        ))}
+        {rest > 0 && (
+          <li
+            aria-label={`${rest} more`}
+            className="inline-grid size-6 place-items-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground ring-2 ring-card"
+          >
+            +{rest}
+          </li>
+        )}
+      </ul>
+    )
+  }
+
+  return (
+    <ul
+      aria-label="Speakers"
+      className="flex min-w-0 flex-wrap gap-x-3 gap-y-1"
+      title={speakersText(meeting)}
+    >
+      {meeting.speakers.map((s) => (
+        <li key={s.label} className="flex shrink-0 items-center gap-1.5">
+          <SpeakerBadge speakers={meeting.speakers} label={s.label} size="sm" />
+          <span>{s.name}</span>
+          <span className="text-muted-foreground tabular-nums">{percent(s.share)}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -243,6 +299,10 @@ function Row({ icon, label, children }: { icon: ReactNode; label: string; childr
     </div>
   )
 }
+
+// A card names up to two voices; more show as stacked badges, five at most before a count of the rest.
+const namedVoices = 2
+const stackedVoices = 5
 
 const features = tableFeatures({})
 

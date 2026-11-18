@@ -157,10 +157,14 @@ func (s *Server) underAccounts(
 	// No account was tried at all.
 	var cooling *CoolingError
 	if errors.As(stopping, &cooling) {
+		if now := s.svc.clock.Now(); runtime == codexRuntime && cooling.Until.Sub(now) > codexWaitsUpTo {
+			return codexAccountsCooling(cooling.Until, now), nil
+		}
+
 		// 429 with the time the first account is free again, as CLIProxyAPI
 		// answers when every credential cools (9router answers 503).
 		return openAIError(http.StatusTooManyRequests, "rate_limit_error", "account_unavailable",
-			"no account of this provider can be used for now", cooling.Until.Sub(s.svc.clock.Now())), nil
+			accountsCoolingMessage, cooling.Until.Sub(s.svc.clock.Now())), nil
 	}
 
 	return nil, stopping

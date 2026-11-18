@@ -1,5 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router"
-import { Check, ChevronRight, CircleAlert, LoaderCircle, Search, Sparkles } from "lucide-react"
+import {
+  Check,
+  ChevronRight,
+  CircleAlert,
+  LoaderCircle,
+  Search,
+  Sparkles,
+  UserRound,
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import type { Meeting, MeetingDetail, MeetingItem } from "@/api/generated/types.gen"
@@ -23,13 +31,13 @@ import {
   clock,
   percent,
   providerName,
-  speakerTone,
   stageOf,
   stepsOf,
   whenText,
   working,
   type Step,
 } from "./meetings-state"
+import { SpeakerBadge } from "./speaker-badge"
 import { SpeakerPicker } from "./speaker-picker"
 import { WordFix } from "./word-fix"
 import {
@@ -386,10 +394,12 @@ function ActionRow({ meetingId, action }: { meetingId: string; action: MeetingIt
   )
 }
 
-// Transcript is the lines with their voices' colors and their share of the talk (Otter's %), each voice's name a
-// picker that says who spoke the line (speaker-picker.tsx), each time a way to play from there; the line being
-// played is marked. Each line has a way to fix a word heard wrong (word-fix.tsx), opened with what the owner selected
-// in that line.
+// Transcript is the lines with their voices' badges (issue #807) and their share of the talk (Otter's %). A voice's lines one
+// after another are one turn under its name and the time it began, as Hyprnote shows a speaker's segment
+// (apps/desktop/src/session/components/note-input/transcript/renderer/segment.tsx, segment-header.tsx; issue #799):
+// the name is a picker that says who spoke (speaker-picker.tsx), the time a way to play from there; the line being
+// played is marked. Each line keeps its own time, speaker and a way to fix a word heard wrong (word-fix.tsx), opened
+// with what the owner selected in that line.
 function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () => void }) {
   const [find, setFind] = useState("")
   const picked = usePickedWords()
@@ -412,10 +422,7 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
                 key={s.label}
                 className="flex items-center gap-1.5 rounded-lg border bg-card px-2 py-1 text-xs"
               >
-                <span
-                  className={cn("size-2 rounded-full", speakerTone(speakers, s.label).dot)}
-                  aria-hidden
-                />
+                <SpeakerBadge speakers={speakers} label={s.label} size="sm" />
                 <span className="font-medium">{s.name}</span>
                 <span className="text-muted-foreground tabular-nums">{percent(s.share)}</span>
                 {suggestion && (
@@ -442,48 +449,82 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
           </InputGroup>
         </div>
       </div>
-      <ol aria-label="Transcript" className="flex flex-col gap-1 rounded-xl border bg-card p-2">
+      <ol aria-label="Transcript" className="flex flex-col gap-3 rounded-xl border bg-card p-2">
         {lines.length === 0 && (
           <li className="py-6 text-center text-sm text-muted-foreground">
             {needle ? "No line holds this." : "Nothing was heard."}
           </li>
         )}
-        {lines.map((l) => {
-          const speaker = speakers.find((s) => s.label === l.speaker)
-          const now = at >= l.start_ms && at < l.end_ms
+        {turnsOf(lines).map((turn) => {
+          const first = turn[0]!
+          const speaker = speakers.find((s) => s.label === first.speaker)
+          const name = speaker?.name ?? "Speaker"
 
           return (
-            <li
-              key={l.n}
-              data-testid="transcript-line"
-              aria-current={now || undefined}
-              className={cn(
-                "grid grid-cols-1 gap-x-4 gap-y-0.5 rounded-lg px-2 py-1.5 sm:grid-cols-[9rem_minmax(0,1fr)]",
-                now && "bg-muted",
-              )}
-            >
-              <div className="flex items-center gap-2 sm:flex-col sm:items-start sm:gap-0">
-                <SpeakerPicker meeting={detail} line={l}>
-                  {/* Its own design, not a Button: the line's speaker in the voice's color, underlined with dots to
-                      say it is changed here, as MemoryOS's and the prototype's transcripts show it. */}
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-sm text-start text-sm font-semibold underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                      speakerTone(speakers, l.speaker).text,
-                    )}
-                    aria-label={`${speaker?.name ?? "Speaker"} said line ${l.n}; change`}
-                  >
-                    {speaker?.name ?? "Speaker"}
-                  </button>
-                </SpeakerPicker>
-                <TimeLink ms={l.start_ms} quiet />
-              </div>
-              <div className="flex min-w-0 items-start gap-1">
-                <p className="min-w-0 flex-1 text-sm leading-relaxed" data-line={l.n}>
-                  {l.text}
-                </p>
-                <WordFix meeting={detail} line={l} selected={() => picked(l.n)} onFixed={onFixed} />
+            // A turn opens with its voice's badge in the margin and the name over what was said, as MemoryOS's
+            // transcript (web/src/features/meetings/meeting-transcript.tsx; issue #807).
+            <li key={first.n} data-testid="transcript-turn" className="flex items-start gap-1 ps-2">
+              <span className="flex shrink-0 pt-1.5">
+                <SpeakerBadge speakers={speakers} label={first.speaker} />
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex items-center gap-2 px-2 pt-1">
+                  <SpeakerPicker meeting={detail} line={first}>
+                    {/* Its own design, not a Button: the turn's speaker, underlined with dots to say it is changed
+                      here, as MemoryOS's and the prototype's transcripts show it. */}
+                    <button
+                      type="button"
+                      className="rounded-sm text-start text-sm font-semibold underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={`${name} said line ${first.n}; change`}
+                    >
+                      {name}
+                    </button>
+                  </SpeakerPicker>
+                  <TimeLink ms={first.start_ms} quiet />
+                </div>
+                <ol className="flex flex-col">
+                  {turn.map((l, i) => {
+                    const now = at >= l.start_ms && at < l.end_ms
+
+                    return (
+                      <li
+                        key={l.n}
+                        data-testid="transcript-line"
+                        aria-current={now || undefined}
+                        className={cn(
+                          "group/line flex min-w-0 items-start gap-1 rounded-lg px-2 py-0.5",
+                          now && "bg-muted",
+                        )}
+                      >
+                        <p className="min-w-0 flex-1 text-sm leading-relaxed" data-line={l.n}>
+                          {l.text}
+                        </p>
+                        {/* The line's own tools show when it is pointed at or focused, and always on a touch
+                          screen, which cannot point (issue #799). */}
+                        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/line:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+                          {i > 0 && <TimeLink ms={l.start_ms} quiet />}
+                          {i > 0 && (
+                            <SpeakerPicker meeting={detail} line={l}>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={`${name} said line ${l.n}; change`}
+                              >
+                                <UserRound />
+                              </Button>
+                            </SpeakerPicker>
+                          )}
+                          <WordFix
+                            meeting={detail}
+                            line={l}
+                            selected={() => picked(l.n)}
+                            onFixed={onFixed}
+                          />
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ol>
               </div>
             </li>
           )
@@ -495,6 +536,19 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
       </p>
     </div>
   )
+}
+
+// turnsOf groups lines that follow one another said by one voice into turns.
+function turnsOf(lines: MeetingDetail["lines"]) {
+  const turns: MeetingDetail["lines"][] = []
+
+  for (const l of lines) {
+    const last = turns.at(-1)
+    if (last && last[0]!.speaker === l.speaker && last.at(-1)!.n === l.n - 1) last.push(l)
+    else turns.push([l])
+  }
+
+  return turns
 }
 
 // usePickedWords keeps the last words the owner selected inside one line of the transcript, as the selection is gone

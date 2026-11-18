@@ -77,6 +77,14 @@ const lines = [
     heard: "2",
     text: "Agreed, Friday it is.",
   },
+  {
+    n: 5,
+    start_ms: 741_000,
+    end_ms: 746_000,
+    speaker: "2",
+    heard: "2",
+    text: "I will check the old domain's redirects too.",
+  },
 ]
 
 function world() {
@@ -432,7 +440,17 @@ test("the owner sees the meetings by day, as cards or a table", async ({ page, i
   await expect(page.getByRole("region", { name: "Earlier" }).getByTestId("meeting")).toHaveCount(1)
 
   const weekly = page.getByRole("link", { name: "Weekly sync with Kai" })
-  await expect(weekly).toContainText("You, Kai, Speaker 3")
+  // Each voice's badge reads its initial once named, else its number (issue #807); past two voices only the badges
+  // stay, each naming its voice and share.
+  const voices = weekly.getByRole("list", { name: "Speakers" }).getByRole("listitem")
+  await expect(voices).toHaveText(["Y", "K", "3"])
+  await expect(voices.nth(1)).toHaveAttribute("title", "Kai 73%")
+  await expect(
+    page
+      .getByRole("link", { name: "1:1 with Minh" })
+      .getByRole("list", { name: "Speakers" })
+      .getByRole("listitem"),
+  ).toHaveText(["YYou40%", "MMinh60%"])
   await expect(weekly).toContainText("2 open of 3")
   await expect(weekly).toContainText("Upload · Soniox")
   await expect(weekly).toContainText("Ready")
@@ -537,7 +555,7 @@ test("the owner reads a meeting's notes and marks an action done", async ({ page
 
 // Scenario: on the transcript, each voice shows its share of the talk and the name Speaker 3 gave itself. The owner
 // opens line 3's speaker: Laura is suggested (said it, and in People), Kai is in the meeting. For the whole meeting,
-// Speaker 3 is named Laura; then line 4 alone is given a new name.
+// Speaker 3 is named Laura; then line 5, the second of Kai's turn, alone is given a new name.
 test("the owner names a speaker for the whole meeting or one line", async ({ page }) => {
   const { calls } = await fakeServer(page)
   await page.goto("/meetings/mtg_weekly")
@@ -546,7 +564,10 @@ test("the owner names a speaker for the whole meeting or one line", async ({ pag
   const speakers = page.getByRole("list", { name: "Speakers" })
   await expect(speakers).toContainText("Kai73%")
   await expect(speakers).toContainText("Laura?")
-  await expect(page.getByTestId("transcript-line")).toHaveCount(4)
+  // Kai's lines 4 and 5 follow one another: one turn under one name.
+  await expect(page.getByTestId("transcript-line")).toHaveCount(5)
+  await expect(page.getByTestId("transcript-turn")).toHaveCount(4)
+  await expect(page.getByTestId("transcript-turn").nth(3)).toContainText("Kai12:04")
   expect(await fits(page)).toBe(true)
   await shot(page, "meeting-transcript")
 
@@ -564,11 +585,13 @@ test("the owner names a speaker for the whole meeting or one line", async ({ pag
   await expect.poll(() => calls).toContain("PUT /meetings/mtg_weekly/speakers/3 Laura")
   await expect(page.getByRole("button", { name: "Laura said line 3; change" })).toBeVisible()
 
-  await page.getByRole("button", { name: "Kai said line 4; change" }).click()
-  const second = page.getByRole("dialog", { name: "Who said line 4" })
+  // Line 5 is the second of Kai's turn: its own speaker is changed from the line, not the turn's name.
+  await page.getByTestId("transcript-line").nth(4).hover()
+  await page.getByRole("button", { name: "Kai said line 5; change" }).click()
+  const second = page.getByRole("dialog", { name: "Who said line 5" })
   await second.getByRole("combobox", { name: "A name" }).fill("Phụng")
   await second.getByRole("option", { name: "New name “Phụng”" }).click()
-  await expect.poll(() => calls).toContain("PUT /meetings/mtg_weekly/lines/4/speaker Phụng")
+  await expect.poll(() => calls).toContain("PUT /meetings/mtg_weekly/lines/5/speaker Phụng")
 })
 
 // Scenario: the Actions tab lists the open actions of every meeting; the owner shows Kai's only, then the done
