@@ -78,6 +78,7 @@ var fastTimings = timings{
 	sendConfirm: 5 * time.Millisecond, resend: 20 * time.Millisecond, sendFail: 60 * time.Millisecond,
 	stable: 5 * time.Millisecond, firstToken: 80 * time.Millisecond, stall: 30 * time.Millisecond,
 	undelivered: 20 * time.Millisecond, total: time.Second, threadID: 10 * time.Millisecond,
+	wakePoll: time.Millisecond, wakeConfirm: 20 * time.Millisecond,
 }
 
 func newDriver(page Page) *driver {
@@ -106,7 +107,10 @@ type museSite struct {
 	links          []Link
 	auth           map[string]any
 	session        map[string]any
-	usageText      string
+	// woken are the machines a wake was asked for; awake, when set, is the session read after one.
+	woken     []string
+	awake     map[string]any
+	usageText string
 }
 
 func (m *museSite) eval(script string) (any, error) {
@@ -163,7 +167,15 @@ func (m *museSite) eval(script string) (any, error) {
 	case script == authCheck:
 		return m.auth, nil
 	case script == sessionCheck:
+		if len(m.woken) > 0 && m.awake != nil {
+			return m.awake, nil
+		}
+
 		return m.session, nil
+	case strings.Contains(script, "/api/hatch/vm/wake"):
+		m.woken = append(m.woken, script)
+
+		return map[string]any{"status": 200}, nil
 	case script == settingsEntry, script == settingsItem:
 		return map[string]float64{"x": 1, "y": 2}, nil
 	case script == dialogText:
@@ -439,7 +451,7 @@ func TestSlowHydrationIsWaitedFor(t *testing.T) {
 }
 
 // The account's check: 401 needs a sign-in, 403 is refused, a session not
-// assigned is a workspace not ready, and 403 then success is signed in.
+// assigned is a workspace not ready; the machine's state never refuses it.
 func TestTheAccountsCheck(t *testing.T) {
 	t.Parallel()
 
@@ -451,14 +463,14 @@ func TestTheAccountsCheck(t *testing.T) {
 	}{
 		{map[string]any{"status": 401}, nil, ErrNeedsSignIn},
 		{map[string]any{"status": 403}, nil, ErrRefused},
-		{signed, map[string]any{"status": 200, "session": "pending"}, ErrWorkspace},
-		{signed, map[string]any{"status": 200, "session": "assigned", "vm": "STOPPED"}, ErrWorkspace},
+		{signed, map[string]any{"status": 200, "session": "pending", "vmId": "vm1", "vm": "RUNNING"}, ErrWorkspace},
+		{signed, map[string]any{"status": 200, "session": "assigned", "vm": "STOPPED"}, nil},
 		{signed, map[string]any{"status": 200, "session": "assigned", "vm": "RUNNING"}, nil},
 	} {
 		m := site()
 		m.auth, m.session = c.auth, c.session
 
-		viewer, err := newDriver(&fakePage{answer: m.eval}).checkAccount(t.Context())
+		viewer, _, err := newDriver(&fakePage{answer: m.eval}).checkAccount(t.Context())
 		if c.want != nil {
 			require.ErrorIs(t, err, c.want)
 
@@ -467,6 +479,57 @@ func TestTheAccountsCheck(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "v1", viewer)
+	}
+}
+
+// A machine that is not running is woken (issue #810), as www's
+// upstream/muse.py:121-141 does: the wake names it, and the account is used
+// whether or not it is then seen running. One with no id, running or
+// disabled is not woken.
+func TestTheAccountsMachineIsWokenAndNeverRefusesIt(t *testing.T) {
+	t.Parallel()
+
+	signed := map[string]any{"status": 200, "ok": true, "viewer": "v1"}
+	running := map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "RUNNING"}
+
+	for _, c := range []struct {
+		name           string
+		session, awake map[string]any
+		woken          bool
+		note           string
+	}{
+		{"unknown, then running", map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "UNKNOWN"},
+			running, true, ""},
+		{"woken, not confirmed", map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "STOPPED"},
+			map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "STARTING"}, true,
+			"its machine was woken and is starting, not seen running"},
+		{"woken, no read answered", map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "UNKNOWN"},
+			map[string]any{"status": 0}, true, "its machine was woken and is unknown, not seen running"},
+		{"no machine id", map[string]any{"status": 200, "session": "assigned", "vm": "UNKNOWN"}, running, false, ""},
+		{"running", running, running, false, ""},
+		{"disabled", map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "DISABLED"}, running,
+			false, "its machine is disabled"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := site()
+			m.auth, m.session, m.awake = signed, c.session, c.awake
+
+			viewer, note, err := newDriver(&fakePage{answer: m.eval}).checkAccount(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, "v1", viewer)
+			assert.Equal(t, c.note, note)
+
+			if !c.woken {
+				assert.Empty(t, m.woken)
+
+				return
+			}
+
+			require.Len(t, m.woken, 1)
+			assert.Contains(t, m.woken[0], `vm_id: "vm1", retry_count: 0`)
+		})
 	}
 }
 

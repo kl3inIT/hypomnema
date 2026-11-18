@@ -3357,8 +3357,13 @@ not checked against the live site in the change that wrote them.
   control back to finish adding the account." and keeps polling, and nothing is saved until the check says ok.
 - States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
   refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
-  not `assigned`, or its machine not `RUNNING`); page not ready (no ready composer within 30 s); resting (out of
-  quota). Each question first asks `/api/auth/check` and `/api/session` from the account's page.
+  not `assigned`); page not ready (no ready composer within 30 s); resting (out of
+  quota). Each question first asks `/api/auth/check` and `/api/session` from the account's page. A machine
+  (`vm_state`) that is not `RUNNING` never refuses the account (issue #810, as www222fff/muse2api's
+  `upstream/muse.py:121-170` and czg86389-hub's `engine.py:607-650`): with a `vm_id` and not `DISABLED`, the page
+  POSTs `/api/hatch/vm/wake` and reads `/api/session` every 2 s for up to 20 s for `RUNNING`; then the question is
+  asked whatever was seen, logged as `muse.vm_wake`, and a machine not seen running (or `DISABLED`, not woken) is
+  the signed-in account's cause.
 - Pool: a thread is kept with its account in `muse.db` for good; continuing it uses that account, and when it is
   off, resting or removed the call says so instead of moving the thread. A new thread takes the first account in
   order that is on and not resting or needing a sign-in; one that fails its check before anything was sent is
