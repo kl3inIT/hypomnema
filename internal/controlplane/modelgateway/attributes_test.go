@@ -38,9 +38,9 @@ func TestAModelThatSetsNothingHasWhatModelsDevSays(t *testing.T) {
 	seed, ok := prices.Find("codex_subscription", "gpt-6.1-sol")
 	require.True(t, ok)
 
-	assert.Equal(t, modelgateway.Value[int64]{Value: ptr(int64(272000)), Source: modelgateway.SourceCodex,
+	assert.Equal(t, modelgateway.Value[int64]{Value: ptr(int64(500000)), Source: modelgateway.SourceCodex,
 		ModelsDev: seed.Context}, got.ContextWindow)
-	assert.Greater(t, *seed.Context, int64(272000), "models.dev gives the API's window")
+	assert.Greater(t, *seed.Context, int64(500000), "models.dev gives the API's window")
 	assert.Equal(t, modelgateway.SourceModelsDev, got.MaxOutput.Source)
 	assert.Equal(t, seed.MaxOutput, got.MaxOutput.Value)
 	assert.Equal(t, &[]string{"text", "image"}, got.Input.Value)
@@ -53,22 +53,42 @@ func TestAModelThatSetsNothingHasWhatModelsDevSays(t *testing.T) {
 	assert.Equal(t, "gpt-6.1-sol", got.Price.Model)
 }
 
-// Scenario (issue #795): Codex's gpt-6.2 models, served from the subscription,
-// have the window Codex's list at rust-v0.169.1 gives them (500,000 for
-// gpt-6.2-sol, the default 272,000 for gpt-6.2-astra) and models.dev's price.
-func TestTheGPT62ModelsHaveCodexsWindowAndAPrice(t *testing.T) {
+// Scenario (issues #795, #809): every model Codex lists at rust-v0.169.1,
+// served from the subscription, has the window Codex's list gives it, and a
+// model it does not list the default 272,000; the gpt-6.2 ones have
+// models.dev's price.
+func TestTheCodexModelsHaveCodexsWindow(t *testing.T) {
 	t.Parallel()
 
 	g := newSubscriptionGateway(t)
 
-	for model, window := range map[string]int64{"gpt-6.2-sol": 500000, "gpt-6.2-astra": 272000} {
+	// From codex-rs/models-manager/models.json at rust-v0.169.1, each slug's context_window.
+	windows := map[string]int64{
+		"gpt-6.2-sol": 500000, "gpt-6.2-astra": 272000, "gpt-6-astra": 272000, "gpt-6.1-sol": 500000,
+		"gpt-6.1-terra": 500000, "gpt-6-sol": 272000, "gpt-6-luna": 272000, "gpt-5.6-sol": 272000,
+		"gpt-5.6-terra": 272000, "gpt-5.6-luna": 272000, "gpt-daybreak-blue-latest": 272000,
+		"gpt-daybreak-red-latest": 372000, "gpt-5.5": 272000, "codex-auto-review": 272000,
+		"a-model-codex-does-not-list": 272000,
+	}
+
+	for model, window := range windows {
+		t.Run(model, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := g.Resolve(t.Context(), modelgateway.Model{Name: "codex-subscription/" + model,
+				Targets: []modelgateway.Target{{Provider: "codex-subscription", UpstreamModel: model}}})
+			require.NoError(t, err)
+
+			require.NotNil(t, got.ContextWindow.Value)
+			assert.Equal(t, window, *got.ContextWindow.Value)
+			assert.Equal(t, modelgateway.SourceCodex, got.ContextWindow.Source)
+		})
+	}
+
+	for _, model := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
 		got, err := g.Resolve(t.Context(), modelgateway.Model{Name: "codex-subscription/" + model,
 			Targets: []modelgateway.Target{{Provider: "codex-subscription", UpstreamModel: model}}})
 		require.NoError(t, err)
-
-		require.NotNil(t, got.ContextWindow.Value, model)
-		assert.Equal(t, window, *got.ContextWindow.Value, model)
-		assert.Equal(t, modelgateway.SourceCodex, got.ContextWindow.Source, model)
 		require.NotNil(t, got.Price, model)
 		assert.Equal(t, model, got.Price.Model)
 	}

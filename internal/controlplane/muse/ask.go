@@ -302,7 +302,8 @@ func (s *Service) askWith(
 
 	d := s.driver(page)
 
-	if _, err := d.checkAccount(ctx); err != nil {
+	_, note, err := d.checkAccount(ctx)
+	if err != nil {
 		if errors.Is(err, ErrInterrupted) {
 			return s.interrupted(ctx, res, q), nil
 		}
@@ -313,7 +314,7 @@ func (s *Service) askWith(
 		return Result{}, err
 	}
 
-	_ = s.store.setState(ctx, a.ID, StateSignedIn, "", "", s.cfg.Clock.Now())
+	_ = s.store.setState(ctx, a.ID, StateSignedIn, note, "", s.cfg.Clock.Now())
 
 	got, sent, err := d.ask(ctx, q.Prompt, q.Thread, deadline)
 	if got.Thread != "" {

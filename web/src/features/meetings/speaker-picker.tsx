@@ -14,9 +14,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { toast } from "@/components/ui/toast"
 import { ErrorAlert } from "@/components/error-alert"
-import { cn } from "@/lib/utils"
 
-import { sameName, speakerTone } from "./meetings-state"
+import { sameName } from "./meetings-state"
+import { SpeakerBadge } from "./speaker-badge"
 import { useLineSpeaker, useNameSpeaker } from "./use-meetings"
 
 // SpeakerPicker says who spoke a line, from the line's speaker name. Its shape is MemoryOS's LineSpeakerPicker
@@ -159,10 +159,7 @@ export function SpeakerPicker({
               <CommandGroup heading="In this meeting">
                 {others.map((s) => (
                   <CommandItem key={`o:${s.label}`} value={s.name} onSelect={() => choose(s.name)}>
-                    <span
-                      className={cn("size-2 rounded-full", speakerTone(speakers, s.label).dot)}
-                      aria-hidden
-                    />
+                    <SpeakerBadge speakers={speakers} label={s.label} size="sm" />
                     {s.name}
                     {scope === "meeting" && (
                       <span className="ms-auto text-xs text-muted-foreground">merges the two</span>

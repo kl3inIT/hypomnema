@@ -73,7 +73,7 @@ func TestTheOwnerSetsAGatewayModelsAttributes(t *testing.T) {
 
 	sol := listed.JSON200.Data[0]
 	assert.Equal(t, "cx/sol", sol.Name)
-	codexWindow := int64(272_000)
+	codexWindow := int64(500_000)
 	assert.Equal(t, openapi.GatewayModelTokens{
 		Value: &codexWindow, Source: openapi.GatewayModelSourceCodex, ModelsDev: seed.Context,
 	}, sol.Attributes.ContextWindow, "a Codex subscription's window is Codex's own")
