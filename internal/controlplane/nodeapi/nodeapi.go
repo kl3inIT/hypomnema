@@ -742,12 +742,17 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 			})
 		}
 
-		worktrees, err := c.srv.svc.CheckWorktreeCleanup(ctx, c.nodeID, check.Paths)
+		worktrees, protected, err := c.srv.svc.CheckWorktreeCleanupWithProtection(ctx, c.nodeID, check.Paths)
 		if err != nil {
-			return err
+			c.srv.logger.WarnContext(ctx, "could not check worktree cleanup", slog.Any("error", err))
+			return c.send(ctx, nodeproto.TypeCleanupAck, nodeproto.CleanupAck{ID: check.ID})
 		}
-
-		return c.send(ctx, nodeproto.TypeCleanupAck, nodeproto.CleanupAck{ID: check.ID, Worktrees: worktrees})
+		ack := nodeproto.CleanupAck{ID: check.ID, Worktrees: worktrees, Protected: &protected}
+		msg, err := nodeproto.Encode(nodeproto.TypeCleanupAck, ack)
+		if err != nil || len(msg.Payload) >= nodeproto.MaxMessageBytes-1024 {
+			return c.send(ctx, nodeproto.TypeCleanupAck, nodeproto.CleanupAck{ID: check.ID})
+		}
+		return c.send(ctx, nodeproto.TypeCleanupAck, ack)
 	case nodeproto.TypeItems:
 		var b nodeproto.Items
 		if err := json.Unmarshal(msg.Payload, &b); err != nil || b.DispatchID == "" {

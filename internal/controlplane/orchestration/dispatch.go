@@ -90,6 +90,14 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	if err != nil {
 		return err
 	}
+	last, err := q.LastDispatchOfTask(ctx, task.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if last.DeclinedLowDisk == 1 && last.ConversationID == conv {
+		recovery = last.Recovery == 1
+		r.handoff = last.Handoff == 1
+	}
 
 	followUp, err := pendingFollowUp(ctx, q, task.ID)
 	if err != nil {
@@ -336,6 +344,9 @@ func answeredGateBefore(ctx context.Context, q *store.Queries, taskID string) (s
 		return "", fmt.Errorf("reading the last dispatch of %s: %w", taskID, err)
 	}
 
+	if last.DeclinedLowDisk == 1 {
+		return last.GateQuestionID.String, nil
+	}
 	if DispatchStatus(last.Status) != DispatchGated {
 		return "", nil
 	}
@@ -805,9 +816,13 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		encoded = sql.NullString{String: string(b), Valid: true}
 	}
 
+	from := dispatchFrom(to)
+	if to == DispatchExpired && d.DeclinedLowDisk == 1 {
+		from = append(from, string(DispatchStarting))
+	}
 	n, err := q.SettleDispatch(ctx, store.SettleDispatchParams{
 		Now: now, ToStatus: string(to), FailureClass: nullString(string(class)), Result: encoded,
-		ResetsAt: nullMillis(resetsAt), ID: d.ID, FromStatuses: dispatchFrom(to),
+		ResetsAt: nullMillis(resetsAt), ID: d.ID, FromStatuses: from,
 	})
 	if err != nil {
 		return fmt.Errorf("moving dispatch %s to %s: %w", d.ID, to, err)
@@ -855,7 +870,7 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 	switch {
 	case !firstHand:
 		err = closeConversation(ctx, q, now, conv.ID, CloseInterrupted)
-	case to == DispatchExpired && !conv.CliSessionRef.Valid:
+	case to == DispatchExpired && !conv.CliSessionRef.Valid && d.DeclinedLowDisk == 0:
 		err = closeConversation(ctx, q, now, conv.ID, CloseNeverStarted)
 	}
 

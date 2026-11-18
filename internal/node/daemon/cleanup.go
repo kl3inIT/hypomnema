@@ -90,12 +90,19 @@ func (d *Daemon) cleanBatch(ctx context.Context, out chan<- nodeproto.Message, a
 		return err
 	}
 
+	if ack.Protected == nil {
+		return fmt.Errorf("the control plane did not identify protected worktrees")
+	}
 	for _, tree := range ack.Worktrees {
 		if ctx.Err() != nil || len(tree.Accepted) == 0 || !slices.Contains(paths, tree.WorktreePath) {
 			continue
 		}
 
-		stopped := func() bool { return d.worktreeStopped(ctx, tree) }
+		stopped := func() bool {
+			return !slices.ContainsFunc(*ack.Protected, func(path string) bool {
+				return protectedOverlap(path, tree.Path)
+			}) && d.worktreeStopped(ctx, tree)
+		}
 		if !stopped() {
 			continue
 		}
@@ -104,8 +111,8 @@ func (d *Daemon) cleanBatch(ctx context.Context, out chan<- nodeproto.Message, a
 			continue
 		}
 		runDir := filepath.Dir(tree.Path)
-		if ctx.Err() == nil && diskguard.RealDir(runDir) && diskguard.SameVolume(filepath.Dir(runDir), runDir) {
-			_ = os.Remove(runDir)
+		if ctx.Err() == nil {
+			_ = diskguard.RemoveEmptyChild(runDir)
 		}
 	}
 
@@ -152,7 +159,7 @@ func (d *Daemon) worktreeStopped(ctx context.Context, tree nodeproto.CleanupWork
 		if slices.Contains(tree.Dispatches, h.ID) || overlap(worktree, tree.Path) {
 			return false
 		}
-		if resolved, err := filepath.EvalSymlinks(worktree); err == nil && overlap(resolved, tree.Path) {
+		if protectedOverlap(worktree, tree.Path) {
 			return false
 		}
 	}
@@ -163,6 +170,32 @@ func (d *Daemon) worktreeStopped(ctx context.Context, tree nodeproto.CleanupWork
 	}
 
 	return ctx.Err() == nil
+}
+
+func protectedOverlap(path, candidate string) bool {
+	if overlap(path, candidate) {
+		return true
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	if overlap(resolved, candidate) {
+		return true
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	for dir := candidate; ; dir = filepath.Dir(dir) {
+		other, err := os.Stat(dir)
+		if err != nil || os.SameFile(info, other) {
+			return true
+		}
+		if dir == filepath.Dir(dir) {
+			return false
+		}
+	}
 }
 
 func overlap(first, second string) bool {
@@ -180,8 +213,7 @@ func (d *Daemon) cleanTemps(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if slices.ContainsFunc(held, func(h statedb.Dispatch) bool { return h.ID == id && h.State != statedb.StateEnded }) ||
-			!d.cfg.Maintenance.Stopped(id, false) {
+		if slices.ContainsFunc(held, func(h statedb.Dispatch) bool { return h.ID == id && h.State != statedb.StateEnded }) {
 			continue
 		}
 		if err := d.cfg.Maintenance.CleanTemp(ctx, id); err != nil {

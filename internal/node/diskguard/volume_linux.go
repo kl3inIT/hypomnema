@@ -2,13 +2,29 @@ package diskguard
 
 import (
 	"errors"
+	"os"
 
 	"golang.org/x/sys/unix"
 )
 
-func volume(path string) (uint64, error) {
+type mountID = uint64
+
+func volume(path string) (mountID, error) {
+	return volumeAtFD(unix.AT_FDCWD, path)
+}
+
+func volumeAt(root *os.Root, path string) (mountID, error) {
+	file, err := root.Open(".")
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()                      //nolint:errcheck // directory handle
+	return volumeAtFD(int(file.Fd()), path) //nolint:gosec // file descriptor
+}
+
+func volumeAtFD(fd int, path string) (mountID, error) {
 	var stat unix.Statx_t
-	if err := unix.Statx(unix.AT_FDCWD, path, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_MNT_ID, &stat); err != nil {
+	if err := unix.Statx(fd, path, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_MNT_ID, &stat); err != nil {
 		return 0, err
 	}
 

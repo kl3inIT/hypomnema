@@ -3,6 +3,7 @@ package diskguard
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -12,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 const (
@@ -120,25 +123,42 @@ func trimGo(ctx context.Context, volume, root string, olderThan time.Time, needs
 		return first.info.ModTime().Compare(second.info.ModTime())
 	})
 
+	var removalErr error
 	for start := 0; start < len(candidates) && needsRoom(); start += goCacheBatch {
 		for _, entry := range candidates[start:min(start+goCacheBatch, len(candidates))] {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 
-			info, err := os.Lstat(entry.path)
-			if err != nil || !os.SameFile(info, entry.info) || !info.ModTime().Before(olderThan) ||
-				!RealDir(filepath.Dir(entry.path)) || !SameVolume(volume, entry.path) {
-				continue
-			}
-
-			if err := os.Remove(entry.path); err != nil && !os.IsNotExist(err) {
-				return err
+			if err := removeGoEntry(ctx, volume, entry, olderThan); err != nil && !os.IsNotExist(err) && removalErr == nil {
+				removalErr = err
 			}
 		}
 	}
 
-	return nil
+	return removalErr
+}
+
+func removeGoEntry(ctx context.Context, worktreeVolume string, entry cacheEntry, olderThan time.Time) error {
+	root, err := OpenRealDir(filepath.Dir(entry.path))
+	if err != nil {
+		return err
+	}
+	defer root.Close() //nolint:errcheck // directory handle
+	name := filepath.Base(entry.path)
+	info, err := root.Lstat(name)
+	if err != nil || !os.SameFile(info, entry.info) || !info.ModTime().Before(olderThan) {
+		return err
+	}
+	mount, err := volumeAt(root, ".")
+	if err != nil {
+		return err
+	}
+	work, err := volume(worktreeVolume)
+	if err != nil || mount != work {
+		return err
+	}
+	return removeAt(ctx, root, name, mount, info)
 }
 
 func isHex(name string, size int) bool {
@@ -166,7 +186,35 @@ func (c Caches) prunePnpm(ctx context.Context, volume string) error {
 		return nil
 	}
 
-	probe := c.pnpm(ctx, exe, store, "path")
+	if err := CheckCacheTree(ctx, store); err != nil {
+		return err
+	}
+	if !ScopeAvailable() {
+		return errors.New("pnpm pruning needs filesystem confinement")
+	}
+	root, err := OpenRealDir(store)
+	if err != nil {
+		return err
+	}
+	defer root.Close() //nolint:errcheck // directory handle
+	handle, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	defer handle.Close() //nolint:errcheck // directory handle
+	cacheName := "." + platform.NewID("prune")
+	if err := root.Mkdir(cacheName, 0o700); err != nil {
+		return err
+	}
+	cache := filepath.Join(store, cacheName)
+	defer func() { _ = root.Remove(cacheName) }()
+	if !RealDir(cache) || !SameVolume(volume, cache) {
+		return errors.New("the isolated pnpm cache is not on the worktree volume")
+	}
+	probe, err := c.pnpm(ctx, handle, exe, store, cache, "path")
+	if err != nil {
+		return err
+	}
 	raw, err := probe.Output()
 	if err != nil {
 		return fmt.Errorf("pnpm store path: %w", err)
@@ -177,21 +225,28 @@ func (c Caches) prunePnpm(ctx context.Context, volume string) error {
 		return nil
 	}
 
-	if err := CheckTree(ctx, versioned); err != nil {
+	if err := CheckCacheTree(ctx, store); err != nil {
 		return err
 	}
 
-	if err := c.pnpm(ctx, exe, store, "prune").Run(); err != nil {
-		return fmt.Errorf("pnpm store prune: %w", err)
+	prune, err := c.pnpm(ctx, handle, exe, store, cache, "prune")
+	if err != nil {
+		return err
+	}
+	if out, err := prune.CombinedOutput(); err != nil {
+		return fmt.Errorf("pnpm store prune: %w: %s", err, out)
 	}
 
 	return nil
 }
 
-func (c Caches) pnpm(ctx context.Context, exe, store, action string) *exec.Cmd {
-	args := []string{"--store-dir", store, "store", action}
-	cmd := exec.CommandContext(ctx, exe, args...) //nolint:gosec // the node's pnpm and its own store
+func (c Caches) pnpm(ctx context.Context, handle *os.File, exe, store, cache, action string) (*exec.Cmd, error) {
+	args := []string{"--store-dir", store, "--cache-dir", cache, "store", action}
+	cmd, err := ScopedCommand(ctx, []*os.File{handle}, exe, args...)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Dir = c.UserHome
 	cmd.Env = []string{"HOME=" + c.UserHome, "PATH=" + c.WorkerPath(), "COREPACK_ENABLE_NETWORK=0", "CI=true"}
-	return cmd
+	return cmd, nil
 }

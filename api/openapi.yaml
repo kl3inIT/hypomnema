@@ -7812,7 +7812,7 @@ components:
     Bot:
       type: object
       required:
-        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
+        [id, name, main, position, pinned, fallbacks, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
          connections, workers, scopes, tool_display, guaranteed_dispatches, created_at, updated_at]
       properties:
         id:
@@ -7836,6 +7836,11 @@ components:
           description: Listed in the sidebar's Pinned section, under the main Bot.
         provider: { type: string }
         model: { type: string }
+        fallbacks:
+          type: array
+          maxItems: 5
+          items: { type: string }
+          description: Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
         effort: { type: string }
         persona:
           type: string
@@ -8173,6 +8178,11 @@ components:
       properties:
         provider: { type: string }
         model: { type: string }
+        fallbacks:
+          type: array
+          maxItems: 5
+          items: { type: string }
+          description: Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
         effort: { type: string }
         persona: { type: string }
         skills:

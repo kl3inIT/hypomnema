@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import { getBotQueryKey, listBotsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { ModelMark } from "@/components/icons/model-mark"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { ModelField } from "@/features/agents/profile-editor"
+import { ModelPicker } from "@/features/agents/model-picker"
+import { modelKey } from "@/features/agents/profiles-state"
 import { everyCall } from "@/lib/query-keys"
 import { errorText } from "@/lib/server-error"
 import { useModels } from "@/features/agents/use-profiles"
@@ -196,8 +198,10 @@ function BotForm({
   }
 
   function save() {
+    const settings = settingsOf(draft, models)
+    if (start.fallbacks.join() !== draft.fallbacks.join()) settings.fallbacks = draft.fallbacks
     put.mutate(
-      { id: stored?.id, name: draft.name.trim(), settings: settingsOf(draft, models) },
+      { id: stored?.id, name: draft.name.trim(), settings },
       {
         onSuccess: (bot) => {
           setStart(draftOf(bot))
@@ -243,6 +247,13 @@ function BotForm({
         defaultLabel={defaultModelLabel}
         description="The model the Bot thinks with. Saving says so when pi cannot use the one chosen."
         gone="No provider offers this model any more. Pick another, or the default."
+      />
+
+      <BotFallbacks
+        primary={draft.model}
+        chain={draft.fallbacks}
+        models={models}
+        onChange={(fallbacks) => set({ fallbacks })}
       />
 
       <Field>
@@ -311,6 +322,92 @@ function BotForm({
 
 // Memory is what the Bot keeps across chats, an entry a line. The Bot writes it itself, an entry at a time; the
 // owner reads it here and edits it by hand (features/memory/memory-editor.tsx).
+function BotFallbacks({
+  primary,
+  chain,
+  models,
+  onChange,
+}: {
+  primary: string
+  chain: string[]
+  models: Model[]
+  onChange: (chain: string[]) => void
+}) {
+  const gateway = models.filter(
+    (model) =>
+      model.kind === "model_gateway" ||
+      model.kind.endsWith("_subscription") ||
+      model.kind === "opencode_go",
+  )
+  const canAdd = gateway.some((model) => modelKey(model.provider, model.name) === primary)
+  const free = gateway.filter((model) => {
+    const key = modelKey(model.provider, model.name)
+    return key !== primary && !chain.includes(key)
+  })
+
+  return (
+    <Field>
+      <FieldLabel htmlFor={chain.length ? "bot-fallback-1" : "bot-fallback-add"}>
+        Fallback models
+      </FieldLabel>
+      {chain.length > 0 && (
+        <ol aria-label="Fallback models, in order" className="flex flex-col gap-1.5">
+          {chain.map((key, index) => (
+            <li key={key} className="flex items-center gap-2">
+              <span className="w-3 text-xs text-muted-foreground tabular-nums" aria-hidden>
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <ModelPicker
+                  id={`bot-fallback-${index + 1}`}
+                  model={key}
+                  models={[
+                    ...gateway.filter((model) => modelKey(model.provider, model.name) === key),
+                    ...free,
+                  ]}
+                  defaultLabel="Remove fallback"
+                  onChange={(next) =>
+                    onChange(
+                      next
+                        ? chain.map((item, at) => (at === index ? next : item))
+                        : chain.filter((item) => item !== key),
+                    )
+                  }
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove fallback ${index + 1}`}
+                onClick={() => onChange(chain.filter((item) => item !== key))}
+              >
+                <Trash2 aria-hidden />
+              </Button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {canAdd && free.length > 0 && chain.length < 5 && (
+        <ModelPicker
+          id="bot-fallback-add"
+          model=""
+          models={free}
+          defaultLabel="Add a fallback…"
+          onChange={(next) => {
+            if (next) onChange([...chain, next])
+          }}
+        />
+      )}
+      <FieldDescription>
+        {canAdd
+          ? "Tried in order when the previous model has no usable account. Chats that pick their own model skip this list."
+          : "Choose a primary model served by the gateway to add fallbacks."}
+      </FieldDescription>
+    </Field>
+  )
+}
+
 function Memory({ bot }: { bot: Bot }) {
   const save = useSetBotMemory()
 

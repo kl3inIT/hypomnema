@@ -494,11 +494,7 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNoNodeFits, nil
 		}
 
-		if p.checkNodeFit(conv.NodeID, conv.Runtime, host) == nil && p.lowDisk(conv.NodeID) {
-			return nil, ReasonNodesLowDisk, nil
-		}
-
-		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
+		if p.checkNodeFit(conv.NodeID, conv.Runtime, host) != nil {
 			return nil, ReasonNoNode, nil
 		}
 
@@ -507,6 +503,9 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, "", nil
 		case !usable:
 			return nil, ReasonNoAccount, nil
+		}
+		if p.lowDisk(conv.NodeID) {
+			return nil, ReasonNodesLowDisk, nil
 		}
 
 		return &DispatchSpec{Continue: true}, "", nil
@@ -538,6 +537,13 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 		}
 
 		if runtime != "" && p.diskPreventsPlacement(runtime, host) {
+			availability := p.availability(runtime, r.gateway, r.accounts)
+			if availability.Reason == ReasonAccountsCooling {
+				return nil, ""
+			}
+			if !availability.Available {
+				return nil, availability.Reason
+			}
 			return nil, ReasonNodesLowDisk
 		}
 

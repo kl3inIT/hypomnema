@@ -89,6 +89,36 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound, "a change names a Bot that is there")
 }
 
+func TestBotFallbacksBelongOnlyToChatsInheritingTheModel(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [primary, second, nested/third]\n")
+	require.NoError(t, err)
+
+	bot, err := w.s.PutBot(ctx, Bot{Name: "researcher", Provider: "gateway", Model: "primary",
+		Fallbacks: []string{"gateway/second", "gateway/nested/third"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gateway/second", "gateway/nested/third"}, bot.Fallbacks)
+
+	for _, choice := range []ChatModel{{Effort: "high"}, {Provider: bot.Provider, Model: bot.Model}} {
+		chat, err := w.s.CreateChatWithID(ctx, "", bot.ID, "", choice)
+		require.NoError(t, err)
+		names, err := w.s.ChatFallbacks(ctx, chat.ID, bot.Model)
+		require.NoError(t, err)
+		if choice.Model == "" {
+			assert.Equal(t, []string{"second", "nested/third"}, names)
+		} else {
+			assert.Empty(t, names, "explicitly choosing even the same model disables fallback")
+		}
+	}
+
+	bot.Fallbacks = []string{"gateway/primary"}
+	_, err = w.s.PutBot(ctx, bot)
+	require.ErrorIs(t, err, ErrInvalid)
+}
+
 // Scenario: any Bot is renamed, the main one too (issue #466). Its id, chats, Routines, Channels and memory stay,
 // and so does what the main Bot alone may do. A name is trimmed, may hold any letters, and is one Bot's only.
 func TestABotIsRenamedAndKeepsWhatNamesIt(t *testing.T) {

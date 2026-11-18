@@ -3,6 +3,7 @@ package orchestration
 import (
 	"path"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,6 +76,55 @@ func TestDiskAdmissionAndRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, retry.Created, 1)
 	assert.Empty(t, w.task(task.ID).WaitingReason)
+}
+
+func TestDiskReceiptUsesControlPlaneClockAndDeclineCannotReplaceNewerHeartbeat(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := t.Context()
+	task := w.tasks(NewTask{Ref: "disk", Spec: "use control plane time"})[0]
+	for _, skew := range []time.Duration{time.Hour, -time.Hour} {
+		sample := w.diskSample(testDiskFloor)
+		sample.SampleAt += skew.Milliseconds()
+		require.NoError(t, w.s.NodeDisk(ctx, w.node.ID, sample))
+		node, err := w.s.GetNode(ctx, w.node.ID)
+		require.NoError(t, err)
+		require.NotNil(t, node.Disk.FreeBytes)
+		assert.Equal(t, w.clock.now, *node.Disk.At)
+	}
+	dispatch := w.dispatch(task.ID)
+	accepted := w.accept(dispatch)
+	w.advance(time.Second)
+	require.NoError(t, w.s.NodeDisk(ctx, w.node.ID, w.diskSample(testDiskFloor)))
+	decline := w.again(accepted)
+	require.NoError(t, w.s.DeclineLowDisk(ctx, decline, w.diskSample(0)))
+	require.NoError(t, w.s.DeclineLowDisk(ctx, decline, w.diskSample(0)))
+	node, err := w.s.GetNode(ctx, w.node.ID)
+	require.NoError(t, err)
+	require.NotNil(t, node.Disk.FreeBytes)
+	assert.Equal(t, testDiskFloor, *node.Disk.FreeBytes)
+	assert.Equal(t, TaskReady, w.task(task.ID).Status)
+	require.Len(t, w.schedule().Created, 1)
+}
+
+func TestDiskDoesNotHidePinnedAccountRevocation(t *testing.T) {
+	t.Parallel()
+	w := newSchedWorld(t)
+	ctx := t.Context()
+	_, _, err := w.s.ApplyProfile(ctx, "", "name: own-codex\ndescription: d\nruntime: codex\n")
+	require.NoError(t, err)
+	node := w.addNode("node_codex", 4, "codex")
+	account := w.addAccount("codex", "acct_revoked")
+	task := w.tasks(NewTask{Ref: "revoked", Profile: "own-codex", Spec: "start pinned"})[0]
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureWorkerError}))
+	w.advance(BackoffBase)
+	w.alive(node)
+	require.NoError(t, w.s.DisableAccount(ctx, account.ID))
+	require.NoError(t, w.s.NodeDisk(ctx, node.ID, w.diskSample(0)))
+	assert.Empty(t, w.schedule().Created)
+	assert.Equal(t, ReasonNoAccount, w.task(task.ID).WaitingReason)
 }
 
 func TestWorktreeCleanupRequiresClosedRunAndSettledDispatches(t *testing.T) {

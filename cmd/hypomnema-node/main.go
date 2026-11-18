@@ -34,6 +34,7 @@ import (
 	"syscall"
 
 	"github.com/kl3inIT/hypomnema/internal/node"
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 	"github.com/kl3inIT/hypomnema/internal/node/gitssh"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/workertools"
@@ -160,6 +161,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return agenttool.FromEnv().Run(ctx, args[1], args[2:])
 	case gitssh.Subcommand:
 		return gitssh.Main(ctx, args[1:])
+	case diskguard.ScopedSubcommand:
+		return diskguard.ScopedExec(args[1:])
 	case "shim", "mcp":
 		fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		dir := fs.String("dir", "", "the worker's directory (shim) or bridge directory (mcp)")

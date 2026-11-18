@@ -15,18 +15,25 @@ import (
 func (s *Service) CheckWorktreeCleanup(ctx context.Context, nodeID string, paths []nodeproto.WorktreePath) (
 	[]nodeproto.CleanupWorktree, error,
 ) {
+	approved, _, err := s.CheckWorktreeCleanupWithProtection(ctx, nodeID, paths)
+	return approved, err
+}
+
+func (s *Service) CheckWorktreeCleanupWithProtection(ctx context.Context, nodeID string, paths []nodeproto.WorktreePath) (
+	[]nodeproto.CleanupWorktree, []string, error,
+) {
 	if len(paths) > nodeproto.CleanupBatchSize {
-		return nil, fmt.Errorf("%w: cleanup batch is too large", ErrInvalid)
+		return nil, nil, fmt.Errorf("%w: cleanup batch is too large", ErrInvalid)
 	}
 
 	q := s.read()
 	node, err := q.GetNode(ctx, nodeID)
 	if err != nil {
-		return nil, notFound(err, "node", nodeID)
+		return nil, nil, notFound(err, "node", nodeID)
 	}
 
 	if !path.IsAbs(node.WorktreeRoot.String) || NodeStatus(node.Status) == NodeDeleted {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var out []nodeproto.CleanupWorktree
@@ -38,10 +45,10 @@ func (s *Service) CheckWorktreeCleanup(ctx context.Context, nodeID string, paths
 
 		rows, err := q.WorktreeDispatches(ctx, store.WorktreeDispatchesParams{NodeID: nodeID, Worktree: candidate.Path})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		if len(rows) == 0 || len(rows) > 256 || slices.ContainsFunc(rows, func(row store.WorktreeDispatchesRow) bool {
+		if len(rows) == 0 || slices.ContainsFunc(rows, func(row store.WorktreeDispatchesRow) bool {
 			return row.TaskID != candidate.TaskID || row.RunID != candidate.RunID || !row.SettledAt.Valid ||
 				!DispatchStatus(row.Status).settled() ||
 				(RunStatus(row.RunStatus) != RunFinished && RunStatus(row.RunStatus) != RunCanceled)
@@ -62,7 +69,11 @@ func (s *Service) CheckWorktreeCleanup(ctx context.Context, nodeID string, paths
 		}
 	}
 
-	return out, nil
+	protected, err := q.ProtectedWorktrees(ctx, nodeID)
+	if len(protected) == 0 {
+		protected = []string{}
+	}
+	return out, protected, err
 }
 
 func checkManagedWorktree(root, worktree, runID, taskID string) error {

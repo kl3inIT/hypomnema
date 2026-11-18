@@ -30,8 +30,8 @@ func setNodeDisk(ctx context.Context, q *store.Queries, now int64, nodeID string
 	}
 
 	var free, at sql.NullInt64
-	if disk.FreeBytes != nil && disk.SampleAt > 0 && disk.SampleAt <= now+nodeproto.HeartbeatEvery.Milliseconds() {
-		free, at = validInt(*disk.FreeBytes), validInt(min(now, disk.SampleAt))
+	if disk.FreeBytes != nil {
+		free, at = validInt(*disk.FreeBytes), validInt(now)
 	}
 
 	rows, err := q.SetNodeDisk(ctx, store.SetNodeDiskParams{
@@ -89,17 +89,30 @@ func (s *Service) DeclineLowDisk(ctx context.Context, call NodeCall, disk nodepr
 	}
 
 	decline := func(q *store.Queries, now int64, d store.Dispatch) error {
-		if DispatchStatus(d.Status) != DispatchQueued {
+		queued := DispatchStatus(d.Status) == DispatchQueued && call.Epoch == 0
+		starting := DispatchStatus(d.Status) == DispatchStarting && call.Epoch == int(d.Epoch)
+		stopping := DispatchStatus(d.Status) == DispatchStopping && call.Epoch == int(d.Epoch) && !d.StartedAt.Valid
+		if !queued && !starting && !stopping {
 			return fmt.Errorf("%w: dispatch %s is not queued", ErrConflict, d.ID)
 		}
 
-		if err := setNodeDisk(ctx, q, now, call.NodeID, disk); err != nil {
+		node, err := q.GetNode(ctx, call.NodeID)
+		if err != nil {
 			return err
+		}
+		if !node.DiskSampleAt.Valid || node.DiskSampleAt.Int64 < d.CreatedAt {
+			if err := setNodeDisk(ctx, q, now, call.NodeID, disk); err != nil {
+				return err
+			}
+		}
+		if stopping {
+			return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
 		}
 		if err := q.MarkDispatchDeclinedLowDisk(ctx, d.ID); err != nil {
 			return err
 		}
 
+		d.DeclinedLowDisk = 1
 		if err := s.settle(ctx, q, now, d, DispatchExpired, FailureNone, nil, nil, true); err != nil {
 			return err
 		}

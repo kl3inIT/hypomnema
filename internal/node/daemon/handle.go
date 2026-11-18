@@ -20,14 +20,22 @@ func (d *Daemon) handle(ctx context.Context, msg nodeproto.Message) error {
 			return fmt.Errorf("decoding an offer: %w", err)
 		}
 
-		return d.offered(ctx, o)
+		if d.cfg.Disk == nil {
+			return d.offered(ctx, o)
+		}
+		go func() {
+			if err := d.offered(ctx, o); err != nil && ctx.Err() == nil {
+				d.logger.WarnContext(ctx, "could not queue an offer response", slog.Any("error", err))
+			}
+		}()
+		return nil
 	case nodeproto.TypeStop:
 		var st nodeproto.Stop
 		if err := json.Unmarshal(msg.Payload, &st); err != nil {
 			return fmt.Errorf("decoding a stop: %w", err)
 		}
 
-		d.runner.Stop(st.DispatchID)
+		d.stop(st.DispatchID)
 
 		return nil
 	case nodeproto.TypeAnswer:
@@ -107,7 +115,7 @@ func (d *Daemon) phone(t nodeproto.Type) {
 func (d *Daemon) offered(ctx context.Context, o nodeproto.Offer) error {
 	accept := nodeproto.Report{ReportID: d.newID("rep"), Kind: nodeproto.ReportAccept, DispatchID: o.DispatchID}
 	if d.cfg.Disk != nil {
-		if disk := d.cfg.Disk(ctx); !disk.AllowsWork() {
+		if disk := d.measureDisk(ctx); !disk.AllowsWork() {
 			accept.Kind, accept.Payload = nodeproto.ReportLowDisk, mustJSON(disk)
 		}
 	}
@@ -179,6 +187,7 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 
 	switch r.Kind {
 	case nodeproto.ReportLowDisk:
+		d.forget(r.DispatchID)
 		return d.db.Remove(ctx, r.DispatchID)
 	case nodeproto.ReportAccept, nodeproto.ReportReattach:
 		if !committed {
@@ -191,6 +200,13 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 		var a nodeproto.Accepted
 		if err := json.Unmarshal(ack.Response, &a); err != nil {
 			return fmt.Errorf("decoding the accept of %s: %w", r.DispatchID, err)
+		}
+		previous, err := d.db.Get(ctx, r.DispatchID)
+		if err != nil {
+			return err
+		}
+		if previous.State == statedb.StateEnded {
+			return nil
 		}
 
 		if err := d.db.Accept(ctx, r.DispatchID, a); err != nil {
@@ -239,13 +255,44 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 // the session's, so a reconnect does not cut a setup short; a Runner keeps
 // its worker apart from either.
 func (d *Daemon) start(h statedb.Dispatch) {
-	ctx := d.base
+	ctx, cancel := context.WithCancel(d.base)
+	d.mu.Lock()
+	d.starts[h.ID] = cancel
+	if d.stops[h.ID] {
+		cancel()
+	}
+	d.mu.Unlock()
 
 	d.starting.Go(func() {
+		defer func() {
+			d.mu.Lock()
+			delete(d.starts, h.ID)
+			d.mu.Unlock()
+			cancel()
+		}()
 		d.diskWorkers.RLock()
 		defer d.diskWorkers.RUnlock()
 
-		if err := d.runner.Start(ctx, h, d.worker(h.ID)); err != nil {
+		if ctx.Err() == nil && d.cfg.Disk != nil {
+			if disk := d.measureDisk(ctx); !disk.AllowsWork() && ctx.Err() == nil {
+				_ = d.worker(h.ID).end(d.base, nodeproto.ReportLowDisk, disk)
+				return
+			}
+		}
+		if ctx.Err() != nil {
+			_ = d.worker(h.ID).Stopped(d.base)
+			return
+		}
+		err := d.runner.Start(ctx, h, d.worker(h.ID))
+		if ctx.Err() != nil && d.base.Err() == nil {
+			if err != nil {
+				_ = d.worker(h.ID).Stopped(d.base)
+			} else {
+				d.runner.Stop(h.ID)
+			}
+			return
+		}
+		if err != nil {
 			if err := d.worker(h.ID).finish(ctx, nodeproto.Finished{
 				Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},
 			}); err != nil {
@@ -257,6 +304,16 @@ func (d *Daemon) start(h statedb.Dispatch) {
 	})
 }
 
+func (d *Daemon) stop(id string) {
+	d.mu.Lock()
+	d.stops[id] = true
+	if cancel := d.starts[id]; cancel != nil {
+		cancel()
+	}
+	d.mu.Unlock()
+	d.runner.Stop(id)
+}
+
 // beat acts on a lease renewal's answer: a stop requested, answers waiting.
 func (d *Daemon) beat(id string, raw json.RawMessage) {
 	var b nodeproto.Beat
@@ -265,7 +322,7 @@ func (d *Daemon) beat(id string, raw json.RawMessage) {
 	}
 
 	if b.StopRequested {
-		d.runner.Stop(id)
+		d.stop(id)
 	}
 
 	for _, q := range b.Answers {

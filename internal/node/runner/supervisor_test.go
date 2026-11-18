@@ -461,11 +461,36 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	dir := g.sup.dir("dsp_1")
 	pid, err := shim.PID(dir)
 	require.NoError(t, err)
+	identity := filepath.Join(dir, "shim.identity")
+	original, err := os.ReadFile(identity) //nolint:gosec // an owned test fixture
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(identity, []byte(`{"Started":1}`), 0o600))
+	restarted := g.restart().sup
+	restarted.Release("dsp_1")
+	assert.Never(t, func() bool { return !shim.Alive(pid) }, 100*time.Millisecond, 10*time.Millisecond)
+	require.NoError(t, os.WriteFile(identity, original, 0o600))
 
-	g.restart().sup.Release("dsp_1")
+	restarted.Release("dsp_1")
 
 	assert.DirExists(t, dir, "the shim record is needed to confirm the worker has stopped")
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 20*time.Second, 20*time.Millisecond)
+}
+
+func TestRestartReclaimsTempBeforeShimPID(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("mount identity is unavailable on Windows")
+	}
+	sup := &Supervisor{Home: t.TempDir(), Logger: slog.New(slog.DiscardHandler)}
+	dir := sup.dir("dsp_1")
+	tmp := filepath.Join(dir, "tmp")
+	require.NoError(t, os.MkdirAll(tmp, 0o700))
+	for _, marker := range []string{shim.PreparingFile, shim.LaunchingFile} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, marker), nil, 0o600))
+	}
+	require.NoError(t, sup.CleanTemp(t.Context(), "dsp_1"))
+	assert.NoDirExists(t, tmp)
+	require.ErrorContains(t, shim.Main(t.Context(), dir), "claiming permission")
 }
 
 // Scenario: the worker asks the owner through its tool. The question is

@@ -257,6 +257,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 			}
 		}
 	}()
+	if err := os.WriteFile(filepath.Join(dir, shim.PreparingFile), nil, 0o600); err != nil {
+		return err
+	}
 
 	temp := filepath.Join(dir, "tmp")
 	if err := os.Mkdir(temp, 0o700); err != nil {
@@ -326,6 +329,12 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		return err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, shim.LaunchingFile), nil, 0o600); err != nil {
+		return err
+	}
 	pid, err := shim.Start(s.Exe, dir)
 	if err != nil {
 		return err
@@ -333,13 +342,13 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	started = true
 
 	if err := waitSocket(ctx, dir); err != nil {
-		_ = shim.Kill(pid)
+		_ = shim.KillRecorded(dir)
 
 		return err
 	}
 
 	if err := shim.Send(ctx, dir, launch.First...); err != nil {
-		_ = shim.Kill(pid)
+		_ = shim.KillRecorded(dir)
 
 		return err
 	}
@@ -440,9 +449,7 @@ func (s *Supervisor) Stop(id string) {
 
 	interrupt := w.turn.Interrupt()
 	if interrupt == nil {
-		if pid := w.shimPID(); pid > 0 {
-			_ = shim.Kill(pid)
-		}
+		_ = shim.KillRecorded(w.dir)
 
 		return
 	}
@@ -451,7 +458,7 @@ func (s *Supervisor) Stop(id string) {
 
 	time.AfterFunc(stopGrace, func() {
 		if _, done, _ := shim.ReadExit(w.dir); !done && w.shimPID() > 0 {
-			_ = shim.Kill(w.shimPID())
+			_ = shim.KillRecorded(w.dir)
 		}
 	})
 }
@@ -471,9 +478,7 @@ func (s *Supervisor) Release(id string) {
 		<-w.done
 	}
 
-	if pid, err := shim.PID(dir); err == nil {
-		_ = shim.Kill(pid)
-	}
+	_ = shim.KillRecorded(dir)
 
 }
 

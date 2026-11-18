@@ -100,6 +100,7 @@ type Config struct {
 	// Stats measures the machine for a heartbeat; nil, or a nil result: the heartbeat carries none.
 	Stats       func(ctx context.Context) *nodeproto.SystemStats
 	Disk        func(ctx context.Context) nodeproto.DiskSpace
+	DiskFloor   int64
 	Maintenance *Maintenance
 	// Reach reports whether this machine reaches a git host; nil: the node says nothing about hosts.
 	Reach func(ctx context.Context, host string) bool
@@ -143,6 +144,9 @@ type Phone interface {
 // Daemon is one node's connection.
 type Daemon struct {
 	diskWorkers sync.RWMutex
+	maintenance sync.Mutex
+	diskProbe   chan struct{}
+	statsProbe  chan struct{}
 	cfg         Config
 	db          *statedb.DB
 	runner      Runner
@@ -156,6 +160,8 @@ type Daemon struct {
 	out       chan nodeproto.Message // the current session's send queue; nil while disconnected
 	ephemeral map[string]nodeproto.Report
 	known     map[string]bool // Dispatches the Runner has this process
+	starts    map[string]context.CancelFunc
+	stops     map[string]bool
 	// hosts knows which git hosts this machine reaches; nil when the node does not try.
 	hosts *hostWatch
 	// releaseURL is where the control plane said the node's releases are and controlPlaneVersion its own
@@ -195,6 +201,8 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 		cfg: cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
 		newID: platform.NewID, instance: platform.NewID("ins"),
 		ephemeral: map[string]nodeproto.Report{}, known: map[string]bool{},
+		starts: map[string]context.CancelFunc{}, stops: map[string]bool{},
+		diskProbe: make(chan struct{}, 1), statsProbe: make(chan struct{}, 1),
 		hellos: make(chan struct{}, 1), uploadNow: make(chan struct{}, 1),
 	}
 }
@@ -391,6 +399,7 @@ func (d *Daemon) dispose(ctx context.Context, held []statedb.Dispatch, ds []node
 	for _, h := range held {
 		switch kinds[h.ID] {
 		case nodeproto.DispositionRelease:
+			d.stop(h.ID)
 			d.runner.Release(h.ID)
 			d.forget(h.ID)
 
@@ -449,6 +458,7 @@ func (d *Daemon) forget(id string) {
 	defer d.mu.Unlock()
 
 	delete(d.known, id)
+	delete(d.stops, id)
 }
 
 func (d *Daemon) session(ctx context.Context, heartbeat time.Duration) (bool, error) {
@@ -486,15 +496,16 @@ func (d *Daemon) session(ctx context.Context, heartbeat time.Duration) (bool, er
 	go func() { errs <- writeLoop(ctx, conn, out) }()
 
 	var acks chan nodeproto.CleanupAck
-	var maintenance sync.WaitGroup
-	if d.cfg.Maintenance != nil {
+	if d.cfg.Maintenance != nil && d.maintenance.TryLock() {
 		acks = make(chan nodeproto.CleanupAck, 1)
-		maintenance.Go(func() { d.maintain(ctx, out, acks) })
+		go func() {
+			defer d.maintenance.Unlock()
+			d.maintain(ctx, out, acks)
+		}()
 	}
 
 	healthy, err := d.loop(ctx, in, errs, heartbeat, acks)
 	cancel()
-	maintenance.Wait()
 
 	status := websocket.StatusNormalClosure
 	if err != nil {
@@ -543,9 +554,9 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 		case err := <-errs:
 			return healthy, err
 		case <-phone:
-			d.send(d.heartbeat(ctx))
+			d.heartbeatAsync(ctx)
 		case <-beat.C:
-			d.send(d.heartbeat(ctx))
+			d.heartbeatAsync(ctx)
 			beat.Reset(heartbeat)
 		case <-lease.C:
 			if err := d.renewLeases(ctx); err != nil {
@@ -640,12 +651,10 @@ func (d *Daemon) setOut(out chan nodeproto.Message) {
 func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
 	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said(), Device: d.phoneState()}
 	if d.cfg.Disk != nil {
-		disk := d.cfg.Disk(ctx)
+		disk := d.measureDisk(ctx)
 		hb.Disk = &disk
 	}
-	if d.cfg.Stats != nil {
-		hb.Stats = d.cfg.Stats(ctx)
-	}
+	hb.Stats = d.measureStats(ctx)
 
 	hb.Runtimes = d.changedRuntimes(ctx, hb.Tools)
 

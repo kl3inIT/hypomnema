@@ -1046,6 +1046,7 @@ func TestTaskMovesToABackupProfileWhenItsOwnIsOutOfQuota(t *testing.T) {
 
 	resets := t0.Add(2 * time.Hour)
 	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+	require.NoError(t, w.s.NodeDisk(ctx, codex.ID, w.diskSample(0)))
 
 	w.tasks(
 		NewTask{Ref: "b", Profile: "writer", Spec: "b"},
@@ -1080,6 +1081,7 @@ func TestTaskMovesToABackupProfileWhenItsOwnIsOutOfQuota(t *testing.T) {
 	w.advance(2*time.Hour + time.Minute)
 	w.alive(w.node)
 	w.alive(codex)
+	require.NoError(t, w.s.NodeDisk(ctx, codex.ID, w.diskSample(testDiskFloor)))
 	w.tasks(NewTask{Ref: "later", Profile: "writer", Spec: "later"})
 
 	back := w.schedule().Created
@@ -1149,6 +1151,14 @@ func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
 	require.Len(t, out.Created, 1, "the Task that names its runtime waits")
 
 	d := w.dispatchOf(out.Created[0])
+	require.NoError(t, w.s.DeclineLowDisk(ctx, w.call(d, 0), w.diskSample(0)))
+	moved, err := w.s.read().CountFallbacksOfTask(ctx, d.TaskID)
+	require.NoError(t, err)
+	assert.Zero(t, moved, "a disk decline does not consume the backup turn")
+	require.NoError(t, w.s.NodeDisk(ctx, both.ID, w.diskSample(testDiskFloor)))
+	out = w.schedule()
+	require.Len(t, out.Created, 1)
+	d = w.dispatchOf(out.Created[0])
 	conv := w.conversation(d.ConversationID)
 	assert.Equal(t, tasks[0].ID, d.TaskID)
 	assert.True(t, d.Handoff)
@@ -1182,6 +1192,7 @@ func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
 	require.NoError(t, w.finish(w.begin(d.ID), Outcome{Class: FailureWorkerError}))
 	w.advance(time.Hour)
 	w.alive(both)
+	require.NoError(t, w.s.NodeDisk(ctx, both.ID, w.diskSample(testDiskFloor)))
 
 	next := w.schedule()
 	require.Len(t, next.Created, 1)

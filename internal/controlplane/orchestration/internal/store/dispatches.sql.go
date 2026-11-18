@@ -112,7 +112,7 @@ func (q *Queries) CloseConversation(ctx context.Context, arg CloseConversationPa
 
 const countFallbacksOfRun = `-- name: CountFallbacksOfRun :one
 SELECT count(*) FROM dispatches d JOIN tasks t ON t.id = d.task_id
-WHERE t.run_id = ?1 AND d.fallback_for = ?2 AND d.fallback_until = ?3
+WHERE t.run_id = ?1 AND d.fallback_for = ?2 AND d.fallback_until = ?3 AND d.declined_low_disk = 0
 `
 
 type CountFallbacksOfRunParams struct {
@@ -130,7 +130,7 @@ func (q *Queries) CountFallbacksOfRun(ctx context.Context, arg CountFallbacksOfR
 }
 
 const countFallbacksOfTask = `-- name: CountFallbacksOfTask :one
-SELECT count(*) FROM dispatches WHERE task_id = ?1 AND fallback_for IS NOT NULL
+SELECT count(*) FROM dispatches WHERE task_id = ?1 AND fallback_for IS NOT NULL AND declined_low_disk = 0
 `
 
 // The Dispatches of a Task that ran under a backup of its profile: a Task is handed off once.
@@ -946,7 +946,7 @@ func (q *Queries) NodesWithRecentTaskExpiries(ctx context.Context, arg NodesWith
 
 const previousDispatchOfTask = `-- name: PreviousDispatchOfTask :one
 SELECT p.id, p.task_id, p.conversation_id, p.node_id, p.status, p.epoch, p.failure_class, p.unknown_cause, p.recovery, p.process_ref, p.result, p.resets_at, p.created_at, p.updated_at, p.accepted_at, p.started_at, p.lease_expires_at, p.progress_at, p.stop_requested_at, p.stop_acked_at, p.stalled_at, p.overrun_at, p.settled_at, p.waiting_since, p.waited_ms, p.gate_question_id, p.model, p.effort, p.profile_version_id, p.activity, p.fallback_for, p.fallback_until, p.handoff, p.stalled_reason, p.follow_up_id, p.cpu_millis, p.memory_bytes, p.declined_low_disk FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
-WHERE d.id = ?1 AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
+WHERE d.id = ?1 AND p.declined_low_disk = 0 AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
 ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1
 `
 
@@ -995,6 +995,35 @@ func (q *Queries) PreviousDispatchOfTask(ctx context.Context, id string) (Dispat
 		&i.DeclinedLowDisk,
 	)
 	return i, err
+}
+
+const protectedWorktrees = `-- name: ProtectedWorktrees :many
+SELECT DISTINCT c.worktree FROM conversations c JOIN tasks t ON t.id = c.task_id JOIN runs r ON r.id = t.run_id
+WHERE c.node_id = ?1 AND (r.status = 'open' OR EXISTS (
+  SELECT 1 FROM dispatches d WHERE d.conversation_id = c.id AND d.settled_at IS NULL))
+`
+
+func (q *Queries) ProtectedWorktrees(ctx context.Context, nodeID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, protectedWorktrees, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var worktree string
+		if err := rows.Scan(&worktree); err != nil {
+			return nil, err
+		}
+		items = append(items, worktree)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const reattach = `-- name: Reattach :execrows
@@ -1400,7 +1429,7 @@ const worktreeDispatches = `-- name: WorktreeDispatches :many
 SELECT d.id, d.status, d.accepted_at, d.settled_at, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
 FROM conversations c JOIN dispatches d ON d.conversation_id = c.id
 JOIN tasks t ON c.task_id = t.id JOIN runs r ON t.run_id = r.id
-WHERE c.node_id = ?1 AND c.worktree = ?2 LIMIT 257
+WHERE c.node_id = ?1 AND c.worktree = ?2
 `
 
 type WorktreeDispatchesParams struct {

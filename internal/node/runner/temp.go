@@ -50,6 +50,15 @@ func (s *Supervisor) Stopped(id string, missingOK bool) bool {
 	}
 
 	info, err := os.Lstat(filepath.Join(dir, neverStartedFile))
+	if err == nil && info.Mode().IsRegular() {
+		return true
+	}
+	for _, name := range []string{shim.LaunchingFile, shim.ClaimedFile} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+	}
+	info, err = os.Lstat(filepath.Join(dir, shim.PreparingFile))
 
 	return err == nil && info.Mode().IsRegular()
 }
@@ -60,16 +69,17 @@ func (s *Supervisor) CleanTemp(ctx context.Context, id string) error {
 		return nil
 	}
 
-	if err := diskguard.CheckTree(ctx, path); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if !s.Stopped(id, false) {
-		return nil
-	}
-
-	return diskguard.RemoveTree(path)
+	return diskguard.RemoveTree(ctx, path, func() bool {
+		dir, err := diskguard.OpenRealDir(s.dir(id))
+		if err != nil {
+			return false
+		}
+		defer dir.Close() //nolint:errcheck // directory handle
+		if info, err := dir.Lstat(shim.PreparingFile); err == nil && info.Mode().IsRegular() && s.get(id) == nil {
+			if err := dir.Remove(shim.LaunchingFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return false
+			}
+		}
+		return s.Stopped(id, false)
+	})
 }
