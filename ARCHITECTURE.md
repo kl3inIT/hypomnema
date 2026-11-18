@@ -2829,6 +2829,12 @@ capabilities do not exist yet.
     asked for. The chat answer comes back as Anthropic's: a text, thinking or tool_use block per part, a tool call's
     arguments sent whole when it ends, `finish_reason` as `stop_reason`, the input counted without the cached part.
     `count_tokens` for a model with no Claude target is estimated (bytes / 4), as 9router-go and 9router do.
+  - A target that answers 400 because it could not process an image ("could not process image", "image data you
+    provided does not represent a valid image", "failed to decode image") is asked once more without the request's
+    images: each image block, in a message or a `tool_result`, becomes an "omitted image" text block, its
+    `cache_control` kept (issue #796; Hermes `_strip_request_images_and_retry`, OpenClaw
+    `sanitizeContentBlocksImages`). The client's history still holds the image, so each later turn of that chat
+    is refused once and asked again.
 - Every gateway route reads the key from `Authorization: Bearer` or `x-api-key`.
 - `POST /v1/search` `{query, max_results?, provider?}` answers `{provider, query, results: [{title, url, snippet,
   published_at?}], cached, errors?}` and `POST /v1/web/fetch` `{url}` answers `{url, title, content, truncated}`
