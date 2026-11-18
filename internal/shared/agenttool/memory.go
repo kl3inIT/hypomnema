@@ -81,3 +81,20 @@ func thousands(n int) string {
 
 	return s
 }
+
+// MemoryNote is a note of a memory (issue #589) as the start of a chat or a
+// task and `hypomnema memory ls` list it: its path and size, as the memory
+// tool's view writes it.
+func MemoryNote(path string, bytes int) string {
+	return path + " (" + HumanSize(bytes) + ")"
+}
+
+// HumanSize is a size as du -h writes it, which Anthropic's memory tool's view
+// shows: 512B, 1.5K.
+func HumanSize(n int) string {
+	if n < 1024 {
+		return strconv.Itoa(n) + "B"
+	}
+
+	return strconv.FormatFloat(float64(n)/1024, 'f', 1, 64) + "K"
+}

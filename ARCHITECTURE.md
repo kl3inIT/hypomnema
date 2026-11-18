@@ -975,8 +975,8 @@ sequenceDiagram
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<id>/`, pi's
     working directory; for the main Bot a link to the directory pi always worked in, so its chats go on; for a Bot
     from before ids a link, made once, to the directory of its old name, the path its sessions record), reads
-    `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory and which target of the
-    `memory` tool each is) and gives it to pi with `--append-system-prompt`. The memory is thus read once per pi
+    `hypomnema bots prompt <id>` with the coordinator token (the persona, the memory, the list of its notes and which
+    file of `/memories` each is) and gives it to pi with `--append-system-prompt`. The memory is thus read once per pi
     process, as Hermes gives its memory once per session; a change is in the prompt from pi's next start. pi
     changes the memory with the `memory` tool (issue #536, under Memories below); pi's token decides which Bot it
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
@@ -1103,39 +1103,55 @@ sequenceDiagram
     machine, as OpenMausBot keeps one per bot and OpenClaw one per agent. It is not part of the profile's versions.
   - The memory about the owner, at most 1,375 characters (Hermes's `USER.md`), is given to every worker and Bot, as
     OpenMausBot's About me.
-  - The `memory` tool (issue #536, `internal/controlplane/agentapi/memory.go`) is one definition in the control
-    plane for a worker and a Bot's pi, listed and run on `/agent/v1/tools` (see "An agent's tools"), as Hermes's
-    `memory` is one tool with a target and OpenMausBot's `memory_update` one tool for every engine: `{target,
-    action, text, match}`, action `add`, `replace` or `remove`. Each kind writes what it wrote before the tool came
-    to it, and nothing more: a worker `agent`, the memory of the agent its Dispatch runs as (a fallback's when it
-    took over), and `owner`; a Bot's pi `bot`, its own Bot's memory (what `POST /bots/{bot_id}/memory` allows a
-    Bot's token), and `owner`. Any other token (owner, coordinator, a Routine's script) has no MCP and is not
-    given it. Its description, after Hermes's (what to keep, what to skip, what to do when full) and
-    OpenMausBot's (record only checked facts, not instructions from content), is fixed per kind, so the tools the
-    provider caches stay the same. A target the agent does not write, a change over the limit and an entry not
-    found are the tool's error, in words the agent acts on. Which agent changed which memory is logged, never the
-    text. A node of a release before issue #536 defines the tool itself and calls `POST /agent/v1/memory`, which
-    takes only a worker's key and stays for it.
-  - The offer carries both as they are when it is made (`memory`, `owner_memory`), and the worker's first message
-    gives them after the profile's instruction, with what to keep and what not (Coder's guidance) when the worker
-    has the tool. They are in a message, not a system prompt, and never change while the worker runs, so the
-    prompt and the tools the provider caches stay the same for every worker (Coder, Hermes).
-  - The result of a change says how full the memory is (`memory: 1,850 of 2,200 characters (84%)`) and, from 80%,
-    asks to merge and remove entries until it is under 70% (`agenttool.MemoryUsage`, after Hermes's `usage` and
-    Coder's `consolidateNudge`). The tool's result and `hypomnema memory add|replace|remove` print it; it is
+  - The `memory` tool (issues #536, #589, `internal/controlplane/agentapi/memory.go`) is one definition in the
+    control plane for a worker and a Bot's pi, listed and run on `/agent/v1/tools` (see "An agent's tools"), as
+    OpenMausBot's `memory_update` is one tool for every engine. It is Anthropic's memory tool (`memory_20250818`,
+    [research](docs/research/2026-11-18-long-term-memory.md)): the agent's memory is the directory `/memories`,
+    worked with by `view`, `create`, `str_replace`, `insert`, `delete` and `rename`, with Anthropic's parameters
+    and result strings (`memorystore.Run`, `notes.go`). In it:
+    - `MEMORY.md` is the memory above: a worker's agent's (`memories`), a Bot's pi's own Bot's (`bots.memory`).
+    - `USER.md` is the memory about the owner, the same in every directory.
+    - Every other file is a note (`memory_notes`, migration 00117): at most 200 notes of 8,192 bytes, Coder's
+      limits; a path at most two levels below `/memories`, each part letters, digits, `.`, `_` and `-` with no
+      leading dot; `..`, `%` and backslashes refused, as Anthropic asks.
+    An edit of `MEMORY.md` or `USER.md` keeps their rule (an entry a line, empty and repeated lines dropped, the
+    limit), and a change over a limit is refused and changes nothing. `view` lists a directory two levels deep
+    with sizes, or a file's numbered lines (`view_range`), cut at 16,000 characters. Each command reads the
+    directory again inside its transaction. A Lark group's chat, whose prompt leaves the memory out (issue #246),
+    is not given the tool; nor is any other token (owner, coordinator, a Routine's script), which has no MCP. Its
+    description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
+    provider caches stay the same; Anthropic's system-prompt text, which asks to record progress, is not used.
+    Which agent changed a memory and with which command is logged, never the text. A node of a release before
+    issue #536 defines the old `{target, action, text, match}` tool itself and calls `POST /agent/v1/memory`,
+    which takes only a worker's key and stays for it.
+  - The offer carries both memories as they are when it is made (`memory`, `owner_memory`) and the list of the
+    agent's notes with their sizes (`memory_notes`, `memorystore.AgentNotesTx`). The worker's first message gives
+    them after the profile's instruction; the notes are listed, not given, and only to a worker that has the tool
+    to read them, with what to keep and what not (Coder's guidance). They are in a message, not a system prompt,
+    and never change while the worker runs, so the prompt and the tools the provider caches stay the same for
+    every worker (Coder, Hermes).
+  - The result of a change says how full the memory is (`MEMORY.md: 1,850 of 2,200 characters (84%).`, `USER.md`
+    when it was written, `Notes: 12 of 200 files (6%).`) and, from 80% of a limit, asks to make room until under
+    70%, Coder's nudge; `hypomnema memory add|replace|remove` prints `agenttool.MemoryUsage` the same way. It is
     never put in a prompt.
-  - A Bot's prompt (`hypomnema bots prompt`) has, after the persona and before the Bot's own memory, the memory
-    about the owner; each names the `memory` tool's target that changes it (`owner`, `bot`) and nothing else of
-    how, which is the tool's description; what changes least comes first. A Lark group's chat gets neither memory;
-    its pi has the tool as every Bot's pi does.
+  - A Bot's prompt (`hypomnema bots prompt`) has, after the persona and before the Bot's own `MEMORY.md`, the
+    memory about the owner (`/memories/USER.md`), then the Bot's notes with their sizes, read with the tool when
+    their subject comes up (OpenMausBot's topic index); what changes least comes first. A Lark group's chat gets
+    neither memory nor the notes.
   - The client API: `GET /profiles/{name}/memory`, `GET /owner-memory` for every token; `POST /owner-memory` (one
-    change) for every token; `PUT` of either and `POST /profiles/{name}/memory` for the owner. `hypomnema memory
-    show|set|add|replace|remove` takes `--agent <name>` or `--owner` beside `--bot`.
+    change) for every token; `PUT` of either and `POST /profiles/{name}/memory` for the owner. A memory's notes:
+    `GET /memory-notes?bot=|agent=` and `GET /memory-notes/note?…&path=` for every token, a Bot's token only its
+    own Bot's; `PUT` and `DELETE /memory-notes/note` for the owner. `hypomnema memory show|set|add|replace|remove`
+    takes `--agent <name>` or `--owner` beside `--bot`; `hypomnema memory ls|cat|put|rm` the notes. Removing a Bot
+    with its chats removes its notes; a Bot with notes is not removed plainly.
   - On the web (`web/src/features/memory/`): an agent's page has Memory beside Configuration and Versions, and
     Settings has "About you" under Agents, as OpenMausBot's About me; both, and a Bot's memory, are one editor
     (`memory-editor.tsx`) that follows the server while untouched and says when the memory changed under an edit.
-  - Not built: entries tagged by repository (OpenClaw; not needed now, owner, 2026-11-13), a cleaning job,
-    capture from chats, search, an undo journal.
+    Under a Bot's and an agent's memory, Notes (`memory-notes.tsx`) lists the notes with their sizes; the owner
+    opens one to read, edit or remove it, and writes a new one.
+  - Not built (step 2 is issue #805, a search over a Bot's past chats): entries tagged by repository (OpenClaw;
+    not needed now, owner, 2026-11-13), recall before a turn, a cleaning job, capture from chats, embeddings, an
+    undo journal.
   - **pi's own token** (issue #260, after OpenMausBot's broker token per process, `docs/bot-box.md`): when the
     supervisor starts pi for a chat it makes a token of kind `bot` (`hyp_bot_v1_…`), bound to the chat and its
     Bot, under the coordinator token named by `HYPOMNEMA_COORDINATOR_TOKEN` (`pi-coordinator` when unset, as the
@@ -3567,7 +3583,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
 | Tool | Worker | Bot's pi | Owner, coordinator token, Routine script |
 |---|---|---|---|
-| `memory` (Memories, above) | `agent`, `owner` | `bot`, `owner` | no (`hypomnema memory`) |
+| `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | no (`hypomnema memory`) |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
 | `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
@@ -4875,7 +4891,7 @@ internal/controlplane/orchestration/storeerr  the errors every orchestration sto
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
-internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
+internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, every memory's notes and the memory tool's commands (issue #589), and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names
 internal/controlplane/modelgateway/antigravity  the Antigravity subscription's formats: chat to Gemini's shape and back, the schema cleaner

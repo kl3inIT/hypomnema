@@ -7,7 +7,54 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
+
+const countMemoryNotes = `-- name: CountMemoryNotes :one
+SELECT count(*) FROM memory_notes WHERE kind = ?1 AND name = ?2
+`
+
+type CountMemoryNotesParams struct {
+	Kind string
+	Name string
+}
+
+func (q *Queries) CountMemoryNotes(ctx context.Context, arg CountMemoryNotesParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMemoryNotes, arg.Kind, arg.Name)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deleteMemoryNote = `-- name: DeleteMemoryNote :exec
+DELETE FROM memory_notes WHERE kind = ?1 AND name = ?2 AND path = ?3
+`
+
+type DeleteMemoryNoteParams struct {
+	Kind string
+	Name string
+	Path string
+}
+
+func (q *Queries) DeleteMemoryNote(ctx context.Context, arg DeleteMemoryNoteParams) error {
+	_, err := q.db.ExecContext(ctx, deleteMemoryNote, arg.Kind, arg.Name, arg.Path)
+	return err
+}
+
+const deleteMemoryNotesOf = `-- name: DeleteMemoryNotesOf :exec
+DELETE FROM memory_notes WHERE kind = ?1 AND name = ?2
+`
+
+type DeleteMemoryNotesOfParams struct {
+	Kind string
+	Name string
+}
+
+// Every note of an agent's or a Bot's memory, when the Bot is removed with its memory.
+func (q *Queries) DeleteMemoryNotesOf(ctx context.Context, arg DeleteMemoryNotesOfParams) error {
+	_, err := q.db.ExecContext(ctx, deleteMemoryNotesOf, arg.Kind, arg.Name)
+	return err
+}
 
 const getMemory = `-- name: GetMemory :one
 SELECT kind, name, memory, updated_at FROM memories WHERE kind = ?1 AND name = ?2
@@ -30,6 +77,69 @@ func (q *Queries) GetMemory(ctx context.Context, arg GetMemoryParams) (Memory, e
 	return i, err
 }
 
+const getMemoryNote = `-- name: GetMemoryNote :one
+SELECT kind, name, path, text, updated_at FROM memory_notes WHERE kind = ?1 AND name = ?2 AND path = ?3
+`
+
+type GetMemoryNoteParams struct {
+	Kind string
+	Name string
+	Path string
+}
+
+func (q *Queries) GetMemoryNote(ctx context.Context, arg GetMemoryNoteParams) (MemoryNote, error) {
+	row := q.db.QueryRowContext(ctx, getMemoryNote, arg.Kind, arg.Name, arg.Path)
+	var i MemoryNote
+	err := row.Scan(
+		&i.Kind,
+		&i.Name,
+		&i.Path,
+		&i.Text,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listMemoryNotes = `-- name: ListMemoryNotes :many
+SELECT path, length(CAST(text AS BLOB)) AS bytes, updated_at FROM memory_notes
+WHERE kind = ?1 AND name = ?2 ORDER BY path
+`
+
+type ListMemoryNotesParams struct {
+	Kind string
+	Name string
+}
+
+type ListMemoryNotesRow struct {
+	Path      string
+	Bytes     sql.NullInt64
+	UpdatedAt int64
+}
+
+// The notes of a memory directory (issue #589), by path.
+func (q *Queries) ListMemoryNotes(ctx context.Context, arg ListMemoryNotesParams) ([]ListMemoryNotesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMemoryNotes, arg.Kind, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMemoryNotesRow{}
+	for rows.Next() {
+		var i ListMemoryNotesRow
+		if err := rows.Scan(&i.Path, &i.Bytes, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setMemory = `-- name: SetMemory :exec
 INSERT INTO memories (kind, name, memory, updated_at) VALUES (?1, ?2, ?3, ?4)
 ON CONFLICT (kind, name) DO UPDATE SET memory = excluded.memory, updated_at = excluded.updated_at
@@ -47,6 +157,30 @@ func (q *Queries) SetMemory(ctx context.Context, arg SetMemoryParams) error {
 		arg.Kind,
 		arg.Name,
 		arg.Memory,
+		arg.Now,
+	)
+	return err
+}
+
+const setMemoryNote = `-- name: SetMemoryNote :exec
+INSERT INTO memory_notes (kind, name, path, text, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+ON CONFLICT (kind, name, path) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at
+`
+
+type SetMemoryNoteParams struct {
+	Kind string
+	Name string
+	Path string
+	Text string
+	Now  int64
+}
+
+func (q *Queries) SetMemoryNote(ctx context.Context, arg SetMemoryNoteParams) error {
+	_, err := q.db.ExecContext(ctx, setMemoryNote,
+		arg.Kind,
+		arg.Name,
+		arg.Path,
+		arg.Text,
 		arg.Now,
 	)
 	return err

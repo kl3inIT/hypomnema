@@ -515,7 +515,16 @@ func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
-	e.printf("%s", botPrompt(*b, owner))
+	notes, err := e.api.ListMemoryNotesWithResponse(ctx, &openapi.ListMemoryNotesParams{Bot: &b.Id})
+	if err != nil {
+		return fmt.Errorf("listing the notes of bot %s: %w", b.Name, err)
+	}
+
+	if notes.JSON200 == nil {
+		return apiError("listing the notes of bot "+b.Name, notes.StatusCode(), notes.JSONDefault)
+	}
+
+	e.printf("%s", botPrompt(*b, owner, notes.JSON200.Data))
 
 	return nil
 }
@@ -594,7 +603,11 @@ func modelKey(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	return nil
 }
 
-func botPrompt(b openapi.Bot, owner kept) string {
+// botPrompt is the Bot's prompt. Its memory is the directory /memories (issue #589): MEMORY.md and USER.md are
+// given whole, and the notes only listed, with their sizes, as OpenMausBot lists its topic files under MEMORY.md
+// (server/workspace.ts) and Coder its memories' index (coderd/x/chatd/chattool/memory.go); pi reads one with the
+// memory tool when its subject comes up.
+func botPrompt(b openapi.Bot, owner kept, notes []openapi.MemoryNoteInfo) string {
 	var out strings.Builder
 
 	if b.Persona != "" {
@@ -605,10 +618,10 @@ func botPrompt(b openapi.Bot, owner kept) string {
 
 	// The memory about the owner (issue #21), which every agent and Bot gets, as OpenMausBot's About me. How to
 	// change a memory is the memory tool's description (issue #536), as Hermes gives its prompt the memory and its
-	// tool the rest; the prompt names the tool's target of each memory.
+	// tool the rest; the prompt names each memory's file.
 	fmt.Fprintf(&out, "## About the owner\n\n"+
 		"Every agent and Bot knows this about the owner: how he works, his language, his standing rules. Keep "+
-		"there only lasting facts about him (the memory tool, target owner). %d of its %d characters are used.\n\n",
+		"there only lasting facts about him (/memories/USER.md). %d of its %d characters are used.\n\n",
 		utf8.RuneCountInString(owner.text), owner.limit)
 
 	for _, m := range owner.entries() {
@@ -620,19 +633,29 @@ func botPrompt(b openapi.Bot, owner kept) string {
 	}
 
 	fmt.Fprintf(&out, "## Memory\n\n"+
-		"You are the bot `%s` (id %s). You keep a short memory across your chats, the same in every chat with anyone: who "+
-		"people are, what they prefer, standing decisions, where things are (the memory tool, target bot). %d of "+
-		"its %d characters are used. A change is in your prompt from your next chat on.\n\n",
+		"You are the bot `%s` (id %s). Your memory is the directory /memories, the same in every chat with anyone. "+
+		"/memories/MEMORY.md, below, is in your prompt: who people are, what they prefer, standing decisions, where "+
+		"things are, and a line for each note saying what it holds. %d of its %d characters are used. A longer "+
+		"subject goes in a note of its own, which you read with the memory tool when it comes up. A change is in "+
+		"your prompt from your next chat on.\n\n",
 		b.Name, b.Id, utf8.RuneCountInString(b.Memory), b.MemoryLimit)
 
 	entries := memoryEntries(b)
 	if len(entries) == 0 {
-		out.WriteString("Your memory is empty.\n")
+		out.WriteString("Your MEMORY.md is empty.\n")
 	} else {
-		out.WriteString("Your memory now:\n\n")
+		out.WriteString("Your MEMORY.md now:\n\n")
 
 		for _, m := range entries {
 			out.WriteString("- " + m + "\n")
+		}
+	}
+
+	if len(notes) > 0 {
+		out.WriteString("\nYour notes, read when their subject comes up:\n\n")
+
+		for _, n := range notes {
+			out.WriteString("- " + agenttool.MemoryNote(n.Path, n.Bytes) + "\n")
 		}
 	}
 

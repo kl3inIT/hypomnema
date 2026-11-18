@@ -136,11 +136,18 @@ const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString(
 async function fakeServer(
   page: Page,
   start: Bot[] = [coordinator],
-  opts: { chat?: object; messages?: Message[]; changes?: Change[]; integrations?: object[] } = {},
+  opts: {
+    chat?: object
+    messages?: Message[]
+    changes?: Change[]
+    integrations?: object[]
+    notes?: Record<string, string>
+  } = {},
 ) {
   let bots = start
   let chat: object | null = opts.chat ?? null
   let changes = opts.changes ?? []
+  const notes = new Map(Object.entries(opts.notes ?? {}))
   const calls: { call: string; body: unknown }[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -178,6 +185,46 @@ async function fakeServer(
       bots = [...bots.filter((b) => b.id !== memoryOf[1]), stored]
 
       return json(stored)
+    }
+
+    // A memory's notes (issue #589), the server's paths and sizes.
+    const query = new URL(request.url()).searchParams
+    if (path === "/memory-notes") {
+      return json({
+        data: [...notes.entries()].map(([p, text]) => ({
+          path: p,
+          bytes: new TextEncoder().encode(text).length,
+          updated_at: hours(2),
+        })),
+        max_notes: 200,
+        max_note_bytes: 8192,
+      })
+    }
+    if (path === "/memory-notes/note") {
+      const p = query.get("path")!
+      const asNote = (text: string) => ({
+        path: p,
+        bytes: new TextEncoder().encode(text).length,
+        updated_at: hours(0),
+        text,
+      })
+
+      if (request.method() === "PUT") {
+        if (!/^\/memories(\/[A-Za-z0-9_-][A-Za-z0-9._-]*){1,2}$/.test(p)) {
+          return json({ code: "invalid", message: `invalid request: "${p}" is not a name` }, 422)
+        }
+        const { text } = request.postDataJSON() as { text: string }
+        notes.set(p, text)
+
+        return json(asNote(text))
+      }
+      if (request.method() === "DELETE") {
+        notes.delete(p)
+
+        return route.fulfill({ status: 204 })
+      }
+
+      return json(asNote(notes.get(p)!))
     }
 
     // A Bot is made under an id of its own and renamed by it (issue #466); the fixtures' ids are their names.
@@ -475,6 +522,64 @@ test("a Bot's skills are chosen in its form", async ({ page }) => {
       tools_off: ["agent_browser_*"],
     },
   })
+})
+
+// Scenario: a Bot keeps notes beside its memory (issue #589). The owner sees them listed with their sizes, opens
+// one and corrects it, writes a new one by hand, and removes one after a question; a path the server refuses keeps
+// the dialog open with its reason.
+test("a Bot's notes are listed, opened, written and removed", async ({ page }) => {
+  const calls = await fakeServer(page, [coordinator], {
+    notes: { "/memories/vmap/dashboard.md": "DAU counts guests.\nTotal users: 3,586.\n" },
+  })
+  await page.goto("/bots/coordinator")
+
+  const notes = page.getByRole("region", { name: "Notes" })
+  await expect(notes).toContainText("1 of 200 notes")
+  await expect(notes.getByRole("listitem")).toContainText([
+    "/memories/vmap/dashboard.md39B · 2h ago",
+  ])
+  expect(await fits(page)).toBe(true)
+  await notes.scrollIntoViewIfNeeded()
+  await shot(page, "bot-notes")
+
+  await notes.getByRole("button", { name: /dashboard\.md/ }).click()
+  // The note's dialog, not the toast a save leaves, which is a dialog too.
+  const dialog = page.locator('[data-slot="dialog-content"]')
+  await expect(dialog.getByRole("textbox", { name: "Text" })).toHaveValue(
+    "DAU counts guests.\nTotal users: 3,586.\n",
+  )
+  await expect(dialog.getByRole("button", { name: "Save note" })).toBeDisabled()
+  await shot(page, "bot-note-open")
+  await dialog
+    .getByRole("textbox", { name: "Text" })
+    .fill("DAU counts guests.\nTotal users: 3,600.\n")
+  await dialog.getByRole("button", { name: "Save note" }).click()
+  await expect(dialog).toBeHidden()
+
+  await notes.getByRole("button", { name: "New note" }).click()
+  await dialog.getByRole("textbox", { name: "Path" }).fill("/memories/../secrets")
+  await dialog.getByRole("textbox", { name: "Text" }).fill("Linh leads maps.")
+  await dialog.getByRole("button", { name: "Save note" }).click()
+  await expect(dialog.getByRole("alert")).toContainText("is not a name")
+  await dialog.getByRole("textbox", { name: "Path" }).fill("/memories/team.md")
+  await shot(page, "bot-note-new")
+  await dialog.getByRole("button", { name: "Save note" }).click()
+  await expect(dialog).toBeHidden()
+  await expect(notes).toContainText("2 of 200 notes")
+
+  await notes.getByRole("button", { name: /team\.md/ }).click()
+  await dialog.getByRole("button", { name: "Remove note" }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click()
+  await expect(notes).toContainText("1 of 200 notes")
+  await expect(notes).not.toContainText("team.md")
+
+  expect(calls.map((c) => c.call)).toEqual([
+    "PUT /memory-notes/note",
+    "PUT /memory-notes/note",
+    "PUT /memory-notes/note",
+    "DELETE /memory-notes/note",
+  ])
+  expect(calls[0]!.body).toEqual({ text: "DAU counts guests.\nTotal users: 3,600.\n" })
 })
 
 // Scenario: the owner opens the first Bot, reads what it keeps, and rewrites its persona. The save carries the

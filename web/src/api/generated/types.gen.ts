@@ -3021,6 +3021,38 @@ export type MemoryText = {
   memory: string;
 };
 
+export type MemoryNoteInfo = {
+  /**
+   * Under /memories.
+   */
+  path: string;
+  bytes: number;
+  updated_at: string;
+};
+
+export type MemoryNoteList = {
+  data: Array<MemoryNoteInfo>;
+  /**
+   * The most notes a memory holds.
+   */
+  max_notes: number;
+  /**
+   * The most bytes a note holds.
+   */
+  max_note_bytes: number;
+};
+
+export type MemoryNote = {
+  path: string;
+  bytes: number;
+  updated_at: string;
+  text: string;
+};
+
+export type MemoryNoteText = {
+  text: string;
+};
+
 export type MemoryChange = {
   kind: 'add' | 'replace' | 'remove';
   /**
@@ -4146,6 +4178,16 @@ export type Name = string;
  * The Bot's id, which never changes (issue
  */
 export type BotId = string;
+
+/**
+ * A Bot's memory, by its id; give this or agent.
+ */
+export type MemoryOfBot = string;
+
+/**
+ * An agent's memory, by its Profile's name; give this or bot.
+ */
+export type MemoryOfAgent = string;
 
 export type SkillName = string;
 
@@ -9135,6 +9177,154 @@ export type SetAgentMemoryResponses = {
 };
 
 export type SetAgentMemoryResponse = SetAgentMemoryResponses[keyof SetAgentMemoryResponses];
+
+export type ListMemoryNotesData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * A Bot's memory, by its id; give this or agent.
+     */
+    bot?: string;
+    /**
+     * An agent's memory, by its Profile's name; give this or bot.
+     */
+    agent?: string;
+  };
+  url: '/memory-notes';
+};
+
+export type ListMemoryNotesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMemoryNotesError = ListMemoryNotesErrors[keyof ListMemoryNotesErrors];
+
+export type ListMemoryNotesResponses = {
+  /**
+   * The notes.
+   */
+  200: MemoryNoteList;
+};
+
+export type ListMemoryNotesResponse = ListMemoryNotesResponses[keyof ListMemoryNotesResponses];
+
+export type DeleteMemoryNoteData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * A Bot's memory, by its id; give this or agent.
+     */
+    bot?: string;
+    /**
+     * An agent's memory, by its Profile's name; give this or bot.
+     */
+    agent?: string;
+    /**
+     * The note's path, under /memories.
+     */
+    path: string;
+  };
+  url: '/memory-notes/note';
+};
+
+export type DeleteMemoryNoteErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteMemoryNoteError = DeleteMemoryNoteErrors[keyof DeleteMemoryNoteErrors];
+
+export type DeleteMemoryNoteResponses = {
+  /**
+   * The note is gone.
+   */
+  204: void;
+};
+
+export type DeleteMemoryNoteResponse = DeleteMemoryNoteResponses[keyof DeleteMemoryNoteResponses];
+
+export type GetMemoryNoteData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * A Bot's memory, by its id; give this or agent.
+     */
+    bot?: string;
+    /**
+     * An agent's memory, by its Profile's name; give this or bot.
+     */
+    agent?: string;
+    /**
+     * The note's path, under /memories.
+     */
+    path: string;
+  };
+  url: '/memory-notes/note';
+};
+
+export type GetMemoryNoteErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetMemoryNoteError = GetMemoryNoteErrors[keyof GetMemoryNoteErrors];
+
+export type GetMemoryNoteResponses = {
+  /**
+   * The note.
+   */
+  200: MemoryNote;
+};
+
+export type GetMemoryNoteResponse = GetMemoryNoteResponses[keyof GetMemoryNoteResponses];
+
+export type PutMemoryNoteData = {
+  body: MemoryNoteText;
+  path?: never;
+  query: {
+    /**
+     * A Bot's memory, by its id; give this or agent.
+     */
+    bot?: string;
+    /**
+     * An agent's memory, by its Profile's name; give this or bot.
+     */
+    agent?: string;
+    /**
+     * The note's path, under /memories.
+     */
+    path: string;
+  };
+  url: '/memory-notes/note';
+};
+
+export type PutMemoryNoteErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutMemoryNoteError = PutMemoryNoteErrors[keyof PutMemoryNoteErrors];
+
+export type PutMemoryNoteResponses = {
+  /**
+   * The note as kept.
+   */
+  200: MemoryNote;
+};
+
+export type PutMemoryNoteResponse = PutMemoryNoteResponses[keyof PutMemoryNoteResponses];
 
 export type GetOwnerMemoryData = {
   body?: never;
