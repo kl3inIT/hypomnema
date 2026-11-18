@@ -1,14 +1,20 @@
 package worktree
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -35,6 +41,139 @@ func origin(t *testing.T, dir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(src, "README.md"), []byte("second-bite\n"), 0o600))
 	run(t, src, "add", "README.md")
 	run(t, src, "commit", "-q", "-m", "first")
+}
+
+func TestConcurrentEnsuresOnOneMirror(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	for _, count := range []int{2, 5} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			origin(t, dir)
+			src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+			require.NoError(t, err)
+			src.URL = filepath.Join(dir, filepath.FromSlash(src.Repo.Path))
+			maker := Maker{Root: filepath.Join(dir, "node")}
+			if count > 2 {
+				require.NoError(t, maker.Ensure(t.Context(), src, "main", "seed", filepath.Join(dir, "wt", "seed")))
+			}
+
+			run(t, src.URL, "commit", "--allow-empty", "-qm", "base "+t.Name())
+			want := run(t, src.URL, "rev-parse", "HEAD")
+			start := make(chan struct{})
+			var group errgroup.Group
+			for index := range count {
+				task := "task-" + strconv.Itoa(index)
+				group.Go(func() error {
+					<-start
+					return maker.Ensure(t.Context(), src, "main", task, filepath.Join(dir, "wt", task))
+				})
+			}
+			close(start)
+
+			require.NoError(t, group.Wait())
+			for index := range count {
+				task := "task-" + strconv.Itoa(index)
+				path := filepath.Join(dir, "wt", task)
+				assert.Equal(t, Branch(task), run(t, path, "branch", "--show-current"))
+				assert.Equal(t, want, run(t, path, "rev-parse", "HEAD"))
+			}
+		})
+	}
+}
+
+func TestMirrorLockDoesNotBlockAnotherRepository(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	dir := t.TempDir()
+	origin(t, dir)
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	other, err := SourceOf("github.com", "github", "kl3inIT/other", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, filepath.FromSlash(src.Repo.Path))
+	other.URL = src.URL
+	maker := Maker{Root: filepath.Join(dir, "node")}
+
+	mirror := maker.mirrorPath(src.Repo)
+	require.NoError(t, os.MkdirAll(filepath.Dir(mirror), 0o700))
+	lock := flock.New(mirror + ".lock")
+	require.NoError(t, lock.Lock())
+	t.Cleanup(func() { assert.NoError(t, lock.Close()) })
+
+	blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	err = maker.Ensure(blocked, src, "main", "blocked", filepath.Join(dir, "wt", "blocked"))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "locking mirror")
+	assert.NoDirExists(t, mirror)
+
+	ctx, cancelOther := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancelOther()
+	path := filepath.Join(dir, "wt", "other")
+	require.NoError(t, maker.Ensure(ctx, other, "main", "other", path))
+	assert.Equal(t, Branch("other"), run(t, path, "branch", "--show-current"))
+}
+
+func TestFetchRetriesARefLockErrorOnlyOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the test uses a shell executable in PATH")
+	}
+
+	dir := t.TempDir()
+	fakeGit := []byte(`#!/bin/sh
+if [ "$GIT_TEST_MODE" = transient ] && [ -s "$GIT_TEST_ATTEMPTS" ]; then
+    echo fetch >> "$GIT_TEST_ATTEMPTS"
+    exit 0
+fi
+echo fetch >> "$GIT_TEST_ATTEMPTS"
+if [ "$GIT_TEST_MODE" = unrelated ]; then
+    echo 'fatal: repository not found' >&2
+else
+    echo "error: cannot lock ref 'refs/remotes/origin/main': is at new but expected old" >&2
+fi
+exit 1
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "git"), fakeGit, 0o700)) //nolint:gosec // executable fixture
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	for _, trial := range []struct {
+		mode     string
+		attempts int
+		failure  string
+	}{
+		{"transient", 2, ""},
+		{"persistent", 2, "cannot lock ref"},
+		{"unrelated", 1, "repository not found"},
+	} {
+		t.Run(trial.mode, func(t *testing.T) {
+			trialDir := t.TempDir()
+			root, err := os.OpenRoot(trialDir)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, root.Close()) })
+			err = fetchMirror(t.Context(), dir, "origin", []string{
+				"GIT_TEST_MODE=" + trial.mode, "GIT_TEST_ATTEMPTS=" + filepath.Join(trialDir, "attempts"),
+			})
+			if trial.failure == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, trial.failure)
+			}
+			log, err := root.ReadFile("attempts")
+			require.NoError(t, err)
+			assert.Equal(t, strings.Repeat("fetch\n", trial.attempts), string(log))
+		})
+	}
 }
 
 // Scenario: the first Dispatch of a Task makes a worktree on its own branch

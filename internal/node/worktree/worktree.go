@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
+
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
@@ -92,31 +94,55 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 		return nil
 	}
 
-	mirror, err := m.mirror(ctx, src)
+	created, err := m.add(ctx, src, base, taskID, path)
 	if err != nil {
 		return err
 	}
 
+	if created {
+		m.setup(ctx, path)
+	}
+
+	return nil
+}
+
+func (m Maker) add(ctx context.Context, src Source, base, taskID, path string) (bool, error) {
+	if src.Repo.Path == "" || src.URL == "" {
+		return false, errors.New("the offer names no repository")
+	}
+
+	mirror := m.mirrorPath(src.Repo)
+	if err := os.MkdirAll(filepath.Dir(mirror), 0o700); err != nil {
+		return false, fmt.Errorf("making %s: %w", filepath.Dir(mirror), err)
+	}
+
+	lock := flock.New(mirror + ".lock")
+	defer func() { _ = lock.Close() }()
+
+	if _, err := lock.TryLockContext(ctx, 100*time.Millisecond); err != nil {
+		return false, fmt.Errorf("locking mirror %s: %w", mirror, err)
+	}
+
+	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		return false, nil
+	}
+
+	if err := m.updateMirror(ctx, src, mirror); err != nil {
+		return false, err
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("making %s: %w", filepath.Dir(path), err)
+		return false, fmt.Errorf("making %s: %w", filepath.Dir(path), err)
 	}
 
 	branch := Branch(taskID)
 
 	if git(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch) == nil {
 		// A retry: the branch keeps what the earlier attempt committed.
-		err = git(ctx, mirror, nil, "worktree", "add", path, branch)
-	} else {
-		err = git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
+		return true, git(ctx, mirror, nil, "worktree", "add", path, branch)
 	}
 
-	if err != nil {
-		return err
-	}
-
-	m.setup(ctx, path)
-
-	return nil
+	return true, git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
 }
 
 // Remove removes a worktree; its branch stays.
@@ -145,42 +171,39 @@ func (m Maker) mirrorPath(r githost.Repo) string {
 	return filepath.Join(m.Root, "repos", "_hosts", strings.ReplaceAll(r.Host, ":", "_"), path)
 }
 
-// mirror clones the repository bare the first time, then fetches its
+// updateMirror clones the repository bare the first time, then fetches its
 // branches as origin/*, so the base is current.
-func (m Maker) mirror(ctx context.Context, src Source) (string, error) {
-	if src.Repo.Path == "" || src.URL == "" {
-		return "", errors.New("the offer names no repository")
-	}
-
-	path := m.mirrorPath(src.Repo)
-
+func (m Maker) updateMirror(ctx context.Context, src Source, path string) error {
 	url := src.URL
 	if m.URL != "" {
 		url = fmt.Sprintf(m.URL, src.Repo.Path)
 	}
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return "", fmt.Errorf("making %s: %w", filepath.Dir(path), err)
-		}
-
 		if err := git(ctx, "", src.Env, "clone", "--bare", "--", url, path); err != nil {
-			return "", err
+			return err
 		}
 	}
 
 	// The worker pushes to origin: it goes where the mirror is fetched from, over SSH once the repository is
 	// registered with an SSH address.
 	if err := git(ctx, path, nil, "remote", "set-url", "origin", url); err != nil {
-		return "", err
+		return err
 	}
 
 	// Into remote-tracking refs: a branch checked out in a worktree must not be overwritten.
-	if err := git(ctx, path, src.Env, "fetch", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"); err != nil {
-		return "", err
+	return fetchMirror(ctx, path, url, src.Env)
+}
+
+func fetchMirror(ctx context.Context, path, url string, env []string) error {
+	env = append(append([]string{}, env...), "LC_ALL=C")
+	args := []string{"fetch", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"}
+	err := git(ctx, path, env, args...)
+	if err != nil && ctx.Err() == nil && strings.Contains(err.Error(), "error: cannot lock ref '") {
+		return git(ctx, path, env, args...)
 	}
 
-	return path, nil
+	return err
 }
 
 // git runs git in dir with env added to the node's own. The error names the

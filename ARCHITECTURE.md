@@ -4445,7 +4445,10 @@ Node (`internal/node`):
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
-  `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
+  `origin/*` before each new worktree. A file lock beside each mirror serializes clone, fetch, and worktree add,
+  even across node processes sharing the same home. Other mirrors and worktree setup do not wait on that lock.
+  A fetch reporting `cannot lock ref` is retried once (issue #868).
+  `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
   branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
