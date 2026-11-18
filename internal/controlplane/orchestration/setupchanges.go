@@ -89,7 +89,8 @@ func settingsOfBot(b Bot) botSettings {
 	return botSettings{
 		Name: b.Name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		Fallbacks: b.Fallbacks,
-		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
+		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
+		Connections: b.Connections, Workers: b.Workers,
 		ToolDisplay: display, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
 	}
 }
@@ -105,7 +106,8 @@ func (b botSettings) bot(id string) Bot {
 	return Bot{
 		ID: id, Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
 		Fallbacks: b.Fallbacks,
-		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff, Connections: b.Connections, Workers: b.Workers,
+		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
+		Connections: b.Connections, Workers: b.Workers,
 		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
 	}
 }
