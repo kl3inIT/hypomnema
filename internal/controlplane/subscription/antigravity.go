@@ -602,9 +602,7 @@ func verificationOf(body []byte) *VerificationError {
 		} `json:"error"`
 	}
 
-	if json.Unmarshal(body, &parsed) != nil {
-		return nil
-	}
+	_ = json.Unmarshal(body, &parsed) // A body that is not Google's error names no reason.
 
 	for _, detail := range parsed.Error.Details {
 		if detail.Reason == ReasonValidationRequired {

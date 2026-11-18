@@ -1,7 +1,6 @@
 package subscription_test
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -169,7 +168,7 @@ func TestSigningInAgainClearsTheMark(t *testing.T) {
 	w.google.set(func(g *google) { g.asks = verifyLink })
 
 	_, err = w.subs.Limits(t.Context(), a.ID, true)
-	require.True(t, errors.As(err, new(*subscription.VerificationError)), "the quota read marks the account: %v", err)
+	require.ErrorAs(t, err, new(*subscription.VerificationError), "the quota read marks the account")
 	w.verification(a.ID)
 
 	w.google.set(func(g *google) { g.asks = "" })

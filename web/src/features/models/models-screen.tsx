@@ -82,6 +82,7 @@ import {
   inUse,
   subscriptionState,
   subscriptionsOf,
+  tryDue,
   type Subscription,
   type Tone,
   until,
@@ -443,8 +444,6 @@ function VerificationNote({ account }: { account: Account }) {
   const verification = account.verification
   if (!verification) return null
 
-  const due = new Date(verification.next_try_at).getTime() <= Date.now()
-
   return (
     <p
       className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
@@ -456,7 +455,7 @@ function VerificationNote({ account }: { account: Account }) {
           aria-hidden
         />
         Google asked to verify it {since(verification.asked_at)}.{" "}
-        {due
+        {tryDue(verification)
           ? "The next request tries it again."
           : `Tried again ${until(verification.next_try_at)}.`}
       </span>
@@ -471,9 +470,15 @@ function VerifyButton({ label, url }: { label: string; url: string }) {
     <Button
       variant="outline"
       size="xs"
-      aria-label={`Verify ${label} with Google`}
       nativeButton={false}
-      render={<a href={url} target="_blank" rel="noreferrer noopener" />}
+      render={
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label={`Verify ${label} with Google`}
+        />
+      }
     >
       <ExternalLink data-icon="inline-start" />
       Verify

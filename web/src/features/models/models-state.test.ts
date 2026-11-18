@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { Account, Provider } from "@/api/generated/types.gen"
 
-import { accountState, inUse, subscriptionState, subscriptionsOf } from "./models-state"
+import { accountState, inUse, subscriptionState, subscriptionsOf, tryDue } from "./models-state"
 
 const now = new Date("2026-11-12T10:00:00Z").getTime()
 const later = "2026-11-12T12:00:00Z"
@@ -59,6 +59,9 @@ describe("an account's state", () => {
     expect(
       accountState(account("a", { verification, sign_in: "login_required" }), now)?.label,
     ).toBe("Needs sign-in")
+    // Its next try is due once its time has come.
+    expect(tryDue(verification, now)).toBe(false)
+    expect(tryDue({ next_try_at: earlier }, now)).toBe(true)
     // One the owner turned off says so, whatever else is wrong with it.
     expect(
       accountState(account("a", { ...resting, sign_in: "login_required", status: "disabled" }), now)

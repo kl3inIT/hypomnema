@@ -110,6 +110,11 @@ export function accountState(account: Account, now = Date.now()): AccountState {
   return null
 }
 
+// tryDue reports whether the next try of an account Google wants verified has come: the gateway may use it again.
+export function tryDue(verification: { next_try_at: string }, now = Date.now()) {
+  return new Date(verification.next_try_at).getTime() <= now
+}
+
 // serves reports whether the gateway can use an account now.
 function serves(account: Account, now = Date.now()) {
   return accountState(account, now) === null

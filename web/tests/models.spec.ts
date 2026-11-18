@@ -511,7 +511,9 @@ test("the owner sees an Antigravity account Google wants verified", async ({ pag
   await expect(row.getByTestId("limits-unavailable")).toHaveCount(0)
 
   await expect(row.getByRole("switch", { name: "In use" })).toBeChecked()
-  await expect(row.getByRole("button", { name: "Sign second@gmail.example in again" })).toBeVisible()
+  await expect(
+    row.getByRole("button", { name: "Sign second@gmail.example in again" }),
+  ).toBeVisible()
   await expect(row.getByRole("button", { name: "Remove second@gmail.example" })).toBeVisible()
 
   expect(await fits(page)).toBe(true)
