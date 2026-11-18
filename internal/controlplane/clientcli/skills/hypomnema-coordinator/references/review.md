@@ -1,8 +1,15 @@
 # Review
 
-How a pull request is reviewed by another worker. Whether to review is the owner's to say; this is how. The
-author's spec says "A review comes before the merge: do not turn on auto-merge.", so its worker leaves the pull
-request open for the review.
+<!-- Omnigent examples/polly/config.yaml:182-199; no reference for the quick exception (owner, 2026-11-18) -->
+`quick` work (for example a README rename) needs green CI and no worker review. `narrow` and `broad` work (for
+example a queue fix or a refactor) needs a reviewer from another vendor. The author's spec says "A review comes
+before the merge: do not turn on auto-merge." Hold the PR if no independent reviewer can run.
+
+<!-- oh-my-opencode packages/senpi-task/src/agents/builtin/plan-reviewer.ts:120-151; no reference for approval and copying specs (owner, 2026-11-18) -->
+Review a plan before showing it to the owner: use `profile: reviewer`, `kind: broad` and `review_of` set to the
+succeeded planner Task's id. For example, "Check whether this retry design is executable; verify the cited paths
+and the acceptance checks", followed by the plan verbatim. Ask the planner to address blockers. Once the owner
+approves, put the plan on the issue and pass it verbatim to the implementer.
 
 1. Start from a Task that succeeded with a pull request in its evidence (`hypomnema tasks show <task_id> --json`).
    Look at its checks first, read-only (`gh pr checks <url>`): while they are red there is nothing to review yet.
@@ -11,10 +18,9 @@ request open for the review.
    changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
    does not answer, nothing waits for it: go on with the review. Workers and reviewers never ask it (owner,
    2026-11-17, issue #766).
-2. Pick the reviewer from `hypomnema profiles list --json`: a profile whose description says it reviews, and says
-   it is for this kind of change. The descriptions say which reviewer goes with which author, so that the worker
-   that reviews is not the kind that wrote the change; go by them. When the only reviewer that can run is of the
-   author's own kind, use it and say in your report that the review was not independent.
+<!-- Omnigent examples/polly/config.yaml:182-199; no reference for review_of (owner, 2026-11-18) -->
+2. Set `profile: reviewer`, `kind` to the work's kind and `review_of` to the succeeded author Task's id. Use
+   the same Run so the scheduler excludes the vendor that actually did the work. Never specify a model yourself.
 3. Create the review as a Task in the same Run:
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
@@ -40,9 +46,8 @@ request open for the review.
    Report the pull request as reviewed, then report what the author says: merged, auto-merge on, or what the
    repository lacks for it, which the owner settles. You never merge nor turn on auto-merge yourself.
    CodeRabbit is never a condition of its own: its findings count through the verdict, as in step 3.
-6. Findings that make the change incorrect: report them to the owner as the reviewer gave them, and offer to send
-   them to the worker that made the change. Once the owner agrees, send them as a follow-up on that Task, the
-   findings pasted word for word:
+6. Findings that make the change incorrect: send them to the worker that made the change at once, without asking
+   the owner (owner, 2026-11-18, issue #871), as a follow-up on that Task, the findings pasted word for word:
    ```text
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```
@@ -55,7 +60,8 @@ request open for the review.
    - `## Still disputed`: each finding the author did not fix and said why, or none.
 
    Ask the reviewer to say, for each earlier finding, whether it is fixed, still open or disputed, and to report
-   new findings as before. After two rounds that still leave findings that make the change incorrect, stop and tell
-   the owner what does not converge.
+   new findings as before. Review and fix go on for up to three rounds. After three rounds that still leave findings
+   that make the change incorrect, stop: leave the pull request open with auto-merge off, add no Task, and tell the
+   owner in one line what does not converge. It is a report, not a question; nothing waits for an answer.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.

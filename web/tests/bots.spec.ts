@@ -7,7 +7,7 @@ import type {
   SetupChange as Change,
   ChatMessage as Message,
 } from "../src/api/generated/types.gen.js"
-import { toolFamilies } from "./fixtures/tools.js"
+import { fullToolAccess, toolFamilies } from "./fixtures/tools.js"
 
 // The Bots pages and the Bot of a chat, built, against a fake client API, on a phone and a desktop.
 
@@ -22,8 +22,10 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   persona: "",
   memory: "",
   memory_limit: 2200,
+  fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   connections: { limited: false, names: [] },
@@ -37,6 +39,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
 })
 
 const coordinator = bot("coordinator", {
+  tool_access: fullToolAccess,
   provider: "gateway",
   model: "gpt-luna",
   persona: "Plan the work, give it to workers and report what they did, briefly.",
@@ -46,6 +49,7 @@ const coordinator = bot("coordinator", {
 
 const models = [
   { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
+  { provider: "opencode-go", name: "deepseek-v4.1-flash", kind: "opencode_go" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
 ]
@@ -69,6 +73,7 @@ const skill = (name: string, description: string, everyone = false) => ({
 
 const skills = [
   skill("pdf", "Read, fill and merge PDF files.", true),
+  skill("android-device", "Drive an Android phone.", true),
   skill("review-go", "Review Go changes against the repository's conventions."),
   skill("lark-docs", "Write and update documents in Lark."),
 ]
@@ -446,6 +451,7 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
         persona: "You are the team's researcher. Answer with sources.",
         skills: [],
         skills_off: [],
+        preset: "full",
         tools: [],
         tools_off: [],
       },
@@ -485,12 +491,13 @@ test("a Bot is renamed and keeps its page", async ({ page }) => {
 
 // Scenario: the owner gives the first Bot a skill and turns off one given to everyone (issue #21), and turns its
 // browser off by its family (issue #536); all are saved with the Bot.
-test("a Bot's skills are chosen in its form", async ({ page }) => {
+test("a Bot's skills and tool preset are chosen in its form", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/bots/coordinator")
 
   const everyone = page.getByRole("list", { name: "Skills for everyone" })
   await expect(everyone).toContainText("Read, fill and merge PDF files.")
+  await expect(everyone).toContainText("Missing: Phone tools are off")
   await everyone.getByRole("switch", { name: /pdf/ }).click()
   await choose(page, page.getByLabel("Skills", { exact: true }), "review-go")
   await expect(page.getByRole("list", { name: "Skills added" })).toContainText(
@@ -500,13 +507,17 @@ test("a Bot's skills are chosen in its form", async ({ page }) => {
   expect(await fits(page)).toBe(true)
   await shot(page, "bot-skills")
 
-  const tools = page.getByRole("list", { name: "Tools" })
-  await expect(tools.getByRole("switch", { name: /browser/ })).toBeChecked()
-  await tools.getByRole("switch", { name: /browser/ }).click()
-  await expect(tools.getByRole("switch", { name: /browser/ })).not.toBeChecked()
-  await tools.scrollIntoViewIfNeeded()
+  const tools = page.getByRole("group", { name: "Tools", exact: true })
+  const saved = tools.getByRole("list", { name: "Saved tool access" })
+  await expect(saved.getByText("No WhatsApp Connection", { exact: true }).first()).toBeVisible()
+  await tools.evaluate((element) => element.scrollIntoView({ block: "start" }))
   expect(await fits(page)).toBe(true)
   await shot(page, "bot-tools")
+  await saved.getByText("whatsapp", { exact: true }).click()
+  await expect(saved.getByText("whatsapp_chats", { exact: true })).toBeVisible()
+  await choose(page, tools.getByLabel("Preset"), "Report")
+  await tools.getByLabel("Add exceptions").fill("phone")
+  await tools.getByLabel("Remove exceptions").fill("browser")
 
   await page.getByRole("button", { name: "Save", exact: true }).click()
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
@@ -518,8 +529,9 @@ test("a Bot's skills are chosen in its form", async ({ page }) => {
       persona: "Plan the work, give it to workers and report what they did, briefly.",
       skills: ["review-go"],
       skills_off: ["pdf"],
-      tools: [],
-      tools_off: ["agent_browser_*"],
+      preset: "report",
+      tools: ["phone"],
+      tools_off: ["browser"],
     },
   })
 })
@@ -644,6 +656,7 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
         persona: "Plan the work and report in Vietnamese.",
         skills: [],
         skills_off: [],
+        preset: "full",
         tools: [],
         tools_off: [],
       },
@@ -860,6 +873,33 @@ test("a Bot is limited to some dashboards of a Superset account", async ({ page 
       body: { persona: "You answer the community group.", scopes: {} },
     },
   ])
+})
+
+test("a Bot page shows and saves its ordered fallback models", async ({ page }) => {
+  const calls = await fakeServer(page, [
+    { ...coordinator, fallbacks: ["claude-subscription/claude-opus-5-5"] },
+  ])
+  await page.goto("/bots/coordinator")
+
+  const chain = page.getByRole("list", { name: "Fallback models, in order" })
+  await expect(chain.getByRole("listitem")).toHaveCount(1)
+  await page.locator("#bot-fallback-add").click()
+  await page.getByRole("option", { name: /deepseek-v4\.1-flash/i }).click()
+  await expect(chain.getByRole("listitem")).toHaveCount(2)
+  const save = page.getByRole("button", { name: "Save", exact: true })
+  await save.click()
+  await expect
+    .poll(() => calls.at(-1))
+    .toMatchObject({
+      call: "PUT /bots/coordinator",
+      body: {
+        fallbacks: ["claude-subscription/claude-opus-5-5", "opencode-go/deepseek-v4.1-flash"],
+      },
+    })
+  await expect(save).toBeDisabled()
+  await chain.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-fallback-models")
 })
 
 // Scenario: a Bot others use must not show its bash runs (issue #441). Its page says what its chats show of its

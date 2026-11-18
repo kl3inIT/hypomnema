@@ -142,6 +142,28 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 	require.ErrorContains(t, err, "always there")
 }
 
+func TestBotFallbacksFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+	_, err := w.svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\n"+
+		"models: [primary, first, second]\n")
+	require.NoError(t, err)
+
+	var bot openapi.Bot
+	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--provider", "gateway", "--model", "primary",
+		"--fallbacks", "gateway/first,gateway/second")
+	assert.Equal(t, []string{"gateway/first", "gateway/second"}, bot.Fallbacks)
+	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--effort", "high")
+	assert.Equal(t, []string{"gateway/first", "gateway/second"}, bot.Fallbacks)
+	out, err := w.cmd(t, "bots", "show", "vmap")
+	require.NoError(t, err)
+	assert.Contains(t, out, "fallbacks: gateway/first, gateway/second")
+	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--fallbacks", "")
+	assert.Empty(t, bot.Fallbacks)
+}
+
 // Scenario: the owner limits what a Bot may use from the terminal (issue
 // #169): no Connection and one worker profile. The Bot is told in its prompt
 // which profiles it gives work to, and the Bot coordinator that it manages

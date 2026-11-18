@@ -65,6 +65,7 @@ func run() error {
 		"HYPOMNEMA_DATABASE_PATH": filepath.Join(dir, "hypomnema.db"),
 		"HYPOMNEMA_HTTP_ADDR":     Addr,
 		"HYPOMNEMA_BROWSER":       "0",
+		"HYPOMNEMA_FFMPEG":        "0",
 	}
 
 	cfg, err := controlplane.LoadConfig(func(name string) string { return env[name] })

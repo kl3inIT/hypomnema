@@ -48,7 +48,13 @@ func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (o
 		return nil, err
 	}
 
-	return openapi.GetBot200JSONResponse(toBot(b)), nil
+	out := toBot(b)
+	out.ToolAccess, err = s.toolAccess(ctx, &b, "", b.ToolSwitches())
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetBot200JSONResponse(out), nil
 }
 
 // CreateBot makes a Bot with a new id and the name given.
@@ -113,6 +119,9 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.Bot {
 	bot := had
 	bot.Provider, bot.Model, bot.Effort, bot.Persona = val(in.Provider), val(in.Model), val(in.Effort), val(in.Persona)
+	if in.Fallbacks != nil {
+		bot.Fallbacks = *in.Fallbacks
+	}
 
 	if in.Skills != nil {
 		bot.Skills = *in.Skills
@@ -124,6 +133,10 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 
 	if in.Tools != nil {
 		bot.Tools = *in.Tools
+	}
+
+	if in.Preset != nil {
+		bot.Preset = string(*in.Preset)
 	}
 
 	if in.ToolsOff != nil {
@@ -304,9 +317,11 @@ func (s *Server) SetBotMemory(ctx context.Context, req openapi.SetBotMemoryReque
 func toBot(b orchestration.Bot) openapi.Bot {
 	return openapi.Bot{
 		Id: b.ID, Name: b.Name, Main: b.Main(), Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
-		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
+		Fallbacks: append([]string{}, b.Fallbacks...),
+		Persona:   b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
-		Tools: append([]string{}, b.Tools...), ToolsOff: append([]string{}, b.ToolsOff...),
+		Preset: openapi.ToolPreset(b.Preset), Tools: append([]string{}, b.Tools...),
+		ToolsOff:    append([]string{}, b.ToolsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), GuaranteedDispatches: b.Guarantee(),
 		Position: b.Position, Pinned: b.Pinned,

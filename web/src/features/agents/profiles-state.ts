@@ -1,4 +1,5 @@
-import type { Model, Profile } from "@/api/generated/types.gen"
+import type { Model, Profile, ToolPreset } from "@/api/generated/types.gen"
+import { toolEntries } from "@/features/tools/tools-state"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 
@@ -6,6 +7,7 @@ import { since } from "@/lib/time"
 
 // runtimeName is a runtime as people call it.
 export function runtimeName(runtime: string) {
+  if (!runtime) return "By Task kind"
   if (runtime === "claude") return "Claude Code"
   if (runtime === "codex") return "Codex"
   if (runtime === "opencode") return "OpenCode"
@@ -16,6 +18,7 @@ export function runtimeName(runtime: string) {
 // The runtimes a profile may name, as the server knows them (orchestration/profiles.go, runtimeProviders): the
 // workers' CLIs. pi runs a Bot on the server and is not a profile's (issue #169).
 export const runtimes = ["claude", "codex", "omp", "opencode"] as const
+export const routingRoles = ["implementer", "planner", "explorer", "reviewer"]
 
 // savedAgo says how long ago a version was saved, or nothing for one with no time: the starting profiles were
 // inserted by migrations at time 0.
@@ -102,7 +105,8 @@ export function withStatus(profiles: Profile[], status: FilterState | "all") {
 }
 
 // modelLine is a profile's model as a card says it: the name, or that the runtime chooses.
-export function modelLine(profile: Pick<Profile, "model">) {
+export function modelLine(profile: Pick<Profile, "model" | "runtime">) {
+  if (!profile.runtime) return "Role routing"
   return profile.model ? modelName(profile.model) : "Runtime default"
 }
 
@@ -120,7 +124,7 @@ export type Draft = {
   // skills and skillsOff are the skills the agent adds and the ones for everyone it turns off (issue #21).
   skills: string[]
   skillsOff: string[]
-  // tools and toolsOff are the Hypomnema tools the agent keeps and turns off (issue #536).
+  preset: ToolPreset
   tools: string[]
   toolsOff: string[]
   // cpu and memory are what a worker of the agent asks of a machine, as the YAML's requests write them ("500m",
@@ -158,6 +162,7 @@ export const emptyDraft: Draft = {
   fallbacks: [],
   skills: [],
   skillsOff: [],
+  preset: "full",
   tools: [],
   toolsOff: [],
   cpu: "",
@@ -175,6 +180,7 @@ export function draftOf(profile: Profile): Draft {
     fallbacks: profile.fallbacks,
     skills: profile.skills,
     skillsOff: profile.skills_off,
+    preset: profile.preset ?? "full",
     tools: profile.tools,
     toolsOff: profile.tools_off,
     cpu: cpuText(profile.cpu_request_millis),
@@ -223,6 +229,7 @@ export function sameDraft(a: Draft, b: Draft) {
     a.skillsOff.join() === b.skillsOff.join() &&
     a.tools.join() === b.tools.join() &&
     a.toolsOff.join() === b.toolsOff.join() &&
+    a.preset === b.preset &&
     a.cpu.trim() === b.cpu.trim() &&
     a.memory.trim() === b.memory.trim()
   )
@@ -238,6 +245,9 @@ export function problem(draft: Draft): string | null {
     return "Use only letters, numbers, hyphens, and underscores."
   }
   if (!draft.description.trim()) return "Say what the agent is for: the coordinator chooses by it."
+  if (!draft.runtime && !routingRoles.includes(draft.name.trim())) {
+    return "Only implementer, planner, explorer and reviewer can use role routing."
+  }
 
   return null
 }
@@ -271,10 +281,10 @@ function text(key: string, value: string, fold: boolean) {
 export function toYaml(draft: Draft, models: Model[]) {
   let out = `name: ${scalar(draft.name.trim())}\n`
   out += text("description", draft.description.trim(), draft.description.trim().length > 80)
-  out += `runtime: ${scalar(draft.runtime)}\n`
+  if (draft.runtime) out += `runtime: ${scalar(draft.runtime)}\n`
 
   const model = draft.model ? splitModel(draft.model, models) : { provider: "", name: "" }
-  if (model.name || draft.effort) {
+  if (draft.runtime && (model.name || draft.effort)) {
     out += "model:\n"
     if (model.provider) out += `  provider: ${scalar(model.provider)}\n`
     if (model.name) out += `  name: ${scalar(model.name)}\n`
@@ -283,11 +293,16 @@ export function toYaml(draft: Draft, models: Model[]) {
 
   const instruction = draft.instruction.replace(/\s+$/, "")
   if (instruction) out += text("instruction", instruction, false)
-  if (draft.fallbacks.length > 0) out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
+  if (draft.runtime && draft.fallbacks.length > 0) {
+    out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
+  }
   if (draft.skills.length > 0) out += `skills: [${draft.skills.map(scalar).join(", ")}]\n`
   if (draft.skillsOff.length > 0) out += `skills_off: [${draft.skillsOff.map(scalar).join(", ")}]\n`
-  if (draft.tools.length > 0) out += `tools: [${draft.tools.map(scalar).join(", ")}]\n`
-  if (draft.toolsOff.length > 0) out += `tools_off: [${draft.toolsOff.map(scalar).join(", ")}]\n`
+  const tools = toolEntries(draft.tools)
+  const toolsOff = toolEntries(draft.toolsOff)
+  if (draft.preset !== "full") out += `preset: ${draft.preset}\n`
+  if (tools.length > 0) out += `tools: [${tools.map(scalar).join(", ")}]\n`
+  if (toolsOff.length > 0) out += `tools_off: [${toolsOff.map(scalar).join(", ")}]\n`
 
   const cpu = draft.cpu.trim()
   const memory = draft.memory.trim()

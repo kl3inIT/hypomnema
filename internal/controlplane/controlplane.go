@@ -46,6 +46,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/takes"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -151,6 +152,9 @@ type Config struct {
 	// BrowserTimeZone is the zone the shared browser tells time in, from
 	// HYPOMNEMA_BROWSER_TIMEZONE, else the control plane's TZ (browser.TimeZone).
 	BrowserTimeZone string
+	// FFmpegOff installs no ffmpeg at start, from HYPOMNEMA_FFMPEG=0: for tests and a control plane that makes no
+	// videos, as BrowserOff is for the browser. It is installed otherwise (issue #818, row 9).
+	FFmpegOff bool
 	// PprofAddr serves Go's profiles (net/http/pprof) on a listener of its
 	// own (issue #586), from HYPOMNEMA_PPROF_ADDR, such as 127.0.0.1:6060, as
 	// Coder's --pprof-address; only a loopback address is taken. Empty: no
@@ -187,6 +191,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BrowserLanguage:  browser.Language(env.String(envPrefix+"_BROWSER_LANG", ""), getenv),
 		BrowserTimeZone:  browser.TimeZone(env.String(envPrefix+"_BROWSER_TIMEZONE", ""), getenv),
 		PprofAddr:        env.String(envPrefix+"_PPROF_ADDR", ""),
+		FFmpegOff:        env.String(envPrefix+"_FFMPEG", "1") == "0",
 	}
 
 	if cfg.BrowserDir == "" {
@@ -425,6 +430,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 
+	// The ffmpeg videos are made with (issue #818, row 9): a pinned build installed beside the database, in the
+	// background so that serving does not wait for it.
+	if !cfg.FFmpegOff {
+		ffmpeg.New(ffmpeg.Config{Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "ffmpeg"), Logger: logger}).Start(ctx)
+	}
+
 	sharedPhone := phone.New(phone.Config{
 		Nodes: svc, Link: nodes, Machines: machineMgr, Views: nodeViews(nodes), Logger: logger,
 		Takes: phoneTakes, WorkAlive: workAlive(svc, logger),
@@ -477,6 +488,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agents.WithRelay(proxy)
 	agents.WithMessaging(integrations).WithJudge(proxy)
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
+		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		ClaudeBaseURL:      cfg.ClaudeBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
@@ -569,7 +581,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			imageSettings{Service: gateway, server: gatewayServer}).
 		WithAudio(botAudio{speech: voice, gateway: gateway, chats: sup, logger: logger},
 			audioSettings{Service: gateway, speech: voice}).
-		WithBotTools(agents.BotTools)
+		WithBotTools(agents.BotTools).WithToolUnavailability(agents.ToolUnavailability)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
 	}

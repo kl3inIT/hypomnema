@@ -42,6 +42,9 @@ func (s *Supervisor) chatModel(ctx context.Context, chatID string) (string, orch
 	if err != nil {
 		return "", orchestration.ChatModel{}, err
 	}
+	if chat.Choice.Model == "" && len(b.Fallbacks) > 0 && m.Provider == orchestration.PiProvider {
+		m.Provider = orchestration.PiFallbackProvider
+	}
 
 	return b.ID, m, nil
 }
