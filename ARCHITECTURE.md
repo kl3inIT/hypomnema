@@ -3538,11 +3538,13 @@ gateway chat model writes its summary, decisions and actions.
   bearer header, endpoint detection, diarization except an online microphone, which is the owner, shown "You" and
   not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
   frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
-  and shifts the new stream's times; a final token that ends at or before the track's last kept line is dropped, so
+  sent, then the audio that came meanwhile (kept up to 30 s; past it the track ends behind), and shifts the new
+  stream's times; a track whose socket drops keeps the words already final; a final token that ends at or before the track's last kept line is dropped, so
   a replay, or a browser that reconnects with an earlier offset, never keeps a line twice. A stream more than 30 s
   behind ends its track. Lines are appended as final (`meetingstore.AppendLine`). Each track's PCM is written to
-  `<id>.<track>.pcm` at its offset on the meeting's clock; `POST /meetings/{id}/end` lets open tracks keep their
-  last words (at most 20 s), mixes the tracks into one WAV as the meeting's recording, removes the track files, and
+  `<id>.<track>.pcm` at its offset on the meeting's clock; `POST /meetings/{id}/end` first stops any track opening
+  (one still opening ends at once, having heard nothing, and one asked for later is refused `ended`), lets open
+  tracks keep their last words (at most 20 s), mixes the tracks into one WAV as the meeting's recording, removes the track files, and
   moves the meeting to `transcribed` and its notes to `writing` in one guarded transaction, once (never through
   `transcribing`). Each track's audio seconds are counted on the `meetings` key when it closes. Nothing ends a
   meeting by itself: one left recording keeps its length (`duration_ms`, the longest track kept) to resume from.
@@ -3564,7 +3566,8 @@ gateway chat model writes its summary, decisions and actions.
   shared, Stop asked first, then "Saving the last words…") over the live transcript in the turn layout with what
   is being said. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
   tab closes and holds a screen wake lock; a socket that drops reconnects after 1/2/5/10/20 s with up to 30 s of
-  audio queued. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.
+  audio queued, its offset the time of the first queued frame, which nothing is dropped before until the new
+  socket is ready. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.
   The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the

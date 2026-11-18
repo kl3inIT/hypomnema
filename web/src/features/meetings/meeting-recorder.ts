@@ -11,7 +11,9 @@ import {
 // Recording a meeting's tracks in the browser (issue #820), adapted from MemoryOS's MeetingRecorder
 // (web/src/features/meetings/meeting-recorder.ts), without its pause and mute, which the issue leaves out. Each track
 // has its own capture and socket; while a socket reconnects its audio is queued, at most 30 seconds, and the new
-// socket starts at the meeting's time of its first unsent sample, so the clock goes on.
+// socket starts at the meeting's time of its first unsent sample, so the clock goes on. Once that time is in the new
+// socket's address nothing is dropped from the queue until the socket is ready (or fails, at most openTimeoutMs
+// later): a frame dropped then would move every later frame earlier on the meeting's clock.
 
 // bytesPerMs is PCM16 mono at 24 kHz.
 const bytesPerMs = 48
@@ -58,6 +60,8 @@ type Pipe = {
   capture?: AudioCapture
   socket?: MeetingSocket
   connecting: boolean
+  // handshaking: the new socket's offset is chosen; the queue keeps its head until the socket is ready.
+  handshaking: boolean
   attempt: number
   timer?: number
   queue: ArrayBuffer[]
@@ -109,6 +113,7 @@ export class MeetingRecorder {
         stream: source.stream,
         startOffsetMs: source.offsetMs,
         connecting: false,
+        handshaking: false,
         attempt: 0,
         queue: [],
         queuedBytes: 0,
@@ -177,6 +182,10 @@ export class MeetingRecorder {
     }
     pipe.queue.push(pcm)
     pipe.queuedBytes += pcm.byteLength
+    if (!pipe.handshaking) this.trimQueue(pipe)
+  }
+
+  private trimQueue(pipe: Pipe) {
     while (pipe.queuedBytes > maxQueuedBytes) {
       const dropped = pipe.queue.shift()
       if (!dropped) break
@@ -199,6 +208,7 @@ export class MeetingRecorder {
     this.publish()
     try {
       const ticket = await this.deps.issueTicket(pipe.track)
+      pipe.handshaking = true
       const socket = await this.deps.openSocket({
         meetingId: this.deps.meetingId,
         track: pipe.track,
@@ -236,6 +246,8 @@ export class MeetingRecorder {
         error instanceof MeetingStreamError ? error : new MeetingStreamError("connection"),
       )
     } finally {
+      pipe.handshaking = false
+      this.trimQueue(pipe)
       pipe.connecting = false
       this.publish()
     }
