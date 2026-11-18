@@ -101,9 +101,13 @@ jobs:
       - name: Set up the Bots' box
         run: sudo sh deploy/coordinator/setup-box.sh "$USER"
       # The phone's takes are read back with ffprobe, a decoder independent of the writer (issue #817).
+      # A slow Ubuntu mirror took over 5 minutes for ffmpeg's packages on 2026-11-18, failing Unit and so the release:
+      # retried downloads and a longer limit.
       - name: Install ffprobe
-        timeout-minutes: 5
-        run: command -v ffprobe || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg; }
+        timeout-minutes: 15
+        run: >-
+          command -v ffprobe || { sudo apt-get update -o Acquire::Retries=3 &&
+          sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg; }
       - name: make unit
         run: make unit
         env:
