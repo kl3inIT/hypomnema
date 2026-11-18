@@ -51,9 +51,10 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 		"a Bot is told who may instruct it, after its persona")
 	assert.Contains(t, out, "do not look for another way to do it.\n\n## About the owner")
 	assert.Contains(t, out, "You are the bot `vmap` (id ")
-	assert.Contains(t, out, "Your memory is empty.")
-	assert.Contains(t, out, "(the memory tool, target bot)")
-	assert.Contains(t, out, "(the memory tool, target owner)")
+	assert.Contains(t, out, "Your MEMORY.md is empty.")
+	assert.Contains(t, out, "Your memory is the directory /memories")
+	assert.Contains(t, out, "(/memories/USER.md)")
+	assert.NotContains(t, out, "Your notes", "no notes, no list")
 	assert.NotContains(t, out, "hypomnema memory", "a Bot changes a memory with its tool, not a command (issue #536)")
 
 	_, err = pi.cmd(t, "memory", "add", "Linh leads the maps team.")
@@ -71,7 +72,31 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 
 	out, err = pi.cmd(t, "bots", "prompt", "vmap")
 	require.NoError(t, err)
-	assert.Contains(t, out, "Your memory now:\n\n- Linh leads the maps team; Minh the routing.\n")
+	assert.Contains(t, out, "Your MEMORY.md now:\n\n- Linh leads the maps team; Minh the routing.\n")
+
+	// A longer subject is a note (issue #589): the owner writes one by hand, pi's prompt lists it with its size, and
+	// pi reads it with its tool, not here.
+	_, err = pi.cmdIn(t, "x\n", "memory", "put", "--bot", "vmap", "/memories/dashboard.md", "-")
+	require.ErrorContains(t, err, "forbidden", "a Bot writes its notes with its tool")
+
+	out, err = w.cmdIn(t, "DAU counts guests.\n", "memory", "put", "--bot", "vmap", "/memories/dashboard.md", "-")
+	require.NoError(t, err)
+	assert.Contains(t, out, "/memories/dashboard.md (19B) is kept")
+
+	out, err = w.cmd(t, "memory", "ls", "--bot", "vmap")
+	require.NoError(t, err)
+	assert.Contains(t, out, "1 of 200 notes\n/memories/dashboard.md (19B)\t")
+
+	out, err = w.cmd(t, "memory", "cat", "--bot", "vmap", "/memories/dashboard.md")
+	require.NoError(t, err)
+	assert.Equal(t, "DAU counts guests.\n", out)
+
+	_, err = w.cmd(t, "memory", "cat", "--bot", "vmap", "/memories/../x")
+	require.ErrorContains(t, err, "is not a name")
+
+	out, err = pi.cmd(t, "bots", "prompt", "vmap")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Your notes, read when their subject comes up:\n\n- /memories/dashboard.md (19B)\n")
 
 	out, err = pi.cmd(t, "bots", "prompt", "--group", "vmap")
 	require.NoError(t, err)
@@ -92,6 +117,10 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 
 	_, err = w.cmd(t, "bots", "rm", "vmap")
 	require.ErrorContains(t, err, "has a memory")
+
+	out, err = w.cmd(t, "memory", "rm", "--bot", "vmap", "/memories/dashboard.md")
+	require.NoError(t, err)
+	assert.Contains(t, out, "/memories/dashboard.md is removed")
 
 	// The owner edits the memory by hand: the lines he gives are the memory.
 	out, err = w.cmdIn(t, "- Linh leads maps.\n\nMinh leads routing.\nLinh leads maps.\n",

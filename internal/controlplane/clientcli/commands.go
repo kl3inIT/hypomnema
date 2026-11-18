@@ -643,6 +643,22 @@ var commands = []command{
 		flags:   memoryFlags, run: memoryChange(memoryRemove),
 	},
 	{
+		name: "memory ls", summary: "the notes of a bot's or an agent's memory, with their sizes",
+		flags: notesFlags, run: notesList,
+	},
+	{
+		name: "memory cat", args: "<path>", min: 1, max: 1, summary: "one note of a memory, such as /memories/x.md",
+		flags: notesFlags, run: notesCat,
+	},
+	{
+		name: "memory put", args: "<path> <file>", min: 2, max: 2,
+		summary: "write a note with a file's text, or - for standard input (owner)", flags: notesFlags, run: notesPut,
+	},
+	{
+		name: "memory rm", args: "<path>", min: 1, max: 1, summary: "remove one note of a memory (owner)",
+		flags: notesFlags, run: notesRm,
+	},
+	{
 		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
 	},
 	{

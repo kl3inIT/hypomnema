@@ -50,7 +50,7 @@ import (
 func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool {
 	out := []agenttool.BrowserTool{}
 
-	if t, ok := memoryTool(a); ok {
+	if t, ok := memoryTool(a); ok && s.memoryOfferedNow(ctx, a) {
 		out = append(out, t)
 	}
 
@@ -177,8 +177,11 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
-	case asked.Tool == agenttool.ToolMemory && memoryTargets(a) != nil:
+	case asked.Tool == agenttool.ToolMemory && s.memoryOfferedNow(r.Context(), a):
 		s.memoryCall(w, r, a, asked)
+	case asked.Tool == agenttool.ToolMemory:
+		// Not the browser's: an agent not given the memory's tool, such as a Lark group's chat, has none.
+		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
 	case slices.Contains(nodeTools, asked.Tool) && s.hasNodeTools(a):
 		s.nodeCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolShowArtifact && showsArtifacts(a):

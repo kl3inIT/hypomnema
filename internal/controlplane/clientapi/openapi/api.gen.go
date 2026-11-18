@@ -3977,6 +3977,39 @@ type MemoryChange struct {
 // MemoryChangeKind defines model for MemoryChange.Kind.
 type MemoryChangeKind string
 
+// MemoryNote defines model for MemoryNote.
+type MemoryNote struct {
+	Bytes     int       `json:"bytes"`
+	Path      string    `json:"path"`
+	Text      string    `json:"text"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// MemoryNoteInfo defines model for MemoryNoteInfo.
+type MemoryNoteInfo struct {
+	Bytes int `json:"bytes"`
+
+	// Path Under /memories.
+	Path      string    `json:"path"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// MemoryNoteList defines model for MemoryNoteList.
+type MemoryNoteList struct {
+	Data []MemoryNoteInfo `json:"data"`
+
+	// MaxNoteBytes The most bytes a note holds.
+	MaxNoteBytes int `json:"max_note_bytes"`
+
+	// MaxNotes The most notes a memory holds.
+	MaxNotes int `json:"max_notes"`
+}
+
+// MemoryNoteText defines model for MemoryNoteText.
+type MemoryNoteText struct {
+	Text string `json:"text"`
+}
+
 // MemoryText defines model for MemoryText.
 type MemoryText struct {
 	// Memory The entries, one per line.
@@ -5902,6 +5935,12 @@ type LarkChannelName = string
 // MeetingID defines model for MeetingID.
 type MeetingID = string
 
+// MemoryOfAgent defines model for MemoryOfAgent.
+type MemoryOfAgent = string
+
+// MemoryOfBot defines model for MemoryOfBot.
+type MemoryOfBot = string
+
 // Name defines model for Name.
 type Name = string
 
@@ -6260,6 +6299,51 @@ type UploadMeetingParams struct {
 	People *[]string `form:"people,omitempty" json:"people,omitempty"`
 }
 
+// ListMemoryNotesParams defines parameters for ListMemoryNotes.
+type ListMemoryNotesParams struct {
+	// Bot A Bot's memory, by its id; give this or agent.
+	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
+
+	// Agent An agent's memory, by its Profile's name; give this or bot.
+	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
+}
+
+// DeleteMemoryNoteParams defines parameters for DeleteMemoryNote.
+type DeleteMemoryNoteParams struct {
+	// Bot A Bot's memory, by its id; give this or agent.
+	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
+
+	// Agent An agent's memory, by its Profile's name; give this or bot.
+	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
+
+	// Path The note's path, under /memories.
+	Path string `form:"path" json:"path"`
+}
+
+// GetMemoryNoteParams defines parameters for GetMemoryNote.
+type GetMemoryNoteParams struct {
+	// Bot A Bot's memory, by its id; give this or agent.
+	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
+
+	// Agent An agent's memory, by its Profile's name; give this or bot.
+	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
+
+	// Path The note's path, under /memories.
+	Path string `form:"path" json:"path"`
+}
+
+// PutMemoryNoteParams defines parameters for PutMemoryNote.
+type PutMemoryNoteParams struct {
+	// Bot A Bot's memory, by its id; give this or agent.
+	Bot *MemoryOfBot `form:"bot,omitempty" json:"bot,omitempty"`
+
+	// Agent An agent's memory, by its Profile's name; give this or bot.
+	Agent *MemoryOfAgent `form:"agent,omitempty" json:"agent,omitempty"`
+
+	// Path The note's path, under /memories.
+	Path string `form:"path" json:"path"`
+}
+
 // ListQuestionsParams defines parameters for ListQuestions.
 type ListQuestionsParams struct {
 	Status      *QuestionStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -6524,6 +6608,9 @@ type SetMeetingLineSpeakerJSONRequestBody = SpeakerName
 
 // NameMeetingSpeakerJSONRequestBody defines body for NameMeetingSpeaker for application/json ContentType.
 type NameMeetingSpeakerJSONRequestBody = SpeakerName
+
+// PutMemoryNoteJSONRequestBody defines body for PutMemoryNote for application/json ContentType.
+type PutMemoryNoteJSONRequestBody = MemoryNoteText
 
 // CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
 type CreateNodeJSONRequestBody = NewNode
@@ -8264,6 +8351,41 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
 	NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
+	//
+	// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+	//
+	// Corresponds with GET /memory-notes (the `ListMemoryNotes` operationId).
+	ListMemoryNotes(ctx context.Context, params *ListMemoryNotesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteMemoryNote Remove one note; only the owner
+	//
+	// Corresponds with DELETE /memory-notes/note (the `DeleteMemoryNote` operationId).
+	DeleteMemoryNote(ctx context.Context, params *DeleteMemoryNoteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetMemoryNote One note of a memory, with its text
+	//
+	// Corresponds with GET /memory-notes/note (the `GetMemoryNote` operationId).
+	GetMemoryNote(ctx context.Context, params *GetMemoryNoteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutMemoryNoteWithBody Write one note with the owner's text, creating it if new; only the owner
+	//
+	// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+	PutMemoryNoteWithBody(ctx context.Context, params *PutMemoryNoteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutMemoryNote Write one note with the owner's text, creating it if new; only the owner
+	//
+	// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+	PutMemoryNote(ctx context.Context, params *PutMemoryNoteParams, body PutMemoryNoteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListModels Every model, with its provider and the provider's kind
 	//
@@ -12695,6 +12817,91 @@ func (c *Client) NameMeetingSpeakerWithBody(ctx context.Context, meetingId Meeti
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
 func (c *Client) NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewNameMeetingSpeakerRequest(c.Server, meetingId, label, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
+//
+// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+//
+// Corresponds with GET /memory-notes (the `ListMemoryNotes` operationId).
+func (c *Client) ListMemoryNotes(ctx context.Context, params *ListMemoryNotesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListMemoryNotesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteMemoryNote Remove one note; only the owner
+//
+// Corresponds with DELETE /memory-notes/note (the `DeleteMemoryNote` operationId).
+func (c *Client) DeleteMemoryNote(ctx context.Context, params *DeleteMemoryNoteParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteMemoryNoteRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetMemoryNote One note of a memory, with its text
+//
+// Corresponds with GET /memory-notes/note (the `GetMemoryNote` operationId).
+func (c *Client) GetMemoryNote(ctx context.Context, params *GetMemoryNoteParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetMemoryNoteRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutMemoryNoteWithBody Write one note with the owner's text, creating it if new; only the owner
+//
+// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+func (c *Client) PutMemoryNoteWithBody(ctx context.Context, params *PutMemoryNoteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutMemoryNoteRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutMemoryNote Write one note with the owner's text, creating it if new; only the owner
+//
+// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+func (c *Client) PutMemoryNote(ctx context.Context, params *PutMemoryNoteParams, body PutMemoryNoteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutMemoryNoteRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -21951,6 +22158,307 @@ func NewNameMeetingSpeakerRequestWithBody(server string, meetingId MeetingID, la
 	return req, nil
 }
 
+// NewListMemoryNotesRequest constructs an http.Request for the ListMemoryNotes method
+func NewListMemoryNotesRequest(server string, params *ListMemoryNotesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/memory-notes")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Bot != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Agent != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent", *params.Agent, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteMemoryNoteRequest constructs an http.Request for the DeleteMemoryNote method
+func NewDeleteMemoryNoteRequest(server string, params *DeleteMemoryNoteParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/memory-notes/note")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Bot != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Agent != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent", *params.Agent, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetMemoryNoteRequest constructs an http.Request for the GetMemoryNote method
+func NewGetMemoryNoteRequest(server string, params *GetMemoryNoteParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/memory-notes/note")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Bot != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Agent != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent", *params.Agent, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutMemoryNoteRequest calls the generic PutMemoryNote builder with application/json body
+func NewPutMemoryNoteRequest(server string, params *PutMemoryNoteParams, body PutMemoryNoteJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutMemoryNoteRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewPutMemoryNoteRequestWithBody constructs an http.Request for the PutMemoryNote method, with any body, and a specified content type
+func NewPutMemoryNoteRequestWithBody(server string, params *PutMemoryNoteParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/memory-notes/note")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Bot != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Agent != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "agent", *params.Agent, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListModelsRequest constructs an http.Request for the ListModels method
 func NewListModelsRequest(server string) (*http.Request, error) {
 	var err error
@@ -26904,6 +27412,47 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
 	NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
+
+	// ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
+	//
+	// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /memory-notes (the `ListMemoryNotes` operationId).
+	ListMemoryNotesWithResponse(ctx context.Context, params *ListMemoryNotesParams, reqEditors ...RequestEditorFn) (*ListMemoryNotesResponse, error)
+
+	// DeleteMemoryNoteWithResponse Remove one note; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /memory-notes/note (the `DeleteMemoryNote` operationId).
+	DeleteMemoryNoteWithResponse(ctx context.Context, params *DeleteMemoryNoteParams, reqEditors ...RequestEditorFn) (*DeleteMemoryNoteResponse, error)
+
+	// GetMemoryNoteWithResponse One note of a memory, with its text
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /memory-notes/note (the `GetMemoryNote` operationId).
+	GetMemoryNoteWithResponse(ctx context.Context, params *GetMemoryNoteParams, reqEditors ...RequestEditorFn) (*GetMemoryNoteResponse, error)
+
+	// PutMemoryNoteWithBodyWithResponse Write one note with the owner's text, creating it if new; only the owner
+	//
+	// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+	PutMemoryNoteWithBodyWithResponse(ctx context.Context, params *PutMemoryNoteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutMemoryNoteResponse, error)
+
+	// PutMemoryNoteWithResponse Write one note with the owner's text, creating it if new; only the owner
+	//
+	// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+	PutMemoryNoteWithResponse(ctx context.Context, params *PutMemoryNoteParams, body PutMemoryNoteJSONRequestBody, reqEditors ...RequestEditorFn) (*PutMemoryNoteResponse, error)
 
 	// ListModelsWithResponse Every model, with its provider and the provider's kind
 	//
@@ -35006,6 +35555,191 @@ func (r NameMeetingSpeakerResponse) ContentType() string {
 	return ""
 }
 
+type ListMemoryNotesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MemoryNoteList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListMemoryNotesResponse) GetJSON200() *MemoryNoteList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListMemoryNotesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListMemoryNotesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListMemoryNotesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListMemoryNotesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListMemoryNotesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteMemoryNoteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteMemoryNoteResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteMemoryNoteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteMemoryNoteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteMemoryNoteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteMemoryNoteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetMemoryNoteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MemoryNote
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetMemoryNoteResponse) GetJSON200() *MemoryNote {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetMemoryNoteResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetMemoryNoteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetMemoryNoteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetMemoryNoteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetMemoryNoteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutMemoryNoteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MemoryNote
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutMemoryNoteResponse) GetJSON200() *MemoryNote {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutMemoryNoteResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutMemoryNoteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutMemoryNoteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutMemoryNoteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutMemoryNoteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListModelsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -41747,6 +42481,77 @@ func (c *ClientWithResponses) NameMeetingSpeakerWithResponse(ctx context.Context
 	return ParseNameMeetingSpeakerResponse(rsp)
 }
 
+// ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
+//
+// A memory is the directory /memories (issue #589): MEMORY.md is the memory itself, USER.md the one about the owner, and every other file a note the agent reads when needed. Name the memory with bot or agent. Every token reads them; a Bot's token reads its own Bot's.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /memory-notes (the `ListMemoryNotes` operationId).
+func (c *ClientWithResponses) ListMemoryNotesWithResponse(ctx context.Context, params *ListMemoryNotesParams, reqEditors ...RequestEditorFn) (*ListMemoryNotesResponse, error) {
+	rsp, err := c.ListMemoryNotes(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListMemoryNotesResponse(rsp)
+}
+
+// DeleteMemoryNoteWithResponse Remove one note; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /memory-notes/note (the `DeleteMemoryNote` operationId).
+func (c *ClientWithResponses) DeleteMemoryNoteWithResponse(ctx context.Context, params *DeleteMemoryNoteParams, reqEditors ...RequestEditorFn) (*DeleteMemoryNoteResponse, error) {
+	rsp, err := c.DeleteMemoryNote(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteMemoryNoteResponse(rsp)
+}
+
+// GetMemoryNoteWithResponse One note of a memory, with its text
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /memory-notes/note (the `GetMemoryNote` operationId).
+func (c *ClientWithResponses) GetMemoryNoteWithResponse(ctx context.Context, params *GetMemoryNoteParams, reqEditors ...RequestEditorFn) (*GetMemoryNoteResponse, error) {
+	rsp, err := c.GetMemoryNote(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetMemoryNoteResponse(rsp)
+}
+
+// PutMemoryNoteWithBodyWithResponse Write one note with the owner's text, creating it if new; only the owner
+//
+// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+func (c *ClientWithResponses) PutMemoryNoteWithBodyWithResponse(ctx context.Context, params *PutMemoryNoteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutMemoryNoteResponse, error) {
+	rsp, err := c.PutMemoryNoteWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutMemoryNoteResponse(rsp)
+}
+
+// PutMemoryNoteWithResponse Write one note with the owner's text, creating it if new; only the owner
+//
+// A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /memory-notes/note (the `PutMemoryNote` operationId).
+func (c *ClientWithResponses) PutMemoryNoteWithResponse(ctx context.Context, params *PutMemoryNoteParams, body PutMemoryNoteJSONRequestBody, reqEditors ...RequestEditorFn) (*PutMemoryNoteResponse, error) {
+	rsp, err := c.PutMemoryNote(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutMemoryNoteResponse(rsp)
+}
+
 // ListModelsWithResponse Every model, with its provider and the provider's kind
 //
 // Returns a wrapper object for the known response body format(s).
@@ -48167,6 +48972,134 @@ func ParseNameMeetingSpeakerResponse(rsp *http.Response) (*NameMeetingSpeakerRes
 	return response, nil
 }
 
+// ParseListMemoryNotesResponse parses an HTTP response from a ListMemoryNotesWithResponse call
+func ParseListMemoryNotesResponse(rsp *http.Response) (*ListMemoryNotesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListMemoryNotesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MemoryNoteList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteMemoryNoteResponse parses an HTTP response from a DeleteMemoryNoteWithResponse call
+func ParseDeleteMemoryNoteResponse(rsp *http.Response) (*DeleteMemoryNoteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteMemoryNoteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetMemoryNoteResponse parses an HTTP response from a GetMemoryNoteWithResponse call
+func ParseGetMemoryNoteResponse(rsp *http.Response) (*GetMemoryNoteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetMemoryNoteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MemoryNote
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutMemoryNoteResponse parses an HTTP response from a PutMemoryNoteWithResponse call
+func ParsePutMemoryNoteResponse(rsp *http.Response) (*PutMemoryNoteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutMemoryNoteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MemoryNote
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListModelsResponse parses an HTTP response from a ListModelsWithResponse call
 func ParseListModelsResponse(rsp *http.Response) (*ListModelsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -51188,6 +52121,18 @@ type ServerInterface interface {
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	// (PUT /meetings/{meeting_id}/speakers/{label})
 	NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string)
+	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
+	// (GET /memory-notes)
+	ListMemoryNotes(w http.ResponseWriter, r *http.Request, params ListMemoryNotesParams)
+	// DeleteMemoryNote Remove one note; only the owner
+	// (DELETE /memory-notes/note)
+	DeleteMemoryNote(w http.ResponseWriter, r *http.Request, params DeleteMemoryNoteParams)
+	// GetMemoryNote One note of a memory, with its text
+	// (GET /memory-notes/note)
+	GetMemoryNote(w http.ResponseWriter, r *http.Request, params GetMemoryNoteParams)
+	// PutMemoryNote Write one note with the owner's text, creating it if new; only the owner
+	// (PUT /memory-notes/note)
+	PutMemoryNote(w http.ResponseWriter, r *http.Request, params PutMemoryNoteParams)
 	// ListModels Every model, with its provider and the provider's kind
 	// (GET /models)
 	ListModels(w http.ResponseWriter, r *http.Request)
@@ -56576,6 +57521,229 @@ func (siw *ServerInterfaceWrapper) NameMeetingSpeaker(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ListMemoryNotes operation middleware
+func (siw *ServerInterfaceWrapper) ListMemoryNotes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMemoryNotesParams
+
+	// ------------- Optional query parameter "bot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bot", r.URL.Query(), &params.Bot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent", r.URL.Query(), &params.Agent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMemoryNotes(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMemoryNote operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMemoryNote(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteMemoryNoteParams
+
+	// ------------- Optional query parameter "bot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bot", r.URL.Query(), &params.Bot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent", r.URL.Query(), &params.Agent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMemoryNote(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMemoryNote operation middleware
+func (siw *ServerInterfaceWrapper) GetMemoryNote(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMemoryNoteParams
+
+	// ------------- Optional query parameter "bot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bot", r.URL.Query(), &params.Bot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent", r.URL.Query(), &params.Agent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMemoryNote(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutMemoryNote operation middleware
+func (siw *ServerInterfaceWrapper) PutMemoryNote(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutMemoryNoteParams
+
+	// ------------- Optional query parameter "bot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bot", r.URL.Query(), &params.Bot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agent" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agent", r.URL.Query(), &params.Agent, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agent"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agent", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutMemoryNote(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListModels operation middleware
 func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Request) {
 
@@ -58948,6 +60116,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.GetAgentMemory)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.ChangeAgentMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.SetAgentMemory)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/memory-notes", wrapper.ListMemoryNotes)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/memory-notes/note", wrapper.DeleteMemoryNote)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/memory-notes/note", wrapper.GetMemoryNote)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/memory-notes/note", wrapper.PutMemoryNote)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/owner-memory", wrapper.GetOwnerMemory)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/owner-memory", wrapper.ChangeOwnerMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/owner-memory", wrapper.SetOwnerMemory)
@@ -65220,6 +66392,157 @@ func (response NameMeetingSpeakerdefaultJSONResponse) VisitNameMeetingSpeakerRes
 	return err
 }
 
+type ListMemoryNotesRequestObject struct {
+	Params ListMemoryNotesParams
+}
+
+type ListMemoryNotesResponseObject interface {
+	VisitListMemoryNotesResponse(w http.ResponseWriter) error
+}
+
+type ListMemoryNotes200JSONResponse MemoryNoteList
+
+func (response ListMemoryNotes200JSONResponse) VisitListMemoryNotesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMemoryNotesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListMemoryNotesdefaultJSONResponse) VisitListMemoryNotesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMemoryNoteRequestObject struct {
+	Params DeleteMemoryNoteParams
+}
+
+type DeleteMemoryNoteResponseObject interface {
+	VisitDeleteMemoryNoteResponse(w http.ResponseWriter) error
+}
+
+type DeleteMemoryNote204Response struct {
+}
+
+func (response DeleteMemoryNote204Response) VisitDeleteMemoryNoteResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMemoryNotedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteMemoryNotedefaultJSONResponse) VisitDeleteMemoryNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryNoteRequestObject struct {
+	Params GetMemoryNoteParams
+}
+
+type GetMemoryNoteResponseObject interface {
+	VisitGetMemoryNoteResponse(w http.ResponseWriter) error
+}
+
+type GetMemoryNote200JSONResponse MemoryNote
+
+func (response GetMemoryNote200JSONResponse) VisitGetMemoryNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemoryNotedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetMemoryNotedefaultJSONResponse) VisitGetMemoryNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutMemoryNoteRequestObject struct {
+	Params PutMemoryNoteParams
+	Body   *PutMemoryNoteJSONRequestBody
+}
+
+type PutMemoryNoteResponseObject interface {
+	VisitPutMemoryNoteResponse(w http.ResponseWriter) error
+}
+
+type PutMemoryNote200JSONResponse MemoryNote
+
+func (response PutMemoryNote200JSONResponse) VisitPutMemoryNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutMemoryNotedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutMemoryNotedefaultJSONResponse) VisitPutMemoryNoteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListModelsRequestObject struct {
 }
 
@@ -68715,6 +70038,18 @@ type StrictServerInterface interface {
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	// (PUT /meetings/{meeting_id}/speakers/{label})
 	NameMeetingSpeaker(ctx context.Context, request NameMeetingSpeakerRequestObject) (NameMeetingSpeakerResponseObject, error)
+	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
+	// (GET /memory-notes)
+	ListMemoryNotes(ctx context.Context, request ListMemoryNotesRequestObject) (ListMemoryNotesResponseObject, error)
+	// DeleteMemoryNote Remove one note; only the owner
+	// (DELETE /memory-notes/note)
+	DeleteMemoryNote(ctx context.Context, request DeleteMemoryNoteRequestObject) (DeleteMemoryNoteResponseObject, error)
+	// GetMemoryNote One note of a memory, with its text
+	// (GET /memory-notes/note)
+	GetMemoryNote(ctx context.Context, request GetMemoryNoteRequestObject) (GetMemoryNoteResponseObject, error)
+	// PutMemoryNote Write one note with the owner's text, creating it if new; only the owner
+	// (PUT /memory-notes/note)
+	PutMemoryNote(ctx context.Context, request PutMemoryNoteRequestObject) (PutMemoryNoteResponseObject, error)
 	// ListModels Every model, with its provider and the provider's kind
 	// (GET /models)
 	ListModels(ctx context.Context, request ListModelsRequestObject) (ListModelsResponseObject, error)
@@ -73450,6 +74785,117 @@ func (sh *strictHandler) NameMeetingSpeaker(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(NameMeetingSpeakerResponseObject); ok {
 		if err := validResponse.VisitNameMeetingSpeakerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMemoryNotes operation middleware
+func (sh *strictHandler) ListMemoryNotes(w http.ResponseWriter, r *http.Request, params ListMemoryNotesParams) {
+	var request ListMemoryNotesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMemoryNotes(ctx, request.(ListMemoryNotesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMemoryNotes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMemoryNotesResponseObject); ok {
+		if err := validResponse.VisitListMemoryNotesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMemoryNote operation middleware
+func (sh *strictHandler) DeleteMemoryNote(w http.ResponseWriter, r *http.Request, params DeleteMemoryNoteParams) {
+	var request DeleteMemoryNoteRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMemoryNote(ctx, request.(DeleteMemoryNoteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMemoryNote")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMemoryNoteResponseObject); ok {
+		if err := validResponse.VisitDeleteMemoryNoteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMemoryNote operation middleware
+func (sh *strictHandler) GetMemoryNote(w http.ResponseWriter, r *http.Request, params GetMemoryNoteParams) {
+	var request GetMemoryNoteRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMemoryNote(ctx, request.(GetMemoryNoteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMemoryNote")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMemoryNoteResponseObject); ok {
+		if err := validResponse.VisitGetMemoryNoteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutMemoryNote operation middleware
+func (sh *strictHandler) PutMemoryNote(w http.ResponseWriter, r *http.Request, params PutMemoryNoteParams) {
+	var request PutMemoryNoteRequestObject
+
+	request.Params = params
+
+	var body PutMemoryNoteJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutMemoryNote(ctx, request.(PutMemoryNoteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutMemoryNote")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutMemoryNoteResponseObject); ok {
+		if err := validResponse.VisitPutMemoryNoteResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

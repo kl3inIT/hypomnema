@@ -51,6 +51,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
@@ -68,8 +69,6 @@ type Store interface {
 	ListGitHosts(ctx context.Context) ([]orchestration.GitHost, error)
 	serviceproxy.HostKinds
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
-	// ChangeBotMemory changes a Bot's own memory, for its pi's memory tool (issue #536).
-	ChangeBotMemory(ctx context.Context, id string, op orchestration.MemoryOp) (orchestration.Bot, error)
 	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
 	OwnerTurn(ctx context.Context, chatID string) (bool, error)
 	// ApprovedOnce says whether the owner approved a chat's request once and it has not run (issue #748).
@@ -82,6 +81,8 @@ type Store interface {
 	// ToolSwitchesOfDispatch are a worker's tool switches, its profile version's (issue #536, step 7).
 	ToolSwitchesOfDispatch(ctx context.Context, dispatchID string) (agenttool.ToolSwitches, error)
 	Memories() *memorystore.Store
+	// Channels says whether a chat is a Lark group's, which gets no memory tool (issue #589).
+	Channels() *channelstore.Store
 	// Routines keeps the Routines, for a Bot's pi's routines tool (issue #536).
 	Routines() *routinestore.Store
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key

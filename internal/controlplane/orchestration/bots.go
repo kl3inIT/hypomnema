@@ -509,6 +509,11 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) ([]Chat, error)
 			deleted = append(deleted, chatFromRow(row))
 		}
 
+		// Its memory's notes (issue #589) go with it, as its MEMORY.md does with its row.
+		if err := memorystore.DeleteBotNotes(ctx, q, id); err != nil {
+			return err
+		}
+
 		return removeBotRow(ctx, q, row)
 	})
 	if err != nil {
@@ -667,10 +672,15 @@ func botRemovable(ctx context.Context, q *store.Queries, row store.Bot) error {
 		return err
 	}
 
+	notes, err := memorystore.BotHasNotes(ctx, q, row.ID)
+	if err != nil {
+		return err
+	}
+
 	switch {
 	case chats > 0:
 		return fmt.Errorf("%w: bot %s has %d chats", ErrConflict, name, chats)
-	case row.Memory != "":
+	case row.Memory != "" || notes:
 		return fmt.Errorf("%w: bot %s has a memory; empty it first", ErrConflict, name)
 	}
 

@@ -12,6 +12,7 @@ import type { Model, Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { MemoryEditor } from "@/features/memory/memory-editor"
+import { MemoryNotes } from "@/features/memory/memory-notes"
 import { useAgentMemory, useSetAgentMemory } from "@/features/memory/use-memory"
 import { PageHeader } from "@/components/page-header"
 import { AgentAvatar } from "@/components/agent-avatar"
@@ -255,21 +256,24 @@ function AgentMemory({ name }: { name: string }) {
   if (!memory.data) return <p className="py-6 text-sm text-muted-foreground">Loading…</p>
 
   return (
-    <MemoryEditor
-      id="agent-memory"
-      label="Memory"
-      memory={memory.data.memory}
-      limit={memory.data.memory_limit}
-      writer="A worker"
-      help="What this agent's workers keep across their tasks, one entry a line. Every worker of the agent gets it in its first message; they write it themselves, and you can edit it. A change is not a new version."
-      save={{
-        mutate: (text, { onSuccess }) =>
-          save.mutate(text, { onSuccess: (m) => onSuccess(m.memory) }),
-        isPending: save.isPending,
-        error: save.error,
-        reset: save.reset,
-      }}
-    />
+    <div className="flex flex-col gap-5">
+      <MemoryEditor
+        id="agent-memory"
+        label="Memory"
+        memory={memory.data.memory}
+        limit={memory.data.memory_limit}
+        writer="A worker"
+        help="What this agent's workers keep across their tasks, one entry a line. Every worker of the agent gets it in its first message; they write it themselves, and you can edit it. A change is not a new version."
+        save={{
+          mutate: (text, { onSuccess }) =>
+            save.mutate(text, { onSuccess: (m) => onSuccess(m.memory) }),
+          isPending: save.isPending,
+          error: save.error,
+          reset: save.reset,
+        }}
+      />
+      <MemoryNotes of={{ agent: name }} />
+    </div>
   )
 }
 

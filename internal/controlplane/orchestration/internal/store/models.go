@@ -578,6 +578,14 @@ type Memory struct {
 	UpdatedAt int64
 }
 
+type MemoryNote struct {
+	Kind      string
+	Name      string
+	Path      string
+	Text      string
+	UpdatedAt int64
+}
+
 type Model struct {
 	Provider string
 	Name     string

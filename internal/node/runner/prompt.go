@@ -111,7 +111,7 @@ func Prompt(d statedb.Dispatch) string {
 
 	// The accounts the Run was given, and the command each is used with (issue #103); the phone (issue #417).
 	b.WriteString(agenttool.Brief(o.Uses, o.Device))
-	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.AgentKey != ""))
+	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.MemoryNotes, o.AgentKey != ""))
 
 	if o.Repo != "" {
 		fmt.Fprintf(&b, "\nWork only in this directory, a git worktree of %s on branch %s, started from %s. ",
@@ -280,17 +280,19 @@ func gate(d statedb.Dispatch) string {
 const memoryGuide = "Keep in memory, with the `memory` tool, what will matter in later tasks: the people and how " +
 	"they work, corrections you were given and approaches that were confirmed, decisions the code and its history do not " +
 	"show, where to find things outside the repository. Do not keep what the code, its AGENTS.md or these " +
-	"instructions already say, nor what matters to this task only, nor any secret. `agent` is the memory of the " +
-	"agent you run as, shared by all its workers; `owner` is what every agent and Bot knows about the owner. A " +
-	"memory may be stale or wrong: check it before relying on it.\n"
+	"instructions already say, nor what matters to this task only, nor any secret. Your agent's memory is the " +
+	"directory /memories, shared by all its workers: MEMORY.md is the memory of your agent above, a line for each " +
+	"note; USER.md is what every agent and Bot knows about the owner; a longer subject goes in a note of its own, " +
+	"read when it comes up. A memory may be stale or wrong: check it before relying on it.\n"
 
 // memoryBrief gives a worker its agent's memory and the one about the owner
 // (issue #21), as they were when the offer was made: in the first message,
 // not the system prompt, so the prompt the provider caches stays the same for
 // every worker (Coder sends its memory index as a message for that reason),
 // and not changed while the worker runs (Hermes freezes it at session start).
-// The guide is given only to a worker that has the tool to write.
-func memoryBrief(agent, owner string, canWrite bool) string {
+// The notes (issue #589) are listed, not given: a worker reads one with the
+// memory's tool, so they and the guide go only to a worker that has it.
+func memoryBrief(agent, owner string, notes []string, hasTool bool) string {
 	var b strings.Builder
 
 	for _, m := range []struct{ title, text string }{
@@ -305,9 +307,20 @@ func memoryBrief(agent, owner string, canWrite bool) string {
 		}
 	}
 
-	if canWrite {
-		b.WriteString("\n" + memoryGuide)
+	if !hasTool {
+		return b.String()
 	}
+
+	if len(notes) > 0 {
+		b.WriteString("\nNotes of your agent's memory, read with the `memory` tool's view when their subject comes " +
+			"up:\n")
+
+		for _, n := range notes {
+			b.WriteString("- " + n + "\n")
+		}
+	}
+
+	b.WriteString("\n" + memoryGuide)
 
 	return b.String()
 }
