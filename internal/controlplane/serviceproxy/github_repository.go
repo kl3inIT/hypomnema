@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // GitHub's /repositories/{repository_id}/… (issue #802). GitHub writes the links of a paged list with the
@@ -37,7 +39,10 @@ const (
 var (
 	// githubRepositoryPath is /repositories/{id} and what follows it; an id is a positive integer.
 	githubRepositoryPath = regexp.MustCompile(`^/repositories/([1-9][0-9]{0,18})(/.*)?$`)
-	// githubNamePart is an owner's or a repository's name as GitHub allows them.
+	// githubOwner is an account's login as GitHub allows it: letters, digits and hyphens, and the underscore of a
+	// managed user's suffix; never a dot, so never "." or "..", which the /repos form refuses as a step out of the path.
+	githubOwner = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+	// githubNamePart is a repository's name as GitHub allows it; "." and ".." are refused beside it.
 	githubNamePart = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
 
@@ -98,45 +103,93 @@ func (r *repositoryNames) put(key, fullName string, now time.Time) {
 	r.names[key] = repositoryName{fullName: fullName, until: now.Add(githubRepositoryTTL)}
 }
 
+// byID is the repository a GitHub request named by its id was resolved to: its id, and its owner/name as it was
+// kept or just read (Cached). Empty for any other request.
+type byID struct {
+	ID, FullName string
+	Cached       bool
+}
+
 // actionOf is the action a request is, and for a GitHub request by a repository's id, the repository it was
-// resolved to ("" otherwise).
-func (p *Proxy) actionOf(ctx context.Context, req *http.Request, body []byte, s session) (Action, string) {
+// resolved to.
+//
+// The lookup is itself a read of the repository, the one GET /repos/{owner}/{repo} is: it is decided as that read
+// is before it is sent (review of #813). Only when the Connection allows that read, by the owner's answer or a grant
+// for the session or the Routine, is the id looked up, or its kept name used. Otherwise nothing is sent: the request
+// stays unlisted, with the read beside it (With), so that a read set to never refuses it and one that asks is shown
+// to the owner with it.
+func (p *Proxy) actionOf(ctx context.Context, req *http.Request, body []byte, s session) (Action, byID) {
 	action := s.catalog.Of(req, body, s.host)
 
 	if s.catalog.Integration != "github" || s.host != githubAPI || action.ID != unlisted(s.catalog.Integration).ID {
-		return action, ""
+		return action, byID{}
 	}
 
 	id, rest, ok := githubRepositoryID(req.URL.EscapedPath())
 	if !ok {
-		return action, ""
+		return action, byID{}
 	}
 
-	fullName, ok := p.githubRepository(ctx, s, id)
+	lookup := s.catalog.Match(http.MethodGet, githubAPI, "/repos/owner/repo")
+
+	if allowed, err := p.allows(ctx, lookup, s); err != nil || !allowed {
+		action.With = []Action{lookup}
+
+		return action, byID{}
+	}
+
+	repo, ok := p.githubRepository(ctx, s, id)
 	if !ok {
-		return action, ""
+		return action, byID{}
 	}
 
-	named, err := url.Parse("/repos/" + fullName + rest)
+	named, err := url.Parse("/repos/" + repo.FullName + rest)
 	if err != nil {
-		return action, ""
+		return action, byID{}
 	}
 
 	named.RawQuery = req.URL.RawQuery
 	as := req.Clone(ctx)
 	as.URL = named
 
-	return s.catalog.Of(as, body, s.host), fullName
+	return s.catalog.Of(as, body, s.host), repo
 }
 
-// githubRepository resolves a repository's id to its owner/name with GitHub's GET /repositories/{id}, read through
-// the session's Connection; false when GitHub does not answer it as a repository the account can read.
-func (p *Proxy) githubRepository(ctx context.Context, s session, id string) (string, bool) {
-	key := s.connection() + " " + id
-	if fullName, ok := p.repositories.get(key, time.Now()); ok {
-		return fullName, true
+// allows is whether an action runs for the session's Connection without asking anyone: the owner allowed it, or a
+// grant for the session or the Routine stands.
+func (p *Proxy) allows(ctx context.Context, action Action, s session) (bool, error) {
+	got, err := p.answerOf(ctx, action, s)
+
+	switch {
+	case err != nil:
+		return false, err
+	case got.refusal != "" || got.policy == orchestration.PolicyNever:
+		return false, nil
+	case got.policy == orchestration.PolicyAllow:
+		return true, nil
 	}
 
+	return p.cfg.Store.StandingGrant(ctx, orchestration.NewApproval{
+		Integration: s.integration, Label: s.label, Action: action.ID, DispatchID: s.caller.DispatchID,
+		ChatID: s.chatID, RunKey: s.runKey,
+	})
+}
+
+// githubRepository resolves a repository's id to its owner/name: the name kept for the Connection, or GitHub's
+// GET /repositories/{id} read through it. false when GitHub does not answer it as a repository the account can
+// read.
+func (p *Proxy) githubRepository(ctx context.Context, s session, id string) (byID, bool) {
+	if fullName, ok := p.repositories.get(s.connection()+" "+id, time.Now()); ok {
+		return byID{ID: id, FullName: fullName, Cached: true}, true
+	}
+
+	fullName, ok := p.freshGitHubRepository(ctx, s, id)
+
+	return byID{ID: id, FullName: fullName}, ok
+}
+
+// freshGitHubRepository reads a repository's owner/name from GitHub now, and keeps it.
+func (p *Proxy) freshGitHubRepository(ctx context.Context, s session, id string) (string, bool) {
 	fullName, reason := p.lookUpGitHubRepository(ctx, s, id)
 	if reason != "" {
 		p.cfg.Logger.InfoContext(ctx, "a repository's id was not resolved",
@@ -146,9 +199,25 @@ func (p *Proxy) githubRepository(ctx context.Context, s session, id string) (str
 		return "", false
 	}
 
-	p.repositories.put(key, fullName, time.Now())
+	p.repositories.put(s.connection()+" "+id, fullName, time.Now())
 
 	return fullName, true
+}
+
+// shown is how the owner is told which repository a request by its id is, when it asks (review of #813): its name
+// read from GitHub now, not a kept one, which may be from before a rename or a transfer; when it cannot be read now,
+// only its id.
+func (p *Proxy) shown(ctx context.Context, s session, repo byID) string {
+	fullName, ok := repo.FullName, !repo.Cached
+	if !ok {
+		fullName, ok = p.freshGitHubRepository(ctx, s, repo.ID)
+	}
+
+	if !ok {
+		return "the repository with id " + repo.ID + " (its name could not be read now)"
+	}
+
+	return fullName + " (id " + repo.ID + ")"
 }
 
 // lookUpGitHubRepository asks GitHub for a repository by its id; reason says why it gave no owner/name.
@@ -203,7 +272,7 @@ func (p *Proxy) lookUpGitHubRepository(ctx context.Context, s session, id string
 	switch {
 	case strconv.FormatInt(got.ID, 10) != id:
 		return "", "GitHub answered another repository"
-	case !found || !githubNamePart.MatchString(owner) || !githubNamePart.MatchString(name) ||
+	case !found || !githubOwner.MatchString(owner) || !githubNamePart.MatchString(name) ||
 		name == "." || name == "..":
 		return "", "GitHub's answer names no owner and repository"
 	}

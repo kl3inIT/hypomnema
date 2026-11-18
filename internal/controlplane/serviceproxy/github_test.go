@@ -744,7 +744,8 @@ func TestAWriteByARepositorysIDTakesTheActionOfItsReposForm(t *testing.T) {
 
 			asked := w.pending()
 			assert.Equal(t, want.ID, asked.Action)
-			assert.Contains(t, asked.Payload, orchestration.Field{Label: "Repository", Value: "kl3inIT/hypomnema"})
+			assert.Contains(t, asked.Payload, orchestration.Field{Label: "Repository",
+				Value: "kl3inIT/hypomnema (id 1447911125)"})
 			assert.Len(t, w.service.received(), 1, "only the id's lookup is sent while the owner has not answered")
 
 			_, err := w.proxy.Decide(t.Context(), asked.ID, true, orchestration.ScopeOnce)
@@ -757,5 +758,155 @@ func TestAWriteByARepositorysIDTakesTheActionOfItsReposForm(t *testing.T) {
 			assert.Equal(t, "https://api.github.com/repositories/1447911125"+write.rest, received[1].URL,
 				"the request is sent on unchanged")
 		})
+	}
+}
+
+// named answers GitHub's GET /repositories/1447911125 with fullName as the repository's name, and the rest as
+// githubRepositories does.
+func named(fullName string) func(r *http.Request) (int, string, bool) {
+	return func(r *http.Request) (int, string, bool) {
+		if r.URL.Path == "/repositories/1447911125" {
+			return http.StatusOK, `{"id":1447911125,"full_name":"` + fullName + `"}`, true
+		}
+
+		return githubRepositories(r)
+	}
+}
+
+// answering makes GitHub answer as answers does from now on.
+func (w *world) answering(answers func(r *http.Request) (int, string, bool)) {
+	w.service.mu.Lock()
+	defer w.service.mu.Unlock()
+
+	w.service.answers = answers
+}
+
+// Scenario (review of #813): the id's lookup is a read of the repository, GET /repos/{owner}/{repo}'s, and is decided
+// as that read is before it is sent. Set to never, a request by the id is refused and nothing reaches GitHub, as
+// the same read by name is. Set to ask, the request asks with the read beside it, and nothing is sent, not even the
+// lookup, until the owner answers; rejected, nothing is sent at all.
+func TestTheLookupOfARepositorysIDIsDecidedAsItsRead(t *testing.T) {
+	t.Parallel()
+
+	catalog, ok := serviceproxy.CatalogOf(serviceproxy.GitHubID)
+	require.True(t, ok)
+
+	read := catalog.Match(http.MethodGet, "api.github.com", "/repos/kl3inIT/hypomnema")
+	require.Equal(t, "github.repos.read", read.ID)
+
+	t.Run("never", func(t *testing.T) {
+		t.Parallel()
+
+		w, gh := githubWorld(t, time.Minute)
+		require.NoError(t, w.svc.SetActionPolicy(t.Context(), serviceproxy.GitHubID, "default", read.ID,
+			orchestration.PolicyNever))
+
+		assert.Equal(t, http.StatusForbidden, gh.do(http.MethodGet, "/repos/kl3inIT/hypomnema", "", nil).Status)
+		assert.Equal(t, http.StatusForbidden,
+			gh.do(http.MethodGet, "/repositories/1447911125/pulls/786/files?page=2", "", nil).Status)
+		assert.Empty(t, w.service.received(), "nothing reaches GitHub, not even the lookup")
+		assert.Empty(t, w.approvals(""))
+	})
+
+	t.Run("ask", func(t *testing.T) {
+		t.Parallel()
+
+		w, gh := githubWorld(t, time.Minute)
+		require.NoError(t, w.svc.SetActionPolicy(t.Context(), serviceproxy.GitHubID, "default", read.ID,
+			orchestration.PolicyAsk))
+
+		answered := make(chan answer, 1)
+
+		go func() {
+			answered <- gh.do(http.MethodGet, "/repositories/1447911125/pulls/786/files?page=2", "", nil)
+		}()
+
+		asked := w.pending()
+		assert.Equal(t, "github.unlisted", asked.Action)
+		assert.Contains(t, asked.Payload, orchestration.Field{Label: "Also", Value: read.Name})
+		assert.Empty(t, w.service.received(), "nothing is sent while the owner has not answered")
+
+		_, err := w.proxy.Decide(t.Context(), asked.ID, false, "")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+		assert.Empty(t, w.service.received())
+	})
+}
+
+// Scenario (review of #813): GitHub's answer names an owner or a repository that would step out of the path, "."
+// or "..": the /repos form refuses such a path, so the id is not resolved and the request asks as github.unlisted.
+func TestARepositorysNameThatStepsOutOfThePathIsNotResolved(t *testing.T) {
+	t.Parallel()
+
+	for _, fullName := range []string{"../hypomnema", "./hypomnema", "kl3inIT/..", "kl3inIT/.", "a.b/c", "o/r/x"} {
+		t.Run(fullName, func(t *testing.T) {
+			t.Parallel()
+
+			w, gh := githubWorld(t, time.Minute)
+			w.answering(named(fullName))
+
+			answered := make(chan answer, 1)
+
+			go func() {
+				answered <- gh.do(http.MethodGet, "/repositories/1447911125/pulls/786/files?page=2", "", nil)
+			}()
+
+			asked := w.pending()
+			assert.Equal(t, "github.unlisted", asked.Action)
+			assert.Len(t, w.service.received(), 1, "only the lookup reaches GitHub")
+
+			_, err := w.proxy.Decide(t.Context(), asked.ID, false, "")
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+		})
+	}
+}
+
+// Scenario (review of #813): a name kept from an earlier read is not shown as the name of a request that asks. The
+// repository is renamed and transferred after a page was read by its id; a merge by the id then asks, and the owner
+// is shown the name GitHub gives now, read again for him; when it cannot be read now, only the id.
+func TestARequestThatAsksShowsTheRepositorysNameAsItIsNow(t *testing.T) {
+	t.Parallel()
+
+	w, gh := githubWorld(t, time.Minute)
+
+	require.Equal(t, http.StatusOK, gh.do(http.MethodGet,
+		"/repositories/1447911125/pulls/786/files?page=2", "", nil).Status)
+
+	w.answering(named("new-owner/new-name"))
+
+	merge := func() orchestration.Approval {
+		answered := make(chan answer, 1)
+
+		go func() { answered <- gh.do(http.MethodPut, "/repositories/1447911125/pulls/786/merge", "", nil) }()
+
+		asked := w.pending()
+
+		_, err := w.proxy.Decide(t.Context(), asked.ID, false, "")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+
+		return asked
+	}
+
+	asked := merge()
+	assert.Equal(t, "github.pulls.merge", asked.Action)
+	assert.Contains(t, asked.Payload,
+		orchestration.Field{Label: "Repository", Value: "new-owner/new-name (id 1447911125)"})
+
+	w.answering(func(r *http.Request) (int, string, bool) {
+		if r.URL.Path == "/repositories/1447911125" {
+			return http.StatusInternalServerError, `{}`, true
+		}
+
+		return 0, "", false
+	})
+
+	asked = merge()
+	assert.Contains(t, asked.Payload, orchestration.Field{Label: "Repository",
+		Value: "the repository with id 1447911125 (its name could not be read now)"})
+
+	for _, got := range w.service.received() {
+		assert.NotEqual(t, http.MethodPut, got.Method, "no merge was sent")
 	}
 }

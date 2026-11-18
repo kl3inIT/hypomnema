@@ -2151,9 +2151,14 @@ flowchart LR
       `Link` headers point at and `gh api --paginate` follows, is matched as `/repos/{owner}/{repo}/<rest>` with
       the same method, and sent on unchanged. The id is resolved through the same Connection with GitHub's
       `GET /repositories/{id}` (10 s at most), and the name kept per Connection for 20 minutes, at most 1024 of
-      them (github-mcp-server's `RepoAccessCache`). A GitHub Connection names no repositories, so what it covers is
-      what its token can read: an id GitHub does not answer with that repository (404, an error, another id) stays
-      `github.unlisted` and asks. When such a request asks, the owner is shown the repository's name. A release's asset upload goes
+      them (github-mcp-server's `RepoAccessCache`). That lookup is the read `GET /repos/{owner}/{repo}` is
+      (`github.repos.read`) and is decided as it first: only when the owner allows it, or a grant for the session or
+      the Routine stands, is anything sent or a kept name used; otherwise the request is `github.unlisted` with the
+      read beside it, refused when the read is set to never and asked with it otherwise. A GitHub Connection names
+      no repositories, so what it covers is what its token can read: an id GitHub does not answer with that
+      repository (404, an error, another id, an owner or name such as `.` or `..`) stays `github.unlisted` and
+      asks. When such a request asks, the owner is shown the repository's name read again from GitHub then, never
+      a kept one, and only its id when it cannot be read. A release's asset upload goes
       to `uploads.github.com`, also reached. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
       plumbing: a GET there carries no token. The client API's integration path parameter takes a host's name.

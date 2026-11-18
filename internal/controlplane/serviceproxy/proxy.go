@@ -366,9 +366,11 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 
 	action, verdict, message, err := p.decide(ctx, named, s, func(governing Action) asking {
 		q := httpAsking(req, body, governing, s)
-		if repository != "" {
-			// A request by a repository's id names it only by a number: the owner is told which it is (issue #802).
-			q.fields = append([]orchestration.Field{{Label: "Repository", Value: repository}}, q.fields...)
+		if repository.ID != "" {
+			// A request by a repository's id names it only by a number: the owner is told which it is, by its name
+			// as GitHub gives it now (issue #802, review of #813).
+			q.fields = append([]orchestration.Field{{Label: "Repository", Value: p.shown(ctx, s, repository)}},
+				q.fields...)
 		}
 
 		return q
