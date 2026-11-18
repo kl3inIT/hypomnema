@@ -4768,9 +4768,19 @@ components:
           required: [tasks]
           properties:
             usage: { $ref: "#/components/schemas/WorkUsage" }
+            published_heads:
+              description: GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+              type: array
+              items: { $ref: "#/components/schemas/PublishedHead" }
             tasks:
               type: array
               items: { $ref: "#/components/schemas/TaskDetail" }
+    PublishedHead:
+      type: object
+      required: [branch, sha]
+      properties:
+        branch: { type: string }
+        sha: { type: string }
     WorkUsage:
       type: object
       description: >-

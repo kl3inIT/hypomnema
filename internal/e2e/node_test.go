@@ -307,6 +307,9 @@ func TestNodeRunsATaskToSuccess(t *testing.T) {
 	worker := r.worker(t)
 	require.NoError(t, worker.Started(t.Context(), "pid:42@1", "sess_1"))
 	w.eventually(task.ID, orchestration.TaskRunning)
+	const sha = "0123456789012345678901234567890123456789"
+	head := nodeproto.PublishedHead{Branch: "hyp/" + task.ID, SHA: sha}
+	require.NoError(t, worker.PublishedHead(t.Context(), head))
 
 	require.NoError(t, worker.Finished(t.Context(), success()))
 	w.eventually(task.ID, orchestration.TaskSucceeded)
@@ -326,6 +329,9 @@ func TestNodeRunsATaskToSuccess(t *testing.T) {
 
 		return len(held) == 0 && len(pending) == 0
 	}, wait, 5*time.Millisecond, "the node forgets the Dispatch once its final report is acknowledged")
+	published, err := w.svc.ListPublishedHeads(t.Context(), task.RunID)
+	require.NoError(t, err)
+	assert.Equal(t, []orchestration.PublishedHead{{Branch: head.Branch, SHA: sha}}, published)
 
 	require.NoError(t, stop())
 }

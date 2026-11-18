@@ -11,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
+
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
@@ -19,6 +23,7 @@ type githubPR struct {
 	State                   string
 	Body                    string
 	HeadRefName             string
+	HeadRefOid              string
 	HeadRepository          struct{ NameWithOwner string }
 	IsCrossRepository       bool
 	ClosingIssuesReferences []struct{ URL string }
@@ -26,14 +31,18 @@ type githubPR struct {
 }
 
 type githubCall func(out io.Writer, args ...string) error
-type replacementOwner func(ctx context.Context, runID, prURL, sameRepoHead string) (bool, error)
+type replacementOwner func(ctx context.Context, runID, prURL, branch, sha string) (bool, error)
 
-var replacementLine = regexp.MustCompile(`(?i)^(?:(?:closes|fixes|resolves) #[1-9][0-9]*\.\s+)?` +
+const closingKeyword = `(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?):?[ \t]+`
+const closingRepo = `[a-z0-9_.-]+/[a-z0-9_.-]+`
+
+var replacementLine = regexp.MustCompile(`(?i)^(?:` + closingKeyword + `(?:` + closingRepo + `)?#[1-9][0-9]*\.\s+)?` +
 	`(?:[-*]\s+)?\*{0,2}(?:replaces|supersedes) #([1-9][0-9]*)\b`)
 
-var closingIssue = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)[ \t]+#([1-9][0-9]*)\b`)
+var closingIssue = regexp.MustCompile(`(?i)\b` + closingKeyword + `(` + closingRepo + `)?#([1-9][0-9]*)\b`)
 
-const replacementPRFields = "body,state,url,headRefName,headRepository,isCrossRepository,closingIssuesReferences"
+const replacementPRFields = "body,state,url,headRefName,headRefOid,headRepository," +
+	"isCrossRepository,closingIssuesReferences"
 
 func reconcileReplacement(ctx context.Context, args []string, out io.Writer, call githubCall,
 	owns replacementOwner,
@@ -89,10 +98,11 @@ func verifyReplacementOwner(ctx context.Context, owns replacementOwner, runID, r
 	if owns == nil {
 		return fmt.Errorf("refusing to reconcile %s: use the coordinator launcher to verify Run ownership", pr.URL)
 	}
-	if pr.IsCrossRepository || !strings.EqualFold(pr.HeadRepository.NameWithOwner, repo) || pr.HeadRefName == "" {
+	if pr.IsCrossRepository || !strings.EqualFold(pr.HeadRepository.NameWithOwner, repo) || pr.HeadRefName == "" ||
+		pr.HeadRefOid == "" {
 		return fmt.Errorf("refusing to reconcile %s: its head does not belong to the repository of Run %s", pr.URL, runID)
 	}
-	owned, err := owns(ctx, runID, pr.URL, pr.HeadRefName)
+	owned, err := owns(ctx, runID, pr.URL, pr.HeadRefName, pr.HeadRefOid)
 	if err != nil {
 		return err
 	}
@@ -142,91 +152,50 @@ func replacedNumber(explicit []string, body string) (int, error) {
 
 func replacementBodyLines(body string) iter.Seq[string] {
 	return func(yield func(string) bool) {
-		fence := ""
-		comment := false
-		for line := range strings.SplitSeq(body, "\n") {
-			indented := strings.HasPrefix(line, "    ") || strings.HasPrefix(strings.TrimLeft(line, " "), "\t")
-			if !comment {
-				marker, rest := replacementFence(line)
-				if fence != "" {
-					if strings.HasPrefix(marker, fence) && strings.TrimSpace(rest) == "" {
-						fence = ""
+		source := []byte(body)
+		doc := goldmark.DefaultParser().Parse(text.NewReader(source))
+		_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+			if !entering {
+				return ast.WalkContinue, nil
+			}
+			switch node.Kind() {
+			case ast.KindBlockquote, ast.KindCodeBlock, ast.KindFencedCodeBlock, ast.KindHTMLBlock:
+				return ast.WalkSkipChildren, nil
+			case ast.KindParagraph, ast.KindTextBlock:
+				for line := range strings.SplitSeq(replacementText(node, source), "\n") {
+					if !yield(strings.TrimSpace(line)) {
+						return ast.WalkStop, nil
 					}
-					continue
 				}
-				if marker != "" {
-					fence = marker
-					continue
-				}
-				if indented {
-					continue
-				}
+				return ast.WalkSkipChildren, nil
+			default:
+				return ast.WalkContinue, nil
 			}
-			visible, stillInComment := replacementVisibleLine(line, comment)
-			comment = stillInComment
-			if !indented && !yield(visible) {
-				return
-			}
-		}
+		})
 	}
 }
 
-func replacementFence(line string) (string, string) {
-	trimmed := strings.TrimLeft(line, " ")
-	if len(line)-len(trimmed) >= 4 || !(strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
-		return "", ""
-	}
-	rest := strings.TrimLeft(trimmed, trimmed[:1])
-	return trimmed[:len(trimmed)-len(rest)], rest
-}
-
-func replacementVisibleLine(line string, inComment bool) (string, bool) {
+func replacementText(block ast.Node, source []byte) string {
 	var visible strings.Builder
-	for {
-		if inComment {
-			_, after, found := strings.Cut(line, "-->")
-			if !found {
-				return visible.String(), true
+	_ = ast.Walk(block, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch node := node.(type) {
+		case *ast.CodeSpan, *ast.RawHTML, *ast.Image:
+			visible.WriteByte(0)
+			return ast.WalkSkipChildren, nil
+		case *ast.Text:
+			visible.Write(node.Segment.Value(source))
+			if node.SoftLineBreak() || node.HardLineBreak() {
+				visible.WriteByte('\n')
 			}
-			line = after
+		case *ast.String:
+			visible.Write(node.Value)
 		}
-		marker := strings.Index(line, "<!--")
-		tick := strings.IndexByte(line, '`')
-		if tick >= 0 && (marker < 0 || tick < marker) {
-			visible.WriteString(line[:tick])
-			after := strings.TrimLeft(line[tick:], "`")
-			width := len(line[tick:]) - len(after)
-			if rest, ok := afterInlineCode(after, width); ok {
-				visible.WriteByte(' ')
-				line = rest
-			} else {
-				visible.WriteString(line[tick : tick+width])
-				line = after
-			}
-			inComment = false
-			continue
-		}
-		if marker < 0 {
-			visible.WriteString(line)
-			return visible.String(), false
-		}
-		visible.WriteString(line[:marker])
-		line, inComment = line[marker+len("<!--"):], true
-	}
-}
-
-func afterInlineCode(text string, width int) (string, bool) {
-	for {
-		tick := strings.IndexByte(text, '`')
-		if tick < 0 {
-			return "", false
-		}
-		after := strings.TrimLeft(text[tick:], "`")
-		if len(text[tick:])-len(after) == width {
-			return after, true
-		}
-		text = after
-	}
+		return ast.WalkContinue, nil
+	})
+	return visible.String()
 }
 
 func sameClosingIssue(repoURL string, oldPR, newPR githubPR) bool {
@@ -250,7 +219,11 @@ func replacementIssues(repoURL string, pr githubPR) []string {
 	if len(issues) == 0 {
 		for line := range replacementBodyLines(pr.Body) {
 			for _, match := range closingIssue.FindAllStringSubmatch(line, -1) {
-				issues = append(issues, repoURL+"/issues/"+match[1])
+				issueRepo := repoURL
+				if match[1] != "" {
+					issueRepo = "https://github.com/" + match[1]
+				}
+				issues = append(issues, issueRepo+"/issues/"+match[2])
 			}
 		}
 	}

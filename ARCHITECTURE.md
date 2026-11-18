@@ -4243,8 +4243,11 @@ The owner's commands:
   the same PR ending incorrect shows as waiting for the owner on the
   Run card and in the work that needs the owner; the review Task holds the findings. The coordinator checks the
   current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
-  with `gh reconcile-replacement`: both GitHub heads must match Task branches in the Run's repository, not forks;
-  Task results do not prove ownership. Both PRs must share a closing issue. Visible local closing keywords also
+  with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
+  Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
+  assigned ref, queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
+  must share a closing issue. Visible closing keywords in Markdown also
   work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool
   proxy and its approvals, without deleting a branch.
   `skills install` writes the stub

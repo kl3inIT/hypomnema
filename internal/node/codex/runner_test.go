@@ -150,6 +150,8 @@ func (r *reporter) Ask(context.Context, nodeproto.Ask) (string, error) { return 
 
 func (r *reporter) AnswerReceived(context.Context, string) error { return nil }
 
+func (r *reporter) PublishedHead(context.Context, nodeproto.PublishedHead) error { return nil }
+
 func (r *reporter) Finished(_ context.Context, f nodeproto.Finished) error {
 	r.mu.Lock()
 	r.finished = append(r.finished, f)

@@ -70,7 +70,8 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    ```text
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```
-   The worker fixes them on its own branch and pull request, which keeps what it knew of the change. When the
+   The worker fixes them on its own branch and pull request, which keeps what it knew of the change. On GitHub it
+   uses `publish_branch` so the node records the updated head for the Run. When the
    follow-up is refused, create a fix Task whose spec starts from the branch `hyp/<task_id>` and lists them.
 7. Have the updated pull request reviewed by a new review Task. Unlike the first round, its spec carries what the
    rounds before found, so it can tell what was fixed: the pull request's URL and the spec as before, then

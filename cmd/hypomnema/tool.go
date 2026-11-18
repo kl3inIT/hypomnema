@@ -46,8 +46,8 @@ func tool(ctx context.Context, args []string, stdout io.Writer) error {
 
 	launcher := agenttool.FromEnv()
 	launcher.URL, launcher.Key = cfg.URL, cfg.Token
-	launcher.OwnsReplacement = func(ctx context.Context, runID, prURL, sameRepoHead string) (bool, error) {
-		return clientcli.RunOwnsReplacement(ctx, cfg, runID, prURL, sameRepoHead)
+	launcher.OwnsReplacement = func(ctx context.Context, runID, prURL, branch, sha string) (bool, error) {
+		return clientcli.RunOwnsReplacement(ctx, cfg, runID, prURL, branch, sha)
 	}
 
 	return launcher.Run(ctx, args[0], args[1:])

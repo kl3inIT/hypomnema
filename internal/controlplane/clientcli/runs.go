@@ -90,7 +90,7 @@ func getRun(ctx context.Context, e *env, id string) (openapi.RunDetail, error) {
 }
 
 // RunOwnsReplacement checks the coordinator's Run before its launcher can close a superseded PR.
-func RunOwnsReplacement(ctx context.Context, cfg Config, runID, prURL, sameRepoHead string) (bool, error) {
+func RunOwnsReplacement(ctx context.Context, cfg Config, runID, prURL, branch, sha string) (bool, error) {
 	api, err := newClient(cfg, requestTimeout)
 	if err != nil {
 		return false, err
@@ -99,17 +99,17 @@ func RunOwnsReplacement(ctx context.Context, cfg Config, runID, prURL, sameRepoH
 	if err != nil {
 		return false, err
 	}
-	return runOwnsReplacement(run, prURL, sameRepoHead), nil
+	return runOwnsReplacement(run, prURL, branch, sha), nil
 }
 
-func runOwnsReplacement(run openapi.RunDetail, prURL, sameRepoHead string) bool {
+func runOwnsReplacement(run openapi.RunDetail, prURL, branch, sha string) bool {
 	pr, ok := githost.ParseRequest(prURL, githost.KnownKind)
-	if !ok || pr.Repo.Host != githost.GitHubHost || sameRepoHead == "" ||
+	if !ok || pr.Repo.Host != githost.GitHubHost || branch == "" || sha == "" || run.PublishedHeads == nil ||
 		val(run.RepoHost) != pr.Repo.Host || !strings.EqualFold(val(run.Repo), pr.Repo.Path) {
 		return false
 	}
-	for _, task := range run.Tasks {
-		if sameRepoHead == "hyp/"+task.Id {
+	for _, head := range *run.PublishedHeads {
+		if branch == head.Branch && sha == head.Sha {
 			return true
 		}
 	}

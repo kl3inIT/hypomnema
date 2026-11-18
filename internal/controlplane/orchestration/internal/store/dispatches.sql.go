@@ -660,6 +660,41 @@ func (q *Queries) ListLeaseExpired(ctx context.Context, now int64) ([]ListLeaseE
 	return items, nil
 }
 
+const listPublishedHeads = `-- name: ListPublishedHeads :many
+SELECT DISTINCT e.ref AS branch, CAST(e.payload AS TEXT) AS sha
+FROM tasks t JOIN dispatches d ON d.task_id = t.id JOIN dispatch_effects e ON e.dispatch_id = d.id
+WHERE t.run_id = ?1 AND e.kind = 'git_push' AND e.phase = 'done' AND e.payload IS NOT NULL
+ORDER BY branch, sha
+`
+
+type ListPublishedHeadsRow struct {
+	Branch string
+	Sha    string
+}
+
+func (q *Queries) ListPublishedHeads(ctx context.Context, runID string) ([]ListPublishedHeadsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPublishedHeads, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublishedHeadsRow{}
+	for rows.Next() {
+		var i ListPublishedHeadsRow
+		if err := rows.Scan(&i.Branch, &i.Sha); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedSince = `-- name: ListQueuedSince :many
 SELECT id FROM dispatches WHERE status = 'queued' AND created_at <= ?1 ORDER BY created_at
 `
@@ -1117,6 +1152,31 @@ func (q *Queries) RecordEffect(ctx context.Context, arg RecordEffectParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const recordPublishedHead = `-- name: RecordPublishedHead :exec
+INSERT INTO dispatch_effects (dispatch_id, seq, kind, ref, phase, payload, created_at, updated_at)
+SELECT ?1, (SELECT coalesce(max(seq), 0) + 1 FROM dispatch_effects WHERE dispatch_id = ?1),
+       'git_push', ?2, 'done', ?3, ?4, ?4
+WHERE NOT EXISTS (SELECT 1 FROM dispatch_effects WHERE dispatch_id = ?1
+                  AND kind = 'git_push' AND ref = ?2 AND phase = 'done' AND payload = ?3)
+`
+
+type RecordPublishedHeadParams struct {
+	DispatchID string
+	Branch     string
+	Sha        sql.NullString
+	Now        int64
+}
+
+func (q *Queries) RecordPublishedHead(ctx context.Context, arg RecordPublishedHeadParams) error {
+	_, err := q.db.ExecContext(ctx, recordPublishedHead,
+		arg.DispatchID,
+		arg.Branch,
+		arg.Sha,
+		arg.Now,
+	)
+	return err
 }
 
 const recordResource = `-- name: RecordResource :exec

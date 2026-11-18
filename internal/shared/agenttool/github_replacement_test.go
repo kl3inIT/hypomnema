@@ -18,13 +18,14 @@ func TestReplacementCommentsAndClosesWithSeparateApprovals(t *testing.T) {
 	const newURL = "https://github.com/owner/repo/pull/840"
 	const oldURL = "https://github.com/owner/repo/pull/827"
 	const comment = "Replaced by " + newURL + "."
+	const oldSHA, newSHA = "old-sha", "new-sha"
 	issues := []struct{ URL string }{{URL: "https://github.com/owner/repo/issues/820"}}
 	newPR := githubPR{
 		URL: newURL, Body: "Closes #820. **Supersedes #827**\n", State: "OPEN", ClosingIssuesReferences: issues,
-		HeadRefName: "hyp/tsk_new", HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
+		HeadRefName: "hyp/tsk_new", HeadRefOid: newSHA, HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
 	}
 	oldPR := githubPR{URL: oldURL, State: "OPEN", ClosingIssuesReferences: issues,
-		HeadRefName: "hyp/tsk_old", HeadRepository: newPR.HeadRepository}
+		HeadRefName: "hyp/tsk_old", HeadRefOid: oldSHA, HeadRepository: newPR.HeadRepository}
 	var writes [][]string
 	commentAllowed, closeAllowed := false, false
 	pending := errors.New("waiting for owner approval")
@@ -32,6 +33,7 @@ func TestReplacementCommentsAndClosesWithSeparateApprovals(t *testing.T) {
 		require.Equal(t, "pr", args[0])
 		switch args[1] {
 		case "view":
+			assert.Contains(t, args[4], "headRefOid")
 			if args[2] == newURL {
 				return json.NewEncoder(out).Encode(newPR)
 			}
@@ -57,10 +59,10 @@ func TestReplacementCommentsAndClosesWithSeparateApprovals(t *testing.T) {
 	var out bytes.Buffer
 	reconcile := func() error {
 		return reconcileReplacement(t.Context(), []string{newURL, "run_1"}, &out, call,
-			func(_ context.Context, runID, prURL, head string) (bool, error) {
+			func(_ context.Context, runID, prURL, head, sha string) (bool, error) {
 				assert.Equal(t, "run_1", runID)
-				return (prURL == oldURL && head == oldPR.HeadRefName) ||
-					(prURL == newURL && head == newPR.HeadRefName), nil
+				return (prURL == oldURL && head == oldPR.HeadRefName && sha == oldSHA) ||
+					(prURL == newURL && head == newPR.HeadRefName && sha == newSHA), nil
 			})
 	}
 	require.ErrorIs(t, reconcile(), pending)
@@ -89,11 +91,11 @@ func TestReplacementRequiresSharedIssue(t *testing.T) {
 		}
 		return json.NewEncoder(out).Encode(githubPR{
 			URL: args[2], State: "OPEN", ClosingIssuesReferences: []struct{ URL string }{{URL: issue}},
-			HeadRefName: "hyp/tsk_mine", HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
+			HeadRefName: "hyp/tsk_mine", HeadRefOid: "sha", HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
 		})
 	}
 	err := reconcileReplacement(t.Context(), []string{newURL, "run_1", "827"}, io.Discard, call,
-		func(context.Context, string, string, string) (bool, error) { return true, nil })
+		func(context.Context, string, string, string, string) (bool, error) { return true, nil })
 	require.ErrorContains(t, err, "do not name a shared closing issue")
 }
 
@@ -109,7 +111,7 @@ func TestReplacementRefusesUnownedPRWithSameIssue(t *testing.T) {
 		})
 	}
 	err := reconcileReplacement(t.Context(), []string{newURL, "run_1", "827"}, io.Discard, call,
-		func(context.Context, string, string, string) (bool, error) {
+		func(context.Context, string, string, string, string) (bool, error) {
 			t.Fatal("a fork's branch is not proof")
 			return false, nil
 		})
@@ -130,6 +132,28 @@ func TestReplacementDeclarations(t *testing.T) {
 	require.ErrorContains(t, err, "disagree")
 }
 
+func TestReplacementAfterMultilineInlineCode(t *testing.T) {
+	t.Parallel()
+
+	number, err := replacedNumber(nil, "An example: `<!--\nReplaces #123`\n\nReplaces #827")
+	require.NoError(t, err)
+	assert.Equal(t, 827, number)
+	number, err = replacedNumber(nil, "`Example:` Replaces #123")
+	require.NoError(t, err)
+	assert.Zero(t, number)
+}
+
+func TestReplacementRecognizesGitHubClosingKeywords(t *testing.T) {
+	t.Parallel()
+
+	const repo = "https://github.com/owner/repo"
+	keywords := []string{"close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"}
+	for _, keyword := range keywords {
+		assert.Equal(t, []string{repo + "/issues/820", "https://github.com/other/repo/issues/730"},
+			replacementIssues(repo, githubPR{Body: keyword + ": #820, " + keyword + " other/repo#730"}))
+	}
+}
+
 func TestReplacementRefusesUnownedNewPR(t *testing.T) {
 	t.Parallel()
 
@@ -139,14 +163,14 @@ func TestReplacementRefusesUnownedNewPR(t *testing.T) {
 		require.Equal(t, "view", args[1], "no write when the replacement is from a fork")
 		isFork := args[2] == newURL
 		return json.NewEncoder(out).Encode(githubPR{
-			URL: args[2], State: "OPEN", Body: "Replaces #827", HeadRefName: "hyp/tsk_mine",
+			URL: args[2], State: "OPEN", Body: "Replaces #827", HeadRefName: "hyp/tsk_mine", HeadRefOid: "sha",
 			IsCrossRepository:       isFork,
 			HeadRepository:          struct{ NameWithOwner string }{"owner/repo"},
 			ClosingIssuesReferences: []struct{ URL string }{{URL: "https://github.com/owner/repo/issues/820"}},
 		})
 	}
 	err := reconcileReplacement(t.Context(), []string{newURL, "run_1"}, io.Discard, call,
-		func(_ context.Context, _, prURL, head string) (bool, error) {
+		func(_ context.Context, _, prURL, head, _ string) (bool, error) {
 			return prURL == oldURL && head == "hyp/tsk_mine", nil
 		})
 	require.ErrorContains(t, err, "does not belong")
@@ -157,7 +181,8 @@ func TestReplacementUsesVisibleClosingKeywordWithoutGitHubClosingReferences(t *t
 
 	const newURL = "https://github.com/owner/repo/pull/840"
 	const oldURL = "https://github.com/owner/repo/pull/827"
-	for _, oldBody := range []string{"Fixes #820", "<!-- Fixes #820 -->\nFixes #822", "Example: `Fixes #820`"} {
+	bodies := []string{"Fixes #820", "CLOSES: #820", "<!-- Fixes #820 -->\nFixes #822", "Example: `Fixes #820`"}
+	for _, oldBody := range bodies {
 		t.Run(oldBody, func(t *testing.T) {
 			t.Parallel()
 
@@ -173,15 +198,15 @@ func TestReplacementUsesVisibleClosingKeywordWithoutGitHubClosingReferences(t *t
 					body, head = "Closes #820\nReplaces #827", "hyp/tsk_new"
 				}
 				return json.NewEncoder(out).Encode(githubPR{
-					URL: args[2], State: "OPEN", Body: body, HeadRefName: head,
+					URL: args[2], State: "OPEN", Body: body, HeadRefName: head, HeadRefOid: "sha",
 					HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
 				})
 			}
 			err := reconcileReplacement(t.Context(), []string{newURL, "run_1"}, io.Discard, call,
-				func(_ context.Context, _, _, head string) (bool, error) {
+				func(_ context.Context, _, _, head, _ string) (bool, error) {
 					return head == "hyp/tsk_old" || head == "hyp/tsk_new", nil
 				})
-			if oldBody == "Fixes #820" {
+			if oldBody == "Fixes #820" || oldBody == "CLOSES: #820" {
 				require.NoError(t, err)
 				assert.Equal(t, []string{"comment", "close"}, writes)
 				return

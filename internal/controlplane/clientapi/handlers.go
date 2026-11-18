@@ -113,6 +113,17 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 	}
 
 	out.Usage = ptr(toWorkUsage(total))
+	heads, err := s.svc.ListPublishedHeads(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(heads) != 0 {
+		published := make([]openapi.PublishedHead, 0, len(heads))
+		for _, head := range heads {
+			published = append(published, openapi.PublishedHead{Branch: head.Branch, Sha: head.SHA})
+		}
+		out.PublishedHeads = &published
+	}
 
 	for _, t := range tasks {
 		detail, err := s.taskDetail(ctx, t)

@@ -300,6 +300,8 @@ func (r *reporter) AnswerReceived(_ context.Context, questionID string) error {
 	return nil
 }
 
+func (r *reporter) PublishedHead(context.Context, nodeproto.PublishedHead) error { return nil }
+
 func (r *reporter) Finished(_ context.Context, f nodeproto.Finished) error {
 	r.mu.Lock()
 	r.finished = append(r.finished, f)

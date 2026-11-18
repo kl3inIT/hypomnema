@@ -4895,6 +4895,12 @@ type ProviderList struct {
 	Data []Provider `json:"data"`
 }
 
+// PublishedHead defines model for PublishedHead.
+type PublishedHead struct {
+	Branch string `json:"branch"`
+	Sha    string `json:"sha"`
+}
+
 // Question defines model for Question.
 type Question struct {
 	AddressedTo Addressee `json:"addressed_to"`
@@ -5245,6 +5251,9 @@ type RunDetail struct {
 	FinishedAt         *time.Time `json:"finished_at,omitempty"`
 	Id                 string     `json:"id"`
 	Objective          string     `json:"objective"`
+
+	// PublishedHeads GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+	PublishedHeads *[]PublishedHead `json:"published_heads,omitempty"`
 
 	// Repo The path of the repository workers work in on its host; owner/name on github.com.
 	Repo *string `json:"repo,omitempty"`

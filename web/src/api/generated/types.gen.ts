@@ -77,7 +77,16 @@ export type ReviewStall = {
 
 export type RunDetail = Run & {
   usage?: WorkUsage;
+  /**
+   * GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+   */
+  published_heads?: Array<PublishedHead>;
   tasks: Array<TaskDetail>;
+};
+
+export type PublishedHead = {
+  branch: string;
+  sha: string;
 };
 
 /**

@@ -35,6 +35,7 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		prompt := Prompt(d)
 		assert.Contains(t, prompt, "Do not edit project files")
 		assert.NotContains(t, prompt, "gh pr create")
+		assert.NotContains(t, prompt, "publish_branch")
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
 		if role == "planner" {
 			assert.Contains(t, prompt, "this CLI's subagents for independent read-only lookups")
@@ -60,6 +61,7 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 
 	p := Prompt(d)
 	assert.Contains(t, p, "branch hyp/tsk_1")
+	assert.Contains(t, p, "push the branch with `publish_branch`")
 	assert.Contains(t, p, "gh pr create --base main --head hyp/tsk_1",
 		"gh does not find the branch in a worktree of the mirror without --head")
 	assert.Contains(t, p, "the pull request as its URL", "a URL names the host; owner/repo#N does not")

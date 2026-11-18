@@ -61,6 +61,7 @@ type Reporter interface {
 	Started(ctx context.Context, processRef, cliSessionRef string) error
 	Ask(ctx context.Context, a nodeproto.Ask) (string, error)
 	AnswerReceived(ctx context.Context, questionID string) error
+	PublishedHead(ctx context.Context, head nodeproto.PublishedHead) error
 	Finished(ctx context.Context, f nodeproto.Finished) error
 	Exited(ctx context.Context) error
 	Stopped(ctx context.Context) error
