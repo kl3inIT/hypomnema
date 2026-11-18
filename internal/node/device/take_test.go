@@ -35,6 +35,29 @@ func newTakeRig(t *testing.T) *takeRig {
 	r.start(t)
 	r.streams <- r.stream
 
+	// The takes' writers end before the test's folder is removed.
+	t.Cleanup(func() {
+		r.m.film.mu.Lock()
+		takes := make([]*take, 0, len(r.m.film.takes))
+		for _, tk := range r.m.film.takes {
+			takes = append(takes, tk)
+		}
+		r.m.film.mu.Unlock()
+
+		for _, tk := range takes {
+			_, _ = r.m.StopTake(tk.meta.ID, devicetool.EndedStop, "")
+
+			select {
+			case <-tk.done:
+			case <-time.After(5 * time.Second):
+			}
+
+			tk.saveMu.Lock()
+			//nolint:staticcheck // Waits for a save under way.
+			tk.saveMu.Unlock()
+		}
+	})
+
 	return r
 }
 
@@ -187,7 +210,7 @@ func TestATakeIsASegmentADecoderReads(t *testing.T) {
 	require.Len(t, take.Segments, 1)
 	assert.Equal(t, int64(500), take.DurationMs)
 	assert.Equal(t, devicetool.TakeSegment{
-		File: "seg-001.mp4", AtMs: 0, LengthMs: 500, Width: 64, Height: 48,
+		File: "seg-001.mp4", AtMs: 0, LengthMs: 500, LastFrameMs: 200, Width: 64, Height: 48,
 		Bytes: take.Segments[0].Bytes, SHA256: take.Segments[0].SHA256,
 	}, take.Segments[0])
 
@@ -285,13 +308,14 @@ func TestASegmentWaitsForAKeyFrame(t *testing.T) {
 
 	later := r.say(t, "tk_wait", "Tap Sign in")
 	assert.Equal(t, int64(1500), later.AtMs, "the frame said at 1.5 s is the one 1.5 s into the video")
+	r.clock.advance(100 * time.Millisecond)
 
 	_, err := r.m.StopTake("tk_wait", devicetool.EndedStop, "")
 	require.NoError(t, err)
 
 	take := r.finished(t, "tk_wait")
 	require.Len(t, take.Segments, 1)
-	assert.Equal(t, int64(1500), take.DurationMs)
+	assert.Equal(t, int64(1600), take.DurationMs)
 	assert.Equal(t, []string{"Open the shop", "Tap Sign in"}, []string{take.Steps[0].Text, take.Steps[1].Text})
 
 	p := ffprobe(t, filepath.Join(r.dir, takesDir, "tk_wait", "seg-001.mp4"))
@@ -685,7 +709,7 @@ func TestANodeThatStartsAgainEndsItsTakes(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	require.Eventually(t, func() bool {
-		_, err := os.Stat(filepath.Join(r.dir, takesDir, "tk_cut", "seg-002.mp4"))
+		_, err := os.Stat(filepath.Join(r.dir, takesDir, "tk_cut", "seg-002.mp4"+fragmentsSuffix))
 
 		return err == nil
 	}, 5*time.Second, 10*time.Millisecond)
@@ -701,6 +725,7 @@ func TestANodeThatStartsAgainEndsItsTakes(t *testing.T) {
 	assert.Equal(t, devicetool.TakeUploading, cut.State)
 	assert.Equal(t, devicetool.EndedRestart, cut.EndedBy)
 	assert.Equal(t, int64(1000), cut.DurationMs)
+	assert.NoFileExists(t, filepath.Join(r.dir, takesDir, "tk_cut", "seg-002.mp4"+fragmentsSuffix))
 	assert.NoFileExists(t, filepath.Join(r.dir, takesDir, "tk_cut", "seg-002.mp4"))
 
 	none, err := next.TakeStatus("tk_empty")

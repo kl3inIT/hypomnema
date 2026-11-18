@@ -6798,11 +6798,18 @@ components:
           items: { $ref: "#/components/schemas/TakePause" }
     TakeSegment:
       type: object
-      required: [file, at_ms, length_ms, width, height, bytes, sha256]
+      required: [file, at_ms, length_ms, last_frame_ms, width, height, bytes, sha256]
       properties:
         file: { type: string }
         at_ms: { type: integer, format: int64, description: Where it starts on the take's timeline. }
         length_ms: { type: integer, format: int64 }
+        last_frame_ms:
+          type: integer
+          format: int64
+          description: >-
+            When its last frame starts, from the segment's start; the screen is still after it until the segment
+            ends. A player seeks into that still tail from just before it: a browser does not seek into a file's
+            last sample.
         width: { type: integer }
         height: { type: integer }
         bytes: { type: integer, format: int64 }

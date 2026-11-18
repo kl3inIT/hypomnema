@@ -1,7 +1,6 @@
 package device
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -10,26 +9,34 @@ import (
 	"os"
 	"time"
 
-	amp4 "github.com/abema/go-mp4"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4/seekablebuffer"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/mp4/codecs"
+	"github.com/bluenviron/mediacommon/v2/pkg/formats/pmp4"
 )
 
-// One segment of a take (issue #817, rows 1 to 3): a fragmented MP4 file of
-// its own, an init with the segment's one configuration (SPS and PPS) and
-// fragments after it, written with bluenviron/mediacommon's fmp4 package
-// (MIT; notice in third_party/mediacommon) as MediaMTX's recorder writes its
-// segments (internal/recorder/format_fmp4*.go, MIT; notice in
-// third_party/mediamtx): Annex B made AVCC (format_fmp4.go:451-465), a
-// timescale of 90 kHz, DTS equal to PTS since scrcpy's encoder writes no
-// B-frames (scrcpy app/src/recorder.c:385-386), each sample's duration the
-// next one's PTS less its own (recorder.c:388-391), a PTS that does not grow
-// moved one tick past the one before (recorder.c:106-113), and the movie's
-// duration written into mvhd as the segment closes (format_fmp4_segment.go,
-// writeDuration). The last frame lasts until the segment closes, so a still
-// screen at its end counts (agent-demo-video src/capture.ts:321-335).
+// One segment of a take (issue #817, rows 1 to 3), written with
+// bluenviron/mediacommon (MIT; notice in third_party/mediacommon) as
+// MediaMTX's recorder and playback write theirs (MIT; notice in
+// third_party/mediamtx). While it is filmed it is a fragmented MP4, an init
+// with the segment's one configuration (SPS and PPS) and fragments flushed
+// by size (internal/recorder/format_fmp4*.go): Annex B made AVCC
+// (format_fmp4.go:451-465), a timescale of 90 kHz, DTS equal to PTS since
+// scrcpy's encoder writes no B-frames (scrcpy app/src/recorder.c:385-386),
+// each sample's duration the next one's PTS less its own (recorder.c:388-391),
+// a PTS that does not grow moved one tick past the one before
+// (recorder.c:106-113). The last frame lasts until the segment closes, so a
+// still screen at its end counts (agent-demo-video src/capture.ts:321-335).
+//
+// As it closes, the fragments are muxed into a regular MP4 whose sample table
+// holds every sample's duration, as MediaMTX's playback serves its fMP4
+// recordings as MP4 (internal/playback/muxer_mp4.go, with mediacommon's
+// pmp4): Chromium could not seek into the last sample of the fragmented file,
+// whose durations its demuxer does not read, and so not into a still tail
+// (tried with Playwright's Chromium on 2026-11-18). The fragments' file goes
+// once the segment is written; a node that ends meanwhile leaves it, and the
+// next node removes it (take.go, recoverTakes).
 
 const (
 	// segmentTimescale is the video track's timescale, MediaMTX's for video.
@@ -37,12 +44,17 @@ const (
 	// partBytes is how many bytes of samples a fragment holds before it is written: fragments are flushed by size,
 	// as MediaMTX bounds its parts (format_fmp4_part.go:60-64), so a take holds at most this much in memory.
 	partBytes = 1 << 20
+	// maxSegmentBytes bounds a segment: an MP4's chunk offsets are 32 bits.
+	maxSegmentBytes = 1<<32 - 1<<20
+	// fragmentsSuffix names the file of a segment's fragments beside it.
+	fragmentsSuffix = ".fmp4"
 )
 
 // segmentInfo is what a closed segment is: its file's name, length and size, and its sum.
 type segmentInfo struct {
 	File          string
 	Length        time.Duration
+	LastFrame     time.Duration
 	Width, Height int
 	Bytes         int64
 	SHA256        string
@@ -55,9 +67,18 @@ type sample struct {
 	data  []byte
 }
 
+// written is where a sample is in the fragments' file, for the MP4 made from them.
+type written struct {
+	offset   int64
+	size     uint32
+	duration uint32
+	key      bool
+}
+
 // segmentWriter writes one segment's file.
 type segmentWriter struct {
 	f      *os.File
+	path   string
 	name   string
 	sps    []byte
 	pps    []byte
@@ -72,7 +93,9 @@ type segmentWriter struct {
 	partBase uint64
 	partSize int
 	seq      uint32
-	written  int64
+	at       int64
+	samples  []written
+	total    int64
 }
 
 // splitConfig reads the SPS and PPS of a configuration packet, in Annex B.
@@ -103,8 +126,9 @@ func splitConfig(config []byte) (sps, pps []byte, err error) {
 	return sps, pps, nil
 }
 
-// createSegment creates a segment's file, private to the node's user, and
-// writes its init with the configuration.
+// createSegment creates the file of a segment's fragments, private to the
+// node's user, and writes its init with the configuration. The segment's MP4
+// is path once it closes.
 func createSegment(path, name string, config []byte) (*segmentWriter, error) {
 	sps, pps, err := splitConfig(config)
 	if err != nil {
@@ -122,12 +146,13 @@ func createSegment(path, name string, config []byte) (*segmentWriter, error) {
 		return nil, fmt.Errorf("encoding the segment's init: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // The take's own folder.
+	//nolint:gosec // The take's own folder.
+	f, err := os.OpenFile(path+fragmentsSuffix, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, err
 	}
 
-	w := &segmentWriter{f: f, name: name, sps: sps, pps: pps, size: size, config: config}
+	w := &segmentWriter{f: f, path: path, name: name, sps: sps, pps: pps, size: size, config: config}
 
 	if err := w.out(buf.Bytes()); err != nil {
 		_ = f.Close()
@@ -140,7 +165,7 @@ func createSegment(path, name string, config []byte) (*segmentWriter, error) {
 
 func (w *segmentWriter) out(b []byte) error {
 	n, err := w.f.Write(b)
-	w.written += int64(n)
+	w.at += int64(n)
 
 	return err
 }
@@ -180,6 +205,11 @@ func (w *segmentWriter) write(p packet) error {
 		return err
 	}
 
+	w.total += int64(len(avcc))
+	if w.total > maxSegmentBytes {
+		return fmt.Errorf("a segment holds at most %d MB", maxSegmentBytes>>20)
+	}
+
 	next := &sample{ticks: w.ticksOf(p.PTS), key: p.Key, data: avcc}
 	if w.pending != nil {
 		if err := w.add(w.pending, next.ticks); err != nil {
@@ -195,15 +225,13 @@ func (w *segmentWriter) write(p packet) error {
 // add puts a frame whose end is known into the fragment, and writes the
 // fragment once it holds partBytes.
 func (w *segmentWriter) add(s *sample, end uint64) error {
-	duration := max(end-s.ticks, 1)
+	duration := uint32(min(max(end-s.ticks, 1), uint64(^uint32(0))))
 
 	if len(w.part) == 0 {
 		w.partBase = s.ticks
 	}
 
-	w.part = append(w.part, &fmp4.Sample{
-		Duration: uint32(min(duration, uint64(^uint32(0)))), IsNonSyncSample: !s.key, Payload: s.data,
-	})
+	w.part = append(w.part, &fmp4.Sample{Duration: duration, IsNonSyncSample: !s.key, Payload: s.data})
 	w.partSize += len(s.data)
 
 	if w.partSize >= partBytes {
@@ -213,7 +241,7 @@ func (w *segmentWriter) add(s *sample, end uint64) error {
 	return nil
 }
 
-// flush writes the fragment held.
+// flush writes the fragment held, and where its samples are.
 func (w *segmentWriter) flush() error {
 	if len(w.part) == 0 {
 		return nil
@@ -228,28 +256,43 @@ func (w *segmentWriter) flush() error {
 		return fmt.Errorf("encoding a fragment: %w", err)
 	}
 
+	// The samples' payloads end the fragment, in order, in its mdat.
+	offset := w.at + int64(len(buf.Bytes())-w.partSize)
+	for _, s := range w.part {
+		w.samples = append(w.samples, written{
+			offset: offset, size: uint32(len(s.Payload)), //nolint:gosec // A frame is at most 16 MiB.
+			duration: s.Duration, key: !s.IsNonSyncSample,
+		})
+		offset += int64(len(s.Payload))
+	}
+
 	w.part, w.partSize = nil, 0
 
 	return w.out(buf.Bytes())
 }
 
 // close ends the segment at length from its first frame: the last frame
-// lasts until then. It writes the movie's duration, syncs the file and sums
-// it. A segment that got no frame is removed and is no segment.
+// lasts until then. It writes the segment's MP4 from the fragments, syncs it
+// and sums it. A segment that got no frame is removed and is no segment.
 func (w *segmentWriter) close(length time.Duration) (segmentInfo, bool, error) {
+	defer func() { _ = os.Remove(w.f.Name()) }() //nolint:gosec // The take's own folder.
+
 	if !w.started {
 		_ = w.f.Close()
-		_ = os.Remove(w.f.Name())
 
 		return segmentInfo{}, false, nil
 	}
 
 	end := uint64(max(length, 0)) * segmentTimescale / uint64(time.Second)
 
+	var last uint64
+
 	if w.pending != nil {
 		if end <= w.pending.ticks {
 			end = w.pending.ticks + 1
 		}
+
+		last = w.pending.ticks
 
 		if err := w.add(w.pending, end); err != nil {
 			return segmentInfo{}, true, w.fail(err)
@@ -262,92 +305,89 @@ func (w *segmentWriter) close(length time.Duration) (segmentInfo, bool, error) {
 		return segmentInfo{}, true, w.fail(err)
 	}
 
-	total := time.Duration(end) * time.Second / segmentTimescale //nolint:gosec // Ticks of a take, far below 2^63.
-
-	if err := writeDuration(w.f, total); err != nil {
-		return segmentInfo{}, true, w.fail(fmt.Errorf("writing the segment's duration: %w", err))
+	info, err := w.mux()
+	if closeErr := w.f.Close(); err == nil {
+		err = closeErr
 	}
 
-	if err := w.f.Sync(); err != nil {
-		return segmentInfo{}, true, w.fail(err)
-	}
+	if err != nil {
+		_ = os.Remove(w.path)
 
-	sum := sha256.New()
-	if _, err := w.f.Seek(0, io.SeekStart); err != nil {
-		return segmentInfo{}, true, w.fail(err)
-	}
-
-	if _, err := io.Copy(sum, w.f); err != nil {
-		return segmentInfo{}, true, w.fail(err)
-	}
-
-	if err := w.f.Close(); err != nil {
 		return segmentInfo{}, true, err
 	}
 
-	return segmentInfo{
-		File: w.name, Length: total, Width: w.size.Width, Height: w.size.Height, Bytes: w.written,
-		SHA256: hex.EncodeToString(sum.Sum(nil)),
-	}, true, nil
+	// Ticks of a take, far below 2^63.
+	info.Length = time.Duration(end) * time.Second / segmentTimescale //nolint:gosec // See above.
+	info.LastFrame = time.Duration(last) * time.Second / segmentTimescale
+
+	return info, true, nil
 }
 
-// fail closes the file after an error, which it returns.
+// mux writes the segment's MP4 from its fragments, as MediaMTX's playback
+// muxes a recording (muxer_mp4.go): one track, every sample read from the
+// fragments' file as it is written.
+func (w *segmentWriter) mux() (segmentInfo, error) {
+	samples := make([]*pmp4.Sample, 0, len(w.samples))
+
+	for _, s := range w.samples {
+		samples = append(samples, &pmp4.Sample{
+			Duration: s.duration, IsNonSyncSample: !s.key, PayloadSize: s.size,
+			GetPayload: func() ([]byte, error) {
+				buf := make([]byte, s.size)
+				_, err := w.f.ReadAt(buf, s.offset)
+
+				return buf, err
+			},
+		})
+	}
+
+	out, err := os.OpenFile(w.path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return segmentInfo{}, err
+	}
+
+	sum := sha256.New()
+	counted := &countingWriter{w: io.MultiWriter(out, sum)}
+
+	presentation := pmp4.Presentation{Tracks: []*pmp4.Track{{
+		ID: 1, TimeScale: segmentTimescale, Codec: &codecs.H264{SPS: w.sps, PPS: w.pps}, Samples: samples,
+	}}}
+
+	err = presentation.Marshal(counted)
+	if err == nil {
+		err = out.Sync()
+	}
+
+	if closeErr := out.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err != nil {
+		return segmentInfo{}, fmt.Errorf("writing the segment's MP4: %w", err)
+	}
+
+	return segmentInfo{
+		File: w.name, Width: w.size.Width, Height: w.size.Height, Bytes: counted.n,
+		SHA256: hex.EncodeToString(sum.Sum(nil)),
+	}, nil
+}
+
+// fail closes the fragments' file after an error, which it returns.
 func (w *segmentWriter) fail(err error) error {
 	_ = w.f.Close()
 
 	return err
 }
 
-// writeDuration writes a movie's duration into its mvhd, after ftyp and at
-// the start of moov, as MediaMTX's writeDuration does
-// (internal/recorder/format_fmp4_segment.go:56-118, MIT): mediacommon's init
-// says no duration, which a player then finds only by reading every fragment.
-func writeDuration(f io.ReadWriteSeeker, d time.Duration) error {
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
+// countingWriter counts what it writes.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
 
-	head := make([]byte, 8)
-	if _, err := io.ReadFull(f, head); err != nil {
-		return err
-	}
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
 
-	if !bytes.Equal(head[4:], []byte("ftyp")) {
-		return errors.New("ftyp box not found")
-	}
-
-	ftypSize := uint32(head[0])<<24 | uint32(head[1])<<16 | uint32(head[2])<<8 | uint32(head[3])
-	if _, err := f.Seek(int64(ftypSize), io.SeekStart); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(f, head); err != nil {
-		return err
-	}
-
-	if !bytes.Equal(head[4:], []byte("moov")) {
-		return errors.New("moov box not found")
-	}
-
-	moovSize := uint32(head[0])<<24 | uint32(head[1])<<16 | uint32(head[2])<<8 | uint32(head[3])
-
-	mvhdAt, err := f.Seek(8, io.SeekCurrent)
-	if err != nil {
-		return err
-	}
-
-	var mvhd amp4.Mvhd
-	if _, err := amp4.Unmarshal(f, uint64(moovSize-8), &mvhd, amp4.Context{}); err != nil {
-		return err
-	}
-
-	mvhd.DurationV0 = uint32(min(d/time.Millisecond, time.Duration(^uint32(0)))) //nolint:gosec // Bounded above.
-
-	if _, err := f.Seek(mvhdAt, io.SeekStart); err != nil {
-		return err
-	}
-
-	_, err = amp4.Marshal(f, &mvhd, amp4.Context{})
-
-	return err
+	return n, err
 }

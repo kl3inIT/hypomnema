@@ -611,6 +611,7 @@ func (m *Manager) writeTake(t *take) {
 		if w != nil {
 			_ = w.f.Close()
 			_ = os.Remove(w.f.Name())
+			_ = os.Remove(w.path)
 			w = nil
 		}
 
@@ -667,7 +668,6 @@ func (m *Manager) writeTake(t *take) {
 
 			switch {
 			case err != nil:
-				_ = os.Remove(filepath.Join(t.dir, info.File))
 				fail(err)
 			case kept:
 				m.segmentDone(t, info)
@@ -706,8 +706,8 @@ func (m *Manager) segmentDone(t *take, info segmentInfo) {
 	}
 
 	t.meta.Segments = append(t.meta.Segments, devicetool.TakeSegment{
-		File: info.File, AtMs: at, LengthMs: info.Length.Milliseconds(), Width: info.Width, Height: info.Height,
-		Bytes: info.Bytes, SHA256: info.SHA256,
+		File: info.File, AtMs: at, LengthMs: info.Length.Milliseconds(), LastFrameMs: info.LastFrame.Milliseconds(),
+		Width: info.Width, Height: info.Height, Bytes: info.Bytes, SHA256: info.SHA256,
 	})
 	f.mu.Unlock()
 

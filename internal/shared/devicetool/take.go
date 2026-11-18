@@ -56,14 +56,18 @@ type Take struct {
 }
 
 // TakeSegment is one segment's file, where it starts on the take's timeline and how long it lasts.
+// LastFrameMs is when its last frame starts, from the segment's start: the screen is still after it until the
+// segment ends, and a player seeks into that still tail from just before it, as a browser cannot seek into a
+// file's last sample.
 type TakeSegment struct {
-	File     string `json:"file"`
-	AtMs     int64  `json:"at_ms"`
-	LengthMs int64  `json:"length_ms"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	Bytes    int64  `json:"bytes"`
-	SHA256   string `json:"sha256"`
+	File        string `json:"file"`
+	AtMs        int64  `json:"at_ms"`
+	LengthMs    int64  `json:"length_ms"`
+	LastFrameMs int64  `json:"last_frame_ms"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Bytes       int64  `json:"bytes"`
+	SHA256      string `json:"sha256"`
 }
 
 // TakeStep is one line said, when on the take's timeline, with where the agent was about to tap.

@@ -26,6 +26,7 @@ Used under the MIT License (https://opensource.org/licenses/MIT), as a Go
 module: github.com/bluenviron/mediacommon/v2 at 75fa748 (go.mod).
 
 What is used from it (issue #817): its fmp4 package writes each segment of a
-take, an init with the segment's SPS and PPS and fragments after it, and its
+take while it is filmed, an init with the segment's SPS and PPS and fragments
+after it, its pmp4 package muxes them into a regular MP4 as it closes, and its
 h264 package turns scrcpy's Annex B into the AVCC samples of MP4
 (internal/node/device, segment.go).

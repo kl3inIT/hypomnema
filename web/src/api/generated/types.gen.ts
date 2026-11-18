@@ -2015,6 +2015,10 @@ export type TakeSegment = {
    */
   at_ms: number;
   length_ms: number;
+  /**
+   * When its last frame starts, from the segment's start; the screen is still after it until the segment ends. A player seeks into that still tail from just before it: a browser does not seek into a file's last sample.
+   */
+  last_frame_ms: number;
   width: number;
   height: number;
   bytes: number;

@@ -100,10 +100,15 @@ jobs:
       # coordinator's machine is, and the test fails rather than skips when the box cannot be made.
       - name: Set up the Bots' box
         run: sudo sh deploy/coordinator/setup-box.sh "$USER"
+      # The phone's takes are read back with ffprobe, a decoder independent of the writer (issue #817).
+      - name: Install ffprobe
+        timeout-minutes: 5
+        run: command -v ffprobe || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg; }
       - name: make unit
         run: make unit
         env:
           HYPOMNEMA_BOX_TEST: required
+          HYPOMNEMA_NEED_FFPROBE: required
 
   race:
     name: Race

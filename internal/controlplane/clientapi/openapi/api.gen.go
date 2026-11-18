@@ -5444,13 +5444,16 @@ type TakePause struct {
 // TakeSegment defines model for TakeSegment.
 type TakeSegment struct {
 	// AtMs Where it starts on the take's timeline.
-	AtMs     int64  `json:"at_ms"`
-	Bytes    int64  `json:"bytes"`
-	File     string `json:"file"`
-	Height   int    `json:"height"`
-	LengthMs int64  `json:"length_ms"`
-	Sha256   string `json:"sha256"`
-	Width    int    `json:"width"`
+	AtMs   int64  `json:"at_ms"`
+	Bytes  int64  `json:"bytes"`
+	File   string `json:"file"`
+	Height int    `json:"height"`
+
+	// LastFrameMs When its last frame starts, from the segment's start; the screen is still after it until the segment ends. A player seeks into that still tail from just before it: a browser does not seek into a file's last sample.
+	LastFrameMs int64  `json:"last_frame_ms"`
+	LengthMs    int64  `json:"length_ms"`
+	Sha256      string `json:"sha256"`
+	Width       int    `json:"width"`
 }
 
 // TakeStep defines model for TakeStep.

@@ -24,10 +24,11 @@ SOFTWARE.
 
 Used under the MIT License (https://opensource.org/licenses/MIT).
 Source: https://github.com/bluenviron/mediamtx at 6d41178,
-internal/recorder/format_fmp4*.go.
+internal/recorder/format_fmp4*.go and internal/playback/muxer_mp4.go.
 
-What is adapted from it (issue #817): how a recorder writes H.264 into
-fragmented MP4 with mediacommon (Annex B made AVCC, a 90 kHz timescale,
-fragments written by size), and its writeDuration, which writes the movie's
-duration into mvhd as a segment closes, in Go in internal/node/device
-(segment.go).
+What is adapted from it (issue #817), in Go in internal/node/device
+(segment.go): how its recorder writes H.264 into fragmented MP4 with
+mediacommon (Annex B made AVCC, a 90 kHz timescale, fragments flushed by
+size), and how its playback muxes a recording's fragments into a regular MP4
+with mediacommon's pmp4 (one track, the samples read back as they are
+written).
