@@ -166,10 +166,22 @@ export function AccountSignInDialog({
   const file = useForm({
     defaultValues: { label: "", credentials: "" },
     validators: { onSubmit: fileSchema },
-    onSubmit: ({ value }) =>
-      importFile.mutate({ label: value.label.trim(), credentials: value.credentials.trim() }),
+    onSubmit: ({ value }) => {
+      if (!reading) {
+        importFile.mutate({ label: value.label.trim(), credentials: value.credentials.trim() })
+      }
+    },
   })
   const chooser = useRef<HTMLInputElement>(null)
+  // readOf counts the file reads begun: a read writes the field only while it is the latest, so a slow read of an
+  // earlier file, or one begun before the dialog closed or the owner typed, never replaces what is there now.
+  const readOf = useRef(0)
+  const [reading, setReading] = useState(false)
+
+  function forgetReads() {
+    readOf.current += 1
+    setReading(false)
+  }
 
   // startAgain begins a new sign-in: one is completed once, so after a refused one the owner opens a new link.
   function startAgain() {
@@ -191,6 +203,7 @@ export function AccountSignInDialog({
     finish.reset()
     token.reset()
     file.reset()
+    forgetReads()
     importFile.reset()
     begin.reset()
     complete.reset()
@@ -201,7 +214,7 @@ export function AccountSignInDialog({
   // A link that could not be made is begun again. After a refused paste the paste can be corrected and sent again:
   // the server keeps a sign-in whose paste it could not read (issue #749), and answers that a used one has ended.
   const spent = begin.isError
-  const busy = complete.isPending || addToken.isPending || importFile.isPending
+  const busy = complete.isPending || addToken.isPending || importFile.isPending || reading
 
   return (
     <Dialog open={open} onOpenChange={change}>
@@ -354,10 +367,22 @@ export function AccountSignInDialog({
                               const chosen = event.target.files?.[0]
                               event.target.value = ""
                               if (!chosen) return
-                              void chosen.text().then((text) => {
-                                field.handleChange(text)
-                                field.handleBlur()
-                              })
+                              readOf.current += 1
+                              const read = readOf.current
+                              setReading(true)
+                              void chosen
+                                .text()
+                                .then(
+                                  (text) => text,
+                                  // A file that cannot be read leaves nothing to send, not the one before it.
+                                  () => "",
+                                )
+                                .then((text) => {
+                                  if (read !== readOf.current) return
+                                  field.handleChange(text)
+                                  field.handleBlur()
+                                  setReading(false)
+                                })
                             }}
                           />
                           <Textarea
@@ -370,7 +395,10 @@ export function AccountSignInDialog({
                             value={field.state.value}
                             aria-invalid={invalid || undefined}
                             onBlur={field.handleBlur}
-                            onChange={(event) => field.handleChange(event.target.value)}
+                            onChange={(event) => {
+                              forgetReads()
+                              field.handleChange(event.target.value)
+                            }}
                           />
                           <FieldDescription>
                             Paste the file, or choose it. It is sealed on the control plane and

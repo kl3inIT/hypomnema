@@ -38,6 +38,9 @@ type anthropicOAuth struct {
 	reset http.HandlerFunc
 	// models answers the model list (issue #623); nil answers 404.
 	models http.HandlerFunc
+	// anonymous answers a refresh without the account and the profile with 503,
+	// so who a session is cannot be known (issue #828).
+	anonymous bool
 }
 
 func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
@@ -68,10 +71,25 @@ func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
 			uuid = fmt.Sprintf("acc-uuid-%d", a.exchanges)
 			email = fmt.Sprintf("owner-%d@example.com", a.exchanges)
 		case "refresh_token":
+			// A refresh token already spent or signed out is refused for good, as Anthropic answers 400.
+			if body["refresh_token"] == "sk-ant-ort-spent" {
+				a.mu.Unlock()
+				http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+
+				return
+			}
+
 			a.refreshes++
 			access, refresh, uuid, email = "sk-ant-oat-2", "sk-ant-ort-2", "acc-uuid-1", "owner-1@example.com"
 		}
+		anonymous := a.anonymous
 		a.mu.Unlock()
+
+		if anonymous {
+			writeJSON(w, map[string]any{"access_token": access, "refresh_token": refresh, "expires_in": 3600})
+
+			return
+		}
 
 		writeJSON(w, map[string]any{
 			"access_token": access, "refresh_token": refresh, "expires_in": 3600,
@@ -81,6 +99,16 @@ func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
 	})
 
 	mux.HandleFunc("GET /api/oauth/profile", func(w http.ResponseWriter, _ *http.Request) {
+		a.mu.Lock()
+		anonymous := a.anonymous
+		a.mu.Unlock()
+
+		if anonymous {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+
+			return
+		}
+
 		writeJSON(w, map[string]any{
 			"account":      map[string]string{"uuid": "acc-uuid-1", "email_address": "owner@example.com"},
 			"organization": map[string]string{"name": "Max", "uuid": "org-uuid-1"},

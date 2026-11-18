@@ -636,11 +636,17 @@ test("the owner imports a Claude account from Claude Code's credentials file", a
   await expect(dialog).toContainText("not Claude Code's .credentials.json")
   await shot(page, "models-import-file")
 
-  await dialog
-    .getByRole("textbox", { name: ".credentials.json" })
-    .fill(
+  // Choosing the file reads it into the field.
+  await dialog.getByLabel("Choose the .credentials.json file").setInputFiles({
+    name: ".credentials.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
       '{"claudeAiOauth":{"accessToken":"sk-ant-oat01-made-up","refreshToken":"sk-ant-ort01-made-up"}}',
-    )
+    ),
+  })
+  await expect(dialog.getByRole("textbox", { name: ".credentials.json" })).toHaveValue(
+    /claudeAiOauth/,
+  )
   await dialog.getByRole("button", { name: "Import account" }).click()
 
   await expect(dialog).toHaveCount(0)

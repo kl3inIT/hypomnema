@@ -1,8 +1,12 @@
 package clientcli
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,4 +58,39 @@ func TestTheOwnerSeesTheClaudeSessionsOnThisMachine(t *testing.T) {
 
 	_, err = w.cmd(t, "accounts", "import", "claude")
 	require.ErrorIs(t, err, ErrUsage, "a file or --detect")
+}
+
+// Scenario: a control plane behind a proxy that answers 307 to another server
+// does not get the CLI to resend what it posted there: Go replays the body of
+// a 307, which for an import is the credentials (issue #828).
+func TestTheCLIDoesNotFollowARedirectToAnotherServer(t *testing.T) {
+	t.Parallel()
+
+	var reached atomic.Int32
+
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(elsewhere.Close)
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/api/v1/account-imports", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(proxy.Close)
+
+	client := &http.Client{CheckRedirect: sameOrigin}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, proxy.URL+"/api/v1/account-imports",
+		strings.NewReader(`{"credentials":"sk-ant-ort-secret"}`))
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "another server")
+	assert.Zero(t, reached.Load(), "nothing reached the other server")
 }

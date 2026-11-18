@@ -4671,11 +4671,16 @@ Node (`internal/node`):
       session Claude Code saved in its `.credentials.json`, pasted or read from a chosen file in the browser, as
       OmniRoute's "Import Claude auth" does (`ImportClaudeAuthModal.tsx`); the dialog checks only that it has
       `claudeAiOauth` with a refresh token. `POST /account-imports` `{runtime: claude, credentials, label?}` (the
-      owner's) reads `claudeAiOauth`'s access and refresh tokens as Hermes does (`anthropic_credentials.py`),
-      refreshes them first when the access token ends within five minutes, takes who the account is from the
-      OAuth profile as a sign-in does, and stores them as a completed sign-in is stored (`subscription.Service.save`):
-      an account Anthropic already knows takes the new tokens. The credentials are never answered or logged. The
-      control plane refreshes them from then on, so the machine the file came from may have to sign in again.
+      owner's, `long`) reads `claudeAiOauth` as Hermes does (`anthropic_credentials.py`) and always spends its
+      refresh token first: what is kept is the newest token set, never an older copy of one already refreshed here,
+      and a session already used elsewhere is refused (Anthropic's 400). Who the account is comes from the refresh's
+      answer or the OAuth profile, asked up to three times; an import whose owner Anthropic does not name is
+      refused, not kept under an id made from its token. It is stored as a completed sign-in is
+      (`subscription.Service.save`): an account Anthropic already knows takes the new tokens. The credentials are
+      never answered or logged, and the machine the file came from is signed out of that session. A request the
+      contract refuses is answered with the reason and the field, never the value sent
+      (`WithCustomSchemaErrorFunc`), for every operation; the CLI follows a redirect only to the control plane's
+      own scheme and host, since Go resends a 307's body (`clientcli.sameOrigin`).
       `POST /accounts/{id}/move` moves an account one place up or down among the accounts of its runtime, as
       9router moves a connection; positions are written again from 1. All three are the owner's.
     - An account signed in on the control plane shows its limits under its row (step 3 of the issue): a meter a

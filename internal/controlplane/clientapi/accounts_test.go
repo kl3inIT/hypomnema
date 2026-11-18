@@ -648,6 +648,14 @@ func TestTheOwnerImportsAClaudeSessionFromItsCredentialsFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, bad.StatusCode(), string(bad.Body))
 
+	// A body the contract refuses is answered with what is wrong, never with the credentials it carried.
+	missing, err := owner.ImportAccountWithBodyWithResponse(ctx, "application/json",
+		strings.NewReader(`{"credentials":"{\"claudeAiOauth\":{\"refreshToken\":\"sk-ant-ort-secret\"}}"}`))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, missing.StatusCode())
+	assert.Contains(t, string(missing.Body), "runtime")
+	assert.NotContains(t, string(missing.Body), "sk-ant-", "the refusal does not quote the credentials")
+
 	done, err := owner.ImportAccountWithResponse(ctx, body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, done.StatusCode(), string(done.Body))

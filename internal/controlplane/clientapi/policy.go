@@ -178,7 +178,7 @@ var policies = map[string]policy{
 	"GetAccountLimits":        {scope: scopeOwner},
 	"RedeemAccountLimitReset": {scope: scopeOwner},
 	"BeginAccountSignIn":      {scope: scopeOwner},
-	"ImportAccount":           {scope: scopeOwner},
+	"ImportAccount":           {scope: scopeOwner, long: true},
 	// Completing may wait for the owner to enter a code at the vendor.
 	"CompleteAccountSignIn":     {scope: scopeOwner, long: true},
 	"MoveAccount":               {scope: scopeOwner},
