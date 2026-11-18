@@ -50,7 +50,7 @@ func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 	w, api := guideWorld(t)
 	ctx := t.Context()
 
-	key := w.workerUnder("", "laptop", "")
+	key := w.workerUnder("tools: [phone]\n", "laptop", "")
 	session, err := w.svc.AgentSessionOf(ctx, key)
 	require.NoError(t, err)
 
@@ -61,7 +61,8 @@ func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 	assert.Equal(t, toolNames(w.tools(key)), workerTools[:len(toolNames(w.tools(key)))],
 		"what the block is built from starts with what the worker's tools server lists")
 
-	same, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "same", ToolsOff: []string{agenttool.ToolRoutines}})
+	same, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "same", Tools: []string{"phone"},
+		ToolsOff: []string{agenttool.ToolRoutines}})
 	require.NoError(t, err)
 
 	block := agenttool.ToolGuide(workerTools)

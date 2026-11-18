@@ -9,22 +9,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
 
-// Tool switches (issue #536, step 7; #492, row 10): a worker profile and a
-// Bot narrow the control plane's tools their agents get with two lists beside
-// their skills, `tools` (only these; empty, every tool the agent kind gets)
-// and `tools_off` (never these), as OpenClaw's agent has tools.allow and
-// tools.deny, deny winning (docs/gateway/config-tools/tool-policy.md), and
-// OpenMausBot's bot an Allow and an Exclude list, Exclude winning
-// (docs/tool-selection.md). An entry is a tool's name, or a family: a name's
-// start and `*`, such as `agent_browser_*` or `superset_*`, as OpenClaw takes
-// `*` wildcards and server globs (`outlook__*`) and OpenMausBot a whole
-// server's tools (`mcp:mail:*`); a `*` elsewhere is refused, as OpenMausBot
-// refuses partial wildcards (only a trailing one is taken here: inference).
-// A name no tool has is refused when it is set, as a skill no one added is.
-// The switches only narrow: a tool an agent kind is not given stays away
-// whatever they name. They are Hypomnema's tools only: a CLI's own (Claude
-// Code's Bash, Codex's shell) are not switched here.
-
 // The gateway's web tools (issue #354), listed and called as generate_image is.
 const (
 	ToolWebSearch = "web_search"
@@ -230,26 +214,91 @@ func ToolNames() []string {
 // ErrBadToolSwitch reports a switch that names no tool or names one twice.
 var ErrBadToolSwitch = errors.New("not a tool switch")
 
-// ToolSwitches are the two lists: On, only these when any is named; Off,
-// never these.
-type ToolSwitches struct {
-	On  []string
-	Off []string
-}
+const (
+	PresetFull   = "full"
+	PresetReport = "report"
+)
 
-// Allows says whether the switches let an agent have the tool named: Off
-// names none of it, and On is empty or names it.
-func (s ToolSwitches) Allows(tool string) bool {
-	if slices.ContainsFunc(s.Off, func(entry string) bool { return matches(entry, tool) }) {
-		return false
+func DefaultPreset(preset string) string {
+	if preset == "" {
+		return PresetFull
 	}
 
-	return len(s.On) == 0 || slices.ContainsFunc(s.On, func(entry string) bool { return matches(entry, tool) })
+	return preset
+}
+
+// ToolSwitches apply the preset, additions and denials, then cap the result by the parent Bot if present.
+type ToolSwitches struct {
+	Preset string
+	On     []string
+	Off    []string
+	Parent *ToolSwitches
+}
+
+func (s ToolSwitches) Allows(tool string) bool {
+	allowed, _, _ := s.Decision(tool)
+
+	return allowed
+}
+
+func (s ToolSwitches) Decision(tool string) (allowed bool, source, reason string) {
+	if containsTool(s.Off, tool) {
+		return false, "exception", "Removed by an exception"
+	}
+
+	if s.Parent != nil && !s.Parent.Allows(tool) {
+		return false, "bot", "Not allowed by the Bot"
+	}
+
+	if containsTool(s.On, tool) {
+		return true, "exception", "Added by an exception"
+	}
+
+	for _, family := range ToolFamilies {
+		if matches(family.Pattern, tool) {
+			switch DefaultPreset(s.Preset) {
+			case PresetFull:
+				allowed = family.Name != "phone"
+			case PresetReport:
+				allowed = slices.Contains([]string{"memory", "artifacts", "routines", "web", "superset"}, family.Name)
+			}
+
+			break
+		}
+	}
+
+	if allowed {
+		return true, "preset", "Included in the preset"
+	}
+
+	return false, "preset", "Not included in the preset"
+}
+
+func (s ToolSwitches) AllowsFamily(name string) bool {
+	for _, family := range ToolFamilies {
+		if family.Name == name {
+			return slices.ContainsFunc(family.Tools, s.Allows)
+		}
+	}
+
+	return false
+}
+
+func containsTool(entries []string, tool string) bool {
+	return slices.ContainsFunc(entries, func(entry string) bool { return matches(entry, tool) })
 }
 
 // matches says whether an entry, a name or a name's start and `*`, names the tool. A family's Pattern names
 // every tool of the family: the phone's device_* switches its video_* tools too (issue #817).
 func matches(entry, tool string) bool {
+	for _, family := range ToolFamilies {
+		if family.Name == entry {
+			entry = family.Pattern
+
+			break
+		}
+	}
+
 	if start, family := strings.CutSuffix(entry, "*"); family {
 		if strings.HasPrefix(tool, start) {
 			return true
@@ -264,13 +313,22 @@ func matches(entry, tool string) bool {
 }
 
 // CheckToolSwitches checks the two lists before they are stored: each entry
-// a tool's name or a family that names at least one, named once, and not in
-// both lists.
+// a tool's name or a family that names at least one, named once per list.
 func CheckToolSwitches(on, off []string) error {
+	for _, entries := range [][]string{on, off} {
+		if err := checkEntries(entries); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func checkEntries(entries []string) error {
 	seen := map[string]bool{}
 	names := ToolNames()
 
-	for _, entry := range slices.Concat(on, off) {
+	for _, entry := range entries {
 		if seen[entry] {
 			return fmt.Errorf("%w: tool %q is named twice", ErrBadToolSwitch, entry)
 		}

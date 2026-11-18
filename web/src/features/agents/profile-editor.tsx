@@ -1,7 +1,7 @@
 import { Brain, Trash2 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 
-import type { Model, Profile } from "@/api/generated/types.gen"
+import type { Model, Profile, ToolAccess } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -155,7 +155,13 @@ export function ProfileEditor({
       </div>
 
       {mode === "builder" ? (
-        <Builder draft={draft} set={set} models={models} renamable={!stored} />
+        <Builder
+          draft={draft}
+          set={set}
+          models={models}
+          renamable={!stored}
+          access={stored?.tool_access}
+        />
       ) : (
         <Field>
           <FieldLabel id="profile-yaml-label">Config (YAML)</FieldLabel>
@@ -234,11 +240,13 @@ function Builder({
   set,
   models,
   renamable,
+  access,
 }: {
   draft: Draft
   set: (change: Partial<Draft>) => void
   models: Model[]
   renamable: boolean
+  access?: ToolAccess
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -348,6 +356,7 @@ function Builder({
 
       <SkillsField
         id="profile-skills"
+        access={access?.skills}
         skills={draft.skills}
         off={draft.skillsOff}
         onChange={set}
@@ -356,6 +365,8 @@ function Builder({
 
       <ToolsField
         id="profile-tools"
+        preset={draft.preset}
+        access={access}
         tools={draft.tools}
         off={draft.toolsOff}
         onChange={set}

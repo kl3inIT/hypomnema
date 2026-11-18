@@ -54,8 +54,9 @@ func skillsOf(p openapi.Profile) string {
 		out += "	skills off: " + strings.Join(p.SkillsOff, ", ")
 	}
 
+	out += "	tool preset: " + string(p.Preset)
 	if len(p.Tools) > 0 {
-		out += "	tools: only " + strings.Join(p.Tools, ", ")
+		out += "	tools added: " + strings.Join(p.Tools, ", ")
 	}
 
 	if len(p.ToolsOff) > 0 {
