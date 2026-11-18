@@ -57,7 +57,9 @@ func Protect(ctx context.Context, target, home, allowed string) error {
 			return err
 		}
 		paths = slices.Clone(paths)
-		retained := []string{"state.db", "state.db-wal", "state.db-shm", "state.db-journal", "config.json", "accounts", "conversations"}
+		retained := []string{
+			"state.db", "state.db-wal", "state.db-shm", "state.db-journal", "config.json", "accounts", "conversations",
+		}
 		for _, name := range retained {
 			paths = append(paths, filepath.Join(resolved, name))
 		}
