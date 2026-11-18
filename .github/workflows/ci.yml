@@ -100,16 +100,10 @@ jobs:
       # coordinator's machine is, and the test fails rather than skips when the box cannot be made.
       - name: Set up the Bots' box
         run: sudo sh deploy/coordinator/setup-box.sh "$USER"
-      # The phone's takes are read back with ffprobe, a decoder independent of the writer (issue #817).
-      # A slow Ubuntu mirror took over 5 minutes for ffmpeg's packages on 2026-11-18, failing Unit and so the release:
-      # retried downloads and a longer limit.
-      - name: Install ffprobe
-        timeout-minutes: 15
-        run: >-
-          command -v ffprobe || { sudo apt-get update -o Acquire::Retries=3 &&
-          sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg; }
       # The videos are made with the control plane's pinned ffmpeg (issue #818, row 9), installed here as the control
-      # plane installs it, and kept between runs while its pin is unchanged.
+      # plane installs it, and kept between runs while its pin is unchanged. Its ffprobe also reads the phone's takes
+      # back, a decoder independent of the writer (issue #817): it is put on PATH. Ubuntu's ffmpeg was installed for
+      # that until 2026-11-18, and a slow mirror timed it out at 15 minutes that day.
       - name: Cache the pinned ffmpeg
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -118,8 +112,10 @@ jobs:
       - name: Install the pinned ffmpeg
         timeout-minutes: 15
         run: |
-          go run ./internal/controlplane/videos/ffmpeg/installffmpeg "$HOME/.cache/hypomnema-ffmpeg"
-          echo "HYPOMNEMA_FFMPEG_DIR=$HOME/.cache/hypomnema-ffmpeg" >> "$GITHUB_ENV"
+          dir="$HOME/.cache/hypomnema-ffmpeg"
+          ffprobe=$(go run ./internal/controlplane/videos/ffmpeg/installffmpeg "$dir" | tail -n 1)
+          echo "HYPOMNEMA_FFMPEG_DIR=$dir" >> "$GITHUB_ENV"
+          dirname "$ffprobe" >> "$GITHUB_PATH"
       - name: make unit
         run: make unit
         env:
