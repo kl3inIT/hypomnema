@@ -21,19 +21,7 @@ func Alive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// Kill kills the shim's whole session group: the shim, the worker and what
-// the worker started (durable-harness host.ts kills -pgid).
-func Kill(pid int) error {
-	if pid <= 1 {
-		return errors.New("refusing to kill pid 0 or 1")
-	}
-
-	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return err
-	}
-
-	return nil
-}
+func killSignal() string { return syscall.SIGKILL.String() }
 
 func signalOf(ps *os.ProcessState) string {
 	ws, ok := ps.Sys().(syscall.WaitStatus)

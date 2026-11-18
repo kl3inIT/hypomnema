@@ -120,14 +120,12 @@ func fakeClaude(mode string) int {
 				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Write", "input": map[string]any{"x": 1}},
 			})
 		case msg.Type == "control_response" && msg.Response.RequestID == "perm_1":
-			if mode == "idle-after-background" || mode == "stuck-background" {
+			if mode == "idle-after-background" || mode == "stuck-after-eof" {
 				emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
 					"tasks": []map[string]string{{"task_id": "bg", "task_type": "local_bash"}}})
 				emit(out, map[string]any{"type": "result", "subtype": "success", "result": "waiting"})
-				if mode == "idle-after-background" {
-					emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
-					emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
-				}
+				emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+				emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
 				continue
 			}
 
@@ -176,6 +174,10 @@ func fakeClaude(mode string) int {
 		}
 	}
 
+	if mode == "stuck-after-eof" {
+		_ = os.WriteFile("input-closed.txt", []byte("yes"), 0o600)
+		time.Sleep(time.Minute)
+	}
 	return exit
 }
 
@@ -203,7 +205,7 @@ func emitInterimResult(out *json.Encoder, mode string) {
 	if mode == "running" {
 		emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "running"})
 	}
-	if mode == "running" || mode == "tool-in-flight" {
+	if mode == "running" || mode == "tool-in-flight" || queued {
 		time.Sleep(settleWait + 500*time.Millisecond)
 	}
 	emit(out, map[string]any{"type": "control_request", "request_id": "perm_after",
@@ -512,6 +514,9 @@ func TestInterimResultKeepsPermissionStreamOpen(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			g := newRig(t, mode)
+			if mode == "tool-in-flight" {
+				g.rt.closeGrace = time.Second
+			}
 			r := newReporter("dsp_1")
 			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
 			t.Cleanup(func() { g.sup.Release(r.ID()) })
@@ -541,11 +546,11 @@ func TestBackgroundSettlesWithoutAnotherResult(t *testing.T) {
 	assert.Equal(t, "stopped without finish: waiting", r.finished[0].Summary)
 }
 
-func TestBackgroundContinuationHardDeadline(t *testing.T) {
+func TestBackgroundContinuationThatIgnoresEOFIsKilled(t *testing.T) {
 	t.Parallel()
 
-	g := newRig(t, "stuck-background")
-	g.rt.continuationLimit = 500 * time.Millisecond
+	g := newRig(t, "stuck-after-eof")
+	g.rt.closeGrace = 500 * time.Millisecond
 	r := newReporter("dsp_1")
 	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
 	t.Cleanup(func() { g.sup.Release(r.ID()) })
@@ -554,12 +559,16 @@ func TestBackgroundContinuationHardDeadline(t *testing.T) {
 	require.Len(t, r.finished, 1)
 	assert.Zero(t, r.stopped)
 	assert.Equal(t, "worker_error", r.finished[0].Class)
-	assert.Equal(t, "Claude Code exceeded the background continuation deadline", r.finished[0].Summary)
+	assert.Equal(t, "Claude Code did not exit after its input was closed", r.finished[0].Summary)
+	assert.Equal(t, "yes", g.file("input-closed.txt"))
 	dir := filepath.Join(g.sup.Home, "run", r.ID())
 	exit, done, err := shim.ReadExit(dir)
 	require.NoError(t, err)
 	require.True(t, done, "the transcript can deliver the journal's final lines")
 	assert.Equal(t, -1, exit.Code)
+	assert.Equal(t, "signaled", r.finished[0].Exit.Kind)
+	assert.NotEmpty(t, r.finished[0].Exit.Signal)
+	assert.Nil(t, r.finished[0].Exit.Code)
 	pid, err := shim.PID(dir)
 	require.NoError(t, err)
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 3*time.Second, 20*time.Millisecond)

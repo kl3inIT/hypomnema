@@ -12,6 +12,8 @@ import (
 // only, without its own session.
 func detach(*exec.Cmd) {}
 
+func prepareWorker() error { return nil }
+
 // Alive reports whether the process runs.
 func Alive(pid int) bool {
 	p, err := os.FindProcess(pid)
@@ -43,3 +45,5 @@ func Kill(pid int) error {
 }
 
 func signalOf(*os.ProcessState) string { return "" }
+
+func killSignal() string { return "" }

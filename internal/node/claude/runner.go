@@ -65,8 +65,8 @@ type ClaudeRuntime struct {
 	// and where its tools ask for a token.
 	URL string
 	// Env is added to each worker's environment (tests).
-	Env               []string
-	continuationLimit time.Duration
+	Env        []string
+	closeGrace time.Duration
 }
 
 var _ runner.Runtime = (*ClaudeRuntime)(nil)
@@ -143,7 +143,7 @@ func (rt *ClaudeRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.
 }
 
 func (rt *ClaudeRuntime) newTurn() *turn {
-	return &turn{continuationLimit: cmp.Or(rt.continuationLimit, maxContinuation)}
+	return &turn{closeGrace: cmp.Or(rt.closeGrace, closeGrace)}
 }
 
 // Adopted is a turn read on from where an earlier daemon left it, with what
@@ -283,12 +283,12 @@ type event struct {
 // turn is one stream-JSON turn. Its lines come from one goroutine, and it is
 // read once the worker exited.
 type turn struct {
-	result            *event
-	limited           *time.Time
-	background        bool
-	toolCalls         map[string]*json.RawMessage
-	wait              continuation
-	continuationLimit time.Duration
+	result     *event
+	limited    *time.Time
+	background bool
+	toolCalls  map[string]*json.RawMessage
+	wait       continuation
+	closeGrace time.Duration
 	// toolsDown is the tools server's status when it failed to start.
 	toolsDown string
 }
@@ -297,6 +297,9 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 	var e event
 	if json.Unmarshal(line, &e) != nil {
 		return
+	}
+	if e.Type != "keep_alive" {
+		t.wait.IdleAt = time.Time{}
 	}
 
 	switch {
@@ -319,9 +322,6 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 	case e.Type == "system" && e.Subtype == "session_state_changed":
 		switch e.State {
 		case "idle":
-			if t.wait.Running {
-				t.wait.IdleAt = time.Time{}
-			}
 			t.wait.Running = false
 			t.wait.Active = false
 		case "requires_action":
@@ -329,7 +329,6 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 			t.wait.Active = true
 		case "running":
 			t.wait.Running = true
-			t.wait.IdleAt = time.Time{}
 		}
 	case e.Type == "system" && e.Subtype == "background_tasks_changed" && e.Tasks != nil:
 		t.background = false
@@ -358,14 +357,11 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 func (t *turn) onResult(ctx context.Context, w *runner.Worker, e event) {
 	t.result = &e
 	t.wait.Active = false
-	t.wait.IdleAt = time.Time{}
 	if !e.IsError && !strings.HasPrefix(e.Subtype, "error") && (t.background || e.Queued > 0) {
 		_, finished, err := bridge.Finished(bridge.Dir(w.Dir()))
 		w.Report(ctx, err)
 		if !finished {
-			if t.wait.HardAt.IsZero() {
-				t.wait.HardAt = time.Now().Add(t.continuationLimit)
-			}
+			t.wait.Held = true
 			return
 		}
 	}

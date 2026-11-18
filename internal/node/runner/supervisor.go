@@ -592,19 +592,23 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 				return
 			}
 
-			if gone, why := shimGone(w); gone {
-				s.ended(ctx, w, shim.Exit{Code: -1, Error: why})
-
-				return
-			}
 		}
+		forceStopping := false
 		if polls && ctx.Err() == nil {
 			changed, reason := poller.Poll(ctx, w, n == 0 && err == nil)
 			if changed {
 				writeCheckpoint(w.dir, offset, w.turn.State())
 			}
 			if pid := w.shimPID(); reason != "" && pid > 0 {
+				forceStopping = true
 				w.Report(ctx, shim.KillAndRecordExit(w.dir, pid, reason))
+			}
+		}
+		if !forceStopping && n == 0 && ctx.Err() == nil {
+			if gone, why := shimGone(w); gone {
+				s.ended(ctx, w, shim.Exit{Code: -1, Error: why})
+
+				return
 			}
 		}
 

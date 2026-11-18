@@ -4365,18 +4365,19 @@ Node (`internal/node`):
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
     saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt and closes stdin; a worker still
-    alive after 30 s is killed with its whole session group.
+    alive after 30 s is killed. On Linux the shim adopts orphaned descendants; force-stop freezes and rescans
+    its process tree before sending SIGKILL, including Claude Bash jobs in separate sessions.
   - Reported:
     - the session id from `system/init`, as started;
     - a Dispatch can include a follow-up turn from background Bash. A successful `result` while Claude reports
       background Bash or queued turns does not close stdin; permission replies still go over the same pipe.
       If the background work settles without another result, the node closes stdin after 2 s with no pending
-      work or follow-up turn (up to 10 minutes between turns if Claude still says `running`), and uses the most
-      recent result. The hold and its deadlines survive adoption.
+      background work, queued turn, tool call, or active turn, and uses the most recent result. A `running`
+      state keeps stdin open even when Claude does not emit partial messages. The hold survives adoption.
       A result with no outstanding work, a terminal error, or a result after `finish` also closes stdin.
-      Within a held continuation, the node kills the shim's session group and records an exit if Claude stays
-      alive for 30 s after stdin closes or for 4 hours after the first held result, whichever comes first
-      (issue #867).
+      Within a held continuation, the node kills the shim's process tree and records a signaled exit if Claude stays
+      alive for 30 s after stdin closes. There is no elapsed-time cutoff while work remains pending; the control
+      plane's 4-hour mark only warns (issue #867).
     - if Claude's journal matches an explicit `finish` call to a closed-stdio permission error, the node validates
       the same tool arguments and records a fallback in the bridge. A normal finish takes precedence. The node
       sends the chosen report through the same durable outbox; prose or a PR alone is not a final report.

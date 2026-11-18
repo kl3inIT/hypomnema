@@ -128,6 +128,9 @@ func Main(ctx context.Context, dir string) error {
 		return err
 	}
 
+	if err := prepareWorker(); err != nil {
+		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
+	}
 	if err := cmd.Start(); err != nil {
 		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
 	}
@@ -272,9 +275,6 @@ func ReadExit(dir string) (Exit, bool, error) {
 
 // KillAndRecordExit ends a timed-out worker and leaves its transcript eligible for final delivery.
 func KillAndRecordExit(dir string, pid int, reason string) error {
-	if _, done, _ := ReadExit(dir); done {
-		return nil
-	}
 	if err := Kill(pid); err != nil {
 		return fmt.Errorf("killing a timed-out shim: %w", err)
 	}
@@ -282,7 +282,7 @@ func KillAndRecordExit(dir string, pid int, reason string) error {
 	if _, done, _ := ReadExit(dir); done {
 		return nil
 	}
-	return saveExit(dir, Exit{Code: -1, Error: reason}, ExitFile+".kill.tmp")
+	return saveExit(dir, Exit{Code: -1, Signal: killSignal(), Error: reason}, ExitFile+".kill.tmp")
 }
 
 // Send writes lines to a running shim's worker.

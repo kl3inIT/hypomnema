@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -43,7 +44,9 @@ func TestRealClaudeBackgroundBash(t *testing.T) {
 		notification  string
 		ceiling       string
 		wait          time.Duration
+		slowStream    bool
 		closeInput    bool
+		killTree      bool
 	}{
 		{name: "completion", command: completionCommand, input: `"run_in_background":true`,
 			notification: `"status":"completed"`, ceiling: completionCeiling, wait: completionWait},
@@ -51,11 +54,18 @@ func TestRealClaudeBackgroundBash(t *testing.T) {
 			notification: `"status":"stopped"`, ceiling: "5000", wait: 20 * time.Second},
 		{name: "closed input", command: "sleep 7", input: `"run_in_background":true`, notification: `"status":"completed"`,
 			ceiling: "5000", wait: 20 * time.Second, closeInput: true},
+		{name: "slow stream", command: "sleep 7", input: `"run_in_background":true`, notification: `"status":"completed"`,
+			ceiling: "5000", wait: 20 * time.Second, slowStream: true},
+		{name: "kill detached Bash", command: "echo $$ > background-pid; sleep 4; touch survived-kill",
+			input: `"run_in_background":true`, wait: 20 * time.Second, killTree: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+			if test.killTree && runtime.GOOS != "linux" {
+				t.Skip("Linux process-tree invariant")
+			}
 			g := newRig(t, "")
-			api := backgroundModel(t, test.command, test.input)
+			api := backgroundModel(t, test.command, test.input, test.slowStream)
 			g.rt.Claude, g.rt.URL = cli, api.URL
 			g.rt.Env = []string{
 				"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "ENABLE_TOOL_SEARCH=false",
@@ -70,6 +80,10 @@ func TestRealClaudeBackgroundBash(t *testing.T) {
 			root, err := os.OpenRoot(runDir)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, root.Close()) })
+			if test.killTree {
+				testDetachedBashCleanup(t, g, r, root, runDir)
+				return
+			}
 			if test.closeInput {
 				require.Eventually(t, func() bool {
 					journal, err := root.ReadFile(shim.JournalFile)
@@ -105,7 +119,26 @@ func TestRealClaudeBackgroundBash(t *testing.T) {
 	}
 }
 
-func backgroundModel(t *testing.T, command, input string) *httptest.Server {
+func testDetachedBashCleanup(t *testing.T, g *rig, r *reporter, root *os.Root, runDir string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		journal, err := root.ReadFile(shim.JournalFile)
+		return err == nil && strings.Contains(string(journal), `"result":"waiting"`)
+	}, 5*time.Second, 25*time.Millisecond)
+	pid, err := shim.PID(runDir)
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(g.worktree, "background-pid"))
+	require.NoError(t, shim.KillAndRecordExit(runDir, pid, "integration test cleanup"))
+	r.wait(t)
+	require.Len(t, r.finished, 1)
+	assert.Equal(t, "signaled", r.finished[0].Exit.Kind)
+	assert.Never(t, func() bool {
+		_, err := os.Stat(filepath.Join(g.worktree, "survived-kill"))
+		return err == nil
+	}, 5*time.Second, 50*time.Millisecond)
+}
+
+func backgroundModel(t *testing.T, command, input string, slowStream bool) *httptest.Server {
 	t.Helper()
 	round := atomic.Int32{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,14 +162,14 @@ func backgroundModel(t *testing.T, command, input string) *httptest.Server {
 			name, args = "mcp__hypomnema__finish", `{"summary":"finished after Bash"}`
 		}
 
-		serveClaudeMessage(w, index, name, args, text)
+		serveClaudeMessage(w, index, name, args, text, slowStream && index == 3)
 	}))
 	t.Cleanup(server.Close)
 
 	return server
 }
 
-func serveClaudeMessage(w http.ResponseWriter, index int32, name, args, text string) {
+func serveClaudeMessage(w http.ResponseWriter, index int32, name, args, text string, slowStream bool) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	frame := func(kind, body string) {
 		_, _ = fmt.Fprintf(w, "event: %s\ndata: {\"type\":%q%s}\n\n", kind, kind, body)
@@ -150,6 +183,15 @@ func serveClaudeMessage(w http.ResponseWriter, index int32, name, args, text str
 	} else {
 		frame("content_block_start", fmt.Sprintf(`,"index":0,"content_block":`+
 			`{"type":"tool_use","id":"toolu_%d","name":%q,"input":{}}`, index, name))
+		if slowStream {
+			for range 8 {
+				frame("content_block_delta", `,"index":0,"delta":{"type":"input_json_delta","partial_json":" "}`)
+				if http.NewResponseController(w).Flush() != nil {
+					return
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
 		frame("content_block_delta", fmt.Sprintf(`,"index":0,"delta":{"type":"input_json_delta","partial_json":%q}`, args))
 		stop = "tool_use"
 	}
