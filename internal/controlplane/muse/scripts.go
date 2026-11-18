@@ -190,15 +190,29 @@ const authCheck = `(async () => {
 const ownerAuthCheck = `((location.hostname === 'muse.ai' || location.hostname.endsWith('.muse.ai')) ? ` +
 	authCheck + ` : {status: -1, ok: false, viewer: ''})`
 
-// sessionCheck reads the account's workspace (www's upstream/muse.py:117-143):
-// "assigned" with a running VM is ready.
+// sessionCheck reads the account's workspace (www's upstream/muse.py:108-119):
+// "assigned" is ready; the machine's id and state are for its wake.
 const sessionCheck = `(async () => {
   try {
     const res = await fetch('/api/session', {credentials: 'same-origin'});
     const j = await res.json().catch(() => ({}));
-    return {status: res.status, session: String(j.status || ''), vm: String(j.vm_state || '')};
-  } catch (e) { return {status: 0, session: '', vm: '', error: String(e)}; }
+    return {status: res.status, session: String(j.status || ''), vmId: String(j.vm_id || ''),
+      vm: String(j.vm_state || '')};
+  } catch (e) { return {status: 0, session: '', vmId: '', vm: '', error: String(e)}; }
 })()`
+
+// vmWake asks muse.ai to wake the account's machine, with the body both
+// references send (www's upstream/muse.py:121-128, czg's engine.py:615-619).
+func vmWake(vmID string) string {
+	return fmt.Sprintf(`(async () => {
+  try {
+    const res = await fetch('/api/hatch/vm/wake', {method: 'POST', headers: {'content-type': 'application/json'},
+      credentials: 'same-origin',
+      body: JSON.stringify({vm_id: %s, retry_count: 0, connect_attempt_id: crypto.randomUUID()})});
+    return {status: res.status};
+  } catch (e) { return {status: 0, error: String(e)}; }
+})()`, q(vmID))
+}
 
 // Settings → Usage, www's (dom.py:208-244): the dock's Settings button, the
 // Settings item of the menu it opens, and the dialog's text.

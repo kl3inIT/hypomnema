@@ -2744,8 +2744,9 @@ capabilities do not exist yet.
   each; the YAML is their one home (`modelgateway/attributes.go`). One it does not set is models.dev's for the model
   of its first target, under that provider's vendor (the snapshot of `modelgateway/prices`: `limit.context`,
   `limit.output`, `modalities.input`, `reasoning` and `reasoning_options` of type `effort`); else it is unknown.
-  A subscription's window is its own before models.dev's: a Codex one's from Codex's list (500,000 for
-  `gpt-6.2-sol` and `gpt-6.1-terra`, 272,000 for a model it does not list), an Antigravity one's window and largest
+  A subscription's window is its own before models.dev's: a Codex one's from Codex's list at `rust-v0.169.1`
+  (500,000 for `gpt-6.2-sol`, `gpt-6.1-sol` and `gpt-6.1-terra`, 372,000 for `gpt-daybreak-red-latest`, 272,000 for
+  every other model and one it does not list), an Antigravity one's window and largest
   output as Google serves them, `maxTokens` and `maxOutputTokens` of `fetchAvailableModels` under the first active
   account, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
   levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
@@ -3362,8 +3363,13 @@ not checked against the live site in the change that wrote them.
   control back to finish adding the account." and keeps polling, and nothing is saved until the check says ok.
 - States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
   refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
-  not `assigned`, or its machine not `RUNNING`); page not ready (no ready composer within 30 s); resting (out of
-  quota). Each question first asks `/api/auth/check` and `/api/session` from the account's page.
+  not `assigned`); page not ready (no ready composer within 30 s); resting (out of
+  quota). Each question first asks `/api/auth/check` and `/api/session` from the account's page. A machine
+  (`vm_state`) that is not `RUNNING` never refuses the account (issue #810, as www222fff/muse2api's
+  `upstream/muse.py:121-170` and czg86389-hub's `engine.py:607-650`): with a `vm_id` and not `DISABLED`, the page
+  POSTs `/api/hatch/vm/wake` and reads `/api/session` every 2 s for up to 20 s for `RUNNING`; then the question is
+  asked whatever was seen, logged as `muse.vm_wake`, and a machine not seen running (or `DISABLED`, not woken) is
+  the signed-in account's cause.
 - Pool: a thread is kept with its account in `muse.db` for good; continuing it uses that account, and when it is
   off, resting or removed the call says so instead of moving the thread. A new thread takes the first account in
   order that is on and not resting or needing a sign-in; one that fails its check before anything was sent is

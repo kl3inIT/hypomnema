@@ -121,16 +121,9 @@ export function stepsOf(m: Meeting): Step[] {
   ]
 }
 
-// speakerTone is a voice's color, by the order it first spoke in (the tokens --speaker-1 to 6).
-const tones = [
-  "text-speaker-1",
-  "text-speaker-2",
-  "text-speaker-3",
-  "text-speaker-4",
-  "text-speaker-5",
-  "text-speaker-6",
-]
-const dots = [
+// speakerFill is a voice's color, by the order it first spoke in (the tokens --speaker-1 to 6), as the fill of its
+// badge (speaker-badge.tsx).
+const fills = [
   "bg-speaker-1",
   "bg-speaker-2",
   "bg-speaker-3",
@@ -139,13 +132,23 @@ const dots = [
   "bg-speaker-6",
 ]
 
-export function speakerTone(speakers: MeetingSpeaker[], label: string) {
+export function speakerFill(speakers: MeetingSpeaker[], label: string) {
   const i = Math.max(
     0,
     speakers.findIndex((s) => s.label === label),
   )
 
-  return { text: tones[i % tones.length], dot: dots[i % dots.length] }
+  return fills[i % fills.length]!
+}
+
+// speakerInitial is what a voice's badge reads, as MemoryOS's (web/src/features/meetings/speakers.ts): the number of
+// a voice nobody has named, else the first letter of the name it goes by, which in a Vietnamese name is the last
+// word ("Nguyễn Văn Đạt" → "Đ").
+export function speakerInitial(speaker: Pick<MeetingSpeaker, "label" | "name" | "named">) {
+  if (!speaker.named) return speaker.label
+  const given = speaker.name.trim().split(/\s+/).at(-1) ?? ""
+
+  return [...given][0]?.toLocaleUpperCase() ?? speaker.label
 }
 
 // percent is a voice's share of the talk, rounded.

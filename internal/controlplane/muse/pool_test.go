@@ -559,6 +559,41 @@ func TestRefusedThenSignedInAndWorkspaceNotReady(t *testing.T) {
 	assert.Contains(t, err.Error(), "needs to be signed in again")
 }
 
+// An account whose machine is not running is woken and asked, whether or not
+// the machine is then seen running (issue #810); the account stays signed in,
+// with what was seen as its cause.
+func TestAnAccountWhoseMachineIsNotRunningIsAsked(t *testing.T) {
+	t.Parallel()
+
+	p := newPool(t, "first")
+	first := p.browser.site("acc_1")
+	first.session = map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "UNKNOWN"}
+	first.awake = map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "RUNNING"}
+
+	res := p.ask(t, "")
+	assert.Equal(t, OutcomeAnswered, res.Outcome)
+	assert.Equal(t, "acc_1", res.Account)
+	assert.Len(t, first.woken, 1)
+
+	views, err := p.Accounts(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, StateSignedIn, views[0].State)
+	assert.Empty(t, views[0].Cause)
+
+	// Woken, but never seen running: still asked.
+	first.woken, first.sent, first.shown = nil, false, 0
+	first.awake = map[string]any{"status": 200, "session": "assigned", "vmId": "vm1", "vm": "STARTING"}
+
+	res = p.ask(t, "")
+	assert.Equal(t, OutcomeAnswered, res.Outcome)
+	assert.Len(t, first.woken, 1)
+
+	views, err = p.Accounts(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, StateSignedIn, views[0].State)
+	assert.Equal(t, "its machine was woken and is starting, not seen running", views[0].Cause)
+}
+
 // The owner holding the browser interrupts the question: nothing it read is
 // kept, and nothing goes to the vault.
 func TestTheOwnersHoldInterruptsAndNothingIsSaved(t *testing.T) {

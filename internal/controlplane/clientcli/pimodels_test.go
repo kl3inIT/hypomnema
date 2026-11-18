@@ -226,7 +226,7 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	sol := models["sol"]
 	assert.Equal(t, "sol", sol.ID)
 	assert.Equal(t, []string{"text", "image"}, sol.Input, "the Codex model takes images")
-	assert.Equal(t, int64(272000), sol.ContextWindow, "Codex's own window, not the API's that models.dev gives")
+	assert.Equal(t, int64(500000), sol.ContextWindow, "Codex's own window, not the API's that models.dev gives")
 	assert.Equal(t, *codex.MaxOutput, sol.MaxTokens)
 	assert.True(t, sol.Reasoning)
 	require.NotNil(t, sol.ThinkingLevelMap["xhigh"])
