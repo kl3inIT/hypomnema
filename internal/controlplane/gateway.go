@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -587,13 +588,53 @@ type vendorModels struct {
 	subs      servedNames
 	providers providerModels
 	logger    *slog.Logger
+	// misses counts, by provider and model, the answered readings in a row that left the model out (dropAfter).
+	misses map[string]map[string]int
 }
 
 func (v *vendorModels) update(ctx context.Context) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	addVendorModels(ctx, v.subs, v.providers, v.logger)
+	if v.misses == nil {
+		v.misses = map[string]map[string]int{}
+	}
+
+	addVendorModels(ctx, v.subs, v.providers, v.logger, v.misses)
+}
+
+// dropAfter is how many answered readings in a row must leave a model out before a Codex provider drops it (review
+// of #832): one is not enough, as an account can be read without it once.
+const dropAfter = 2
+
+// droppingRuntimes are the runtimes whose providers drop, after dropAfter readings, a model their vendor's lists
+// leave out: Codex, whose requests go only to the accounts whose list has the model (issue #814), so a model no list
+// names would be listed by /v1/models and refused. Claude's list does not name every model it serves.
+var droppingRuntimes = map[string]bool{"codex": true}
+
+// kept are the names a provider is set to: what the vendor serves, and each model it lists that was left out of
+// fewer than dropAfter answered readings in a row. misses is updated.
+func kept(listed, served []string, misses map[string]int) []string {
+	out := slices.Clone(served)
+
+	for name := range misses {
+		if slices.Contains(served, name) {
+			delete(misses, name)
+		}
+	}
+
+	for _, name := range listed {
+		if slices.Contains(served, name) {
+			continue
+		}
+
+		misses[name]++
+		if misses[name] < dropAfter {
+			out = append(out, name)
+		}
+	}
+
+	return out
 }
 
 // vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
@@ -617,7 +658,10 @@ func vendorModelsLoop(ctx context.Context, v *vendorModels) {
 // addVendorModels adds to each subscription provider the models its vendor serves that it does not list, as Codex,
 // OpenClaw, omp and Hermes take a subscription's models from its vendor. A vendor that does not answer, or a runtime
 // with no account logged in, leaves the provider as it is: its list is the fallback.
-func addVendorModels(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger) {
+func addVendorModels(
+	ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger,
+	misses map[string]map[string]int,
+) {
 	list, err := providers.ListProviders(ctx)
 	if err != nil {
 		logger.WarnContext(ctx, "the providers could not be read for their vendors' models",
@@ -642,9 +686,25 @@ func addVendorModels(ctx context.Context, subs servedNames, providers providerMo
 			err            error
 		)
 
-		if rosterRuntimes[runtime] {
+		switch {
+		case rosterRuntimes[runtime]:
 			added, removed, err = providers.SetProviderModels(ctx, p.Name, names)
-		} else {
+		case droppingRuntimes[runtime] && misses != nil:
+			if misses[p.Name] == nil {
+				misses[p.Name] = map[string]int{}
+			}
+
+			added, removed, err = providers.SetProviderModels(ctx, p.Name, kept(p.Models, names, misses[p.Name]))
+			if err != nil {
+				// A model a profile uses refuses the drop (SetProviderModels): the provider still gains the new ones.
+				logger.WarnContext(ctx, "a provider's models its vendor no longer serves were not dropped",
+					slog.String("event", "gateway.vendor_models_kept"), slog.String("provider", p.Name),
+					slog.String("error", err.Error()))
+
+				removed = nil
+				added, err = providers.AddProviderModels(ctx, p.Name, names)
+			}
+		default:
 			added, err = providers.AddProviderModels(ctx, p.Name, names)
 		}
 

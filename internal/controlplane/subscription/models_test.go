@@ -206,4 +206,14 @@ func TestAClaudeListFallsToTheNextAccountWhenTheFirstFails(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, []string{"claude-new"}, names, "the second account's list")
 	assert.EqualValues(t, 3, calls.Load())
+
+	// An hour on, neither account's list can be read: the last list answered stays, not the first account's older one.
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+	})
+	w.clock.advance(61 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-new"}, names, "the last list answered")
 }

@@ -588,26 +588,40 @@ func (s *Service) tokenAmong(
 			continue
 		}
 
-		if model != "" {
-			fresh, ok := s.stillServes(ctx, a, model)
-			if !ok {
-				continue
+		// Read again before a refresh, so no account that cannot serve is refreshed, and again after it, which
+		// waits on the vendor: the last check before the token is given (issue #814).
+		recheck := func() bool {
+			if model == "" {
+				return true
 			}
 
-			if fresh.CoolingUntil != nil {
+			fresh, ok := s.stillServes(ctx, a, model)
+			if ok && fresh.CoolingUntil != nil {
 				if free == nil || fresh.CoolingUntil.Before(*free) {
 					free = fresh.CoolingUntil
 				}
 
-				continue
+				ok = false
 			}
 
-			a = fresh
+			if ok {
+				a = fresh
+			}
+
+			return ok
+		}
+
+		if !recheck() {
+			continue
 		}
 
 		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(now) < useLead {
 			if err := s.refresh(ctx, a, 0); err != nil {
 				return Token{}, err
+			}
+
+			if !recheck() {
+				continue
 			}
 		}
 
@@ -654,7 +668,17 @@ func (s *Service) TokenAfterRefusalFor(ctx context.Context, refused Token, model
 		}
 	}
 
-	return s.TokenAfterRefusal(ctx, refused)
+	token, err := s.TokenAfterRefusal(ctx, refused)
+	if err != nil || !perAccount[a.Runtime] {
+		return token, err
+	}
+
+	// The refresh waited on the vendor: the account is read again, the last check before its token is given.
+	if fresh, ok := s.stillServes(ctx, a, model); !ok || fresh.CoolingUntil != nil {
+		return Token{}, fmt.Errorf("%w: %s by account %s", ErrModelNotServed, model, a.ID)
+	}
+
+	return token, nil
 }
 
 // NoteQuota records what an account's vendor said is left of its quota, from

@@ -2906,19 +2906,22 @@ capabilities do not exist yet.
   soon after the start and then every hour the control plane asks, with every active account of Codex and
   Antigravity, each read and kept for an hour on its own (a failed reading is tried again after 5 minutes and keeps
   the last one; a read runs on its own, and the caller that starts it, or any caller while it is an account's first,
-  waits for it at most 30 s), and takes the union
+  waits for it; a caller waits at most 30 s in all, however many accounts' lists it waits for), and takes the union
   of their lists in the accounts' order (issue [#814](https://github.com/kl3inIT/hypomnema/issues/814), as omp's
   `unionAccountCatalogs` and CLIProxyAPI's per-auth registry do for both; an account whose list cannot be read hides
   no other's; when a read of an account with no list yet ends, answered or not, the providers are updated then, not at
-  the next hour), and for Claude with its first active account whose last read answered, else the first one's old
-  list (neither reads Anthropic's list per account),
+  the next hour), and for Claude with its first active account whose last read answered, else the last list any
+  of them answered, as before (neither reads Anthropic's list per account; OpenCode Go's wires are read the same way),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token), Antigravity (`fetchAvailableModels`, without internal
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`) and OpenCode Go
   (`GET opencode.ai/inference/go/v1/models`, its chat models on a wire the gateway calls, each with its wire, window
   and largest output; issue #854). OpenCode Go's provider is set to that list as Antigravity's is (OpenClaw, Hermes
-  and pi read Go's live list). Codex's and Claude's providers
-  gain the names they lack and lose none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
+  and pi read Go's live list). Codex's provider also drops a model it lists that two answered readings in a row
+  left out, since its requests go only to accounts whose list has the model (issue
+  [#814](https://github.com/kl3inIT/hypomnema/issues/814)); a model a profile uses keeps it, and the new names are
+  still added. Claude's provider
+  gains the names it lacks and loses none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
   OpenClaw and Hermes read them); Antigravity's is set to the roster, as omp takes it as authoritative, except a
   model a profile's current version uses (issue [#639](https://github.com/kl3inIT/hypomnema/issues/639)). A
   provider's `min_versions` (`{gpt: "6", gemini: "3.8"}`, by the name's first word) keeps older versions out of
@@ -3194,10 +3197,11 @@ capabilities do not exist yet.
     have the model and one's list is not known (still being read, or never read), the request gets a 429 to try
     again in 30 s, never another account in its place; once every list is known and none has the model, it gets a
     404 `model_not_served` (an Antigravity image asked for by name too). The accounts and what is known of their
-    lists are taken at one moment, after the lists were read, and the account picked is read again right before its
-    token is given: one disabled, logged out or cooling since, or whose list no longer has the model, is passed over.
-    A token the vendor refuses (401) is refreshed only while the account's list still has the model; otherwise the
-    request goes on to the next account. Every request for a Codex or Antigravity account names its
+    lists are taken at one moment, after the lists were read, and the account picked is read again before its token is
+    refreshed and again after, the last thing before its token is given: one disabled, logged out or cooling since,
+    or whose list no longer has the model, is passed over. A token the vendor refuses (401) is refreshed only while
+    the account's list still has the model, checked again after the refresh; otherwise the request goes on to the
+    next account. An account held for last (near its quota) is asked for again right before it is sent to. Every request for a Codex or Antigravity account names its
     model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
     and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,
     as before (owner, 2026-11-18). Claude's requests are not narrowed: its list does not name every model it serves,

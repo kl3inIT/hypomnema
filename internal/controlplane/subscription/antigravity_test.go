@@ -1,6 +1,7 @@
 package subscription_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,9 +63,11 @@ type google struct {
 	holds        map[string]chan struct{}
 	arrived      chan string
 	revokedUsers map[string]bool
-	agents       []string
-	extra        []string
-	hosts        []string
+	// onRefresh, when set, runs as a refresh token is exchanged, before it answers.
+	onRefresh func(context.Context)
+	agents    []string
+	extra     []string
+	hosts     []string
 }
 
 func newGoogle(t *testing.T) *google {
@@ -219,6 +222,10 @@ func (g *google) token(w http.ResponseWriter, r *http.Request) {
 
 		refresh = `"refresh_token":"` + given + `",`
 	case "refresh_token":
+		if g.onRefresh != nil {
+			g.onRefresh(r.Context())
+		}
+
 		given, ok := strings.CutPrefix(r.PostForm.Get("refresh_token"), "google-refresh")
 		if g.revoked || !ok || (given != "" && !strings.HasPrefix(given, ".")) {
 			http.Error(w, `{"error":"invalid_grant","error_description":"Token has been expired or revoked."}`,

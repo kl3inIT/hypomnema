@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -276,4 +278,54 @@ func TestARefusedCodexAccountIsAskedAgainOnlyForAModelItsListHas(t *testing.T) {
 	assert.Equal(t, "Bearer acc_b-access-0", header.Get("Authorization"))
 	assert.Equal(t, 2, got.calls())
 	assert.Zero(t, two.refreshes, "the first account was not refreshed")
+}
+
+// Scenario (review of #832, round 5): the first Antigravity account is near its quota, so it is held while the
+// second is tried. The second answers 503, and by then the first account's list no longer has the model. The held
+// account is asked again before it is sent to, and is not called.
+func TestAHeldAccountIsAskedAgainBeforeItIsSentTo(t *testing.T) {
+	t.Parallel()
+
+	var armed atomic.Bool
+
+	account := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{
+			ids:   []string{"acc_1", "acc_2"},
+			quota: map[string]map[string]float64{"acc_1": {"gemini-3.8-flash-high": 0.05}, "acc_2": {}},
+		}},
+		served: map[string][]string{"acc_1": {"gemini-3.8-flash-high"}, "acc_2": {"gemini-3.8-flash-high"}},
+	}
+
+	answer := stream(geminiEvents...)
+	backend, got := cloudCode(t, func(w http.ResponseWriter, r *http.Request) {
+		if armed.Load() && r.Header.Get("Authorization") == "Bearer acc_2-access-0" {
+			account.mu.Lock()
+			account.served["acc_1"] = nil
+			account.mu.Unlock()
+
+			http.Error(w, `{"error":{"code":503,"status":"UNAVAILABLE"}}`, http.StatusServiceUnavailable)
+
+			return
+		}
+
+		answer(w, r)
+	})
+	g := newAntigravityGateway(t, backend, account)
+
+	// The first account serves until its quota is read; then the second serves while the first is held.
+	status, _, body := g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+	require.Eventually(t, func() bool {
+		g.call(t, g.key, askFlash+`}`)
+		h, _ := got.last(t)
+
+		return h.Get("Authorization") == "Bearer acc_2-access-0"
+	}, 5*time.Second, 20*time.Millisecond)
+
+	armed.Store(true)
+	before := got.calls()
+
+	status, _, body = g.call(t, g.key, askFlash+`}`)
+	assert.Equal(t, http.StatusServiceUnavailable, status, body)
+	assert.Equal(t, before+1, got.calls(), "only the second account was called")
 }

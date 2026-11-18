@@ -66,7 +66,7 @@ func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 
 	var logs bytes.Buffer
 
-	addVendorModels(t.Context(), served, providers, slog.New(slog.NewTextHandler(&logs, nil)))
+	addVendorModels(t.Context(), served, providers, slog.New(slog.NewTextHandler(&logs, nil)), nil)
 
 	assert.Equal(t, map[string][]string{
 		"codex-subscription": {"gpt-6.1-terra"}, "claude-subscription": {"claude-opus-5-5"},
@@ -75,4 +75,27 @@ func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 	assert.Contains(t, logs.String(), "provider=antigravity-subscription models=gemini-3.8-flash-high removed=gemini-old")
 	assert.Contains(t, logs.String(), "event=gateway.vendor_models_added provider=codex-subscription models=gpt-6.1-terra")
 	assert.Contains(t, logs.String(), "event=gateway.vendor_models_failed provider=claude-subscription")
+}
+
+// Scenario (review of #832, round 5): a Codex model the provider lists is left out of two answered readings in a
+// row. After the first it stays, as one reading can miss it; after the second it is dropped, so that /v1/models
+// lists no model every account's list leaves out (issue #814).
+func TestACodexModelLeftOutTwiceIsDropped(t *testing.T) {
+	providers := &fakeProviders{
+		list: []orchestration.Provider{{
+			Name: "codex-subscription", Kind: orchestration.ProviderCodexSubscription,
+			Models: []string{"gpt-6.1-terra", "gpt-gone"},
+		}},
+		asked: map[string][]string{},
+	}
+	v := &vendorModels{
+		subs: fakeServed{"codex": {"gpt-6.1-terra", "gpt-6.2-sol"}}, providers: providers,
+		logger: slog.New(slog.DiscardHandler),
+	}
+
+	v.update(t.Context())
+	assert.Equal(t, []string{"gpt-6.1-terra", "gpt-6.2-sol", "gpt-gone"}, providers.asked["set codex-subscription"])
+
+	v.update(t.Context())
+	assert.Equal(t, []string{"gpt-6.1-terra", "gpt-6.2-sol"}, providers.asked["set codex-subscription"])
 }

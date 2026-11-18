@@ -102,8 +102,11 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 		return servedView{}
 	}
 
+	// One deadline for the whole reading, however many accounts' first lists are being read (issue #814).
+	deadline := time.Now().Add(s.servedWait)
+
 	if !perAccount[runtime] {
-		return s.firstServed(ctx, runtime, accounts)
+		return s.firstServed(ctx, runtime, accounts, deadline)
 	}
 
 	v := newServedView()
@@ -112,7 +115,7 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 	// packages/catalog/src/provider-models/google.ts keeps a catalog it could not read again and skips an account
 	// that is refused).
 	for _, a := range usable(accounts, runtime) {
-		r := s.reading(ctx, runtime, a.ID)
+		r := s.reading(ctx, runtime, a.ID, deadline)
 		if r.at.IsZero() {
 			v.reading = v.reading || r.reading != nil
 
@@ -126,13 +129,15 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 }
 
 // firstServed is what a runtime whose list is not each account's own (Claude, OpenCode Go) is served: the list of
-// its first usable account whose last reading answered, as main read it (issue #623); only when none answered, the
-// first one that ever did.
-func (s *Service) firstServed(ctx context.Context, runtime string, accounts []Account) servedView {
+// its first usable account whose last reading answered, as main read it (issue #623); when none answered, the last
+// list any of them answered, as main kept its last reading.
+func (s *Service) firstServed(
+	ctx context.Context, runtime string, accounts []Account, deadline time.Time,
+) servedView {
 	var stale *servedReading
 
 	for _, a := range usable(accounts, runtime) {
-		r := s.reading(ctx, runtime, a.ID)
+		r := s.reading(ctx, runtime, a.ID, deadline)
 		if r.at.IsZero() {
 			continue
 		}
@@ -144,7 +149,7 @@ func (s *Service) firstServed(ctx context.Context, runtime string, accounts []Ac
 			return v
 		}
 
-		if stale == nil {
+		if stale == nil || r.at.After(stale.at) {
 			stale = &r
 		}
 	}
@@ -215,10 +220,10 @@ func (s *Service) hasModel(accountID, model string) bool {
 
 // reading is the last reading of the models an account is served, read again when it is older than servedKept and
 // the last try is older than servedRetry. A reading that fails keeps the last one. The read runs on its own; the
-// caller that starts it waits for it at most servedWait, and so does any caller while the account's first reading is
-// in flight; after the wait the reading as it is then is given. When a read of an account with no list yet ends,
+// caller that starts it waits for it until deadline, and so does any caller while the account's first reading is in
+// flight; then the reading as it is is given. A caller reading several accounts gives them one deadline (servedOf). When a read of an account with no list yet ends,
 // answered or not, firstList is told, so that the providers' models are brought up to date then (issue #814).
-func (s *Service) reading(ctx context.Context, runtime, accountID string) servedReading {
+func (s *Service) reading(ctx context.Context, runtime, accountID string, deadline time.Time) servedReading {
 	now := s.clock.Now()
 
 	s.servedMu.Lock()
@@ -242,7 +247,7 @@ func (s *Service) reading(ctx context.Context, runtime, accountID string) served
 		return r
 	}
 
-	wait := time.NewTimer(s.servedWait)
+	wait := time.NewTimer(time.Until(deadline))
 	defer wait.Stop()
 
 	select {

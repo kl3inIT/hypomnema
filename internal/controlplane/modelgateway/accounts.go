@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -168,7 +169,12 @@ func (s *Server) underAccounts(
 		}
 	}
 
-	for _, token := range spared {
+	for _, held := range spared {
+		token, ok := s.again(ctx, runtime, model, session, held, tried)
+		if !ok {
+			continue
+		}
+
 		if resp, done, err := try(token); done {
 			return resp, err
 		}
@@ -209,6 +215,28 @@ func (s *Server) token(
 	}
 
 	return s.accounts.Token(ctx, runtime, session, skip...)
+}
+
+// again asks once more for a held account's token, right before it is sent
+// to, for a model the accounts' lists name: the account may have stopped
+// serving the model, or being usable, while others were tried (issue #814).
+// Every other account tried is skipped, so the answer is that account's token
+// or none. Another model's held token is given as it is.
+func (s *Server) again(
+	ctx context.Context, runtime string, model forModel, session string, held AccountToken, tried []string,
+) (AccountToken, bool) {
+	if _, ok := s.accounts.(ModelTokens); !ok || !model.listed {
+		return held, true
+	}
+
+	others := slices.DeleteFunc(slices.Clone(tried), func(id string) bool { return id == held.AccountID })
+
+	token, err := s.token(ctx, runtime, model, session, others...)
+	if err != nil || token.AccountID != held.AccountID {
+		return AccountToken{}, false
+	}
+
+	return token, true
 }
 
 // tokenAfterRefusal refreshes an account whose token the vendor refused. For a

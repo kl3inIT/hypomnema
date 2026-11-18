@@ -487,3 +487,55 @@ func TestAFirstReadThatFailsIsToldToo(t *testing.T) {
 		}
 	}
 }
+
+// Scenario (review of #832, round 5): the first lists of both accounts are still being read. A request waits for
+// them once, not once for each: it is told to try again within the one wait.
+func TestARequestWaitsOnceForEveryListBeingRead(t *testing.T) {
+	t.Parallel()
+
+	const wait = 300 * time.Millisecond
+
+	w := newAntigravityWorld(t, ideSecret)
+	w.subs.WaitForListsAtMost(wait)
+	twoAccounts(t, w)
+
+	hold := make(chan struct{})
+	release := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	w.google.set(func(g *google) { g.holds["pro"], g.holds["ultra"], g.arrived = hold, hold, make(chan string, 4) })
+
+	started := time.Now()
+	_, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+	took := time.Since(started)
+
+	var cooling *subscription.CoolingError
+	require.ErrorAs(t, err, &cooling)
+	assert.Less(t, took, wait+wait/2, "one wait for both lists")
+}
+
+// Scenario (review of #832, round 5): the Ultra account's token is due, and while it is refreshed the owner
+// disables the account. The refreshed token is not given: the account is read again after the refresh, both for a
+// pick and for the retry after the vendor refused a token.
+func TestAnAccountDisabledDuringItsRefreshIsNotGiven(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	_, ultra := twoAccounts(t, w)
+
+	_, ok := w.subs.ServedNames(t.Context(), "antigravity")
+	require.True(t, ok)
+
+	disable := func(ctx context.Context) { assert.NoError(t, w.orch.DisableAccount(ctx, ultra.ID)) }
+	w.google.set(func(g *google) { g.onRefresh = disable })
+
+	w.clock.advance(59*time.Minute + 30*time.Second) // the tokens are due, the lists are not
+
+	token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+	require.ErrorIs(t, err, subscription.ErrNoAccount)
+	assert.Empty(t, token.AccountID)
+
+	require.NoError(t, w.orch.EnableAccount(t.Context(), ultra.ID))
+
+	_, err = w.subs.TokenAfterRefusalFor(t.Context(), subscription.Token{AccountID: ultra.ID}, "gemini-4-carbon-high")
+	require.ErrorIs(t, err, subscription.ErrModelNotServed)
+}
