@@ -616,7 +616,16 @@ func (s *Service) TokenAfterRefusal(ctx context.Context, refused Token) (Token, 
 		return Token{}, err
 	}
 
+	if err := s.verifyWaits(a.Account); err != nil {
+		return Token{}, err
+	}
+
 	if err := s.refresh(ctx, a, refused.Version); err != nil {
+		return Token{}, err
+	}
+
+	a, err = s.Get(ctx, refused.AccountID)
+	if err != nil {
 		return Token{}, err
 	}
 

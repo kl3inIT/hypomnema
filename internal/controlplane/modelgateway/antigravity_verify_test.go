@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -229,4 +230,35 @@ func TestTheRetryAfterARefusalGoesToTheNextAccountWhenMarked(t *testing.T) {
 
 	header, _ := got.last(t)
 	assert.Equal(t, "Bearer acc_2-access-0", header.Get("Authorization"))
+}
+
+func TestReview826RestingRetryMustReleaseOriginalAccount(t *testing.T) {
+	t.Parallel()
+
+	account := &verifyingAccounts{}
+	var attempts atomic.Int32
+	backend, got := cloudCode(t, func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) <= 3 {
+			_, _ = account.NeedsVerification(r.Context(), "acc_1", "https://accounts.google.com/x", "")
+			plain(http.StatusUnauthorized, `{"error":{"code":401,"status":"UNAUTHENTICATED"}}`)(w, r)
+
+			return
+		}
+
+		stream(geminiEvents...)(w, r)
+	})
+	gateway := newAntigravityGateway(t, backend, account)
+
+	for attempt := range 3 {
+		gateway.call(t, gateway.key, askFlash+`}`)
+		require.Equal(t, attempt+1, got.calls())
+
+		account.mu.Lock()
+		delete(account.cooled, "acc_1")
+		account.mu.Unlock()
+	}
+
+	status, _, body := gateway.call(t, gateway.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, 4, got.calls())
 }

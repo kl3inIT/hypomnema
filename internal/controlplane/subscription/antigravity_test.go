@@ -1,6 +1,7 @@
 package subscription_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -46,7 +47,8 @@ type google struct {
 	// dailyRefuses makes the daily host answer 403 to loadCodeAssist.
 	dailyRefuses bool
 	// revoked makes the refresh token refused for good.
-	revoked bool
+	revoked   bool
+	onRefresh func(context.Context)
 	// user is who logs in next: Google's id and the email.
 	user  string
 	email string
@@ -211,6 +213,10 @@ func (g *google) token(w http.ResponseWriter, r *http.Request) {
 
 		refresh = `"refresh_token":"google-refresh",`
 	case "refresh_token":
+		if g.onRefresh != nil {
+			g.onRefresh(r.Context())
+		}
+
 		if g.revoked || r.PostForm.Get("refresh_token") != "google-refresh" {
 			http.Error(w, `{"error":"invalid_grant","error_description":"Token has been expired or revoked."}`,
 				http.StatusBadRequest)

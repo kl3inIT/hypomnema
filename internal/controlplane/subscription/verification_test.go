@@ -1,6 +1,8 @@
 package subscription_test
 
 import (
+	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -215,4 +217,55 @@ func TestTheRetryAfterARefusalWaitsForTheNextTry(t *testing.T) {
 	again, err := w.subs.TokenAfterRefusal(t.Context(), token)
 	require.NoError(t, err, "its next try has come")
 	assert.True(t, again.Verifying)
+}
+
+func TestReview826MarkDuringRefreshMustBlockToken(t *testing.T) {
+	t.Parallel()
+
+	world := newAntigravityWorld(t, ideSecret)
+	account, err := world.login()
+	require.NoError(t, err)
+
+	refused, err := world.subs.Token(t.Context(), "antigravity", "")
+	require.NoError(t, err)
+
+	world.google.set(func(fake *google) {
+		fake.onRefresh = func(ctx context.Context) {
+			_, err := world.subs.NeedsVerification(ctx, account.ID, verifyLink, "Verify your account to continue.")
+			assert.NoError(t, err)
+		}
+	})
+
+	_, err = world.subs.TokenAfterRefusal(t.Context(), refused)
+
+	var verify *subscription.VerificationError
+	require.ErrorAs(t, err, &verify)
+	assert.Equal(t, verifyLink, verify.URL)
+	assert.Equal(t, t0.Add(10*time.Minute), verify.RetryAt)
+}
+
+func TestReview826MarkedAccountMustNotRefreshBeforeGate(t *testing.T) {
+	t.Parallel()
+
+	world := newAntigravityWorld(t, ideSecret)
+	account, err := world.login()
+	require.NoError(t, err)
+
+	refused, err := world.subs.Token(t.Context(), "antigravity", "")
+	require.NoError(t, err)
+
+	var refreshed atomic.Bool
+	world.google.set(func(fake *google) {
+		fake.revoked = true
+		fake.onRefresh = func(context.Context) { refreshed.Store(true) }
+	})
+	_, err = world.subs.NeedsVerification(t.Context(), account.ID, verifyLink, "Verify your account to continue.")
+	require.NoError(t, err)
+
+	_, err = world.subs.TokenAfterRefusal(t.Context(), refused)
+
+	var verify *subscription.VerificationError
+	require.ErrorAs(t, err, &verify)
+	assert.Equal(t, t0.Add(10*time.Minute), verify.RetryAt)
+	assert.False(t, refreshed.Load(), "the account must not be refreshed while waiting for verification")
 }

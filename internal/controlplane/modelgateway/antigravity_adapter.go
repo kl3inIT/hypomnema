@@ -144,8 +144,9 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token AccountToken) (*http.Response, error) {
 	now := s.svc.clock.Now()
 	model := call.upstream.Model
+	accountID := token.AccountID
 
-	until, entered := s.antigravity.enter(token.AccountID, model, now)
+	until, entered := s.antigravity.enter(accountID, model, now)
 	if !entered {
 		message, wait := "the Antigravity account is at its limit of requests in flight", time.Second
 		if !until.IsZero() {
@@ -155,7 +156,7 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 		return openAIError(http.StatusTooManyRequests, "rate_limit_error", "rate_limit_exceeded", message, wait), nil
 	}
 
-	release := sync.OnceFunc(func() { s.antigravity.leave(token.AccountID) })
+	release := sync.OnceFunc(func() { s.antigravity.leave(accountID) })
 
 	built, err := antigravity.BuildRequest(call.req.raw, antigravity.Options{
 		Model: model, Project: token.Project, RequestID: "agent-" + cacheKey(s.svc.newID("req")),
