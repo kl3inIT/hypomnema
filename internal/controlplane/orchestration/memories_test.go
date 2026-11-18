@@ -64,9 +64,18 @@ func TestAWorkerIsOfferedItsAgentsMemoryAndKeepsAFact(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "The owner writes in Vietnamese.", owner.Text, "a refused change changes nothing")
 
+	// A note the worker keeps (issue #589) is listed with its size in the next worker's offer, not given.
+	dir, err := w.s.Memories().DispatchDir(ctx, first.ID)
+	require.NoError(t, err)
+	_, err = w.s.Memories().Run(ctx, dir, memorystore.Command{
+		Command: memorystore.Create, Path: "/memories/release.md", FileText: new("Tag from main.\n"),
+	})
+	require.NoError(t, err)
+
 	w.tasks(NewTask{Ref: "b", Spec: "b"})
 	second := w.dispatchOf(w.schedule().Created[0])
 	assert.Equal(t, "Run the tests first.\nLinh reviews Go.", offer(second.ID).Memory)
+	assert.Equal(t, []string{"/memories/release.md (15B)"}, offer(second.ID).MemoryNotes)
 
 	_, err = w.s.Memories().AgentMemory(ctx, "nobody")
 	require.ErrorIs(t, err, ErrNotFound)

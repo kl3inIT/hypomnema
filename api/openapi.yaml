@@ -3242,6 +3242,68 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Memory" }
         default: { $ref: "#/components/responses/Error" }
+  /memory-notes:
+    parameters:
+      - $ref: "#/components/parameters/MemoryOfBot"
+      - $ref: "#/components/parameters/MemoryOfAgent"
+    get:
+      operationId: ListMemoryNotes
+      summary: The notes of a Bot's or an agent's memory, by path
+      description: >-
+        A memory is the directory /memories (issue #589): MEMORY.md is the
+        memory itself, USER.md the one about the owner, and every other file
+        a note the agent reads when needed. Name the memory with bot or
+        agent. Every token reads them; a Bot's token reads its own Bot's.
+      responses:
+        "200":
+          description: The notes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemoryNoteList" }
+        default: { $ref: "#/components/responses/Error" }
+  /memory-notes/note:
+    parameters:
+      - $ref: "#/components/parameters/MemoryOfBot"
+      - $ref: "#/components/parameters/MemoryOfAgent"
+      - name: path
+        in: query
+        required: true
+        description: The note's path, under /memories.
+        schema: { type: string, maxLength: 200 }
+    get:
+      operationId: GetMemoryNote
+      summary: One note of a memory, with its text
+      responses:
+        "200":
+          description: The note.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemoryNote" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutMemoryNote
+      summary: Write one note with the owner's text, creating it if new; only the owner
+      description: >-
+        A note is at most 8,192 bytes, and a memory holds at most 200 notes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryNoteText" }
+      responses:
+        "200":
+          description: The note as kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemoryNote" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteMemoryNote
+      summary: Remove one note; only the owner
+      responses:
+        "204":
+          description: The note is gone.
+        default: { $ref: "#/components/responses/Error" }
   /owner-memory:
     get:
       operationId: GetOwnerMemory
@@ -4358,6 +4420,16 @@ components:
       required: true
       description: The Bot's id, which never changes (issue #466).
       schema: { type: string, minLength: 1, maxLength: 63 }
+    MemoryOfBot:
+      name: bot
+      in: query
+      description: A Bot's memory, by its id; give this or agent.
+      schema: { type: string, maxLength: 63 }
+    MemoryOfAgent:
+      name: agent
+      in: query
+      description: An agent's memory, by its Profile's name; give this or bot.
+      schema: { type: string, maxLength: 63 }
     SkillName:
       name: skill
       in: path
@@ -7759,6 +7831,39 @@ components:
         memory:
           type: string
           description: The entries, one per line.
+    MemoryNoteInfo:
+      type: object
+      additionalProperties: false
+      required: [path, bytes, updated_at]
+      properties:
+        path: { type: string, description: "Under /memories." }
+        bytes: { type: integer }
+        updated_at: { type: string, format: date-time }
+    MemoryNoteList:
+      type: object
+      additionalProperties: false
+      required: [data, max_notes, max_note_bytes]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/MemoryNoteInfo" }
+        max_notes: { type: integer, description: "The most notes a memory holds." }
+        max_note_bytes: { type: integer, description: "The most bytes a note holds." }
+    MemoryNote:
+      type: object
+      additionalProperties: false
+      required: [path, bytes, updated_at, text]
+      properties:
+        path: { type: string }
+        bytes: { type: integer }
+        updated_at: { type: string, format: date-time }
+        text: { type: string }
+    MemoryNoteText:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 8192 }
     MemoryChange:
       type: object
       additionalProperties: false

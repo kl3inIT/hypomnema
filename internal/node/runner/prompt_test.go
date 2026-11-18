@@ -86,8 +86,14 @@ func TestPromptCarriesTheMemories(t *testing.T) {
 	assert.Greater(t, strings.Index(p, "Memory of your agent"), strings.Index(p, "Report problems."))
 	assert.NotContains(t, p, "`memory` tool", "no agent API, no tool to write with")
 
+	d.Offer.MemoryNotes = []string{"/memories/release.md (1.5K)"}
+	assert.NotContains(t, Prompt(d), "release.md", "no tool to read a note with, no list of them")
+
 	d.Offer.AgentKey = "the-dispatch's-key"
-	assert.Contains(t, Prompt(d), "Keep in memory, with the `memory` tool")
+	p = Prompt(d)
+	assert.Contains(t, p, "Keep in memory, with the `memory` tool")
+	assert.Contains(t, p, "\nNotes of your agent's memory, read with the `memory` tool's view when their subject "+
+		"comes up:\n- /memories/release.md (1.5K)\n", "the notes are listed, not given (issue #589)")
 }
 
 // Scenario: the coordinator asked more of a Task whose worker had finished

@@ -24,6 +24,7 @@ import { useLarkChannels } from "@/features/settings/use-channels"
 import { useServices } from "@/features/settings/use-integrations"
 import { BotRoutines } from "@/features/routines/bot-routines"
 import { MemoryEditor } from "@/features/memory/memory-editor"
+import { MemoryNotes } from "@/features/memory/memory-notes"
 import { PageHeader } from "@/components/page-header"
 import { SkillsField } from "@/features/skills/skills-field"
 import { ToolsField } from "@/features/tools/tools-field"
@@ -314,7 +315,7 @@ function Memory({ bot }: { bot: Bot }) {
   const save = useSetBotMemory()
 
   return (
-    <div className="border-t pt-4">
+    <div className="flex flex-col gap-5 border-t pt-4">
       <MemoryEditor
         id="bot-memory"
         label="Memory"
@@ -330,6 +331,7 @@ function Memory({ bot }: { bot: Bot }) {
           reset: save.reset,
         }}
       />
+      <MemoryNotes of={{ bot: bot.id }} />
     </div>
   )
 }

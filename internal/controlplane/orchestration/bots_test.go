@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 )
 
 // Scenario: the owner makes a second Bot beside the one that is always
@@ -257,6 +258,9 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	require.NoError(t, err)
 	_, err = w.s.ChangeBotMemory(ctx, trialBot.ID, MemoryOp{Kind: MemoryAdd, Text: "A test Bot."})
 	require.NoError(t, err)
+	// A note of its memory (issue #589) goes with it too.
+	_, err = w.s.Memories().WriteNote(ctx, memorystore.BotDir(trialBot.ID), "/memories/trial.md", "Trial notes.")
+	require.NoError(t, err)
 
 	chat, err := w.s.CreateChat(ctx, trialBot.ID, "")
 	require.NoError(t, err)
@@ -293,6 +297,10 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	var artifacts int
 	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT count(*) FROM artifacts").Scan(&artifacts))
 	assert.Zero(t, artifacts)
+
+	var notes int
+	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT count(*) FROM memory_notes").Scan(&notes))
+	assert.Zero(t, notes, "its notes go with it")
 
 	var runChat sql.NullString
 	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT chat_id FROM runs WHERE id = ?", w.run.ID).Scan(&runChat))

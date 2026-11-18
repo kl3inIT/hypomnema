@@ -181,8 +181,11 @@ type Offer struct {
 	// line, as they were when the offer was made.
 	Memory      string `json:"memory,omitempty"`
 	OwnerMemory string `json:"owner_memory,omitempty"`
-	Spec        string `json:"spec"`
-	Repo        string `json:"repo,omitempty"`
+	// MemoryNotes lists the notes of the agent's memory (issue #589), each its
+	// path and size, which the worker reads with the memory's tool when needed.
+	MemoryNotes []string `json:"memory_notes,omitempty"`
+	Spec        string   `json:"spec"`
+	Repo        string   `json:"repo,omitempty"`
 	// RepoHost and RepoKind say where Repo is and how that host is used.
 	RepoHost string `json:"repo_host,omitempty"`
 	RepoKind string `json:"repo_kind,omitempty"`
@@ -325,6 +328,11 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		return Offer{}, err
 	}
 
+	notes, err := memorystore.AgentNotesTx(ctx, q, agent)
+	if err != nil {
+		return Offer{}, err
+	}
+
 	// A worker that takes over another's work is told so with the Task.
 	spec := task.Spec
 
@@ -367,6 +375,6 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses), Skills: skills,
-		Memory: memory.Text, OwnerMemory: owner.Text,
+		Memory: memory.Text, OwnerMemory: owner.Text, MemoryNotes: notes,
 	}, nil
 }

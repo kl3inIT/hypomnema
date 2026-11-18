@@ -534,8 +534,12 @@ type Offer struct {
 	// line, as they were when the offer was made.
 	Memory      string `json:"memory,omitempty"`
 	OwnerMemory string `json:"owner_memory,omitempty"`
-	Spec        string `json:"spec"`
-	Repo        string `json:"repo,omitempty"`
+	// MemoryNotes lists the notes of the agent's memory (issue #589), each its
+	// path and size, which the worker reads with the memory's tool when needed.
+	// A node of an earlier release ignores it.
+	MemoryNotes []string `json:"memory_notes,omitempty"`
+	Spec        string   `json:"spec"`
+	Repo        string   `json:"repo,omitempty"`
 	// RepoHost and RepoKind say where Repo is and how that host is used
 	// (internal/shared/githost).
 	RepoHost string `json:"repo_host,omitempty"`
