@@ -134,10 +134,13 @@ for (const theme of ["light", "dark"] as const) {
     await expect(blocked).toContainText("Online")
     await expect(blocked).toContainText("0.0 GiB free · Takes no new work")
     await expect(blocked).toContainText("Floor 5.0 GiB · Trim 15.0 GiB · 4s ago")
-    await expect(page.getByRole("article", { name: "worker-node" })).toContainText(
-      "8.0 GiB free · Low disk",
-    )
-    await expect(page.getByRole("article", { name: "new-node" })).toContainText("Not measured")
+    await expect(blocked.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "crit")
+    const warning = page.getByRole("article", { name: "worker-node" })
+    await expect(warning).toContainText("8.0 GiB free · Low disk")
+    await expect(warning.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "warn")
+    const stale = page.getByRole("article", { name: "new-node" })
+    await expect(stale).toContainText("Not measured")
+    await expect(stale.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "off")
     await shot(page, `machines-disk-${theme}`)
   })
 }

@@ -52,6 +52,15 @@ export function DiskCell({ node }: { node: Node }) {
   const blocked = disk !== undefined && free !== undefined && free < disk.floor_bytes
   const trimming = disk !== undefined && free !== undefined && free < disk.trim_bytes
   const age = disk?.age_ms
+  const tone = !disk
+    ? undefined
+    : free === undefined
+      ? "off"
+      : blocked
+        ? "crit"
+        : trimming
+          ? "warn"
+          : "good"
 
   return (
     <div className="min-w-0 space-y-1 text-xs">
@@ -61,6 +70,7 @@ export function DiskCell({ node }: { node: Node }) {
             label="Disk"
             value={value}
             connected={node.connected}
+            tone={tone}
             title={usedOfTotal(node.stats?.disk_used_bytes, node.system?.disk_bytes)}
           />
         </WithAmount>
