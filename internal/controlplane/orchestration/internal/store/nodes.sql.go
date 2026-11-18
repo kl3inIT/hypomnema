@@ -27,6 +27,27 @@ func (q *Queries) AccountLabelTaken(ctx context.Context, arg AccountLabelTakenPa
 	return exists, err
 }
 
+const clearAccountVerification = `-- name: ClearAccountVerification :execrows
+UPDATE accounts
+SET updated_at = ?1, verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0,
+    verify_retry_at = NULL
+WHERE id = ?2 AND verify_asked_at IS NOT NULL
+`
+
+type ClearAccountVerificationParams struct {
+	Now int64
+	ID  string
+}
+
+// A call under the account succeeded: Google no longer asks.
+func (q *Queries) ClearAccountVerification(ctx context.Context, arg ClearAccountVerificationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearAccountVerification, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countAccountsFreeAfter = `-- name: CountAccountsFreeAfter :one
 SELECT count(*) FROM accounts a
 WHERE a.runtime = ?1 AND a.status = 'active' AND a.secret_ref IS NULL
@@ -247,7 +268,7 @@ func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, 
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts WHERE id = ?1
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at FROM accounts WHERE id = ?1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -269,12 +290,17 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.RefreshRetryAt,
 		&i.RefreshError,
 		&i.Project,
+		&i.VerifyUrl,
+		&i.VerifyMessage,
+		&i.VerifyAskedAt,
+		&i.VerifyFailures,
+		&i.VerifyRetryAt,
 	)
 	return i, err
 }
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at FROM accounts
 WHERE runtime = ?1 AND external_id = ?2 AND lower(coalesce(email, '')) = lower(?3)
 `
 
@@ -303,6 +329,11 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByEx
 		&i.RefreshRetryAt,
 		&i.RefreshError,
 		&i.Project,
+		&i.VerifyUrl,
+		&i.VerifyMessage,
+		&i.VerifyAskedAt,
+		&i.VerifyFailures,
+		&i.VerifyRetryAt,
 	)
 	return i, err
 }
@@ -561,7 +592,7 @@ func (q *Queries) ListAccountLabelsBySecretRef(ctx context.Context, secretRef sq
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts ORDER BY runtime, position, id
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, verify_url, verify_message, verify_asked_at, verify_failures, verify_retry_at FROM accounts ORDER BY runtime, position, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -589,6 +620,11 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.RefreshRetryAt,
 			&i.RefreshError,
 			&i.Project,
+			&i.VerifyUrl,
+			&i.VerifyMessage,
+			&i.VerifyAskedAt,
+			&i.VerifyFailures,
+			&i.VerifyRetryAt,
 		); err != nil {
 			return nil, err
 		}
@@ -943,7 +979,10 @@ func (q *Queries) SetAccountIdentity(ctx context.Context, arg SetAccountIdentity
 }
 
 const setAccountLogin = `-- name: SetAccountLogin :execrows
-UPDATE accounts SET updated_at = ?1, email = ?2, plan = ?3, project = ?4 WHERE id = ?5
+UPDATE accounts
+SET updated_at = ?1, email = ?2, plan = ?3, project = ?4,
+    verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0, verify_retry_at = NULL
+WHERE id = ?5
 `
 
 type SetAccountLoginParams struct {
@@ -954,7 +993,8 @@ type SetAccountLoginParams struct {
 	ID      string
 }
 
-// A new login of an account: who it is now, and the project it works in.
+// A new login of an account: who it is now, and the project it works in. It clears a verification Google asked
+// for (issue #822; opencode-antigravity-auth clears it on a new sign-in, src/v2.ts:455-462).
 func (q *Queries) SetAccountLogin(ctx context.Context, arg SetAccountLoginParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setAccountLogin,
 		arg.Now,
@@ -1028,6 +1068,40 @@ type SetAccountStatusParams struct {
 
 func (q *Queries) SetAccountStatus(ctx context.Context, arg SetAccountStatusParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setAccountStatus, arg.Now, arg.Status, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setAccountVerification = `-- name: SetAccountVerification :execrows
+UPDATE accounts
+SET updated_at = ?1, verify_url = ?2, verify_message = ?3, verify_asked_at = ?4,
+    verify_failures = ?5, verify_retry_at = ?6
+WHERE id = ?7
+`
+
+type SetAccountVerificationParams struct {
+	Now            int64
+	VerifyUrl      sql.NullString
+	VerifyMessage  sql.NullString
+	VerifyAskedAt  sql.NullInt64
+	VerifyFailures int64
+	VerifyRetryAt  sql.NullInt64
+	ID             string
+}
+
+// Google asked for the account to be verified (issue #822).
+func (q *Queries) SetAccountVerification(ctx context.Context, arg SetAccountVerificationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAccountVerification,
+		arg.Now,
+		arg.VerifyUrl,
+		arg.VerifyMessage,
+		arg.VerifyAskedAt,
+		arg.VerifyFailures,
+		arg.VerifyRetryAt,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

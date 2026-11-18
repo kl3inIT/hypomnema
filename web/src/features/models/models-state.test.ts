@@ -44,6 +44,21 @@ describe("an account's state", () => {
     expect(accountState(account("a", { ...resting, sign_in: "login_required" }), now)?.label).toBe(
       "Needs sign-in",
     )
+    // One Google wants verified (issue #822) says so, with Google's words, before a rest.
+    const verification = {
+      url: "https://accounts.google.com/signin/continue?plt=1",
+      message: "Verify your account to continue.",
+      asked_at: earlier,
+      next_try_at: later,
+    }
+    expect(accountState(account("a", { ...resting, verification }), now)).toEqual({
+      label: "Needs verification",
+      tone: "destructive",
+      why: "Verify your account to continue.",
+    })
+    expect(
+      accountState(account("a", { verification, sign_in: "login_required" }), now)?.label,
+    ).toBe("Needs sign-in")
     // One the owner turned off says so, whatever else is wrong with it.
     expect(
       accountState(account("a", { ...resting, sign_in: "login_required", status: "disabled" }), now)
@@ -82,6 +97,12 @@ describe("a subscription", () => {
     expect(subscriptionState([resting, signedOut], now).label).toBe("Resting")
     expect(subscriptionState([signedOut, off], now).label).toBe("Needs sign-in")
     expect(subscriptionState([off], now).label).toBe("Off")
+
+    const toVerify = account("v", {
+      verification: { asked_at: earlier, next_try_at: later, url: "https://accounts.google.com/x" },
+    })
+    expect(subscriptionState([toVerify, account("ok")], now).label).toBe("Serving")
+    expect(subscriptionState([toVerify, signedOut], now).label).toBe("Needs verification")
   })
 
   it("is in use while any of its accounts is", () => {

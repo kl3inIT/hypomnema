@@ -723,6 +723,13 @@ func (p *placement) accountOut(a store.Account) Account {
 		},
 	}
 
+	if a.VerifyAskedAt.Valid {
+		out.Verification = &AccountVerification{
+			URL: a.VerifyUrl.String, Message: a.VerifyMessage.String, AskedAt: millis(a.VerifyAskedAt.Int64),
+			Failures: int(a.VerifyFailures), RetryAt: millis(a.VerifyRetryAt.Int64),
+		}
+	}
+
 	if until, ok := p.cooling[[2]string{a.Runtime, a.ID}]; ok {
 		t := millis(until)
 		out.CoolingUntil = &t

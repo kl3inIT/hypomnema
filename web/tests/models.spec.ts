@@ -113,6 +113,8 @@ function applySettings(model: (typeof models)[number], body: Record<string, unkn
   }
 }
 
+const verifyLink = "https://accounts.google.com/signin/continue?sarp=1&scc=1&plt=AKgnsbt-example"
+
 // What each account's limits call answers. An account that is not here has a kind that says no limits.
 const limits: Record<string, object> = {
   acc_work: {
@@ -148,6 +150,13 @@ const limits: Record<string, object> = {
       { name: "week (Claude & GPT)", used_percent: 62, resets_at: iso(now + 5 * 86_400_000) },
     ],
     read_at: iso(now - 20_000),
+  },
+  // Google wants this one verified (issue #822): its limits are not read, and the answer carries Google's link.
+  acc_verify: {
+    windows: [],
+    unavailable: "verification",
+    detail: "Google asks for this account to be verified first: Verify your account to continue.",
+    verification_url: verifyLink,
   },
   acc_kept: {
     windows: [],
@@ -220,6 +229,22 @@ async function fakeServer(page: Page, start?: Account[]) {
       position: 1,
       email: "owner@example.com",
       sign_in: "active",
+    },
+    {
+      id: "acc_verify",
+      runtime: "antigravity",
+      label: "second@gmail.example",
+      status: "active",
+      position: 2,
+      email: "second@gmail.example",
+      plan: "g1-ultra-tier",
+      sign_in: "active",
+      verification: {
+        url: verifyLink,
+        message: "Verify your account to continue.",
+        asked_at: iso(now - 25 * 60_000),
+        next_try_at: iso(now + 35 * 60_000),
+      },
     },
   ]
   const calls: string[] = []
@@ -462,6 +487,45 @@ test("the owner sees where models come from", async ({ page }) => {
 
   await trial.scrollIntoViewIfNeeded()
   await shot(page, "models-antigravity-limits")
+})
+
+// Scenario (issue #822): Google wants an Antigravity account verified. Its row says so, when Google asked and when
+// the gateway tries it again, with a Verify button that opens Google's link in a new tab; the owner can still sign
+// it in again, take it out of use or remove it. The limits line does not say it twice.
+test("the owner sees an Antigravity account Google wants verified", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/settings/models")
+
+  const google = card(page, "Antigravity")
+  const row = google.getByLabel("Antigravity account second@gmail.example")
+  await expect(row).toContainText("Needs verification")
+  await expect(google).toContainText("Needs verification")
+
+  const note = row.getByTestId("verification")
+  await expect(note).toContainText("Google asked to verify it 25m ago")
+  await expect(note).toContainText("Tried again")
+
+  const verify = row.getByRole("button", { name: "Verify second@gmail.example with Google" })
+  await expect(verify).toHaveAttribute("href", verifyLink)
+  await expect(verify).toHaveAttribute("target", "_blank")
+  await expect(row.getByTestId("limits-unavailable")).toHaveCount(0)
+
+  await expect(row.getByRole("switch", { name: "In use" })).toBeChecked()
+  await expect(row.getByRole("button", { name: "Sign second@gmail.example in again" })).toBeVisible()
+  await expect(row.getByRole("button", { name: "Remove second@gmail.example" })).toBeVisible()
+
+  expect(await fits(page)).toBe(true)
+  await row.scrollIntoViewIfNeeded()
+  await shot(page, "models-needs-verification")
+
+  // The page is dark unless the owner chose light; the picture is taken in both.
+  if (process.env.UI_CHECK) {
+    await page.evaluate(() => localStorage.setItem("theme", "light"))
+    await page.reload()
+    await expect(row.getByTestId("verification")).toBeVisible()
+    await row.scrollIntoViewIfNeeded()
+    await shot(page, "models-needs-verification-light")
+  }
 })
 
 // Scenario: the owner takes an account out of use and puts it back, turns a whole subscription off, and

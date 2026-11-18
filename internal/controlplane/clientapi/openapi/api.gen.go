@@ -61,10 +61,11 @@ func (e AccountStatus) Valid() bool {
 
 // Defines values for AccountLimitsUnavailable.
 const (
-	AccountLimitsUnavailableFailed   AccountLimitsUnavailable = "failed"
-	AccountLimitsUnavailableNotGiven AccountLimitsUnavailable = "not_given"
-	AccountLimitsUnavailableResting  AccountLimitsUnavailable = "resting"
-	AccountLimitsUnavailableSignIn   AccountLimitsUnavailable = "sign_in"
+	AccountLimitsUnavailableFailed       AccountLimitsUnavailable = "failed"
+	AccountLimitsUnavailableNotGiven     AccountLimitsUnavailable = "not_given"
+	AccountLimitsUnavailableResting      AccountLimitsUnavailable = "resting"
+	AccountLimitsUnavailableSignIn       AccountLimitsUnavailable = "sign_in"
+	AccountLimitsUnavailableVerification AccountLimitsUnavailable = "verification"
 )
 
 // Valid indicates whether the value is a known member of the AccountLimitsUnavailable enum.
@@ -77,6 +78,8 @@ func (e AccountLimitsUnavailable) Valid() bool {
 	case AccountLimitsUnavailableResting:
 		return true
 	case AccountLimitsUnavailableSignIn:
+		return true
+	case AccountLimitsUnavailableVerification:
 		return true
 	default:
 		return false
@@ -2087,6 +2090,9 @@ type Account struct {
 
 	// TokenExpiresAt When the access token ends, when that is known; it is renewed before then.
 	TokenExpiresAt *time.Time `json:"token_expires_at,omitempty"`
+
+	// Verification Google wants the account verified (issue #822): it answered a call under it with 403 VALIDATION_REQUIRED. The gateway passes the account over until next_try_at, then tries it again; a call that works, or signing in again, clears this.
+	Verification *AccountVerification `json:"verification,omitempty"`
 }
 
 // AccountSignIn The state of a sign-in made on the control plane. Absent for an account whose CLI was signed in on a node.
@@ -2131,12 +2137,15 @@ type AccountLimits struct {
 	ReadAt *time.Time          `json:"read_at,omitempty"`
 	Resets *AccountLimitResets `json:"resets,omitempty"`
 
-	// Unavailable Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed.
+	// Unavailable Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
 	Unavailable *AccountLimitsUnavailable `json:"unavailable,omitempty"`
-	Windows     []AccountLimitWindow      `json:"windows"`
+
+	// VerificationUrl Where the owner verifies the account, when unavailable is verification and Google gave a link.
+	VerificationUrl *string              `json:"verification_url,omitempty"`
+	Windows         []AccountLimitWindow `json:"windows"`
 }
 
-// AccountLimitsUnavailable Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed.
+// AccountLimitsUnavailable Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
 type AccountLimitsUnavailable string
 
 // AccountList defines model for AccountList.
@@ -2172,6 +2181,21 @@ type AccountSignInAttempt struct {
 type AccountSignInCallback struct {
 	// Callback The whole address the browser ended on.
 	Callback *string `json:"callback,omitempty"`
+}
+
+// AccountVerification Google wants the account verified (issue #822): it answered a call under it with 403 VALIDATION_REQUIRED. The gateway passes the account over until next_try_at, then tries it again; a call that works, or signing in again, clears this.
+type AccountVerification struct {
+	// AskedAt When Google first asked, since the account last worked.
+	AskedAt time.Time `json:"asked_at"`
+
+	// Message Google's own words.
+	Message *string `json:"message,omitempty"`
+
+	// NextTryAt When the account is tried again, after 10 minutes, 1 hour, 6 hours, then every day.
+	NextTryAt time.Time `json:"next_try_at"`
+
+	// Url The latest link Google gave, where the owner verifies the account.
+	Url *string `json:"url,omitempty"`
 }
 
 // ActionAccess Whether the account can really do the action at the service, as last read: granted, missing (a request for it is refused before it is sent, whatever the policy), or unknown (it could not be read; requests go on).

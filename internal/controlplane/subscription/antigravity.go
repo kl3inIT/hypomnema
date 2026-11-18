@@ -322,6 +322,10 @@ func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, e
 
 		err := a.call(ctx, http.MethodPost, address, token.AccessToken, map[string]string{"project": token.Project}, &answer)
 		if err != nil {
+			if verify := (*VerificationError)(nil); errors.As(err, &verify) {
+				return nil, err // The other host would say the same.
+			}
+
 			failed = append(failed, err)
 
 			continue
@@ -400,11 +404,18 @@ func (a *Antigravity) project(ctx context.Context, accessToken string) (project,
 	return "", "", fmt.Errorf("finding the account's Cloud Code project: %w", errors.Join(failed...))
 }
 
+// ReasonValidationRequired is the reason Google gives when it wants an account verified first.
+const ReasonValidationRequired = "VALIDATION_REQUIRED"
+
 // VerificationError says Google wants the account verified before it can be
-// used; URL is where.
+// used; URL is where. Sign-in reads it from loadCodeAssist's ineligible tier;
+// a call under the account from a 403 (issue #822).
 type VerificationError struct {
 	Message string
 	URL     string
+	// AskedAt is when Google first asked, and RetryAt when the account is
+	// tried again, once the account is marked; zero before.
+	AskedAt, RetryAt time.Time
 }
 
 func (e *VerificationError) Error() string {
@@ -443,7 +454,7 @@ func (a *Antigravity) projectAt(ctx context.Context, host, accessToken string) (
 
 	if loaded.CurrentTier == nil {
 		for _, no := range loaded.IneligibleTiers {
-			if no.ReasonCode == "VALIDATION_REQUIRED" && no.ValidationURL != "" {
+			if no.ReasonCode == ReasonValidationRequired && no.ValidationURL != "" {
 				return "", "", &VerificationError{Message: no.ReasonMessage, URL: no.ValidationURL}
 			}
 		}
@@ -540,6 +551,12 @@ func (a *Antigravity) call(ctx context.Context, method, address, accessToken str
 		return err
 	}
 
+	if status == http.StatusForbidden {
+		if verify := verificationOf(answer); verify != nil {
+			return verify
+		}
+	}
+
 	if status/100 != 2 {
 		return statusError("calling "+req.URL.Host+req.URL.Path, status, googleError(answer))
 	}
@@ -569,6 +586,38 @@ func (a *Antigravity) do(req *http.Request) (int, []byte, error) {
 	}
 
 	return resp.StatusCode, answer, nil
+}
+
+// verificationOf reads a 403 that asks for the account to be verified (issue #822): a google.rpc.ErrorInfo whose
+// reason is VALIDATION_REQUIRED, with the link in its metadata, as CLIProxyAPI#6182 shows the body of
+// loadCodeAssist and of the quota calls. nil for any other answer.
+func verificationOf(body []byte) *VerificationError {
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+			Details []struct {
+				Reason   string            `json:"reason"`
+				Metadata map[string]string `json:"metadata"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+
+	if json.Unmarshal(body, &parsed) != nil {
+		return nil
+	}
+
+	for _, detail := range parsed.Error.Details {
+		if detail.Reason == ReasonValidationRequired {
+			url := detail.Metadata["validation_url"]
+			if url == "" {
+				url = detail.Metadata["validationUrl"]
+			}
+
+			return &VerificationError{Message: parsed.Error.Message, URL: url}
+		}
+	}
+
+	return nil
 }
 
 // googleError turns a Google API error body into the shape statusError

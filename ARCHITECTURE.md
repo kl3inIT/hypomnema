@@ -2666,6 +2666,19 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   `refresh_token_reused`) marks the account as needing a new login and is not tried again. Any other failure keeps
   the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
   error code only.
+- An Antigravity account Google wants verified (issue #822): a 403 whose `google.rpc.ErrorInfo` reason is
+  `VALIDATION_REQUIRED`, on chat or images (the gateway), on the models list or on the quota read, marks the account
+  (`subscription/verification.go`, `orchestration/account_verification.go`, columns `verify_*` of `accounts`):
+  Google's latest `validation_url`, its message, when it first asked, the answers in a row that asked and the next
+  try. The gateway passes a marked account over until its next try, as a cooling one, and the models list and the
+  limits do not ask Google before it either; the tries come after 10 minutes, 1 hour, 6 hours, then every day
+  (opencode-antigravity-auth PR #338). An answer to a request sent before the mark, while the account rests,
+  updates the link but not the schedule. The first call that works under the account clears the mark, and so does
+  signing it in again (opencode-antigravity-auth issue #589). `GET /accounts` gives the mark as `verification`
+  (`url`, `message`, `asked_at`, `next_try_at`), `GET /accounts/{id}/limits` answers `unavailable: verification`
+  with `verification_url`, and `accounts list` prints it. Settings, Models shows the account "Needs verification"
+  with when Google asked, the next try and a Verify button that opens the link; the owner can still sign it in
+  again, turn it off or remove it.
 
 What the model gateway serves and from where (`modelgateway/http.go`, `chat.go`, `accounts.go`, `images.go`;
 `subscription/rank.go`; `websearch/chain.go`).
@@ -3047,9 +3060,9 @@ capabilities do not exist yet.
     of that account wait until the reset Google names (half an hour when it names none), a rate limit as long as
     Google asks; meanwhile the model is not sent to the backend, and other models are. No capacity at Google makes
     nothing wait. These waits are in memory. A 401 refreshes the tokens once.
-  - An account Google suspended for its terms is taken out of use for a day, one Google wants verified for ten
-    minutes; the cooldown's reason, with Google's link, shows in `accounts list`, and the request is answered 503
-    so the model's next target serves it.
+  - An account Google suspended for its terms is taken out of use for a day; the cooldown's reason, with Google's
+    link, shows in `accounts list`. One Google wants verified is marked and rests on a growing schedule (above,
+    issue #822). Either answer is a 503, so the next account, or the model's next target, serves the request.
   - The models the provider is seeded with are names read in the references; the ones Google serves an account are
     what `accounts models` lists, and the owner applies the provider again with those when they differ.
   - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the provider's

@@ -60,6 +60,9 @@ type AccountToken struct {
 	// Version says which of the account's tokens this is, for the one that
 	// replaces it after a refusal.
 	Version int
+	// Verifying says Google asked for the account to be verified and this is
+	// its next try (issue #822).
+	Verifying bool
 }
 
 // ErrNoAccount says no account of a kind can be used now: none is logged

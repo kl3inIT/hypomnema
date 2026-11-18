@@ -91,6 +91,16 @@ func (g gatewayAccounts) CoolDown(
 	return g.subs.CoolDown(ctx, runtime, accountID, until, reason)
 }
 
+// NeedsVerification marks an account Google wants verified (issue #822).
+func (g gatewayAccounts) NeedsVerification(ctx context.Context, accountID, url, message string) (time.Time, error) {
+	return g.subs.NeedsVerification(ctx, accountID, url, message)
+}
+
+// Verified clears that mark once a call works under the account.
+func (g gatewayAccounts) Verified(ctx context.Context, accountID string) error {
+	return g.subs.Verified(ctx, accountID)
+}
+
 // accountToken says a subscription's answer in the gateway's words.
 func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, error) {
 	var cooling *subscription.CoolingError
@@ -106,7 +116,7 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 
 	return modelgateway.AccountToken{
 		AccountID: t.AccountID, ExternalID: t.ExternalID, AccessToken: t.AccessToken, Project: t.Project,
-		Plan: t.Plan, Version: t.Version,
+		Plan: t.Plan, Version: t.Version, Verifying: t.Verifying,
 	}, nil
 }
 

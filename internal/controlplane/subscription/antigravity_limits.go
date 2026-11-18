@@ -33,6 +33,10 @@ func (a *Antigravity) Limits(ctx context.Context, token Token) ([]Window, error)
 
 		err := a.call(ctx, http.MethodPost, address, token.AccessToken, map[string]string{"project": token.Project}, &answer)
 		if err != nil {
+			if verify := (*VerificationError)(nil); errors.As(err, &verify) {
+				return nil, err // The other host would say the same.
+			}
+
 			failed = append(failed, err)
 
 			continue

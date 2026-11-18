@@ -47,7 +47,8 @@ const (
 	// before it is tried again (9router-go).
 	antigravitySuspended = 24 * time.Hour
 	// antigravityVerify is how long an account Google wants verified is left
-	// alone (the opencode plugin).
+	// alone when the accounts keep no mark of it (the opencode plugin); the
+	// control plane's do, on a growing schedule (verifications).
 	antigravityVerify = 10 * time.Minute
 )
 
@@ -199,6 +200,7 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 	}
 
 	s.accountState.served(token.AccountID)
+	s.antigravityVerified(ctx, token)
 	s.readQuota(ctx, token.AccountID)
 
 	stream := antigravity.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
@@ -254,9 +256,11 @@ func (s *Server) antigravityPost(
 //     reset, half an hour when the backend names none.
 //   - A rate limit: the model waits as long as the backend asks.
 //   - No capacity at Google: nothing waits; the model's next target is tried.
-//   - A suspended account, or one to verify: the account is taken out of use
-//     and its cooldown says why, with Google's link, for `accounts list`. The
-//     answer is a 503, so the model's next target serves the request.
+//   - A suspended account: the account is taken out of use and its cooldown
+//     says why, with Google's link, for `accounts list`. One to verify is
+//     marked with the link, and rests until its next try (issue #822). The
+//     answer is a 503, so the next account, or the model's next target, serves
+//     the request.
 func (s *Server) antigravityRefused(
 	ctx context.Context, token AccountToken, model string, f *antigravity.Failure,
 ) *http.Response {
@@ -275,7 +279,7 @@ func (s *Server) antigravityRefused(
 		return openAIError(http.StatusServiceUnavailable, typeServer, "account_suspended",
 			"Google has suspended the Antigravity account", 0)
 	case f.Reason == antigravity.ReasonVerification:
-		s.antigravityPark(ctx, token, now.Add(antigravityVerify), "Google asks for the account to be verified", f)
+		s.antigravityNeedsVerification(ctx, token, f)
 
 		return openAIError(http.StatusServiceUnavailable, typeServer, "account_verification_required",
 			"Google asks for the Antigravity account to be verified", 0)
@@ -317,6 +321,48 @@ func (s *Server) antigravityRefused(
 // (internal/handlers/chat/antigravity_quota.go, IsAntigravityModelBlocked).
 type groupQuota interface {
 	UsedUpUntil(ctx context.Context, accountID, model string) time.Time
+}
+
+// verifications is what the accounts keep of an account Google wants verified
+// (issue #822): a mark with Google's link, which keeps the account out of use
+// until its next try on a growing schedule, and its clearing once a call works.
+type verifications interface {
+	NeedsVerification(ctx context.Context, accountID, url, message string) (time.Time, error)
+	Verified(ctx context.Context, accountID string) error
+}
+
+// antigravityNeedsVerification marks an account Google wants verified, so the
+// gateway passes it over until its next try; accounts that keep no mark park
+// it for ten minutes instead.
+func (s *Server) antigravityNeedsVerification(ctx context.Context, token AccountToken, f *antigravity.Failure) {
+	v, ok := s.accounts.(verifications)
+	if !ok {
+		s.antigravityPark(ctx, token, s.svc.clock.Now().Add(antigravityVerify),
+			"Google asks for the account to be verified", f)
+
+		return
+	}
+
+	if _, err := v.NeedsVerification(context.WithoutCancel(ctx), token.AccountID, f.URL, f.Message); err != nil {
+		s.logger.ErrorContext(ctx, "marking an Antigravity account to verify",
+			slog.String("event", "modelgateway.antigravity_verify_mark_failed"),
+			slog.String("account_id", token.AccountID), slog.String("error", err.Error()))
+	}
+}
+
+// antigravityVerified clears the mark of an account Google wanted verified,
+// on the first call that works under it.
+func (s *Server) antigravityVerified(ctx context.Context, token AccountToken) {
+	v, ok := s.accounts.(verifications)
+	if !ok || !token.Verifying {
+		return
+	}
+
+	if err := v.Verified(context.WithoutCancel(ctx), token.AccountID); err != nil {
+		s.logger.ErrorContext(ctx, "clearing an Antigravity account's verification",
+			slog.String("event", "modelgateway.antigravity_verify_clear_failed"),
+			slog.String("account_id", token.AccountID), slog.String("error", err.Error()))
+	}
 }
 
 // antigravityPark takes an account out of use until a time, with the reason

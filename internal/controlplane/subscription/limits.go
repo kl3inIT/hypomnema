@@ -136,6 +136,11 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 		return Limits{}, fmt.Errorf("%w: %s", ErrNoLimits, a.Runtime)
 	}
 
+	// An account Google wants verified is not asked before its next try (issue #822).
+	if err := s.verifyWaits(a.Account); err != nil {
+		return Limits{}, err
+	}
+
 	now := s.clock.Now()
 
 	s.limitsMu.Lock()
@@ -170,7 +175,11 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 		windows, err = reader.Limits(ctx, token)
 	}
 
-	if err != nil {
+	if err = s.noteVerification(ctx, token, err); err != nil {
+		if verify := (*VerificationError)(nil); errors.As(err, &verify) {
+			return Limits{}, err // Not hidden behind an earlier reading: the owner has a link to open.
+		}
+
 		var refused *limitsRefusedError
 
 		switch {

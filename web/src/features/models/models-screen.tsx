@@ -5,6 +5,7 @@ import {
   Box,
   CalendarDays,
   Crown,
+  ExternalLink,
   KeyRound,
   Mail,
   MonitorSmartphone,
@@ -13,6 +14,7 @@ import {
   Power,
   RefreshCw,
   RotateCcw,
+  ShieldAlert,
   Timer,
   Trash2,
   TriangleAlert,
@@ -378,6 +380,7 @@ function AccountRow({
               </Fact>
             </span>
           </ItemDescription>
+          <VerificationNote account={account} />
           <LimitBars account={account} />
           <ErrorAlert error={change.error ?? move.error} />
         </ItemContent>
@@ -432,6 +435,52 @@ function AccountRow({
   )
 }
 
+// VerificationNote is an account Google wants verified (issue #822): when Google asked, when the gateway tries it
+// again, and a button that opens Google's latest link, where the owner verifies it. opencode-antigravity-auth shows
+// the link with the account (PR #338, "Shows verification URL in account details"); CLIProxyAPI#6182 asks for the
+// same on its quota page. Signing in again, beside it, clears the mark.
+function VerificationNote({ account }: { account: Account }) {
+  const verification = account.verification
+  if (!verification) return null
+
+  const due = new Date(verification.next_try_at).getTime() <= Date.now()
+
+  return (
+    <p
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+      data-testid="verification"
+    >
+      <span>
+        <ShieldAlert
+          className="me-1 inline size-3 shrink-0 align-[-0.125rem] text-destructive"
+          aria-hidden
+        />
+        Google asked to verify it {since(verification.asked_at)}.{" "}
+        {due
+          ? "The next request tries it again."
+          : `Tried again ${until(verification.next_try_at)}.`}
+      </span>
+      {verification.url && <VerifyButton label={account.label} url={verification.url} />}
+    </p>
+  )
+}
+
+// VerifyButton opens Google's link in a new tab: the verification is Google's page, signed in as the account.
+function VerifyButton({ label, url }: { label: string; url: string }) {
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      aria-label={`Verify ${label} with Google`}
+      nativeButton={false}
+      render={<a href={url} target="_blank" rel="noreferrer noopener" />}
+    >
+      <ExternalLink data-icon="inline-start" />
+      Verify
+    </Button>
+  )
+}
+
 // LimitBars are an account's limits: a meter a window with the part used and when it starts again, as the
 // Machines page shows a machine's shares (components/meter.tsx, after Beszel) and as 9router's quota cards
 // (usage/components/ProviderLimits), T3 Code's limits (usage/UsageLimits.tsx) and Orca's status bar do for a
@@ -444,6 +493,8 @@ function LimitBars({ account }: { account: Account }) {
   const data = limits.data
 
   if (!data || data.unavailable === "not_given" || data.unavailable === "sign_in") return null
+  // The verification note says it, with the link, when the account's list already has the mark.
+  if (data.unavailable === "verification" && account.verification) return null
 
   const again = (
     <Button
@@ -469,8 +520,14 @@ function LimitBars({ account }: { account: Account }) {
         <TriangleAlert className="size-3 shrink-0" aria-hidden />
         {data.unavailable === "resting"
           ? "Its limits are read again in a few minutes."
-          : "Its limits could not be read."}
-        {again}
+          : data.unavailable === "verification"
+            ? "Google asks for the account to be verified."
+            : "Its limits could not be read."}
+        {data.verification_url ? (
+          <VerifyButton label={account.label} url={data.verification_url} />
+        ) : (
+          again
+        )}
       </p>
     )
   }

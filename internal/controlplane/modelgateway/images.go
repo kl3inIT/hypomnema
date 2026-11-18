@@ -845,6 +845,7 @@ func (s *Server) antigravityImage(
 		}
 
 		s.imageRests.served(key)
+		s.antigravityVerified(ctx, token)
 
 		return got, nil, nil
 	}
@@ -855,7 +856,7 @@ func (s *Server) antigravityImage(
 	case antigravity.ReasonTermsViolation:
 		s.antigravityPark(ctx, token, now.Add(antigravitySuspended), "suspended by Google for its terms of service", f)
 	case antigravity.ReasonVerification:
-		s.antigravityPark(ctx, token, now.Add(antigravityVerify), "Google asks for the account to be verified", f)
+		s.antigravityNeedsVerification(ctx, token, f)
 	}
 
 	reset := antigravity.QuotaResetAt(raw)

@@ -79,6 +79,9 @@ type Token struct {
 	Plan string
 	// Version is the version of the account's secret the token is from.
 	Version int
+	// Verifying says Google asked for the account to be verified and this is
+	// its next try (issue #822): a call that works clears the mark (Verified).
+	Verifying bool
 }
 
 // Identity is who an account is at its vendor. None of it is secret.
@@ -147,6 +150,10 @@ type Accounts interface {
 	CoolAccount(ctx context.Context, runtime, id string, until time.Time, reason string) error
 	RecordAccountRefresh(ctx context.Context, id string, r orchestration.AccountRefresh) error
 	RemoveAccountLogin(ctx context.Context, id string) error
+	MarkAccountVerification(
+		ctx context.Context, id, url, message string, wait func(failures int) time.Duration,
+	) (orchestration.AccountVerification, error)
+	ClearAccountVerification(ctx context.Context, id string) (bool, error)
 }
 
 // State says whether an account's tokens can be used.
@@ -477,6 +484,15 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 			continue
 		}
 
+		// An account Google wants verified rests until its next try (issue #822).
+		if v := a.Verification; v != nil && v.RetryAt.After(now) {
+			if free == nil || v.RetryAt.Before(*free) {
+				free = &v.RetryAt
+			}
+
+			continue
+		}
+
 		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(now) < useLead {
 			if err := s.refresh(ctx, a, 0); err != nil {
 				return Token{}, err
@@ -614,12 +630,21 @@ func (s *Service) Models(ctx context.Context, id string) ([]ServedModel, error) 
 		}
 	}
 
+	if err := s.verifyWaits(a.Account); err != nil {
+		return nil, err
+	}
+
 	token, err := s.tokenOf(ctx, a.Account)
 	if err != nil {
 		return nil, err
 	}
 
-	return lister.Models(ctx, token)
+	models, err := lister.Models(ctx, token)
+	if err := s.noteVerification(ctx, token, err); err != nil {
+		return nil, err
+	}
+
+	return models, nil
 }
 
 func cmpState(state State) string {
@@ -675,7 +700,7 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, 
 
 	return Token{
 		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: access,
-		Project: a.Project, Plan: a.Plan, Version: opened.Version,
+		Project: a.Project, Plan: a.Plan, Version: opened.Version, Verifying: a.Verification != nil,
 	}, nil
 }
 
