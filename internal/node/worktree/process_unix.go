@@ -16,7 +16,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const gitSupervisorArg = "--hypomnema-worktree-supervisor"
+const (
+	gitSupervisorArg = "--hypomnema-worktree-supervisor"
+	gitFailedExit    = 125
+)
 
 func (git mirrorGit) runProcess(
 	ctx context.Context, dir string, env []string, name string, args ...string,
@@ -35,12 +38,11 @@ func (git mirrorGit) runProcess(
 	defer func() { _ = read.Close() }()
 	defer func() { _ = write.Close() }()
 
-	stall, grace := git.bounds()
 	locked := "no"
 	if git.lock != nil {
 		locked = "yes"
 	}
-	launch := append([]string{gitSupervisorArg, locked, stall.String(), grace.String(), name}, args...)
+	launch := append([]string{gitSupervisorArg, locked, git.lockDir, git.stopGrace().String(), name}, args...)
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), exe, launch...) //nolint:gosec // reexec this binary
 	cmd.Dir, cmd.Env, cmd.Stdin = dir, append(env, "GORACE=atexit_sleep_ms=0"), read
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -52,14 +54,7 @@ func (git mirrorGit) runProcess(
 	stop := context.AfterFunc(ctx, func() { _ = write.Close() })
 	defer stop()
 	err = cmd.Run()
-	if err != nil {
-		if ctx.Err() != nil {
-			err = errors.Join(err, ctx.Err())
-		} else if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == gitStalledExit {
-			err = fmt.Errorf("no output for %s: %w", stall, context.DeadlineExceeded)
-		}
-	}
-	return string(output), err
+	return string(output), errors.Join(err, ctx.Err())
 }
 
 func init() {
@@ -69,9 +64,8 @@ func init() {
 	if os.Args[2] == "yes" {
 		unix.CloseOnExec(3)
 	}
-	stall, stallErr := time.ParseDuration(os.Args[3])
 	grace, graceErr := time.ParseDuration(os.Args[4])
-	if stallErr != nil || graceErr != nil || stall <= 0 || grace <= 0 {
+	if graceErr != nil || grace <= 0 {
 		os.Exit(gitFailedExit)
 	}
 	signal.Ignore(syscall.SIGPIPE)
@@ -80,10 +74,10 @@ func init() {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		close(parentGone)
 	}()
-	os.Exit(supervise(parentGone, stall, grace, os.Args[5], os.Args[6:]))
+	os.Exit(supervise(parentGone, grace, os.Args[3], os.Args[5], os.Args[6:]))
 }
 
-func supervise(parentGone <-chan struct{}, stall, grace time.Duration, name string, args []string) int {
+func supervise(parentGone <-chan struct{}, grace time.Duration, lockDir, name string, args []string) int {
 	read, write, err := os.Pipe()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -100,12 +94,24 @@ func supervise(parentGone <-chan struct{}, stall, grace time.Duration, name stri
 		return gitFailedExit
 	}
 	_ = write.Close()
-	activity, drained := watchOutput(read)
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		_, _ = io.Copy(os.Stdout, read)
+	}()
 	exited := make(chan error, 1)
 	go func() { exited <- gitExited(cmd.Process.Pid) }()
 
-	result := watchGit(parentGone, activity, drained, exited, cmd.Process.Pid, stall, grace)
+	var recoverLocks func()
+	stop := func() {
+		recoverLocks = ownedGitLocks(cmd.Process.Pid, lockDir)
+		stopGit(cmd.Process.Pid, grace)
+	}
+	result := watchGit(parentGone, drained, exited, stop)
 	err = cmd.Wait()
+	if recoverLocks != nil {
+		recoverLocks()
+	}
 	select {
 	case <-drained:
 	case <-time.After(100 * time.Millisecond):
@@ -120,63 +126,24 @@ func supervise(parentGone <-chan struct{}, stall, grace time.Duration, name stri
 	return gitFailedExit
 }
 
-func watchOutput(read *os.File) (<-chan struct{}, <-chan struct{}) {
-	activity, drained := make(chan struct{}, 1), make(chan struct{})
-	go func() {
-		defer close(drained)
-		buf := make([]byte, 4096)
-		for {
-			size, err := read.Read(buf)
-			if size != 0 {
-				select {
-				case activity <- struct{}{}:
-				default:
-				}
-				_, _ = os.Stdout.Write(buf[:size])
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return activity, drained
-}
-
-func watchGit(
-	parentGone, activity, drained <-chan struct{}, exited <-chan error, pid int, stall, grace time.Duration,
-) int {
-	timer := time.NewTimer(stall)
-	defer timer.Stop()
-	for {
-		select {
-		case err := <-exited:
-			if err == nil {
-				select {
-				case <-drained:
-				case <-parentGone:
-					stopGit(pid, grace)
-				case <-time.After(100 * time.Millisecond):
-					stopGit(pid, grace)
-				}
-				return 0
-			}
+func watchGit(parentGone, drained <-chan struct{}, exited <-chan error, stop func()) int {
+	select {
+	case err := <-exited:
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			stopGit(pid, grace)
+			stop()
 			return gitFailedExit
-		case <-activity:
-			timer.Reset(stall)
-		case <-parentGone:
-			stopGit(pid, grace)
-			return gitFailedExit
-		case <-timer.C:
-			select {
-			case <-activity:
-				timer.Reset(stall)
-			default:
-				stopGit(pid, grace)
-				return gitStalledExit
-			}
 		}
+		select {
+		case <-drained:
+		case <-parentGone:
+			stop()
+		case <-time.After(100 * time.Millisecond):
+		}
+		return 0
+	case <-parentGone:
+		stop()
+		return gitFailedExit
 	}
 }
 

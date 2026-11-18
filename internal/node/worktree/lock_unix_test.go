@@ -3,6 +3,7 @@
 package worktree
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"os/exec"
@@ -37,6 +38,10 @@ func mirrorProcessFixture(t *testing.T) (Maker, Source, *os.Root) {
 	fake := []byte(`#!/bin/sh
 command=$3
 if [ "$1" = -c ]; then command=$5; fi
+if [ "$MIRROR_TEST_ACTION" = clone-silent ] && ([ "$1" = clone ] || [ "$3" = clone ]); then
+    sleep 1
+    exec "$MIRROR_TEST_REAL_GIT" "$@"
+fi
 if [ "$MIRROR_TEST_ACTION" = clone-stall ] && ([ "$1" = clone ] || [ "$3" = clone ]); then
     for target do :; done
     mkdir -p "$target"
@@ -44,7 +49,7 @@ if [ "$MIRROR_TEST_ACTION" = clone-stall ] && ([ "$1" = clone ] || [ "$3" = clon
     sleep 10
     exit 1
 fi
-if [ "$command" != fetch ] || [ -z "$MIRROR_TEST_ACTION" ]; then
+if [ "$command" != fetch ] || [ -z "$MIRROR_TEST_ACTION" ] || [ "$MIRROR_TEST_ACTION" = clone-silent ]; then
     exec "$MIRROR_TEST_REAL_GIT" "$@"
 fi
 if [ "$MIRROR_TEST_ACTION" = progress ]; then
@@ -58,7 +63,8 @@ fi
 if [ "$MIRROR_TEST_ACTION" = stale ]; then
     mirror=$2
     if [ "$1" = -c ]; then mirror=$4; fi
-    touch "$mirror/refs/remotes/origin/main.lock" "$mirror/index.lock" "$mirror/shallow.lock" "$mirror/config.lock"
+    set -C
+    exec 9> "$mirror/refs/remotes/origin/main.lock"
     trap 'echo term > "$MIRROR_TEST_DIR/term"' TERM
     echo "$$" > "$MIRROR_TEST_DIR/ready"
     while :; do sleep 0.05; done
@@ -117,7 +123,7 @@ func TestHungFetchStopsItsChildrenAndReleasesMirror(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			maker, src, root := mirrorProcessFixture(t)
 			src.Env = []string{"MIRROR_TEST_ACTION=" + mode}
-			maker.GitStall = time.Second
+			maker.GitTimeout = time.Second
 			maker.GitGrace = 150 * time.Millisecond
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -149,7 +155,7 @@ func TestHungFetchStopsItsChildrenAndReleasesMirror(t *testing.T) {
 
 			healthy := src
 			healthy.Env = nil
-			maker.GitStall = 0
+			maker.GitTimeout = 0
 			require.NoError(t, maker.Ensure(guard, healthy, "main", "next", filepath.Join(root.Name(), "wt", "next")))
 		})
 	}
@@ -189,16 +195,17 @@ func TestMirrorLockOutlivesTheNodeThatStartedGit(t *testing.T) {
 }
 
 func TestInterruptedFetchRecoversGitLocks(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("automatic ownership verification requires procfs")
+	}
 	maker, src, root := mirrorProcessFixture(t)
-	maker.GitStall, maker.GitGrace = 400*time.Millisecond, 200*time.Millisecond
+	maker.GitTimeout, maker.GitGrace = 400*time.Millisecond, 200*time.Millisecond
 	interrupted := src
 	interrupted.Env = []string{"MIRROR_TEST_ACTION=stale"}
 	err := maker.Ensure(t.Context(), interrupted, "main", "stale", filepath.Join(root.Name(), "wt", "stale"))
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	mirror := maker.mirrorPath(src.Repo)
-	for _, name := range []string{"refs/remotes/origin/main.lock", "index.lock", "shallow.lock", "config.lock"} {
-		require.FileExists(t, filepath.Join(mirror, name))
-	}
+	assert.NoFileExists(t, filepath.Join(mirror, "refs/remotes/origin/main.lock"))
 	run(t, src.URL, "commit", "--allow-empty", "-qm", "advance the ref")
 	want := run(t, src.URL, "rev-parse", "HEAD")
 	planned := filepath.Join(root.Name(), "wt", "next")
@@ -207,9 +214,65 @@ func TestInterruptedFetchRecoversGitLocks(t *testing.T) {
 	assert.FileExists(t, filepath.Join(root.Name(), "term"), "SIGTERM arrived before the forced stop")
 }
 
-func TestProgressingFetchAndItsWaiterOutliveStallInterval(t *testing.T) {
+func TestInterruptedNodeFetchDoesNotDeleteLiveWorkerLock(t *testing.T) {
 	maker, src, root := mirrorProcessFixture(t)
-	maker.GitStall, maker.GitGrace = 500*time.Millisecond, 150*time.Millisecond
+	work := filepath.Join(root.Name(), "wt", "seed")
+	seed := run(t, work, "rev-parse", "HEAD")
+	run(t, src.URL, "commit", "--allow-empty", "-qm", "new ref")
+	next := run(t, src.URL, "rev-parse", "HEAD")
+	run(t, work, "fetch", "--no-auto-gc", src.URL, "main")
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	worker := exec.CommandContext(ctx, "git", "-C", work, "update-ref", "--stdin") //nolint:gosec // local Git fixture
+	input, err := worker.StdinPipe()
+	require.NoError(t, err)
+	output, err := worker.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, worker.Start())
+	t.Cleanup(func() {
+		if worker.ProcessState == nil {
+			_ = worker.Process.Kill()
+			_ = worker.Wait()
+		}
+	})
+	_, err = input.Write([]byte("start\nupdate refs/heads/hyp/seed " + next + " " + seed + "\nprepare\n"))
+	require.NoError(t, err)
+	scanner := bufio.NewScanner(output)
+	for _, reply := range []string{"start: ok", "prepare: ok"} {
+		require.True(t, scanner.Scan())
+		require.Equal(t, reply, scanner.Text())
+	}
+	interrupted := src
+	interrupted.Env = []string{"MIRROR_TEST_ACTION=timeout"}
+	bounded := maker
+	bounded.GitTimeout, bounded.GitGrace = 400*time.Millisecond, 100*time.Millisecond
+	err = bounded.Ensure(ctx, interrupted, "main", "interrupted", filepath.Join(root.Name(), "wt", "interrupted"))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NoError(t, maker.Ensure(ctx, src, "main", "after", filepath.Join(root.Name(), "wt", "after")))
+	assert.FileExists(t, filepath.Join(maker.mirrorPath(src.Repo), "refs/heads/hyp/seed.lock"))
+	_, err = input.Write([]byte("commit\n"))
+	require.NoError(t, err)
+	require.NoError(t, input.Close())
+	require.True(t, scanner.Scan())
+	assert.Equal(t, "commit: ok", scanner.Text())
+	require.NoError(t, worker.Wait())
+}
+
+func TestDefaultAllowsQuietClone(t *testing.T) {
+	maker, src, root := mirrorProcessFixture(t)
+	other, err := SourceOf("github.com", "github", "kl3inIT/quiet-clone", "")
+	require.NoError(t, err)
+	other.URL = src.URL
+	other.Env = []string{"MIRROR_TEST_ACTION=clone-silent"}
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	path := filepath.Join(root.Name(), "wt", "quiet")
+	require.NoError(t, maker.Ensure(ctx, other, "main", "quiet", path))
+	assert.FileExists(t, filepath.Join(path, "README.md"))
+}
+
+func TestProgressingFetchAndItsWaiterShareMirror(t *testing.T) {
+	maker, src, root := mirrorProcessFixture(t)
 	progressing := src
 	progressing.Env = []string{"MIRROR_TEST_ACTION=progress"}
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
@@ -225,7 +288,7 @@ func TestProgressingFetchAndItsWaiterOutliveStallInterval(t *testing.T) {
 	holderErr := <-result
 	require.NoError(t, holderErr)
 	require.NoError(t, waitErr)
-	assert.Greater(t, time.Since(started), maker.GitStall)
+	assert.Greater(t, time.Since(started), 500*time.Millisecond)
 	assert.Equal(t, Branch("waiter"), run(t, path, "branch", "--show-current"))
 }
 
@@ -235,7 +298,7 @@ func TestInterruptedCloneIsNotPublished(t *testing.T) {
 	require.NoError(t, err)
 	other.URL = src.URL
 	other.Env = []string{"MIRROR_TEST_ACTION=clone-stall"}
-	maker.GitStall, maker.GitGrace = 400*time.Millisecond, 150*time.Millisecond
+	maker.GitTimeout, maker.GitGrace = 400*time.Millisecond, 150*time.Millisecond
 	path := filepath.Join(root.Name(), "wt", "clone")
 	err = maker.Ensure(t.Context(), other, "main", "clone", path)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -276,7 +339,7 @@ func TestInterruptedCheckoutIsRecreatedBeforeSetup(t *testing.T) {
 	assert.FileExists(t, filepath.Join(path, "setup.log"))
 }
 
-func TestWorktreeCommandsDisableHooks(t *testing.T) {
+func TestWorktreeAddRunsConfiguredHooks(t *testing.T) {
 	maker, src, root := mirrorProcessFixture(t)
 	mirror := maker.mirrorPath(src.Repo)
 	hooks := filepath.Join(root.Name(), "hooks")
@@ -285,7 +348,54 @@ func TestWorktreeCommandsDisableHooks(t *testing.T) {
 		[]byte("#!/bin/sh\necho executed > \"$MIRROR_TEST_DIR/hook-ran\"\n"), 0o700))
 	run(t, mirror, "config", "core.hooksPath", hooks)
 	require.NoError(t, maker.Ensure(t.Context(), src, "main", "hooks", filepath.Join(root.Name(), "wt", "hooks")))
-	assert.NoFileExists(t, filepath.Join(root.Name(), "hook-ran"))
+	assert.FileExists(t, filepath.Join(root.Name(), "hook-ran"))
+}
+
+func TestInterruptedSetupKeepsDetachedCommit(t *testing.T) {
+	maker, src, root := mirrorProcessFixture(t)
+	setup := `scripts:
+  setup: |
+    set -e
+    test ! -e "$MIRROR_TEST_DIR/setup-head" || exit 0
+    git switch --detach
+    git -c user.name=fixture -c user.email=fixture@example.test commit --allow-empty -m 'setup commit'
+    git rev-parse HEAD > "$MIRROR_TEST_DIR/setup-head"
+    sleep 10
+`
+	require.NoError(t, os.WriteFile(filepath.Join(src.URL, SetupFile), []byte(setup), 0o600))
+	run(t, src.URL, "add", SetupFile)
+	run(t, src.URL, "commit", "-qm", "setup fixture")
+	path := filepath.Join(root.Name(), "wt", "setup")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	maker.GitGrace = 150 * time.Millisecond
+	result := make(chan error, 1)
+	go func() { result <- maker.Ensure(ctx, src, "main", "setup", path) }()
+	var head string
+	require.Eventually(t, func() bool {
+		data, err := root.ReadFile("setup-head")
+		head = strings.TrimSpace(string(data))
+		return err == nil && head != ""
+	}, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-result, context.Canceled)
+	retry, stop := context.WithTimeout(t.Context(), 3*time.Second)
+	defer stop()
+	require.NoError(t, maker.Ensure(retry, src, "main", "setup", path))
+	assert.Equal(t, head, run(t, path, "rev-parse", "HEAD"))
+	assert.Empty(t, run(t, path, "branch", "--show-current"))
+}
+
+func TestRetryDoesNotForceAddBranchCheckedOutElsewhere(t *testing.T) {
+	maker, src, root := mirrorProcessFixture(t)
+	other := filepath.Join(root.Name(), "wt", "second-path")
+	for range 2 {
+		err := maker.Ensure(t.Context(), src, "main", "seed", other)
+		require.ErrorContains(t, err, "already checked out")
+		assert.NoDirExists(t, other)
+	}
+	seed := filepath.Join(root.Name(), "wt", "seed")
+	assert.Equal(t, Branch("seed"), run(t, seed, "branch", "--show-current"))
 }
 
 func TestDetachedGitDescendantDoesNotKeepLockAfterNodeDeath(t *testing.T) {

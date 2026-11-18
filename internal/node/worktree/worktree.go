@@ -25,7 +25,6 @@ import (
 )
 
 const (
-	mirrorGitStall = 5 * time.Minute
 	mirrorGitGrace = time.Second
 	mirrorLockPoll = 100 * time.Millisecond
 )
@@ -40,8 +39,9 @@ type Maker struct {
 	Logger *slog.Logger
 	// SetupTimeout replaces how long a setup script may run, in tests.
 	SetupTimeout time.Duration
-	// GitStall and GitGrace override the inactivity and termination grace periods.
-	GitStall time.Duration
+	// GitTimeout is an optional total limit for each Git command. Zero means no limit.
+	GitTimeout time.Duration
+	// GitGrace overrides the termination grace period.
 	GitGrace time.Duration
 }
 
@@ -90,8 +90,8 @@ func (src Source) OverSSH(url string, env []string) (Source, error) {
 func Branch(taskID string) string { return "hyp/" + taskID }
 
 // Ensure makes the worktree at path on the Task's branch, starting from base,
-// or reuses it when it exists (a continued Conversation). A worktree it made
-// has had the repository's setup script run in it (setup.go).
+// or reuses it when it exists (a continued Conversation). Setup runs on a new
+// checkout only, after it is marked complete so a retry preserves its changes.
 func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("the worktree %q is not absolute", path)
@@ -132,14 +132,14 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 	if err := m.add(ctx, src, base, taskID, path, recovering); err != nil {
 		return err
 	}
-	m.setup(ctx, path, lock)
-	if err := ctx.Err(); err != nil {
+	if err := os.Remove(pending); err != nil {
 		return err
 	}
-	return os.Remove(pending)
+	m.setup(ctx, path, lock)
+	return ctx.Err()
 }
 
-func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, recovering bool) (result error) {
+func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, recovering bool) error {
 	if src.Repo.Path == "" || src.URL == "" {
 		return errors.New("the offer names no repository")
 	}
@@ -156,20 +156,16 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, r
 	}
 
 	git := m.git(lock)
-	pending, err := m.beginMirror(mirror)
-	if err != nil {
-		return err
-	}
-	defer func() { result = finishMirror(pending, result) }()
 	if err := m.updateMirror(ctx, git, src, mirror); err != nil {
 		return err
 	}
-	var recoveryFlags []string
 	if recovering {
 		if err := os.RemoveAll(path); err != nil { //nolint:gosec // incomplete checkout owned by the node
 			return err
 		}
-		recoveryFlags = []string{"--force", "--force"}
+		if err := git.removeRegistration(ctx, mirror, path); err != nil {
+			return err
+		}
 	}
 
 	//nolint:gosec // G703: the worktree path comes from the control plane's Dispatch.
@@ -178,7 +174,7 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, r
 	}
 
 	branch := Branch(taskID)
-	args := append([]string{"worktree", "add"}, recoveryFlags...)
+	args := []string{"worktree", "add"}
 
 	err = git.run(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	if err != nil {
@@ -229,19 +225,15 @@ func (m Maker) Remove(ctx context.Context, src Source, path string) error {
 		return removeIfPresent(state + ".pending")
 	}
 
-	pending, err := m.beginMirror(mirror)
-	if err != nil {
-		return err
-	}
 	git := m.git(lock)
 	if err := git.run(ctx, mirror, nil, "worktree", "remove", "--force", path); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
-		return finishMirror(pending, errors.Join(err, os.RemoveAll(path)))
+		return errors.Join(err, os.RemoveAll(path))
 	}
 
-	return errors.Join(finishMirror(pending, nil), removeIfPresent(state+".pending"))
+	return removeIfPresent(state + ".pending")
 }
 
 func (m Maker) lockMirror(ctx context.Context, mirror string) (*mirrorLock, error) {
@@ -319,13 +311,24 @@ func (m Maker) updateMirror(ctx context.Context, git mirrorGit, src Source, path
 }
 
 type mirrorGit struct {
-	lock  *mirrorLock
-	stall time.Duration
-	grace time.Duration
+	lock    *mirrorLock
+	timeout time.Duration
+	grace   time.Duration
+	lockDir string
 }
 
 func (m Maker) git(lock *mirrorLock) mirrorGit {
-	return mirrorGit{lock: lock, stall: m.GitStall, grace: m.GitGrace}
+	return mirrorGit{lock: lock, timeout: m.GitTimeout, grace: m.GitGrace}
+}
+
+func (git mirrorGit) removeRegistration(ctx context.Context, mirror, path string) error {
+	err := git.run(ctx, mirror, []string{"LC_ALL=C"}, "worktree", "remove", "--force", "--force", path)
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok && exit.ExitCode() == 128 &&
+		strings.Contains(err.Error(), "is not a working tree") && ctx.Err() == nil &&
+		!errors.Is(err, context.DeadlineExceeded) {
+		return nil
+	}
+	return err
 }
 
 func (git mirrorGit) fetch(ctx context.Context, path, url string, env []string) error {
@@ -343,11 +346,22 @@ func (git mirrorGit) fetch(ctx context.Context, path, url string, env []string) 
 // run runs git in dir with env added to the node's own. The error names the
 // arguments and what git printed; a token is in neither, only in env.
 func (git mirrorGit) run(ctx context.Context, dir string, env []string, args ...string) error {
+	if git.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, git.timeout)
+		defer cancel()
+	}
+	if git.lock != nil && (args[0] == "fetch" || args[0] == "remote") {
+		git.lockDir = dir
+	}
+	withHooks := args[0] == "worktree"
 	if dir != "" {
 		args = append([]string{"-C", dir}, args...)
 	}
+	if !withHooks {
+		args = append([]string{"-c", "core.hooksPath=" + os.DevNull}, args...)
+	}
 
-	args = append([]string{"-c", "core.hooksPath=" + os.DevNull}, args...)
 	output, err := git.runProcess(ctx, "", append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), env...), "git", args...)
 	if err != nil {
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(output))

@@ -4491,17 +4491,18 @@ Node (`internal/node`):
   macOS a supervisor holds the lock while Git runs; neither Git nor its children inherit it. On cancellation
   or daemon exit the supervisor signals the Git process group with TERM, then KILL after the grace period,
   before releasing its copy of the lock. The lock wait follows the Dispatch context, with no separate
-  deadline. Clone and fetch request progress output; Git has an inactivity limit rather than a total deadline.
-  The node config can set `mirror_git_stall` (default `5m`) and `mirror_git_grace` (default `1s`) as Go durations.
-  A clone is published by rename only after success. On Linux and macOS, after an interrupted mirror operation
-  the node clears leftover Git lockfiles before updating the mirror under the lock. Node Git disables hooks; mirror fetches
-  also disable automatic maintenance and retry `cannot lock ref` once (issue #868). Worker Git does not take
-  the node's mirror lock.
+  deadline. Git has no additional timeout by default; the node config can set `mirror_git_timeout` (a total limit
+  per command) and `mirror_git_grace` (default `1s`) as Go durations. A clone is published by rename only after
+  success. On Linux, before stopping its mirror Git process, the supervisor checks that process's writable file
+  descriptors for Git lockfiles. It removes only a captured lock whose inode is still in place after Git exits;
+  unproven locks are left alone. Worker Git does not take the node's mirror lock. Mirror fetches disable hooks and
+  automatic maintenance and retry `cannot lock ref` once (issue #868); worktree commands honor configured hooks.
   `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
   branch on a retry. A separate lock for the worktree path serializes checkout, setup and removal for that path.
-  A pending marker written before checkout and cleared after setup distinguishes incomplete worktrees from
-  completed or pre-upgrade ones. The node recreates a pending checkout on retry. Other mirrors and worktrees
-  do not wait for its setup. Git uses the node user's own credentials. The offer names the
+  A pending marker written before checkout and cleared before setup distinguishes incomplete checkouts from
+  completed or pre-upgrade ones. The node recreates a pending checkout on retry without forcing a branch already
+  in use elsewhere. A retry does not rerun interrupted setup or discard commits it made. Other mirrors and worktrees
+  do not wait for that setup. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub

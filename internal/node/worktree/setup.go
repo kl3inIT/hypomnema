@@ -97,7 +97,7 @@ func (m Maker) setup(ctx context.Context, path string, lock *mirrorLock) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	output, err := (mirrorGit{lock: lock, stall: timeout, grace: m.GitGrace}).runProcess(ctx, path,
+	output, err := (mirrorGit{lock: lock, grace: m.GitGrace}).runProcess(ctx, path,
 		append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path), shell, "-c", script)
 
 	switch {

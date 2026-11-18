@@ -2,20 +2,11 @@ package worktree
 
 import "time"
 
-const (
-	gitStalledExit = 124
-	gitFailedExit  = 125
-)
-
-func (git mirrorGit) bounds() (time.Duration, time.Duration) {
-	stall, grace := git.stall, git.grace
-	if stall <= 0 {
-		stall = mirrorGitStall
+func (git mirrorGit) stopGrace() time.Duration {
+	if git.grace <= 0 {
+		return mirrorGitGrace
 	}
-	if grace <= 0 {
-		grace = mirrorGitGrace
-	}
-	return stall, grace
+	return git.grace
 }
 
 type outputTail []byte
