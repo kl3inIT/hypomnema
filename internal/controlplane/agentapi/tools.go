@@ -218,7 +218,7 @@ func (s *Server) switchesOf(ctx context.Context, a agent) (agenttool.ToolSwitche
 	case a.chatID != "" && a.bot != "":
 		return a.botSwitches, nil
 	default:
-		return agenttool.ToolSwitches{}, nil
+		return agenttool.ToolSwitches{On: []string{"*"}}, nil
 	}
 }
 

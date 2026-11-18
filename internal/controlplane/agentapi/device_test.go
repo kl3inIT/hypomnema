@@ -64,20 +64,37 @@ func (w *world) useDevice(key, tool, arguments string) (int, string) {
 	return status, string(body)
 }
 
-// Scenario: every worker has the phone, as it has the browser (issue #417,
-// owner 2026-11-15), even one whose Run was given no account. A call reaches
+func phoneWorker(w *world) (key, dispatch string) {
+	w.t.Helper()
+	key = w.workerUnder("tools: [phone]\n", "worker", "")
+	session, err := w.svc.AgentSessionOf(w.t.Context(), key)
+	require.NoError(w.t, err)
+
+	return key, session.DispatchID
+}
+
+func enableMainBotPhone(w *world) {
+	w.t.Helper()
+	ctx := w.t.Context()
+	bot, err := w.svc.GetBot(ctx, orchestration.DefaultBotID)
+	require.NoError(w.t, err)
+	bot.Tools = []string{"phone"}
+	_, err = w.svc.PutBot(ctx, bot)
+	require.NoError(w.t, err)
+}
+
+// Scenario: a worker whose profile enables the phone can use it even without a Connection. A call reaches
 // the phone under the worker's own name, so its screens stay its own, and the
 // answer is passed on as it is. Which agent used which tool, and for how long,
 // is logged, never what it typed; without a credential nothing is listed or run.
-func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
+func TestAnOptedInWorkerUsesThePhoneAsItself(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
 	p := &sharedPhone{}
 	withPhone(w, p)
 
-	key, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
-	require.NoError(t, err)
+	key, dispatch := phoneWorker(w)
 
 	status, body := w.call(http.MethodGet, agenttool.PathDeviceTools, key, nil)
 	require.Equal(t, http.StatusOK, status)
@@ -90,10 +107,10 @@ func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
 	status, answer := w.useDevice(key, devicetool.Type, `{"text":"mật khẩu bí mật"}`)
 	require.Equal(t, http.StatusOK, status)
 	assert.JSONEq(t, `{"content":[{"type":"image","data":"cG5n","mimeType":"image/png"}],"isError":false}`, answer)
-	assert.Equal(t, []string{`d-dsp_1 device_type {"text":"mật khẩu bí mật"}`}, p.calls)
+	assert.Equal(t, []string{`d-` + dispatch + ` device_type {"text":"mật khẩu bí mật"}`}, p.calls)
 
 	logs := w.logs.String()
-	assert.Contains(t, logs, "dsp_1")
+	assert.Contains(t, logs, dispatch)
 	assert.Contains(t, logs, "device_type")
 	assert.Contains(t, logs, "duration_ms=", "how long the call took")
 	assert.NotContains(t, logs, "bí mật")
@@ -107,7 +124,8 @@ func TestEveryWorkerUsesThePhoneAsItself(t *testing.T) {
 	status, _ = w.useDevice(key, devicetool.VideoList, `{}`)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, []string{
-		`d-dsp_1 device_location {"latitude":21.0285,"longitude":105.8542}`, `d-dsp_1 video_list {}`,
+		`d-` + dispatch + ` device_location {"latitude":21.0285,"longitude":105.8542}`,
+		`d-` + dispatch + ` video_list {}`,
 	}, p.calls[1:])
 	p.calls = p.calls[:1]
 
@@ -127,6 +145,7 @@ func TestABotsPiUsesThePhoneAsItsChat(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
+	enableMainBotPhone(w)
 	p := &sharedPhone{}
 	withPhone(w, p)
 
@@ -187,8 +206,7 @@ func TestAPhoneCallThatFailsSaysWhy(t *testing.T) {
 	p := &sharedPhone{}
 	withPhone(w, p)
 
-	key, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
-	require.NoError(t, err)
+	key, _ := phoneWorker(w)
 
 	tests := []struct {
 		err    error
@@ -211,8 +229,7 @@ func TestAPhoneCallThatFailsSaysWhy(t *testing.T) {
 	assert.NotContains(t, w.logs.String(), "an agent used the phone", "a call that failed is not logged as made")
 
 	none := newWorld(t)
-	noneKey, err := none.svc.AddAgentSession(t.Context(), "dsp_2", nil)
-	require.NoError(t, err)
+	noneKey, _ := phoneWorker(none)
 
 	status, body := none.call(http.MethodGet, agenttool.PathDeviceTools, noneKey, nil)
 	assert.Equal(t, http.StatusServiceUnavailable, status)
@@ -231,13 +248,13 @@ func TestThePhoneKnowsTheWorkOfEachCall(t *testing.T) {
 
 	ctx := t.Context()
 
-	key, err := w.svc.AddAgentSession(ctx, "dsp_1", nil)
-	require.NoError(t, err)
+	key, dispatch := phoneWorker(w)
+	enableMainBotPhone(w)
 
 	status, _ := w.useDevice(key, devicetool.VideoStart, `{"title":"Sign in"}`)
 	require.Equal(t, http.StatusOK, status)
 
-	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
 	chat, err := w.svc.CreateChat(ctx, "", "")
@@ -259,7 +276,7 @@ func TestThePhoneKnowsTheWorkOfEachCall(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 
 	require.Len(t, p.works, 3)
-	assert.Equal(t, "dispatch dsp_1", p.works[0])
+	assert.Equal(t, "dispatch "+dispatch, p.works[0])
 	assert.True(t, strings.HasPrefix(p.works[1], "turn "+chat.ID+" pi-1@"), p.works[1])
 	assert.NotEqual(t, p.works[1], p.works[2], "the chat's next turn is other work")
 }

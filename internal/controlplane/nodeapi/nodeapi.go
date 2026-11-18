@@ -27,6 +27,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	shippedrelease "github.com/kl3inIT/hypomnema/internal/shared/release"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
 const writeTimeout = 10 * time.Second
@@ -54,7 +55,7 @@ type Server struct {
 	// runtimeTools are the agent CLIs a node of a system is told to have (issue #107).
 	runtimeTools func(os, arch string) []nodeproto.Tool
 
-	// phoneHeld says whether a node holds the phone every worker is given (issue #417); nil when the control
+	// phoneHeld says whether a node holds a phone allowed workers are given; nil when the control
 	// plane wired none.
 	phoneHeld func(ctx context.Context) bool
 
@@ -585,9 +586,14 @@ func (c *session) push(ctx context.Context) error {
 			}
 		}
 
-		// And whether a phone is there to be used (issue #417): the worker is then told of its tools.
 		if c.srv.phoneHeld != nil && o.AgentKey != "" && c.srv.phoneHeld(ctx) {
-			o.Device = nodeproto.DeviceAndroid
+			switches, err := c.srv.svc.ToolSwitchesOfDispatch(ctx, o.DispatchID)
+			if err != nil {
+				c.srv.logger.WarnContext(ctx, "reading phone access",
+					slog.String("dispatch", o.DispatchID), slog.String("error", err.Error()))
+			} else if switches.AllowsFamily("phone") {
+				o.Device = nodeproto.DeviceAndroid
+			}
 		}
 
 		// And the names of the tools it gets, read with that key as its tools server will be, for the "Tools" block
@@ -597,6 +603,12 @@ func (c *session) push(ctx context.Context) error {
 		}
 
 		o.Skills = c.srv.skillsFor(c.nodeID, o.Skills)
+		if o.Device == "" {
+			android := skillpack.Requirement(skillpack.RequiresDevice, nodeproto.DeviceAndroid)
+			o.Skills = slices.DeleteFunc(slices.Clone(o.Skills), func(sk nodeproto.Skill) bool {
+				return slices.Contains(sk.Requires, android)
+			})
+		}
 
 		if err := c.send(ctx, nodeproto.TypeOffer, nodeproto.Offer(o)); err != nil {
 			return err

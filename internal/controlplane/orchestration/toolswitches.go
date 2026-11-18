@@ -6,13 +6,17 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// checkTools checks the tools a profile or a Bot keeps and turns off (issue
-// #536, step 7): each a tool's name or a family that names one, named once,
-// and not in both lists, as checkSkills checks its skills.
-func checkTools(on, off []string) error {
+func checkTools(preset string, on, off []string) error {
+	switch agenttool.DefaultPreset(preset) {
+	case agenttool.PresetFull, agenttool.PresetReport:
+	default:
+		return fmt.Errorf("%w: preset %q must be full or report", ErrInvalid, preset)
+	}
+
 	if err := agenttool.CheckToolSwitches(on, off); err != nil {
 		return fmt.Errorf("%w: tools: %w", ErrInvalid, err)
 	}
@@ -23,15 +27,20 @@ func checkTools(on, off []string) error {
 // ToolSwitches are the tool switches of a Bot's pi: its Bot's, read now, so
 // a change reaches a pi already running at its next call.
 func (b Bot) ToolSwitches() agenttool.ToolSwitches {
-	return agenttool.ToolSwitches{On: b.Tools, Off: b.ToolsOff}
+	return agenttool.ToolSwitches{Preset: b.Preset, On: b.Tools, Off: b.ToolsOff}
 }
 
-// ToolSwitchesOfDispatch are the tool switches of a worker: those of the
-// profile version its Dispatch runs with, as the skills it was given are
-// (recordSkills). A Dispatch made before profiles, with no profile version,
-// has none.
+func (p Profile) ToolSwitches() agenttool.ToolSwitches {
+	return agenttool.ToolSwitches{Preset: p.Preset, On: p.Tools, Off: p.ToolsOff}
+}
+
+// ToolSwitchesOfDispatch reads the immutable profile policy and, for a Bot Run, caps it by the Bot's current policy.
 func (s *Service) ToolSwitchesOfDispatch(ctx context.Context, dispatchID string) (agenttool.ToolSwitches, error) {
-	row, err := s.read().ToolSwitchesOfDispatch(ctx, dispatchID)
+	return dispatchToolSwitches(ctx, s.read(), dispatchID)
+}
+
+func dispatchToolSwitches(ctx context.Context, q *store.Queries, dispatchID string) (agenttool.ToolSwitches, error) {
+	row, err := q.ToolSwitchesOfDispatch(ctx, dispatchID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return agenttool.ToolSwitches{}, nil
 	}
@@ -40,5 +49,15 @@ func (s *Service) ToolSwitchesOfDispatch(ctx context.Context, dispatchID string)
 		return agenttool.ToolSwitches{}, fmt.Errorf("reading the tool switches of dispatch %s: %w", dispatchID, err)
 	}
 
-	return agenttool.ToolSwitches{On: splitNames(row.Tools), Off: splitNames(row.ToolsOff)}, nil
+	policy := agenttool.ToolSwitches{Preset: row.Preset, On: splitNames(row.Tools), Off: splitNames(row.ToolsOff)}
+	if row.BotID != "" {
+		policy.Parent = &agenttool.ToolSwitches{
+			Preset: row.BotPreset, On: splitNames(row.BotTools), Off: splitNames(row.BotToolsOff),
+		}
+		if row.BotPreset == "" {
+			policy.Parent.Off = []string{"*"}
+		}
+	}
+
+	return policy, nil
 }

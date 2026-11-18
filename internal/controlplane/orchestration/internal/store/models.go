@@ -150,6 +150,7 @@ type Bot struct {
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
 	Fallbacks            string
+	Preset               string
 }
 
 type Channel struct {
@@ -723,6 +724,7 @@ type ProfileVersion struct {
 	ToolsOff           string
 	CpuRequestMillis   sql.NullInt64
 	MemoryRequestBytes sql.NullInt64
+	Preset             string
 }
 
 type Provider struct {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
@@ -46,6 +47,19 @@ func (s *Server) deviceTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	switches, err := s.switchesOf(r.Context(), a)
+	if err != nil {
+		s.fail(w, r, err)
+
+		return
+	}
+
+	if !switches.AllowsFamily("phone") {
+		answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
+
+		return
+	}
+
 	if s.device == nil {
 		refuse(w, http.StatusServiceUnavailable, "this control plane has no phone")
 
@@ -66,14 +80,8 @@ func (s *Server) deviceTools(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	listed, err := s.narrowed(r.Context(), a, out.Data)
-	if err != nil {
-		s.fail(w, r, err)
-
-		return
-	}
-
-	answer(w, agenttool.BrowserToolList{Data: listed})
+	out.Data = slices.DeleteFunc(out.Data, func(t agenttool.BrowserTool) bool { return !switches.Allows(t.Name) })
+	answer(w, out)
 }
 
 func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
@@ -92,13 +100,13 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.device == nil {
-		refuse(w, http.StatusServiceUnavailable, "this control plane has no phone")
-
+	if s.switchedOff(w, r, a, asked.Tool) {
 		return
 	}
 
-	if s.switchedOff(w, r, a, asked.Tool) {
+	if s.device == nil {
+		refuse(w, http.StatusServiceUnavailable, "this control plane has no phone")
+
 		return
 	}
 

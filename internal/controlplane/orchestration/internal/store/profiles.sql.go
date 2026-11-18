@@ -105,7 +105,7 @@ func (q *Queries) CountUnfinishedTasksOfProfile(ctx context.Context, profile str
 }
 
 const currentProfileVersion = `-- name: CurrentProfileVersion :one
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes, v.preset FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
 WHERE p.name = ?1 AND p.deleted_at IS NULL
 `
 
@@ -133,6 +133,7 @@ func (q *Queries) CurrentProfileVersion(ctx context.Context, name string) (Profi
 		&i.ToolsOff,
 		&i.CpuRequestMillis,
 		&i.MemoryRequestBytes,
+		&i.Preset,
 	)
 	return i, err
 }
@@ -212,7 +213,7 @@ func (q *Queries) GetProfileEvenDeleted(ctx context.Context, name string) (Profi
 }
 
 const getProfileVersion = `-- name: GetProfileVersion :one
-SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes FROM profile_versions WHERE id = ?1
+SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes, preset FROM profile_versions WHERE id = ?1
 `
 
 func (q *Queries) GetProfileVersion(ctx context.Context, id string) (ProfileVersion, error) {
@@ -238,6 +239,7 @@ func (q *Queries) GetProfileVersion(ctx context.Context, id string) (ProfileVers
 		&i.ToolsOff,
 		&i.CpuRequestMillis,
 		&i.MemoryRequestBytes,
+		&i.Preset,
 	)
 	return i, err
 }
@@ -293,9 +295,9 @@ func (q *Queries) InsertProfile(ctx context.Context, arg InsertProfileParams) er
 const insertProfileVersion = `-- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
                               instruction, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis,
-                              memory_request_bytes, created_at)
+                              memory_request_bytes, preset, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
 `
 
 type InsertProfileVersionParams struct {
@@ -317,6 +319,7 @@ type InsertProfileVersionParams struct {
 	ToolsOff           string
 	CpuRequestMillis   sql.NullInt64
 	MemoryRequestBytes sql.NullInt64
+	Preset             string
 	Now                int64
 }
 
@@ -340,13 +343,14 @@ func (q *Queries) InsertProfileVersion(ctx context.Context, arg InsertProfileVer
 		arg.ToolsOff,
 		arg.CpuRequestMillis,
 		arg.MemoryRequestBytes,
+		arg.Preset,
 		arg.Now,
 	)
 	return err
 }
 
 const listCurrentProfileVersions = `-- name: ListCurrentProfileVersions :many
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off, v.tools, v.tools_off, v.cpu_request_millis, v.memory_request_bytes, v.preset FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
 WHERE p.deleted_at IS NULL ORDER BY p.name
 `
 
@@ -379,6 +383,7 @@ func (q *Queries) ListCurrentProfileVersions(ctx context.Context) ([]ProfileVers
 			&i.ToolsOff,
 			&i.CpuRequestMillis,
 			&i.MemoryRequestBytes,
+			&i.Preset,
 		); err != nil {
 			return nil, err
 		}
@@ -428,7 +433,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]ListModelsRow, error) {
 }
 
 const listProfileVersions = `-- name: ListProfileVersions :many
-SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes FROM profile_versions WHERE profile = ?1 ORDER BY version DESC
+SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis, memory_request_bytes, preset FROM profile_versions WHERE profile = ?1 ORDER BY version DESC
 `
 
 func (q *Queries) ListProfileVersions(ctx context.Context, profile string) ([]ProfileVersion, error) {
@@ -460,6 +465,7 @@ func (q *Queries) ListProfileVersions(ctx context.Context, profile string) ([]Pr
 			&i.ToolsOff,
 			&i.CpuRequestMillis,
 			&i.MemoryRequestBytes,
+			&i.Preset,
 		); err != nil {
 			return nil, err
 		}
@@ -628,20 +634,36 @@ func (q *Queries) SetProfileVersion(ctx context.Context, arg SetProfileVersionPa
 }
 
 const toolSwitchesOfDispatch = `-- name: ToolSwitchesOfDispatch :one
-SELECT v.tools, v.tools_off FROM dispatches d JOIN profile_versions v ON v.id = d.profile_version_id
+SELECT coalesce(v.preset, 'full') AS preset, coalesce(v.tools, '') AS tools, coalesce(v.tools_off, '') AS tools_off,
+       coalesce(r.bot_id, '') AS bot_id, coalesce(b.preset, '') AS bot_preset,
+       coalesce(b.tools, '') AS bot_tools, coalesce(b.tools_off, '') AS bot_tools_off
+FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN runs r ON r.id = t.run_id
+LEFT JOIN profile_versions v ON v.id = d.profile_version_id LEFT JOIN bots b ON b.id = r.bot_id
 WHERE d.id = ?1
 `
 
 type ToolSwitchesOfDispatchRow struct {
-	Tools    string
-	ToolsOff string
+	Preset      string
+	Tools       string
+	ToolsOff    string
+	BotID       string
+	BotPreset   string
+	BotTools    string
+	BotToolsOff string
 }
 
-// The tool switches of the profile version a Dispatch runs with (issue #536); none for one made before profiles.
 func (q *Queries) ToolSwitchesOfDispatch(ctx context.Context, dispatchID string) (ToolSwitchesOfDispatchRow, error) {
 	row := q.db.QueryRowContext(ctx, toolSwitchesOfDispatch, dispatchID)
 	var i ToolSwitchesOfDispatchRow
-	err := row.Scan(&i.Tools, &i.ToolsOff)
+	err := row.Scan(
+		&i.Preset,
+		&i.Tools,
+		&i.ToolsOff,
+		&i.BotID,
+		&i.BotPreset,
+		&i.BotTools,
+		&i.BotToolsOff,
+	)
 	return i, err
 }
 
