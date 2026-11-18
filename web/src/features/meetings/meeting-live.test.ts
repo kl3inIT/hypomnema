@@ -136,7 +136,7 @@ describe("a meeting recorded live", () => {
     await recorder.start([{ track: "mic", stream: {} as MediaStream, offsetMs: 0 }])
 
     speak(1)
-    opened[0].options.onFailure(new MeetingStreamError("connection"))
+    opened[0]?.options.onFailure(new MeetingStreamError("connection"))
     // 31 s while the socket is away: the queue keeps the last 30.
     speak(31)
     await vi.advanceTimersByTimeAsync(1_000)
@@ -148,8 +148,10 @@ describe("a meeting recorded live", () => {
     await vi.advanceTimersByTimeAsync(0)
 
     const reconnected = opened[1]
-    expect(reconnected.sent.length).toBeGreaterThan(0)
-    expect(startOf.get(reconnected.sent[0])).toBe(reconnected.offsetMs)
+    if (!reconnected) throw new Error("no second socket")
+    const first = reconnected.sent[0]
+    if (!first) throw new Error("nothing was sent")
+    expect(startOf.get(first)).toBe(reconnected.offsetMs)
     expect(reconnected.sent.map((pcm) => startOf.get(pcm))).toEqual(
       Array.from({ length: reconnected.sent.length }, (_, i) => reconnected.offsetMs + i * 1_000),
     )
