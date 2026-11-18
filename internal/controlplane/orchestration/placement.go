@@ -643,6 +643,10 @@ const TokenRuntime = "claude"
 // muse.ai with it.
 const MuseRuntime = "muse"
 
+// OpenCodeGoRuntime is the runtime of an OpenCode Go key (issue #854): a Console API key the owner pastes, kept in
+// the vault. No worker runs under it; the model gateway serves the provider of kind ProviderOpenCodeGo with it.
+const OpenCodeGoRuntime = "opencode_go"
+
 // runsOnNode reports whether a worker on a node can run under an account:
 // one whose CLI was logged in on that node. An account whose secret the
 // control plane keeps is the gateway's to serve.

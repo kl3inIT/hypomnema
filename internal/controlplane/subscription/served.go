@@ -17,6 +17,8 @@ const (
 // served with.
 type servedReading struct {
 	limits map[string][2]int64
+	// wires are the API each model is served on, for a vendor that names one (issue #854).
+	wires map[string]string
 	// names are the models served, in order (issue #623).
 	names []string
 	at    time.Time
@@ -30,6 +32,14 @@ func (s *Service) ServedLimits(ctx context.Context, runtime, model string) (wind
 	l, ok := s.reading(ctx, runtime).limits[model]
 
 	return l[0], l[1], ok
+}
+
+// ServedWire is the API the vendor serves a model on under a runtime's accounts (issue #854), read as ServedLimits
+// reads. ok is false when nothing is known.
+func (s *Service) ServedWire(ctx context.Context, runtime, model string) (wire string, ok bool) {
+	wire, ok = s.reading(ctx, runtime).wires[model]
+
+	return wire, ok
 }
 
 // ServedNames are the models the vendor serves a runtime's accounts, by name: the first active account logged in
@@ -87,10 +97,16 @@ func (s *Service) readServed(ctx context.Context, runtime string) (servedReading
 			continue
 		}
 
-		read := servedReading{limits: map[string][2]int64{}, names: make([]string, 0, len(models))}
+		read := servedReading{
+			limits: map[string][2]int64{}, wires: map[string]string{}, names: make([]string, 0, len(models)),
+		}
 
 		for _, m := range models {
 			read.names = append(read.names, m.Name)
+
+			if m.Wire != "" {
+				read.wires[m.Name] = m.Wire
+			}
 
 			if m.Window > 0 || m.Output > 0 {
 				read.limits[m.Name] = [2]int64{m.Window, m.Output}

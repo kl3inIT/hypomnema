@@ -171,7 +171,7 @@ func (s *Server) shareFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := r.PathValue("path")
-	if !s.serveFrameFile(w, r, sa.ArtifactID, sa.Revision, shareFilesPath(token, sa.Revision)) ||
+	if !s.serveFrameFile(w, r, sa.ArtifactID, sa.Revision, sa.Type, shareFilesPath(token, sa.Revision)) ||
 		r.Method != http.MethodGet || path != sa.Entry {
 		return
 	}
