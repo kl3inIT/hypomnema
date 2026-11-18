@@ -1713,6 +1713,50 @@
   },
   {
     "vendor": "openai",
+    "model": "gpt-6.2-astra",
+    "input": 8000000,
+    "output": 40000000,
+    "cache_read": 400000,
+    "cache_write": 10000000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-6.2-sol",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 100000,
+    "cache_write": 2500000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "openai",
     "model": "gpt-daybreak-blue-latest",
     "input": 4000000,
     "output": 20000000,

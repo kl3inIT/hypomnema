@@ -321,8 +321,8 @@ func TestAChatIsServedFromTheCodexSubscription(t *testing.T) {
 	assert.Equal(t, "Bearer access-0", sentHeaders.Get("Authorization"))
 	assert.Equal(t, "chatgpt-account", sentHeaders.Get("Chatgpt-Account-Id"))
 	assert.Equal(t, "codex_cli_rs", sentHeaders.Get("Originator"))
-	assert.Regexp(t, `^codex_cli_rs/\d+\.\d+\.\d+$`, sentHeaders.Get("User-Agent"))
-	assert.NotEmpty(t, sentHeaders.Get("Version"))
+	assert.Equal(t, "codex_cli_rs/0.169.1", sentHeaders.Get("User-Agent"), "Codex's latest release (issue #795)")
+	assert.Equal(t, "0.169.1", sentHeaders.Get("Version"))
 	assert.Equal(t, "true", sentHeaders.Get("X-Openai-Internal-Codex-Responses-Lite"))
 	assert.Empty(t, sentHeaders.Get("X-Client-Header"))
 

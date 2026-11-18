@@ -14,8 +14,9 @@ import (
 // The model lists of Codex and Claude (issue #623). Antigravity's is fetchAvailableModels (antigravity.go).
 
 // codexClientVersion is the Codex CLI version a models request names, the one the gateway sends as the CLI
-// (modelgateway/codex_adapter.go, codexCLIVersion): the backend answers the models that version knows.
-const codexClientVersion = "0.159.0"
+// (modelgateway/codex_adapter.go, codexCLIVersion): the backend answers the models that version knows. It is
+// Codex's latest release, rust-v0.169.1 (2026-11-17), whose catalog has gpt-6.2-sol and gpt-6.2-astra (issue #795).
+const codexClientVersion = "0.169.1"
 
 // maxModelsAnswer bounds a vendor's model list.
 const maxModelsAnswer = 4 << 20

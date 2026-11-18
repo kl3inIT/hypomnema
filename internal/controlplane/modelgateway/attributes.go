@@ -63,8 +63,11 @@ const (
 // gpt-6.1-sol), past which the subscription's backend refuses a request.
 // From Codex (Apache License 2.0, https://github.com/openai/codex, f5ac7a7):
 // codex-rs/models-manager/models.json context_window, and
-// codex-rs/models-manager/src/model_info.rs:129.
-var codexWindows = map[string]int64{"gpt-6.1-terra": 500000, "gpt-daybreak-red-latest": 372000}
+// codex-rs/models-manager/src/model_info.rs:129; gpt-6.2-sol's from rust-v0.169.1,
+// models.json:36 (gpt-6.2-astra's, at :216, is codexWindow).
+var codexWindows = map[string]int64{
+	"gpt-6.2-sol": 500000, "gpt-6.1-terra": 500000, "gpt-daybreak-red-latest": 372000,
+}
 
 const codexWindow int64 = 272000
 

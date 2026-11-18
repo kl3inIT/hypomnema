@@ -20,11 +20,16 @@ func TestACodexAccountSaysWhichModelsItIsServed(t *testing.T) {
 
 	chatgpt := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/backend-api/codex/models", r.URL.Path)
-		assert.NotEmpty(t, r.URL.Query().Get("client_version"))
+		// The version of Codex's latest release, rust-v0.169.1, as its CLI names its own (issue #795).
+		assert.Equal(t, "0.169.1", r.URL.Query().Get("client_version"))
+		assert.Equal(t, "0.169.1", r.Header.Get("Version"))
+		assert.Equal(t, "codex_cli_rs", r.Header.Get("Originator"))
 		assert.NotEmpty(t, r.Header.Get("Authorization"))
 		assert.Equal(t, a.ExternalID, r.Header.Get("Chatgpt-Account-Id"))
 
 		_, _ = rw.Write([]byte(`{"models": [
+			{"slug": "gpt-6.2-sol", "visibility": "list", "supported_in_api": true},
+			{"slug": "gpt-6.2-astra", "visibility": "list", "supported_in_api": true},
 			{"slug": "gpt-6.1-terra", "visibility": "list", "supported_in_api": true},
 			{"slug": "gpt-6.1-sol", "visibility": "list", "supported_in_api": true},
 			{"slug": "codex-auto-review", "visibility": "hide", "supported_in_api": true},
@@ -36,7 +41,7 @@ func TestACodexAccountSaysWhichModelsItIsServed(t *testing.T) {
 
 	names, ok := w.subs.ServedNames(t.Context(), "codex")
 	require.True(t, ok)
-	assert.Equal(t, []string{"gpt-6.1-sol", "gpt-6.1-terra"}, names)
+	assert.Equal(t, []string{"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol"}, names)
 }
 
 // Scenario (issue #623): Anthropic lists the models a Claude subscription is served over two pages. The control

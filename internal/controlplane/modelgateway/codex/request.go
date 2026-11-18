@@ -44,7 +44,9 @@ const (
 // at the head of the input, and reasoning has no summary. The Codex CLI reads
 // this from the backend's model list (use_responses_lite); 9router-go keeps
 // the set in code, and so does this package until the list is fetched.
-var liteModels = []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"}
+// gpt-6.2-sol and gpt-6.2-astra are lite in Codex's list at rust-v0.169.1
+// (codex-rs/models-manager/models.json:23 and :203, use_responses_lite).
+var liteModels = []string{"gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"}
 
 // Lite reports whether a model takes the lite shape.
 func Lite(model string) bool { return slices.Contains(liteModels, model) }
