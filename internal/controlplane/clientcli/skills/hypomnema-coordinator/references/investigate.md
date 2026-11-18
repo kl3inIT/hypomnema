@@ -1,21 +1,22 @@
-# Investigate
+# Investigate and plan
 
-For a question that changes nothing: how the code works, why something fails, an audit, a comparison. A quick look
-at a file or two to scope the question is yours; a read across the repository is a worker's.
+<!-- omp packages/coding-agent/src/prompts/tools/task.md:28-46; prompts/agents/scout.md:38-65 -->
+Use `explorer` for a standalone answer when the relevant files or cause are unknown. Give it the question, scope
+and evidence to return (file and line, command and output). It changes nothing and opens no PR. For example,
+set `kind: narrow` for "Why did Task X wait 30 minutes? Trace its Dispatch and account state; give timestamps and
+commands." Read the answer in `hypomnema tasks show <task_id> --json`.
 
-1. Split the question into Tasks with a narrow scope each, so each worker can answer shortly with evidence. For a
-   question that is ambiguous or matters much, give two workers the same question from two angles.
-2. Create them in one call, in a Run on the repository, under a profile whose description says it reads and reports:
-   ```text
-   hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
-   ```
-   Each spec has the question, the exact scope (directories, a commit, a failing command), and what to bring back:
-   file paths with lines, commands with their output, URLs. It says to change nothing and open no pull request.
-   A research Task (how others do it, a design, a choice) names the references to clone and read, three or four
-   mature projects, never a single one, and asks for their code with paths and lines, not their documents alone.
-3. Wait as for any Run. Each worker's report is the summary in `hypomnema tasks show <task_id> --json`.
-4. Answer the owner from those reports, and say which Task each part comes from. When reports disagree or leave a
-   gap, ask the worker that left it with `hypomnema tasks follow-up <task_id> --note-file <file> --json`, which
-   continues with what it already read; do not settle it by reading the code yourself.
-5. When the answer is that the code must change, that is a new Task under a profile that makes changes. Paste the
-   report it rests on into its spec word for word, under a heading that names its Task id; do not reword it.
+<!-- oh-my-opencode packages/senpi-task/src/agents/builtin/plan-consultant.ts:20-37,65-82; omp packages/coding-agent/src/prompts/tools/task.md:33-46; no reference for approval flow (owner, 2026-11-18) -->
+Use `planner` to research and recommend one design. Give it the owner's words, earlier decisions, constraints,
+the code checked on the base branch and three or four mature projects to clone and read. For example, `kind: broad` for "Compare how
+three mature projects keep dispatch limits, then propose one design for our repository. Preserve approvals and
+give executable checks and path:line evidence." The planner researches for itself and changes no project files.
+Have `reviewer` check it from another vendor before the owner sees it. Once approved, put the plan on the issue
+and paste it verbatim into the implementer's spec.
+
+<!-- omp packages/coding-agent/src/prompts/tools/task.md:31-46; Codex codex-rs/core/src/tools/handlers/multi_agents_spec.rs:738-745; no reference for local design and CLI boundary (owner, 2026-11-18) -->
+Never chain `explorer → planner` or `explorer → implementer`. Two Tasks are isolated CLI sessions: the next
+worker gets the spec, not what the previous worker learned. The planner may parallelize independent lookups with
+its own CLI's subagents when allowed. For a small, context-heavy design, keep the design with the coordinator and
+give only independent lookups to `explorer`, for example "Does fallback distinguish a missing account from one
+that is cooling?"
