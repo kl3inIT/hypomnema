@@ -25,8 +25,9 @@ import (
 //     text frame (Soniox's websocket-api#ending-the-stream; MemoryOS's empty binary frame is an empty chunk now);
 //   - final tokens grouped into a segment that ends at a speaker change or an <end> endpoint; the non-final ones and
 //     the segment being built are the preview;
-//   - when the provider's stream fails, a new one after 2/5/10/20/30 seconds, the last five seconds of audio replayed
-//     and the new stream's times shifted by the audio sent before them, so the meeting's clock goes on;
+//   - when the provider's stream fails, a new one after 2/5/10/20/30 seconds, the last five seconds of audio sent
+//     replayed, then the audio not yet sent (kept meanwhile up to LiveMaxBehind), and the new stream's times shifted
+//     by the audio before them, so the meeting's clock goes on;
 //   - no line twice: a final token of a replay that ends at or before the end of the last segment given is dropped
 //     (the issue's review, finding 7, which MemoryOS lacks).
 //
@@ -99,10 +100,14 @@ type Live struct {
 	conn       *websocket.Conn
 	generation int
 	attempt    int
-	// queue is the audio waiting for the provider, for this generation; queued its bytes.
+	// queue is the audio given and not yet sent to any stream, kept across a new stream up to LiveMaxBehind;
+	// queued its bytes.
 	queue  [][]byte
 	queued int
-	// retained is the last liveReplay of audio, replayed into a new stream.
+	// replay is the retained audio a new stream is sent again before the queue; replayBytes its bytes.
+	replay      [][]byte
+	replayBytes int
+	// retained is the last liveReplay of audio sent, replayed into a new stream.
 	retained      [][]byte
 	retainedBytes int
 	sent          int64
@@ -257,26 +262,13 @@ func (l *Live) Append(pcm []byte) error {
 		return errors.New("the stream takes no more audio")
 	}
 
-	frame := append([]byte(nil), pcm...)
-	l.retained = append(l.retained, frame)
-	l.retainedBytes += len(frame)
-
-	for len(l.retained) > 1 && l.retainedBytes-len(l.retained[0]) >= int(durationToBytes(liveReplay)) {
-		l.retainedBytes -= len(l.retained[0])
-		l.retained = l.retained[1:]
-	}
-
-	l.sent += int64(len(frame))
-
-	// While a new stream is awaited, only the retained tail is kept: it is replayed into the new one.
-	if l.conn == nil {
-		return nil
-	}
-
-	if int64(l.queued+len(frame)) > durationToBytes(LiveMaxBehind) {
+	// The audio not yet sent waits, while a new stream is awaited too, up to the bound (the issue's row #11).
+	if int64(l.queued+len(pcm)) > durationToBytes(LiveMaxBehind) {
 		return ErrBehind
 	}
 
+	frame := append([]byte(nil), pcm...)
+	l.sent += int64(len(frame))
 	l.queue = append(l.queue, frame)
 	l.queued += len(frame)
 	l.signal(l.wake)
@@ -323,7 +315,8 @@ func (l *Live) Finish(ctx context.Context) {
 	l.waitEvents(ctx)
 }
 
-// Close ends the stream at once; what was not final is not given.
+// Close ends the stream at once: the words already final are given, as MemoryOS's close flushes
+// (SonioxLiveTranscription.close); what was not final is not.
 func (l *Live) Close() {
 	l.mu.Lock()
 
@@ -337,8 +330,10 @@ func (l *Live) Close() {
 	conn := l.conn
 	l.conn = nil
 	l.queue, l.queued = nil, 0
+	l.replay, l.replayBytes = nil, 0
 	l.retained, l.retainedBytes = nil, 0
 	l.generation++
+	l.flush()
 	l.endEvents()
 	l.mu.Unlock()
 
@@ -397,10 +392,17 @@ func (l *Live) write(ctx context.Context) {
 			)
 
 			switch {
+			case len(l.replay) > 0:
+				frame = l.replay[0]
+				l.replay = l.replay[1:]
+				l.replayBytes -= len(frame)
+				l.retain(frame)
+				l.lastSend = l.svc.now()
 			case len(l.queue) > 0:
 				frame = l.queue[0]
 				l.queue = l.queue[1:]
 				l.queued -= len(frame)
+				l.retain(frame)
 				l.lastSend = l.svc.now()
 			case l.finishing && !l.ended:
 				// The end is an empty text frame (Soniox's websocket-api#ending-the-stream).
@@ -583,7 +585,12 @@ func (l *Live) failed(ctx context.Context, gen int, reason string) {
 	broken := l.conn
 	l.conn = nil
 	l.generation++
-	l.queue, l.queued = nil, 0
+	// What the new stream did not get to send again stays to be replayed; the queue waits for the next stream.
+	for _, frame := range l.replay {
+		l.retain(frame)
+	}
+
+	l.replay, l.replayBytes = nil, 0
 	l.flush()
 	l.emit(func() {
 		if l.listener.Preview != nil {
@@ -662,14 +669,26 @@ func (l *Live) reconnect(base context.Context, gen int) {
 		return
 	}
 
-	// Anarlog's replay offset: the new stream starts at the replayed tail, not at the recording's start.
+	// Anarlog's replay offset: the new stream starts at the replayed tail, which the audio not yet sent follows, not
+	// at the recording's start.
 	l.conn = conn
-	l.base = l.req.Offset + bytesToDuration(l.sent-int64(l.retainedBytes))
-	l.queue = append([][]byte(nil), l.retained...)
-	l.queued = l.retainedBytes
+	l.replay, l.replayBytes = l.retained, l.retainedBytes
+	l.retained, l.retainedBytes = nil, 0
+	l.base = l.req.Offset + bytesToDuration(l.sent-int64(l.queued+l.replayBytes))
 	l.signal(l.wake)
 
 	go l.read(base, conn, gen)
+}
+
+// retain keeps a frame sent among the last liveReplay of audio. The caller holds l.mu.
+func (l *Live) retain(frame []byte) {
+	l.retained = append(l.retained, frame)
+	l.retainedBytes += len(frame)
+
+	for len(l.retained) > 1 && l.retainedBytes-len(l.retained[0]) >= int(durationToBytes(liveReplay)) {
+		l.retainedBytes -= len(l.retained[0])
+		l.retained = l.retained[1:]
+	}
 }
 
 // flush gives the segment being built, if any. The caller holds l.mu.

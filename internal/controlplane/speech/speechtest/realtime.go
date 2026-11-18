@@ -24,13 +24,17 @@ type Stream struct {
 
 // Realtime is the fake. Answer is asked after each binary frame, with the stream's number from 0, the stream's start
 // and the audio bytes it has had; it returns the messages to send and whether to drop the stream at once, as a
-// provider that fails. End is asked when a stream is ended, for the messages sent before the finished one.
+// provider that fails. End is asked when a stream is ended, for the messages sent before the finished one. Opening
+// is called before each connection is accepted, numbered from 0, and holds its handshake until it returns, as a
+// provider slow to answer.
 type Realtime struct {
-	Answer func(stream int, start map[string]any, received int) (messages []string, drop bool)
-	End    func(stream int, start map[string]any) []string
+	Answer  func(stream int, start map[string]any, received int) (messages []string, drop bool)
+	End     func(stream int, start map[string]any) []string
+	Opening func(connection int)
 
-	mu      sync.Mutex
-	streams []*Stream
+	mu          sync.Mutex
+	streams     []*Stream
+	connections int
 }
 
 // Streams returns a copy of what each stream was sent.
@@ -60,6 +64,15 @@ func (f *Realtime) Serve(t *testing.T) string {
 }
 
 func (f *Realtime) serve(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	connection := f.connections
+	f.connections++
+	f.mu.Unlock()
+
+	if f.Opening != nil {
+		f.Opening(connection)
+	}
+
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return

@@ -89,6 +89,8 @@ type Service struct {
 	working map[string]context.CancelFunc
 	// tracks are the tracks being recorded live, by meeting and track (live.go).
 	tracks map[string]*Track
+	// closing are the live meetings ending or ended, where no track opens any more (live.go).
+	closing map[string]bool
 	// ending lets one live meeting end at a time.
 	ending sync.Mutex
 }
@@ -103,7 +105,8 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("making the recordings' folder: %w", err)
 	}
 
-	return &Service{cfg: cfg, working: map[string]context.CancelFunc{}, tracks: map[string]*Track{}}, nil
+	return &Service{cfg: cfg, working: map[string]context.CancelFunc{}, tracks: map[string]*Track{},
+		closing: map[string]bool{}}, nil
 }
 
 // Upload is a recording the owner sends, with what it was told about it.

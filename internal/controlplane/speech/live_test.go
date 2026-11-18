@@ -269,3 +269,118 @@ func TestALiveStreamNeedsASonioxKey(t *testing.T) {
 	_, err := svc.Live(t.Context(), speech.LiveRequest{}, speech.LiveListener{})
 	require.ErrorIs(t, err, speech.ErrUnavailable)
 }
+
+// heldReconnect is a fake whose first stream breaks once it has had first of audio, and whose next stream's
+// handshake waits until the test lets it go: the stream is reconnecting meanwhile.
+func heldReconnect(t *testing.T, first int, answer func(stream, received int) []string,
+) (fake *speechtest.Realtime, reached <-chan struct{}, let func()) {
+	t.Helper()
+
+	in := make(chan struct{}, 1)
+	release := make(chan struct{})
+	fake = &speechtest.Realtime{
+		Opening: func(connection int) {
+			if connection == 1 {
+				in <- struct{}{}
+				<-release
+			}
+		},
+		Answer: func(stream int, _ map[string]any, received int) ([]string, bool) {
+			if stream == 0 {
+				return nil, received == first
+			}
+
+			if answer != nil {
+				return answer(stream, received), false
+			}
+
+			return nil, false
+		},
+	}
+
+	return fake, in, sync.OnceFunc(func() { close(release) })
+}
+
+func reachedIn(t *testing.T, reached <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no new stream was asked for")
+	}
+}
+
+// Scenario: the provider's stream breaks after six seconds, and ten more seconds come while the new one is awaited.
+// The new stream is sent the last five seconds sent, then all ten not yet sent, and its times are the meeting's.
+func TestAReconnectKeepsTheAudioNotYetSent(t *testing.T) {
+	t.Parallel()
+
+	second := 10 * len(tenth())
+	fake, reached, let := heldReconnect(t, 6*second, func(_, received int) []string {
+		if received == 15*second {
+			return []string{speechtest.Tokens(true, true,
+				speechtest.Token{Text: "Late words.", Start: 14000, End: 14500, Speaker: "1"})}
+		}
+
+		return nil
+	})
+	svc := liveService(fake.Serve(t), nil)
+	t.Cleanup(let)
+
+	h := &heard{}
+
+	live, err := svc.Live(t.Context(), speech.LiveRequest{After: -1}, h.listener())
+	require.NoError(t, err)
+
+	for range 60 {
+		require.NoError(t, live.Append(tenth()))
+	}
+
+	reachedIn(t, reached)
+
+	for range 100 {
+		require.NoError(t, live.Append(tenth()))
+	}
+
+	let()
+
+	require.Eventually(t, func() bool {
+		s := fake.Streams()
+
+		return len(s) == 2 && len(s[1].Audio) == 15*second
+	}, 5*time.Second, 10*time.Millisecond, "five seconds replayed, then the ten not yet sent")
+	require.Eventually(t, func() bool { return len(h.said()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	live.Finish(t.Context())
+
+	assert.Equal(t, []speech.Segment{
+		{Start: 15 * time.Second, End: 15500 * time.Millisecond, Text: "Late words.", Speaker: "1"},
+	}, h.said(), "the new stream starts at the replay, a second into the meeting")
+	assert.Empty(t, h.failed)
+}
+
+// Scenario: the new stream is slow to come: thirty seconds wait for it, and audio past them is refused as behind.
+func TestAReconnectFallsBehindPastThirtySeconds(t *testing.T) {
+	t.Parallel()
+
+	second := 10 * len(tenth())
+	fake, reached, let := heldReconnect(t, second, nil)
+	svc := liveService(fake.Serve(t), nil)
+	t.Cleanup(let)
+
+	live, err := svc.Live(t.Context(), speech.LiveRequest{After: -1}, (&heard{}).listener())
+	require.NoError(t, err)
+	t.Cleanup(live.Close)
+
+	for range 10 {
+		require.NoError(t, live.Append(tenth()))
+	}
+
+	reachedIn(t, reached)
+
+	for range 300 {
+		require.NoError(t, live.Append(tenth()))
+	}
+
+	require.ErrorIs(t, live.Append(tenth()), speech.ErrBehind)
+}

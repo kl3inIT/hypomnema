@@ -92,20 +92,22 @@ type TrackListener struct {
 	Failed func(err error)
 }
 
-// Track is one track being recorded.
+// Track is one track being recorded. It is kept among the meeting's tracks from the moment it starts opening, so
+// a second socket is refused busy and the meeting's end or deletion finds it while it opens, once it has opened and
+// after it failed to.
 type Track struct {
 	svc     *Service
 	id      string
 	track   string
-	live    *speech.Live
-	file    *os.File
 	opened  time.Time
 	failure func(error)
 
-	// ready is closed once live is set.
+	// ready is closed once the track has opened or failed to; live is set by then if it opened.
 	ready chan struct{}
 
 	mu     sync.Mutex
+	live   *speech.Live
+	file   *os.File
 	pos    int64
 	closed bool
 	done   chan struct{}
@@ -132,6 +134,13 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 	}
 
 	s.mu.Lock()
+	if s.closing[id] {
+		// The meeting is ending, or has ended: its end took the tracks it finishes, and no new one opens.
+		s.mu.Unlock()
+
+		return nil, ErrNotRecording
+	}
+
 	if _, open := s.tracks[trackKey(id, track)]; open {
 		s.mu.Unlock()
 
@@ -141,13 +150,35 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 	s.tracks[trackKey(id, track)] = t
 	s.mu.Unlock()
 
-	ok := false
+	defer close(t.ready)
 
-	defer func() {
-		if !ok {
-			s.forget(t)
-		}
-	}()
+	live, err := s.openTrack(ctx, t, m, offset, l)
+	if err != nil {
+		t.end(ctx)
+
+		return nil, err
+	}
+
+	t.mu.Lock()
+	if t.closed {
+		// The meeting ended, or was deleted, while the track opened: it has no audio yet, so nothing is lost.
+		t.mu.Unlock()
+		live.Close()
+
+		return nil, ErrNotRecording
+	}
+
+	t.live = live
+	t.mu.Unlock()
+
+	return t, nil
+}
+
+// openTrack opens a track's file and its stream to the provider.
+func (s *Service) openTrack(ctx context.Context, t *Track, m meetingstore.Meeting, offset time.Duration,
+	l TrackListener,
+) (*speech.Live, error) {
+	id, track := t.id, t.track
 
 	words, err := s.sentWords(ctx)
 	if err != nil {
@@ -163,13 +194,22 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 		after = -1
 	}
 
-	// The track's audio, at its place on the meeting's clock; a byte is two of a sample, kept whole.
-	t.pos = offsetBytes(offset)
-
-	t.file, err = os.OpenFile(s.trackPath(id, track), os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := os.OpenFile(s.trackPath(id, track), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("keeping the track's audio: %w", err)
 	}
+
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		_ = file.Close()
+
+		return nil, ErrNotRecording
+	}
+
+	// The track's audio, at its place on the meeting's clock; a byte is two of a sample, kept whole.
+	t.file, t.pos = file, offsetBytes(offset)
+	t.mu.Unlock()
 
 	// Online, the microphone carries only the owner; everything else is told apart by voice (MemoryOS's openTrack).
 	diarize := !(m.Kind == meetingstore.Online && track == meetingstore.TrackMic)
@@ -177,7 +217,7 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 	// The track outlives the request that opened it only as long as its socket; what it keeps is not cut short.
 	kept := context.WithoutCancel(ctx)
 
-	t.live, err = s.cfg.Speech.Live(ctx, speech.LiveRequest{
+	return s.cfg.Speech.Live(ctx, speech.LiveRequest{
 		Language: m.Language, Speakers: diarize, Terms: words, Offset: offset, After: after,
 	}, speech.LiveListener{
 		Preview: l.Preview,
@@ -198,17 +238,6 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 		},
 		Failed: func(err error) { go t.fail(kept, err) },
 	})
-	if err != nil {
-		_ = t.file.Close()
-
-		return nil, err
-	}
-
-	ok = true
-
-	close(t.ready)
-
-	return t, nil
 }
 
 // Done is closed when the track has ended.
@@ -232,34 +261,57 @@ func (t *Track) Append(pcm []byte) error {
 
 	_, err := t.file.WriteAt(pcm, t.pos)
 	t.pos += int64(len(pcm))
+	live := t.live
 	t.mu.Unlock()
 
 	if err != nil {
 		return fmt.Errorf("keeping the track's audio: %w", err)
 	}
 
-	return t.live.Append(pcm)
+	return live.Append(pcm)
 }
 
-// Finish ends the track after its last words are kept, waiting at most until ctx ends.
+// Finish ends the track after its last words are kept, waiting at most until ctx ends. A track still opening has
+// heard nothing yet and ends at once; its opening then closes what it opened.
 func (t *Track) Finish(ctx context.Context) {
-	t.live.Finish(ctx)
+	if live := t.stream(); live != nil {
+		live.Finish(ctx)
+	}
+
 	t.end(ctx)
 }
 
-// Close ends the track at once.
+// Close ends the track at once, the words already final kept.
 func (t *Track) Close(ctx context.Context) {
-	t.live.Close()
+	if live := t.stream(); live != nil {
+		live.Close()
+	}
+
 	t.end(ctx)
 }
 
 func (t *Track) fail(ctx context.Context, err error) {
-	<-t.ready
-	t.live.Close()
+	if live := t.stream(); live != nil {
+		live.Close()
+	}
 
 	if t.end(ctx) && t.failure != nil {
 		t.failure(err)
 	}
+}
+
+// stream is the track's stream to the provider; nil while the track opens or once it failed to open.
+func (t *Track) stream() *speech.Live {
+	select {
+	case <-t.ready:
+	default:
+		return nil
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.live
 }
 
 // end closes the track's file, records the audio heard on the meetings' key and lets another socket record the
@@ -273,16 +325,23 @@ func (t *Track) end(ctx context.Context) bool {
 	}
 
 	t.closed = true
-	_ = t.file.Close()
+	live := t.live
+
+	if t.file != nil {
+		_ = t.file.Close()
+	}
 	t.mu.Unlock()
 
 	t.svc.forget(t)
 
-	// The audio heard is counted as each track closes (MemoryOS's usage when a stream closes), as an upload's is.
-	t.svc.record(ctx, modelgateway.AudioCall{
-		Kind: speech.KindSTT, Provider: t.live.Provider(), Model: t.live.Model(), Audio: t.live.Sent(),
-		Duration: time.Since(t.opened),
-	})
+	// The audio heard is counted as each track closes (MemoryOS's usage when a stream closes), as an upload's is; a
+	// track that never opened heard none.
+	if live != nil {
+		t.svc.record(ctx, modelgateway.AudioCall{
+			Kind: speech.KindSTT, Provider: live.Provider(), Model: live.Model(), Audio: live.Sent(),
+			Duration: time.Since(t.opened),
+		})
+	}
 
 	close(t.done)
 
@@ -298,11 +357,16 @@ func (s *Service) forget(t *Track) {
 	}
 }
 
-// openTracks are the tracks of a meeting being recorded now.
+// openTracks are the tracks of a meeting being recorded now, opening ones included.
 func (s *Service) openTracks(id string) []*Track {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.tracksOf(id)
+}
+
+// tracksOf is openTracks with s.mu held.
+func (s *Service) tracksOf(id string) []*Track {
 	var out []*Track
 
 	for _, track := range []string{meetingstore.TrackMic, meetingstore.TrackTab} {
@@ -334,10 +398,30 @@ func (s *Service) End(ctx context.Context, id string) (meetingstore.Meeting, err
 		return m, nil
 	}
 
+	// From here no track opens (OpenTrack refuses a meeting that is closing), so the tracks taken are all there
+	// are; a meeting that fails to end can be recorded again.
+	s.mu.Lock()
+	s.closing[id] = true
+	tracks := s.tracksOf(id)
+	s.mu.Unlock()
+
+	if _, err := s.end(ctx, id, tracks); err != nil {
+		s.mu.Lock()
+		delete(s.closing, id)
+		s.mu.Unlock()
+
+		return meetingstore.Meeting{}, err
+	}
+
+	return s.cfg.Store.Get(ctx, id)
+}
+
+// end finishes a meeting's tracks, keeps their audio as its recording and ends it; true when this call ended it.
+func (s *Service) end(ctx context.Context, id string, tracks []*Track) (bool, error) {
 	finishing, cancel := context.WithTimeout(context.WithoutCancel(ctx), endWait)
 
 	var wg sync.WaitGroup
-	for _, t := range s.openTracks(id) {
+	for _, t := range tracks {
 		wg.Go(func() { t.Finish(finishing) })
 	}
 
@@ -346,14 +430,14 @@ func (s *Service) End(ctx context.Context, id string) (meetingstore.Meeting, err
 
 	size, duration, err := mix(s.path(id), s.trackPaths(id))
 	if err != nil {
-		return meetingstore.Meeting{}, fmt.Errorf("keeping the recording: %w", err)
+		return false, fmt.Errorf("keeping the recording: %w", err)
 	}
 
 	ended, err := s.cfg.Store.EndLive(ctx, id, meetingstore.Ended{
 		Size: size, Duration: duration, Provider: speech.ProviderSoniox, Model: speech.SonioxRealtimeModel,
 	})
 	if err != nil {
-		return meetingstore.Meeting{}, err
+		return false, err
 	}
 
 	if ended {
@@ -362,7 +446,7 @@ func (s *Service) End(ctx context.Context, id string) (meetingstore.Meeting, err
 			slog.String("meeting_id", id), slog.Duration("recorded", duration))
 	}
 
-	return s.cfg.Store.Get(ctx, id)
+	return ended, nil
 }
 
 // recorded is how much of a meeting being recorded is kept: its longest track.

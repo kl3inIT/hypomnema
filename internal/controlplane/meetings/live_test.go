@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -37,13 +38,20 @@ func liveWorld(t *testing.T, fake *speechtest.Realtime) *world {
 
 // told keeps what a track told the socket.
 type told struct {
-	mu     sync.Mutex
-	lines  []meetingstore.Line
-	failed []error
+	mu       sync.Mutex
+	lines    []meetingstore.Line
+	previews []string
+	failed   []error
 }
 
 func (k *told) listener() meetings.TrackListener {
 	return meetings.TrackListener{
+		Preview: func(_, text string) {
+			k.mu.Lock()
+			defer k.mu.Unlock()
+
+			k.previews = append(k.previews, text)
+		},
 		Line: func(l meetingstore.Line) {
 			k.mu.Lock()
 			defer k.mu.Unlock()
@@ -57,6 +65,13 @@ func (k *told) listener() meetings.TrackListener {
 			k.failed = append(k.failed, err)
 		},
 	}
+}
+
+func (k *told) previewed(text string) bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	return slices.Contains(k.previews, text)
 }
 
 func (k *told) count() int {
@@ -314,4 +329,179 @@ func TestAResumedMeetingGoesOnWhereItWas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, lines, 1)
 	assert.Zero(t, again.count())
+}
+
+// hold is a gate a fake provider waits at until the test lets it go, once.
+type hold struct {
+	reached chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newHold(t *testing.T) *hold {
+	t.Helper()
+
+	h := &hold{reached: make(chan struct{}, 8), release: make(chan struct{})}
+	// Registered after the fake is served, so it runs first: the fake's server waits for its handlers.
+	t.Cleanup(h.let)
+
+	return h
+}
+
+func (h *hold) wait() {
+	h.reached <- struct{}{}
+	<-h.release
+}
+
+func (h *hold) let() { h.once.Do(func() { close(h.release) }) }
+
+func (h *hold) reachedIn(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-h.reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the provider was not reached")
+	}
+}
+
+// Scenario: the meeting is ended while its microphone's track is still opening (the provider is slow to answer).
+// The end does not wait for it and nothing breaks: the meeting is transcribed, and the track, once its provider
+// answers, is refused and closes what it opened.
+func TestEndingWhileATrackOpensEndsIt(t *testing.T) {
+	t.Parallel()
+
+	gate := &hold{}
+	fake := &speechtest.Realtime{Opening: func(int) { gate.wait() }}
+	w := liveWorld(t, fake)
+	gate = newHold(t)
+	ctx := t.Context()
+
+	m, err := w.svc.StartLive(ctx, meetings.LiveStart{Kind: meetingstore.InPerson})
+	require.NoError(t, err)
+
+	opened := make(chan error, 1)
+
+	go func() {
+		tr, err := w.svc.OpenTrack(ctx, m.ID, meetingstore.TrackMic, 0, (&told{}).listener())
+		if tr != nil {
+			tr.Close(ctx)
+		}
+
+		opened <- err
+	}()
+
+	gate.reachedIn(t)
+
+	ended, err := w.svc.End(ctx, m.ID)
+	require.NoError(t, err)
+	assert.Equal(t, meetingstore.Transcribed, ended.State)
+
+	gate.let()
+
+	select {
+	case err := <-opened:
+		require.ErrorIs(t, err, meetings.ErrNotRecording, "a track that opened after the end is refused")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the track did not finish opening")
+	}
+
+	w.usage.mu.Lock()
+	defer w.usage.mu.Unlock()
+
+	assert.Empty(t, w.usage.calls, "a track that never opened heard nothing")
+}
+
+// Scenario: an online meeting is ending: its microphone's last words are being kept. A tab's track asked for now,
+// with a valid ticket, is refused: the end took the tracks there were, and a new one would lose its audio after the
+// recording is mixed.
+func TestNoTrackOpensOnceTheEndTookTheTracks(t *testing.T) {
+	t.Parallel()
+
+	gate := &hold{}
+	fake := &speechtest.Realtime{End: func(int, map[string]any) []string {
+		gate.wait()
+
+		return nil
+	}}
+	w := liveWorld(t, fake)
+	gate = newHold(t)
+	ctx := t.Context()
+
+	m, err := w.svc.StartLive(ctx, meetings.LiveStart{Kind: meetingstore.Online})
+	require.NoError(t, err)
+
+	mic, err := w.svc.OpenTrack(ctx, m.ID, meetingstore.TrackMic, 0, (&told{}).listener())
+	require.NoError(t, err)
+	require.NoError(t, mic.Append(pcm(100*time.Millisecond, 0)))
+
+	ended := make(chan meetingstore.Meeting, 1)
+
+	go func() {
+		m, err := w.svc.End(ctx, m.ID)
+		assert.NoError(t, err)
+
+		ended <- m
+	}()
+
+	gate.reachedIn(t)
+
+	tab, err := w.svc.OpenTrack(ctx, m.ID, meetingstore.TrackTab, time.Second, (&told{}).listener())
+	if tab != nil {
+		tab.Close(ctx)
+	}
+
+	require.ErrorIs(t, err, meetings.ErrNotRecording, "no track opens once the end took the tracks")
+
+	gate.let()
+
+	select {
+	case m := <-ended:
+		assert.Equal(t, meetingstore.Transcribed, m.State)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the meeting did not end")
+	}
+}
+
+// Scenario: the browser's socket drops while words are already final but no endpoint has closed their line yet
+// (the preview shows them). The track closes, and those words are kept as a line: the browser does not send them
+// again.
+func TestADisconnectKeepsTheWordsAlreadyFinal(t *testing.T) {
+	t.Parallel()
+
+	first := firstHalfSecond()
+	fake := &speechtest.Realtime{
+		Answer: func(stream int, _ map[string]any, received int) ([]string, bool) {
+			if !first(stream, received) {
+				return nil, false
+			}
+
+			return []string{speechtest.Tokens(true, false,
+				speechtest.Token{Text: "Already final.", Start: 0, End: 400})}, false
+		},
+	}
+	w := liveWorld(t, fake)
+	ctx := t.Context()
+
+	m, err := w.svc.StartLive(ctx, meetings.LiveStart{Kind: meetingstore.InPerson})
+	require.NoError(t, err)
+
+	k := &told{}
+	tr, err := w.svc.OpenTrack(ctx, m.ID, meetingstore.TrackMic, 0, k.listener())
+	require.NoError(t, err)
+	require.NoError(t, tr.Append(pcm(time.Second, 0)))
+	require.Eventually(t, func() bool { return k.previewed("Already final.") }, 5*time.Second, 10*time.Millisecond)
+
+	// The socket's read failed: the track is closed at once.
+	tr.Close(ctx)
+
+	require.Eventually(t, func() bool {
+		d, err := w.svc.Get(ctx, m.ID)
+
+		return err == nil && len(d.Lines) == 1
+	}, 5*time.Second, 10*time.Millisecond, "the words already final are kept")
+
+	d, err := w.svc.Get(ctx, m.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Already final.", d.Lines[0].Text)
 }
