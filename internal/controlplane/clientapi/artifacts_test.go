@@ -199,7 +199,7 @@ func TestAFolderPagesFilesLoadFromItsFramesAddressOnly(t *testing.T) {
 	assert.Equal(t, pagePolicy("hyp.example"+folder), policy)
 
 	for _, directive := range []string{
-		"sandbox allow-scripts allow-forms",
+		"sandbox allow-scripts allow-forms allow-downloads",
 		"default-src 'none'",
 		"script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com " +
 			"https://cdn.jsdelivr.net https://unpkg.com " + own,

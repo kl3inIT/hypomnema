@@ -905,7 +905,7 @@ sequenceDiagram
     5000), serving only that revision's files by exact path, read only, with OpenMausBot's headers
     (`Content-Security-Policy: sandbox allow-scripts; default-src 'none'`, `nosniff`, `Access-Control-Allow-Origin:
     *`, `no-referrer`, `no-store`). An HTML file is sent with the page's own policy in that header instead
-    (`pagePolicy`, issue #737, as Onyx's static preview sends one): `sandbox allow-scripts allow-forms`, the frame's
+    (`pagePolicy`, issue #737, as Onyx's static preview sends one): `sandbox allow-scripts allow-forms allow-downloads` (issue #843), the frame's
     flags; OpenMausBot's directives (scripts, styles and fonts inline or from cdnjs, jsdelivr and unpkg, Google
     Fonts; images from `data:`, `blob:` and those CDNs; connections to them and DuckDB's extensions; no frame,
     object, form target or base); its own files by the token's address under the request's host, by http and
@@ -4614,7 +4614,7 @@ Node (`internal/node`):
     the chat and who made it over the same view, never a `blob:` or `data:` address (Omnigent's
     `codeViewerHelpers.ts`). A page is an iframe loaded by `src` from its frame's address (`useFramePage`, the
     file shown under the token's folder, its other files beside it by their relative paths), with
-    `sandbox="allow-scripts allow-forms"` (`frame.ts`), never `allow-same-origin`, `referrerpolicy="no-referrer"`,
+    `sandbox="allow-scripts allow-forms allow-downloads"` (`frame.ts`; a card's thumbnail without downloads, issue #843), never `allow-same-origin`, `referrerpolicy="no-referrer"`,
     on a white canvas; its policy is the server's header (above), as Onyx's `HtmlFilePreview.tsx` loads its preview.
     It was a `srcdoc` with OpenMausBot's CSP meta until issue #737: a srcdoc document takes the web client's own
     policy on top of its own, which refused its inline and CDN scripts and its base. Any other file opens in the file preview

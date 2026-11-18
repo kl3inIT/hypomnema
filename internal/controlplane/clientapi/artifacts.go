@@ -392,7 +392,7 @@ func pagePolicy(files string) string {
 	own := "http://" + files + " https://" + files
 
 	return strings.Join([]string{
-		"sandbox allow-scripts allow-forms",
+		"sandbox allow-scripts allow-forms allow-downloads",
 		"default-src 'none'",
 		"script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' " + pageCDNs + " " + own,
 		"style-src 'unsafe-inline' " + pageCDNs + " https://fonts.googleapis.com " + own,
