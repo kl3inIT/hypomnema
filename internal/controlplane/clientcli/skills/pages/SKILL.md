@@ -52,7 +52,10 @@ the "Show the numbers" tables. Cut cards rather than adding a fifth chart.
 `<script>`, the system font, images as `data:` URLs, charts as inline SVG or CSS. Load nothing from the network: no
 CDN script or stylesheet, no chart library, no web font, no `fetch` but a folder page's own files. There are no
 cookies and no `localStorage` or `sessionStorage`; keep state in variables. The page cannot call the chat or the
-control plane.
+control plane. It can hand the viewer a file on a click: build it in the page (a CSV of the filtered table) or
+`fetch` a file of its folder (a report the Routine wrote beside `index.html`), make a `Blob`, and click an `<a>`
+whose `href` is `URL.createObjectURL(blob)` and whose `download` is the file's name. A plain link to a folder file
+does not keep its name: the page's origin is not the files'.
 
 ## Data
 

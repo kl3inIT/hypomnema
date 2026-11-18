@@ -11,5 +11,17 @@
     <p id="module">module script blocked</p>
     <p id="data">data not read</p>
     <p id="styled">styled by its own file</p>
+    <button id="report" type="button">Download the report</button>
+    <script>
+      // A file of the folder is handed over as a blob: the frame's origin is opaque, so a link's download name to
+      // another origin would be ignored.
+      document.getElementById("report").addEventListener("click", async () => {
+        const blob = await (await fetch("./data.json")).blob()
+        const a = document.createElement("a")
+        a.href = URL.createObjectURL(blob)
+        a.download = "report.json"
+        a.click()
+      })
+    </script>
   </body>
 </html>
