@@ -2112,8 +2112,29 @@ type AccountStatus string
 
 // AccountLimitReset defines model for AccountLimitReset.
 type AccountLimitReset struct {
+	// GrantId The reset to use, by the id `grants` gives. Without it, one that starts a used-up window again is chosen.
+	GrantId *string `json:"grant_id,omitempty"`
+
 	// RequestId The caller's id of this use; the same id again uses no second reset.
 	RequestId string `json:"request_id"`
+}
+
+// AccountLimitResetGrant defines model for AccountLimitResetGrant.
+type AccountLimitResetGrant struct {
+	// Available How many resets the grant has left.
+	Available int `json:"available"`
+
+	// Clears The windows, by the names `windows` uses, that a use starts again, such as "5 hours" and "week" for an ordinary reset or "week (Fable)" for Fable's; empty when the vendor does not say, and then it may start any.
+	Clears []string `json:"clears"`
+
+	// ExpiresAt When the grant ends, when the vendor says.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Id The vendor's id of the grant, which a use names.
+	Id string `json:"id"`
+
+	// Label The vendor's name for the grant, when it gives one.
+	Label *string `json:"label,omitempty"`
 }
 
 // AccountLimitResets defines model for AccountLimitResets.
@@ -2123,6 +2144,9 @@ type AccountLimitResets struct {
 
 	// ExpiresAt When the one used next ends, when the vendor says.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Grants The usable resets one by one, as the vendor groups them.
+	Grants []AccountLimitResetGrant `json:"grants"`
 }
 
 // AccountLimitWindow defines model for AccountLimitWindow.
@@ -6960,7 +6984,7 @@ type ClientInterface interface {
 
 	// RedeemAccountLimitResetWithBody Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -6969,7 +6993,7 @@ type ClientInterface interface {
 
 	// RedeemAccountLimitReset Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -9454,7 +9478,7 @@ func (c *Client) GetAccountLimits(ctx context.Context, accountId AccountID, para
 
 // RedeemAccountLimitResetWithBody Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes any type of body and a specified content type.
 //
@@ -9473,7 +9497,7 @@ func (c *Client) RedeemAccountLimitResetWithBody(ctx context.Context, accountId 
 
 // RedeemAccountLimitReset Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -26240,7 +26264,7 @@ type ClientWithResponsesInterface interface {
 
 	// RedeemAccountLimitResetWithBodyWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -26249,7 +26273,7 @@ type ClientWithResponsesInterface interface {
 
 	// RedeemAccountLimitResetWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 	//
-	// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+	// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -40416,7 +40440,7 @@ func (c *ClientWithResponses) GetAccountLimitsWithResponse(ctx context.Context, 
 
 // RedeemAccountLimitResetWithBodyWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -40431,7 +40455,7 @@ func (c *ClientWithResponses) RedeemAccountLimitResetWithBodyWithResponse(ctx co
 
 // RedeemAccountLimitResetWithResponse Use one of an account's limit resets, which starts its used-up limits again now; only the owner
 //
-// A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+// A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

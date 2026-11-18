@@ -4719,12 +4719,18 @@ Node (`internal/node`):
     - Limit resets (decision 17 of the issue, after 9router-go's Codex reset credits, 9router's and T3 Code's
       Claude grants, and Orca's confirmation): `subscription` reads how many an account can use with its limits,
       for Codex from `chatgpt.com/backend-api/wham/rate-limit-reset-credits` and for Claude from the usage call
-      asked with `cedar_ember=1`, so the two are one call there. `UseReset` reads them again, uses the one the
-      vendor names as next (Codex: `…/consume` with the credit and the request's id; Claude:
+      asked with `cedar_ember=1`, so the two are one call there. Each usable grant is kept with its label, its
+      count, its end and the windows it `clears`, by their names here; `seven_day_overage_included` is "week
+      (Fable)", in the usage answer and in `clears` alike (omp `claude-reset.ts`), so an ordinary reset (5 hours,
+      week) and a Fable launch reset are told apart; a Codex credit is a grant of one that names none (issue
+      #841). `UseReset` reads them again and uses the grant asked for by `grant_id`; without one, while a window
+      is used up, a grant that clears it, Anthropic's next when it does, and 409 with nothing spent when none
+      does (omp `claudeResetClearedBlockScopes`); with nothing used up, the vendor's next (Codex: `…/consume` with the credit and the request's id; Claude:
       `/api/organizations/{org}/reset_rate_limits` with the grant, the organization read from the profile), drops
       the kept reading and reads the limits anew. "Already redeemed" is the reset done; no reset, nothing to
       reset and a wait are errors of their own. The page shows "N limit resets left" under an account's bars
-      with a button behind a confirmation; `POST /accounts/{id}/limits/reset` `{request_id}` is the owner's and
+      and each grant on a line of its own (label, count, what it starts again, its end) with a Use button behind
+      a confirmation; `POST /accounts/{id}/limits/reset` `{request_id, grant_id}` is the owner's and
       answers the limits after it, 409 when the vendor refuses. The request's id is the page's, one a dialog,
       so a retry uses no second reset.
     - Signing in and the order (step 2 of the issue): "Add account" on a subscription's card and "Sign in again"

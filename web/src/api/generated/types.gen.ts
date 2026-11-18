@@ -2396,6 +2396,33 @@ export type AccountLimitReset = {
    * The caller's id of this use; the same id again uses no second reset.
    */
   request_id: string;
+  /**
+   * The reset to use, by the id `grants` gives. Without it, one that starts a used-up window again is chosen.
+   */
+  grant_id?: string;
+};
+
+export type AccountLimitResetGrant = {
+  /**
+   * The vendor's id of the grant, which a use names.
+   */
+  id: string;
+  /**
+   * The vendor's name for the grant, when it gives one.
+   */
+  label?: string;
+  /**
+   * How many resets the grant has left.
+   */
+  available: number;
+  /**
+   * When the grant ends, when the vendor says.
+   */
+  expires_at?: string;
+  /**
+   * The windows, by the names `windows` uses, that a use starts again, such as "5 hours" and "week" for an ordinary reset or "week (Fable)" for Fable's; empty when the vendor does not say, and then it may start any.
+   */
+  clears: Array<string>;
 };
 
 export type AccountLimitResets = {
@@ -2407,6 +2434,10 @@ export type AccountLimitResets = {
    * When the one used next ends, when the vendor says.
    */
   expires_at?: string;
+  /**
+   * The usable resets one by one, as the vendor groups them.
+   */
+  grants: Array<AccountLimitResetGrant>;
 };
 
 export type AccountLimits = {

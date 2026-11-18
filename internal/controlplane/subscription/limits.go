@@ -413,7 +413,7 @@ func (c *Claude) usageWindows(ctx context.Context, token Token) ([]Window, map[s
 	sort.Strings(scoped)
 
 	for _, key := range scoped {
-		add(modelWeek(strings.TrimPrefix(key, "seven_day_")), answer[key])
+		add(claudeWindow(key), answer[key])
 	}
 
 	var limits []struct {
@@ -447,6 +447,26 @@ func (c *Claude) usageWindows(ctx context.Context, token Token) ([]Window, map[s
 
 // claudeLimitsUserAgent is Claude Code's, as 9router-go sends it to this call.
 const claudeLimitsUserAgent = "claude-cli/2.1.280 (external, cli)"
+
+// claudeWindow names one of Anthropic's windows as it is called here:
+// five_hour, seven_day, and a model's own week as seven_day_<model>.
+// seven_day_overage_included is Fable's week (omp claude-reset.ts: "Fable
+// launch resets clear the Fable weekly cap, reported as
+// seven_day_overage_included"). A name not known is kept as it is.
+func claudeWindow(key string) string {
+	switch {
+	case key == "five_hour":
+		return WindowFiveHours
+	case key == "seven_day":
+		return WindowWeek
+	case key == "seven_day_overage_included":
+		return modelWeek("fable")
+	case strings.HasPrefix(key, "seven_day_"):
+		return modelWeek(strings.TrimPrefix(key, "seven_day_"))
+	default:
+		return key
+	}
+}
 
 // modelWeek names a model's own week: "week (Opus)".
 func modelWeek(model string) string {

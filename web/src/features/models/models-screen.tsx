@@ -29,7 +29,12 @@ import {
   redeemAccountLimitReset,
   removeAccount,
 } from "@/api/generated/sdk.gen"
-import type { Account, AccountLimitResets, Provider } from "@/api/generated/types.gen"
+import type {
+  Account,
+  AccountLimitResetGrant,
+  AccountLimitResets,
+  Provider,
+} from "@/api/generated/types.gen"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -510,39 +515,58 @@ function LimitBars({ account }: { account: Account }) {
   )
 }
 
-// LimitResets says how many limit resets an account has and uses one (issue #199, decision 17): a reset starts
-// the account's used-up limits again at once and does not come back, so the owner is asked first, as Orca asks
-// (status-bar/CodexResetCredits.tsx) and as T3 Code's "Use reset" does. The request's id is made once a dialog
-// and sent again on a retry, so a second click never uses a second reset (9router-go's idempotency key).
+// LimitResets says how many limit resets an account has and lists them one by one, each with what it starts again
+// (issue #841): Anthropic gives ordinary resets for the 5 hours and the week and Fable's for Fable's week, as omp
+// and 9router list a grant with its label and clears. A reset starts used-up limits again at once and does not come
+// back, so the owner is asked first, as Orca asks (status-bar/CodexResetCredits.tsx) and as T3 Code's "Use reset"
+// does.
 function LimitResets({ account, resets }: { account: Account; resets: AccountLimitResets }) {
-  const show = useShowLimits(account.id)
-  const [requestId, setRequestId] = useState(() => crypto.randomUUID())
-
   return (
-    <p
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
-      data-testid="limit-resets"
-    >
+    <div className="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="limit-resets">
       <span className="inline-flex items-center gap-1">
         <RotateCcw className="size-3 shrink-0" aria-hidden />
         {resets.available === 1 ? "1 limit reset left" : `${resets.available} limit resets left`}
-        {resets.expires_at && ` · the next ends ${until(resets.expires_at)}`}
+      </span>
+      {resets.grants.map((grant) => (
+        <ResetGrant key={grant.id} account={account} grant={grant} />
+      ))}
+    </div>
+  )
+}
+
+// ResetGrant is one grant of resets with its own Use. The request's id is made once a dialog and sent again on a
+// retry, so a second click never uses a second reset (9router-go's idempotency key).
+function ResetGrant({ account, grant }: { account: Account; grant: AccountLimitResetGrant }) {
+  const show = useShowLimits(account.id)
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID())
+  const name = grantName(grant)
+  const clears = grant.clears.map(windowName).join(", ")
+
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-4" data-testid="reset-grant">
+      <span>
+        <span className="text-foreground">{name}</span>
+        {` · ${grant.available} left`}
+        {clears && ` · starts ${clears} again`}
+        {grant.expires_at && ` · ends ${until(grant.expires_at)}`}
       </span>
       <ConfirmDialog
         trigger={
-          <Button variant="outline" size="xs" aria-label={`Use a limit reset of ${account.label}`}>
-            Use a reset
+          <Button variant="outline" size="xs" aria-label={`Use ${name} of ${account.label}`}>
+            Use
           </Button>
         }
-        title={`Use a limit reset of ${account.label}?`}
-        consequence={`It starts the account's used-up limits again now. A reset that is used does not come back: ${
-          resets.available === 1 ? "this is the last one" : `${resets.available - 1} will be left`
-        }. If no limit is used up, the vendor refuses and nothing is spent.`}
+        title={`Use ${name} of ${account.label}?`}
+        consequence={`It starts ${clears || "the account's used-up limits"} again now. A reset that is used does not come back: ${
+          grant.available === 1
+            ? "this is the last of these"
+            : `${grant.available - 1} of these will be left`
+        }. If none of those limits is used up, the vendor refuses and nothing is spent.`}
         action="Use a reset"
         run={async () => {
           const after = await redeemAccountLimitReset({
             path: { account_id: account.id },
-            body: { request_id: requestId },
+            body: { request_id: requestId, grant_id: grant.id },
           })
 
           show(after.data)
@@ -552,6 +576,14 @@ function LimitResets({ account, resets }: { account: Account; resets: AccountLim
       />
     </p>
   )
+}
+
+// grantName is a grant as the page calls it: the vendor's label, or what kind of reset it is by what it starts again.
+function grantName(grant: AccountLimitResetGrant) {
+  if (grant.label) return grant.label
+  if (grant.clears.some((w) => w.toLowerCase() === "week (fable)")) return "Fable reset"
+
+  return "Limit reset"
 }
 
 // windowName is a window as the page calls it: the server's name with a capital.
