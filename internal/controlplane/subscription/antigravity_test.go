@@ -482,6 +482,28 @@ func TestOwnerSeesTheModelsAnAccountIsServed(t *testing.T) {
 	}, models)
 }
 
+// Scenario: the owner asks to see every row of the account's list, to learn why a model is not served (issue
+// #814). The rows the served list leaves out are there too, each with the mark it is left out for, in order.
+func TestOwnerSeesEveryRowOfAnAccountsList(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+
+	a, err := w.login()
+	require.NoError(t, err)
+
+	rows, err := w.subs.Roster(t.Context(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []subscription.RosterRow{
+		{Name: "chat_internal_probe", Internal: true},
+		{Name: "claude-sonnet-5-5"},
+		{Name: "gemini-2.5-pro", Denied: true},
+		{Name: "gemini-3.8-flash-high"},
+		{Name: "gemini-4-argon-disabled", Disabled: true},
+		{Name: "gpt-oss-120b-medium"},
+	}, rows)
+}
+
 // Scenario: the gateway asks what Google serves an Antigravity model with (issue #587). It is the window and
 // largest output the account's list gives, read once and kept; a model given neither, or not served, is not known.
 func TestTheWindowsAnAntigravityAccountIsServedAreKept(t *testing.T) {

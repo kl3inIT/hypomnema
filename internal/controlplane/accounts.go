@@ -23,7 +23,7 @@ import (
 
 const accountsUsage = "accounts add <runtime> <label> [--token FILE|-] | " +
 	"accounts login codex|antigravity|claude [--label L] | " +
-	"accounts list | accounts disable <account> | accounts enable <account> | accounts models <account> | accounts limits <account> | " +
+	"accounts list | accounts disable <account> | accounts enable <account> | accounts models <account> [--all] | accounts limits <account> | " +
 	"accounts refresh <account> | accounts rm <account>"
 
 // maxPastedBytes bounds the address the owner pastes to finish a login.
@@ -83,6 +83,17 @@ func (o *owner) accounts(ctx context.Context, args []string) error {
 		}
 
 		o.printf("account %s refreshed; %s\n", a.ID, tokenEnd(a))
+
+		return nil
+	case len(args) == 3 && args[0] == "models" && args[2] == "--all":
+		rows, err := o.subscriptions.Roster(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		for _, r := range rows {
+			o.printf("%s\tisInternal=%t\tdisabled=%t\tdenied=%t\n", r.Name, r.Internal, r.Disabled, r.Denied)
+		}
 
 		return nil
 	case len(args) == 2 && args[0] == "models":

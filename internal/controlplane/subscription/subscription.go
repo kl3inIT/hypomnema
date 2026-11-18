@@ -610,31 +610,7 @@ var ErrNoModelList = errors.New("this kind of account does not list its models")
 
 // Models asks the vendor which models it serves an account, by name.
 func (s *Service) Models(ctx context.Context, id string) ([]ServedModel, error) {
-	a, err := s.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	lister, ok := s.vendors[a.Runtime].(ModelLister)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrNoModelList, a.Runtime)
-	}
-
-	if a.State != StateActive {
-		return nil, fmt.Errorf("%w: account %s is %s", ErrNoTokens, id, cmpState(a.State))
-	}
-
-	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
-		if err := s.refresh(ctx, a, 0); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := s.verifyWaits(a.Account); err != nil {
-		return nil, err
-	}
-
-	token, err := s.tokenOf(ctx, a.Account)
+	lister, token, err := vendorToken[ModelLister](ctx, s, id)
 	if err != nil {
 		return nil, err
 	}
@@ -645,6 +621,72 @@ func (s *Service) Models(ctx context.Context, id string) ([]ServedModel, error) 
 	}
 
 	return models, nil
+}
+
+// RosterRow is one row of the list a vendor answers an account's models with, as it gives it, before the rows no
+// request can use are left out: one the vendor keeps for itself (Internal), one it does not serve the account now
+// (Disabled), or one the references leave out (Denied).
+type RosterRow struct {
+	Name                       string
+	Internal, Disabled, Denied bool
+}
+
+// RosterLister is a Vendor that can show every row of its list of an account's models.
+type RosterLister interface {
+	Roster(ctx context.Context, token Token) ([]RosterRow, error)
+}
+
+// Roster asks the vendor for every row of its list of an account's models, those Models leaves out with them, so the
+// owner can see why a model is not served (issue #814).
+func (s *Service) Roster(ctx context.Context, id string) ([]RosterRow, error) {
+	lister, token, err := vendorToken[RosterLister](ctx, s, id)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := lister.Roster(ctx, token)
+	if err := s.noteVerification(ctx, token, err); err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
+// vendorToken returns an account's vendor as a T, when it is one, and a token of the account fresh enough to use.
+func vendorToken[T any](ctx context.Context, s *Service, id string) (T, Token, error) {
+	var none T
+
+	a, err := s.Get(ctx, id)
+	if err != nil {
+		return none, Token{}, err
+	}
+
+	vendor, ok := s.vendors[a.Runtime].(T)
+	if !ok {
+		return none, Token{}, fmt.Errorf("%w: %s", ErrNoModelList, a.Runtime)
+	}
+
+	if a.State != StateActive {
+		return none, Token{}, fmt.Errorf("%w: account %s is %s", ErrNoTokens, id, cmpState(a.State))
+	}
+
+	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
+		if err := s.refresh(ctx, a, 0); err != nil {
+			return none, Token{}, err
+		}
+	}
+
+	// An account Google wants verified is not asked before its next try (issue #822).
+	if err := s.verifyWaits(a.Account); err != nil {
+		return none, Token{}, err
+	}
+
+	token, err := s.tokenOf(ctx, a.Account)
+	if err != nil {
+		return none, Token{}, err
+	}
+
+	return vendor, token, nil
 }
 
 func cmpState(state State) string {
