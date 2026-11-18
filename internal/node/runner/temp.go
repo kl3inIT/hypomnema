@@ -69,7 +69,7 @@ func (s *Supervisor) CleanTemp(ctx context.Context, id string) error {
 		return nil
 	}
 
-	return diskguard.RemoveTree(ctx, path, func() bool {
+	return diskguard.RemoveManagedTree(ctx, path, s.Home, path, func() bool {
 		dir, err := diskguard.OpenRealDir(s.dir(id))
 		if err != nil {
 			return false

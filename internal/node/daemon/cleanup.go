@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
@@ -20,6 +19,8 @@ import (
 const cleanupEvery = 5 * time.Minute
 
 type Maintenance struct {
+	NodeHome      string
+	Binary        string
 	ShimRoot      string
 	Stopped       func(id string, missingOK bool) bool
 	CleanTemp     func(ctx context.Context, id string) error
@@ -33,8 +34,18 @@ func (d *Daemon) maintain(ctx context.Context, out chan<- nodeproto.Message, ack
 
 	for ctx.Err() == nil {
 		d.cleanWorktrees(ctx, out, acks)
-		d.cleanTemps(ctx)
-		d.cfg.Maintenance.TrimCaches(ctx, func(prune func()) { d.whileIdle(ctx, prune) })
+		ack, err := d.requestCleanup(ctx, out, acks, nil)
+		if err == nil {
+			var guarded context.Context
+			guarded, err = d.cleanupProtection(ctx, ack)
+			if err == nil {
+				d.cleanTemps(guarded)
+				d.cfg.Maintenance.TrimCaches(guarded, func(prune func()) { d.whileIdle(guarded, prune) })
+			}
+		}
+		if err != nil {
+			d.cleanupWarning(ctx, d.cfg.WorktreeRoot, err)
+		}
 
 		select {
 		case <-ctx.Done():
@@ -79,29 +90,23 @@ func (d *Daemon) cleanWorktrees(ctx context.Context, out chan<- nodeproto.Messag
 func (d *Daemon) cleanBatch(ctx context.Context, out chan<- nodeproto.Message, acks <-chan nodeproto.CleanupAck,
 	paths []nodeproto.WorktreePath,
 ) error {
-	check := nodeproto.CleanupCheck{ID: d.newID("cln"), Paths: paths}
-	msg, err := nodeproto.Encode(nodeproto.TypeCleanupCheck, check)
+	ack, err := d.requestCleanup(ctx, out, acks, paths)
 	if err != nil {
 		return err
 	}
-
-	ack, err := awaitCleanup(ctx, out, acks, msg, check.ID)
+	ctx, err = d.cleanupProtection(ctx, ack)
 	if err != nil {
 		return err
 	}
-
-	if ack.Protected == nil {
-		return fmt.Errorf("the control plane did not identify protected worktrees")
-	}
+	home := d.cfg.Maintenance.NodeHome
+	allowed := filepath.Join(home, "worktrees")
 	for _, tree := range ack.Worktrees {
 		if ctx.Err() != nil || len(tree.Accepted) == 0 || !slices.Contains(paths, tree.WorktreePath) {
 			continue
 		}
 
 		stopped := func() bool {
-			return !slices.ContainsFunc(*ack.Protected, func(path string) bool {
-				return protectedOverlap(path, tree.Path)
-			}) && d.worktreeStopped(ctx, tree)
+			return d.worktreeStopped(ctx, tree)
 		}
 		if !stopped() {
 			continue
@@ -112,11 +117,42 @@ func (d *Daemon) cleanBatch(ctx context.Context, out chan<- nodeproto.Message, a
 		}
 		runDir := filepath.Dir(tree.Path)
 		if ctx.Err() == nil {
-			_ = diskguard.RemoveEmptyChild(runDir)
+			_ = diskguard.RemoveEmptyChild(ctx, runDir, home, allowed)
 		}
 	}
 
 	return nil
+}
+
+func (d *Daemon) requestCleanup(ctx context.Context, out chan<- nodeproto.Message, acks <-chan nodeproto.CleanupAck,
+	paths []nodeproto.WorktreePath,
+) (nodeproto.CleanupAck, error) {
+	check := nodeproto.CleanupCheck{ID: d.newID("cln"), Paths: paths}
+	msg, err := nodeproto.Encode(nodeproto.TypeCleanupCheck, check)
+	if err != nil {
+		return nodeproto.CleanupAck{}, err
+	}
+	return awaitCleanup(ctx, out, acks, msg, check.ID)
+}
+
+func (d *Daemon) cleanupProtection(ctx context.Context, ack nodeproto.CleanupAck) (context.Context, error) {
+	if ack.Protected == nil {
+		return ctx, fmt.Errorf("the control plane did not identify protected worktrees")
+	}
+	paths := slices.Clone(*ack.Protected)
+	if d.cfg.Maintenance.Binary != "" {
+		paths = append(paths, d.cfg.Maintenance.Binary)
+	}
+	held, err := d.db.List(ctx)
+	if err != nil {
+		return ctx, err
+	}
+	for _, dispatch := range held {
+		if dispatch.State != statedb.StateEnded && dispatch.Offer.Worktree != "" {
+			paths = append(paths, dispatch.Offer.Worktree)
+		}
+	}
+	return diskguard.WithProtection(ctx, paths...), nil
 }
 
 func awaitCleanup(ctx context.Context, out chan<- nodeproto.Message, acks <-chan nodeproto.CleanupAck,
@@ -151,17 +187,20 @@ func (d *Daemon) worktreeStopped(ctx context.Context, tree nodeproto.CleanupWork
 	if err != nil {
 		return false
 	}
+	var paths []string
 	for _, h := range held {
 		if h.State == statedb.StateEnded {
 			continue
 		}
-		worktree := filepath.Clean(h.Offer.Worktree)
-		if slices.Contains(tree.Dispatches, h.ID) || overlap(worktree, tree.Path) {
+		if slices.Contains(tree.Dispatches, h.ID) {
 			return false
 		}
-		if protectedOverlap(worktree, tree.Path) {
-			return false
+		if h.Offer.Worktree != "" {
+			paths = append(paths, h.Offer.Worktree)
 		}
+	}
+	if len(paths) > 0 && diskguard.Protect(diskguard.WithProtection(ctx, paths...), tree.Path, "", "") != nil {
+		return false
 	}
 	for _, id := range tree.Dispatches {
 		if !platform.IsID("dsp", id) || !d.cfg.Maintenance.Stopped(id, !slices.Contains(tree.Accepted, id)) {
@@ -170,37 +209,6 @@ func (d *Daemon) worktreeStopped(ctx context.Context, tree nodeproto.CleanupWork
 	}
 
 	return ctx.Err() == nil
-}
-
-func protectedOverlap(path, candidate string) bool {
-	if overlap(path, candidate) {
-		return true
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return !os.IsNotExist(err)
-	}
-	if overlap(resolved, candidate) {
-		return true
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return !os.IsNotExist(err)
-	}
-	for dir := candidate; ; dir = filepath.Dir(dir) {
-		other, err := os.Stat(dir)
-		if err != nil || os.SameFile(info, other) {
-			return true
-		}
-		if dir == filepath.Dir(dir) {
-			return false
-		}
-	}
-}
-
-func overlap(first, second string) bool {
-	return first == second || strings.HasPrefix(first, second+string(filepath.Separator)) ||
-		strings.HasPrefix(second, first+string(filepath.Separator))
 }
 
 func (d *Daemon) cleanTemps(ctx context.Context) {

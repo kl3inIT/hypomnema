@@ -116,6 +116,15 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "ignored")
 	require.FileExists(t, filepath.Join(path, "ignored"))
 	require.NoError(t, os.Remove(filepath.Join(path, "ignored")))
+	tracked := filepath.Join(path, "README.md")
+	for _, flag := range []string{"assume-unchanged", "skip-worktree"} {
+		require.NoError(t, git(t.Context(), path, nil, "update-index", "--"+flag, "README.md"))
+		require.NoError(t, os.WriteFile(tracked, []byte("not committed\n"), 0o600))
+		require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "hide tracked changes")
+		assert.FileExists(t, tracked)
+		require.NoError(t, git(t.Context(), path, nil, "update-index", "--no-"+flag, "README.md"))
+		require.NoError(t, git(t.Context(), path, nil, "checkout", "--", "README.md"))
+	}
 	if !diskguard.ScopeAvailable() {
 		t.Skip("Landlock is not available for the native command")
 	}
@@ -124,6 +133,20 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 	assert.Equal(t, 1, runs(), "a worktree made anew is set up again")
 
 	assert.Empty(t, logged.String(), "a script that succeeds logs nothing")
+}
+
+func TestDisposableWorktreeCannotContainNodeHome(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	target := filepath.Join(root, "run", "task")
+	home := filepath.Join(target, "node")
+	require.NoError(t, os.MkdirAll(home, 0o700))
+	state := filepath.Join(home, "state.db")
+	require.NoError(t, os.WriteFile(state, []byte("must survive"), 0o600))
+	maker := Maker{Root: home}
+	require.ErrorContains(t, maker.Clean(t.Context(), target, false, func() bool { return true }), "protected path")
+	assert.FileExists(t, state)
 }
 
 // Scenario: a setup script that fails does not fail the Dispatch. The worktree

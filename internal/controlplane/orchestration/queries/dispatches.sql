@@ -73,10 +73,14 @@ WHERE task_id = @task_id AND status IN ('queued', 'starting', 'running', 'stoppi
 SELECT * FROM dispatches WHERE conversation_id = @conversation_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
 -- name: WorktreeDispatches :many
-SELECT d.id, d.status, d.accepted_at, d.settled_at, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
+SELECT d.id, d.status, d.accepted_at, d.settled_at, d.declined_low_disk, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
 FROM conversations c JOIN dispatches d ON d.conversation_id = c.id
 JOIN tasks t ON c.task_id = t.id JOIN runs r ON t.run_id = r.id
 WHERE c.node_id = @node_id AND c.worktree = @worktree;
+
+-- name: ConversationHadAnotherAccept :one
+SELECT EXISTS (SELECT 1 FROM dispatches
+WHERE conversation_id = @conversation_id AND id != @id AND accepted_at IS NOT NULL AND declined_low_disk = 0);
 
 -- name: ProtectedWorktrees :many
 SELECT DISTINCT c.worktree FROM conversations c JOIN tasks t ON t.id = c.task_id JOIN runs r ON r.id = t.run_id

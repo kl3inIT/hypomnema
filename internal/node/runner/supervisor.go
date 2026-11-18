@@ -335,20 +335,25 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	if err := os.WriteFile(filepath.Join(dir, shim.LaunchingFile), nil, 0o600); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		_ = shim.RevokeLaunch(dir)
+		return err
+	}
 	pid, err := shim.Start(s.Exe, dir)
 	if err != nil {
+		_ = shim.RevokeLaunch(dir)
 		return err
 	}
 	started = true
 
 	if err := waitSocket(ctx, dir); err != nil {
-		_ = shim.KillRecorded(dir)
+		_ = shim.RevokeLaunch(dir)
 
 		return err
 	}
 
 	if err := shim.Send(ctx, dir, launch.First...); err != nil {
-		_ = shim.KillRecorded(dir)
+		_ = shim.RevokeLaunch(dir)
 
 		return err
 	}
@@ -435,6 +440,7 @@ func (s *Supervisor) watch(ctx context.Context, w *Worker) {
 func (s *Supervisor) Stop(id string) {
 	w := s.get(id)
 	if w == nil {
+		_ = shim.RevokeLaunch(s.dir(id))
 		return
 	}
 
@@ -478,7 +484,7 @@ func (s *Supervisor) Release(id string) {
 		<-w.done
 	}
 
-	_ = shim.KillRecorded(dir)
+	_ = shim.RevokeLaunch(dir)
 
 }
 

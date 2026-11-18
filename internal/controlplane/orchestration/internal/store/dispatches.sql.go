@@ -110,6 +110,23 @@ func (q *Queries) CloseConversation(ctx context.Context, arg CloseConversationPa
 	return result.RowsAffected()
 }
 
+const conversationHadAnotherAccept = `-- name: ConversationHadAnotherAccept :one
+SELECT EXISTS (SELECT 1 FROM dispatches
+WHERE conversation_id = ?1 AND id != ?2 AND accepted_at IS NOT NULL AND declined_low_disk = 0)
+`
+
+type ConversationHadAnotherAcceptParams struct {
+	ConversationID string
+	ID             string
+}
+
+func (q *Queries) ConversationHadAnotherAccept(ctx context.Context, arg ConversationHadAnotherAcceptParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, conversationHadAnotherAccept, arg.ConversationID, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countFallbacksOfRun = `-- name: CountFallbacksOfRun :one
 SELECT count(*) FROM dispatches d JOIN tasks t ON t.id = d.task_id
 WHERE t.run_id = ?1 AND d.fallback_for = ?2 AND d.fallback_until = ?3 AND d.declined_low_disk = 0
@@ -1426,7 +1443,7 @@ func (q *Queries) UpsertCooldown(ctx context.Context, arg UpsertCooldownParams) 
 }
 
 const worktreeDispatches = `-- name: WorktreeDispatches :many
-SELECT d.id, d.status, d.accepted_at, d.settled_at, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
+SELECT d.id, d.status, d.accepted_at, d.settled_at, d.declined_low_disk, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
 FROM conversations c JOIN dispatches d ON d.conversation_id = c.id
 JOIN tasks t ON c.task_id = t.id JOIN runs r ON t.run_id = r.id
 WHERE c.node_id = ?1 AND c.worktree = ?2
@@ -1438,14 +1455,15 @@ type WorktreeDispatchesParams struct {
 }
 
 type WorktreeDispatchesRow struct {
-	ID         string
-	Status     string
-	AcceptedAt sql.NullInt64
-	SettledAt  sql.NullInt64
-	TaskID     string
-	RunID      string
-	RunStatus  string
-	Repo       sql.NullString
+	ID              string
+	Status          string
+	AcceptedAt      sql.NullInt64
+	SettledAt       sql.NullInt64
+	DeclinedLowDisk int64
+	TaskID          string
+	RunID           string
+	RunStatus       string
+	Repo            sql.NullString
 }
 
 func (q *Queries) WorktreeDispatches(ctx context.Context, arg WorktreeDispatchesParams) ([]WorktreeDispatchesRow, error) {
@@ -1462,6 +1480,7 @@ func (q *Queries) WorktreeDispatches(ctx context.Context, arg WorktreeDispatches
 			&i.Status,
 			&i.AcceptedAt,
 			&i.SettledAt,
+			&i.DeclinedLowDisk,
 			&i.TaskID,
 			&i.RunID,
 			&i.RunStatus,

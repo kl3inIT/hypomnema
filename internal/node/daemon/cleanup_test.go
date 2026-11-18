@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -40,11 +41,8 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 	d := New(Config{WorktreeRoot: worktrees, Maintenance: &Maintenance{
 		ShimRoot: filepath.Join(root, "run"),
 		Stopped:  func(id string, _ bool) bool { return id == dispatch && stopped },
-		CleanWorktree: func(_ context.Context, path string, _ bool, recheck func() bool) error {
-			if recheck() {
-				return os.Remove(path)
-			}
-			return nil
+		CleanWorktree: func(ctx context.Context, path string, _ bool, recheck func() bool) error {
+			return diskguard.RemoveTree(ctx, path, recheck)
 		},
 		TrimCaches: func(context.Context, func(func())) { swept <- struct{}{} },
 	}}, db, nil, slog.New(slog.DiscardHandler))
@@ -81,6 +79,15 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 			}
 		case <-time.After(3 * time.Second):
 			t.Error("no cleanup request after connecting")
+		}
+		select {
+		case msg := <-out:
+			var check nodeproto.CleanupCheck
+			require.NoError(t, json.Unmarshal(msg.Payload, &check))
+			assert.Empty(t, check.Paths, "temp and cache pruning fetch the same protections")
+			acks <- nodeproto.CleanupAck{ID: check.ID, Protected: &protected}
+		case <-time.After(3 * time.Second):
+			t.Error("no protection request for temp and caches")
 		}
 		select {
 		case <-swept:

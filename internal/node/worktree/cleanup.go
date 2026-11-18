@@ -13,6 +13,7 @@ import (
 )
 
 func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped func() bool) error {
+	allowed := filepath.Join(m.Root, "worktrees")
 	if err := diskguard.CheckTree(ctx, path); err != nil {
 		return err
 	}
@@ -23,7 +24,7 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 		}
 
 		var refused error
-		err := diskguard.RemoveTree(ctx, path, func() bool {
+		err := diskguard.RemoveManagedTree(ctx, path, m.Root, allowed, func() bool {
 			if !stopped() {
 				return false
 			}
@@ -36,7 +37,7 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 		return errors.Join(err, refused)
 	}
 
-	mirror, err := m.managedMirror(path)
+	mirror, admin, err := m.managedMirror(path)
 	if err != nil {
 		return err
 	}
@@ -44,7 +45,7 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 	if !diskguard.ScopeAvailable() {
 		return errors.New("git worktree cleanup needs filesystem confinement")
 	}
-	dirs := []string{path, filepath.Dir(path), filepath.Join(mirror, "worktrees")}
+	dirs := []string{path, filepath.Dir(path), admin, filepath.Dir(admin)}
 	scopes := make([]diskguard.Scope, 0, len(dirs))
 	for index, dir := range dirs {
 		handle, err := diskguard.OpenDirFile(dir)
@@ -52,7 +53,7 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 			return err
 		}
 		defer handle.Close() //nolint:errcheck // directory handle
-		scopes = append(scopes, diskguard.Scope{Dir: handle, OnlyRmdir: index == 1})
+		scopes = append(scopes, diskguard.Scope{Dir: handle, OnlyRmdir: index == 1 || index == 3})
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
@@ -70,7 +71,16 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 	if err := diskguard.CheckTree(ctx, path); err != nil {
 		return err
 	}
-	if checked, err := m.managedMirror(path); err != nil || checked != mirror {
+	if err := diskguard.Protect(ctx, path, m.Root, allowed); err != nil {
+		return err
+	}
+	if err := diskguard.CheckTree(ctx, admin); err != nil {
+		return err
+	}
+	if err := diskguard.Protect(ctx, admin, m.Root, admin); err != nil {
+		return err
+	}
+	if checked, metadata, err := m.managedMirror(path); err != nil || checked != mirror || metadata != admin {
 		return errors.New("the worktree or its mirror changed")
 	}
 	for index, dir := range dirs {
@@ -92,7 +102,18 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 }
 
 func cleanStatus(ctx context.Context, gitPath, path string) error {
-	args := []string{"--no-optional-locks", "-c", "core.fsmonitor=false", "-C", path, "status", "--porcelain=v1",
+	//nolint:gosec // checked worktree
+	flags, err := exec.CommandContext(ctx, gitPath, "-C", path, "ls-files", "-v", "-z").Output()
+	if err != nil {
+		return err
+	}
+	for entry := range strings.SplitSeq(string(flags), "\x00") {
+		if entry != "" && entry[0] != 'H' {
+			return errors.New("worktree has index flags or entries that can hide tracked changes")
+		}
+	}
+	args := []string{"--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.ignoreStat=false",
+		"-c", "core.trustCtime=true", "-c", "core.checkStat=default", "-c", "core.fileMode=true", "-C", path, "status", "--porcelain=v1",
 		"--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"}
 	status, err := exec.CommandContext(ctx, gitPath, args...).Output() //nolint:gosec // checked worktree
 	if err != nil {
@@ -104,11 +125,11 @@ func cleanStatus(ctx context.Context, gitPath, path string) error {
 	return nil
 }
 
-func (m Maker) managedMirror(path string) (string, error) {
+func (m Maker) managedMirror(path string) (string, string, error) {
 	marker := filepath.Join(path, ".git")
 	file, err := readLinkFile(marker)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	admin, ok := strings.CutPrefix(file, "gitdir: ")
@@ -120,7 +141,7 @@ func (m Maker) managedMirror(path string) (string, error) {
 	repos := filepath.Join(m.Root, "repos")
 	if !ok || !strings.HasPrefix(mirror, repos+string(filepath.Separator)) || !strings.HasSuffix(mirror, ".git") ||
 		filepath.Base(worktrees) != "worktrees" || !diskguard.RealDir(admin) {
-		return "", errors.New("not a linked worktree of a managed mirror")
+		return "", "", errors.New("not a linked worktree of a managed mirror")
 	}
 
 	backlink, err := readLinkFile(filepath.Join(admin, "gitdir"))
@@ -129,13 +150,13 @@ func (m Maker) managedMirror(path string) (string, error) {
 	}
 	resolved, resolveErr := filepath.EvalSymlinks(backlink)
 	if err != nil || resolveErr != nil || resolved != marker || backlink != marker {
-		return "", errors.New("the managed mirror does not point back to this worktree")
+		return "", "", errors.New("the managed mirror does not point back to this worktree")
 	}
 	if _, err := os.Lstat(filepath.Join(admin, "locked")); !errors.Is(err, os.ErrNotExist) {
-		return "", errors.New("the Git worktree is locked or its lock could not be checked")
+		return "", "", errors.New("the Git worktree is locked or its lock could not be checked")
 	}
 
-	return mirror, nil
+	return mirror, admin, nil
 }
 
 func readLinkFile(path string) (string, error) {

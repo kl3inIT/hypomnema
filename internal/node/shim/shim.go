@@ -78,6 +78,10 @@ func WriteSpec(dir string, s Spec) error {
 
 // Main runs the shim over dir until its worker exits.
 func Main(ctx context.Context, dir string) error {
+	dir, err := realShimDir(dir)
+	if err != nil {
+		return err
+	}
 	if err := recordPID(dir); err != nil {
 		return fmt.Errorf("writing the pid file: %w", err)
 	}
@@ -344,9 +348,9 @@ func recordPID(dir string) error {
 }
 
 func KillRecorded(dir string) error {
-	resolved, err := filepath.EvalSymlinks(dir)
-	if err != nil || resolved != dir {
-		return errors.New("the shim directory is not a real path")
+	dir, err := realShimDir(dir)
+	if err != nil {
+		return err
 	}
 	pid, err := PID(dir)
 	if err != nil || pid <= 1 {
@@ -367,10 +371,46 @@ func KillRecorded(dir string) error {
 	if err != nil {
 		return err
 	}
-	if pid != identity.PID || identity.Dir != dir || started <= 0 || started != identity.Started {
+	identityDir, pathErr := realShimDir(identity.Dir)
+	if pid != identity.PID || pathErr != nil || identityDir != dir || started <= 0 || started != identity.Started {
 		return errors.New("shim process identity does not match")
 	}
 	return Kill(pid)
+}
+
+func RevokeLaunch(dir string) error {
+	dir, err := realShimDir(dir)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close() //nolint:errcheck // directory handle
+	if err := root.Remove(LaunchingFile); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return KillRecorded(dir)
+}
+
+func realShimDir(dir string) (string, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	if filepath.Base(filepath.Dir(dir)) == "run" {
+		home, err := filepath.EvalSymlinks(filepath.Dir(filepath.Dir(dir)))
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(home, "run", filepath.Base(dir))
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil || resolved != dir {
+		return "", errors.New("the shim directory is not a real path")
+	}
+	return dir, nil
 }
 
 func killLegacy(dir string, pid int) error {
@@ -387,7 +427,11 @@ func killLegacy(dir string, pid int) error {
 		return errors.New("legacy PID was reused or could not be verified")
 	}
 	argv, err := proc.CmdlineSlice()
-	if err != nil || len(argv) != 4 || argv[1] != "shim" || argv[2] != "--dir" || argv[3] != dir {
+	if err != nil || len(argv) != 4 || argv[1] != "shim" || argv[2] != "--dir" {
+		return errors.New("legacy PID does not belong to the Dispatch shim")
+	}
+	actual, err := realShimDir(argv[3])
+	if err != nil || actual != dir {
 		return errors.New("legacy PID does not belong to the Dispatch shim")
 	}
 	if current, err := startedAt(pid); err != nil || current != started {

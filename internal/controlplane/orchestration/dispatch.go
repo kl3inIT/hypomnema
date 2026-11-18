@@ -872,6 +872,15 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		err = closeConversation(ctx, q, now, conv.ID, CloseInterrupted)
 	case to == DispatchExpired && !conv.CliSessionRef.Valid && d.DeclinedLowDisk == 0:
 		err = closeConversation(ctx, q, now, conv.ID, CloseNeverStarted)
+	case d.DeclinedLowDisk == 1 && !conv.CliSessionRef.Valid && d.Recovery == 0 && d.Handoff == 0 &&
+		!d.GateQuestionID.Valid && !d.FollowUpID.Valid:
+		var accepted bool
+		accepted, err = q.ConversationHadAnotherAccept(ctx, store.ConversationHadAnotherAcceptParams{
+			ConversationID: conv.ID, ID: d.ID,
+		})
+		if err == nil && !accepted && ConversationStatus(conv.Status) == ConversationOpen {
+			err = closeConversation(ctx, q, now, conv.ID, CloseNeverStarted)
+		}
 	}
 
 	if err != nil {

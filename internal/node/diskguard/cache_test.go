@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package diskguard
 
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -69,9 +70,10 @@ func TestRemoveTreeCannotFollowSwappedParent(t *testing.T) {
 
 func TestPnpmRejectsStoreSymlinkAndLeavesDefaultDLXCacheAlone(t *testing.T) {
 	t.Parallel()
-	home := t.TempDir()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	bin := filepath.Join(home, ".local", "bin")
-	store := filepath.Join(home, ".local", "share", "pnpm", "store")
+	store := pnpmStore(home)
 	version := filepath.Join(store, "v11")
 	outside := filepath.Join(home, "open-run")
 	dlx := filepath.Join(home, ".cache", "pnpm", "dlx", "old")
@@ -98,6 +100,9 @@ fi
 	require.ErrorContains(t, caches.prunePnpm(context.Background(), home), "symlink")
 	assert.NoFileExists(t, filepath.Join(store, "pruned"))
 	require.NoError(t, os.Remove(link))
+	if runtime.GOOS == "darwin" {
+		require.True(t, ScopeAvailable(), "the released macOS node can run native pnpm prune")
+	}
 	if !ScopeAvailable() {
 		t.Skip("Landlock is not available for the native command")
 	}

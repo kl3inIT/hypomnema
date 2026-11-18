@@ -105,14 +105,14 @@ func (s *Service) DeclineLowDisk(ctx context.Context, call NodeCall, disk nodepr
 				return err
 			}
 		}
-		if stopping {
-			return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
-		}
 		if err := q.MarkDispatchDeclinedLowDisk(ctx, d.ID); err != nil {
 			return err
 		}
 
 		d.DeclinedLowDisk = 1
+		if stopping {
+			return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
+		}
 		if err := s.settle(ctx, q, now, d, DispatchExpired, FailureNone, nil, nil, true); err != nil {
 			return err
 		}

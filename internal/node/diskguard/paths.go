@@ -103,7 +103,7 @@ func OpenDirFile(path string) (*os.File, error) {
 	return root.Open(".")
 }
 
-func RemoveEmptyChild(path string) error {
+func RemoveEmptyChild(ctx context.Context, path, home, allowed string) error {
 	root, err := OpenRealDir(filepath.Dir(path))
 	if err != nil {
 		return err
@@ -123,6 +123,13 @@ func RemoveEmptyChild(path string) error {
 	}
 	if err := checkMountAt(root, name, mount); err != nil {
 		return err
+	}
+	if err := Protect(ctx, path, home, allowed); err != nil {
+		return err
+	}
+	current, err := os.Lstat(path)
+	if err != nil || !os.SameFile(info, current) {
+		return fmt.Errorf("directory changed: %s", path)
 	}
 	return root.Remove(name)
 }
@@ -148,6 +155,10 @@ func openChild(root *os.Root, name string) (*os.Root, error) {
 }
 
 func RemoveTree(ctx context.Context, path string, stopped func() bool) error {
+	return RemoveManagedTree(ctx, path, "", "", stopped)
+}
+
+func RemoveManagedTree(ctx context.Context, path, home, allowed string, stopped func() bool) error {
 	root, err := OpenRealDir(filepath.Dir(path))
 	if err != nil {
 		return err
@@ -166,6 +177,9 @@ func RemoveTree(ctx context.Context, path string, stopped func() bool) error {
 	}
 	if !stopped() || ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if err := Protect(ctx, path, home, allowed); err != nil {
+		return err
 	}
 	current, err := os.Lstat(path)
 	if err != nil || !RealDir(path) || !os.SameFile(before, current) {

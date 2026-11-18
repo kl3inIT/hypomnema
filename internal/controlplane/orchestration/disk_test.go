@@ -78,6 +78,56 @@ func TestDiskAdmissionAndRecovery(t *testing.T) {
 	assert.Empty(t, w.task(task.ID).WaitingReason)
 }
 
+func TestDecliningFirstDiskOfferDoesNotPinANewConversation(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := t.Context()
+	w.tasks(NewTask{Ref: "disk", Spec: "move to a healthy node"})
+	require.NoError(t, w.s.NodeDisk(ctx, w.node.ID, w.diskSample(testDiskFloor)))
+	w.advance(time.Millisecond)
+	first := w.schedule()
+	require.Len(t, first.Created, 1)
+	offer := w.dispatchOf(first.Created[0])
+	require.Equal(t, w.node.ID, offer.NodeID)
+	backup := w.addNode("node_backup", 2, "claude")
+	require.NoError(t, w.s.DeclineLowDisk(ctx, w.call(offer, 0), w.diskSample(0)))
+	retry := w.schedule()
+	require.Len(t, retry.Created, 1)
+	dispatch := w.dispatchOf(retry.Created[0])
+	assert.Equal(t, backup.ID, dispatch.NodeID)
+	assert.NotEqual(t, offer.ConversationID, dispatch.ConversationID)
+}
+
+func TestWorktreeCleanupDoesNotRequireAShimForAnAcceptedDiskDecline(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.s.newID = platform.NewID
+	w.run = newRun(t, w.s)
+	ctx := t.Context()
+	task := w.tasks(NewTask{Ref: "disk", Spec: "no shim before a decline"})[0]
+	require.NoError(t, w.s.NodeDisk(ctx, w.node.ID, w.diskSample(testDiskFloor)))
+	first := w.schedule()
+	require.Len(t, first.Created, 1)
+	offer := w.dispatchOf(first.Created[0])
+	accepted := w.accept(offer)
+	require.NoError(t, w.s.DeclineLowDisk(ctx, w.again(accepted), w.diskSample(0)))
+	require.NoError(t, w.s.NodeDisk(ctx, w.node.ID, w.diskSample(testDiskFloor)))
+	retry := w.schedule()
+	require.Len(t, retry.Created, 1)
+	dispatch := w.dispatchOf(retry.Created[0])
+	call := w.accept(dispatch)
+	require.NoError(t, w.s.ReportStarted(ctx, w.again(call), "pid:123", "session"))
+	require.NoError(t, w.finish(call, success("done")))
+	require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
+	approved, err := w.s.CheckWorktreeCleanup(ctx, w.node.ID, []nodeproto.WorktreePath{{
+		RunID: w.run.ID, TaskID: task.ID, Path: path.Join("/srv/wt", w.run.ID, task.ID),
+	}})
+	require.NoError(t, err)
+	require.Len(t, approved, 1)
+	assert.ElementsMatch(t, []string{offer.ID, dispatch.ID}, approved[0].Dispatches)
+	assert.Equal(t, []string{dispatch.ID}, approved[0].Accepted)
+}
+
 func TestDiskReceiptUsesControlPlaneClockAndDeclineCannotReplaceNewerHeartbeat(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)

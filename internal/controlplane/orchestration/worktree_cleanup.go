@@ -61,7 +61,7 @@ func (s *Service) CheckWorktreeCleanupWithProtection(ctx context.Context, nodeID
 		approved := nodeproto.CleanupWorktree{WorktreePath: candidate, HasRepo: rows[0].Repo.String != ""}
 		for _, row := range rows {
 			approved.Dispatches = append(approved.Dispatches, row.ID)
-			if row.AcceptedAt.Valid {
+			if row.AcceptedAt.Valid && row.DeclinedLowDisk == 0 {
 				approved.Accepted = append(approved.Accepted, row.ID)
 			}
 		}

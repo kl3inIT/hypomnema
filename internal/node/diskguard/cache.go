@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ const (
 type Caches struct {
 	Policy       Policy
 	WorktreeRoot string
+	NodeHome     string
 	UserHome     string
 	WorkerPath   func() string
 	Logger       *slog.Logger
@@ -55,8 +57,14 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
 	}
 
 	goCache := filepath.Join(c.UserHome, ".cache", "go-build")
-	if err := trimGo(ctx, volume, goCache, time.Now().Add(-goCacheAge), needsRoom); err != nil {
-		c.Logger.WarnContext(ctx, "could not trim the Go build cache", slog.Any("error", err))
+	if RealDir(goCache) && SameVolume(volume, goCache) {
+		err := Protect(ctx, goCache, c.NodeHome, "")
+		if err == nil {
+			err = trimGo(ctx, volume, goCache, time.Now().Add(-goCacheAge), needsRoom)
+		}
+		if err != nil {
+			c.Logger.WarnContext(ctx, "could not trim the Go build cache", slog.Any("error", err))
+		}
 	}
 
 	if needsRoom() {
@@ -181,9 +189,12 @@ func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	store := filepath.Join(c.UserHome, ".local", "share", "pnpm", "store")
+	store := pnpmStore(c.UserHome)
 	if !RealDir(store) || !SameVolume(worktreeVolume, store) {
 		return nil
+	}
+	if err := Protect(ctx, store, c.NodeHome, ""); err != nil {
+		return err
 	}
 
 	if err := CheckCacheTree(ctx, store); err != nil {
@@ -218,7 +229,13 @@ func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 		return err
 	}
 	cache := filepath.Join(store, cacheName)
-	defer func() { _ = removeAt(ctx, root, cacheName, mount, cacheInfo) }()
+	defer func() {
+		current, err := os.Lstat(store)
+		opened, statErr := handle.Stat()
+		if err == nil && statErr == nil && os.SameFile(current, opened) && Protect(ctx, cache, c.NodeHome, "") == nil {
+			_ = removeAt(ctx, root, cacheName, mount, cacheInfo)
+		}
+	}()
 	if !RealDir(cache) || !SameVolume(worktreeVolume, cache) {
 		return errors.New("the isolated pnpm cache is not on the worktree volume")
 	}
@@ -239,6 +256,14 @@ func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 	if err := CheckCacheTree(ctx, store); err != nil {
 		return err
 	}
+	if err := Protect(ctx, store, c.NodeHome, ""); err != nil {
+		return err
+	}
+	current, err := os.Lstat(store)
+	opened, statErr := handle.Stat()
+	if err != nil || statErr != nil || !os.SameFile(current, opened) {
+		return errors.New("the pnpm store changed")
+	}
 
 	prune, err := c.pnpm(ctx, handle, exe, store, cache, "prune")
 	if err != nil {
@@ -249,6 +274,13 @@ func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 	}
 
 	return nil
+}
+
+func pnpmStore(home string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "pnpm", "store")
+	}
+	return filepath.Join(home, ".local", "share", "pnpm", "store")
 }
 
 func (c Caches) pnpm(ctx context.Context, handle *os.File, exe, store, cache, action string) (*exec.Cmd, error) {

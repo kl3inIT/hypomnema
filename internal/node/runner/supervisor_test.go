@@ -469,11 +469,49 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	restarted.Release("dsp_1")
 	assert.Never(t, func() bool { return !shim.Alive(pid) }, 100*time.Millisecond, 10*time.Millisecond)
 	require.NoError(t, os.WriteFile(identity, original, 0o600)) //nolint:gosec // the owned shim fixture
+	alias := filepath.Join(t.TempDir(), "node-home")
+	require.NoError(t, os.Symlink(restarted.Home, alias))
+	restarted.Home = alias
 
 	restarted.Release("dsp_1")
 
 	assert.DirExists(t, dir, "the shim record is needed to confirm the worker has stopped")
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 20*time.Second, 20*time.Millisecond)
+}
+
+func TestStopRevokesShimLaunchBeforePID(t *testing.T) {
+	t.Parallel()
+	g := newRig(t, "hang")
+	realExe := g.sup.Exe
+	wrapper := filepath.Join(g.sup.Home, "delayed-shim")
+	command := `#!/bin/sh
+: > "$3/spawned"
+while [ ! -f "$3/proceed" ]; do /bin/sleep 0.01; done
+exec "` + realExe + `" "$@"
+`
+	require.NoError(t, os.WriteFile(wrapper, []byte(command), 0o700)) //nolint:gosec // executable fixture
+	g.sup.Exe = wrapper
+	dispatch := g.dispatch()
+	dir := g.sup.dir(dispatch.ID)
+	proceed := filepath.Join(dir, "proceed")
+	t.Cleanup(func() { _ = os.WriteFile(proceed, nil, 0o600) })
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- g.sup.Start(ctx, g.rt, dispatch, newReporter()) }()
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(filepath.Join(dir, "spawned"))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.NoFileExists(t, filepath.Join(dir, shim.LaunchingFile), "the canceled Start revokes the launch")
+	require.NoError(t, os.WriteFile(proceed, nil, 0o600))
+	require.Eventually(t, func() bool {
+		pid, err := shim.PID(dir)
+		return err == nil && shim.GroupGone(pid)
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.NoFileExists(t, filepath.Join(dir, shim.ClaimedFile))
 }
 
 func TestRestartReclaimsTempBeforeShimPID(t *testing.T) {

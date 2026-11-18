@@ -178,6 +178,10 @@ func saveConfig(home string, cfg Config) error {
 
 // Run runs the daemon with the runtimes' workers until ctx ends.
 func Run(ctx context.Context, home string, logger *slog.Logger) error {
+	home, err := canonicalHome(home)
+	if err != nil {
+		return fmt.Errorf("resolving the node home: %w", err)
+	}
 	cfg, err := LoadConfig(home)
 	if err != nil {
 		return err
@@ -278,7 +282,8 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	userHome, _ := os.UserHomeDir()
 	caches := diskguard.Caches{
-		Policy: cfg.Disk, WorktreeRoot: cfg.WorktreeRoot, UserHome: userHome, WorkerPath: runner.Path, Logger: logger,
+		Policy: cfg.Disk, WorktreeRoot: cfg.WorktreeRoot, NodeHome: home, UserHome: userHome,
+		WorkerPath: runner.Path, Logger: logger,
 	}
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
@@ -290,6 +295,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 			return sample
 		},
 		Maintenance: &daemon.Maintenance{
+			NodeHome: home, Binary: exe,
 			ShimRoot: filepath.Join(home, "run"), Stopped: all.supervisor.Stopped,
 			CleanTemp: all.supervisor.CleanTemp, CleanWorktree: all.supervisor.Worktrees.Clean, TrimCaches: caches.Trim,
 		},
@@ -348,6 +354,14 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 
 	return err
+}
+
+func canonicalHome(home string) (string, error) {
+	path, err := filepath.Abs(home)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(path)
 }
 
 // Unit is a systemd user unit for the daemon. KillMode=process keeps workers
