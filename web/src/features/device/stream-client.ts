@@ -11,11 +11,13 @@ import { retryIn } from "@/features/browser/stream"
 
 import {
   avcCodecString,
+  filmingOf,
   parseSemuPacket,
   phoneGone,
   scanAccessUnit,
   socketUrl,
   type Controller,
+  type Filming,
   type PhoneInput,
   type PhoneState,
   type Screen,
@@ -32,6 +34,8 @@ export type PhoneEvents = {
   onTrouble: (reason: string) => void
   // The phone cannot be shown, in the control plane's words: nothing is tried again.
   onGone: (reason: string) => void
+  // The take an agent films of the phone, or null once none is filmed (issue #817).
+  onTake?: (take: Filming | null) => void
 }
 
 export type PhoneClient = {
@@ -251,6 +255,11 @@ export function createPhoneClient(
         width,
         height,
       } = message as Record<string, unknown>
+      if (type === "take") {
+        events.onTake?.(filmingOf(message as Record<string, unknown>))
+
+        return
+      }
       if (type === "control" && (who === "agent" || who === "you")) {
         controller = who
         events.onControl(who)

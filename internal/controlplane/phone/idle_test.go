@@ -82,7 +82,7 @@ func TestUseStartsTheIdleTimeAgain(t *testing.T) {
 
 		p.Sweep(t.Context())
 		c.pass(MachineIdle - time.Minute)
-		_, err := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+		_, err := p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 		require.NoError(t, err)
 
 		c.pass(time.Minute)
@@ -121,7 +121,7 @@ func TestACallInFlightKeepsTheMachineOn(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		_, err := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+		_, err := p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 		done <- err
 	}()
 

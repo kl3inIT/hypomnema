@@ -57,6 +57,8 @@ type Server struct {
 	heartbeat time.Duration
 	// coordinator reports whether pi works on a chat; nil when none runs.
 	coordinator Coordinator
+	// takes are the takes agents filmed of the phone (takes.go); nil: none.
+	takes Takes
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
 	// terminals reaches a node for a terminal; nil when the control plane wired none.

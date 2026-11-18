@@ -57,6 +57,22 @@ OpenMausBot's phone skill (`skills/phone-harness/SKILL.md`, Apache-2.0, notice i
 - `device_logcat` reads the last log lines; `contains` keeps the lines holding a text (an app's package or tag),
   `level` the lines of a priority and above (`W` for warnings and errors).
 
+## Film a demo
+
+When the task asks for a video of an app, film it as a take (issue #817): the tools are autodemo's camera tools
+(mdayan8/autodemo, `src/mcp.js`).
+
+- `video_start` with a `title` and a `request_id` of your own starts filming the phone's screen. While it films no
+  other agent can use the phone. Retried with the same `request_id`, it answers the same take.
+- Right **before** each action, `video_say` with the take, a short line of what the step shows, and `tap` with
+  where you are about to tap (`"#N"` or `"x,y"`, as `device_tap` takes it); `chapter` starts a new chapter. The line
+  is stamped at the moment it arrives, so say it, then act.
+- `video_stop` with the take when done. It answers at once; the take is then finished and uploaded, and
+  `video_status` says when it is `available`. You never get the video itself: the owner watches it.
+- The take ends by itself when your work ends (a worker's Dispatch, a Bot's turn), so stop it before you finish.
+  When the owner takes the phone over, the take pauses, and resumes when they hand it back; nothing they type is
+  filmed.
+
 ## What you never do
 
 - **Never sign in or out of an account, and never type a password, a payment detail or an identity number.** When

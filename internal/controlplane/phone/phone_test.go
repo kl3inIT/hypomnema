@@ -162,14 +162,14 @@ func TestASecondCallWaitsForTheFirst(t *testing.T) {
 	second := make(chan error, 1)
 
 	go func() {
-		_, err := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+		_, err := p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 		first <- err
 	}()
 
 	require.Equal(t, "d-1", <-link.entered)
 
 	go func() {
-		_, err := p.Call(t.Context(), "d-2", devicetool.Screen, nil)
+		_, err := p.Call(t.Context(), worker("d-2"), devicetool.Screen, nil)
 		second <- err
 	}()
 
@@ -194,7 +194,7 @@ func TestACallWakesAStoppedMachine(t *testing.T) {
 	machines := &fakeMachines{link: link, connect: true}
 	p := newPhone(link, machines, phoneNode(orchestration.MachineStopped))
 
-	raw, err := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+	raw, err := p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"n-phone"}, machines.started)
 
@@ -212,7 +212,7 @@ func TestAMachineThatDoesNotWakeInTimeSaysSo(t *testing.T) {
 	machines := &fakeMachines{link: link}
 	p := newPhone(link, machines, phoneNode(orchestration.MachineStopped))
 
-	_, err := p.Call(t.Context(), "d-1", devicetool.Screen, nil)
+	_, err := p.Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 	require.ErrorIs(t, err, ErrUnavailable)
 	assert.Contains(t, err.Error(), "the phone is waking")
 	assert.Equal(t, []string{"n-phone"}, machines.started)
@@ -229,7 +229,7 @@ func TestAnOfflineNodeThatIsNotStoppedIsNotStarted(t *testing.T) {
 		"machine on":             phoneNode(""),
 	} {
 		machines := &fakeMachines{}
-		_, err := newPhone(newLink(), machines, n).Call(t.Context(), "d-1", devicetool.Screen, nil)
+		_, err := newPhone(newLink(), machines, n).Call(t.Context(), worker("d-1"), devicetool.Screen, nil)
 		require.ErrorIs(t, err, ErrUnavailable, name)
 		assert.Contains(t, err.Error(), "offline", name)
 		assert.Empty(t, machines.started, name)
@@ -243,11 +243,16 @@ func TestABadCallIsRefusedAtOnce(t *testing.T) {
 	machines := &fakeMachines{}
 	p := newPhone(newLink(), machines, phoneNode(orchestration.MachineStopped))
 
-	_, err := p.Call(t.Context(), "d-1", "device_reboot", nil)
+	_, err := p.Call(t.Context(), worker("d-1"), "device_reboot", nil)
 	require.ErrorIs(t, err, devicetool.ErrNoSuchTool)
 
-	_, err = p.Call(t.Context(), "d-1", devicetool.Tap, json.RawMessage(`{"target":"the blue one"}`))
+	_, err = p.Call(t.Context(), worker("d-1"), devicetool.Tap, json.RawMessage(`{"target":"the blue one"}`))
 	require.ErrorIs(t, err, devicetool.ErrBadArguments)
 	assert.Empty(t, machines.started)
 	assert.NotErrorIs(t, err, ErrUnavailable)
+}
+
+// worker is a worker as the phone knows it: its key, name and Dispatch.
+func worker(key string) Caller {
+	return Caller{Key: key, Name: "dispatch " + key, Work: "dispatch " + key}
 }

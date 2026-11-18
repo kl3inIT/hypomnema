@@ -251,6 +251,8 @@ func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
 	}, tools)
 
 	assert.Equal(t, "Tapped.", m.text(8, "device_tap", map[string]any{"target": "#3"}))
+	// Filming the phone goes on the phone's route (issue #817), whose fake answers as it answers a tap.
+	assert.Equal(t, "Tapped.", m.text(18, "video_start", map[string]any{"title": "Sign in"}))
 
 	assert.Equal(t, "Saved. memory: 20 of 2,200 characters (0%)",
 		m.text(9, "memory", map[string]any{"target": "bot", "action": "add", "text": "Lan is the designer."}))

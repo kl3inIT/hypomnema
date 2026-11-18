@@ -20,11 +20,13 @@ import { errorText } from "@/lib/server-error"
 import { defaultAspect, fitPhoneFrame, sideButtons, wheelDrag, type FrameLayout } from "./frame"
 import { useRoomSize, useWheelDrag, type Touch } from "./frame-hooks"
 import {
+  filmedFor,
   keyInput,
   screenPoint,
   stateLine,
   textInputs,
   type Controller,
+  type Filming,
   type PhoneInput,
   type PhoneState,
   type Screen,
@@ -82,6 +84,8 @@ export function PhoneView({ label }: { label: string }) {
   const [trouble, setTrouble] = useState<string | null>(null)
   const [gone, setGone] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  // The take an agent films of the phone (issue #817).
+  const [filming, setFilming] = useState<Filming | null>(null)
 
   const hint = useId()
   const you = controller === "you"
@@ -157,6 +161,7 @@ export function PhoneView({ label }: { label: string }) {
         },
         onTrouble: setTrouble,
         onGone: setGone,
+        onTake: setFilming,
       },
       errorText,
     )
@@ -172,6 +177,7 @@ export function PhoneView({ label }: { label: string }) {
       setController(null)
       setState(null)
       setTrouble(null)
+      setFilming(null)
       clearInput()
     }
   }, [attempt, watching, clearInput])
@@ -297,9 +303,13 @@ export function PhoneView({ label }: { label: string }) {
         <RowButton label="Recents" disabled={!you} onClick={() => send({ type: "recents" })}>
           <Square />
         </RowButton>
-        <p className="ms-1 min-w-0 flex-1 truncate text-sm text-muted-foreground">
-          {you ? "You are using the phone" : "Watching the phone"}
-        </p>
+        {filming ? (
+          <TakeBadge filming={filming} />
+        ) : (
+          <p className="ms-1 min-w-0 flex-1 truncate text-sm text-muted-foreground">
+            {you ? "You are using the phone" : "Watching the phone"}
+          </p>
+        )}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -451,6 +461,48 @@ export function PhoneView({ label }: { label: string }) {
         )}
       </div>
     </div>
+  )
+}
+
+// TakeBadge says an agent films the phone (issue #817, row 13): REC and the take's time while it records, PAUSED
+// while the owner holds the phone, and the last line the agent said.
+function TakeBadge({ filming }: { filming: Filming }) {
+  const [now, setNow] = useState(() => Date.now())
+  const recording = filming.state === "recording"
+
+  useEffect(() => {
+    if (!recording) return
+
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+
+    return () => clearInterval(tick)
+  }, [recording])
+
+  const seconds = Math.floor(filmedFor(filming, now) / 1000)
+  const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+
+  return (
+    <output
+      aria-label={`${recording ? "Filming" : "Filming paused"} for ${filming.agent}: ${filming.title}`}
+      className="ms-1 flex min-w-0 flex-1 items-center gap-2 text-sm"
+      data-testid="take-badge"
+    >
+      <span
+        className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${recording ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}
+      >
+        <span
+          aria-hidden
+          className={`size-2 rounded-full ${recording ? "animate-pulse bg-destructive" : "bg-muted-foreground"}`}
+        />
+        {recording ? "REC" : "PAUSED"} {time}
+      </span>
+      <span
+        className="min-w-0 truncate text-muted-foreground"
+        title={filming.said || filming.title}
+      >
+        {filming.said ? `“${filming.said}”` : filming.title}
+      </span>
+    </output>
   )
 }
 
