@@ -281,7 +281,7 @@ const (
 	EscalationStalled EscalationKind = "stalled"
 	// EscalationOverrun: a Dispatch has run for MaxDuration.
 	EscalationOverrun EscalationKind = "overrun"
-	// EscalationNodeUnavailable: the node let ExpiriesBeforeUnavailable Dispatches in a row expire.
+	// EscalationNodeUnavailable: the node let ExpiriesBeforeUnavailable Dispatches expire within NodeExpiryWindow.
 	EscalationNodeUnavailable EscalationKind = "node_unavailable"
 	// EscalationQuestionReminder: a question to the owner is still open (after ReminderFirst, then every ReminderEvery).
 	EscalationQuestionReminder EscalationKind = "question_reminder"

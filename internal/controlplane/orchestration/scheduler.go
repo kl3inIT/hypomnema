@@ -199,14 +199,26 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
-	spec, reason, err := placeTask(ctx, q, p, task, r, host.asking(r))
+	expiredOn, err := q.NodesWithRecentTaskExpiries(ctx, store.NodesWithRecentTaskExpiriesParams{
+		TaskID: task.ID, Since: now - TaskExpiryPenaltyWindow.Milliseconds(),
+	})
+	if err != nil {
+		return fmt.Errorf("reading recent expiries of task %s: %w", task.ID, err)
+	}
+
+	recentExpiries := make(map[string]bool, len(expiredOn))
+	for _, nodeID := range expiredOn {
+		recentExpiries[nodeID] = true
+	}
+
+	spec, reason, err := placeTask(ctx, q, p, task, r, host.asking(r), recentExpiries)
 	if err != nil {
 		return err
 	}
 
 	// A Task that waits only for a limit to reset goes to a backup of its profile.
 	if spec == nil && reason == "" {
-		if spec, r, err = placeBackup(ctx, q, p, task, r, host); err != nil {
+		if spec, r, err = placeBackup(ctx, q, p, task, r, host, recentExpiries); err != nil {
 			return err
 		}
 	}
@@ -263,6 +275,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // (OpenMausBot's usable, t3code). A backup's own backups are not followed
 // (t3code: one hop).
 func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
+	recentExpiries map[string]bool,
 ) (*DispatchSpec, resolved, error) {
 	if task.Runtime.String != "" || task.Model.String != "" {
 		return nil, r, nil
@@ -316,7 +329,7 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 			return nil, r, err
 		}
 
-		spec, _ := placeNew(p, task, b, host.asking(b))
+		spec, _ := placeNew(p, task, b, host.asking(b), recentExpiries)
 		if started {
 			spec = placeHandoff(p, conv, b, host.asking(b))
 		}
@@ -459,6 +472,7 @@ func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, e
 // must wait, with the reason to escalate if the wait lasts ("" for one that
 // resolves by itself, such as a cooling account).
 func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
+	recentExpiries map[string]bool,
 ) (*DispatchSpec, string, error) {
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
@@ -494,20 +508,21 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 		return &DispatchSpec{Continue: true}, "", nil
 	}
 
-	spec, reason := placeNew(p, task, r, host)
+	spec, reason := placeNew(p, task, r, host, recentExpiries)
 
 	return spec, reason, nil
 }
 
 // placeNew chooses the node and the account of a Task's new Conversation.
-func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchSpec, string) {
+func placeNew(p *placement, task store.Task, r resolved, host where, recentExpiries map[string]bool,
+) (*DispatchSpec, string) {
 	runtime := r.runtime
 
 	if !r.gateway && gatewayOnly(runtime) {
 		return nil, ReasonNeedsGateway
 	}
 
-	n := p.pickNode(runtime, host)
+	n := p.pickNode(runtime, host, recentExpiries)
 	if runtime == "" || n == nil {
 		// A Run without a repository has no host to reach: with no node connected, it has no node.
 		if host.host != "" && !p.anyReaches(host.host) {

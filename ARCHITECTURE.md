@@ -223,7 +223,7 @@ sequenceDiagram
     participant W as Worker
     participant G as Git host
     C->>CP: create a Run (repository, base branch), then Tasks with dependencies
-    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: the node with the most free capacity that has the runtime, a worktree root, room for its request (and under its cap, if set) and 1 GiB of memory available,<br/>an account or a gateway model; the Bot furthest below its guaranteed share goes first
+    Note over CP: Loop, every 2 s and on each commit: a Task is ready when its dependencies succeeded.<br/>Schedule places it: among nodes that fit, prefer those without a recent expiry for the Task, then the most free capacity;<br/>an account or a gateway model; the Bot furthest below its guaranteed share goes first
     CP->>N: dispatch_offer (Task, repository, worktree, runtime, model, its gateway key, skills)
     N->>CP: accept (new epoch, 90 s lease)
     N->>N: fetch the skills, add the Task's worktree, start the shim
@@ -281,8 +281,10 @@ sequenceDiagram
   back-off before each retry; rate limits cool the account (runtime, account) down on every node and are not counted; a login
   that is needed blocks the Task. Every node call carries a request id and is answered once (receipts).
 - `Reap` applies the timers in `limits.go`: queued Dispatches expire after 5 min, lost leases and unconfirmed stops
-  are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
-  returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
+  are marked, and stalls (15 min without progress), Dispatches past 4 h and open questions to the owner after 1 h,
+  then daily, are returned as escalations. Three unclaimed Dispatches expiring on a node within 30 min mark it
+  unavailable and raise `node_unavailable`, even if it holds running claims (issue #858, after Nezha's windowed
+  offline rule and Kubernetes' unreachable taint). Nothing is killed.
 - A worker that loops is judged from its transcript (issue #359, after OpenMausBot's runtime contract, OpenHands'
   `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded.
   The same tool with the same input failing with the same text three times in a
@@ -318,9 +320,9 @@ sequenceDiagram
   counts). With each heartbeat it sends what it measured: CPU in use since the heartbeat before, memory in use, the
   worktree volume's use, the one-minute load average and, on a machine with NVIDIA GPUs, each GPU's use, memory,
   temperature and power (read with `nvidia-smi` once a heartbeat, after Beszel's agent); only the latest measurement is kept, with its time
-  (`GET /nodes` shows it as `stats`). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
-  a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
-  its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
+  (`GET /nodes` shows it as `stats`). A node can be drained and resumed; once the reaper marks it unavailable, it
+  stays so until its next hello or a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no
+  longer listed or placed on, and its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
   disabled) are kept here with no secret value. One the owner logged in on the control plane (below) also has the
   vendor's id of the account, its email and plan, the name of the vault secret holding its tokens, and how its
   refreshes went; placement leaves these alone, since no node holds their tokens.
@@ -1722,8 +1724,10 @@ flowchart LR
   those with the most free capacity that has the runtime and a worktree root (issue #731): its score is the mean of
   its free share by requests (the mean of `1 − requested/allocatable` over CPU and memory, the new Dispatch
   counted), CPU (`1 - cpu_percent/100`) and memory (`1 - memory_used/memory_bytes`), as Kubernetes' LeastAllocated
-  averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id,
-  and each Dispatch a pass places counts at once, so one pass spreads. Stats older than 30 s (`NodeOfflineAfter`),
+  averages free shares; the highest wins, ties go to more allocatable memory left by requests, then the smaller id.
+  A node where one of the Task's Dispatches expired in the last hour is considered only if no other node fits
+  (issue #858, after Nomad's rescheduling penalty). Each Dispatch a pass places counts at once, so one pass spreads.
+  Stats older than 30 s (`NodeOfflineAfter`),
   or never reported, or a node that never said its memory, count 0 for its measured CPU and memory shares, so only
   its free share by requests scores it; it is not refused (Trimaran scores a node without metrics at the minimum),
   and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than

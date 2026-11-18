@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,75 @@ func newScoreWorld(t *testing.T) *world {
 	require.NoError(t, w.s.DrainNode(t.Context(), w.node.ID))
 
 	return w
+}
+
+func TestPlacementRanksDownNodesWithTaskExpiries(t *testing.T) {
+	t.Parallel()
+
+	for _, scenario := range []struct {
+		name  string
+		bFits bool
+		after time.Duration
+		wantB bool
+	}{
+		{name: "B fits", bFits: true, wantB: true},
+		{name: "only A fits"},
+		{name: "expiry is outside the window", bFits: true, after: TaskExpiryPenaltyWindow + time.Millisecond},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := newSchedWorld(t)
+			nodeA := w.node
+			nodeB := w.addNode("node_b", 2, "claude")
+			w.measure(nodeA, 16*gib, 10, 4*gib)
+			w.measure(nodeB, 16*gib, 80, 4*gib)
+			task := w.tasks(specs(1)...)[0]
+
+			first := w.schedule().Created
+			require.Equal(t, map[string]string{task.Spec: nodeA.ID}, w.placed(first))
+			w.advance(QueueTimeout)
+			require.Equal(t, first, w.reap().Expired)
+
+			w.advance(scenario.after)
+			w.measure(nodeA, 16*gib, 10, 4*gib)
+			w.measure(nodeB, 16*gib, 80, 4*gib)
+			if !scenario.bFits {
+				require.NoError(t, w.s.DrainNode(t.Context(), nodeB.ID))
+			}
+
+			wantNode := nodeA.ID
+			if scenario.wantB {
+				wantNode = nodeB.ID
+			}
+			assert.Equal(t, map[string]string{task.Spec: wantNode}, w.placed(w.schedule().Created))
+		})
+	}
+}
+
+func TestPlacementRanksDownEveryNodeWithTaskExpiries(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	nodeA := w.node
+	nodeB := w.addNode("node_b", 2, "claude")
+	nodeC := w.addNode("node_c", 2, "claude")
+	task := w.tasks(specs(1)...)[0]
+
+	for _, wantNode := range []Node{nodeA, nodeB} {
+		w.measure(nodeA, 16*gib, 10, 4*gib)
+		w.measure(nodeB, 16*gib, 40, 4*gib)
+		w.measure(nodeC, 16*gib, 80, 4*gib)
+		created := w.schedule().Created
+		require.Equal(t, map[string]string{task.Spec: wantNode.ID}, w.placed(created))
+		w.advance(QueueTimeout)
+		require.Equal(t, created, w.reap().Expired)
+	}
+
+	w.measure(nodeA, 16*gib, 10, 4*gib)
+	w.measure(nodeB, 16*gib, 40, 4*gib)
+	w.measure(nodeC, 16*gib, 80, 4*gib)
+	assert.Equal(t, map[string]string{task.Spec: nodeC.ID}, w.placed(w.schedule().Created))
 }
 
 // Scenario: zm on 2026-11-17. elitex (cap 1, 3.8 GiB, 99.8% CPU) and
