@@ -79,13 +79,13 @@ func TestAClaudeAccountUsesALimitReset(t *testing.T) {
 		writeJSON(rw, map[string]string{"result": result})
 	})
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "not a request id!")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "not a request id!", "")
 	require.ErrorIs(t, err, subscription.ErrBadResetRequest)
 	assert.Empty(t, claims, "nothing is sent for a request the vendor would not take")
 
 	before := readings
 
-	after, err := w.subs.UseReset(t.Context(), a.ID, "req-1")
+	after, err := w.subs.UseReset(t.Context(), a.ID, "req-1", "")
 	require.NoError(t, err)
 	require.Len(t, claims, 1)
 	assert.Equal(t, map[string]string{"program": "cedar_ember", "grant_id": "grant_b", "request_id": "req-1"}, claims[0])
@@ -97,21 +97,21 @@ func TestAClaudeAccountUsesALimitReset(t *testing.T) {
 	result = "not_limited"
 	mu.Unlock()
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "req-2")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-2", "")
 	require.ErrorIs(t, err, subscription.ErrNothingToReset)
 
 	mu.Lock()
 	result = "cooldown"
 	mu.Unlock()
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "req-3")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-3", "")
 	require.ErrorIs(t, err, subscription.ErrResetWait)
 
 	mu.Lock()
 	result = "already_used"
 	mu.Unlock()
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1", "")
 	require.NoError(t, err, "a request sent again is the reset it already was")
 }
 
@@ -136,7 +136,7 @@ func TestAClaudeAccountWithoutResetsHasNoneToUse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, limits.Resets.Available)
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1", "")
 	require.ErrorIs(t, err, subscription.ErrNoResets)
 }
 
@@ -194,7 +194,7 @@ func TestACodexAccountUsesALimitReset(t *testing.T) {
 	assert.Equal(t, 3, limits.Resets.Available, "a redeemed credit and one that ended are left out")
 	assert.Equal(t, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), limits.Resets.ExpiresAt, "the soonest to end is next")
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1", "")
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, map[string]string{"redeem_request_id": "req-1", "credit_id": "soon"}, consumed[0])
@@ -203,13 +203,93 @@ func TestACodexAccountUsesALimitReset(t *testing.T) {
 	outcome = "alreadyRedeemed"
 	mu.Unlock()
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1", "")
 	require.NoError(t, err, "a credit already redeemed is the reset done")
 
 	mu.Lock()
 	outcome = "nothing_to_reset"
 	mu.Unlock()
 
-	_, err = w.subs.UseReset(t.Context(), a.ID, "req-2")
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-2", "")
 	require.ErrorIs(t, err, subscription.ErrNothingToReset)
+}
+
+// Scenario: a Claude account has an ordinary reset and a Fable launch reset
+// (issue #841). Each is listed with the windows it starts again, Fable's
+// week by the name its window has. With the 5-hour window used up, a use
+// without a choice spends the ordinary one, though Anthropic names Fable's
+// next; one asked for by id is spent as asked; an id the account does not
+// have, or a used-up window no reset starts again, spends nothing.
+func TestAClaudeResetIsChosenByTheLimitItStartsAgain(t *testing.T) {
+	w := newClaudeWorld(t)
+	a, err := w.login()
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+
+	fable := map[string]any{
+		"id": "fable", "label": "Fable launch", "resets_left": 1, "usable_now": true,
+		"ends_at": "2026-12-11T05:00:00Z", "clears": []string{"seven_day_overage_included"},
+	}
+	ordinary := map[string]any{
+		"id": "ordinary", "resets_left": 1, "usable_now": true, "clears": []string{"five_hour", "seven_day"},
+	}
+	grants := []map[string]any{fable, ordinary}
+
+	w.oauth.answerUsage(func(rw http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		writeJSON(rw, map[string]any{
+			"five_hour":                  map[string]any{"utilization": 100},
+			"seven_day":                  map[string]any{"utilization": 40},
+			"seven_day_overage_included": map[string]any{"utilization": 20},
+			"cedar_ember":                map[string]any{"eligible": true, "next_grant_id": "fable", "grants": grants},
+		})
+	})
+
+	var claimed []string
+
+	w.oauth.answerReset(func(rw http.ResponseWriter, r *http.Request) {
+		var claim map[string]string
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&claim))
+
+		mu.Lock()
+		claimed = append(claimed, claim["grant_id"])
+		mu.Unlock()
+
+		writeJSON(rw, map[string]string{"result": "reset"})
+	})
+
+	limits, err := w.subs.Limits(t.Context(), a.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, []subscription.ResetGrant{
+		{ID: "fable", Label: "Fable launch", Available: 1, ExpiresAt: time.Date(2026, 12, 11, 5, 0, 0, 0, time.UTC),
+			Clears: []string{"week (Fable)"}},
+		{ID: "ordinary", Available: 1, Clears: []string{"5 hours", "week"}},
+	}, limits.Resets.Grants)
+	assert.Contains(t, limits.Windows, subscription.Window{Name: "week (Fable)", UsedPercent: 20},
+		"Fable's week is named as its resets name it")
+
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-1", "")
+	require.NoError(t, err)
+
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-2", "fable")
+	require.NoError(t, err)
+
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-3", "nope")
+	require.ErrorIs(t, err, subscription.ErrUnknownReset)
+
+	mu.Lock()
+	grants = []map[string]any{fable}
+	mu.Unlock()
+
+	_, err = w.subs.UseReset(t.Context(), a.ID, "req-4", "")
+	require.ErrorIs(t, err, subscription.ErrNoResetClears)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	assert.Equal(t, []string{"ordinary", "fable"}, claimed,
+		"the ordinary reset for the used-up 5 hours, then Fable's as asked, and nothing else")
 }

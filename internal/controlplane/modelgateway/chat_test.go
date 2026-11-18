@@ -2,6 +2,7 @@ package modelgateway_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -104,6 +105,7 @@ func plain(status int, body string) http.HandlerFunc {
 }
 
 type chatGateway struct {
+	db     *sql.DB
 	svc    *modelgateway.Service
 	server *modelgateway.Server
 	mux    *http.ServeMux
@@ -157,7 +159,7 @@ func newChatGateway(t *testing.T, cfg modelgateway.Config, providers ...*httptes
 	server := modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"), cfg)
 	server.Register(mux)
 
-	return chatGateway{svc: svc, server: server, mux: mux, key: key}
+	return chatGateway{db: db, svc: svc, server: server, mux: mux, key: key}
 }
 
 // call sends a chat request with the gateway's key and returns the status,

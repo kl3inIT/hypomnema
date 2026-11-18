@@ -242,6 +242,10 @@ var commands = []command{
 			fs.String("services", "", "for a service that signs in: what to connect, such as gmail:read,calendar "+
 				"(:read is read only)")
 			fs.String("url", "", "for superset: its address, such as https://superset.example.com")
+			fs.String("proxy", "", "for superset: the proxy its address is reached through, such as "+
+				"socks5://127.0.0.1:1055 (default: the one the label has, or none)")
+			fs.String("dial-address", "", "for superset: an address to dial instead of its host's, as curl's "+
+				"--resolve; temporary (default: the one the label has, or none)")
 			fs.String("user", "", "for superset: the account's user name")
 			fs.String("password-file", "", "for superset: the file holding the password, or - for standard input")
 			fs.String("role", "", "for aws: the role's ARN, such as arn:aws:iam::123456789012:role/hypomnema/read")
@@ -310,6 +314,18 @@ var commands = []command{
 		name: "integrations chats", args: "<integration>:<label> on|off", min: 2, max: 2,
 		summary: "let the coordinator use an account in chats, and give it to its Runs, or stop it (owner)",
 		flags:   jsonFlag, run: integrationsChats,
+	},
+	{
+		name: "integrations proxy", args: "<integration>:<label> <proxy>|off", min: 2, max: 2,
+		summary: "send an account's requests to its service through a proxy, such as socks5://127.0.0.1:1055 for a " +
+			"service in a private network, or off to send them direct (owner)",
+		flags: jsonFlag, run: integrationsProxy,
+	},
+	{
+		name: "integrations dial-address", args: "<integration>:<label> <host[:port]>|off", min: 2, max: 2,
+		summary: "dial an account's service at another address while its name and certificate stay the service's, " +
+			"as curl's --resolve: a temporary way round a name that does not resolve; off dials the name (owner)",
+		flags: jsonFlag, run: integrationsDialAddress,
 	},
 	{
 		name: "integrations actions", args: "<integration>:<label>", min: 1, max: 1,

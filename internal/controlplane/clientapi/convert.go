@@ -293,3 +293,17 @@ func decodeCursor(s *string) (*orchestration.RunCursor, error) {
 
 	return &orchestration.RunCursor{CreatedAt: time.UnixMilli(at).UTC(), ID: id}, nil
 }
+
+// toWorkUsage is what a Task's or a Run's Dispatches used (issue #856).
+func toWorkUsage(u orchestration.WorkUsage) openapi.WorkUsage {
+	out := openapi.WorkUsage{
+		Dispatches: u.Dispatches, GatewayDispatches: u.Gateway, Requests: u.Requests, PromptTokens: u.Prompt,
+		CompletionTokens: u.Completion, CachedTokens: u.Cached, ReasoningTokens: u.Reasoning,
+		CacheWriteTokens: u.CacheWrite, CostMicros: u.CostMicros, Unpriced: u.Unpriced,
+	}
+
+	out.Reported.Input, out.Reported.Output = u.Reported.Input, u.Reported.Output
+	out.Reported.CacheRead, out.Reported.CacheWrite = u.Reported.CacheRead, u.Reported.CacheWrite
+
+	return out
+}

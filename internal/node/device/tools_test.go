@@ -43,6 +43,8 @@ type phoneTools struct {
 	notPNG bool
 	// adbInputFails is what `adb shell input` prints as it exits with 1.
 	adbInputFails string
+	// geoFails is what `adb emu geo fix` prints as it exits with 1.
+	geoFails string
 }
 
 // noMatchesAnswer is what Android CLI answered to `input text` on the phone
@@ -132,6 +134,8 @@ func (p *phoneTools) answer(c Command) (Output, bool) {
 		return Output{}, true
 	case program(c) == "android":
 		return Output{Stdout: `[{"text":"Search"}]`}, true
+	case program(c) == "adb" && slices.Contains(c.Args, "geo") && p.geoFails != "":
+		return Output{Code: 1, Stderr: p.geoFails}, true
 	case program(c) == "adb" && slices.Contains(c.Args, "logcat"):
 		return Output{Stdout: p.logcat}, true
 	case program(c) == "adb" && slices.Contains(c.Args, "monkey") && p.noLauncher:
@@ -517,4 +521,61 @@ func TestAScreenOfAnEarlierBootIsNotTappedByNumber(t *testing.T) {
 	assert.True(t, answer.IsError)
 	assert.Contains(t, textOf(answer), "started again")
 	assert.Equal(t, nodeproto.DeviceRunning, r.m.Status().State, "the call started the phone")
+}
+
+// device_location sets the emulator's GPS as Appium sets it (issue #851):
+// `adb emu geo fix <longitude> <latitude> [<altitude>]`, the values rounded up
+// to 5 decimals, then the same again with "," for ".".
+func TestALocationIsSetWithGeoFixTwice(t *testing.T) {
+	t.Parallel()
+
+	r, _ := toolRig(t)
+
+	n := len(r.sys.ranCommands())
+	answer := call(t, r, "d-1", "device_location", `{"latitude":21.028511,"longitude":105.854223}`)
+	require.False(t, answer.IsError, textOf(answer))
+	assert.Contains(t, textOf(answer), "21.02852, 105.85423")
+
+	var geo []string
+
+	for _, line := range ranSince(r, n) {
+		if strings.Contains(line, " emu geo fix ") {
+			geo = append(geo, line)
+		}
+	}
+
+	assert.Equal(t, []string{
+		"adb -s emulator-5554 emu geo fix 105.85423 21.02852",
+		"adb -s emulator-5554 emu geo fix 105,85423 21,02852",
+	}, geo)
+
+	n = len(r.sys.ranCommands())
+	answer = call(t, r, "d-1", "device_location", `{"latitude":-33.8688,"longitude":-151.2093,"altitude":58.5}`)
+	require.False(t, answer.IsError, textOf(answer))
+	assert.Contains(t, ranSince(r, n), "adb -s emulator-5554 emu geo fix -151.2093 -33.8688 58.5")
+	assert.Contains(t, ranSince(r, n), "adb -s emulator-5554 emu geo fix -151,2093 -33,8688 58,5")
+}
+
+// A geo fix the emulator's console refuses is the call's failure, and the
+// second is not sent.
+func TestALocationTheConsoleRefusesIsAFailure(t *testing.T) {
+	t.Parallel()
+
+	r, tools := toolRig(t)
+	tools.geoFails = "error: could not connect to TCP port 5554: Connection refused"
+
+	n := len(r.sys.ranCommands())
+	answer := call(t, r, "d-1", "device_location", `{"latitude":21,"longitude":105}`)
+	assert.True(t, answer.IsError)
+	assert.Contains(t, textOf(answer), "Connection refused")
+
+	var geo int
+
+	for _, line := range ranSince(r, n) {
+		if strings.Contains(line, " emu geo fix ") {
+			geo++
+		}
+	}
+
+	assert.Equal(t, 1, geo)
 }

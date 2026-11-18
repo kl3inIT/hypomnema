@@ -639,7 +639,7 @@ export const openNodeTerminalMutation = (options?: Partial<Options<OpenNodeTermi
 };
 
 /**
- * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+ * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
  */
 export const stopNodeMachineMutation = (options?: Partial<Options<StopNodeMachineData>>): UseMutationOptions<StopNodeMachineResponse, StopNodeMachineError, Options<StopNodeMachineData>> => {
   const mutationOptions: UseMutationOptions<StopNodeMachineResponse, StopNodeMachineError, Options<StopNodeMachineData>> = {
@@ -656,7 +656,7 @@ export const stopNodeMachineMutation = (options?: Partial<Options<StopNodeMachin
 };
 
 /**
- * Turn a stopped machine on (owner only); it takes work again once its node connects
+ * Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
  */
 export const startNodeMachineMutation = (options?: Partial<Options<StartNodeMachineData>>): UseMutationOptions<StartNodeMachineResponse, StartNodeMachineError, Options<StartNodeMachineData>> => {
   const mutationOptions: UseMutationOptions<StartNodeMachineResponse, StartNodeMachineError, Options<StartNodeMachineData>> = {
@@ -1096,9 +1096,9 @@ export const deleteIntegrationConnectionMutation = (options?: Partial<Options<De
 };
 
 /**
- * Say whether the coordinator may use a Connection in chats; only the owner
+ * Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
  *
- * A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+ * A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its proxy (issue #850) is what its requests to its service go through, and its dial address where they are dialed instead of their host's; the next request uses them.
  */
 export const patchIntegrationConnectionMutation = (options?: Partial<Options<PatchIntegrationConnectionData>>): UseMutationOptions<PatchIntegrationConnectionResponse, PatchIntegrationConnectionError, Options<PatchIntegrationConnectionData>> => {
   const mutationOptions: UseMutationOptions<PatchIntegrationConnectionResponse, PatchIntegrationConnectionError, Options<PatchIntegrationConnectionData>> = {
@@ -1921,7 +1921,7 @@ export const getAccountLimitsOptions = (options: Options<GetAccountLimitsData>) 
 /**
  * Use one of an account's limit resets, which starts its used-up limits again now; only the owner
  *
- * A reset that is used does not come back. The one used is the one the vendor names as next. `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, or whose vendor asks to wait is 409.
+ * A reset that is used does not come back. The one used is `grant_id`'s; without it, one that starts a used-up window again, the vendor's next when it does (issue #841). `request_id` makes a repeated request the same use: sent again, it uses no second reset. Answers the account's limits as they are after it. An account with no reset to use, with no limit used up, with no reset that starts the used-up one again, with no usable reset of `grant_id`, or whose vendor asks to wait is 409.
  */
 export const redeemAccountLimitResetMutation = (options?: Partial<Options<RedeemAccountLimitResetData>>): UseMutationOptions<RedeemAccountLimitResetResponse, RedeemAccountLimitResetError, Options<RedeemAccountLimitResetData>> => {
   const mutationOptions: UseMutationOptions<RedeemAccountLimitResetResponse, RedeemAccountLimitResetError, Options<RedeemAccountLimitResetData>> = {
@@ -2031,7 +2031,9 @@ export const revokeGatewayKeyMutation = (options?: Partial<Options<RevokeGateway
 export const getGatewayUsageQueryKey = (options: Options<GetGatewayUsageData>) => createQueryKey('getGatewayUsage', options);
 
 /**
- * What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+ * What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text models' speed and reliability by provider and by account; only the owner
+ *
+ * 24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together, and the speed has averages, not percentiles (ledger is true).
  */
 export const getGatewayUsageOptions = (options: Options<GetGatewayUsageData>) => queryOptions<GetGatewayUsageResponse, GetGatewayUsageError, GetGatewayUsageResponse, ReturnType<typeof getGatewayUsageQueryKey>>({
   queryFn: async ({ queryKey, signal }) => {

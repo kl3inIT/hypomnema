@@ -138,7 +138,7 @@ type PageGlobal = { fetch: typeof fetch; streams: Streams }
 // above the composer and the questions their workers put to the owner. Finishing a Run or answering a question
 // takes it out of what the next read answers.
 type Work = {
-  runs: { id: string; status: string; tasks: object[] }[]
+  runs: { id: string; status: string; tasks: object[]; usage?: object }[]
   questions: Record<string, unknown>[]
   // The requests that wait for the owner's answer (GET /approvals); answering one takes it out.
   approvals?: Record<string, unknown>[]
@@ -308,6 +308,16 @@ async function fakeServer(
       if (runPath[2]) found.status = runPath[2] === "/finish" ? "finished" : "canceled"
 
       return runPath[2] ? route.fulfill({ status: 204 }) : json(found)
+    }
+    // A Task read on its own, as GET /tasks/{id} answers it, with what its workers used (issue #856).
+    const reading = /^\/tasks\/([^/]+)$/.exec(path)
+    if (reading) {
+      const found = work.runs
+        .flatMap((r) => r.tasks as Record<string, unknown>[])
+        .find((t) => t.id === reading[1])
+      if (!found) return json({ code: "not_found", message: "not found" }, 404)
+
+      return json(found)
     }
     // Stopping a Task marks it asked to stop, as POST /tasks/{id}/cancel does while its worker stops.
     const canceling = /^\/tasks\/([^/]+)\/cancel$/.exec(path)
@@ -597,10 +607,32 @@ const openRun = (id: string, objective: string, list: object[]) => ({
 // Scenario: the chat has two Runs going. Each is a closed strip above the composer that says where it stands and
 // how many of its Tasks are done; one opens to its Tasks, each with its status in words, and a Task opens its panel
 // over the chat.
+// What a Run's or a Task's workers used (issue #856): the gateway's requests at API prices, and a runtime's own report.
+const used = (requests: number, cost: number, reported = 0) => ({
+  dispatches: 2,
+  gateway_dispatches: requests > 0 ? 1 : 0,
+  requests,
+  prompt_tokens: requests * 41_000,
+  completion_tokens: requests * 900,
+  cached_tokens: requests * 35_000,
+  reasoning_tokens: 0,
+  cache_write_tokens: 0,
+  cost_micros: cost,
+  unpriced: 0,
+  reported: { input: reported, output: reported / 10, cache_read: 0, cache_write: 0 },
+})
+
 test("a docked Run opens to its Tasks", async ({ page }) => {
   await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }), {
     runs: [
-      openRun("run_1", run.objective, tasks),
+      {
+        ...openRun(
+          "run_1",
+          run.objective,
+          tasks.map((t) => ({ ...t, usage: t.id === "tsk_2" ? used(31, 1_840_000) : used(0, 0) })),
+        ),
+        usage: used(52, 4_210_000, 12_000),
+      },
       openRun("run_2", "Write the release notes for 0.9", [
         task("tsk_9", 1, "Draft the notes from the merged pull requests", "pending"),
       ]),
@@ -633,10 +665,17 @@ test("a docked Run opens to its Tasks", async ({ page }) => {
     /Add Google login to the web client\s*Working/,
   ])
   await expect(first.getByRole("button", { name: "Finish Run" })).toBeDisabled()
+  await expect(first).toContainText(
+    "Used $4.21 at API prices · 2.13M in, 46.8k out · 52 requests · 12k in, 1.2k out as its runtime reported",
+  )
   await shot(page, "chat-dock-expanded")
 
   await rows.getByRole("button", { name: /^Open Task Deploy the control plane to zm/ }).click()
   await expect(page).toHaveURL(/[?&]task=tsk_2/)
+  const panel = page.getByRole("dialog")
+  await expect(panel).toContainText("Used$1.84 at API prices · 1.27M in, 27.9k out · 31 requests")
+  await page.waitForTimeout(300)
+  await shot(page, "task-panel-used")
 })
 
 // Scenario: a worker of the chat's Run is at work (issue #687). Its row says how long it runs and what it does,

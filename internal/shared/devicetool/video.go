@@ -3,6 +3,7 @@ package devicetool
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -13,8 +14,9 @@ import (
 // say right before the action with where it taps and a chapter, stop), with
 // a request id and a receipt as docs/conventions.md asks of a call that may
 // be retried, and a status to read a take's state, as autodemo answers its
-// stop with a job id to ask about (src/mcp.js:372-379). They are routed and
-// switched as the device_* tools are.
+// stop with a job id to ask about (src/mcp.js:372-379), and a list of the
+// agent's own takes, the owner's `GET /takes` restricted to it (issue #851).
+// They are routed and switched as the device_* tools are.
 
 // The video tools' names: each is VideoPrefix and what it does.
 const (
@@ -25,6 +27,8 @@ const (
 	VideoSay    = "video_say"
 	VideoStop   = "video_stop"
 	VideoStatus = "video_status"
+	// VideoList lists the calling agent's own takes (issue #851), answered by the control plane.
+	VideoList = "video_list"
 
 	// VideoPause, VideoResume and VideoEnd are the control plane's own, never offered to an agent: the
 	// owner's takeover pauses a take and "Hand back" resumes it; the end of the agent's work, of the phone or
@@ -53,7 +57,12 @@ const (
 	MaxRequestID = 100
 	// maxTakeID bounds a take's id.
 	maxTakeID = 64
+	// MaxListed is how many takes video_list answers, the newest.
+	MaxListed = 20
 )
+
+// TakeStates are a take's states, as video_list filters by them.
+var TakeStates = []string{TakeRecording, TakePaused, TakeFinalizing, TakeUploading, TakeAvailable, TakeFailed}
 
 // videoTools are the video tools an agent is offered.
 func videoTools() []Tool {
@@ -74,6 +83,11 @@ func videoTools() []Tool {
 			`{"take":{"type":"string"}}`, []string{"take"}),
 		tool(VideoStatus, "Read a take's state, length and steps.",
 			`{"take":{"type":"string"}}`, []string{"take"}),
+		tool(VideoList, "List your own takes, the newest first (at most 20): id, title, state, what ended it, "+
+			"when it started and how long it is. Use it to find a take of yours still filming, as after an "+
+			"interrupted turn.",
+			`{"state":{"type":"string","enum":["recording","paused","finalizing","uploading","available","failed"],`+
+				`"description":"only takes in this state"}}`, nil),
 	}
 }
 
@@ -85,6 +99,7 @@ var (
 		VideoSay:    {"take", "text", "tap", "chapter"},
 		VideoStop:   {"take"},
 		VideoStatus: {"take"},
+		VideoList:   {"state"},
 	}
 	internalTakes = map[string][]string{
 		VideoStart:  {"title", "request_id", "take"},
@@ -103,11 +118,21 @@ type videoArguments struct {
 	Tap       string `json:"tap"`
 	Chapter   string `json:"chapter"`
 	EndedBy   string `json:"ended_by"`
+	State     string `json:"state"`
 }
 
 // readVideo checks a video tool's arguments into c.
 func (c *Call) readVideo(a videoArguments, internal bool) error {
 	c.Take, c.Title, c.RequestID = strings.TrimSpace(a.Take), strings.TrimSpace(a.Title), a.RequestID
+
+	if c.Tool == VideoList {
+		c.State = a.State
+		if a.State != "" && !containsString(TakeStates, a.State) {
+			return bad("state is one of %s", strings.Join(TakeStates, ", "))
+		}
+
+		return nil
+	}
 
 	// An agent's video_start names no take: the control plane gives it one, which the node is sent.
 	if c.Tool != VideoStart || internal {
@@ -209,6 +234,34 @@ func Describe(t Take) string {
 		b.WriteString(" It is being finished and uploaded; video_status says when it is available.")
 	case TakeAvailable:
 		b.WriteString(" The owner can watch it now.")
+	}
+
+	return b.String()
+}
+
+// List is an agent's takes in lines, as video_list answers them: id, title,
+// state, what ended it, when it started and how long it is; never a file.
+func List(takes []Take, state string) string {
+	if len(takes) == 0 {
+		if state != "" {
+			return "You have no take that is " + state + "."
+		}
+
+		return "You have no take."
+	}
+
+	var b strings.Builder
+
+	b.WriteString("Your takes, the newest first:")
+
+	for _, t := range takes {
+		fmt.Fprintf(&b, "\n- %s %q: %s", t.ID, t.Title, t.State)
+
+		if t.EndedBy != "" {
+			fmt.Fprintf(&b, ", ended by %s", t.EndedBy)
+		}
+
+		fmt.Fprintf(&b, ", started %s, %s long", t.StartedAt.UTC().Format(time.RFC3339), Clock(t.DurationMs))
 	}
 
 	return b.String()

@@ -201,7 +201,7 @@ func TestOwnerStopsAndStartsAMachine(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopped.StatusCode(), string(stopped.Body))
 	require.NotNil(t, stopped.JSON200.Machine.Power)
 	assert.Equal(t, openapi.NodeMachinePowerStopped, *stopped.JSON200.Machine.Power)
-	assert.Equal(t, openapi.NodeStatusDrained, stopped.JSON200.Status)
+	assert.Equal(t, openapi.NodeStatusActive, stopped.JSON200.Status, "a stop leaves the owner's drain as it was (#844)")
 	assert.Equal(t, []string{id}, cloud.stopped)
 
 	started, err := owner.StartNodeMachineWithResponse(ctx, id)

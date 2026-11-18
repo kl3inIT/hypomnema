@@ -29,9 +29,46 @@ type Resets struct {
 	Available int
 	// ExpiresAt is when the one used next ends; zero when the vendor did not say.
 	ExpiresAt time.Time
-	// next is the vendor's id of the one used next. It stays on the server:
-	// 9router-go keeps a credit's id from the browser the same way.
+	// Grants are the usable resets one by one (issue #841): Anthropic gives
+	// grants of a few resets each, and each says which windows it starts
+	// again; a Codex credit is a grant of one that names none.
+	Grants []ResetGrant
+	// next is the vendor's id of the one it would use next.
 	next string
+}
+
+// ResetGrant is one of an account's usable resets as its vendor groups them
+// (omp claude-reset.ts parseCedarGrant; 9router parseClaudeResetGrants, which
+// lists each grant with its id, label and clears).
+type ResetGrant struct {
+	// ID is the vendor's; a use names it.
+	ID string
+	// Label is the vendor's name for the grant; empty when it gave none.
+	Label string
+	// Available is how many resets the grant has left.
+	Available int
+	// ExpiresAt is when the grant ends; zero when the vendor did not say.
+	ExpiresAt time.Time
+	// Clears are the windows, by their names here, that a use starts again;
+	// none when the vendor did not say, and then it may start any.
+	Clears []string
+}
+
+// clearsAny says whether the grant starts one of these windows again.
+func (g ResetGrant) clearsAny(windows []string) bool {
+	if len(g.Clears) == 0 {
+		return true
+	}
+
+	for _, c := range g.Clears {
+		for _, w := range windows {
+			if strings.EqualFold(c, w) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 var (
@@ -43,6 +80,11 @@ var (
 	ErrResetWait = errors.New("the vendor asks to wait before a reset is used")
 	// ErrBadResetRequest is returned for a request id the vendors would not take.
 	ErrBadResetRequest = errors.New("a reset's request id is letters, digits, - and _, at most 64")
+	// ErrUnknownReset is returned when the reset asked for is not one the account can use now.
+	ErrUnknownReset = errors.New("the account has no usable reset of that id; read its limits again")
+	// ErrNoResetClears is returned when a limit is used up and no reset of the
+	// account starts it again, such as when only Fable's week can be reset.
+	ErrNoResetClears = errors.New("no reset of the account starts the used-up limit again; nothing was spent")
 )
 
 // ResetLister is a Vendor that lists an account's resets with a call of its own.
@@ -86,12 +128,12 @@ func readResets(ctx context.Context, vendor Vendor, token Token) Resets {
 }
 
 // UseReset uses one of an account's limit resets and returns the account's
-// limits as they are after it. The reset used is the one the vendor says is
-// next, read now, so that one the vendor would refuse is not asked for
-// (9router-go lists before it consumes). requestID is the caller's: the same
-// id sent again uses no second reset.
-func (s *Service) UseReset(ctx context.Context, id, requestID string) (Limits, error) {
-	if !resetRequestIDPat.MatchString(requestID) {
+// limits as they are after it. The resets are read now, so that one the
+// vendor would refuse is not asked for (9router-go lists before it
+// consumes). grantID names the reset to use; empty, chooseReset picks one.
+// requestID is the caller's: the same id sent again uses no second reset.
+func (s *Service) UseReset(ctx context.Context, id, requestID, grantID string) (Limits, error) {
+	if !resetRequestIDPat.MatchString(requestID) || (grantID != "" && !resetIDPattern.MatchString(grantID)) {
 		return Limits{}, ErrBadResetRequest
 	}
 
@@ -114,12 +156,17 @@ func (s *Service) UseReset(ctx context.Context, id, requestID string) (Limits, e
 		return Limits{}, ErrNoResets
 	}
 
+	grant, err := chooseReset(limits, grantID)
+	if err != nil {
+		return Limits{}, err
+	}
+
 	token, err := s.usableToken(ctx, a)
 	if err != nil {
 		return Limits{}, err
 	}
 
-	if err := user.UseReset(ctx, token, limits.Resets.next, requestID); err != nil {
+	if err := user.UseReset(ctx, token, grant, requestID); err != nil {
 		return Limits{}, err
 	}
 
@@ -134,6 +181,53 @@ func (s *Service) UseReset(ctx context.Context, id, requestID string) (Limits, e
 	}
 
 	return after, nil
+}
+
+// chooseReset is the reset to use (issue #841). One asked for by its id is
+// used when the account can use it. Otherwise, while a window is used up, a
+// grant that starts one of those windows again is used, the vendor's next
+// when it does, as omp redeems only a grant that clears the blocked scope
+// (claude-reset.ts, claudeResetClearedBlockScopes); when none does, nothing
+// is spent. With nothing used up the vendor's next is sent, and the vendor
+// answers that there is nothing to reset.
+func chooseReset(limits Limits, grantID string) (string, error) {
+	resets := limits.Resets
+
+	if grantID != "" {
+		for _, g := range resets.Grants {
+			if g.ID == grantID {
+				return g.ID, nil
+			}
+		}
+
+		return "", ErrUnknownReset
+	}
+
+	var usedUp []string
+
+	for _, w := range limits.Windows {
+		if w.UsedPercent >= 100 {
+			usedUp = append(usedUp, w.Name)
+		}
+	}
+
+	if len(usedUp) == 0 || len(resets.Grants) == 0 {
+		return resets.next, nil
+	}
+
+	pick := ""
+
+	for _, g := range resets.Grants {
+		if g.clearsAny(usedUp) && (pick == "" || g.ID == resets.next) {
+			pick = g.ID
+		}
+	}
+
+	if pick == "" {
+		return "", ErrNoResetClears
+	}
+
+	return pick, nil
 }
 
 // postJSON sends a JSON body and returns the status and the answer's body.
@@ -241,7 +335,12 @@ func (c *Codex) Resets(ctx context.Context, token Token) (Resets, error) {
 		}
 	})
 
-	return Resets{Available: len(credits), ExpiresAt: credits[0].expires, next: credits[0].id}, nil
+	grants := make([]ResetGrant, 0, len(credits))
+	for _, c := range credits {
+		grants = append(grants, ResetGrant{ID: c.id, Available: 1, ExpiresAt: c.expires})
+	}
+
+	return Resets{Available: len(credits), ExpiresAt: credits[0].expires, Grants: grants, next: credits[0].id}, nil
 }
 
 func codexCreditList(payload any) []any {
@@ -369,17 +468,22 @@ func (c *Claude) usageHeader(token Token) http.Header {
 // claudeResets reads the grants of the usage answer (9router
 // parseClaudeResetGrants, T3 Code claudeResetCreditsToContract): the account
 // is eligible, and a grant counts when it is not paused, has resets left, is
-// usable now and has not ended. The one Anthropic names as next is used next.
+// usable now and has not ended. The one Anthropic names as next is used next
+// unless another is chosen. Each grant's label and the windows it clears are
+// kept (omp claude-reset.ts parseCedarGrant), so that an ordinary reset and
+// Fable's are told apart (issue #841).
 func claudeResets(raw json.RawMessage, now time.Time) Resets {
 	var block struct {
 		Eligible bool   `json:"eligible"`
 		Next     string `json:"next_grant_id"`
 		Grants   []struct {
-			ID     string `json:"id"`
-			Left   int    `json:"resets_left"`
-			EndsAt string `json:"ends_at"`
-			Paused bool   `json:"paused"`
-			Usable *bool  `json:"usable_now"`
+			ID     string   `json:"id"`
+			Label  string   `json:"label"`
+			Left   int      `json:"resets_left"`
+			EndsAt string   `json:"ends_at"`
+			Clears []string `json:"clears"`
+			Paused bool     `json:"paused"`
+			Usable *bool    `json:"usable_now"`
 		} `json:"grants"`
 	}
 
@@ -398,6 +502,16 @@ func claudeResets(raw json.RawMessage, now time.Time) Resets {
 		}
 
 		out.Available += g.Left
+
+		grant := ResetGrant{ID: g.ID, Label: strings.TrimSpace(g.Label), Available: g.Left, ExpiresAt: ends}
+
+		for _, c := range g.Clears {
+			if c = strings.TrimSpace(c); c != "" {
+				grant.Clears = append(grant.Clears, claudeWindow(c))
+			}
+		}
+
+		out.Grants = append(out.Grants, grant)
 
 		if out.next == "" || g.ID == block.Next {
 			out.next, out.ExpiresAt = g.ID, ends

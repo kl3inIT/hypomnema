@@ -126,7 +126,7 @@ func (q *Queries) GetAgentSessionByHash(ctx context.Context, keyHash string) (Ag
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections WHERE integration = ?1 AND label = ?2
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access, proxy, dial_address FROM connections WHERE integration = ?1 AND label = ?2
 `
 
 type GetConnectionParams struct {
@@ -152,6 +152,8 @@ func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (C
 		&i.AppID,
 		&i.AppLabel,
 		&i.Access,
+		&i.Proxy,
+		&i.DialAddress,
 	)
 	return i, err
 }
@@ -244,7 +246,7 @@ func (q *Queries) InsertSecretRead(ctx context.Context, arg InsertSecretReadPara
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections ORDER BY integration, created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access, proxy, dial_address FROM connections ORDER BY integration, created_at, label
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
@@ -271,6 +273,8 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 			&i.AppID,
 			&i.AppLabel,
 			&i.Access,
+			&i.Proxy,
+			&i.DialAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -286,7 +290,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 }
 
 const listConnectionsBySecret = `-- name: ListConnectionsBySecret :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections WHERE secret = ?1 ORDER BY integration, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access, proxy, dial_address FROM connections WHERE secret = ?1 ORDER BY integration, label
 `
 
 func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([]Connection, error) {
@@ -313,6 +317,8 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 			&i.AppID,
 			&i.AppLabel,
 			&i.Access,
+			&i.Proxy,
+			&i.DialAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -328,7 +334,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 }
 
 const listConnectionsOf = `-- name: ListConnectionsOf :many
-SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access FROM connections WHERE integration = ?1 ORDER BY created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats, address, version, sign_in_failed, app_id, app_label, access, proxy, dial_address FROM connections WHERE integration = ?1 ORDER BY created_at, label
 `
 
 func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
@@ -355,6 +361,8 @@ func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]
 			&i.AppID,
 			&i.AppLabel,
 			&i.Access,
+			&i.Proxy,
+			&i.DialAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -653,6 +661,55 @@ type SetConnectionChatsParams struct {
 func (q *Queries) SetConnectionChats(ctx context.Context, arg SetConnectionChatsParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setConnectionChats,
 		arg.Chats,
+		arg.Now,
+		arg.Integration,
+		arg.Label,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setConnectionDialAddress = `-- name: SetConnectionDialAddress :execrows
+UPDATE connections SET dial_address = ?1, updated_at = ?2
+WHERE integration = ?3 AND label = ?4
+`
+
+type SetConnectionDialAddressParams struct {
+	DialAddress sql.NullString
+	Now         int64
+	Integration string
+	Label       string
+}
+
+func (q *Queries) SetConnectionDialAddress(ctx context.Context, arg SetConnectionDialAddressParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setConnectionDialAddress,
+		arg.DialAddress,
+		arg.Now,
+		arg.Integration,
+		arg.Label,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setConnectionProxy = `-- name: SetConnectionProxy :execrows
+UPDATE connections SET proxy = ?1, updated_at = ?2 WHERE integration = ?3 AND label = ?4
+`
+
+type SetConnectionProxyParams struct {
+	Proxy       sql.NullString
+	Now         int64
+	Integration string
+	Label       string
+}
+
+func (q *Queries) SetConnectionProxy(ctx context.Context, arg SetConnectionProxyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setConnectionProxy,
+		arg.Proxy,
 		arg.Now,
 		arg.Integration,
 		arg.Label,

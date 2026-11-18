@@ -40,6 +40,8 @@
 //	                                           make a gateway key; prints it once
 //	hypomnema gateway keys list | revoke <key id>
 //	hypomnema gateway usage [--limit N]         the latest requests the gateway served
+//	hypomnema gateway usage --by provider|account [--period 7d]
+//	                                           the text models' speed and reliability
 //
 // Anywhere, over the client API (after login):
 //

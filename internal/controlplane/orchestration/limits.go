@@ -42,9 +42,11 @@ const (
 	// RateLimitCooldown: how long an account cools down when a rate limit gives
 	// no reset time (inferred).
 	RateLimitCooldown = time.Minute
-	// ExpiriesBeforeUnavailable: this many expiries in a row on one node
-	// escalate node_unavailable (inferred).
+	// TaskExpiryPenaltyWindow ranks down nodes where this Task went unclaimed (Nomad's rescheduling penalty).
+	TaskExpiryPenaltyWindow = time.Hour
+	// ExpiriesBeforeUnavailable within NodeExpiryWindow escalate node_unavailable (Nezha's windowed offline rule).
 	ExpiriesBeforeUnavailable = 3
+	NodeExpiryWindow          = 30 * time.Minute
 	// ReceiptRetention and ReceiptKeep bound the receipts kept (Orca).
 	ReceiptRetention = 30 * 24 * time.Hour
 	ReceiptKeep      = 10000

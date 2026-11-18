@@ -19,6 +19,7 @@ import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { ConfirmAction } from "@/features/runs/run-actions"
 import { QuestionForm } from "@/features/questions/question-form"
+import { workUsage } from "@/features/models/usage-state"
 import { useRun, useTask, useWork } from "@/features/work/use-work"
 import { waitingText } from "@/features/work/waiting"
 import {
@@ -175,6 +176,8 @@ function PanelBody({ taskId }: { taskId: string }) {
             </p>
           </Section>
 
+          <Used taskId={task.id} />
+
           {task.follow_ups?.map((f) => (
             <Section
               key={f.id}
@@ -253,6 +256,21 @@ function statusText(card: Card) {
     failed: "Failed",
     canceled: "Canceled",
   }[card.task.status]
+}
+
+// Used says what the Task's workers used and what it would cost at the API (issue #856), read with the Task: the
+// board's Tasks do not carry it.
+function Used({ taskId }: { taskId: string }) {
+  const task = useTask(taskId, true)
+  const line = workUsage(task.data?.usage)
+
+  if (!line) return null
+
+  return (
+    <Section title="Used">
+      <p className="text-sm text-foreground/88 tabular-nums">{line}</p>
+    </Section>
+  )
 }
 
 function Chip({ children }: { children: ReactNode }) {

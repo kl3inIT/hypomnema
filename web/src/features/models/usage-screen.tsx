@@ -3,7 +3,12 @@ import { useState } from "react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import "@/api/client"
-import type { GatewayRequest, GatewayUsage, GatewayUsageGroup } from "@/api/generated/types.gen"
+import type {
+  GatewayPerformance,
+  GatewayRequest,
+  GatewayUsage,
+  GatewayUsageGroup,
+} from "@/api/generated/types.gen"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,19 +48,27 @@ import { modelName } from "@/lib/model-name"
 
 import {
   bars,
+  bucketWord,
   cost,
   duration,
   money,
+  ms,
   outcome,
+  percent,
   periods,
   providerKind,
+  rate,
+  requestPeriod,
   runtimeKind,
   share,
+  speed,
+  successTone,
   tiles,
   tokens,
   units,
   unitsOf,
   type Period,
+  type RequestPeriod,
 } from "./usage-state"
 import { useGatewayRequests, useGatewayUsage } from "./use-models"
 
@@ -75,7 +88,10 @@ const chartConfig = {
 // page at a time and a drawer with a failed request's message, as LiteLLM's (RequestLogsTableColumns.tsx,
 // LogDetailsDrawer) and 9router's (RequestDetailsTab.js). Neither a prompt nor an answer is kept, so none is shown.
 // Each row leads with its provider's or its model's mark, says what it used that is not tokens in its own unit, and
-// a failed one its error under its outcome (issue #723, decisions 3.2 to 3.6).
+// a failed one its error under its outcome (issue #723, decisions 3.2 to 3.6). The Performance table compares the
+// text models' providers and accounts by success rate, time to first token, latency and tokens a second (issue
+// #856), as new-api's perf metrics, 9router-go's usage by provider and OmniRoute's speed ranking; 90 days and 12
+// months are read from the daily ledger, which outlives the requests, as LiteLLM's daily spend.
 export function UsageScreen() {
   const [period, setPeriod] = useState<Period>("24h")
   const usage = useGatewayUsage(period)
@@ -84,7 +100,7 @@ export function UsageScreen() {
     <SettingsPage
       wide
       title="Usage"
-      description="What the model gateway served: requests, tokens, web searches, audio and images, what they would cost at the API, and the requests that failed."
+      description="What the model gateway served: requests, tokens, web searches, audio and images, what they would cost at the API, how fast and how reliably each provider answered, and the requests that failed."
       actions={
         <ToggleGroup
           aria-label="Period"
@@ -125,9 +141,16 @@ export function UsageScreen() {
       {usage.data && usage.data.totals.requests > 0 && (
         <>
           <Totals usage={usage.data} />
+          {usage.data.ledger && (
+            <p className="text-sm text-muted-foreground">
+              Read from the daily totals, kept after the requests themselves are deleted at 31 days:
+              days are UTC days, your keys count together, and the speed is an average.
+            </p>
+          )}
           <TokensChart usage={usage.data} />
           <Breakdown usage={usage.data} />
-          <Requests period={period} />
+          <Performance usage={usage.data} />
+          <RequestsOf period={period} />
         </>
       )}
     </SettingsPage>
@@ -162,7 +185,7 @@ function TokensChart({ usage }: { usage: GatewayUsage }) {
       className="flex flex-col gap-3 rounded-xl border bg-card p-4"
     >
       <h2 id="usage-tokens" className="text-sm font-medium">
-        Tokens {usage.bucket_seconds < 86400 ? "an hour" : "a day"}
+        Tokens {bucketWord(usage)}
       </h2>
       <div className="h-64 w-full [&>[data-slot=chart]]:aspect-auto [&>[data-slot=chart]]:h-full">
         <ChartContainer config={chartConfig}>
@@ -380,7 +403,25 @@ const timeFormat = new Intl.DateTimeFormat(undefined, {
   second: "2-digit",
 })
 
-function Requests({ period }: { period: Period }) {
+// RequestsOf lists the requests of a period they are still kept for, and says why a longer one has none.
+function RequestsOf({ period }: { period: Period }) {
+  const kept = requestPeriod(period)
+
+  if (kept) return <Requests period={kept} />
+
+  return (
+    <section aria-labelledby="usage-requests" className="flex flex-col gap-2">
+      <h2 id="usage-requests" className="text-base font-semibold">
+        Requests
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        Each request is kept 31 days. Choose 30 days or less to see them.
+      </p>
+    </section>
+  )
+}
+
+function Requests({ period }: { period: RequestPeriod }) {
   const [failedOnly, setFailedOnly] = useState(false)
   const [offset, setOffset] = useState(0)
   const [open, setOpen] = useState<GatewayRequest | null>(null)
@@ -632,6 +673,15 @@ function RequestSheet({
                 />
                 <Detail label="Stream" value={request.stream ? "Yes" : "No"} />
                 <Detail label="Took" value={duration(request.duration_ms)} />
+                {request.ttft_ms !== undefined && (
+                  <Detail label="First token" value={duration(request.ttft_ms)} />
+                )}
+                {request.tokens_per_second !== undefined && (
+                  <Detail
+                    label="Speed"
+                    value={`${rate(request.tokens_per_second)}, after the first token`}
+                  />
+                )}
                 <Detail label="Tokens in" value={request.prompt_tokens.toLocaleString()} />
                 <Detail label="From cache" value={request.cached_tokens.toLocaleString()} />
                 <Detail label="Tokens out" value={request.completion_tokens.toLocaleString()} />
@@ -675,5 +725,168 @@ function Detail({ label, value, mono }: { label: string; value: string; mono?: b
       <dt className="text-muted-foreground">{label}</dt>
       <dd className={mono ? "font-mono text-xs break-all" : "break-words"}>{value}</dd>
     </>
+  )
+}
+
+// Performance compares the text models' providers and accounts (issue #856): how many requests, how many were
+// answered, the time to the first token and of the whole call (p50, with p95 under it), the median tokens a
+// second after the first token, and the cost. A client that left counts neither way.
+function Performance({ usage }: { usage: GatewayUsage }) {
+  return (
+    <section aria-labelledby="usage-performance" className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h2 id="usage-performance" className="text-base font-semibold">
+          Performance
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {usage.ledger
+            ? "How fast and how reliably the text models answered, on average."
+            : "How fast and how reliably the text models answered: the median, and under it the slowest 5%."}
+        </p>
+      </div>
+      <Tabs defaultValue="provider">
+        <TabsList aria-label="Compare by">
+          <TabsTrigger value="provider">By provider and model</TabsTrigger>
+          <TabsTrigger value="account">By subscription account</TabsTrigger>
+        </TabsList>
+        <TabsContent value="provider">
+          <PerformanceTable
+            label="Performance by provider and model"
+            head="Provider and model"
+            rows={usage.by_provider}
+            empty="No text model answered in this period."
+            name={(p) => (
+              <span className="inline-flex items-center gap-2" title={`${p.provider} · ${p.model}`}>
+                <RequestMark model={p.model} provider={p.provider} className="size-4 shrink-0" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-medium">{modelName(p.model)}</span>
+                  <span className="text-xs text-muted-foreground">{p.provider}</span>
+                </span>
+              </span>
+            )}
+          />
+        </TabsContent>
+        <TabsContent value="account">
+          <PerformanceTable
+            label="Performance by account"
+            head="Account"
+            rows={usage.speed_by_account}
+            empty="No request in this period went to a subscription account."
+            name={(p) => (
+              <span className="inline-flex items-center gap-2">
+                <ProviderMark kind={runtimeKind(p.runtime)} className="size-4 shrink-0" />
+                <span className="font-medium">{p.account_label ?? "A removed account"}</span>
+              </span>
+            )}
+          />
+        </TabsContent>
+      </Tabs>
+    </section>
+  )
+}
+
+function PerformanceTable({
+  label,
+  head,
+  rows,
+  name,
+  empty,
+}: {
+  label: string
+  head: string
+  rows: GatewayPerformance[]
+  name: (p: GatewayPerformance) => React.ReactNode
+  empty: string
+}) {
+  return (
+    <div className="min-w-0 overflow-x-auto rounded-xl border bg-card">
+      <Table aria-label={label}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{head}</TableHead>
+            <TableHead>
+              <span className="block text-end">Requests</span>
+            </TableHead>
+            <TableHead>
+              <span className="block text-end">Answered</span>
+            </TableHead>
+            <TableHead>
+              <span className="block text-end">First token</span>
+            </TableHead>
+            <TableHead>
+              <span className="block text-end">Whole call</span>
+            </TableHead>
+            <TableHead>
+              <span className="block text-end">Speed</span>
+            </TableHead>
+            <TableHead>
+              <span className="block text-end">API cost</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((p) => {
+            const s = speed(p)
+
+            return (
+              <TableRow
+                key={`${p.provider}/${p.model}/${p.account_id ?? ""}`}
+                aria-label={p.account_label ?? (p.model ? `${p.provider} ${p.model}` : p.provider)}
+              >
+                <TableCell>{name(p)}</TableCell>
+                <TableCell>
+                  <span className="block text-end tabular-nums">{p.requests.toLocaleString()}</span>
+                </TableCell>
+                <TableCell>
+                  <span className="flex flex-col items-end gap-0.5">
+                    <Badge variant={successTone(p.success_rate)}>{percent(p.success_rate)}</Badge>
+                    {p.failed > 0 && (
+                      <span className="text-xs whitespace-nowrap text-destructive tabular-nums">
+                        {p.failed.toLocaleString()} failed
+                      </span>
+                    )}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="flex flex-col items-end tabular-nums">
+                    <span>{s.ttft}</span>
+                    {p.exact && (
+                      <span className="text-xs whitespace-nowrap text-muted-foreground">
+                        p95 {ms(p.ttft_p95_ms)}
+                      </span>
+                    )}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="flex flex-col items-end tabular-nums">
+                    <span>{s.latency}</span>
+                    {p.exact && (
+                      <span className="text-xs whitespace-nowrap text-muted-foreground">
+                        p95 {ms(p.latency_p95_ms)}
+                      </span>
+                    )}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="block text-end whitespace-nowrap tabular-nums">{s.rate}</span>
+                </TableCell>
+                <TableCell>
+                  <span className="block text-end text-muted-foreground tabular-nums">
+                    {money(p.cost_micros)}
+                  </span>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+          {rows.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={7}>
+                <p className="py-6 text-center text-muted-foreground">{empty}</p>
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
   )
 }

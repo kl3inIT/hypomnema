@@ -34,7 +34,7 @@ import { said } from "@/lib/said"
 
 import { useRefreshAccounts } from "./use-models"
 
-export type SignInRuntime = "claude" | "codex" | "antigravity"
+export type SignInRuntime = "claude" | "codex" | "antigravity" | "opencode_go"
 
 type Way = "sign-in" | "token" | "file"
 
@@ -94,8 +94,11 @@ export function AccountSignInDialog({
 }) {
   const formId = useId()
   const refresh = useRefreshAccounts()
+  // An OpenCode Go account is its Console API key and nothing else (issue #854): the dialog is the token's form.
+  const keyOnly = runtime === "opencode_go"
+  const firstWay: Way = keyOnly ? "token" : "sign-in"
   const [open, setOpen] = useState(false)
-  const [way, setWay] = useState<Way>("sign-in")
+  const [way, setWay] = useState<Way>(firstWay)
   const [started, setStarted] = useState<AccountSignInAttempt | null>(null)
   // A token is pasted only for a new Claude account: a signed-in account is signed in again the same way.
   const pastable = runtime === "claude" && !account
@@ -118,7 +121,10 @@ export function AccountSignInDialog({
   })
 
   const begin = useMutation({
-    mutationFn: async () => (await beginAccountSignIn({ body: { runtime } })).data,
+    mutationFn: async () => {
+      if (runtime === "opencode_go") throw new Error("An OpenCode Go account is a key to paste.")
+      return (await beginAccountSignIn({ body: { runtime } })).data
+    },
     // Every vendor signs in here with the browser, as 9router, CLIProxyAPI and T3 Code do on the web; Codex's
     // device code is for `accounts login` in a terminal.
     onSuccess: setStarted,
@@ -142,7 +148,11 @@ export function AccountSignInDialog({
     mutationFn: async (input: { label: string; token: string }) =>
       (
         await addTokenAccount({
-          body: { runtime: "claude", label: input.label, token: input.token },
+          body: {
+            runtime: keyOnly ? "opencode_go" : "claude",
+            label: input.label,
+            token: input.token,
+          },
         })
       ).data,
     onSuccess: finished,
@@ -194,11 +204,11 @@ export function AccountSignInDialog({
   function change(next: boolean) {
     setOpen(next)
     if (next) {
-      begin.mutate()
+      if (!keyOnly) begin.mutate()
       return
     }
 
-    setWay("sign-in")
+    setWay(firstWay)
     setStarted(null)
     finish.reset()
     token.reset()
@@ -227,9 +237,11 @@ export function AccountSignInDialog({
           <DialogDescription>
             {way === "file"
               ? "Bring the session Claude Code saved on a machine: its .credentials.json, in ~/.claude or the account's config folder. Hypomnema refreshes it from then on, so that machine may have to sign in again."
-              : way === "token"
-                ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
-                : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
+              : keyOnly
+                ? "Paste an API key from OpenCode's Console, of a workspace with a Go subscription. Each key is an account; the gateway moves to the next key when one reaches its limit."
+                : way === "token"
+                  ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
+                  : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -332,7 +344,12 @@ export function AccountSignInDialog({
                 </token.Field>
                 <token.Field name="token">
                   {(field) => (
-                    <TextField field={field} label="Token" placeholder="sk-ant-oat01-…" secret />
+                    <TextField
+                      field={field}
+                      label={keyOnly ? "Key" : "Token"}
+                      placeholder={keyOnly ? "sk-…" : "sk-ant-oat01-…"}
+                      secret
+                    />
                   )}
                 </token.Field>
               </FieldGroup>

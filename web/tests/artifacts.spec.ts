@@ -260,7 +260,7 @@ async function fakeServer(page: Page, w: ReturnType<typeof world>) {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Content-Security-Policy": f.media_type.startsWith("text/html")
-            ? "sandbox allow-scripts allow-forms"
+            ? "sandbox allow-scripts allow-forms allow-downloads"
             : "sandbox allow-scripts; default-src 'none'",
         },
         body: f.bytes,
@@ -389,7 +389,7 @@ test.describe("on a desktop", () => {
     await card(page, "Sales, week 46").click()
     await expect(side(page)).toContainText("Sales, week 46")
     const iframe = side(page).locator("iframe")
-    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms")
+    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-downloads")
     await expect(iframe).toHaveAttribute("referrerpolicy", "no-referrer")
     const inFrame = side(page).frameLocator("iframe")
     await expect(inFrame.getByRole("heading", { name: "Sales, week 46" })).toBeVisible()

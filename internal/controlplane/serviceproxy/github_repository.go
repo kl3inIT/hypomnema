@@ -305,7 +305,12 @@ func (p *Proxy) lookUpGitHubRepository(ctx context.Context, s session, id string
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-Github-Api-Version", "2022-11-28")
 
-	resp, err := p.cfg.Upstream.RoundTrip(req)
+	way, _, err := p.way(ctx, s)
+	if err != nil {
+		return "", "the account's connection could not be read"
+	}
+
+	resp, err := way.RoundTrip(req)
 	if err != nil {
 		return "", "GitHub could not be reached: " + rootCause(err)
 	}

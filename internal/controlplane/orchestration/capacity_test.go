@@ -417,7 +417,7 @@ func TestUnknownMemoryCountsNothingMeasured(t *testing.T) {
 
 	assert.Zero(t, p.measured(unknown), "neither its CPU nor its memory counts")
 	assert.InDelta(t, 0.2+0.25, p.measured(known), 1e-9)
-	assert.True(t, p.better(known, unknown, request{}), "nod_b wins although nod_a has the smaller id")
+	assert.True(t, p.better(known, unknown, request{}, nil), "nod_b wins although nod_a has the smaller id")
 }
 
 // Scenario: the default request of each profile. A profile that asks for
