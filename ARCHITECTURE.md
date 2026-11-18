@@ -716,9 +716,9 @@ sequenceDiagram
     all of that; a call or a view, its start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
     `phone.machine_stopped`. The next call or view starts the machine again (above).
-  - A worker is told of the phone when one is there: the node API marks an offer with `device: android`, and the
-    worker's first message gives the rules that matter most: look before acting, act by box number, never sign in
-    or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
+  - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
+    the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
+    gives the rules that matter most: look before acting, act by box number, never sign in or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
     skill of the skills store that requires the phone (`device: android`, issue #536): every worker and Bot is
     given it while a node holds a phone, by the path every skill takes (see "Skills"); the guide says a Bot asks
     the owner in its chat, a worker with `ask`.
@@ -852,7 +852,8 @@ sequenceDiagram
     A download is saved as `<id>-r<rev>-<name>` (a folder as `<id>-r<rev>.zip`), the name only the last part of
     what the server gave and left out when it is no plain file name here (`..`, a drive's colon, a device of
     Windows, a control character); a file that is there is never replaced.
-    Every Bot's `AGENTS.md` says when to show one, with the tool, and that a Routine's script uses the command.
+    The artifacts' and the Routines' lines of the "Tools" block (issue #789) say when to show one, with the tool,
+    and that a Routine's script uses the command.
   - View-only links (issue #745, `clientapi/artifactshares.go`, `orchestration/artifactshares.go`): the owner
     sends an artifact to someone with no account; the link always shows the newest revision (it names the
     artifact, not a revision, as OpenMausBot's published pages and Claude's do) until he revokes it. A link is a row
@@ -942,18 +943,20 @@ sequenceDiagram
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
-    (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language, and that what a document, an
+    (`deploy/coordinator/AGENTS.md`) keep how a Bot works with the owner: the coordinator skill, the wake-ups and
+    the language, and that what a document, an
     issue or memory says about the code or a server is checked before it is acted on or given to workers (issue
     #513); the coordinator guide's Recipe starts by checking a Run's premise on the base branch. Since issue #672
-    they are under headings (Approvals, Skills and accounts, Routines, Files and artifacts, Browser, Wake-ups and
-    the menu, Checking claims, Answering: OpenClaw's workspace template `docs/reference/templates/AGENTS.md`, Hermes's
+    they are under headings (Approvals, Tools and the owner, Wake-ups and the menu, Checking claims, Research
+    before a design, Answering: OpenClaw's workspace template `docs/reference/templates/AGENTS.md`, Hermes's
     `agent/prompt_builder.py`, pi's `system-prompt.ts`), state the approval rule for Google, Lark and Superset once
     with a "do freely" line before it (OpenClaw's "Do freely / Ask first", GPT-5.6 Sol's "state each rule once"),
     say when something may be sent as the owner rather than "never" (Anthropic's Fable 5.2 page), and give the
-    shape of a report on finished work: the answer first, then what was done, checked and left (Hermes). The
-    Browser part (issue #704) says to read a page in the browser rather than its scripts, that the Bot's page is
-    in its own tab, which the owner sees beside the chat in the web client and not in "My browser", that the owner
-    signs in there, and that no password is asked for or used in the chat. The Research before a design part
+    shape of a report on finished work: the answer first, then what was done, checked and left (Hermes). Since
+    issue #789 the tools' own guidance (the Browser part of issue #704, Routines, the artifacts, the skills of
+    `gws`, `lark-cli`, `gh`, `glab` and Superset) is in the "Tools" block, which workers get too (Agent tools,
+    below); Tools and the owner keeps the coordinator skill, the owner's own Lark account on his turn, the
+    `MEDIA:` line and where the owner finds the Bot's tab beside the chat. The Research before a design part
     (issue #719, the owner's rule of this repository's `AGENTS.md`, 2026-11-17) says that before the Bot answers
     how others do something or proposes a design or a choice, it has a worker clone and read the code of three or
     four mature projects (or reads them itself), compares them with the paths read, recommends one and marks what
@@ -1451,8 +1454,9 @@ flowchart LR
     records what undoes it. `POST /routines/{id}/undo` (`routines undo`, the owner's) removes a Routine the Bot
     made, or puts back what it was before the Bot's change; it is refused once the Routine was changed again
     (OpenMausBot's undo, `routine-requests.ts` L1099-1147). That the Bot first restates the schedule and the work
-    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions, which teach the tool
-    (`deploy/coordinator/AGENTS.md`, after OpenClaw's `how-it-works.md`), not a state the server keeps. A
+    in one sentence, has the owner's yes and then runs it once is in the Routines' line of the "Tools" block and the
+    tool's description (issue #789; OpenClaw's automations hint, `src/agents/system-prompt.ts:625-628`), not a
+    state the server keeps. A
     Routine's run makes and changes no Routines: the chat of a run, and a request that says it comes from a run
     (`HYPOMNEMA_ROUTINE`), are refused (Hermes's loop prevention, not a wall).
   - **An Approval in a run.** A request is a run's when it presents the run's key (the header
@@ -1917,7 +1921,8 @@ flowchart LR
       me` acts as the owner and is for reading what only he sees, is given only when he asked himself, and
       anything sent as him needs his yes; an empty answer may mean the app was not given the thing, nothing is
       written without the owner's yes, and `lark-cli auth`, `config`, `profile` and `update` are never run. The
-      Bots' rules (`deploy/coordinator/AGENTS.md`) say the same. It has no references of its own: for each
+      `lark-cli` line of the "Tools" block points to it, and the Bots' rules (`deploy/coordinator/AGENTS.md`) say
+      when `--account me` is given (issue #789). It has no references of its own: for each
       kind of work it names the guide `lark-cli` carries itself (`lark-cli skills read lark-doc`), which matches
       the installed version. It reaches a worker and the coordinator as Google's does.
     - `integrations disconnect lark:work` forgets the Connection and its token, and removes its secret from the
@@ -3669,15 +3674,31 @@ flowchart LR
   family of the agent's tools whose `WhenToUse` (a field of `agenttool.ToolFamilies`, the one source) says what it
   does, when to use it and what to use instead; a family the agent lacks, or whose `WhenToUse` is empty, is left
   out, as Hermes and OpenClaw build theirs from the tools present (`prompt_builder.py:450`,
-  `system-prompt-tool-list.ts:21-71`). Only web, images and audio have a line so far (the others: issue #789).
-  The tools it is built from are those an agent gets whatever its task or chat, after its switches
-  (`agentapi.Server.WorkerTools`, `BotTools`): not Superset's, WhatsApp's, Zalo's or the phone's. A worker gets it
+  `system-prompt-tool-list.ts:21-71`). Every family has a line (issue #789): memory, artifacts, routines, web,
+  images, audio, Muse, Superset, WhatsApp, Zalo, nodes, browser and phone. The browser's holds the owner's
+  standing rules for it (the agent's own tab, never "My browser"; the owner signs in there and presses "Hand
+  back"; never a password or code in a chat), the phone's its rules (look before each action, never sign in, buy
+  or pay), the Routines' the owner's yes and a first run, so that every agent with the tool gets them, as
+  OpenMausBot gives its browser's rules with the browser (`server/browser/prompt.ts:4-5`). After the families
+  come the commands an agent reaches an account with through the service proxy, each with its
+  `agenttool.Def.WhenToUse` beside its pin in `catalog.go`, which names the skill to load: `gws`
+  (`google-workspace`), `lark-cli` (`lark`), `gh` (`github`) and `glab` (`gitlab`); the commands and their
+  paths are unchanged. The tools it is built from are what the agent's tools list gives, after its switches
+  (`agentapi.Server.WorkerTools`, `BotTools`): Superset's when the agent may use a Superset Connection (a
+  worker's as its Dispatch's key says, which the node API passes as it makes the offer), WhatsApp's and Zalo's
+  for a Bot whose list has the owner's account (pi keeps them listed between his turns, #748), the phone's while
+  a node holds it; then the commands, `gh` and `glab` only a Bot's (a worker keeps its own). A worker gets it
   after its rules, before the profile's instruction and the task: the node API puts the names in the offer
   (`nodeproto.Offer.Tools`, a node of an earlier release ignores them) and the runner writes the block
-  (`runner.Prompt`). A Bot's pi gets it first in what `hypomnema bots prompt` prints, before the persona, from
+  (`runner.Prompt`); the account brief after it names the accounts and no longer the phone's rules. A Bot's pi gets it first in what `hypomnema bots prompt` prints, before the persona, from
   `GET /v1/bots/{id}/tools`. It holds no date and nothing of a task or chat, so a worker and a Bot with the same
   families get the same block and the start of the prompt stays the same for the provider's cache (#672). MCP
   `instructions` are not used: pi leaves them out for its `direct` tools.
+- Each tool description of `internal/controlplane/agentapi` follows one template (issue #789, decision 4): what
+  the tool does and returns, then "Use it" for when, then what to use instead, then its limits and rules, as
+  Hermes's `memory` (WHEN, SKIP) and `web_extract`, and OpenMausBot's `attach_file` and `send_voice_note` say what
+  to use instead. The browser's tools (agent-browser's) and the phone's (`internal/shared/devicetool`) keep their
+  engines' descriptions; their guidance is their family's line.
 - `audio_transcribe` `{path, language?, speakers?, terms?}` and `audio_speak` `{text, voice?, format?, speed?,
   language?, path?}` (issue #723, decisions 1.1 to 1.5; `agentapi/audio.go`, `toolsmcp/audio.go`) are the
   gateway's speech (Audio, above), the family `audio_*`. The recording is a file of the agent's machine, read by its

@@ -7069,9 +7069,9 @@ type ClientInterface interface {
 	// Corresponds with GET /bots/{bot_id}/skills (the `ListBotSkills` operationId).
 	ListBotSkills(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	// ListBotTools The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 	//
-	// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+	// Hypomnema's tools pi lists in any of the Bot's chats (issues #723, #789): Superset's, WhatsApp's and Zalo's when an account of them is on the Bot's list, the phone's while a node holds it; then the commands it reaches an account with through the service proxy (gws, lark-cli, gh, glab). `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
 	//
 	// Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
 	ListBotTools(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -9869,9 +9869,9 @@ func (c *Client) ListBotSkills(ctx context.Context, botId BotID, reqEditors ...R
 	return c.Client.Do(req)
 }
 
-// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+// ListBotTools The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 //
-// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+// Hypomnema's tools pi lists in any of the Bot's chats (issues #723, #789): Superset's, WhatsApp's and Zalo's when an account of them is on the Bot's list, the phone's while a node holds it; then the commands it reaches an account with through the service proxy (gws, lark-cli, gh, glab). `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
 //
 // Corresponds with GET /bots/{bot_id}/tools (the `ListBotTools` operationId).
 func (c *Client) ListBotTools(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -25563,9 +25563,9 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /bots/{bot_id}/skills (the `ListBotSkills` operationId).
 	ListBotSkillsWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*ListBotSkillsResponse, error)
 
-	// ListBotToolsWithResponse The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	// ListBotToolsWithResponse The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 	//
-	// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+	// Hypomnema's tools pi lists in any of the Bot's chats (issues #723, #789): Superset's, WhatsApp's and Zalo's when an account of them is on the Bot's list, the phone's while a node holds it; then the commands it reaches an account with through the service proxy (gws, lark-cli, gh, glab). `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -39421,9 +39421,9 @@ func (c *ClientWithResponses) ListBotSkillsWithResponse(ctx context.Context, bot
 	return ParseListBotSkillsResponse(rsp)
 }
 
-// ListBotToolsWithResponse The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+// ListBotToolsWithResponse The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 //
-// Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+// Hypomnema's tools pi lists in any of the Bot's chats (issues #723, #789): Superset's, WhatsApp's and Zalo's when an account of them is on the Bot's list, the phone's while a node holds it; then the commands it reaches an account with through the service proxy (gws, lark-cli, gh, glab). `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -50831,7 +50831,7 @@ type ServerInterface interface {
 	// ListBotSkills The skills a Bot gets now, each at its newest revision
 	// (GET /bots/{bot_id}/skills)
 	ListBotSkills(w http.ResponseWriter, r *http.Request, botId BotID)
-	// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	// ListBotTools The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 	// (GET /bots/{bot_id}/tools)
 	ListBotTools(w http.ResponseWriter, r *http.Request, botId BotID)
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs
@@ -68358,7 +68358,7 @@ type StrictServerInterface interface {
 	// ListBotSkills The skills a Bot gets now, each at its newest revision
 	// (GET /bots/{bot_id}/skills)
 	ListBotSkills(ctx context.Context, request ListBotSkillsRequestObject) (ListBotSkillsResponseObject, error)
-	// ListBotTools The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+	// ListBotTools The names of the tools a Bot's pi gets in any chat, after the Bot's switches
 	// (GET /bots/{bot_id}/tools)
 	ListBotTools(ctx context.Context, request ListBotToolsRequestObject) (ListBotToolsResponseObject, error)
 	// GetBrowser The browser every agent shares (owner only): whether it is installed and running, whether the owner holds it, and its tabs

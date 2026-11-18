@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
 
 // fakeTool makes this test binary stand in for a tool: installed under a
@@ -448,26 +448,28 @@ func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 	assert.Contains(t, string(script), `exec '/opt/it'\''s/hypomnema-node' tool gws "$@"`)
 	assert.NoDirExists(t, filepath.Join(home, "skills", "google-workspace"), "the guide comes with the offer")
 
-	brief := Brief([]string{"google:work", "google:personal"}, "")
+	brief := Brief([]string{"google:work", "google:personal"})
 	assert.Contains(t, brief, "google:work, google:personal")
 	assert.Contains(t, brief, "`gws` command is on your PATH and already signed in")
 	assert.Contains(t, brief, "gws --account <label>")
 	assert.NotContains(t, brief, "guide.md")
-	assert.Empty(t, Brief(nil, ""))
+	assert.Empty(t, Brief(nil))
 }
 
 // Scenario: a Dispatch is given the phone (issue #417) and no account. The
-// node prepares nothing for it, since its tools are the worker's own and its
-// guide a skill of the offer; the first message names the rules that matter
-// most.
+// node prepares nothing for it, since its tools are the worker's own; the
+// rules that matter most are the phone's line of the "Tools" block (issue
+// #789), not the account brief, which is empty.
 func TestANodePreparesADispatchForThePhone(t *testing.T) {
 	t.Parallel()
 
-	brief := Brief(nil, nodeproto.DeviceAndroid)
-	assert.Contains(t, brief, "device_screen")
-	assert.Contains(t, brief, "Never sign in")
-	assert.NotContains(t, brief, "guide.md")
-	assert.NotContains(t, brief, "Accounts you may use")
+	assert.Empty(t, Brief(nil))
+
+	block := ToolGuide([]string{devicetool.Screen})
+	assert.Contains(t, block, "- Phone: ")
+	assert.Contains(t, block, "device_screen before each action")
+	assert.Contains(t, block, "Never sign in")
+	assert.Contains(t, block, "never buy or pay")
 }
 
 // Scenario: a Dispatch is given a Superset account (issue #536). Its tools
@@ -483,7 +485,7 @@ func TestANodePreparesADispatchForSuperset(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoDirExists(t, Place{Home: home}.Bin(), "Superset has no command of its own")
 
-	brief := Brief([]string{"superset:vmaps"}, "")
+	brief := Brief([]string{"superset:vmaps"})
 	assert.Contains(t, brief, "Accounts you may use for this task: superset:vmaps.")
 	assert.Contains(t, brief, "superset_* tools")
 	assert.NotContains(t, brief, "guide.md")
@@ -503,7 +505,7 @@ func TestAWorkerKeepsItsOwnGhForAGitHostsConnection(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, env)
 	assert.NoFileExists(t, filepath.Join(Place{Home: home}.Bin(), "gh"))
-	assert.NotContains(t, Brief([]string{"github.com:default"}, ""), "`gh` command")
+	assert.NotContains(t, Brief([]string{"github.com:default"}), "`gh` command")
 }
 
 // Scenario: a Bot given accounts of two GitLab hosts, gitlab.com and a company's server (issue #740), runs glab.
@@ -578,5 +580,5 @@ func TestGlabIsPinnedForBotsOnly(t *testing.T) {
 	}
 
 	// A worker reaches a GitLab host with its own token: it is given no glab script (#44).
-	assert.NotContains(t, Brief([]string{"git.example.com:default"}, ""), "glab")
+	assert.NotContains(t, Brief([]string{"git.example.com:default"}), "glab")
 }

@@ -185,7 +185,7 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 			Name: m.chats,
 			Description: "List the owner's " + m.name + " chats, groups and people, the latest first: each one's " +
 				"id, kind (dm, group, broadcast), name and when its last message came. " + m.chatsAbout +
-				" Start here to find a chat's id.",
+				" Use it first, to find a chat's id.",
 			InputSchema: with(map[string]any{"limit": limit}),
 		},
 		{
@@ -193,7 +193,8 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 			Description: "Read the owner's " + m.name + " messages, the latest first: of one chat, or matching a search " +
 				"of their text, caption, file name, chat or sender, or both. Each has its id, chat, sender, time, " +
 				"text, what it replies to, its media (type, caption, file name, whether its file is kept), and " +
-				"whether it was edited or deleted. before (RFC 3339) pages back. " + untrusted,
+				"whether it was edited or deleted. Use it to read a chat or find a message; before (RFC 3339) pages " +
+				"back, and for what is older than the oldest kept, use " + m.history + " first. " + untrusted,
 			InputSchema: with(map[string]any{
 				"chat":   chat,
 				"search": map[string]any{"type": "string", "description": "Words to find."},
@@ -204,23 +205,26 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 		{
 			Name: m.media,
 			Description: "Open a " + m.name + " message's image or file: an image comes as an image, another file as " +
-				"its path on this machine with its type and name. A file not kept yet is downloaded first.",
+				"its path on this machine with its type and name, a voice note with what it says. Use it for a " +
+				"message whose media you need to see or hear. A file not kept yet is downloaded first.",
 			InputSchema: with(map[string]any{
 				"chat":    chat,
 				"message": map[string]any{"type": "string", "description": "The message's id."},
 			}, "chat", "message"),
 		},
 		{
-			Name:        m.history,
-			Description: m.historyAbout + " Then read them with " + m.messages + ".",
+			Name: m.history,
+			Description: m.historyAbout + " Use it only when the messages kept do not go back far enough; then " +
+				"read them with " + m.messages + ".",
 			InputSchema: with(map[string]any{"chat": chat, "count": limit}, "chat"),
 		},
 		{
 			Name: m.send,
 			Description: "Send a message in one of the owner's " + m.name + " chats, as him: text, or a file of the folder " +
-				"you work in (path, at most 5 MB) with text as its caption, replying to reply_to when given. It " +
-				"waits for the owner's approval unless he set it to run; when it waits, tell him in one line and " +
-				"end your turn, then call it again unchanged once he answers. Send only what he asked for.",
+				"you work in (path, at most 5 MB) with text as its caption, replying to reply_to when given. Use it " +
+				"only to send what the owner asked for; a reply to him goes in this chat instead. It waits for " +
+				"his approval unless he set it to run; when it waits, tell him in one line and end your turn, then " +
+				"call it again unchanged once he answers.",
 			InputSchema: with(map[string]any{
 				"chat":     chat,
 				"text":     map[string]any{"type": "string", "description": "The message, or the file's caption."},
