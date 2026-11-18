@@ -242,7 +242,7 @@ func (s *Store) ApprovalApproved(ctx context.Context, c Change) (Todo, error) {
 // ApprovalEnded opens a to-do in review again once its Approval was rejected or expired; the attempt is cleared and
 // the reason recorded.
 func (s *Store) ApprovalEnded(ctx context.Context, c Change, reason string) (Todo, error) {
-	if err := checkReason(reason, false); err != nil {
+	if err := checkReason(reason, true); err != nil {
 		return Todo{}, err
 	}
 
