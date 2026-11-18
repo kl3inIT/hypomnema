@@ -160,7 +160,7 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, r
 		return err
 	}
 	if recovering {
-		if err := os.RemoveAll(path); err != nil { //nolint:gosec // incomplete checkout owned by the node
+		if err := os.RemoveAll(path); err != nil {
 			return err
 		}
 		if err := git.removeRegistration(ctx, mirror, path); err != nil {
@@ -168,7 +168,6 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, r
 		}
 	}
 
-	//nolint:gosec // G703: the worktree path comes from the control plane's Dispatch.
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("making %s: %w", filepath.Dir(path), err)
 	}
@@ -191,7 +190,6 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, r
 }
 
 func worktreeExists(path string) bool {
-	//nolint:gosec // G703: the worktree path comes from the control plane's Dispatch.
 	_, err := os.Stat(filepath.Join(path, ".git"))
 	return err == nil
 }

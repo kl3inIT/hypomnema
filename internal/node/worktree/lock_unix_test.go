@@ -389,12 +389,12 @@ func TestInterruptedSetupKeepsDetachedCommit(t *testing.T) {
 func TestRetryDoesNotForceAddBranchCheckedOutElsewhere(t *testing.T) {
 	maker, src, root := mirrorProcessFixture(t)
 	other := filepath.Join(root.Name(), "wt", "second-path")
+	seed := filepath.Join(root.Name(), "wt", "seed")
 	for range 2 {
 		err := maker.Ensure(t.Context(), src, "main", "seed", other)
-		require.ErrorContains(t, err, "already checked out")
+		require.ErrorContains(t, err, seed)
 		assert.NoDirExists(t, other)
 	}
-	seed := filepath.Join(root.Name(), "wt", "seed")
 	assert.Equal(t, Branch("seed"), run(t, seed, "branch", "--show-current"))
 }
 
