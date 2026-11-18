@@ -31,7 +31,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -176,7 +175,7 @@ func (rt *CodexRuntime) Adopted(state []byte) runner.Turn {
 
 	var s saved
 	if json.Unmarshal(state, &s) == nil {
-		t.done, t.failure, t.usage, t.resets = s.Done, s.Failure, s.Usage, s.ResetsAt
+		t.done, t.failure, t.usage = s.Done, s.Failure, s.Usage
 	}
 
 	return t
@@ -187,8 +186,6 @@ type saved struct {
 	Done    bool             `json:"done,omitempty"`
 	Failure string           `json:"failure,omitempty"`
 	Usage   *nodeproto.Usage `json:"usage,omitempty"`
-	// ResetsAt is the reset of a usage limit the turn failed on.
-	ResetsAt *time.Time `json:"resets_at,omitempty"`
 }
 
 // env is the worker's whole environment: a clean one, with the gateway's key
@@ -197,11 +194,6 @@ func (rt *CodexRuntime) env(codexHome, key string) []string {
 	out := []string{"CODEX_HOME=" + codexHome, keyVariable + "=" + key, "LANG=C.UTF-8"}
 
 	out = append(out, runner.HostEnv()...)
-
-	// TZ too: the CLI writes a limit's reset in its local time, which the daemon reads in its own (resetOf).
-	if tz, ok := os.LookupEnv("TZ"); ok {
-		out = append(out, "TZ="+tz)
-	}
 
 	return append(out, rt.Env...)
 }
@@ -229,8 +221,6 @@ type turn struct {
 	done    bool
 	failure string
 	usage   *nodeproto.Usage
-	// resets is when the usage limit the turn failed on ends, when the CLI said.
-	resets *time.Time
 }
 
 func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
@@ -244,7 +234,7 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 		w.Started(ctx, e.ThreadID)
 	case "turn.completed":
 		// An error before this was one the CLI got over: it prints "Reconnecting…" as an error event.
-		t.done, t.failure, t.resets = true, "", nil
+		t.done, t.failure = true, ""
 
 		if e.Usage != nil {
 			// Codex counts the cached part inside the input.
@@ -257,57 +247,7 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 		if e.Error != nil && e.Error.Message != "" {
 			t.failure = e.Error.Message
 		}
-
-		t.resets = resetOf(t.failure, time.Now(), time.Local)
 	}
-}
-
-// resetText is where the Codex CLI writes a usage limit's reset into its
-// error, in its local time and to the minute: "Try again at 3:37 PM." for
-// today, else "try again at Nov 11th, 2026 3:37 PM." (codex-rs 0.169.0
-// protocol/src/error.rs:931-960). The pattern is t3code's
-// (apps/server/src/provider/codexUsageLimits.ts:205-206).
-var resetText = regexp.MustCompile(
-	`[Tt]ry again at (?:([A-Z][a-z]{2}) (\d{1,2})(?:st|nd|rd|th), (\d{4}) )?(\d{1,2}):(\d{2}) ([AP]M)\.`)
-
-// resetOf reads the reset out of a failure the CLI wrote at failedAt in zone;
-// nil when it names none. As t3code's codexMessageResetAt
-// (codexUsageLimits.ts:225-251): the date of today's form is failedAt's, and
-// the next minute is the first one past the reset, the seconds being dropped.
-func resetOf(failure string, failedAt time.Time, zone *time.Location) *time.Time {
-	m := resetText.FindStringSubmatch(failure)
-	if m == nil {
-		return nil
-	}
-
-	local := failedAt.In(zone)
-	year, month, day := local.Date()
-
-	if m[1] != "" {
-		named, err := time.Parse("Jan", m[1])
-		if err != nil {
-			return nil
-		}
-
-		month = named.Month()
-		day, _ = strconv.Atoi(m[2])
-		year, _ = strconv.Atoi(m[3])
-	}
-
-	hour, _ := strconv.Atoi(m[4])
-	minute, _ := strconv.Atoi(m[5])
-
-	hour %= 12
-	if m[6] == "PM" {
-		hour += 12
-	}
-
-	reset := time.Date(year, month, day, hour, minute, 0, 0, zone).Add(time.Minute).UTC()
-	if !reset.After(failedAt) {
-		return nil
-	}
-
-	return &reset
 }
 
 // Interrupt is nil: exec has no way to be interrupted, so its process is killed.
@@ -319,14 +259,13 @@ func (t *turn) Result() runner.Result {
 
 func (t *turn) State() []byte {
 	//nolint:errchkjson // A bool, a string and numbers.
-	raw, _ := json.Marshal(saved{Done: t.done, Failure: t.failure, Usage: t.usage, ResetsAt: t.resets})
+	raw, _ := json.Marshal(saved{Done: t.done, Failure: t.failure, Usage: t.usage})
 
 	return raw
 }
 
 // Outcome is a worker that exited without calling finish: the gateway's key
-// or the account behind it refused, a limit with its reset when the CLI named
-// one, or else a failure.
+// or the account behind it refused, a limit, or else a failure.
 func (t *turn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
 	f := nodeproto.Finished{Summary: t.failure, Exit: ex, Usage: t.usage}
 	lower := strings.ToLower(t.failure)
@@ -334,7 +273,7 @@ func (t *turn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
 	switch {
 	case strings.Contains(lower, "usage limit") || strings.Contains(lower, "429") ||
 		strings.Contains(lower, "rate limit"):
-		f.Class, f.ResetsAt = "rate_limited", t.resets
+		f.Class = "rate_limited"
 	case strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") ||
 		strings.Contains(lower, "invalid_api_key"):
 		f.Class = "needs_auth"

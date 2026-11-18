@@ -79,60 +79,6 @@ var subscriptionAccounts = map[string]string{
 	ProviderAntigravitySubscription: "antigravity",
 }
 
-// gatewayAccounts are the runtimes of the control plane's accounts the gateway serves a provider's model under
-// (issue #756, review of PR #786): a subscription's own; for a model of the gateway's own table, as
-// deploy/profiles/reviewer-codex.yaml asks for, those of each of its targets, which the gateway tries in turn
-// (modelgateway serveResponses, serveChat), and for "<subscription>/<model>" asked of the gateway by that name, the
-// subscription's (modelgateway subscriptionModel). nil when the model is served from what the scheduler cannot
-// see: a target that is not a subscription, or a provider the gateway does not serve.
-func gatewayAccounts(ctx context.Context, q *store.Queries, kind, model string) ([]string, error) {
-	if runtime, ok := subscriptionAccounts[kind]; ok {
-		return []string{runtime}, nil
-	}
-
-	if kind != ProviderModelGateway || model == "" {
-		return nil, nil
-	}
-
-	kinds, err := q.GatewayModelTargetKinds(ctx, model)
-	if err != nil {
-		return nil, fmt.Errorf("reading the targets of gateway model %s: %w", model, err)
-	}
-
-	if len(kinds) == 0 {
-		provider, _, found := strings.Cut(model, "/")
-		if !found {
-			return nil, nil
-		}
-
-		row, err := q.GetProvider(ctx, provider)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("reading provider %s: %w", provider, err)
-		}
-
-		kinds = []string{row.Kind}
-	}
-
-	var out []string
-
-	for _, k := range kinds {
-		runtime, ok := subscriptionAccounts[k]
-		if !ok {
-			return nil, nil
-		}
-
-		if !slices.Contains(out, runtime) {
-			out = append(out, runtime)
-		}
-	}
-
-	return out, nil
-}
-
 // GatewayModelName is the name the gateway serves a provider's model under: "<provider>/<model>" for a
 // subscription (issue #549), the model's own name for the gateway's table.
 func GatewayModelName(kind, provider, model string) string {
@@ -738,20 +684,13 @@ func (s *Service) GetProfile(ctx context.Context, name string) (Profile, error) 
 func (s *Service) withAvailability(ctx context.Context, profiles []Profile) error {
 	q := s.read()
 
-	unusable, err := s.unusableLogins(ctx)
-	if err != nil {
-		return err
-	}
-
-	p, err := loadPlacement(ctx, q, s.clock.Now().UnixMilli(), unusable)
+	p, err := loadPlacement(ctx, q, s.clock.Now().UnixMilli())
 	if err != nil {
 		return err
 	}
 
 	for i, pr := range profiles {
-		gateway := false
-
-		var accounts []string
+		gateway, accounts := false, ""
 
 		if pr.Provider != "" {
 			row, err := q.GetProvider(ctx, pr.Provider)
@@ -759,11 +698,7 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 				return notFound(err, "provider", pr.Provider)
 			}
 
-			gateway = throughGateway(row.Kind)
-
-			if accounts, err = gatewayAccounts(ctx, q, row.Kind, pr.Model); err != nil {
-				return err
-			}
+			gateway, accounts = throughGateway(row.Kind), subscriptionAccounts[row.Kind]
 		}
 
 		a := p.availability(pr.Runtime, gateway, accounts)
@@ -1309,9 +1244,9 @@ type resolved struct {
 	// gateway says the model gateway serves the model, so no account on a
 	// node is needed.
 	gateway bool
-	// accounts are the runtimes of the control plane's accounts the gateway serves the model under
-	// (gatewayAccounts): without an active one, nothing can serve it. nil when the scheduler cannot see them.
-	accounts []string
+	// accounts is the runtime of the control plane's accounts the gateway serves the model under, for a
+	// subscription's: without an active one, nothing can serve it.
+	accounts string
 	// fallbackFor is the Task's own profile when these are a backup's values,
 	// and fallbackUntil when that profile's accounts are free again.
 	fallbackFor   string
@@ -1382,9 +1317,7 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 		provider = p
 	}
 
-	gateway := false
-
-	var accounts []string
+	gateway, accounts := false, ""
 
 	if provider != "" {
 		row, err := q.GetProvider(ctx, provider)
@@ -1392,12 +1325,7 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 			return resolved{}, notFound(err, "provider", provider)
 		}
 
-		gateway = throughGateway(row.Kind)
-
-		if accounts, err = gatewayAccounts(ctx, q, row.Kind, model); err != nil {
-			return resolved{}, err
-		}
-
+		gateway, accounts = throughGateway(row.Kind), subscriptionAccounts[row.Kind]
 		if model != "" {
 			model = GatewayModelName(row.Kind, provider, model)
 		}

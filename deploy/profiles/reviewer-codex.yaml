@@ -8,8 +8,7 @@
 #   <gateway provider>  the provider of kind model_gateway: `hypomnema providers list`
 #   <gateway model>     a model that provider offers:        `hypomnema models list`
 #                       The owner runs gpt-6.1-sol; OpenAI's GPT-6 guide puts careful review at effort high.
-# Then: hypomnema profiles apply reviewer-codex.yaml, or change `reviewer` on the web under Agents. Apply
-# reviewer-claude.yaml before it: `fallbacks` below names that profile.
+# Then: hypomnema profiles apply reviewer-codex.yaml, or change `reviewer` on the web under Agents.
 # A reviewer applied from an earlier copy keeps that copy's text: apply this file again to give it what was added
 # since, such as answering the findings CodeRabbit left on the pull request (migration 00111, issue #766).
 #
@@ -22,10 +21,6 @@ description: >-
   Reviews a pull request against the spec it was made from and reports findings; changes nothing. Runs on the
   Codex CLI with GPT, so a change a Claude Code worker made is reviewed by another vendor.
 runtime: codex
-# When every Codex account waits for a limit, a review starts on Claude Code instead, and one under way is handed
-# over (issue #756; 2026-11-17 every Codex account was out and the reviews stopped).
-fallbacks:
-  - reviewer-claude
 model:
   provider: <gateway provider>
   name: <gateway model>

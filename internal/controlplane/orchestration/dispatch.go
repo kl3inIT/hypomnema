@@ -34,7 +34,7 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 			return notFound(err, "task", taskID)
 		}
 
-		p, err := loadPlacement(ctx, q, now, nil)
+		p, err := loadPlacement(ctx, q, now)
 		if err != nil {
 			return err
 		}
@@ -609,18 +609,6 @@ func (s *Service) ReportFinished(ctx context.Context, call NodeCall, o Outcome) 
 		return fmt.Errorf("encoding the result: %w", err)
 	}
 
-	var limit *limitMet
-
-	if o.Class == FailureRateLimited {
-		// Read before the transaction, as Schedule reads it (unusableLogins).
-		unusable, err := s.unusableLogins(ctx)
-		if err != nil {
-			return err
-		}
-
-		limit = &limitMet{resetsAt: o.ResetsAt, unusable: unusable}
-	}
-
 	return nodeVoid(ctx, s, call, "finished", o, func(q *store.Queries, now int64, d store.Dispatch) error {
 		if err := checkEpoch(d, call); err != nil {
 			return err
@@ -644,7 +632,7 @@ func (s *Service) ReportFinished(ctx context.Context, call NodeCall, o Outcome) 
 			return s.settleGated(ctx, q, now, d, o)
 		}
 
-		return s.settle(ctx, q, now, d, to, o.Class, &o.Result, limit, true)
+		return s.settle(ctx, q, now, d, to, o.Class, &o.Result, o.ResetsAt, true)
 	})
 }
 
@@ -795,29 +783,12 @@ func (s *Service) AbandonDispatch(ctx context.Context, id string) ([]Resource, e
 	return held, nil
 }
 
-// limitMet is what a worker that met a limit reported, with the scheduler's
-// view of the gateway's logins read before the transaction (issue #756).
-type limitMet struct {
-	// resetsAt is when the worker said the limit resets; nil when it named none.
-	resetsAt *time.Time
-	// unusable are the accounts the gateway cannot serve under (GatewayLogins).
-	unusable map[string]bool
-}
-
-func (l *limitMet) reset() *time.Time {
-	if l == nil {
-		return nil
-	}
-
-	return l.resetsAt
-}
-
 // settle ends a Dispatch and moves its Task in the same transaction. A Task
 // whose cancel was requested is canceled whatever the outcome. firstHand is
 // false when the coordinator decided instead of the worker; the Conversation
 // is then closed, and the next Dispatch starts fresh with the recovery note.
 func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d store.Dispatch,
-	to DispatchStatus, class FailureClass, result *Result, limit *limitMet, firstHand bool,
+	to DispatchStatus, class FailureClass, result *Result, resetsAt *time.Time, firstHand bool,
 ) error {
 	encoded := sql.NullString{}
 
@@ -832,7 +803,7 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 
 	n, err := q.SettleDispatch(ctx, store.SettleDispatchParams{
 		Now: now, ToStatus: string(to), FailureClass: nullString(string(class)), Result: encoded,
-		ResetsAt: nullMillis(limit.reset()), ID: d.ID, FromStatuses: dispatchFrom(to),
+		ResetsAt: nullMillis(resetsAt), ID: d.ID, FromStatuses: dispatchFrom(to),
 	})
 	if err != nil {
 		return fmt.Errorf("moving dispatch %s to %s: %w", d.ID, to, err)
@@ -887,12 +858,12 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		return cancelNow(ctx, q, now, d.TaskID)
 	}
 
-	return s.afterSettle(ctx, q, now, d, conv, to, class, result, limit)
+	return s.afterSettle(ctx, q, now, d, conv, to, class, result, resetsAt)
 }
 
 // afterSettle moves the Task once its Dispatch ended, by failure class.
 func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, d store.Dispatch,
-	conv store.Conversation, to DispatchStatus, class FailureClass, result *Result, limit *limitMet,
+	conv store.Conversation, to DispatchStatus, class FailureClass, result *Result, resetsAt *time.Time,
 ) error {
 	switch to {
 	case DispatchSucceeded:
@@ -916,7 +887,7 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 		return transitionTask(ctx, q, now, d.TaskID, TaskBlocked, BlockedNeedsAuth, "")
 	case FailureRateLimited:
 		until := now + RateLimitCooldown.Milliseconds()
-		if resetsAt := limit.reset(); resetsAt != nil {
+		if resetsAt != nil {
 			until = max(resetsAt.UnixMilli(), now)
 		}
 
@@ -936,20 +907,7 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			return err
 		}
 
-		hold := !may
-
-		if conv.AccountRef == GatewayAccountRef {
-			var unusable map[string]bool
-			if limit != nil {
-				unusable = limit.unusable
-			}
-
-			if until, hold, err = gatewayHold(ctx, q, now, task, until, hold, unusable); err != nil {
-				return err
-			}
-		}
-
-		if hold {
+		if !may {
 			if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
 				NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
 			}); err != nil {
@@ -971,48 +929,6 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 
 		return s.countFailure(ctx, q, now, d.TaskID, class)
 	}
-}
-
-// gatewayHold is how long a Task waits after its worker met a limit through
-// the gateway (issue #756, reviews of PR #786), which cools its own accounts
-// (coolAccount). The scheduler sees that cooling for a subscription the
-// control plane keeps accounts of, and for a model of the gateway's own table
-// served from such subscriptions (gatewayAccounts, gatewayCooling), with the
-// accounts the gateway cannot serve under left out (unusable, read as
-// Schedule reads it). A worker the gateway refuses ends at once, so:
-//   - every account cools: until the first is free, not the reset the worker
-//     named, which is the last refusal of the accounts its request tried
-//     (modelgateway underAccounts); a Task that may be handed off is not
-//     held, as the scheduler hands it off to a backup at once, or waits;
-//   - one of them is free now (its cooldown over, or never cooled): not
-//     held, as the scheduler starts it again at once on that account;
-//   - the scheduler cannot see the accounts (a target that is not a
-//     subscription): until the reset the worker named, else
-//     RateLimitCooldown, hand-off or not, so it is not started again at once.
-//
-// A wait then a retry, not counted, as for an account a node holds.
-func gatewayHold(ctx context.Context, q *store.Queries, now int64, task store.Task, until int64, hold bool,
-	unusable map[string]bool,
-) (int64, bool, error) {
-	r, err := resolve(ctx, q, task)
-	if err != nil {
-		return 0, false, err
-	}
-
-	if !r.gateway || r.accounts == nil {
-		return until, true, nil
-	}
-
-	p, err := loadPlacement(ctx, q, now, unusable)
-	if err != nil {
-		return 0, false, err
-	}
-
-	if first, cooling := p.gatewayCooling(r.accounts); cooling {
-		return max(first, now), hold, nil
-	}
-
-	return now, false, nil
 }
 
 // stalledAttempts reports whether the Task's last StalledAttempts Dispatches

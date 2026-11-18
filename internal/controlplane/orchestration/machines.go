@@ -405,7 +405,7 @@ func (s *Service) ListMachinesOfProvider(ctx context.Context, providerID string)
 }
 
 func (s *Service) nodesOf(ctx context.Context, rows []store.Node) ([]Node, error) {
-	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli(), nil)
+	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

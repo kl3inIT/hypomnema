@@ -1,14 +1,12 @@
 # A reviewer on Claude Code, the fallback of the Codex reviewer (issue #756). On 2026-11-17 every Codex account was
 # out of its limit and five reviews on `reviewer` (Codex) waited with no word, so no pull request could be merged.
-# With this profile applied and named in the Codex reviewer's `fallbacks` (deploy/profiles/reviewer-codex.yaml), a
-# review Task on `reviewer` whose Codex accounts wait for a limit starts here instead, its Dispatch marked with
-# fallback_for: reviewer; a review the limit met under way is handed over in the same worktree (issue #187).
+# Name it to review on Claude while Codex's accounts wait for a limit (`profile: reviewer-claude` on the Task).
+# It is not yet in the Codex reviewer's `fallbacks`: the scheduler does not see the gateway's accounts cool, so
+# with that line a review the gateway refused would start on Codex again at once (issue #803).
 #
 # The model is the seeded reviewer's (migration 00111): the Claude subscription, served by the control plane's
 # model gateway. Change provider and name if yours are named otherwise (`hypomnema models list`).
-# Apply this file first, then reviewer-codex.yaml, whose `fallbacks` names this profile:
 #   hypomnema profiles apply reviewer-claude.yaml
-#   hypomnema profiles apply reviewer-codex.yaml
 #
 # The instruction is the Codex reviewer's, word for word, with one paragraph more at its end: a Claude reviewer of
 # a change a Claude worker made says the review was not independent, as the coordinator's review guide asks
@@ -16,8 +14,8 @@
 name: reviewer-claude
 description: >-
   Reviews a pull request against the spec it was made from and reports findings; changes nothing. Runs on Claude
-  Code; it is the fallback of the Codex reviewer (`reviewer`), used when Codex's accounts wait for a limit. Use
-  `reviewer` first.
+  Code; it stands in for the Codex reviewer (`reviewer`) while Codex's accounts wait for a limit. Use `reviewer`
+  first.
 runtime: claude
 model:
   provider: claude-subscription

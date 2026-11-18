@@ -112,11 +112,3 @@ SELECT
   (SELECT count(*) FROM chats WHERE chats.provider = sqlc.arg(pname)) AS chats,
   (SELECT count(*) FROM profile_versions WHERE profile_versions.provider = sqlc.arg(pname)) AS versions,
   (SELECT count(*) FROM gateway_model_targets WHERE gateway_model_targets.provider = sqlc.arg(pname)) AS targets;
-
--- name: GatewayModelTargetKinds :many
--- The kind of each provider a model of the gateway's own table is served from, in the order the gateway tries
--- them (issue #756).
-SELECT providers.kind FROM gateway_model_targets
-JOIN providers ON providers.name = gateway_model_targets.provider
-WHERE gateway_model_targets.model = @model
-ORDER BY gateway_model_targets.position;

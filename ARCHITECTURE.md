@@ -1527,10 +1527,8 @@ flowchart LR
   `codex`, which names only `codex_subscription` (it speaks only `/v1/responses`, which the gateway passes on to a
   Codex subscription alone); its Dispatch runs under the gateway with the model `<provider>/<model>`, and no
   subscription token leaves the control plane. Such a profile is available, and its Task placed, only while the
-  control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise). Which of them serves a
-  request is the gateway's to choose; while every one cools down (the gateway's cooldowns are in the table node
-  accounts cool in), the profile is `ReasonAccountsCooling` until the first is free, and its Task waits or goes to a
-  fallback as under a node's cooling accounts (issue #756). A model of the gateway's own table whose targets are all subscriptions (as `deploy/profiles/reviewer-codex.yaml` asks for), or `<subscription>/<model>` named under the gateway provider, is seen the same way, through the accounts of every target's subscription. Only accounts the gateway can serve under count: one with no tokens or whose login was refused (the subscription service's `Unusable`, given to the scheduler as `GatewayLogins` and read both when it schedules and when a worker's limit settles) does not hide that the rest cool. A worker the gateway refused (`rate_limited`) holds its Task until the first of those accounts is free, not the reset the worker named (the last refusal of the accounts its request tried); a Task a fallback may take is not held while every account cools, as the scheduler hands it off at once. When one account is free now, the Task is not held. When the profile's model has a target that is not a subscription, whose accounts the scheduler cannot see, the Task is held until the named reset, else for `RateLimitCooldown`, hand-off or not, so a refused worker is not started again at once. A Task's own model picks its provider again, as it is checked when the Task
+  control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise); whether that account
+  cools down is the gateway's to find. A Task's own model picks its provider again, as it is checked when the Task
   is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
@@ -1573,11 +1571,12 @@ flowchart LR
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
   deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
-  `reviewer` itself run on Codex with the seeded reviewer's instruction and `fallbacks: [reviewer-claude]`.
-  `reviewer-claude.yaml` (issue #756) is that fallback: the same instruction on Claude Code under the Claude
-  subscription, with one paragraph more, that a review of a Claude author's change says it was not independent. No
-  migration seeds it: the seeded `reviewer` already runs on Claude, and only a control plane where the owner applied
-  the Codex reviewer needs it. Migration 00111 (issue #766; owner,
+  `reviewer` itself run on Codex with the seeded reviewer's instruction. `reviewer-claude.yaml` (issue #756) is
+  the same instruction on Claude Code under the Claude subscription, with one paragraph more, that a review of a
+  Claude author's change says it was not independent; no migration seeds it, as the seeded `reviewer` already runs
+  on Claude. It is not in the Codex reviewer's `fallbacks` yet: the scheduler does not see the gateway's accounts
+  cool, and a Task that may hand off is not held after a limit, so a refused review would start on Codex again at
+  once (issue #803). Migration 00111 (issue #766; owner,
   2026-11-17) makes a new version of the seeded reviewer, where `pfv_seed5_reviewer` is still current, that reads
   first what CodeRabbit (`coderabbitai[bot]`) left on the pull request (its reviews, inline comments and comments)
   and answers each Critical or Major finding as fixed, still open (its own P1) or wrong, Minor ones as follow-ups;
@@ -1656,9 +1655,7 @@ flowchart LR
   `fallback_until`, when its first account is free; the first such Dispatch of a Run for one `fallback_until` is
   escalated (`fallback`, with `profile`, `fallback` and `until`), so a coordinator hears of one stretch of a limit
   once. Each pass starts from the Task's own profile, so work returns when the limit has reset. A profile whose
-  model the gateway serves under subscriptions moves when every account the control plane keeps of them cools
-  (issue #756), a model of the gateway's own table too when its targets are all subscriptions; one with another
-  target never does. The Agents
+  model the gateway serves never triggers it: the state of the gateway's accounts is not looked at. The Agents
   page edits the list, and a Task's card says which profile it stands in for.
   A Task whose worker met the limit under way is handed off (issue #187, after Orca's hand-off of a session to
   another agent and OpenMausBot's resending of a limited turn;
@@ -2949,7 +2946,8 @@ capabilities do not exist yet.
     plan, `{"error":{"type":"usage_limit_reached","code":"account_unavailable","resets_at":<unix>}}` (issue #756):
     the Codex CLI ends its turn on that type, where it retries any other 429 after the whole `Retry-After`, five
     times, and a worker would wait for hours with no word (codex-rs 0.169.0 `codex-api/src/api_bridge.rs:221-252`,
-    `core/src/responses_retry.rs:142-167`).
+    `core/src/responses_retry.rs:142-167`). The node reports that turn `rate_limited`, and the scheduler waits
+    `RateLimitCooldown` before it runs the Task again.
   - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
@@ -4026,10 +4024,7 @@ Node (`internal/node`):
   (`ask`, `finish`), the model and the effort, and the prompt on standard input. `CODEX_HOME` is
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
-  or else what `turn.failed` said: `rate_limited` when it names a usage limit, a 429 or a rate limit, with the
-  reset the CLI wrote into it ("Try again at 7:54 PM." or "… at Nov 20th, 2026 9:05 AM.", in its local time, read
-  in the node's zone, the next minute; t3code's `codexMessageResetAt`; issue #756), `needs_auth` on a 401, else
-  `worker_error`. The worker is given the node's `TZ` so that the two zones agree. A stop kills the process.
+  or else what `turn.failed` said. A stop kills the process.
 - omp and opencode workers (`internal/node/acp`; [research](docs/research/2026-11-10-acp-omp-opencode.md)) share one
   runtime that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
@@ -4120,9 +4115,7 @@ Node (`internal/node`):
       status `failed`: the turn is interrupted at once (issue #492, as OpenClaw fails a turn whose Claude Code
       reports its MCP server not connected at start). A server still `pending` is not taken as failed. Other
       runtimes are not checked.
-    - `rate_limited`, after a rejected rate-limit event, with its reset, or when the result is a refusal with
-      `api_error_status` 429 and no reset: the model gateway's, when every Claude account cools (Claude Code
-      2.1.325 does not retry it; issue #756);
+    - `rate_limited`, after a rejected rate-limit event;
     - `needs_auth`, on a login error;
     - `worker_error`, "stopped without finish", as Orca reports a stop without `worker_done`;
     - exited with no result: the outcome is unknown;
