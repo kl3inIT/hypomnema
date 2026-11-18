@@ -190,12 +190,13 @@ A worker's report is a claim; the Task's record and its evidence are what count.
 - Never merge a pull request, nor turn on its auto-merge: the worker that made it does, or the owner. A worker that
   could not turn auto-merge on says what the repository lacks (no required check, auto-merge off in its settings);
   report that to the owner, who changes the setting or merges.
-- On a GitHub PR handoff, including one recovered after a worker failed, run `gh reconcile-replacement <new-url>`
+- On a GitHub PR handoff, including one recovered after a worker failed, run `gh reconcile-replacement <new-url> <run-id>`
   through Hypomnema's GitHub launcher. If the Task spec explicitly says which PR it replaces, pass that PR's number
   after the URL. The command also recognizes a `Replaces #n` or `Supersedes #n` line in the new body, verifies that
-  both PRs name the same closing issue in GitHub, then comments with the replacement's link and closes the old PR
-  without deleting its branch. No declaration means no write. If it cannot verify the issue, leave the old PR open
-  and tell the owner. Each write uses the usual GitHub approvals. If it waits for approval, end your turn and rerun
+  both PRs name the same closing issue and the old PR belongs to that Run by Task evidence or a non-fork head on
+  one of its Task branches. It then comments with the replacement's link and closes the old PR without deleting
+  its branch. No declaration means no write. If either check fails, leave the old PR open and tell the owner.
+  Each write uses the usual GitHub approvals. If it waits for approval, end your turn and rerun
   the same command when woken; it does not repeat a comment it already posted.
 
 ## Proof

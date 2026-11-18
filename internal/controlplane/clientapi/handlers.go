@@ -100,7 +100,8 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 
 	r := toRun(run)
 	out := openapi.GetRun200JSONResponse{
-		Id: r.Id, Objective: r.Objective, Status: r.Status, CreatedBy: r.CreatedBy, Repo: r.Repo, Base: r.Base,
+		Id: r.Id, Objective: r.Objective, Status: r.Status, CreatedBy: r.CreatedBy,
+		Repo: r.Repo, RepoHost: r.RepoHost, Base: r.Base,
 		CoordinatorTokenId: r.CoordinatorTokenId, ChatId: r.ChatId, Bot: r.Bot, CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, ReviewStall: r.ReviewStall,
 		Tasks: make([]openapi.TaskDetail, 0, len(tasks)),

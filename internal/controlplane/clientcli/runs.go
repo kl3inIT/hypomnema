@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
 func createRun(ctx context.Context, e *env, nr openapi.NewRun, idempotencyKey *string) (openapi.Run, error) {
@@ -86,6 +87,42 @@ func getRun(ctx context.Context, e *env, id string) (openapi.RunDetail, error) {
 	}
 
 	return *resp.JSON200, nil
+}
+
+// RunOwnsReplacement checks the coordinator's Run before its launcher can close a superseded PR.
+func RunOwnsReplacement(ctx context.Context, cfg Config, runID, prURL, sameRepoHead string) (bool, error) {
+	api, err := newClient(cfg, requestTimeout)
+	if err != nil {
+		return false, err
+	}
+	run, err := getRun(ctx, &env{api: api}, runID)
+	if err != nil {
+		return false, err
+	}
+	return runOwnsReplacement(run, prURL, sameRepoHead), nil
+}
+
+func runOwnsReplacement(run openapi.RunDetail, prURL, sameRepoHead string) bool {
+	pr, ok := githost.ParseRequest(prURL, githost.KnownKind)
+	if !ok || pr.Repo.Host != githost.GitHubHost {
+		return false
+	}
+	sameRepo := val(run.RepoHost) == pr.Repo.Host && strings.EqualFold(val(run.Repo), pr.Repo.Path)
+	for _, task := range run.Tasks {
+		if sameRepo && sameRepoHead == "hyp/"+task.Id {
+			return true
+		}
+		if task.Profile == "reviewer" || strings.HasPrefix(task.Profile, "reviewer-") ||
+			task.LatestDispatch == nil || task.LatestDispatch.Result == nil {
+			continue
+		}
+		for _, evidence := range task.LatestDispatch.Result.Evidence {
+			if evidence.Kind == "pull_request" && strings.EqualFold(evidence.Ref, prURL) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func runsShow(ctx context.Context, e *env, fs *flag.FlagSet) error {

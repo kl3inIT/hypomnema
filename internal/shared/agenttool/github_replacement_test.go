@@ -2,6 +2,7 @@ package agenttool
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -52,14 +53,22 @@ func TestReplacementCommentsAndClosesWithSeparateApprovals(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	require.ErrorIs(t, reconcileReplacement([]string{newURL}, &out, call), pending)
+	reconcile := func() error {
+		return reconcileReplacement(t.Context(), []string{newURL, "run_1"}, &out, call,
+			func(_ context.Context, runID, prURL, _ string) (bool, error) {
+				assert.Equal(t, "run_1", runID)
+				assert.Equal(t, oldURL, prURL)
+				return true, nil
+			})
+	}
+	require.ErrorIs(t, reconcile(), pending)
 	assert.Empty(t, writes)
 	commentAllowed = true
-	require.ErrorIs(t, reconcileReplacement([]string{newURL}, &out, call), pending)
+	require.ErrorIs(t, reconcile(), pending)
 	assert.Equal(t, [][]string{{"pr", "comment", oldURL, "--body", comment}}, writes)
 	closeAllowed = true
-	require.NoError(t, reconcileReplacement([]string{newURL}, &out, call))
-	require.NoError(t, reconcileReplacement([]string{newURL}, &out, call))
+	require.NoError(t, reconcile())
+	require.NoError(t, reconcile())
 	assert.Equal(t, [][]string{{"pr", "comment", oldURL, "--body", comment}, {"pr", "close", oldURL}}, writes)
 	assert.Equal(t, "CLOSED", oldPR.State)
 	assert.Equal(t, "OPEN", newPR.State)
@@ -80,14 +89,37 @@ func TestReplacementRequiresSharedIssue(t *testing.T) {
 			URL: args[2], State: "OPEN", ClosingIssuesReferences: []struct{ URL string }{{URL: issue}},
 		})
 	}
-	err := reconcileReplacement([]string{newURL, "827"}, io.Discard, call)
+	err := reconcileReplacement(t.Context(), []string{newURL, "run_1", "827"}, io.Discard, call, nil)
 	require.ErrorContains(t, err, "do not name a shared closing issue")
+}
+
+func TestReplacementRefusesUnownedPRWithSameIssue(t *testing.T) {
+	t.Parallel()
+
+	const newURL = "https://github.com/owner/repo/pull/840"
+	const oldURL = "https://github.com/owner/repo/pull/827"
+	call := func(out io.Writer, args ...string) error {
+		require.Equal(t, "view", args[1], "a shared issue is not ownership proof")
+		return json.NewEncoder(out).Encode(githubPR{
+			URL: args[2], State: "OPEN", HeadRefName: "hyp/tsk_other", IsCrossRepository: true,
+			ClosingIssuesReferences: []struct{ URL string }{{URL: "https://github.com/owner/repo/issues/820"}},
+		})
+	}
+	err := reconcileReplacement(t.Context(), []string{newURL, "run_1", "827"}, io.Discard, call,
+		func(_ context.Context, runID, prURL, sameRepoHead string) (bool, error) {
+			assert.Equal(t, "run_1", runID)
+			assert.Equal(t, oldURL, prURL)
+			assert.Empty(t, sameRepoHead, "a fork's branch is not proof")
+			return false, nil
+		})
+	require.ErrorContains(t, err, "does not belong")
 }
 
 func TestReplacementDeclarations(t *testing.T) {
 	t.Parallel()
 
-	number, err := replacedNumber(nil, "```\nReplaces #1\n```\nReplaces #827")
+	number, err := replacedNumber(nil, "<!--\nReplaces #2\n-->\n"+
+		"````text\n```\nReplaces #1\n````\n    Replaces #3\nReplaces #827")
 	require.NoError(t, err)
 	assert.Equal(t, 827, number)
 	number, err = replacedNumber([]string{"827"}, "Closes #820")

@@ -2,6 +2,7 @@ package agenttool
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,18 +17,24 @@ type githubPR struct {
 	URL                     string
 	State                   string
 	Body                    string
+	HeadRefName             string
+	IsCrossRepository       bool
 	ClosingIssuesReferences []struct{ URL string }
 	Comments                []struct{ Body string }
 }
 
 type githubCall func(out io.Writer, args ...string) error
+type replacementOwner func(ctx context.Context, runID, prURL, sameRepoHead string) (bool, error)
 
 var replacementLine = regexp.MustCompile(`(?i)^(?:(?:closes|fixes|resolves) #[1-9][0-9]*\.\s+)?` +
 	`(?:[-*]\s+)?\*{0,2}(?:replaces|supersedes) #([1-9][0-9]*)\b`)
 
-func reconcileReplacement(args []string, out io.Writer, call githubCall) error {
-	if len(args) == 0 || len(args) > 2 {
-		return fmt.Errorf("usage: gh reconcile-replacement <new GitHub PR URL> [<replaced PR number from the Task spec>]")
+func reconcileReplacement(ctx context.Context, args []string, out io.Writer, call githubCall,
+	owns replacementOwner,
+) error {
+	if len(args) < 2 || len(args) > 3 || args[1] == "" {
+		return fmt.Errorf("usage: gh reconcile-replacement <new GitHub PR URL> <run ID> " +
+			"[<replaced PR number from the Task spec>]")
 	}
 	request, ok := githost.ParseRequest(args[0], githost.KnownKind)
 	if !ok || request.Repo.Host != githost.GitHubHost {
@@ -42,7 +49,7 @@ func reconcileReplacement(args []string, out io.Writer, call githubCall) error {
 	if err != nil {
 		return err
 	}
-	number, err := replacedNumber(args[1:], newPR.Body)
+	number, err := replacedNumber(args[2:], newPR.Body)
 	if err != nil || number == 0 {
 		return err
 	}
@@ -50,7 +57,8 @@ func reconcileReplacement(args []string, out io.Writer, call githubCall) error {
 		return fmt.Errorf("replacement must be a newer, open or merged pull request")
 	}
 	oldURL := adapter.RequestURL(request.Repo, number)
-	oldPR, err := fetchReplacementPR(call, oldURL, "state,url,closingIssuesReferences,comments")
+	oldPR, err := fetchReplacementPR(call, oldURL,
+		"state,url,closingIssuesReferences,headRefName,isCrossRepository,comments")
 	if err != nil {
 		return err
 	}
@@ -62,6 +70,20 @@ func reconcileReplacement(args []string, out io.Writer, call githubCall) error {
 	}
 	if oldPR.State != "OPEN" {
 		return fmt.Errorf("unexpected state for %s: %s", oldURL, oldPR.State)
+	}
+	if owns == nil {
+		return fmt.Errorf("refusing to close %s: use the coordinator launcher to verify Run ownership", oldURL)
+	}
+	head := ""
+	if !oldPR.IsCrossRepository {
+		head = oldPR.HeadRefName
+	}
+	owned, err := owns(ctx, args[1], oldURL, head)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return fmt.Errorf("refusing to close %s: it does not belong to Run %s", oldURL, args[1])
 	}
 	return closeReplacementPR(call, out, oldPR, newPR.URL)
 }
@@ -91,16 +113,24 @@ func replacedNumber(explicit []string, body string) (int, error) {
 		}
 	}
 	fence := ""
+	comment := false
 	for line := range strings.SplitSeq(body, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if fence != "" {
-			if strings.HasPrefix(trimmed, fence) {
-				fence = ""
+		if !comment {
+			marker, rest := replacementFence(line)
+			if fence != "" {
+				if strings.HasPrefix(marker, fence) && strings.TrimSpace(rest) == "" {
+					fence = ""
+				}
+				continue
 			}
-			continue
+			if marker != "" {
+				fence = marker
+				continue
+			}
 		}
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			fence = trimmed[:3]
+		indented := strings.HasPrefix(line, "    ") || strings.HasPrefix(strings.TrimLeft(line, " "), "\t")
+		line, comment = replacementVisibleLine(line, comment)
+		if indented {
 			continue
 		}
 		match := replacementLine.FindStringSubmatch(line)
@@ -114,6 +144,34 @@ func replacedNumber(explicit []string, body string) (int, error) {
 		number = claimed
 	}
 	return number, nil
+}
+
+func replacementFence(line string) (string, string) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) >= 4 || !(strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
+		return "", ""
+	}
+	rest := strings.TrimLeft(trimmed, trimmed[:1])
+	return trimmed[:len(trimmed)-len(rest)], rest
+}
+
+func replacementVisibleLine(line string, inComment bool) (string, bool) {
+	var visible strings.Builder
+	for {
+		if inComment {
+			_, after, found := strings.Cut(line, "-->")
+			if !found {
+				return visible.String(), true
+			}
+			line = after
+		}
+		before, after, found := strings.Cut(line, "<!--")
+		visible.WriteString(before)
+		if !found {
+			return visible.String(), false
+		}
+		line, inComment = after, true
+	}
 }
 
 func sameClosingIssue(oldPR, newPR githubPR) bool {

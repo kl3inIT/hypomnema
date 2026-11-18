@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
@@ -34,17 +35,53 @@ func reviewField(text, name string) string {
 	return ""
 }
 
-func reviewReport(spec, result string) *ReviewStall {
-	heading, _, _ := strings.Cut(strings.TrimSpace(spec), "\n")
-	pr := reviewField(heading, "Review pull request")
-	request, ok := githost.ParseRequest(pr, githost.KnownKind)
-	if !ok {
-		return nil
+var reviewURL = regexp.MustCompile(`https://[^\s<>\x60"'\[\]()*]+`)
+
+func reviewRequest(text string, kindOf func(string) (githost.Kind, bool)) string {
+	for _, ref := range reviewURL.FindAllString(text, -1) {
+		if pr := canonicalReviewRequest(strings.TrimRight(ref, ".,;:!?"), kindOf); pr != "" {
+			return pr
+		}
 	}
-	kind, _ := githost.KnownKind(request.Repo.Host)
+
+	return ""
+}
+
+func canonicalReviewRequest(ref string, kindOf func(string) (githost.Kind, bool)) string {
+	kind := githost.GitHub
+	request, ok := githost.ParseRequest(ref, func(host string) (githost.Kind, bool) {
+		resolved, known := kindOf(host)
+		kind = resolved
+		return resolved, known
+	})
+	if !ok {
+		return ""
+	}
 	adapter, _ := githost.For(kind)
-	if !strings.EqualFold(pr, adapter.RequestURL(request.Repo, request.Number)) {
-		return nil
+	return adapter.RequestURL(request.Repo, request.Number)
+}
+
+func reviewReport(ctx context.Context, q *store.Queries, task store.Task, result string) (ReviewStall, error) {
+	if task.Profile != "reviewer" && !strings.HasPrefix(task.Profile, "reviewer-") {
+		return ReviewStall{}, nil
+	}
+	kindOf := func(host string) (githost.Kind, bool) {
+		registered, err := gitHostOf(ctx, q, host)
+		return registered.Kind, err == nil
+	}
+	pr := reviewRequest(reviewField(task.Spec, "Review pull request"), kindOf)
+	if pr == "" {
+		pr = reviewRequest(task.Spec, kindOf)
+	}
+	if pr == "" {
+		pr = reviewRequest(result, kindOf)
+	}
+	if pr == "" {
+		var err error
+		pr, err = reviewEvidence(ctx, q, task.ID, kindOf)
+		if err != nil || pr == "" {
+			return ReviewStall{}, err
+		}
 	}
 
 	verdict := strings.ToLower(reviewField(result, "Verdict"))
@@ -52,13 +89,36 @@ func reviewReport(spec, result string) *ReviewStall {
 		verdict = "unknown"
 	}
 
-	return &ReviewStall{
+	return ReviewStall{
 		PullRequest: pr, Verdict: verdict,
 		MergeState: reviewValue(result, "Merge state", "BEHIND", "BLOCKED", "CLEAN", "DIRTY", "DRAFT",
 			"HAS_HOOKS", "UNKNOWN", "UNSTABLE"),
 		Mergeable: reviewValue(result, "Mergeable", "MERGEABLE", "CONFLICTING", "UNKNOWN"),
 		Checks:    reviewValue(result, "Checks", "PASSING", "FAILING", "PENDING", "UNKNOWN"),
+	}, nil
+}
+
+func reviewEvidence(ctx context.Context, q *store.Queries, taskID string,
+	kindOf func(string) (githost.Kind, bool),
+) (string, error) {
+	dispatch, err := q.LastDispatchOfTask(ctx, taskID)
+	if err != nil {
+		return "", fmt.Errorf("reading review dispatch: %w", err)
 	}
+	var result Result
+	if !dispatch.Result.Valid {
+		return "", nil
+	}
+	if err := json.Unmarshal([]byte(dispatch.Result.String), &result); err != nil {
+		return "", fmt.Errorf("reading review evidence: %w", err)
+	}
+	for _, evidence := range result.Evidence {
+		if pr := canonicalReviewRequest(evidence.Ref, kindOf); pr != "" {
+			return pr, nil
+		}
+	}
+
+	return "", nil
 }
 
 func reviewValue(result, field string, allowed ...string) string {
@@ -73,9 +133,9 @@ func reviewValue(result, field string, allowed ...string) string {
 }
 
 func reviewAfterTask(ctx context.Context, q *store.Queries, task store.Task, result string) (ReviewStall, error) {
-	review := reviewReport(task.Spec, result)
-	if review == nil {
-		return ReviewStall{}, nil
+	review, err := reviewReport(ctx, q, task, result)
+	if err != nil || review.PullRequest == "" {
+		return ReviewStall{}, err
 	}
 
 	run, err := q.GetRun(ctx, task.RunID)
@@ -99,7 +159,14 @@ func reviewAfterTask(ctx context.Context, q *store.Queries, task store.Task, res
 		if candidate.Status != string(TaskSucceeded) {
 			continue
 		}
-		if earlier := reviewReport(candidate.Spec, candidate.Result.String); earlier != nil && earlier.Verdict != "unknown" &&
+		earlier := review
+		if candidate.ID != task.ID {
+			earlier, err = reviewReport(ctx, q, candidate, candidate.Result.String)
+			if err != nil {
+				return ReviewStall{}, err
+			}
+		}
+		if earlier.Verdict != "unknown" &&
 			strings.EqualFold(earlier.PullRequest, review.PullRequest) {
 			rounds++
 		}
@@ -108,7 +175,7 @@ func reviewAfterTask(ctx context.Context, q *store.Queries, task store.Task, res
 	review.TaskID = task.ID
 	review.WaitingForOwner = review.Verdict == "incorrect" && rounds >= maxReviewRounds
 
-	return *review, nil
+	return review, nil
 }
 
 func activeReviewStall(ctx context.Context, q *store.Queries, runID string) (*ReviewStall, error) {

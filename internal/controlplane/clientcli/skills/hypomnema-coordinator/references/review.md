@@ -73,9 +73,8 @@ request open for the review.
    - `## Still disputed`: each finding the author did not fix and said why, or none.
 
    Ask the reviewer to say, for each earlier finding, whether it is fixed, still open or disputed, and to report
-   new findings as before. Review and fix go on for up to three rounds. After three rounds that still leave findings
-   that make the change incorrect, stop: leave the Run and pull request open with auto-merge off and add no Task.
-   Tell the owner the verdict and the findings that do not converge. The Run card and the item waiting for the
-   owner remain visible until work is added or the Run is ended. It is a report, not a question to a worker.
+   new findings as before. After round 3, if any P0 or P1 remains, give the owner a one-line report with the verdict
+   and remaining blockers, then stop without waiting for an answer (issue #871). Leave the Run and pull request open
+   with auto-merge off and add no Task. The "Waiting for you" label may stay until work is added or the Run ends.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.

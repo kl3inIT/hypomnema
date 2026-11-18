@@ -281,11 +281,12 @@ type Launcher struct {
 	Chat string
 	// RunKey is the key of the Routine's run whose script runs the tool;
 	// empty otherwise.
-	RunKey string
-	Client *http.Client
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
+	RunKey          string
+	OwnsReplacement replacementOwner
+	Client          *http.Client
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
 }
 
 // FromEnv is the launcher of an agent whose starter set the environment.
@@ -330,11 +331,11 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 	}
 
 	if name == "gh" && len(rest) > 0 && rest[0] == "reconcile-replacement" {
-		return reconcileReplacement(rest[1:], l.Stdout, func(out io.Writer, args ...string) error {
+		return reconcileReplacement(ctx, rest[1:], l.Stdout, func(out io.Writer, args ...string) error {
 			call := l
 			call.Stdout = out
 			return call.runPinned(ctx, def, label, args)
-		})
+		}, l.OwnsReplacement)
 	}
 
 	return l.runPinned(ctx, def, label, rest)
