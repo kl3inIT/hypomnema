@@ -1712,6 +1712,51 @@ func (e TokenKind) Valid() bool {
 	}
 }
 
+// Defines values for ToolAccessSource.
+const (
+	ToolAccessConnection ToolAccessSource = "connection"
+	ToolAccessException  ToolAccessSource = "exception"
+	ToolAccessPreset     ToolAccessSource = "preset"
+)
+
+// Valid indicates whether the value is a known member of the ToolAccessSource enum.
+func (e ToolAccessSource) Valid() bool {
+	switch e {
+	case ToolAccessConnection:
+		return true
+	case ToolAccessException:
+		return true
+	case ToolAccessPreset:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolAccessState.
+const (
+	ToolAccessAvailable   ToolAccessState = "available"
+	ToolAccessOff         ToolAccessState = "off"
+	ToolAccessOn          ToolAccessState = "on"
+	ToolAccessUnavailable ToolAccessState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ToolAccessState enum.
+func (e ToolAccessState) Valid() bool {
+	switch e {
+	case ToolAccessAvailable:
+		return true
+	case ToolAccessOff:
+		return true
+	case ToolAccessOn:
+		return true
+	case ToolAccessUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ToolDisplay.
 const (
 	ToolDisplayFull ToolDisplay = "full"
@@ -1727,6 +1772,24 @@ func (e ToolDisplay) Valid() bool {
 	case ToolDisplayOff:
 		return true
 	case ToolDisplayOn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolPreset.
+const (
+	ToolPresetFull   ToolPreset = "full"
+	ToolPresetReport ToolPreset = "report"
+)
+
+// Valid indicates whether the value is a known member of the ToolPreset enum.
+func (e ToolPreset) Valid() bool {
+	switch e {
+	case ToolPresetFull:
+		return true
+	case ToolPresetReport:
 		return true
 	default:
 		return false
@@ -2586,8 +2649,11 @@ type Bot struct {
 	Pinned bool `json:"pinned"`
 
 	// Position The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
-	Position int     `json:"position"`
-	Provider *string `json:"provider,omitempty"`
+	Position int `json:"position"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   ToolPreset `json:"preset"`
+	Provider *string    `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
 	Scopes map[string]ConnectionScope `json:"scopes"`
@@ -2598,10 +2664,13 @@ type Bot struct {
 	// SkillsOff The skills given to everyone that the Bot does not get.
 	SkillsOff []string `json:"skills_off"`
 
+	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+	ToolAccess *ToolAccess `json:"tool_access,omitempty"`
+
 	// ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 	ToolDisplay ToolDisplay `json:"tool_display"`
 
-	// Tools The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
 	// ToolsOff The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
@@ -2643,7 +2712,10 @@ type BotSettings struct {
 	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
 	Model                *string `json:"model,omitempty"`
 	Persona              *string `json:"persona,omitempty"`
-	Provider             *string `json:"provider,omitempty"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   *ToolPreset `json:"preset,omitempty"`
+	Provider *string     `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of each Connection, as a whole: a Connection left out of the map is reached whole. Left out, the Bot keeps its scopes.
 	Scopes *map[string]ConnectionScope `json:"scopes,omitempty"`
@@ -2657,7 +2729,7 @@ type BotSettings struct {
 	// ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 	ToolDisplay *ToolDisplay `json:"tool_display,omitempty"`
 
-	// Tools The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+	// Tools Additional tools or families; left out, the Bot keeps those it has.
 	Tools *[]string `json:"tools,omitempty"`
 
 	// ToolsOff The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
@@ -4691,8 +4763,11 @@ type Profile struct {
 	MemoryRequestBytes *int64  `json:"memory_request_bytes,omitempty"`
 	Model              *string `json:"model,omitempty"`
 	Name               string  `json:"name"`
-	Provider           *string `json:"provider,omitempty"`
-	Runtime            string  `json:"runtime"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   ToolPreset `json:"preset"`
+	Provider *string    `json:"provider,omitempty"`
+	Runtime  string     `json:"runtime"`
 
 	// Skills The skills its workers get beside those given to everyone.
 	Skills []string `json:"skills"`
@@ -4701,7 +4776,10 @@ type Profile struct {
 	SkillsOff []string `json:"skills_off"`
 	Source    string   `json:"source"`
 
-	// Tools The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+	ToolAccess *ToolAccess `json:"tool_access,omitempty"`
+
+	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
 	// ToolsOff The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
@@ -5277,6 +5355,13 @@ type Skill struct {
 	UpdatedAt time.Time        `json:"updated_at"`
 }
 
+// SkillAccess defines model for SkillAccess.
+type SkillAccess struct {
+	Missing bool   `json:"missing"`
+	Name    string `json:"name"`
+	Reason  string `json:"reason"`
+}
+
 // SkillAudit defines model for SkillAudit.
 type SkillAudit struct {
 	Alerts     *int    `json:"alerts,omitempty"`
@@ -5695,6 +5780,28 @@ type TerminalTicket struct {
 // TokenKind defines model for TokenKind.
 type TokenKind string
 
+// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+type ToolAccess struct {
+	Families []ToolFamilyAccess `json:"families"`
+	Skills   []SkillAccess      `json:"skills"`
+}
+
+// ToolAccessItem defines model for ToolAccessItem.
+type ToolAccessItem struct {
+	Name   string           `json:"name"`
+	Reason string           `json:"reason"`
+	Source ToolAccessSource `json:"source"`
+
+	// State Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+	State ToolAccessState `json:"state"`
+}
+
+// ToolAccessSource defines model for ToolAccessSource.
+type ToolAccessSource string
+
+// ToolAccessState Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+type ToolAccessState string
+
 // ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 type ToolDisplay string
 
@@ -5708,6 +5815,18 @@ type ToolFamily struct {
 	Tools   []string `json:"tools"`
 }
 
+// ToolFamilyAccess defines model for ToolFamilyAccess.
+type ToolFamilyAccess struct {
+	Description string           `json:"description"`
+	Name        string           `json:"name"`
+	Reason      string           `json:"reason"`
+	Source      ToolAccessSource `json:"source"`
+
+	// State Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+	State ToolAccessState  `json:"state"`
+	Tools []ToolAccessItem `json:"tools"`
+}
+
 // ToolFamilyList defines model for ToolFamilyList.
 type ToolFamilyList struct {
 	Data []ToolFamily `json:"data"`
@@ -5717,6 +5836,9 @@ type ToolFamilyList struct {
 type ToolNames struct {
 	Data []string `json:"data"`
 }
+
+// ToolPreset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+type ToolPreset string
 
 // TranscribeRequest defines model for TranscribeRequest.
 type TranscribeRequest struct {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
@@ -281,7 +282,12 @@ func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID s
 		add, off = splitNames(v.Skills), splitNames(v.SkillsOff)
 	}
 
-	has, err := workerHas(ctx, q, run)
+	switches, err := dispatchToolSwitches(ctx, q, dispatchID)
+	if err != nil {
+		return err
+	}
+
+	has, err := workerHas(ctx, q, run, switches.AllowsFamily("phone"))
 	if err != nil {
 		return err
 	}
@@ -340,7 +346,7 @@ func givenSkills(ctx context.Context, q *store.Queries, add, off []string, has m
 // Integrations of the Connections its Run was given, whose commands the node
 // prepares for it (agenttool.ForDispatch), and the phone while a node holds
 // one, as each offer then names it.
-func workerHas(ctx context.Context, q *store.Queries, run store.Run) (map[string]bool, error) {
+func workerHas(ctx context.Context, q *store.Queries, run store.Run, phoneAllowed bool) (map[string]bool, error) {
 	has := map[string]bool{}
 
 	for _, use := range splitUses(run.Uses) {
@@ -349,7 +355,7 @@ func workerHas(ctx context.Context, q *store.Queries, run store.Run) (map[string
 		}
 	}
 
-	return has, phoneHas(ctx, q, has)
+	return has, phoneHas(ctx, q, has, phoneAllowed)
 }
 
 // botHas is what a Bot has for a skill's requirements: the Integrations of
@@ -359,6 +365,21 @@ func workerHas(ctx context.Context, q *store.Queries, run store.Run) (map[string
 // A Connection of a git host is of its kind too: a Bot given one of a GitLab
 // host has gitlab, whose tool acts on any of them (issue #740).
 func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, error) {
+	return skillCapabilities(ctx, q, b.MayUse, b.ToolSwitches().AllowsFamily("phone"))
+}
+
+// SkillCapabilities describes the requirements a Bot meets or a profile could meet on a Run.
+func (s *Service) SkillCapabilities(ctx context.Context, bot *Bot, switches agenttool.ToolSwitches,
+) (map[string]bool, error) {
+	if bot != nil {
+		return botHas(ctx, s.read(), *bot)
+	}
+
+	return skillCapabilities(ctx, s.read(), nil, switches.AllowsFamily("phone"))
+}
+
+func skillCapabilities(ctx context.Context, q *store.Queries, mayUse func(Connection) bool, phoneAllowed bool,
+) (map[string]bool, error) {
 	conns, err := q.ListConnections(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading the connections: %w", err)
@@ -368,7 +389,7 @@ func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, erro
 
 	for _, row := range conns {
 		c := connectionFromRow(row)
-		if !b.MayUse(c) {
+		if mayUse != nil && !mayUse(c) {
 			continue
 		}
 
@@ -383,12 +404,16 @@ func botHas(ctx context.Context, q *store.Queries, b Bot) (map[string]bool, erro
 		}
 	}
 
-	return has, phoneHas(ctx, q, has)
+	return has, phoneHas(ctx, q, has, phoneAllowed)
 }
 
 // phoneHas adds the phone when a node holds one, the node the control plane
 // relays every phone tool to (internal/controlplane/phone).
-func phoneHas(ctx context.Context, q *store.Queries, has map[string]bool) error {
+func phoneHas(ctx context.Context, q *store.Queries, has map[string]bool, allowed bool) error {
+	if !allowed {
+		return nil
+	}
+
 	nodes, err := q.ListNodes(ctx)
 	if err != nil {
 		return fmt.Errorf("reading the nodes: %w", err)

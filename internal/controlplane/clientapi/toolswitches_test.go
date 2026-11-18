@@ -39,6 +39,21 @@ func TestTheOwnerSwitchesABotsTools(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, made.StatusCode())
 	assert.Empty(t, made.JSON201.ToolsOff)
+	assert.Equal(t, openapi.ToolPresetFull, made.JSON201.Preset)
+	detail, err := owner.GetBotWithResponse(ctx, made.JSON201.Id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, detail.StatusCode())
+	require.NotNil(t, detail.JSON200.ToolAccess)
+	for _, family := range detail.JSON200.ToolAccess.Families {
+		if family.Name == "whatsapp" {
+			assert.Equal(t, openapi.ToolAccessUnavailable, family.State)
+			assert.Equal(t, openapi.ToolAccessConnection, family.Source)
+			assert.Equal(t, "No WhatsApp Connection", family.Reason)
+			for _, item := range family.Tools {
+				assert.Equal(t, family.Reason, item.Reason)
+			}
+		}
+	}
 
 	off := []string{patterns["browser"]}
 	set, err := owner.PutBotWithResponse(ctx, made.JSON201.Id, openapi.BotSettings{Persona: &persona, ToolsOff: &off})
@@ -51,7 +66,7 @@ func TestTheOwnerSwitchesABotsTools(t *testing.T) {
 	require.Equal(t, http.StatusOK, kept.StatusCode())
 	assert.Equal(t, off, kept.JSON200.ToolsOff, "a change that leaves them out keeps them")
 
-	unknown := []string{"browser"}
+	unknown := []string{"not-a-tool"}
 	bad, err := owner.PutBotWithResponse(ctx, made.JSON201.Id, openapi.BotSettings{Persona: &persona, Tools: &unknown})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, bad.StatusCode())

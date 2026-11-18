@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test"
 
 import { choose } from "./choose.js"
 import { shot } from "./shot.js"
-import { toolFamilies } from "./fixtures/tools.js"
+import { fullToolAccess, toolFamilies } from "./fixtures/tools.js"
 
 // The Agents pages, built, against a fake client API, on a phone and a desktop.
 
@@ -17,6 +17,7 @@ const profile = (name: string, m: object = {}) => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   source: `name: ${name}\nruntime: claude\n`,
@@ -32,6 +33,7 @@ const reviewerSource =
   "instruction: |\n  Review the change the task names. Report what is wrong or missing, with file and line, as the summary of\n  `finish`; change files only when the task asks for fixes.\n"
 
 const reviewer = profile("reviewer", {
+  tool_access: fullToolAccess,
   description:
     "Reviews a change against its spec and reports problems with file and line; changes files only when the task asks for fixes.",
   version: 3,
@@ -325,14 +327,13 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await page.getByRole("button", { name: "Remove skill review-go" }).click()
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
-  // Its tools (issue #536): every family is on; the phone is turned off, then on again.
-  const tools = page.getByRole("list", { name: "Tools" })
-  await expect(tools.getByRole("switch", { name: /web/ })).toBeChecked()
-  await tools.getByRole("switch", { name: /phone/ }).click()
+  const tools = page.getByRole("group", { name: "Tools", exact: true })
+  await expect(tools.getByLabel("Preset").locator('[data-slot="select-value"]')).toHaveText("Full")
+  await tools.getByLabel("Add exceptions").fill("phone")
   await expect(page.getByRole("button", { name: "Save revision" })).toBeEnabled()
   await tools.scrollIntoViewIfNeeded()
   await shot(page, "agent-tools")
-  await tools.getByRole("switch", { name: /phone/ }).click()
+  await tools.getByLabel("Add exceptions").clear()
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   await page.getByRole("button", { name: "YAML" }).click()

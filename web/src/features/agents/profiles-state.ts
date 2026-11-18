@@ -1,4 +1,5 @@
-import type { Model, Profile } from "@/api/generated/types.gen"
+import type { Model, Profile, ToolPreset } from "@/api/generated/types.gen"
+import { toolEntries } from "@/features/tools/tools-state"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 
@@ -120,7 +121,7 @@ export type Draft = {
   // skills and skillsOff are the skills the agent adds and the ones for everyone it turns off (issue #21).
   skills: string[]
   skillsOff: string[]
-  // tools and toolsOff are the Hypomnema tools the agent keeps and turns off (issue #536).
+  preset: ToolPreset
   tools: string[]
   toolsOff: string[]
   // cpu and memory are what a worker of the agent asks of a machine, as the YAML's requests write them ("500m",
@@ -158,6 +159,7 @@ export const emptyDraft: Draft = {
   fallbacks: [],
   skills: [],
   skillsOff: [],
+  preset: "full",
   tools: [],
   toolsOff: [],
   cpu: "",
@@ -175,6 +177,7 @@ export function draftOf(profile: Profile): Draft {
     fallbacks: profile.fallbacks,
     skills: profile.skills,
     skillsOff: profile.skills_off,
+    preset: profile.preset ?? "full",
     tools: profile.tools,
     toolsOff: profile.tools_off,
     cpu: cpuText(profile.cpu_request_millis),
@@ -223,6 +226,7 @@ export function sameDraft(a: Draft, b: Draft) {
     a.skillsOff.join() === b.skillsOff.join() &&
     a.tools.join() === b.tools.join() &&
     a.toolsOff.join() === b.toolsOff.join() &&
+    a.preset === b.preset &&
     a.cpu.trim() === b.cpu.trim() &&
     a.memory.trim() === b.memory.trim()
   )
@@ -286,8 +290,11 @@ export function toYaml(draft: Draft, models: Model[]) {
   if (draft.fallbacks.length > 0) out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
   if (draft.skills.length > 0) out += `skills: [${draft.skills.map(scalar).join(", ")}]\n`
   if (draft.skillsOff.length > 0) out += `skills_off: [${draft.skillsOff.map(scalar).join(", ")}]\n`
-  if (draft.tools.length > 0) out += `tools: [${draft.tools.map(scalar).join(", ")}]\n`
-  if (draft.toolsOff.length > 0) out += `tools_off: [${draft.toolsOff.map(scalar).join(", ")}]\n`
+  const tools = toolEntries(draft.tools)
+  const toolsOff = toolEntries(draft.toolsOff)
+  if (draft.preset !== "full") out += `preset: ${draft.preset}\n`
+  if (tools.length > 0) out += `tools: [${tools.map(scalar).join(", ")}]\n`
+  if (toolsOff.length > 0) out += `tools_off: [${toolsOff.map(scalar).join(", ")}]\n`
 
   const cpu = draft.cpu.trim()
   const memory = draft.memory.trim()
