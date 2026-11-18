@@ -1752,6 +1752,10 @@ flowchart LR
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
+  Before scoring, the scheduler also applies the [node's disk policy](#node-disk-policy-issue-859), including on
+  continuations, handoffs and direct Dispatch creation. If disk prevents placement, the Task waits with
+  `nodes_low_disk` and can resume without anyone acting. A node that declines an offer for disk pressure returns
+  the Task to this wait without counting a failure. Lease renewals, stops, reports and reattachments still work.
   Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
@@ -4475,6 +4479,36 @@ Node (`internal/node`):
   login shell and as Orca adds it for its agents, so what the setup installed wins over an older copy on the
   machine; a Dispatch's Connections put their tools' directory before it. Not built: the script's failure in the
   transcript, and asking the owner before a script runs the first time (Orca).
+
+### Node disk policy (issue #859)
+
+- The node measures bytes available to its user (`Bavail`, not capacity minus used) on the worktree volume. In
+  `config.json`, `disk.floor_bytes` defaults to 5 GiB, `disk.trim_percent` to 15 and `disk.target_percent` to 20.
+  The floor must be positive and `0 < trim_percent < target_percent <= 100`. The effective trim threshold and
+  target are each the greater of the configured floor and their share of the volume. Exactly at the floor still
+  takes work. The node measures again before accepting each offer.
+- The hello enables the policy for an upgraded node. The heartbeat reports available bytes, the floor, effective
+  trim threshold and sample time; migration `00122_node_disk.sql` keeps them independently of CPU and RAM.
+  No sample or a sample at least 30 seconds old cannot admit new work on a policy-enabled node. Old nodes that
+  have never advertised the policy still take work. Machines shows the age and thresholds, “Not measured” for a
+  missing or stale sample, amber below the trim threshold and red below the floor, independently of connectivity.
+- After connecting and every five minutes, the node scans its managed `<worktree root>/<run>/<task>` directories.
+  In batches over the node link, orchestration confirms the exact Conversation node and path, a finished or
+  canceled Run, and no unsettled Dispatch there. The node checks its own Dispatches and shim process groups again
+  before removal. It keeps worktrees when it cannot confirm safety, including after a disconnect, and never
+  follows a symlink to a candidate. `git worktree remove` runs without force against a verified managed mirror;
+  dirty worktrees stay and the node logs why. It removes a confirmed disposable non-repository directory and
+  removes its Run directory only if empty. Open Runs keep their worktrees for follow-ups.
+- Setup and the worker get private `TMPDIR`, `TEMP` and `TMP` under `run/<dispatch>/tmp`. The node also reclaims
+  that temp directory after restart, but only when it can confirm the worker stopped or never started. Disk
+  maintenance never scans shared `/tmp` or removes state or its sidecars, accounts, shim records and journals,
+  Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.
+- Below the trim threshold, the node removes only standard Go build cache entries older than five days plus one
+  hour, oldest first in batches, remeasuring to the target. It checks for an idle node before invoking native
+  `pnpm store prune` on the default worker store. Both caches must be on the affected mount. Go module, toolchain
+  and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
+  If the eligible cleanup cannot make enough room, the warning and admission floor remain. The policy does not
+  protect free space on a separate cache or temp volume.
 
 ## Web client
 

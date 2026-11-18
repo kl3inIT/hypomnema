@@ -494,6 +494,10 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNoNodeFits, nil
 		}
 
+		if p.checkNodeFit(conv.NodeID, conv.Runtime, host) == nil && p.lowDisk(conv.NodeID) {
+			return nil, ReasonNodesLowDisk, nil
+		}
+
 		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
 			return nil, ReasonNoNode, nil
 		}
@@ -531,6 +535,10 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 
 		if missing := p.anyHas(host.tools); missing != "" {
 			return nil, ReasonNoNodeHasTool + missing
+		}
+
+		if runtime != "" && p.diskPreventsPlacement(runtime, host) {
+			return nil, ReasonNodesLowDisk
 		}
 
 		if runtime != "" && p.anyAtLimit(runtime, host) {
@@ -607,7 +615,7 @@ func (s *Service) wait(ctx context.Context, q *store.Queries, now int64, task st
 // cooling account, or every node that could run it full now. Such a wait is
 // not escalated.
 func resolvesByItself(reason string) bool {
-	return reason == "" || reason == ReasonAccountsCooling || reason == ReasonNodesFull
+	return reason == "" || reason == ReasonAccountsCooling || reason == ReasonNodesFull || reason == ReasonNodesLowDisk
 }
 
 // unplaceable escalates a Task that has waited UnplaceableAfter for a node or

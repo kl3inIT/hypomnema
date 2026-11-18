@@ -180,6 +180,18 @@ func (n *nodeLoad) gitHosts() []string {
 // checkNode says why a node cannot take a Dispatch of the runtime, on the
 // git host, now.
 func (p *placement) checkNode(id, runtime string, w where) error {
+	if err := p.checkNodeFit(id, runtime, w); err != nil {
+		return err
+	}
+
+	if p.lowDisk(id) {
+		return fmt.Errorf("%w: node %s: %s", ErrUnavailable, id, ReasonNodesLowDisk)
+	}
+
+	return nil
+}
+
+func (p *placement) checkNodeFit(id, runtime string, w where) error {
 	host := w.host
 
 	n, ok := p.nodes[id]
@@ -716,7 +728,7 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 	alloc := n.allocatable()
 
 	return Node{
-		Stats: stats, Machine: machineOut(n.row),
+		Stats: stats, Machine: machineOut(n.row), Disk: diskStatus(n.row, p.now),
 		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches.Int64),
 		Reserved:     Resources{CPUMillis: n.row.ReservedCpuMillis, MemoryBytes: n.row.ReservedMemoryBytes},
 		Allocatable:  Resources{CPUMillis: alloc.cpuMillis, MemoryBytes: alloc.memoryBytes},

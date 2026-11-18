@@ -164,10 +164,20 @@ func toNode(n orchestration.Node) openapi.Node {
 		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: ptr(n.MaxDispatches),
 		Reserved: toResources(n.Reserved), Allocatable: toResources(n.Allocatable), Requested: toResources(n.Requested),
 		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
-		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
+		Stats: toNodeStats(n.Stats), Disk: toNodeDisk(n.Disk), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal), Device: ptr(openapi.NodeDevice(n.Device)), Kvm: ptr(n.KVM),
 		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
+	}
+}
+
+func toNodeDisk(d *orchestration.DiskStatus) *openapi.NodeDisk {
+	if d == nil {
+		return nil
+	}
+
+	return &openapi.NodeDisk{
+		FreeBytes: d.FreeBytes, FloorBytes: d.FloorBytes, TrimBytes: d.TrimBytes, At: d.At, AgeMs: d.AgeMS,
 	}
 }
 

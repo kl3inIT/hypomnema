@@ -72,6 +72,12 @@ WHERE task_id = @task_id AND status IN ('queued', 'starting', 'running', 'stoppi
 -- name: LastDispatchOfConversation :one
 SELECT * FROM dispatches WHERE conversation_id = @conversation_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
+-- name: WorktreeDispatches :many
+SELECT d.id, d.status, d.accepted_at, d.settled_at, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
+FROM conversations c JOIN dispatches d ON d.conversation_id = c.id
+JOIN tasks t ON c.task_id = t.id JOIN runs r ON t.run_id = r.id
+WHERE c.node_id = @node_id AND c.worktree = @worktree LIMIT 257;
+
 -- name: AcceptDispatch :execrows
 UPDATE dispatches
 SET updated_at = @now, status = 'starting', epoch = epoch + 1, accepted_at = @now,
@@ -170,11 +176,14 @@ RETURNING id, node_id;
 
 -- name: NodesWithRecentTaskExpiries :many
 SELECT DISTINCT node_id FROM dispatches
-WHERE task_id = @task_id AND status = 'expired' AND settled_at >= CAST(@since AS INTEGER);
+WHERE task_id = @task_id AND status = 'expired' AND declined_low_disk = 0 AND settled_at >= CAST(@since AS INTEGER);
 
 -- name: CountRecentNodeExpiries :one
 SELECT count(*) FROM dispatches
-WHERE node_id = @node_id AND status = 'expired' AND settled_at >= CAST(@since AS INTEGER);
+WHERE node_id = @node_id AND status = 'expired' AND declined_low_disk = 0 AND settled_at >= CAST(@since AS INTEGER);
+
+-- name: MarkDispatchDeclinedLowDisk :exec
+UPDATE dispatches SET declined_low_disk = 1 WHERE id = @id;
 
 -- name: GetReceipt :one
 SELECT * FROM receipts WHERE caller = @caller AND request_id = @request_id;

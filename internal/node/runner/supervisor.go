@@ -240,6 +240,29 @@ func (s *Supervisor) forget(w *Worker) {
 func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, r daemon.Reporter) error {
 	o := d.Offer
 
+	dir := s.dir(d.ID)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return fmt.Errorf("making the shim root: %w", err)
+	}
+
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return fmt.Errorf("making %s: %w", dir, err)
+	}
+
+	started := false
+	defer func() {
+		if !started {
+			if err := os.WriteFile(filepath.Join(dir, neverStartedFile), nil, 0o600); err != nil {
+				s.Logger.WarnContext(ctx, "could not record that a shim never started", slog.Any("error", err))
+			}
+		}
+	}()
+
+	temp := filepath.Join(dir, "tmp")
+	if err := os.Mkdir(temp, 0o700); err != nil {
+		return fmt.Errorf("making the Dispatch temp directory: %w", err)
+	}
+
 	launch, err := rt.Prepare(ctx, d)
 	if err != nil {
 		return err
@@ -270,20 +293,14 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		// The worker's git, gh and glab act with the host's token, when the offer carried one.
 		hostEnv = src.Env
 
-		if err := s.Worktrees.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
+		maker := s.Worktrees
+		maker.TempDir = temp
+
+		if err := maker.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
 			return err
 		}
 	} else if err := os.MkdirAll(o.Worktree, 0o700); err != nil {
 		return fmt.Errorf("making the worktree: %w", err)
-	}
-
-	dir := s.dir(d.ID)
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("clearing %s: %w", dir, err)
-	}
-
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("making %s: %w", dir, err)
 	}
 
 	spec, err := launch.Write(dir, hostEnv)
@@ -292,6 +309,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	}
 
 	spec.Dir = o.Worktree
+	spec.Env = tempEnv(spec.Env, temp)
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err
 	}
@@ -312,6 +330,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	if err != nil {
 		return err
 	}
+	started = true
 
 	if err := waitSocket(ctx, dir); err != nil {
 		_ = shim.Kill(pid)
@@ -456,7 +475,6 @@ func (s *Supervisor) Release(id string) {
 		_ = shim.Kill(pid)
 	}
 
-	_ = os.RemoveAll(dir)
 }
 
 // Asked records the control plane's id for a question the worker asked.

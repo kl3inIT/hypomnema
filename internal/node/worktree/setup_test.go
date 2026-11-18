@@ -91,7 +91,11 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a continued Conversation")
 	assert.Equal(t, 1, runs(), "a worktree that exists is not set up again")
 
-	require.NoError(t, m.Remove(t.Context(), repo, path))
+	stopped := func() bool { return true }
+	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "modified or untracked")
+	assert.Equal(t, 1, runs(), "a dirty worktree is kept")
+	require.NoError(t, os.Remove(filepath.Join(path, "setup.log")))
+	require.NoError(t, m.Clean(t.Context(), path, true, stopped))
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a retry")
 	assert.Equal(t, 1, runs(), "a worktree made anew is set up again")
 

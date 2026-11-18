@@ -1,15 +1,19 @@
 import { useContext, type ReactNode } from "react"
 
 import type { Node, NodeGpu } from "@/api/generated/types.gen"
+import { Meter } from "@/components/meter"
 import { dimmed, meterTone, toneColors } from "@/lib/meter-tone"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import {
   amountOf,
+  diskPercent,
+  gib,
   machineProblem,
   machineState,
   stateNames,
+  usedOfTotal,
   type MachineState,
 } from "./machines-state"
 import { OnCard } from "./on-card"
@@ -38,6 +42,42 @@ export function IndicatorDot({ node }: { node: Node }) {
       className={cn("size-2 shrink-0 rounded-full", stateDots[machineState(node)])}
       aria-hidden
     />
+  )
+}
+
+export function DiskCell({ node }: { node: Node }) {
+  const value = diskPercent(node)
+  const { disk } = node
+  const free = disk?.free_bytes
+  const blocked = disk !== undefined && free !== undefined && free < disk.floor_bytes
+  const trimming = disk !== undefined && free !== undefined && free < disk.trim_bytes
+  const age = disk?.age_ms
+
+  return (
+    <div className="min-w-0 space-y-1 text-xs">
+      {value !== undefined && (
+        <WithAmount used={node.stats?.disk_used_bytes} total={node.system?.disk_bytes}>
+          <Meter
+            label="Disk"
+            value={value}
+            connected={node.connected}
+            title={usedOfTotal(node.stats?.disk_used_bytes, node.system?.disk_bytes)}
+          />
+        </WithAmount>
+      )}
+      <div
+        className={cn("font-medium", blocked ? "text-destructive" : trimming && "text-needs-you")}
+      >
+        {free === undefined ? "Not measured" : `${gib(free)} free`}
+        {blocked ? " · Takes no new work" : trimming ? " · Low disk" : ""}
+      </div>
+      {disk && disk.floor_bytes > 0 && (
+        <div className="text-muted-foreground" title={disk.at}>
+          Floor {gib(disk.floor_bytes)} · Trim {gib(disk.trim_bytes)}
+          {age !== undefined && ` · ${Math.floor(age / 1000)}s ago`}
+        </div>
+      )}
+    </div>
   )
 }
 

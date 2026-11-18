@@ -106,6 +106,11 @@ func (d *Daemon) phone(t nodeproto.Type) {
 // the accept is acknowledged (Omnara: accept, then accept_ack, then start).
 func (d *Daemon) offered(ctx context.Context, o nodeproto.Offer) error {
 	accept := nodeproto.Report{ReportID: d.newID("rep"), Kind: nodeproto.ReportAccept, DispatchID: o.DispatchID}
+	if d.cfg.Disk != nil {
+		if disk := d.cfg.Disk(ctx); !disk.AllowsWork() {
+			accept.Kind, accept.Payload = nodeproto.ReportLowDisk, mustJSON(disk)
+		}
+	}
 
 	added, err := d.db.AddOffer(ctx, o, accept)
 	if err != nil || !added {
@@ -173,6 +178,8 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 	committed := ack.Status == nodeproto.AckCommitted
 
 	switch r.Kind {
+	case nodeproto.ReportLowDisk:
+		return d.db.Remove(ctx, r.DispatchID)
 	case nodeproto.ReportAccept, nodeproto.ReportReattach:
 		if !committed {
 			d.runner.Release(r.DispatchID)
@@ -235,6 +242,9 @@ func (d *Daemon) start(h statedb.Dispatch) {
 	ctx := d.base
 
 	d.starting.Go(func() {
+		d.diskWorkers.RLock()
+		defer d.diskWorkers.RUnlock()
+
 		if err := d.runner.Start(ctx, h, d.worker(h.ID)); err != nil {
 			if err := d.worker(h.ID).finish(ctx, nodeproto.Finished{
 				Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},

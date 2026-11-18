@@ -67,7 +67,7 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a continued Conversation")
 	assert.FileExists(t, filepath.Join(path, "login.go"))
 
-	require.NoError(t, m.Remove(t.Context(), repo, path))
+	require.NoError(t, m.Clean(t.Context(), path, true, func() bool { return true }))
 	assert.NoDirExists(t, path)
 
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a retry")

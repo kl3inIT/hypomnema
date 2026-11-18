@@ -399,12 +399,21 @@ func TestAdoptedWorkerCanBeStopped(t *testing.T) {
 	again := g.restart()
 	second := newReporter()
 	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
+	temp := filepath.Join(again.sup.dir("dsp_1"), "tmp")
+	assert.DirExists(t, temp)
+	assert.False(t, again.sup.Stopped("dsp_1", false))
 
 	again.sup.Stop("dsp_1")
 	second.wait(t)
 
 	assert.Equal(t, 1, second.stopped)
 	assert.Empty(t, second.started, "the adopted worker was already reported started")
+	if runtime.GOOS == "linux" {
+		require.Eventually(t, func() bool { return again.sup.Stopped("dsp_1", false) }, 5*time.Second, 20*time.Millisecond)
+		require.NoError(t, again.sup.CleanTemp(t.Context(), "dsp_1"))
+		assert.NoDirExists(t, temp)
+		assert.FileExists(t, filepath.Join(again.sup.dir("dsp_1"), shim.JournalFile))
+	}
 }
 
 // Scenario: the daemon restarts after it read the start of the journal. The
@@ -455,7 +464,7 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 
 	g.restart().sup.Release("dsp_1")
 
-	assert.NoDirExists(t, dir)
+	assert.DirExists(t, dir, "the shim record is needed to confirm the worker has stopped")
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 20*time.Second, 20*time.Millisecond)
 }
 
@@ -608,7 +617,7 @@ func TestReleaseWaitsForTheJournalReader(t *testing.T) {
 
 		return r.exited+len(r.finished)+r.stopped > 0
 	}, time.Second, 20*time.Millisecond, "a released worker reports nothing")
-	assert.NoDirExists(t, dir)
+	assert.DirExists(t, dir, "releasing a worker leaves its journal in place")
 }
 
 // Scenario: a node takes a release while its workers run. The new daemon

@@ -77,7 +77,7 @@ type Runner interface {
 	Adopt(ctx context.Context, d statedb.Dispatch, r Reporter) error
 	// Stop asks the worker to stop; the Runner reports Stopped when it has.
 	Stop(id string)
-	// Release kills the worker and cleans up, reporting nothing: the
+	// Release stops following and kills the worker, reporting nothing: the
 	// Dispatch is no longer the node's.
 	Release(id string)
 	// Answer passes an answer to the worker that asked.
@@ -98,7 +98,9 @@ type Config struct {
 	Runtimes     []nodeproto.RuntimeInfo
 	System       nodeproto.SystemInfo
 	// Stats measures the machine for a heartbeat; nil, or a nil result: the heartbeat carries none.
-	Stats func(ctx context.Context) *nodeproto.SystemStats
+	Stats       func(ctx context.Context) *nodeproto.SystemStats
+	Disk        func(ctx context.Context) nodeproto.DiskSpace
+	Maintenance *Maintenance
 	// Reach reports whether this machine reaches a git host; nil: the node says nothing about hosts.
 	Reach func(ctx context.Context, host string) bool
 	// Terminal holds the shells opened from the web; nil: this node opens none.
@@ -140,12 +142,13 @@ type Phone interface {
 
 // Daemon is one node's connection.
 type Daemon struct {
-	cfg    Config
-	db     *statedb.DB
-	runner Runner
-	logger *slog.Logger
-	http   *http.Client
-	newID  func(prefix string) string
+	diskWorkers sync.RWMutex
+	cfg         Config
+	db          *statedb.DB
+	runner      Runner
+	logger      *slog.Logger
+	http        *http.Client
+	newID       func(prefix string) string
 	// instance identifies this process to the control plane.
 	instance string
 
@@ -334,6 +337,7 @@ func (d *Daemon) Hello(ctx context.Context) (string, error) {
 func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim, held []string) (nodeproto.HelloResponse, error) {
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		Held: held, ListsHeld: held != nil,
+		DiskPolicy: d.cfg.Disk != nil,
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),
@@ -481,7 +485,16 @@ func (d *Daemon) session(ctx context.Context, heartbeat time.Duration) (bool, er
 	go func() { errs <- readLoop(ctx, conn, in) }()
 	go func() { errs <- writeLoop(ctx, conn, out) }()
 
-	healthy, err := d.loop(ctx, in, errs, heartbeat)
+	var acks chan nodeproto.CleanupAck
+	var maintenance sync.WaitGroup
+	if d.cfg.Maintenance != nil {
+		acks = make(chan nodeproto.CleanupAck, 1)
+		maintenance.Go(func() { d.maintain(ctx, out, acks) })
+	}
+
+	healthy, err := d.loop(ctx, in, errs, heartbeat, acks)
+	cancel()
+	maintenance.Wait()
 
 	status := websocket.StatusNormalClosure
 	if err != nil {
@@ -494,6 +507,7 @@ func (d *Daemon) session(ctx context.Context, heartbeat time.Duration) (bool, er
 }
 
 func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-chan error, heartbeat time.Duration,
+	acks chan<- nodeproto.CleanupAck,
 ) (bool, error) {
 	if heartbeat <= 0 {
 		heartbeat = nodeproto.HeartbeatEvery
@@ -538,6 +552,12 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 				return healthy, err
 			}
 		case msg := <-in:
+			if msg.Type == nodeproto.TypeCleanupAck {
+				if err := deliverCleanup(ctx, msg.Payload, acks); err != nil {
+					return healthy, err
+				}
+				continue
+			}
 			if msg.Type == nodeproto.TypeHeartbeatAck {
 				healthy = true
 
@@ -619,13 +639,18 @@ func (d *Daemon) setOut(out chan nodeproto.Message) {
 // heartbeat is the heartbeat message, with the machine's measurement when there is one.
 func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
 	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said(), Device: d.phoneState()}
+	if d.cfg.Disk != nil {
+		disk := d.cfg.Disk(ctx)
+		hb.Disk = &disk
+	}
 	if d.cfg.Stats != nil {
 		hb.Stats = d.cfg.Stats(ctx)
 	}
 
 	hb.Runtimes = d.changedRuntimes(ctx, hb.Tools)
 
-	if hb.Stats != nil || hb.Reaches != nil || hb.Tools != nil || hb.Runtimes != nil || hb.Device != nil {
+	if hb.Disk != nil || hb.Stats != nil || hb.Reaches != nil || hb.Tools != nil ||
+		hb.Runtimes != nil || hb.Device != nil {
 		if msg, err := nodeproto.Encode(nodeproto.TypeHeartbeat, hb); err == nil {
 			return msg
 		}

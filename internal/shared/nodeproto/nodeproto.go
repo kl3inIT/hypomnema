@@ -128,9 +128,10 @@ type Type string
 
 // Messages from the node.
 const (
-	TypeHeartbeat Type = "heartbeat"
-	TypeReport    Type = "report"
-	TypeItems     Type = "transcript_items"
+	TypeHeartbeat    Type = "heartbeat"
+	TypeReport       Type = "report"
+	TypeItems        Type = "transcript_items"
+	TypeCleanupCheck Type = "cleanup_check"
 )
 
 // Messages from the control plane.
@@ -141,6 +142,7 @@ const (
 	TypeStop         Type = "stop"
 	TypeAnswer       Type = "answer"
 	TypeItemsAck     Type = "transcript_items_ack"
+	TypeCleanupAck   Type = "cleanup_ack"
 	TypeError        Type = "error"
 	// TypeTerminalOpen asks the node to open a terminal connection.
 	TypeTerminalOpen Type = "terminal_open"
@@ -232,6 +234,7 @@ type GPUStats struct {
 // Heartbeat is the node's heartbeat. A node that measures nothing sends none.
 type Heartbeat struct {
 	Stats *SystemStats `json:"stats,omitempty"`
+	Disk  *DiskSpace   `json:"disk,omitempty"`
 	// Reaches lists the git hosts the node reached when it last tried, of
 	// those the control plane named. Nil is a node that has not tried yet.
 	Reaches *[]string `json:"reaches,omitempty"`
@@ -282,6 +285,7 @@ type Claim struct {
 
 // HelloRequest is the node's registration, sent at every connect.
 type HelloRequest struct {
+	DiskPolicy    bool          `json:"disk_policy,omitempty"`
 	InstanceID    string        `json:"instance_id"`
 	DaemonVersion string        `json:"daemon_version"`
 	WorktreeRoot  string        `json:"worktree_root"`
@@ -654,6 +658,7 @@ type Stop struct {
 // Report kinds: the node calls of the orchestration core (issue #19).
 const (
 	ReportAccept          = "accept"
+	ReportLowDisk         = "low_disk"
 	ReportStarted         = "started"
 	ReportHeartbeat       = "heartbeat"
 	ReportEffect          = "effect"

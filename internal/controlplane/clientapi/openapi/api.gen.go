@@ -4504,6 +4504,7 @@ type Node struct {
 
 	// Device The device the node said at its last connect that it holds, as its own configuration names it. Left out for a node that holds none.
 	Device *NodeDevice `json:"device,omitempty"`
+	Disk   *NodeDisk   `json:"disk,omitempty"`
 
 	// GitHosts The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken to reach every host. A Task on a host goes only to a node that reaches it.
 	GitHosts *[]string `json:"git_hosts,omitempty"`
@@ -4557,6 +4558,20 @@ type NodeChange struct {
 
 	// Reserved An amount of CPU and memory (issue
 	Reserved *Resources `json:"reserved,omitempty"`
+}
+
+// NodeDisk defines model for NodeDisk.
+type NodeDisk struct {
+	// AgeMs Age of the disk sample when this response was produced.
+	AgeMs *int64 `json:"age_ms,omitempty"`
+
+	// At When the node measured the sample.
+	At         *time.Time `json:"at,omitempty"`
+	FloorBytes int64      `json:"floor_bytes"`
+
+	// FreeBytes Bytes available to the node user, absent when not measured or stale.
+	FreeBytes *int64 `json:"free_bytes,omitempty"`
+	TrimBytes int64  `json:"trim_bytes"`
 }
 
 // NodeGPU One GPU's latest measurement, as Beszel's GPUData.
@@ -5625,7 +5640,7 @@ type Task struct {
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
@@ -5668,7 +5683,7 @@ type TaskDetail struct {
 	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
 	Usage *WorkUsage `json:"usage,omitempty"`
 
-	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+	// WaitingReason Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 

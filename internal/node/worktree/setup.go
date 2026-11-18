@@ -105,6 +105,9 @@ func (m Maker) setup(ctx context.Context, path string) {
 	cmd.Stdout, cmd.Stderr = &output, &output
 	// Git must not wait for a person (Orca: promptGuardShellEnv).
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path)
+	if m.TempDir != "" {
+		cmd.Env = append(cmd.Env, "TMPDIR="+m.TempDir, "TEMP="+m.TempDir, "TMP="+m.TempDir)
+	}
 	// The script's children end with it when its time is up (Orca: signalProcessTree).
 	ownGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second

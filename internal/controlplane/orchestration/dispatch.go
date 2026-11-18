@@ -198,6 +198,10 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 	if err := p.checkNode(spec.NodeID, spec.Runtime, host); err != nil {
 		return "", "", false, err
 	}
+	root := p.nodes[spec.NodeID].row.WorktreeRoot.String
+	if err := checkManagedWorktree(root, spec.Worktree, task.RunID, task.ID); err != nil {
+		return "", "", false, err
+	}
 
 	if err := p.checkAccount(spec.Runtime, spec.AccountRef); err != nil {
 		return "", "", false, err
