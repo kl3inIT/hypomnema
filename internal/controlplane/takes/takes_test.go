@@ -244,3 +244,30 @@ func TestADeleteRacingAnUploadLeavesNothing(t *testing.T) {
 	require.ErrorIs(t, send(s, node, "seg-001.mp4", seg), ErrDeleted)
 	require.NoError(t, s.Delete(takeID), "deleted twice is deleted")
 }
+
+// Scenario (issue #851): a take ended is never running again. The node's
+// answer to a call made before the stop, kept after it, leaves the take
+// finalizing; paused and resumed while running, it follows the node.
+func TestAnEndedTakeIsNeverRunningAgain(t *testing.T) {
+	t.Parallel()
+
+	s := openStore(t)
+
+	take, err := s.Update(devicetool.Take{ID: takeID, State: devicetool.TakePaused})
+	require.NoError(t, err)
+	assert.Equal(t, devicetool.TakePaused, take.State)
+
+	_, err = s.Update(devicetool.Take{ID: takeID, State: devicetool.TakeFinalizing, EndedBy: devicetool.EndedStop})
+	require.NoError(t, err)
+
+	take, err = s.Update(devicetool.Take{
+		ID: takeID, State: devicetool.TakeRecording, Steps: []devicetool.TakeStep{{AtMs: 1, Text: "late"}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, devicetool.TakeFinalizing, take.State)
+	assert.Equal(t, devicetool.EndedStop, take.EndedBy)
+
+	take, err = s.Update(devicetool.Take{ID: takeID, State: devicetool.TakeUploading})
+	require.NoError(t, err)
+	assert.Equal(t, devicetool.TakeUploading, take.State)
+}
