@@ -170,7 +170,7 @@ func isHex(name string, size int) bool {
 	return err == nil
 }
 
-func (c Caches) prunePnpm(ctx context.Context, volume string) error {
+func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 	exe, err := exec.LookPath(filepath.Join(c.UserHome, ".local", "bin", "pnpm"))
 	if err != nil {
 		exe, err = exec.LookPath("pnpm")
@@ -182,7 +182,7 @@ func (c Caches) prunePnpm(ctx context.Context, volume string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	store := filepath.Join(c.UserHome, ".local", "share", "pnpm", "store")
-	if !RealDir(store) || !SameVolume(volume, store) {
+	if !RealDir(store) || !SameVolume(worktreeVolume, store) {
 		return nil
 	}
 
@@ -197,6 +197,13 @@ func (c Caches) prunePnpm(ctx context.Context, volume string) error {
 		return err
 	}
 	defer root.Close() //nolint:errcheck // directory handle
+	mount, err := volumeAt(root, ".")
+	if err != nil {
+		return err
+	}
+	if work, err := volume(worktreeVolume); err != nil || mount != work {
+		return err
+	}
 	handle, err := root.Open(".")
 	if err != nil {
 		return err
@@ -208,7 +215,7 @@ func (c Caches) prunePnpm(ctx context.Context, volume string) error {
 	}
 	cache := filepath.Join(store, cacheName)
 	defer func() { _ = root.Remove(cacheName) }()
-	if !RealDir(cache) || !SameVolume(volume, cache) {
+	if !RealDir(cache) || !SameVolume(worktreeVolume, cache) {
 		return errors.New("the isolated pnpm cache is not on the worktree volume")
 	}
 	probe, err := c.pnpm(ctx, handle, exe, store, cache, "path")
@@ -221,7 +228,7 @@ func (c Caches) prunePnpm(ctx context.Context, volume string) error {
 	}
 
 	versioned := strings.TrimSpace(string(raw))
-	if filepath.Dir(versioned) != store || !RealDir(versioned) || !SameVolume(volume, versioned) {
+	if filepath.Dir(versioned) != store || !RealDir(versioned) || !SameVolume(worktreeVolume, versioned) {
 		return nil
 	}
 

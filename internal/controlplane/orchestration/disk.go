@@ -100,7 +100,7 @@ func (s *Service) DeclineLowDisk(ctx context.Context, call NodeCall, disk nodepr
 		if err != nil {
 			return err
 		}
-		if !node.DiskSampleAt.Valid || node.DiskSampleAt.Int64 < d.CreatedAt {
+		if node.UpdatedAt <= d.CreatedAt && (!node.DiskSampleAt.Valid || node.DiskSampleAt.Int64 < d.CreatedAt) {
 			if err := setNodeDisk(ctx, q, now, call.NodeID, disk); err != nil {
 				return err
 			}

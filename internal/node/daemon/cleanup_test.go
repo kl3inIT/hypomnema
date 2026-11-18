@@ -36,6 +36,7 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 
 	ctx := t.Context()
 	stopped := false
+	swept := make(chan struct{}, 1)
 	d := New(Config{WorktreeRoot: worktrees, Maintenance: &Maintenance{
 		ShimRoot: filepath.Join(root, "run"),
 		Stopped:  func(id string, _ bool) bool { return id == dispatch && stopped },
@@ -45,7 +46,7 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 			}
 			return nil
 		},
-		TrimCaches: func(context.Context, func(func())) {},
+		TrimCaches: func(context.Context, func(func())) { swept <- struct{}{} },
 	}}, db, nil, slog.New(slog.DiscardHandler))
 
 	for round := range 3 {
@@ -80,6 +81,11 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 			}
 		case <-time.After(3 * time.Second):
 			t.Error("no cleanup request after connecting")
+		}
+		select {
+		case <-swept:
+		case <-time.After(3 * time.Second):
+			t.Error("cleanup sweep did not finish")
 		}
 		cancel()
 		session.Wait()

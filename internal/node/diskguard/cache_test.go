@@ -79,7 +79,7 @@ func TestPnpmRejectsStoreSymlinkAndLeavesDefaultDLXCacheAlone(t *testing.T) {
 		require.NoError(t, os.MkdirAll(dir, 0o700))
 	}
 	require.NoError(t, os.WriteFile(dlx, nil, 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(bin, "pnpm"), []byte(`#!/bin/sh
+	script := []byte(`#!/bin/sh
 if [ "$6" = path ]; then
   printf '%s/v11\n' "$2"
 elif [ "$6" = prune ]; then
@@ -89,7 +89,8 @@ elif [ "$6" = prune ]; then
 else
   exit 4
 fi
-`), 0o700)) //nolint:gosec // the fixture must be executable
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "pnpm"), script, 0o700)) //nolint:gosec // executable fixture
 	caches := Caches{UserHome: home, WorkerPath: func() string { return bin }}
 	link := filepath.Join(version, "files")
 	require.NoError(t, os.Symlink(outside, link))
