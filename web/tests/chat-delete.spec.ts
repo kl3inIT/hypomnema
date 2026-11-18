@@ -106,8 +106,7 @@ async function fakeServer(
 }
 
 const bots = (page: Page) => page.getByRole("navigation", { name: "Bots" })
-const others = (page: Page) =>
-  page.getByRole("list", { name: "Other chats of coordinator" })
+const others = (page: Page) => page.getByRole("list", { name: "Other chats of coordinator" })
 
 // Scenario: the Bot's page lists its chats other than its main chat (issue #471), with a link to the main chat. The
 // owner opens the menu of one and deletes it after the dialog says it cannot be undone and that its Runs stay; the
