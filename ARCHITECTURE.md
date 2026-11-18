@@ -269,7 +269,13 @@ sequenceDiagram
   Dispatches that may still run (`starting`, `running`, `unknown`, `stop_unknown`) that the node neither claims nor
   holds with a queued accept or final report ends `failed` (`lost`), and one it claims whose worker never started (no
   process) ends `failed` (`start_failed`) and is released instead of reattached. A node of an earlier release does
-  not list what it holds, and nothing it does not claim is ended. Nothing else ends an unknown Dispatch: no timer
+  not list what it holds, and nothing it does not claim is ended. A claim still the node's at its epoch is
+  answered `retain` and its lease is renewed, even one that ran out while the control plane was down; a heartbeat
+  never renews a lease that ran out (issue #833, after Omnara's registration, which ends by renewing the lease,
+  `machine_daemon_runtime_store.go:218-233`). A node whose lease heartbeat is refused ends its session and says
+  hello again, as Omnara's daemon registers again when its heartbeat is refused (`machinedaemon/client.go:147-170`):
+  the hello renews the lease, or offers the reattach once the Dispatch was marked unknown; it sends no heartbeat for
+  a Dispatch whose reattach is still queued. Nothing else ends an unknown Dispatch: no timer
   does, and `SettleUnknown` and `AbandonDispatch` in orchestration have no route or command. A cancel stops the Dispatch and cancels the Task only once
   the stop is confirmed. Worker errors, failed launches and lost Dispatches count toward a breaker of three with a
   back-off before each retry; rate limits cool the account (runtime, account) down on every node and are not counted; a login

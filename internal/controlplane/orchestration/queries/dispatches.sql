@@ -86,6 +86,13 @@ SET updated_at       = @now,
     stop_acked_at    = CASE WHEN status = 'stopping' THEN coalesce(stop_acked_at, @now) ELSE stop_acked_at END
 WHERE id = @id AND epoch = @epoch AND status IN ('starting', 'running', 'stopping') AND lease_expires_at > @now;
 
+-- name: RetainLease :execrows
+-- A node's hello renews the lease of a Dispatch it is told to retain, even one that ran out while the control plane
+-- was down and before the reaper marked it unknown (issue #833).
+UPDATE dispatches
+SET updated_at = @now, lease_expires_at = CAST(@lease_expires_at AS INTEGER)
+WHERE id = @id AND epoch = @epoch AND status IN ('starting', 'running', 'stopping');
+
 -- name: MarkStarted :execrows
 UPDATE dispatches
 SET updated_at = @now, status = 'running', started_at = @now, progress_at = @now, process_ref = @process_ref

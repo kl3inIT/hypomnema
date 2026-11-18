@@ -139,9 +139,33 @@ func (r *fakeRunner) snapshot() fakeRunner {
 type world struct {
 	t     *testing.T
 	svc   *orchestration.Service
+	clock *shiftClock
 	url   string
 	token string
 	state string
+	// leaseEvery is how often the node renews its leases; zero: the daemon's default.
+	leaseEvery time.Duration
+}
+
+// shiftClock is the wall clock moved forward by what a test asks, as the
+// control plane sees time pass while it is down.
+type shiftClock struct {
+	mu    sync.Mutex
+	shift time.Duration
+}
+
+func (c *shiftClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return time.Now().Add(c.shift)
+}
+
+func (c *shiftClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.shift += d
 }
 
 func newWorld(t *testing.T) *world {
@@ -151,7 +175,8 @@ func newWorld(t *testing.T) *world {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	clock := &shiftClock{}
+	svc := orchestration.New(db, clock, platform.NewID)
 
 	mux := http.NewServeMux()
 	nodeapi.New(svc, slog.New(slog.DiscardHandler)).Register(mux)
@@ -169,7 +194,9 @@ func newWorld(t *testing.T) *world {
 		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\n")
 	require.NoError(t, err)
 
-	return &world{t: t, svc: svc, url: srv.URL, token: token, state: filepath.Join(t.TempDir(), "node", "state.db")}
+	return &world{
+		t: t, svc: svc, clock: clock, url: srv.URL, token: token, state: filepath.Join(t.TempDir(), "node", "state.db"),
+	}
 }
 
 // startNode runs a daemon over the node's state file until the returned stop is called.
@@ -181,7 +208,8 @@ func (w *world) startNode(r daemon.Runner, token string) (stop func() error) {
 
 	d := daemon.New(daemon.Config{
 		URL: w.url, Token: token, WorktreeRoot: "/srv/wt", Version: "test",
-		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
+		Runtimes:   []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
+		LeaseEvery: w.leaseEvery,
 	}, db, r, slog.New(slog.DiscardHandler))
 
 	ctx, cancel := context.WithCancel(context.WithoutCancel(w.t.Context()))
@@ -436,6 +464,99 @@ func TestRestartDeliversAFinalReportQueuedWhileAway(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	w.startNode(newFakeRunner(), w.token)
+	w.eventually(task.ID, orchestration.TaskSucceeded)
+}
+
+// dispatch is the control plane's record of the Dispatch id.
+func (w *world) dispatch(id string) orchestration.Dispatch {
+	w.t.Helper()
+
+	d, err := w.svc.GetDispatch(w.t.Context(), id)
+	require.NoError(w.t, err)
+
+	return d
+}
+
+// running starts a node that renews its leases every 200 ms and has it run a
+// Task's worker; it returns the worker and the Task.
+func (w *world) running() (daemon.Reporter, orchestration.Task) {
+	w.t.Helper()
+
+	w.leaseEvery = 200 * time.Millisecond
+	r := newFakeRunner()
+	w.startNode(r, w.token)
+	task := w.task()
+
+	worker := r.worker(w.t)
+	require.NoError(w.t, worker.Started(w.t.Context(), "pid:42@1", "sess_1"))
+	require.Eventually(w.t, func() bool {
+		return w.dispatch(worker.ID()).Status == orchestration.DispatchRunning
+	}, wait, 5*time.Millisecond, "the worker's start is recorded")
+
+	return worker, task
+}
+
+// Scenario (issue #833): the control plane was away longer than a lease
+// while the node stayed up. The node's next lease heartbeat is refused, so it
+// says hello again; the hello renews the lease, and the reaper leaves the
+// Dispatch running. The worker then finishes as usual.
+func TestALeaseHeartbeatRefusedAfterTheLeasePassedRecovers(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	worker, task := w.running()
+
+	w.clock.advance(orchestration.LeaseDuration + time.Minute)
+
+	require.Eventually(t, func() bool {
+		lease := w.dispatch(worker.ID()).LeaseExpiresAt
+
+		return lease != nil && lease.After(w.clock.Now())
+	}, wait, 10*time.Millisecond, "the node says hello again and its lease is renewed")
+
+	reaped, err := w.svc.Reap(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, reaped.Unknown)
+
+	d := w.dispatch(worker.ID())
+	assert.Equal(t, orchestration.DispatchRunning, d.Status)
+	assert.Equal(t, 1, d.Epoch, "retained, not reattached")
+
+	require.NoError(t, worker.Finished(t.Context(), success()))
+	w.eventually(task.ID, orchestration.TaskSucceeded)
+}
+
+// Scenario (issue #833, as on stc-hy-app): the reaper marked the Dispatch
+// unknown, lease_lost, while its node stayed connected and the worker ran.
+// The node's lease heartbeat is refused, it says hello again and is told to
+// reattach; the Dispatch is running again at a new epoch, nothing is left
+// unknown, and the worker's final report settles it.
+func TestADispatchMarkedUnknownWhileItsNodeStaysConnectedIsReattached(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	worker, task := w.running()
+
+	w.clock.advance(orchestration.LeaseDuration + time.Minute)
+
+	reaped, err := w.svc.Reap(t.Context())
+	require.NoError(t, err)
+
+	if len(reaped.Unknown) == 0 {
+		t.Skip("the node renewed its lease before the reaper ran; the other test covers that")
+	}
+
+	require.Equal(t, []string{worker.ID()}, reaped.Unknown)
+
+	require.Eventually(t, func() bool {
+		d := w.dispatch(worker.ID())
+
+		return d.Status == orchestration.DispatchRunning && d.Epoch == 2
+	}, wait, 10*time.Millisecond, "the node reattaches")
+
+	w.eventually(task.ID, orchestration.TaskRunning)
+
+	require.NoError(t, worker.Finished(t.Context(), success()))
 	w.eventually(task.ID, orchestration.TaskSucceeded)
 }
 
