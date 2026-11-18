@@ -71,10 +71,10 @@ func movesOn(status int) bool {
 }
 
 func (s *Server) retryRefusedAccount(
-	ctx context.Context, resp *http.Response, token *AccountToken,
+	ctx context.Context, resp *http.Response, token *AccountToken, model forModel,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
-	fresh, err := s.accounts.TokenAfterRefusal(ctx, *token)
+	fresh, err := s.tokenAfterRefusal(ctx, *token, model)
 	if err != nil && ctx.Err() == nil {
 		return resp, nil
 	}
@@ -180,7 +180,7 @@ func (s *Server) underAccounts(
 
 	// No account was tried at all.
 	if errors.Is(stopping, ErrModelNotServed) {
-		return openAIError(http.StatusNotFound, typeInvalidRequest, "model_not_served",
+		return openAIError(http.StatusNotFound, typeInvalidRequest, codeModelNotServed,
 			fmt.Sprintf("model %q is not served by any %s account", model.name, runtime), 0), nil
 	}
 
@@ -209,6 +209,18 @@ func (s *Server) token(
 	}
 
 	return s.accounts.Token(ctx, runtime, session, skip...)
+}
+
+// tokenAfterRefusal refreshes an account whose token the vendor refused. For a
+// model the accounts' lists name, it is refreshed only while it is still
+// usable and its list still has the model (ModelTokens; issue #814): otherwise
+// the error is ErrModelNotServed, and the request goes on to another account.
+func (s *Server) tokenAfterRefusal(ctx context.Context, refused AccountToken, model forModel) (AccountToken, error) {
+	if byModel, ok := s.accounts.(ModelTokens); ok && model.listed {
+		return byModel.TokenAfterRefusalFor(ctx, refused, model.name)
+	}
+
+	return s.accounts.TokenAfterRefusal(ctx, refused)
 }
 
 // cool keeps an account out of use after a failure, for as long as 9router-go

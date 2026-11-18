@@ -107,6 +107,20 @@ func TestATokenWithoutAModelIsRefused(t *testing.T) {
 	assert.Empty(t, account.asked)
 }
 
+func (a *rosterGoogle) TokenAfterRefusalFor(
+	ctx context.Context, refused modelgateway.AccountToken, model string,
+) (modelgateway.AccountToken, error) {
+	a.mu.Lock()
+	serves := slices.Contains(a.served[refused.AccountID], model)
+	a.mu.Unlock()
+
+	if !serves {
+		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+	}
+
+	return a.TokenAfterRefusal(ctx, refused)
+}
+
 // refusingRosters are accounts whose lists name no model (modelgateway.ModelTokens): every TokenFor is refused, and
 // recorded.
 type refusingRosters struct {
@@ -123,6 +137,12 @@ func (a *refusingRosters) TokenFor(
 
 	a.asked = append(a.asked, model)
 
+	return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+}
+
+func (a *refusingRosters) TokenAfterRefusalFor(
+	context.Context, modelgateway.AccountToken, string,
+) (modelgateway.AccountToken, error) {
 	return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
 }
 
@@ -158,4 +178,102 @@ func TestACodexImageIsNotRoutedByTheAccountsLists(t *testing.T) {
 	status, _, body := g.post(t, "/v1/images/generations", g.key, `{"prompt":"a red fox"}`)
 	require.Equal(t, http.StatusOK, status, body)
 	assert.Empty(t, subs.askedFor())
+}
+
+// The fakes say which models each account is served, as the control plane's accounts do.
+var (
+	_ modelgateway.ModelTokens = (*rosterGoogle)(nil)
+	_ modelgateway.ModelTokens = (*rosterAccounts)(nil)
+	_ modelgateway.ModelTokens = (*refusingRosters)(nil)
+)
+
+// Scenario (review of #832, round 4): Google refuses the first account's token, and by then that account's list no
+// longer has the model. The account is not refreshed and asked again: the request goes on to the second account,
+// whose list has it.
+func TestARefusedAccountIsAskedAgainOnlyForAModelItsListHas(t *testing.T) {
+	t.Parallel()
+
+	account := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_a", "acc_b"}}},
+		served: map[string][]string{
+			"acc_a": {"gemini-3.8-flash-high"}, "acc_b": {"gemini-3.8-flash-high"},
+		},
+	}
+
+	answer := stream(geminiEvents...)
+	backend, got := cloudCode(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer acc_a-access-0" {
+			account.mu.Lock()
+			account.served["acc_a"] = nil
+			account.mu.Unlock()
+
+			http.Error(w, `{"error":{"code":401,"status":"UNAUTHENTICATED"}}`, http.StatusUnauthorized)
+
+			return
+		}
+
+		answer(w, r)
+	})
+	g := newAntigravityGateway(t, backend, account)
+
+	status, _, body := g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	header, _ := got.last(t)
+	assert.Equal(t, "Bearer acc_b-access-0", header.Get("Authorization"))
+	assert.Equal(t, 2, got.calls(), "the first account was not asked again")
+}
+
+// Scenario (review of #832, round 4): an Antigravity image is asked for by name and no account's list has the
+// image model. The client is told the model is not served, not that the image was refused.
+func TestAnAntigravityImageNoAccountIsServedIsNotServed(t *testing.T) {
+	t.Parallel()
+
+	backend, got := imageBackend(t, "/v1internal:generateContent", answerWith(http.StatusOK, antigravityImageAnswer))
+	subs := &rosterAccounts{
+		imageAccounts: imageAccounts{all: []imageAccount{
+			{id: "g_pro", runtime: "antigravity", plan: "g1-pro-tier", project: "bright-wave-1234"},
+		}},
+	}
+	g := newImageGateway(t, subs, "", backend.URL)
+
+	status, _, body := g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox","model":"gemini-3-pro-image"}`)
+	assert.Equal(t, http.StatusNotFound, status, body)
+	assert.Contains(t, body, `"code":"model_not_served"`)
+	assert.Zero(t, got.calls())
+}
+
+// Scenario (review of #832, round 4): on /responses, Codex refuses the first account's token, and by then that
+// account's list no longer has the model. The request goes on to the second account instead of refreshing the
+// first and asking it again.
+func TestARefusedCodexAccountIsAskedAgainOnlyForAModelItsListHas(t *testing.T) {
+	t.Parallel()
+
+	two := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_a", "acc_b"}}},
+		served:        map[string][]string{"acc_a": {"gpt-6.1-sol"}, "acc_b": {"gpt-6.1-sol"}},
+	}
+
+	backend, got := codexBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer acc_a-access-0" {
+			two.mu.Lock()
+			two.served["acc_a"] = nil
+			two.mu.Unlock()
+
+			plain(http.StatusUnauthorized, `{"error":{"code":"token_expired"}}`)(w, r)
+
+			return
+		}
+
+		stream(helloEvents...)(w, r)
+	})
+	g := newCodexGateway(t, backend, two)
+
+	status, _, body := g.respond(t, g.key, codexAsks)
+	require.Equal(t, http.StatusOK, status, body)
+
+	header, _ := got.last(t)
+	assert.Equal(t, "Bearer acc_b-access-0", header.Get("Authorization"))
+	assert.Equal(t, 2, got.calls())
+	assert.Zero(t, two.refreshes, "the first account was not refreshed")
 }

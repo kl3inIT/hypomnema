@@ -176,9 +176,10 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 
 	// A token the backend refuses is refreshed once, and the request sent again.
 	if resp.StatusCode == http.StatusUnauthorized {
-		resp, err = s.retryRefusedAccount(ctx, resp, &token, func(fresh AccountToken) (*http.Response, error) {
-			return s.antigravityPost(ctx, fresh, built)
-		})
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, listedModel(model),
+			func(fresh AccountToken) (*http.Response, error) {
+				return s.antigravityPost(ctx, fresh, built)
+			})
 
 		if err != nil {
 			release()

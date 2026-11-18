@@ -483,7 +483,7 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 		return Token{}, err
 	}
 
-	return s.tokenAmong(ctx, runtime, session, usable(accounts, runtime), skip)
+	return s.tokenAmong(ctx, runtime, "", session, usable(accounts, runtime), skip)
 }
 
 // TokenFor is Token for a request for a model, which goes only to the accounts whose own list of models has it
@@ -524,7 +524,7 @@ func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, 
 
 	switch {
 	case len(servers) > 0:
-		return s.tokenAmong(ctx, runtime, session, servers, skip)
+		return s.tokenAmong(ctx, runtime, model, session, servers, skip)
 	case unknown:
 		return Token{}, &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry)}
 	case len(ofRuntime) == 0:
@@ -547,9 +547,11 @@ func usable(accounts []Account, runtime string) []Account {
 	return out
 }
 
-// tokenAmong is Token among the given accounts of a runtime.
+// tokenAmong is Token among the given accounts of a runtime. For a model, the account picked is read again right
+// before its token is given, and passed over unless it is still usable and its list still has the model: the
+// accounts and the lists live apart (the database and memory), so no single read holds both (issue #814).
 func (s *Service) tokenAmong(
-	ctx context.Context, runtime, session string, ofRuntime []Account, skip []string,
+	ctx context.Context, runtime, model, session string, ofRuntime []Account, skip []string,
 ) (Token, error) {
 	if len(ofRuntime) == 0 {
 		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
@@ -586,6 +588,23 @@ func (s *Service) tokenAmong(
 			continue
 		}
 
+		if model != "" {
+			fresh, ok := s.stillServes(ctx, a, model)
+			if !ok {
+				continue
+			}
+
+			if fresh.CoolingUntil != nil {
+				if free == nil || fresh.CoolingUntil.Before(*free) {
+					free = fresh.CoolingUntil
+				}
+
+				continue
+			}
+
+			a = fresh
+		}
+
 		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(now) < useLead {
 			if err := s.refresh(ctx, a, 0); err != nil {
 				return Token{}, err
@@ -602,6 +621,40 @@ func (s *Service) tokenAmong(
 	}
 
 	return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+}
+
+// stillServes reads an account again and says whether it can still be used for model: active, logged in here, and
+// its list has the model. Whether it cools is the caller's to see on the account returned.
+func (s *Service) stillServes(ctx context.Context, a Account, model string) (Account, bool) {
+	fresh, err := s.Get(ctx, a.ID)
+	if err != nil || fresh.Runtime != a.Runtime || fresh.Status != orchestration.AccountActive ||
+		fresh.State != StateActive {
+		return Account{}, false
+	}
+
+	return fresh, s.hasModel(a.ID, model)
+}
+
+// TokenAfterRefusalFor is TokenAfterRefusal for a request for a model (issue #814): of a runtime whose accounts are
+// each served their own models, the account is refreshed only while it is still usable and its list still has the
+// model; otherwise the answer is ErrModelNotServed, and the request goes on to another account.
+func (s *Service) TokenAfterRefusalFor(ctx context.Context, refused Token, model string) (Token, error) {
+	a, err := s.Get(ctx, refused.AccountID)
+	if err != nil {
+		return Token{}, err
+	}
+
+	if perAccount[a.Runtime] {
+		if model == "" {
+			return Token{}, fmt.Errorf("%w: %s", ErrNoModel, a.Runtime)
+		}
+
+		if fresh, ok := s.stillServes(ctx, a, model); !ok || fresh.CoolingUntil != nil {
+			return Token{}, fmt.Errorf("%w: %s by account %s", ErrModelNotServed, model, a.ID)
+		}
+	}
+
+	return s.TokenAfterRefusal(ctx, refused)
 }
 
 // NoteQuota records what an account's vendor said is left of its quota, from

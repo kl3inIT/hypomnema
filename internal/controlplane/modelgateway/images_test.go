@@ -585,6 +585,20 @@ func (a *rosterAccounts) TokenFor(
 	return a.Token(ctx, runtime, session, append(skip, others...)...)
 }
 
+func (a *rosterAccounts) TokenAfterRefusalFor(
+	ctx context.Context, refused modelgateway.AccountToken, model string,
+) (modelgateway.AccountToken, error) {
+	a.mu.Lock()
+	serves := slices.Contains(a.served[refused.AccountID], model)
+	a.mu.Unlock()
+
+	if !serves {
+		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+	}
+
+	return a.TokenAfterRefusal(ctx, refused)
+}
+
 func (a *rosterAccounts) askedFor() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()

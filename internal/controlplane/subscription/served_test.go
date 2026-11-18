@@ -369,3 +369,121 @@ func TestAFirstListIsToldAtOnce(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// Scenario (review of #832, round 4): between reading the accounts and their lists, the owner disables the Ultra
+// account, or it starts to cool. A request for Carbon is not given the Ultra account: the account picked is read
+// again right before its token is given.
+func TestAnAccountChangedDuringAPickIsNotGiven(t *testing.T) {
+	t.Parallel()
+
+	changes := map[string]func(w *antigravityWorld, id string) error{
+		"cools": func(w *antigravityWorld, id string) error {
+			return w.subs.CoolDown(context.Background(), "antigravity", id, w.clock.Now().Add(time.Hour), "rate_limited")
+		},
+		"is disabled": func(w *antigravityWorld, id string) error {
+			return w.orch.DisableAccount(context.Background(), id)
+		},
+	}
+
+	for name, change := range changes {
+		w := newAntigravityWorld(t, ideSecret)
+		_, ultra := twoAccounts(t, w)
+
+		_, ok := w.subs.ServedNames(t.Context(), "antigravity")
+		require.True(t, ok)
+
+		w.subs.BetweenAccountsAndLists(func() { require.NoError(t, change(w, ultra.ID)) })
+
+		token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+		require.Error(t, err, name)
+		assert.Empty(t, token.AccountID, name)
+
+		if name == "cools" {
+			var cooling *subscription.CoolingError
+			require.ErrorAs(t, err, &cooling, name)
+		}
+	}
+}
+
+// Scenario (review of #832, round 4): the vendor refuses an account's token. It is refreshed for a request for a
+// model only while the account's list has the model; otherwise the request is told so and goes on to another.
+func TestARefusedTokenIsRefreshedOnlyForAModelItsListHas(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	pro, ultra := twoAccounts(t, w)
+
+	_, ok := w.subs.ServedNames(t.Context(), "antigravity")
+	require.True(t, ok)
+
+	_, err := w.subs.TokenAfterRefusalFor(t.Context(), subscription.Token{AccountID: pro.ID}, "gemini-4-carbon-high")
+	require.ErrorIs(t, err, subscription.ErrModelNotServed)
+
+	token, err := w.subs.TokenAfterRefusalFor(t.Context(), subscription.Token{AccountID: ultra.ID},
+		"gemini-4-carbon-high")
+	require.NoError(t, err)
+	assert.Equal(t, ultra.ID, token.AccountID)
+
+	_, err = w.subs.TokenAfterRefusalFor(t.Context(), subscription.Token{AccountID: ultra.ID}, "")
+	require.ErrorIs(t, err, subscription.ErrNoModel)
+}
+
+// Scenario (review of #832, round 4): the request that starts the Ultra account's first list read waits for it no
+// longer than any other: past the wait it is told to try again, and the Pro account is not picked.
+func TestTheRequestThatStartsAReadWaitsNoLonger(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	w.subs.WaitForListsAtMost(50 * time.Millisecond)
+	pro, _ := twoAccounts(t, w)
+
+	hold := make(chan struct{})
+	release := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	w.google.set(func(g *google) { g.holds["ultra"], g.arrived = hold, make(chan string, 4) })
+
+	type pick struct {
+		id  string
+		err error
+	}
+
+	picked := make(chan pick, 1)
+
+	go func() {
+		token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+		picked <- pick{token.AccountID, err}
+	}()
+
+	select {
+	case p := <-picked:
+		var cooling *subscription.CoolingError
+		require.ErrorAs(t, p.err, &cooling)
+		assert.NotEqual(t, pro.ID, p.id)
+	case <-time.After(10 * time.Second):
+		release()
+		t.Fatal("the request that started the read waited for it past the bound")
+	}
+}
+
+// Scenario (review of #832, round 4): an account's first list read is told when it ends, answered or not, so that
+// the providers' models are brought up to date then even when another account's list cannot be read.
+func TestAFirstReadThatFailsIsToldToo(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	w.google.set(func(g *google) { g.rosterFails["ultra"] = true })
+	twoAccounts(t, w)
+
+	told := make(chan string, 4)
+	w.subs.OnFirstList(func(runtime string) { told <- runtime })
+
+	_, _ = w.subs.ServedNames(t.Context(), "antigravity")
+
+	for range 2 {
+		select {
+		case <-told:
+		case <-time.After(10 * time.Second):
+			t.Fatal("a first read was not told")
+		}
+	}
+}

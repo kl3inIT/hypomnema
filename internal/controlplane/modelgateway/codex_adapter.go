@@ -108,11 +108,17 @@ type Subscriptions interface {
 // Token does.
 type ModelTokens interface {
 	TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error)
+	// TokenAfterRefusalFor is TokenAfterRefusal for a request for a model:
+	// ErrModelNotServed when the account is no longer usable or its list no
+	// longer has the model.
+	TokenAfterRefusalFor(ctx context.Context, refused AccountToken, model string) (AccountToken, error)
 }
 
 // ErrModelNotServed says no account's list of models has the model asked for
-// (issue #814).
+// (issue #814); a client is told so with codeModelNotServed.
 var ErrModelNotServed = errors.New("the model is not served by any account")
+
+const codeModelNotServed = "model_not_served"
 
 // ErrNoModel says a token was asked for without the model it will call, of a
 // runtime whose accounts are each served their own models (issue #814).
@@ -159,7 +165,7 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 
 	resp, err := s.underAccounts(ctx, codexRuntime, listedModel(call.upstream.Model), built.CacheKey, nil,
 		func(token AccountToken) (*http.Response, error) {
-			resp, err := s.codexCall(ctx, &token, built)
+			resp, err := s.codexCall(ctx, &token, listedModel(call.upstream.Model), built)
 			if err != nil {
 				return nil, err
 			}
@@ -179,16 +185,18 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 	return resp, nil
 }
 
-// codexCall sends a built request under an account. A token the backend
-// refuses is refreshed once and the request sent again; token is then the
-// new one.
-func (s *Server) codexCall(ctx context.Context, token *AccountToken, built codex.Request) (*http.Response, error) {
+// codexCall sends a built request for model under an account. A token the
+// backend refuses is refreshed once and the request sent again; token is then
+// the new one.
+func (s *Server) codexCall(
+	ctx context.Context, token *AccountToken, model forModel, built codex.Request,
+) (*http.Response, error) {
 	resp, err := s.codexPost(ctx, *token, built)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized {
 		return resp, err
 	}
 
-	return s.retryRefusedAccount(ctx, resp, token, func(fresh AccountToken) (*http.Response, error) {
+	return s.retryRefusedAccount(ctx, resp, token, model, func(fresh AccountToken) (*http.Response, error) {
 		return s.codexPost(ctx, fresh, built)
 	})
 }

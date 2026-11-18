@@ -253,7 +253,7 @@ func (s *Server) passResponses(
 
 	return s.underAccounts(ctx, codexRuntime, listedModel(target.Model), built.CacheKey, nil,
 		func(token AccountToken) (*http.Response, error) {
-			resp, err := s.codexCall(ctx, &token, built)
+			resp, err := s.codexCall(ctx, &token, listedModel(target.Model), built)
 			if err != nil {
 				return nil, err
 			}

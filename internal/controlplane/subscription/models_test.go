@@ -176,3 +176,34 @@ func TestAClaudeListIsTheFirstAccounts(t *testing.T) {
 
 	assert.ElementsMatch(t, ids, picked)
 }
+
+// Scenario (review of #832, round 4): two Claude accounts; an hour later the first one's list cannot be read again.
+// The list is the second account's, read now, as main read it, rather than the first one's old list.
+func TestAClaudeListFallsToTheNextAccountWhenTheFirstFails(t *testing.T) {
+	w := newClaudeWorld(t)
+	w.loginN(2)
+
+	var calls atomic.Int32
+
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		switch calls.Add(1) {
+		case 1:
+			_, _ = rw.Write([]byte(`{"data": [{"id": "claude-old"}], "has_more": false}`))
+		case 2:
+			http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+		default:
+			_, _ = rw.Write([]byte(`{"data": [{"id": "claude-new"}], "has_more": false}`))
+		}
+	})
+
+	names, ok := w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-old"}, names)
+
+	w.clock.advance(61 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-new"}, names, "the second account's list")
+	assert.EqualValues(t, 3, calls.Load())
+}

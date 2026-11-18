@@ -2905,11 +2905,13 @@ capabilities do not exist yet.
   logged-in accounts). A subscription provider's models are what its migration listed plus what its vendor serves:
   soon after the start and then every hour the control plane asks, with every active account of Codex and
   Antigravity, each read and kept for an hour on its own (a failed reading is tried again after 5 minutes and keeps
-  the last one; a caller waits up to 30 s for an account's first reading another has started), and takes the union
+  the last one; a read runs on its own, and the caller that starts it, or any caller while it is an account's first,
+  waits for it at most 30 s), and takes the union
   of their lists in the accounts' order (issue [#814](https://github.com/kl3inIT/hypomnema/issues/814), as omp's
   `unionAccountCatalogs` and CLIProxyAPI's per-auth registry do for both; an account whose list cannot be read hides
-  no other's; when an account's first list is read, the providers are updated then, not at the next hour), and for
-  Claude with its first active account that answers (neither reads Anthropic's list per account),
+  no other's; when a read of an account with no list yet ends, answered or not, the providers are updated then, not at
+  the next hour), and for Claude with its first active account whose last read answered, else the first one's old
+  list (neither reads Anthropic's list per account),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token), Antigravity (`fetchAvailableModels`, without internal
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`) and OpenCode Go
@@ -3191,8 +3193,11 @@ capabilities do not exist yet.
     orders those. An account whose first list is being read is waited for, at most 30 s; while no account is known to
     have the model and one's list is not known (still being read, or never read), the request gets a 429 to try
     again in 30 s, never another account in its place; once every list is known and none has the model, it gets a
-    404 `model_not_served`. The accounts and what is known of their lists are taken at one moment, after the lists
-    were read, so an account is judged as it is then. Every request for a Codex or Antigravity account names its
+    404 `model_not_served` (an Antigravity image asked for by name too). The accounts and what is known of their
+    lists are taken at one moment, after the lists were read, and the account picked is read again right before its
+    token is given: one disabled, logged out or cooling since, or whose list no longer has the model, is passed over.
+    A token the vendor refuses (401) is refreshed only while the account's list still has the model; otherwise the
+    request goes on to the next account. Every request for a Codex or Antigravity account names its
     model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
     and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,
     as before (owner, 2026-11-18). Claude's requests are not narrowed: its list does not name every model it serves,

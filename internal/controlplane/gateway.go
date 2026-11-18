@@ -85,6 +85,15 @@ func (g gatewayAccounts) NoteAnswer(runtime, accountID string, h http.Header) {
 	g.subs.NoteAnswer(runtime, accountID, h)
 }
 
+// TokenAfterRefusalFor is TokenAfterRefusal for a request for a model (issue #814).
+func (g gatewayAccounts) TokenAfterRefusalFor(
+	ctx context.Context, refused modelgateway.AccountToken, model string,
+) (modelgateway.AccountToken, error) {
+	return accountToken(g.subs.TokenAfterRefusalFor(ctx, subscription.Token{
+		AccountID: refused.AccountID, ExternalID: refused.ExternalID, Version: refused.Version,
+	}, model))
+}
+
 func (g gatewayAccounts) TokenAfterRefusal(
 	ctx context.Context, refused modelgateway.AccountToken,
 ) (modelgateway.AccountToken, error) {

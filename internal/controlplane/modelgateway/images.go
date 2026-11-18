@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -136,6 +137,9 @@ type ImageFailure struct {
 	Status     int
 	RetryAfter time.Duration
 	Message    string
+	// Code is the error's code when the gateway made it, such as
+	// model_not_served (issue #814).
+	Code string
 }
 
 // ImageResult is the images one provider made.
@@ -189,6 +193,12 @@ func (e *ImageError) Status() int {
 	default:
 		return http.StatusBadGateway
 	}
+}
+
+// NotServed says the one provider tried has no account served its model
+// (issue #814).
+func (e *ImageError) NotServed() bool {
+	return len(e.Failures) == 1 && e.Failures[0].Code == codeModelNotServed
 }
 
 // RetryAfter is the shortest wait the limited providers asked for.
@@ -476,6 +486,15 @@ func (s *Server) failureOf(resp *http.Response, err error, noAccount string) *Im
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
 	f := &ImageFailure{Status: resp.StatusCode, Message: errorText(body)}
+
+	var coded struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &coded) == nil && coded.Error.Code == codeModelNotServed {
+		f.Code = codeModelNotServed
+	}
 
 	if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 {
 		f.RetryAfter = time.Duration(secs) * time.Second
@@ -814,9 +833,19 @@ func (s *Server) antigravityImage(
 
 	resp, err := send(token)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		drain(resp)
+		fresh, refreshErr := s.tokenAfterRefusal(ctx, token, listedModel(antigravity.ImageModel))
 
-		if token, err = s.accounts.TokenAfterRefusal(ctx, token); err == nil {
+		switch {
+		case errors.Is(refreshErr, ErrModelNotServed):
+			// The account no longer serves the image model: its 401 stands, and the next account is tried.
+		case refreshErr != nil:
+			drain(resp)
+
+			err = refreshErr
+		default:
+			drain(resp)
+
+			token = fresh
 			resp, err = send(token)
 		}
 	}

@@ -142,7 +142,8 @@ func readSearch(resp *http.Response) ([]byte, error) {
 func (s *Server) codexSearch(
 	ctx context.Context, token AccountToken, query string, limit int,
 ) ([]websearch.Result, *http.Response, error) {
-	resp, err := s.codexCall(ctx, &token, codex.Request{Body: codex.SearchBody(query, limit)})
+	resp, err := s.codexCall(ctx, &token, unlistedModel(codex.SearchModel),
+		codex.Request{Body: codex.SearchBody(query, limit)})
 	if err != nil {
 		return nil, nil, err
 	}

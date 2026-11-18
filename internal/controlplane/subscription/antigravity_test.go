@@ -303,6 +303,7 @@ type antigravityWorld struct {
 	clock  *fakeClock
 	vault  *vault.Service
 	subs   *subscription.Service
+	orch   *orchestration.Service
 }
 
 func newAntigravityWorld(t *testing.T, secret string) *antigravityWorld {
@@ -319,6 +320,7 @@ func newAntigravityWorld(t *testing.T, secret string) *antigravityWorld {
 
 	w := &antigravityWorld{t: t, google: newGoogle(t), clock: &fakeClock{now: t0}}
 	orch := orchestration.New(db, w.clock, platform.NewID)
+	w.orch = orch
 	w.vault = vault.New(db, w.clock, platform.NewID, keys, orch.AccountsUsingSecretRef)
 
 	base := w.google.srv.URL

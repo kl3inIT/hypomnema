@@ -102,8 +102,11 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 		return servedView{}
 	}
 
-	v := servedView{limits: map[string][2]int64{}, wires: map[string]string{}}
-	seen := map[string]bool{}
+	if !perAccount[runtime] {
+		return s.firstServed(ctx, runtime, accounts)
+	}
+
+	v := newServedView()
 
 	// An account whose reading failed adds what it was last read to serve, or nothing; it hides no other's (omp
 	// packages/catalog/src/provider-models/google.ts keeps a catalog it could not read again and skips an account
@@ -116,29 +119,65 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 			continue
 		}
 
-		v.known = true
-
-		for _, m := range r.models {
-			if !seen[m.Name] {
-				seen[m.Name] = true
-				v.names = append(v.names, m.Name)
-			}
-
-			if _, given := v.limits[m.Name]; !given && (m.Window > 0 || m.Output > 0) {
-				v.limits[m.Name] = [2]int64{m.Window, m.Output}
-			}
-
-			if _, given := v.wires[m.Name]; !given && m.Wire != "" {
-				v.wires[m.Name] = m.Wire
-			}
-		}
-
-		if !perAccount[runtime] {
-			break
-		}
+		v.add(r)
 	}
 
 	return v
+}
+
+// firstServed is what a runtime whose list is not each account's own (Claude, OpenCode Go) is served: the list of
+// its first usable account whose last reading answered, as main read it (issue #623); only when none answered, the
+// first one that ever did.
+func (s *Service) firstServed(ctx context.Context, runtime string, accounts []Account) servedView {
+	var stale *servedReading
+
+	for _, a := range usable(accounts, runtime) {
+		r := s.reading(ctx, runtime, a.ID)
+		if r.at.IsZero() {
+			continue
+		}
+
+		if r.answered() {
+			v := newServedView()
+			v.add(r)
+
+			return v
+		}
+
+		if stale == nil {
+			stale = &r
+		}
+	}
+
+	v := newServedView()
+	if stale != nil {
+		v.add(*stale)
+	}
+
+	return v
+}
+
+func newServedView() servedView {
+	return servedView{limits: map[string][2]int64{}, wires: map[string]string{}}
+}
+
+// add adds what one account is served.
+func (v *servedView) add(r servedReading) {
+	v.known = true
+
+	for _, m := range r.models {
+		if !slices.Contains(v.names, m.Name) {
+			v.names = append(v.names, m.Name)
+		}
+
+		if _, given := v.limits[m.Name]; !given && (m.Window > 0 || m.Output > 0) {
+			v.limits[m.Name] = [2]int64{m.Window, m.Output}
+		}
+
+		if _, given := v.wires[m.Name]; !given && m.Wire != "" {
+			v.wires[m.Name] = m.Wire
+		}
+	}
 }
 
 // servers are the accounts among ofRuntime whose last list has model, and unknown says one's list was never read,
@@ -161,55 +200,74 @@ func (s *Service) servers(ofRuntime []Account, model string) (servers []Account,
 	return servers, unknown
 }
 
+// answered says the account's last try to read its list answered: it is the reading kept.
+func (r servedReading) answered() bool {
+	return !r.at.IsZero() && !r.at.Before(r.tried)
+}
+
+// hasModel says an account's last list has model.
+func (s *Service) hasModel(accountID, model string) bool {
+	s.servedMu.Lock()
+	defer s.servedMu.Unlock()
+
+	return slices.ContainsFunc(s.served[accountID].models, func(m ServedModel) bool { return m.Name == model })
+}
+
 // reading is the last reading of the models an account is served, read again when it is older than servedKept and
-// the last try is older than servedRetry. A reading that fails keeps the last one. While the account's first reading
-// is in flight, another caller waits for it, at most servedWait.
+// the last try is older than servedRetry. A reading that fails keeps the last one. The read runs on its own; the
+// caller that starts it waits for it at most servedWait, and so does any caller while the account's first reading is
+// in flight; after the wait the reading as it is then is given. When a read of an account with no list yet ends,
+// answered or not, firstList is told, so that the providers' models are brought up to date then (issue #814).
 func (s *Service) reading(ctx context.Context, runtime, accountID string) servedReading {
 	now := s.clock.Now()
 
 	s.servedMu.Lock()
 	r := s.served[accountID]
 
-	if r.at.IsZero() && r.reading != nil {
-		done := r.reading
-		s.servedMu.Unlock()
+	var done chan struct{}
 
-		wait := time.NewTimer(s.servedWait)
-		defer wait.Stop()
+	switch {
+	case r.reading != nil && r.at.IsZero():
+		done = r.reading
+	case r.reading == nil && now.Sub(r.at) >= servedKept && now.Sub(r.tried) >= servedRetry:
+		done = make(chan struct{})
+		r.tried, r.reading = now, done
+		s.served[accountID] = r
 
-		select {
-		case <-done:
-		case <-wait.C:
-		case <-ctx.Done():
-		}
-
-		s.servedMu.Lock()
-		defer s.servedMu.Unlock()
-
-		return s.served[accountID]
+		go s.read(context.WithoutCancel(ctx), runtime, accountID, now, done)
 	}
+	s.servedMu.Unlock()
 
-	stale := now.Sub(r.at) >= servedKept && now.Sub(r.tried) >= servedRetry
-	if !stale {
-		s.servedMu.Unlock()
-
+	if done == nil {
 		return r
 	}
 
-	done := make(chan struct{})
-	r.tried, r.reading = now, done
-	s.served[accountID] = r
-	s.servedMu.Unlock()
+	wait := time.NewTimer(s.servedWait)
+	defer wait.Stop()
 
+	select {
+	case <-done:
+	case <-wait.C:
+	case <-ctx.Done():
+	}
+
+	s.servedMu.Lock()
+	defer s.servedMu.Unlock()
+
+	return s.served[accountID]
+}
+
+// read reads an account's list of models and keeps it (reading).
+func (s *Service) read(ctx context.Context, runtime, accountID string, started time.Time, done chan struct{}) {
 	models, err := s.Models(ctx, accountID)
 
 	s.servedMu.Lock()
 
-	r = s.served[accountID]
-	first := err == nil && r.at.IsZero()
+	r := s.served[accountID]
+	unknown := r.at.IsZero()
 
 	if err == nil {
-		r.models, r.at = models, now
+		r.models, r.at = models, started
 	}
 
 	r.reading = nil
@@ -219,9 +277,7 @@ func (s *Service) reading(ctx context.Context, runtime, accountID string) served
 	tell := s.firstList
 	s.servedMu.Unlock()
 
-	if first && tell != nil {
-		go tell(runtime)
+	if unknown && tell != nil {
+		tell(runtime)
 	}
-
-	return r
 }
