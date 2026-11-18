@@ -187,9 +187,13 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 		return
 	}
 
-	var chat *chatRequest
+	var (
+		chat          *chatRequest
+		imagesOmitted bool
+	)
 
-	for i, a := range attempts {
+	for i := 0; i < len(attempts); i++ {
+		a := attempts[i]
 		last := i == len(attempts)-1
 		noteServed(ctx, "")
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, a.upstream.Provider, a.upstream.Model
@@ -240,6 +244,16 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 
 		record.Status = resp.StatusCode
 
+		if !imagesOmitted && s.omitRefusedImages(ctx, resp, &call) {
+			// The same target is asked again, without the images (issue #796).
+			drain(resp)
+
+			chat, imagesOmitted = nil, true
+			i--
+
+			continue
+		}
+
 		if retryable(resp.StatusCode) && !last {
 			drain(resp)
 
@@ -268,6 +282,38 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 
 	writeAnthropicError(w, http.StatusBadGateway, typeServer, "",
 		fmt.Sprintf("no provider of model %q could be reached", model.Name))
+}
+
+// omitRefusedImages takes the images out of a call whose target answered that
+// it could not process an image, and says whether it did (issue #796). The
+// image stays in the client's history and is sent on each turn, so the
+// request is asked again without it, as Hermes retries a corrupt image's call
+// (agent/turn_recovery.py, _strip_request_images_and_retry). A refusal of any
+// other kind is left readable as it came.
+func (s *Server) omitRefusedImages(ctx context.Context, resp *http.Response, call *messagesCall) bool {
+	if resp.StatusCode != http.StatusBadRequest {
+		return false
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
+	_ = resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+
+	if !claude.RefusesImage(body) {
+		return false
+	}
+
+	raw, ok := claude.WithoutImages(call.raw)
+	if !ok {
+		return false
+	}
+
+	call.raw = raw
+
+	s.logger.WarnContext(ctx, "a provider could not process an image; asking again without the images",
+		slog.String("event", "modelgateway.image_omitted"))
+
+	return true
 }
 
 // messagesAttempt is one target a Messages request may go to.
