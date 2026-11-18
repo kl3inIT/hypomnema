@@ -89,6 +89,8 @@ var commands = []command{
 			fs.String("spec", "", "the Task's spec")
 			fs.String("spec-file", "", "read the spec from this file, or - for standard input")
 			fs.String("depends-on", "", "comma-separated refs or Task ids it depends on")
+			fs.String("kind", "", "broad (default), narrow or quick")
+			fs.String("review-of", "", "id of the succeeded Task whose work this reviewer checks")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model, instead of the profile's")
 			fs.String("effort", "", "effort, instead of the profile's")
@@ -713,6 +715,22 @@ var commands = []command{
 	{
 		name: "repos rm", args: "<name>", min: 1, max: 1, summary: "forget a registered repository (owner)",
 		flags: jsonFlag, run: reposRemove,
+	},
+	{
+		name: "profiles routing", summary: "show the effective role and Task-kind mapping as YAML",
+		flags: jsonFlag, run: profilesRouting,
+	},
+	{
+		name: "profiles routing-apply", args: "<file>", min: 1, max: 1,
+		summary: "validate and replace the role routing YAML (owner)", run: profilesRoutingApply,
+	},
+	{
+		name: "profiles metrics", summary: "settled attempts and cost by role, kind and chain entry (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("since", "", "start of the period in RFC3339 (default: 14 days ago)")
+			jsonFlag(fs)
+		},
+		run: profilesMetrics,
 	},
 	{
 		name: "profiles list", summary: "the profiles Tasks can name, at their current versions",

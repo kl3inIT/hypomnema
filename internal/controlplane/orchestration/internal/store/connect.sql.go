@@ -10,7 +10,7 @@ import (
 )
 
 const listLiveDispatchesOfNode = `-- name: ListLiveDispatchesOfNode :many
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes FROM dispatches
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry FROM dispatches
 WHERE node_id = ?1 AND status IN ('starting', 'running', 'unknown', 'stop_unknown')
 ORDER BY created_at, id
 `
@@ -63,6 +63,8 @@ func (q *Queries) ListLiveDispatchesOfNode(ctx context.Context, nodeID string) (
 			&i.FollowUpID,
 			&i.CpuMillis,
 			&i.MemoryBytes,
+			&i.RoleChain,
+			&i.ChainEntry,
 		); err != nil {
 			return nil, err
 		}
@@ -78,7 +80,7 @@ func (q *Queries) ListLiveDispatchesOfNode(ctx context.Context, nodeID string) (
 }
 
 const listQueuedDispatchesOfNode = `-- name: ListQueuedDispatchesOfNode :many
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes FROM dispatches WHERE node_id = ?1 AND status = 'queued' ORDER BY created_at, id
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry FROM dispatches WHERE node_id = ?1 AND status = 'queued' ORDER BY created_at, id
 `
 
 func (q *Queries) ListQueuedDispatchesOfNode(ctx context.Context, nodeID string) ([]Dispatch, error) {
@@ -128,6 +130,8 @@ func (q *Queries) ListQueuedDispatchesOfNode(ctx context.Context, nodeID string)
 			&i.FollowUpID,
 			&i.CpuMillis,
 			&i.MemoryBytes,
+			&i.RoleChain,
+			&i.ChainEntry,
 		); err != nil {
 			return nil, err
 		}

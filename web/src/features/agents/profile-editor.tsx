@@ -36,6 +36,7 @@ import {
   efforts,
   emptyDraft,
   maxFallbacks,
+  routingRoles,
   modelKey,
   problem,
   runtimeName,
@@ -248,6 +249,8 @@ function Builder({
   renamable: boolean
   access?: ToolAccess
 }) {
+  const runtimeChoices = routingRoles.includes(draft.name.trim()) ? ["role", ...runtimes] : runtimes
+
   return (
     <div className="flex flex-col gap-5">
       <Field>
@@ -258,7 +261,7 @@ function Builder({
           readOnly={!renamable}
           autoComplete="off"
           spellCheck={false}
-          placeholder="implementer-codex"
+          placeholder="implementer"
           value={draft.name}
           onChange={(event) => set({ name: event.target.value })}
         />
@@ -287,22 +290,33 @@ function Builder({
       <Field>
         <FieldLabel htmlFor="profile-runtime">Runs on</FieldLabel>
         <Select
-          value={draft.runtime}
-          onValueChange={(runtime) => runtime && set({ runtime })}
-          items={runtimes.map((r) => ({ value: r, label: runtimeName(r) }))}
+          value={draft.runtime || "role"}
+          onValueChange={(runtime) =>
+            runtime && set({ runtime: runtime === "role" ? "" : runtime })
+          }
+          items={runtimeChoices.map((r) => ({
+            value: r,
+            label: runtimeName(r === "role" ? "" : r),
+          }))}
         >
           <SelectTrigger id="profile-runtime" width="full">
-            <SelectValue>{(value: string) => <RuntimeName runtime={value} />}</SelectValue>
+            <SelectValue>
+              {(value: string) => <RuntimeName runtime={value === "role" ? "" : value} />}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {runtimes.map((r) => (
+            {runtimeChoices.map((r) => (
               <SelectItem key={r} value={r}>
-                <RuntimeName runtime={r} />
+                <RuntimeName runtime={r === "role" ? "" : r} />
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <FieldDescription>The CLI a worker of this agent is, on a machine.</FieldDescription>
+        <FieldDescription>
+          {draft.runtime
+            ? "The CLI a worker of this agent is, on a machine."
+            : "The owner’s role routing selects the runtime, model and fallbacks for each Task kind."}
+        </FieldDescription>
       </Field>
 
       <div className="flex flex-col gap-2">
@@ -332,13 +346,15 @@ function Builder({
         </FieldDescription>
       </div>
 
-      <ModelField
-        id="profile-model"
-        model={draft.model}
-        effort={draft.effort}
-        models={models}
-        onChange={set}
-      />
+      {draft.runtime && (
+        <ModelField
+          id="profile-model"
+          model={draft.model}
+          effort={draft.effort}
+          models={models}
+          onChange={set}
+        />
+      )}
 
       <Field>
         <FieldLabel htmlFor="profile-instruction">Instructions</FieldLabel>
@@ -373,11 +389,13 @@ function Builder({
         description="Hypomnema's tools this agent's workers may call, from their next task on. The CLI's own tools are not switched here."
       />
 
-      <Fallbacks
-        own={draft.name}
-        chain={draft.fallbacks}
-        onChange={(fallbacks) => set({ fallbacks })}
-      />
+      {draft.runtime && (
+        <Fallbacks
+          own={draft.name}
+          chain={draft.fallbacks}
+          onChange={(fallbacks) => set({ fallbacks })}
+        />
+      )}
     </div>
   )
 }

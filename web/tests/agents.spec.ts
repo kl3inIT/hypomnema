@@ -90,7 +90,7 @@ const skills = [
   skill("lark-docs", "Write and update documents in Lark."),
 ]
 
-async function fakeServer(page: Page) {
+async function fakeServer(page: Page, extras: ReturnType<typeof profile>[] = []) {
   let profiles = [
     profile("implementer", {
       description:
@@ -118,6 +118,7 @@ async function fakeServer(page: Page) {
       effort: "low",
       version: 2,
     }),
+    ...extras,
   ]
   const applied: { name: string; source: string }[] = []
 
@@ -293,6 +294,25 @@ test("the agents show as cards and as a table, each saying whether it can run", 
 })
 
 // Scenario: the owner opens an agent, reads its fields, looks at the YAML and at its versions.
+test("a role profile shows routing by Task kind instead of a fixed model", async ({ page }) => {
+  await fakeServer(page, [
+    profile("planner", {
+      description: "Researches the references and proposes a design without editing files.",
+      runtime: "",
+      model: undefined,
+      provider: undefined,
+      available: undefined,
+      source: "name: planner\ndescription: Proposes a plan without changing files.\n",
+    }),
+  ])
+  await page.goto("/agents")
+  await expect(page.getByRole("article", { name: "planner" })).toContainText("Role routing")
+  await page.getByRole("link", { name: "planner" }).click()
+  await expect(page.getByLabel("Runs on")).toContainText("By Task kind")
+  await expect(page.getByLabel("Model", { exact: true })).toHaveCount(0)
+  await shot(page, "role-routing-profile")
+})
+
 test("an agent opens to its builder, its YAML and its versions", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/agents")
