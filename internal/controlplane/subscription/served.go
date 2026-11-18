@@ -15,6 +15,10 @@ const (
 	servedKept  = time.Hour
 	servedRetry = 5 * time.Minute
 	servedWait  = 30 * time.Second
+	// servedUnknownRetry is when a request for a model is to be tried again while an account's list it may be on is
+	// not known yet: under a minute, so that a Codex client retries it rather than ending its turn
+	// (modelgateway.codexWaitsUpTo).
+	servedUnknownRetry = 30 * time.Second
 )
 
 // perAccount are the runtimes whose vendor lists each account's own models (issue #814): what they are served is the
@@ -45,8 +49,10 @@ type servedView struct {
 	limits map[string][2]int64
 	// by are the accounts that serve each model.
 	by map[string][]string
-	// known says at least one account's models were read.
-	known bool
+	// known says at least one account's models were read, and reading that no usable account's first reading is
+	// still in flight: until it ends, the list is not given, so that no model is left out of it (issue #814).
+	known   bool
+	reading bool
 }
 
 // ServedLimits gives the context window and largest output the vendor serves a model with under a runtime's
@@ -65,6 +71,9 @@ func (s *Service) ServedLimits(ctx context.Context, runtime, model string) (wind
 // account, or none ever answered.
 func (s *Service) ServedNames(ctx context.Context, runtime string) (names []string, ok bool) {
 	v := s.servedOf(ctx, runtime)
+	if v.reading {
+		return nil, false
+	}
 
 	return v.names, v.known
 }
@@ -88,6 +97,8 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 
 		r := s.reading(ctx, a.ID)
 		if r.at.IsZero() {
+			v.reading = v.reading || r.reading != nil
+
 			continue
 		}
 
@@ -113,6 +124,14 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 	return v
 }
 
+// listKnown says an account's list of models was read at least once.
+func (s *Service) listKnown(accountID string) bool {
+	s.servedMu.Lock()
+	defer s.servedMu.Unlock()
+
+	return !s.served[accountID].at.IsZero()
+}
+
 // reading is the last reading of the models an account is served, read again when it is older than servedKept and
 // the last try is older than servedRetry. A reading that fails keeps the last one. While the account's first reading
 // is in flight, another caller waits for it, at most servedWait, so that a model is neither left out nor sent to an
@@ -127,7 +146,7 @@ func (s *Service) reading(ctx context.Context, accountID string) servedReading {
 		done := r.reading
 		s.servedMu.Unlock()
 
-		wait := time.NewTimer(servedWait)
+		wait := time.NewTimer(s.servedWait)
 		defer wait.Stop()
 
 		select {

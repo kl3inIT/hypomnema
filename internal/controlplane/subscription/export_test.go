@@ -39,3 +39,8 @@ func (a *Antigravity) PollWithoutWaiting() {
 // ReadLimitsFrom makes the limits of a Codex account be read from a test's
 // server in ChatGPT's place.
 func (c *Codex) ReadLimitsFrom(base string) { c.usageBase = base }
+
+// WaitForListsAtMost bounds the wait for an account's first list of models in flight.
+func (s *Service) WaitForListsAtMost(d time.Duration) {
+	s.servedWait = d
+}

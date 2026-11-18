@@ -230,3 +230,61 @@ func TestAnAccountFoundUnusableWhileItsListIsReadIsNotPicked(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, subscription.StateLoginRequired, a.State)
 }
+
+// Scenario (review of #832, round 2): the Ultra account's first list is still being read after the wait, and the
+// Ultra account is in reserve. A request for Carbon is not sent to the Pro account, whose list is known not to have
+// it: it is told to try again soon. The gateway's list is not given meanwhile, so Carbon is not taken off it.
+func TestAListNotKnownYetNeverLiftsTheFilter(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	w.subs.WaitForListsAtMost(50 * time.Millisecond)
+	pro, ultra := twoAccounts(t, w)
+	w.subs.NoteQuota(ultra.ID, 0.05)
+
+	hold, arrived := make(chan struct{}), make(chan string, 4)
+	release := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	w.google.set(func(g *google) { g.holds["ultra"], g.arrived = hold, arrived })
+
+	// The lists are read in the accounts' order: the Pro account's is known once the Ultra account's is asked for.
+	go func() { _, _ = w.subs.ServedNames(t.Context(), "antigravity") }()
+
+	select {
+	case <-arrived:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the Ultra account's list was never asked for")
+	}
+
+	token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+
+	var cooling *subscription.CoolingError
+	require.ErrorAs(t, err, &cooling, "to be tried again")
+	assert.NotEqual(t, pro.ID, token.AccountID)
+	assert.Equal(t, w.clock.Now().Add(30*time.Second), cooling.Until)
+
+	_, ok := w.subs.ServedNames(t.Context(), "antigravity")
+	assert.False(t, ok, "no list while one is being read")
+
+	release()
+}
+
+// Scenario (issue #814): every account's list is known and none has the model, such as one a profile keeps (issue
+// #639). Every account serves it, as before; while one account's list is not known, none does yet.
+func TestAModelNoKnownListHasGoesToEveryAccount(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	w.google.set(func(g *google) { g.rosterFails["pro"] = true })
+	pro, ultra := twoAccounts(t, w)
+
+	_, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-argon-high", "")
+
+	var cooling *subscription.CoolingError
+	require.ErrorAs(t, err, &cooling, "the Pro account's list could not be read")
+
+	w.google.set(func(g *google) { g.rosterFails["pro"] = false })
+	w.clock.advance(5 * time.Minute) // past the retry
+
+	assert.ElementsMatch(t, []string{pro.ID, ultra.ID}, accountsFor(t, w, "gemini-4-argon-high", 2))
+}

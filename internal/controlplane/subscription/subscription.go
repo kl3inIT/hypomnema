@@ -200,6 +200,8 @@ type Service struct {
 	// served is the last reading of the models each account is served (served.go); servedMu guards it.
 	served   map[string]servedReading
 	servedMu sync.Mutex
+	// servedWait bounds the wait for an account's first reading in flight (served.go).
+	servedWait time.Duration
 }
 
 const (
@@ -228,7 +230,7 @@ func New(
 	s := &Service{
 		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
 		rr: map[string]int{}, left: map[string]quotaReading{}, limits: map[string]limitsEntry{}, pins: map[string]pin{},
-		served: map[string]servedReading{},
+		served: map[string]servedReading{}, servedWait: servedWait,
 	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor
@@ -473,8 +475,10 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 // Token then orders those. An empty model is Token. The lists are read before the accounts, so that what reading them
 // found of an account (a login refused, a mark) decides whether it is given.
 func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (Token, error) {
+	narrow := model != "" && perAccount[runtime]
+
 	var servers []string
-	if model != "" && perAccount[runtime] {
+	if narrow {
 		servers = s.servedOf(ctx, runtime).by[model]
 	}
 
@@ -496,8 +500,15 @@ func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, 
 	// Only the accounts whose list has the model, when one has it: CLIProxyAPI picks only an auth that registered
 	// the model (sdk/cliproxy/auth/conductor_selection.go authSupportsRouteModel), and omp enforces the accounts
 	// discovery saw serve it only when one of them is there (packages/ai/src/auth/select.ts enforceAccounts).
-	if len(servers) > 0 {
+	// A list not known yet never lifts that (owner, 2026-11-18): while no account is known to have the model and
+	// one's list is still unknown (its first reading in flight past the wait, or failed), the request is answered
+	// as accounts that cool are, to be tried again, rather than sent to an account whose list may lack it. Only when
+	// every account's list is known and none has the model does every account serve it, as before.
+	switch {
+	case len(servers) > 0:
 		ofRuntime = slices.DeleteFunc(ofRuntime, func(a Account) bool { return !slices.Contains(servers, a.ID) })
+	case narrow && slices.ContainsFunc(ofRuntime, func(a Account) bool { return !s.listKnown(a.ID) }):
+		return Token{}, &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry)}
 	}
 
 	if len(ofRuntime) == 0 {

@@ -3082,8 +3082,11 @@ capabilities do not exist yet.
     list (read as the gateway's models are) has it, when one has it; every rule here then orders those, and an
     account is judged as it is after its list was read (issue
     [#814](https://github.com/kl3inIT/hypomnema/issues/814), CLIProxyAPI's `authSupportsRouteModel`, omp's
-    `accountIds`). A model no account's list has, such as one a profile keeps or a Codex model its picker hides,
-    goes to every account as before. Claude's requests are not narrowed: its list is the first account's.
+    `accountIds`). A list not known yet never lifts that (owner, 2026-11-18): while no account is known to have
+    the model and one's list is still unknown (its first reading in flight past the 30 s wait, or failed), the
+    request gets a 429 to try again in 30 s, and the gateway's list is not changed while a first reading is in
+    flight. A model no account's list has, once every list is known, such as one a profile keeps or a Codex model
+    its picker hides, goes to every account as before. Claude's requests are not narrowed: its list is the first account's.
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
