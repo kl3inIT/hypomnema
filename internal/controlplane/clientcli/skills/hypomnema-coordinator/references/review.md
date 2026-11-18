@@ -40,9 +40,8 @@ request open for the review.
    Report the pull request as reviewed, then report what the author says: merged, auto-merge on, or what the
    repository lacks for it, which the owner settles. You never merge nor turn on auto-merge yourself.
    CodeRabbit is never a condition of its own: its findings count through the verdict, as in step 3.
-6. Findings that make the change incorrect: report them to the owner as the reviewer gave them, and offer to send
-   them to the worker that made the change. Once the owner agrees, send them as a follow-up on that Task, the
-   findings pasted word for word:
+6. Findings that make the change incorrect: send them to the worker that made the change at once, without asking
+   the owner (owner, 2026-11-18, issue #871), as a follow-up on that Task, the findings pasted word for word:
    ```text
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```
@@ -55,7 +54,8 @@ request open for the review.
    - `## Still disputed`: each finding the author did not fix and said why, or none.
 
    Ask the reviewer to say, for each earlier finding, whether it is fixed, still open or disputed, and to report
-   new findings as before. After two rounds that still leave findings that make the change incorrect, stop and tell
-   the owner what does not converge.
+   new findings as before. Review and fix go on for up to three rounds. After three rounds that still leave findings
+   that make the change incorrect, stop: leave the pull request open with auto-merge off, add no Task, and tell the
+   owner in one line what does not converge. It is a report, not a question; nothing waits for an answer.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.
