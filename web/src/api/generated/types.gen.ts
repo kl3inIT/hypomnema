@@ -2251,6 +2251,17 @@ export type NewTokenAccount = {
   label: string;
 };
 
+export type NewAccountImport = {
+  /**
+   * The kind of subscription; only Claude Code's file is read.
+   */
+  runtime: 'claude';
+  /**
+   * The account's name for the owner; its e-mail when left out. Kept by an account imported again.
+   */
+  label?: string;
+};
+
 export type NewAccountSignIn = {
   /**
    * The kind of subscription.
@@ -4113,6 +4124,21 @@ export type NewTokenAccountWritable = {
    * The token `claude setup-token` prints, one line.
    */
   token: string;
+};
+
+export type NewAccountImportWritable = {
+  /**
+   * The kind of subscription; only Claude Code's file is read.
+   */
+  runtime: 'claude';
+  /**
+   * The whole `.credentials.json` Claude Code saved, as text.
+   */
+  credentials: string;
+  /**
+   * The account's name for the owner; its e-mail when left out. Kept by an account imported again.
+   */
+  label?: string;
 };
 
 export type MeetingId = string;
@@ -6604,6 +6630,31 @@ export type AddTokenAccountResponses = {
 };
 
 export type AddTokenAccountResponse = AddTokenAccountResponses[keyof AddTokenAccountResponses];
+
+export type ImportAccountData = {
+  body: NewAccountImportWritable;
+  path?: never;
+  query?: never;
+  url: '/account-imports';
+};
+
+export type ImportAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ImportAccountError = ImportAccountErrors[keyof ImportAccountErrors];
+
+export type ImportAccountResponses = {
+  /**
+   * The account.
+   */
+  201: Account;
+};
+
+export type ImportAccountResponse = ImportAccountResponses[keyof ImportAccountResponses];
 
 export type BeginAccountSignInData = {
   body: NewAccountSignIn;

@@ -153,6 +153,9 @@ type Accounts interface {
 	// Complete finishes a sign-in and stores it: a new account, or new tokens
 	// for the account the vendor's id already has.
 	Complete(ctx context.Context, a *subscription.Attempt, pasted, label string) (subscription.Account, error)
+	// Import stores the session a vendor's CLI saved in its credentials file
+	// (issue #828), as Complete stores a sign-in.
+	Import(ctx context.Context, runtime string, raw []byte, label string) (subscription.Account, error)
 }
 
 // GatewayModels lists the models the model gateway serves, gives their

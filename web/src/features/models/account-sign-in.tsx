@@ -1,11 +1,16 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { Copy, ExternalLink, RotateCcw } from "lucide-react"
-import { useId, useState, type ReactElement } from "react"
+import { Copy, ExternalLink, FileUp, RotateCcw } from "lucide-react"
+import { useId, useRef, useState, type ReactElement } from "react"
 import { z } from "zod"
 
 import "@/api/client"
-import { addTokenAccount, beginAccountSignIn, completeAccountSignIn } from "@/api/generated/sdk.gen"
+import {
+  addTokenAccount,
+  beginAccountSignIn,
+  completeAccountSignIn,
+  importAccount,
+} from "@/api/generated/sdk.gen"
 import type { Account, AccountSignInAttempt } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -19,9 +24,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
@@ -30,7 +36,7 @@ import { useRefreshAccounts } from "./use-models"
 
 export type SignInRuntime = "claude" | "codex" | "antigravity"
 
-type Way = "sign-in" | "token"
+type Way = "sign-in" | "token" | "file"
 
 const finishSchema = z.object({
   callback: z.string().trim().min(1, "Paste what the page gave you."),
@@ -45,11 +51,33 @@ const tokenSchema = z.object({
     .refine((typed) => !/\s/.test(typed), "The token is one line without spaces."),
 })
 
+// fileSchema checks a credentials file only for its shape, as OmniRoute's import does before sending it
+// (ImportClaudeAuthModal.tsx, previewClaudeJson); the server reads it in full.
+const fileSchema = z.object({
+  label: z.string().trim().max(64, "At most 64 characters."),
+  credentials: z
+    .string()
+    .trim()
+    .min(1, "Paste or choose the file.")
+    .max(65536, "This is larger than Claude Code's file.")
+    .refine((typed) => {
+      try {
+        const oauth = (JSON.parse(typed) as { claudeAiOauth?: { refreshToken?: unknown } })
+          .claudeAiOauth
+        return typeof oauth?.refreshToken === "string" && oauth.refreshToken !== ""
+      } catch {
+        return false
+      }
+    }, "This is not Claude Code's .credentials.json: it has no claudeAiOauth with a refresh token."),
+})
+
 // AccountSignInDialog adds a subscription account on the control plane, or signs one in again (issue #199). It
 // has no step before the sign-in: opening it starts one, as 9router's dialog does (OAuthModal.js), so the link
 // and the field for what the page gives back are there at once. The account takes its e-mail as its name, as
 // 9router names a connection. Claude has a second way beside it, as 9router has "Paste token" beside its browser
 // sign-in and OpenClaw has `models auth paste-token`: the token `claude setup-token` prints, which lasts a year.
+// A third way imports the session Claude Code already saved in its .credentials.json (issue #828), as OmniRoute's
+// "Import Claude auth" does (ImportClaudeAuthModal.tsx): pasted, or read from the chosen file in the browser.
 // Nothing is opened on the server, and no password passes through Hypomnema.
 export function AccountSignInDialog({
   runtime,
@@ -96,6 +124,20 @@ export function AccountSignInDialog({
     onSuccess: setStarted,
   })
 
+  const importFile = useMutation({
+    mutationFn: async (input: { label: string; credentials: string }) =>
+      (
+        await importAccount({
+          body: {
+            runtime: "claude",
+            credentials: input.credentials,
+            ...(input.label ? { label: input.label } : {}),
+          },
+        })
+      ).data,
+    onSuccess: finished,
+  })
+
   const addToken = useMutation({
     mutationFn: async (input: { label: string; token: string }) =>
       (
@@ -121,6 +163,14 @@ export function AccountSignInDialog({
       addToken.mutate({ label: value.label.trim(), token: value.token.trim() }),
   })
 
+  const file = useForm({
+    defaultValues: { label: "", credentials: "" },
+    validators: { onSubmit: fileSchema },
+    onSubmit: ({ value }) =>
+      importFile.mutate({ label: value.label.trim(), credentials: value.credentials.trim() }),
+  })
+  const chooser = useRef<HTMLInputElement>(null)
+
   // startAgain begins a new sign-in: one is completed once, so after a refused one the owner opens a new link.
   function startAgain() {
     setStarted(null)
@@ -140,6 +190,8 @@ export function AccountSignInDialog({
     setStarted(null)
     finish.reset()
     token.reset()
+    file.reset()
+    importFile.reset()
     begin.reset()
     complete.reset()
     addToken.reset()
@@ -149,7 +201,7 @@ export function AccountSignInDialog({
   // A link that could not be made is begun again. After a refused paste the paste can be corrected and sent again:
   // the server keeps a sign-in whose paste it could not read (issue #749), and answers that a used one has ended.
   const spent = begin.isError
-  const busy = complete.isPending || addToken.isPending
+  const busy = complete.isPending || addToken.isPending || importFile.isPending
 
   return (
     <Dialog open={open} onOpenChange={change}>
@@ -160,9 +212,11 @@ export function AccountSignInDialog({
             {account ? `Sign ${account.label} in again` : `Add a ${name} account`}
           </DialogTitle>
           <DialogDescription>
-            {way === "token"
-              ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
-              : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
+            {way === "file"
+              ? "Bring the session Claude Code saved on a machine: its .credentials.json, in ~/.claude or the account's config folder. Hypomnema refreshes it from then on, so that machine may have to sign in again."
+              : way === "token"
+                ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
+                : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -173,7 +227,11 @@ export function AccountSignInDialog({
             className="flex flex-col gap-4"
             onSubmit={(event) => {
               event.preventDefault()
-              void (way === "token" ? token.handleSubmit() : finish.handleSubmit())
+              void (way === "token"
+                ? token.handleSubmit()
+                : way === "file"
+                  ? file.handleSubmit()
+                  : finish.handleSubmit())
             }}
           >
             {pastable && (
@@ -181,6 +239,7 @@ export function AccountSignInDialog({
                 <TabsList>
                   <TabsTrigger value="sign-in">Sign in</TabsTrigger>
                   <TabsTrigger value="token">Paste a token</TabsTrigger>
+                  <TabsTrigger value="file">Import a file</TabsTrigger>
                 </TabsList>
               </Tabs>
             )}
@@ -266,8 +325,84 @@ export function AccountSignInDialog({
               </FieldGroup>
             )}
 
+            {way === "file" && (
+              <FieldGroup>
+                <file.Field name="label">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Name"
+                      placeholder="Its e-mail"
+                      description="What you call this account; its e-mail when left empty."
+                    />
+                  )}
+                </file.Field>
+                <file.Field name="credentials">
+                  {(field) => {
+                    const invalid = field.state.meta.isTouched && !field.state.meta.isValid
+                    return (
+                      <div className="flex flex-col gap-2">
+                        <Field data-invalid={invalid || undefined}>
+                          <FieldLabel htmlFor={field.name}>.credentials.json</FieldLabel>
+                          <input
+                            ref={chooser}
+                            type="file"
+                            accept=".json,application/json"
+                            className="hidden"
+                            aria-label="Choose the .credentials.json file"
+                            onChange={(event) => {
+                              const chosen = event.target.files?.[0]
+                              event.target.value = ""
+                              if (!chosen) return
+                              void chosen.text().then((text) => {
+                                field.handleChange(text)
+                                field.handleBlur()
+                              })
+                            }}
+                          />
+                          <Textarea
+                            id={field.name}
+                            name={field.name}
+                            rows={5}
+                            spellCheck={false}
+                            autoComplete="off"
+                            placeholder='{ "claudeAiOauth": { … } }'
+                            value={field.state.value}
+                            aria-invalid={invalid || undefined}
+                            onBlur={field.handleBlur}
+                            onChange={(event) => field.handleChange(event.target.value)}
+                          />
+                          <FieldDescription>
+                            Paste the file, or choose it. It is sealed on the control plane and
+                            never shown again.
+                          </FieldDescription>
+                          {invalid && <FieldError errors={field.state.meta.errors} />}
+                        </Field>
+                        <div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => chooser.current?.click()}
+                          >
+                            <FileUp data-icon="inline-start" />
+                            Choose file
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  }}
+                </file.Field>
+              </FieldGroup>
+            )}
+
             <ErrorAlert
-              error={way === "token" ? addToken.error : (begin.error ?? complete.error)}
+              error={
+                way === "token"
+                  ? addToken.error
+                  : way === "file"
+                    ? importFile.error
+                    : (begin.error ?? complete.error)
+              }
             />
           </form>
         </DialogPanel>
@@ -285,10 +420,10 @@ export function AccountSignInDialog({
               Sign in
             </Button>
           )}
-          {way === "token" && (
+          {(way === "token" || way === "file") && (
             <Button type="submit" form={formId} disabled={busy}>
               {busy && <Spinner data-icon="inline-start" />}
-              Add account
+              {way === "file" ? "Import account" : "Add account"}
             </Button>
           )}
         </DialogFooter>

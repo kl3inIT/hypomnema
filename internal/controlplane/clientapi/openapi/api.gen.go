@@ -1142,6 +1142,21 @@ func (e MessagingMessageMediaType) Valid() bool {
 	}
 }
 
+// Defines values for NewAccountImportRuntime.
+const (
+	NewAccountImportRuntimeClaude NewAccountImportRuntime = "claude"
+)
+
+// Valid indicates whether the value is a known member of the NewAccountImportRuntime enum.
+func (e NewAccountImportRuntime) Valid() bool {
+	switch e {
+	case NewAccountImportRuntimeClaude:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NewAccountSignInRuntime.
 const (
 	NewAccountSignInRuntimeAntigravity NewAccountSignInRuntime = "antigravity"
@@ -4157,6 +4172,21 @@ type NewAccountConnection struct {
 	Username        *string `json:"username,omitempty"`
 }
 
+// NewAccountImport defines model for NewAccountImport.
+type NewAccountImport struct {
+	// Credentials The whole `.credentials.json` Claude Code saved, as text.
+	Credentials *string `json:"credentials,omitempty"`
+
+	// Label The account's name for the owner; its e-mail when left out. Kept by an account imported again.
+	Label *string `json:"label,omitempty"`
+
+	// Runtime The kind of subscription; only Claude Code's file is read.
+	Runtime NewAccountImportRuntime `json:"runtime"`
+}
+
+// NewAccountImportRuntime The kind of subscription; only Claude Code's file is read.
+type NewAccountImportRuntime string
+
 // NewAccountSignIn defines model for NewAccountSignIn.
 type NewAccountSignIn struct {
 	// Label The account's name for the owner; its e-mail when left out. Kept by an account signed in again.
@@ -6426,6 +6456,9 @@ type ListTasksParams struct {
 	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ImportAccountJSONRequestBody defines body for ImportAccount for application/json ContentType.
+type ImportAccountJSONRequestBody = NewAccountImport
+
 // BeginAccountSignInJSONRequestBody defines body for BeginAccountSignIn for application/json ContentType.
 type BeginAccountSignInJSONRequestBody = NewAccountSignIn
 
@@ -6751,6 +6784,24 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+
+	// ImportAccountWithBody Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ImportAccount Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccount(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// BeginAccountSignInWithBody Start signing a subscription account in on the control plane; only the owner
 	//
@@ -9065,6 +9116,44 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /web/search (the `SearchWeb` operationId).
 	SearchWeb(ctx context.Context, body SearchWebJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ImportAccountWithBody Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *Client) ImportAccountWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewImportAccountRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ImportAccount Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *Client) ImportAccount(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewImportAccountRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // BeginAccountSignInWithBody Start signing a subscription account in on the control plane; only the owner
@@ -14579,6 +14668,46 @@ func (c *Client) SearchWeb(ctx context.Context, body SearchWebJSONRequestBody, r
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewImportAccountRequest calls the generic ImportAccount builder with application/json body
+func NewImportAccountRequest(server string, body ImportAccountJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewImportAccountRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewImportAccountRequestWithBody constructs an http.Request for the ImportAccount method, with any body, and a specified content type
+func NewImportAccountRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/account-imports")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewBeginAccountSignInRequest calls the generic BeginAccountSignIn builder with application/json body
@@ -25629,6 +25758,24 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// ImportAccountWithBodyWithResponse Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error)
+
+	// ImportAccountWithResponse Keep an account from the session its CLI saved; only the owner
+	//
+	// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+	ImportAccountWithResponse(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error)
+
 	// BeginAccountSignInWithBodyWithResponse Start signing a subscription account in on the control plane; only the owner
 	//
 	// Answers with a link the owner opens in a browser on any machine; nothing is opened on the server. Either the browser ends on an address that does not load, which completes the sign-in (`paste`), or the owner enters `user_code` on the page the link opens and completing waits for it. An account the vendor already knows is signed in again.
@@ -28240,6 +28387,54 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /web/search (the `SearchWeb` operationId).
 	SearchWebWithResponse(ctx context.Context, body SearchWebJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchWebResponse, error)
+}
+
+type ImportAccountResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Account
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r ImportAccountResponse) GetJSON201() *Account {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ImportAccountResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ImportAccountResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ImportAccountResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ImportAccountResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ImportAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type BeginAccountSignInResponse struct {
@@ -39401,6 +39596,36 @@ func (r SearchWebResponse) ContentType() string {
 	return ""
 }
 
+// ImportAccountWithBodyWithResponse Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *ClientWithResponses) ImportAccountWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error) {
+	rsp, err := c.ImportAccountWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseImportAccountResponse(rsp)
+}
+
+// ImportAccountWithResponse Keep an account from the session its CLI saved; only the owner
+//
+// The credentials are Claude Code's `.credentials.json` (issue #828), as OmniRoute and Hermes read it: its access and refresh tokens are sealed in the vault, refreshed first when the access token is about to end, and never answered or logged. Who the account is comes from the vendor, as a sign-in's does; an account the vendor already knows takes the new tokens. The control plane refreshes them from then on, so the session on the machine the file came from may be signed out.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /account-imports (the `ImportAccount` operationId).
+func (c *ClientWithResponses) ImportAccountWithResponse(ctx context.Context, body ImportAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*ImportAccountResponse, error) {
+	rsp, err := c.ImportAccount(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseImportAccountResponse(rsp)
+}
+
 // BeginAccountSignInWithBodyWithResponse Start signing a subscription account in on the control plane; only the owner
 //
 // Answers with a link the owner opens in a browser on any machine; nothing is opened on the server. Either the browser ends on an address that does not load, which completes the sign-in (`paste`), or the owner enters `user_code` on the page the link opens and completing waits for it. An account the vendor already knows is signed in again.
@@ -43931,6 +44156,39 @@ func (c *ClientWithResponses) SearchWebWithResponse(ctx context.Context, body Se
 		return nil, err
 	}
 	return ParseSearchWebResponse(rsp)
+}
+
+// ParseImportAccountResponse parses an HTTP response from a ImportAccountWithResponse call
+func ParseImportAccountResponse(rsp *http.Response) (*ImportAccountResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ImportAccountResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Account
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseBeginAccountSignInResponse parses an HTTP response from a BeginAccountSignInWithResponse call
@@ -51656,6 +51914,9 @@ func ParseSearchWebResponse(rsp *http.Response) (*SearchWebResponse, error) {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ImportAccount Keep an account from the session its CLI saved; only the owner
+	// (POST /account-imports)
+	ImportAccount(w http.ResponseWriter, r *http.Request)
 	// BeginAccountSignIn Start signing a subscription account in on the control plane; only the owner
 	// (POST /account-sign-ins)
 	BeginAccountSignIn(w http.ResponseWriter, r *http.Request)
@@ -52374,6 +52635,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ImportAccount operation middleware
+func (siw *ServerInterfaceWrapper) ImportAccount(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // BeginAccountSignIn operation middleware
 func (siw *ServerInterfaceWrapper) BeginAccountSignIn(w http.ResponseWriter, r *http.Request) {
@@ -60025,6 +60300,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/git/ssh-key", wrapper.GetGitSSHKey)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/accounts", wrapper.ListAccounts)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/accounts", wrapper.AddTokenAccount)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account-imports", wrapper.ImportAccount)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account-sign-ins", wrapper.BeginAccountSignIn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account-sign-ins/{sign_in_id}", wrapper.CompleteAccountSignIn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/accounts/{account_id}/move", wrapper.MoveAccount)
@@ -60184,6 +60460,45 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 }
 
 type ErrorJSONResponse Error
+
+type ImportAccountRequestObject struct {
+	Body *ImportAccountJSONRequestBody
+}
+
+type ImportAccountResponseObject interface {
+	VisitImportAccountResponse(w http.ResponseWriter) error
+}
+
+type ImportAccount201JSONResponse Account
+
+func (response ImportAccount201JSONResponse) VisitImportAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportAccountdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ImportAccountdefaultJSONResponse) VisitImportAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type BeginAccountSignInRequestObject struct {
 	Body *BeginAccountSignInJSONRequestBody
@@ -69573,6 +69888,9 @@ func (response SearchWebdefaultJSONResponse) VisitSearchWebResponse(w http.Respo
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ImportAccount Keep an account from the session its CLI saved; only the owner
+	// (POST /account-imports)
+	ImportAccount(ctx context.Context, request ImportAccountRequestObject) (ImportAccountResponseObject, error)
 	// BeginAccountSignIn Start signing a subscription account in on the control plane; only the owner
 	// (POST /account-sign-ins)
 	BeginAccountSignIn(ctx context.Context, request BeginAccountSignInRequestObject) (BeginAccountSignInResponseObject, error)
@@ -70320,6 +70638,37 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ImportAccount operation middleware
+func (sh *strictHandler) ImportAccount(w http.ResponseWriter, r *http.Request) {
+	var request ImportAccountRequestObject
+
+	var body ImportAccountJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ImportAccount(ctx, request.(ImportAccountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ImportAccount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ImportAccountResponseObject); ok {
+		if err := validResponse.VisitImportAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // BeginAccountSignIn operation middleware

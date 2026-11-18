@@ -3912,6 +3912,11 @@ The owner's commands:
     `machines providers rm|check <name>` and
     `machines create <name> --provider P [--region R] [--size S] [--max N]` manage provider machines; a machine
     is removed with `nodes rm`;
+  - `accounts import claude --file F|-` (a client command, run on the owner's machine with an owner token; issue
+    [#828](https://github.com/kl3inIT/hypomnema/issues/828)) sends Claude Code's `.credentials.json` to `POST
+    /account-imports`; `--detect` lists the sessions on this machine without a token, from `$CLAUDE_CONFIG_DIR`,
+    `~/.claude` and each Orca Claude profile's `claude-profiles/*/home`, each with the e-mail of the `.claude.json`
+    beside it, and `--detect --email E` imports that one. The other `accounts` commands stay the control plane's.
   - `accounts add claude <label> --token FILE|-` records an account whose token the control plane keeps (issue
     #150; [research](docs/research/2026-11-11-claude-credentials-for-workers.md)): the token of `claude
     setup-token`, read from a file or standard input and stored in the vault as the secret the account names. The
@@ -4662,7 +4667,15 @@ Node (`internal/node`):
       dialog has a second tab, "Paste a token", as 9router has beside its browser sign-in: a name and the token of
       `claude setup-token`, sent to `POST /accounts` `{runtime, label, token}` (the owner's), which keeps the
       account `accounts add claude --token` keeps; the token is never answered. Without a vault key the route is
-      503.
+      503. A third tab, "Import a file" (issue [#828](https://github.com/kl3inIT/hypomnema/issues/828)), takes the
+      session Claude Code saved in its `.credentials.json`, pasted or read from a chosen file in the browser, as
+      OmniRoute's "Import Claude auth" does (`ImportClaudeAuthModal.tsx`); the dialog checks only that it has
+      `claudeAiOauth` with a refresh token. `POST /account-imports` `{runtime: claude, credentials, label?}` (the
+      owner's) reads `claudeAiOauth`'s access and refresh tokens as Hermes does (`anthropic_credentials.py`),
+      refreshes them first when the access token ends within five minutes, takes who the account is from the
+      OAuth profile as a sign-in does, and stores them as a completed sign-in is stored (`subscription.Service.save`):
+      an account Anthropic already knows takes the new tokens. The credentials are never answered or logged. The
+      control plane refreshes them from then on, so the machine the file came from may have to sign in again.
       `POST /accounts/{id}/move` moves an account one place up or down among the accounts of its runtime, as
       9router moves a connection; positions are written again from 1. All three are the owner's.
     - An account signed in on the control plane shows its limits under its row (step 3 of the issue): a meter a
