@@ -184,10 +184,12 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   report that to the owner, who changes the setting or merges.
 - On a GitHub PR handoff, including one recovered after a worker failed, run `gh reconcile-replacement <new-url> <run-id>`
   through Hypomnema's GitHub launcher. If the Task spec explicitly says which PR it replaces, pass that PR's number
-  after the URL. The command also recognizes a `Replaces #n` or `Supersedes #n` line in the new body, verifies that
-  both PRs name the same closing issue and the old PR belongs to that Run by Task evidence or a non-fork head on
-  one of its Task branches. It then comments with the replacement's link and closes the old PR without deleting
-  its branch. No declaration means no write. If either check fails, leave the old PR open and tell the owner.
+  after the Run id. The command also recognizes a `Replaces #n` or `Supersedes #n` line in the new body. Both
+  GitHub heads must be on that Run's Task branches in its repository, not forks. A worker's result is not ownership
+  proof. Both PRs must name the same closing issue; when GitHub supplies no links, visible closing keywords can
+  name the same local issue (including on a non-default base). The command comments with the replacement's link
+  and closes the old PR without deleting its branch. No declaration means no write. If a check fails, leave the old
+  PR open and tell the owner.
   Each write uses the usual GitHub approvals. If it waits for approval, end your turn and rerun
   the same command when woken; it does not repeat a comment it already posted.
 

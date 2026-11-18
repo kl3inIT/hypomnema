@@ -104,22 +104,13 @@ func RunOwnsReplacement(ctx context.Context, cfg Config, runID, prURL, sameRepoH
 
 func runOwnsReplacement(run openapi.RunDetail, prURL, sameRepoHead string) bool {
 	pr, ok := githost.ParseRequest(prURL, githost.KnownKind)
-	if !ok || pr.Repo.Host != githost.GitHubHost {
+	if !ok || pr.Repo.Host != githost.GitHubHost || sameRepoHead == "" ||
+		val(run.RepoHost) != pr.Repo.Host || !strings.EqualFold(val(run.Repo), pr.Repo.Path) {
 		return false
 	}
-	sameRepo := val(run.RepoHost) == pr.Repo.Host && strings.EqualFold(val(run.Repo), pr.Repo.Path)
 	for _, task := range run.Tasks {
-		if sameRepo && sameRepoHead == "hyp/"+task.Id {
+		if sameRepoHead == "hyp/"+task.Id {
 			return true
-		}
-		if task.Profile == "reviewer" || strings.HasPrefix(task.Profile, "reviewer-") ||
-			task.LatestDispatch == nil || task.LatestDispatch.Result == nil {
-			continue
-		}
-		for _, evidence := range task.LatestDispatch.Result.Evidence {
-			if evidence.Kind == "pull_request" && strings.EqualFold(evidence.Ref, prURL) {
-				return true
-			}
 		}
 	}
 	return false

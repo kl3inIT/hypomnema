@@ -31,8 +31,8 @@ func TestReviewWithNoWorkLeftWakesItsCoordinatorOnce(t *testing.T) {
 			world.run, err = world.s.CreateRun(ctx, NewRun{Objective: "Review a PR", CreatedBy: "pi", ChatID: chat.ID})
 			require.NoError(t, err)
 			review := world.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: reviewPR + "\n\nReview the change."})[0]
-			world.succeed(review.ID, "**Verdict:** `"+scenario.verdict+"`\nMergeable: "+scenario.mergeable+
-				"\nMerge state: "+scenario.state+"\nChecks: "+scenario.checks+"\nFindings: test regression")
+			finishReview(world, review.ID, "**Verdict:** `"+scenario.verdict+"`\nMergeable: "+scenario.mergeable+
+				"\nMerge state: "+scenario.state+"\nChecks: "+scenario.checks+"\nFindings: test regression", nil)
 
 			run, err := world.s.GetRun(ctx, world.run.ID)
 			require.NoError(t, err)
@@ -72,9 +72,11 @@ func TestReviewLimitLeavesRunWaitingForOwner(t *testing.T) {
 
 	world := newWorld(t)
 	ctx := t.Context()
-	for index, spec := range []string{"Review this change:\n\n" + reviewPR, reviewSpec, reviewSpec} {
+	legacy := "Earlier PR: https://github.com/owner/repo/pull/827\n\nReview this change:\n\n" + reviewPR
+	for index, spec := range []string{legacy, reviewSpec, reviewSpec} {
 		review := world.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: spec})[0]
-		world.succeed(review.ID, "Verdict: incorrect\nFindings: [P1] the change loses data")
+		finishReview(world, review.ID, "Verdict: incorrect\nFindings: [P1] the change loses data",
+			[]Evidence{{Kind: "pull_request", Ref: reviewPR}})
 
 		run, err := world.s.GetRun(ctx, world.run.ID)
 		require.NoError(t, err)
@@ -82,6 +84,7 @@ func TestReviewLimitLeavesRunWaitingForOwner(t *testing.T) {
 			continue
 		}
 		assert.Equal(t, index == maxReviewRounds-1, run.ReviewStall.WaitingForOwner)
+		assert.Equal(t, reviewPR, run.ReviewStall.PullRequest)
 		assert.Equal(t, "UNKNOWN", run.ReviewStall.Checks)
 		assert.Equal(t, RunOpen, run.Status)
 	}
@@ -100,7 +103,7 @@ func TestReviewDoesNotStallRunWithQueuedWork(t *testing.T) {
 		NewTask{Ref: "review", Profile: "reviewer", Spec: reviewSpec},
 		NewTask{Ref: "next", Spec: "Next step", DependsOn: []string{"review"}},
 	)[0]
-	world.succeed(review.ID, "Verdict: incorrect")
+	finishReview(world, review.ID, "Verdict: incorrect", nil)
 	run, err := world.s.GetRun(t.Context(), world.run.ID)
 	require.NoError(t, err)
 	assert.Nil(t, run.ReviewStall)
@@ -120,7 +123,7 @@ func TestReviewStallOnRegisteredGitLabHost(t *testing.T) {
 		Repo: "https://gitlab.company.example/team/app"})
 	require.NoError(t, err)
 	review := world.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: "Review the merge request (" + pr + ")."})[0]
-	world.succeed(review.ID, "Verdict: correct\nMerge state: DIRTY\nMergeable: CONFLICTING\nChecks: PASSING")
+	finishReview(world, review.ID, "Verdict: correct\nMerge state: DIRTY\nMergeable: CONFLICTING\nChecks: PASSING", nil)
 
 	run, err := world.s.GetRun(ctx, world.run.ID)
 	require.NoError(t, err)
@@ -149,17 +152,18 @@ func TestReviewStallFindsRequestInResultOrEvidence(t *testing.T) {
 			if source == "implementer" {
 				profile = "implementer"
 			}
-			review := world.tasks(NewTask{Ref: "review", Profile: profile, Spec: "Check this change"})[0]
-			_, call := world.start(review.ID)
-			outcome := success("Verdict: incorrect")
+			review := world.tasks(NewTask{Ref: "review", Profile: profile,
+				Spec: "Review pull request: https://github.com/owner/repo/pull/827"})[0]
+			summary := "Verdict: incorrect"
+			var evidence []Evidence
 			if source == "summary" {
-				outcome.Result.Summary += "\nReviewed [the PR](" + pr + ")."
+				summary += "\nReviewed [the PR](" + pr + ")."
 			} else if source == "evidence" {
-				outcome.Result.Evidence = []Evidence{{Kind: "pull_request", Ref: "owner/repo#840"}}
+				evidence = []Evidence{{Kind: "pull_request", Ref: "owner/repo#840"}}
 			} else {
-				outcome.Result.Evidence = []Evidence{{Kind: "pull_request", Ref: pr}}
+				evidence = []Evidence{{Kind: "pull_request", Ref: pr}}
 			}
-			require.NoError(t, world.finish(call, outcome))
+			finishReview(world, review.ID, summary, evidence)
 			run, err := world.s.GetRun(t.Context(), world.run.ID)
 			require.NoError(t, err)
 			if source == "implementer" {
@@ -170,4 +174,22 @@ func TestReviewStallFindsRequestInResultOrEvidence(t *testing.T) {
 			assert.Equal(t, pr, run.ReviewStall.PullRequest)
 		})
 	}
+}
+
+func TestReviewSpecSelectsStatedTargetInsteadOfFirstURL(t *testing.T) {
+	t.Parallel()
+
+	const background = "Background: https://github.com/owner/repo/pull/827\n"
+	assert.Equal(t, reviewPR, specReviewTarget(background+"Review the PR "+reviewPR, githost.KnownKind))
+	assert.Equal(t, reviewPR, specReviewTarget(reviewSpec+"\n"+background, githost.KnownKind))
+	assert.Equal(t, reviewPR, specReviewTarget("Review PR "+reviewPR+"; not "+reviewPR+"1", githost.KnownKind))
+	assert.Empty(t, specReviewTarget(background+"Other background: "+reviewPR, githost.KnownKind))
+}
+
+func finishReview(world *world, taskID, summary string, evidence []Evidence) {
+	world.t.Helper()
+	_, call := world.start(taskID)
+	outcome := success(summary)
+	outcome.Result.Evidence = evidence
+	require.NoError(world.t, world.finish(call, outcome))
 }

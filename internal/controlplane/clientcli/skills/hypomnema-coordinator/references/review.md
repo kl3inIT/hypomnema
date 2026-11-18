@@ -29,7 +29,8 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    give the reviewer the spec the change was made from, but not the author's report or transcript, so the
    reviewer judges the change itself.
 
-   Ask the reviewer to include these four lines in the `finish` summary, before its findings:
+   Ask the reviewer to include the reviewed PR or MR in `finish` evidence, not an earlier PR mentioned in the spec.
+   Include these four lines in the summary before its findings:
    `Verdict: correct` (or `incorrect`), `Merge state: <mergeStateStatus>`, `Mergeable: <mergeable>` and
    `Checks: <PASSING|FAILING|PENDING|UNKNOWN>`, one field per line. Just before reporting, use `gh pr view <url>
    --json mergeable,mergeStateStatus` and `gh pr checks <url> --required --json bucket`. Failing or canceled checks

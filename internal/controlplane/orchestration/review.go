@@ -36,15 +36,55 @@ func reviewField(text, name string) string {
 }
 
 var reviewURL = regexp.MustCompile(`https://[^\s<>\x60"'\[\]()*]+`)
+var reviewTargetLine = regexp.MustCompile(`(?i)^(?:#{1,6}\s+)?(?:please\s+)?review(?:ed)?\s+` +
+	`(?:(?:the|this)\s+)?(?:pull request|merge request|pr|mr)\b[ :\t]*`)
 
 func reviewRequest(text string, kindOf func(string) (githost.Kind, bool)) string {
+	target := ""
 	for _, ref := range reviewURL.FindAllString(text, -1) {
 		if pr := canonicalReviewRequest(strings.TrimRight(ref, ".,;:!?"), kindOf); pr != "" {
-			return pr
+			if target != "" && !strings.EqualFold(target, pr) {
+				return ""
+			}
+			target = pr
 		}
 	}
 
+	return target
+}
+
+func statedReviewTarget(text string, kindOf func(string) (githost.Kind, bool)) string {
+	if pr := reviewTargetValue(reviewField(text, "Review pull request"), kindOf); pr != "" {
+		return pr
+	}
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSpace(line)
+		if match := reviewTargetLine.FindStringIndex(line); match != nil {
+			if pr := reviewTargetValue(line[match[1]:], kindOf); pr != "" {
+				return pr
+			}
+		}
+	}
 	return ""
+}
+
+func reviewTargetValue(text string, kindOf func(string) (githost.Kind, bool)) string {
+	text = strings.TrimLeft(text, " \t<`*(")
+	if match := reviewURL.FindStringIndex(text); match != nil && match[0] == 0 {
+		return canonicalReviewRequest(strings.TrimRight(text[:match[1]], ".,;:!?"), kindOf)
+	}
+	return reviewRequest(text, kindOf)
+}
+
+func specReviewTarget(spec string, kindOf func(string) (githost.Kind, bool)) string {
+	if pr := statedReviewTarget(spec, kindOf); pr != "" {
+		return pr
+	}
+	heading, _, _ := strings.Cut(strings.TrimSpace(spec), "\n")
+	if pr := canonicalReviewRequest(strings.Trim(heading, "<>` \r\t"), kindOf); pr != "" {
+		return pr
+	}
+	return reviewRequest(spec, kindOf)
 }
 
 func canonicalReviewRequest(ref string, kindOf func(string) (githost.Kind, bool)) string {
@@ -69,19 +109,22 @@ func reviewReport(ctx context.Context, q *store.Queries, task store.Task, result
 		registered, err := gitHostOf(ctx, q, host)
 		return registered.Kind, err == nil
 	}
-	pr := reviewRequest(reviewField(task.Spec, "Review pull request"), kindOf)
+	pr := statedReviewTarget(result, kindOf)
 	if pr == "" {
-		pr = reviewRequest(task.Spec, kindOf)
+		var err error
+		pr, err = reviewEvidence(ctx, q, task.ID, kindOf)
+		if err != nil {
+			return ReviewStall{}, err
+		}
 	}
 	if pr == "" {
 		pr = reviewRequest(result, kindOf)
 	}
 	if pr == "" {
-		var err error
-		pr, err = reviewEvidence(ctx, q, task.ID, kindOf)
-		if err != nil || pr == "" {
-			return ReviewStall{}, err
-		}
+		pr = specReviewTarget(task.Spec, kindOf)
+	}
+	if pr == "" {
+		return ReviewStall{}, nil
 	}
 
 	verdict := strings.ToLower(reviewField(result, "Verdict"))
@@ -112,13 +155,19 @@ func reviewEvidence(ctx context.Context, q *store.Queries, taskID string,
 	if err := json.Unmarshal([]byte(dispatch.Result.String), &result); err != nil {
 		return "", fmt.Errorf("reading review evidence: %w", err)
 	}
+	target := ""
 	for _, evidence := range result.Evidence {
-		if pr := canonicalReviewRequest(evidence.Ref, kindOf); pr != "" {
-			return pr, nil
+		if evidence.Kind == "pull_request" || evidence.Kind == "merge_request" {
+			if pr := canonicalReviewRequest(evidence.Ref, kindOf); pr != "" {
+				if target != "" && !strings.EqualFold(target, pr) {
+					return "", nil
+				}
+				target = pr
+			}
 		}
 	}
 
-	return "", nil
+	return target, nil
 }
 
 func reviewValue(result, field string, allowed ...string) string {

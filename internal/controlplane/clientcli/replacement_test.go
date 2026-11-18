@@ -24,7 +24,8 @@ func TestRunOwnsReplacement(t *testing.T) {
 		{name: "same-repository Task branch", path: repo, head: "hyp/tsk_mine", owned: true},
 		{name: "other Run branch", path: repo, head: "hyp/tsk_other"},
 		{name: "different repository", path: "owner/other", head: "hyp/tsk_mine"},
-		{name: "Task PR evidence", path: repo, profile: "implementer", dispatch: evidence, owned: true},
+		{name: "worker result cannot claim a fork", path: repo, profile: "implementer", dispatch: evidence},
+		{name: "worker result cannot claim another branch", path: repo, head: "hyp/tsk_other", dispatch: evidence},
 		{name: "review evidence is not authorship", path: repo, profile: "reviewer-claude", dispatch: evidence},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {

@@ -21,8 +21,10 @@ func TestReplacementCommentsAndClosesWithSeparateApprovals(t *testing.T) {
 	issues := []struct{ URL string }{{URL: "https://github.com/owner/repo/issues/820"}}
 	newPR := githubPR{
 		URL: newURL, Body: "Closes #820. **Supersedes #827**\n", State: "OPEN", ClosingIssuesReferences: issues,
+		HeadRefName: "hyp/tsk_new", HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
 	}
-	oldPR := githubPR{URL: oldURL, State: "OPEN", ClosingIssuesReferences: issues}
+	oldPR := githubPR{URL: oldURL, State: "OPEN", ClosingIssuesReferences: issues,
+		HeadRefName: "hyp/tsk_old", HeadRepository: newPR.HeadRepository}
 	var writes [][]string
 	commentAllowed, closeAllowed := false, false
 	pending := errors.New("waiting for owner approval")
@@ -55,10 +57,10 @@ func TestReplacementCommentsAndClosesWithSeparateApprovals(t *testing.T) {
 	var out bytes.Buffer
 	reconcile := func() error {
 		return reconcileReplacement(t.Context(), []string{newURL, "run_1"}, &out, call,
-			func(_ context.Context, runID, prURL, _ string) (bool, error) {
+			func(_ context.Context, runID, prURL, head string) (bool, error) {
 				assert.Equal(t, "run_1", runID)
-				assert.Equal(t, oldURL, prURL)
-				return true, nil
+				return (prURL == oldURL && head == oldPR.HeadRefName) ||
+					(prURL == newURL && head == newPR.HeadRefName), nil
 			})
 	}
 	require.ErrorIs(t, reconcile(), pending)
@@ -87,9 +89,11 @@ func TestReplacementRequiresSharedIssue(t *testing.T) {
 		}
 		return json.NewEncoder(out).Encode(githubPR{
 			URL: args[2], State: "OPEN", ClosingIssuesReferences: []struct{ URL string }{{URL: issue}},
+			HeadRefName: "hyp/tsk_mine", HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
 		})
 	}
-	err := reconcileReplacement(t.Context(), []string{newURL, "run_1", "827"}, io.Discard, call, nil)
+	err := reconcileReplacement(t.Context(), []string{newURL, "run_1", "827"}, io.Discard, call,
+		func(context.Context, string, string, string) (bool, error) { return true, nil })
 	require.ErrorContains(t, err, "do not name a shared closing issue")
 }
 
@@ -97,7 +101,6 @@ func TestReplacementRefusesUnownedPRWithSameIssue(t *testing.T) {
 	t.Parallel()
 
 	const newURL = "https://github.com/owner/repo/pull/840"
-	const oldURL = "https://github.com/owner/repo/pull/827"
 	call := func(out io.Writer, args ...string) error {
 		require.Equal(t, "view", args[1], "a shared issue is not ownership proof")
 		return json.NewEncoder(out).Encode(githubPR{
@@ -106,10 +109,8 @@ func TestReplacementRefusesUnownedPRWithSameIssue(t *testing.T) {
 		})
 	}
 	err := reconcileReplacement(t.Context(), []string{newURL, "run_1", "827"}, io.Discard, call,
-		func(_ context.Context, runID, prURL, sameRepoHead string) (bool, error) {
-			assert.Equal(t, "run_1", runID)
-			assert.Equal(t, oldURL, prURL)
-			assert.Empty(t, sameRepoHead, "a fork's branch is not proof")
+		func(context.Context, string, string, string) (bool, error) {
+			t.Fatal("a fork's branch is not proof")
 			return false, nil
 		})
 	require.ErrorContains(t, err, "does not belong")
@@ -119,7 +120,7 @@ func TestReplacementDeclarations(t *testing.T) {
 	t.Parallel()
 
 	number, err := replacedNumber(nil, "<!--\nReplaces #2\n-->\n"+
-		"````text\n```\nReplaces #1\n````\n    Replaces #3\nReplaces #827")
+		"````text\n```\nReplaces #1\n````\n    Replaces #3\nAn example is `` `<!--` ``.\nReplaces #827")
 	require.NoError(t, err)
 	assert.Equal(t, 827, number)
 	number, err = replacedNumber([]string{"827"}, "Closes #820")
@@ -127,4 +128,66 @@ func TestReplacementDeclarations(t *testing.T) {
 	assert.Equal(t, 827, number)
 	_, err = replacedNumber([]string{"827"}, "Replaces #821")
 	require.ErrorContains(t, err, "disagree")
+}
+
+func TestReplacementRefusesUnownedNewPR(t *testing.T) {
+	t.Parallel()
+
+	const newURL = "https://github.com/owner/repo/pull/840"
+	const oldURL = "https://github.com/owner/repo/pull/827"
+	call := func(out io.Writer, args ...string) error {
+		require.Equal(t, "view", args[1], "no write when the replacement is from a fork")
+		isFork := args[2] == newURL
+		return json.NewEncoder(out).Encode(githubPR{
+			URL: args[2], State: "OPEN", Body: "Replaces #827", HeadRefName: "hyp/tsk_mine",
+			IsCrossRepository:       isFork,
+			HeadRepository:          struct{ NameWithOwner string }{"owner/repo"},
+			ClosingIssuesReferences: []struct{ URL string }{{URL: "https://github.com/owner/repo/issues/820"}},
+		})
+	}
+	err := reconcileReplacement(t.Context(), []string{newURL, "run_1"}, io.Discard, call,
+		func(_ context.Context, _, prURL, head string) (bool, error) {
+			return prURL == oldURL && head == "hyp/tsk_mine", nil
+		})
+	require.ErrorContains(t, err, "does not belong")
+}
+
+func TestReplacementUsesVisibleClosingKeywordWithoutGitHubClosingReferences(t *testing.T) {
+	t.Parallel()
+
+	const newURL = "https://github.com/owner/repo/pull/840"
+	const oldURL = "https://github.com/owner/repo/pull/827"
+	for _, oldBody := range []string{"Fixes #820", "<!-- Fixes #820 -->\nFixes #822", "Example: `Fixes #820`"} {
+		t.Run(oldBody, func(t *testing.T) {
+			t.Parallel()
+
+			var writes []string
+			call := func(out io.Writer, args ...string) error {
+				if args[1] != "view" {
+					assert.Equal(t, oldURL, args[2])
+					writes = append(writes, args[1])
+					return nil
+				}
+				body, head := oldBody, "hyp/tsk_old"
+				if args[2] == newURL {
+					body, head = "Closes #820\nReplaces #827", "hyp/tsk_new"
+				}
+				return json.NewEncoder(out).Encode(githubPR{
+					URL: args[2], State: "OPEN", Body: body, HeadRefName: head,
+					HeadRepository: struct{ NameWithOwner string }{"owner/repo"},
+				})
+			}
+			err := reconcileReplacement(t.Context(), []string{newURL, "run_1"}, io.Discard, call,
+				func(_ context.Context, _, _, head string) (bool, error) {
+					return head == "hyp/tsk_old" || head == "hyp/tsk_new", nil
+				})
+			if oldBody == "Fixes #820" {
+				require.NoError(t, err)
+				assert.Equal(t, []string{"comment", "close"}, writes)
+				return
+			}
+			require.ErrorContains(t, err, "do not name a shared closing issue")
+			assert.Empty(t, writes)
+		})
+	}
 }
