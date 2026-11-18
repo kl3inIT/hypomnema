@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,12 +40,13 @@ const (
 var (
 	// githubRepositoryPath is /repositories/{id} and what follows it; an id is a positive integer.
 	githubRepositoryPath = regexp.MustCompile(`^/repositories/([1-9][0-9]{0,18})(/.*)?$`)
-	// githubOwner is an account's login as GitHub allows it: letters, digits and hyphens, and the underscore of a
-	// managed user's suffix; never a dot, so never "." or "..", which the /repos form refuses as a step out of the path.
-	githubOwner = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
-	// githubNamePart is a repository's name as GitHub allows it; "." and ".." are refused beside it.
-	githubNamePart = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	githubNamePart       = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 )
+
+// githubPathPart is whether an owner's or a repository's name GitHub gave can stand as one segment of a /repos path.
+func githubPathPart(part string) bool {
+	return githubNamePart.MatchString(part) && part != "." && part != ".."
+}
 
 // githubRepositoryID reads a path of the form /repositories/{id}[/rest]: the id, and the rest as it was escaped.
 func githubRepositoryID(escapedPath string) (id, rest string, ok bool) {
@@ -110,47 +112,103 @@ type byID struct {
 	Cached       bool
 }
 
-// actionOf is the action a request is, and for a GitHub request by a repository's id, the repository it was
-// resolved to.
-//
-// The lookup is itself a read of the repository, the one GET /repos/{owner}/{repo} is: it is decided as that read
-// is before it is sent (review of #813). Only when the Connection allows that read, by the owner's answer or a grant
-// for the session or the Routine, is the id looked up, or its kept name used. Otherwise nothing is sent: the request
-// stays unlisted, with the read beside it (With), so that a read set to never refuses it and one that asks is shown
-// to the owner with it.
-func (p *Proxy) actionOf(ctx context.Context, req *http.Request, body []byte, s session) (Action, byID) {
-	action := s.catalog.Of(req, body, s.host)
+// githubLookup is the action of a repository id's lookup: the read GET /repos/{owner}/{repo} is, whatever the
+// repository (github.repos.read).
+func githubLookup(c Catalog) Action {
+	return c.Match(http.MethodGet, githubAPI, "/repos/owner/repo")
+}
 
-	if s.catalog.Integration != "github" || s.host != githubAPI || action.ID != unlisted(s.catalog.Integration).ID {
-		return action, byID{}
+// byRepositoryID reads a GitHub request the catalog names nowhere that names a repository by its id,
+// /repositories/{id}[/rest] on the API's host: the id and the rest, escaped.
+func byRepositoryID(req *http.Request, s session, named Action) (id, rest string, ok bool) {
+	if s.catalog.Integration != "github" || s.host != githubAPI || named.ID != unlisted(s.catalog.Integration).ID {
+		return "", "", false
 	}
 
-	id, rest, ok := githubRepositoryID(req.URL.EscapedPath())
-	if !ok {
-		return action, byID{}
+	return githubRepositoryID(req.URL.EscapedPath())
+}
+
+// decideRequest names a request's action and applies its Policy, as decide does. A GitHub request by a repository's
+// id is decided twice (reviews of #813). Its lookup, the read GET /repos/{owner}/{repo} is, is decided first: unless
+// the Connection allows that read, by the owner's answer or a grant for the session or the Routine, the owner is
+// asked for it, and nothing is sent, not even the lookup, until he approves; set to never, the request is refused.
+// Then the id is resolved, and the request is decided as its /repos form's action, so that it is never looser than
+// that form: a merge set to never is refused, one that asks asks. An id that is not resolved is github.unlisted and
+// asks.
+func (p *Proxy) decideRequest(ctx context.Context, req *http.Request, body []byte, s session,
+) (governing Action, verdict, message string, err error) {
+	named := s.catalog.Of(req, body, s.host)
+
+	var repository byID
+
+	if id, rest, ok := byRepositoryID(req, s, named); ok {
+		lookup := githubLookup(s.catalog)
+
+		allowed, err := p.allows(ctx, lookup, s)
+		if err != nil {
+			return lookup, "", "", err
+		}
+
+		if !allowed {
+			governing, verdict, message, err = p.decide(ctx, lookup, s, func(a Action) asking {
+				return lookupAsking(req, body, a, s, id)
+			})
+			if err != nil || message != "" {
+				return governing, verdict, message, err
+			}
+		}
+
+		named, repository = p.resolveByID(ctx, req, body, s, id, rest, named)
 	}
 
-	lookup := s.catalog.Match(http.MethodGet, githubAPI, "/repos/owner/repo")
+	return p.decide(ctx, named, s, func(a Action) asking {
+		q := httpAsking(req, body, a, s)
+		if repository.ID != "" {
+			// A request by a repository's id names it only by a number: the owner is told which it is, by its name
+			// as GitHub gives it now (issue #802, review of #813).
+			q.fields = append([]orchestration.Field{{Label: "Repository", Value: p.shown(ctx, s, repository)}},
+				q.fields...)
+		}
 
-	if allowed, err := p.allows(ctx, lookup, s); err != nil || !allowed {
-		action.With = []Action{lookup}
+		return q
+	})
+}
 
-		return action, byID{}
-	}
+// lookupAsking is what the owner is asked when a request by a repository's id needs the read that learns which
+// repository it is: the request, and that it is decided as what it is once the read is approved.
+func lookupAsking(req *http.Request, body []byte, lookup Action, s session, id string) asking {
+	q := httpAsking(req, body, lookup, s)
+	asked := req.Method + " " + req.URL.Path
 
+	q.title = lookup.Name + ": learn which repository id " + id + " is, for " + clipTitle(asked)
+	fields := slices.DeleteFunc(q.fields, func(f orchestration.Field) bool { return f.Label == "Request" })
+	q.fields = append([]orchestration.Field{
+		{Label: "Request", Value: asked},
+		{Label: "Repository", Value: "id " + id + "; its name is read once this is approved, and the request is " +
+			"then decided as what it is, which may ask again"},
+	}, fields...)
+
+	return q
+}
+
+// resolveByID resolves a repository's id and names the request as its /repos/{owner}/{repo} form; an id that is not
+// resolved leaves it as it was named (github.unlisted).
+func (p *Proxy) resolveByID(ctx context.Context, req *http.Request, body []byte, s session, id, rest string,
+	named Action,
+) (Action, byID) {
 	repo, ok := p.githubRepository(ctx, s, id)
 	if !ok {
-		return action, byID{}
+		return named, byID{}
 	}
 
-	named, err := url.Parse("/repos/" + repo.FullName + rest)
+	path, err := url.Parse("/repos/" + repo.FullName + rest)
 	if err != nil {
-		return action, byID{}
+		return named, byID{}
 	}
 
-	named.RawQuery = req.URL.RawQuery
+	path.RawQuery = req.URL.RawQuery
 	as := req.Clone(ctx)
-	as.URL = named
+	as.URL = path
 
 	return s.catalog.Of(as, body, s.host), repo
 }
@@ -272,8 +330,7 @@ func (p *Proxy) lookUpGitHubRepository(ctx context.Context, s session, id string
 	switch {
 	case strconv.FormatInt(got.ID, 10) != id:
 		return "", "GitHub answered another repository"
-	case !found || !githubOwner.MatchString(owner) || !githubNamePart.MatchString(name) ||
-		name == "." || name == "..":
+	case !found || !githubPathPart(owner) || !githubPathPart(name):
 		return "", "GitHub's answer names no owner and repository"
 	}
 

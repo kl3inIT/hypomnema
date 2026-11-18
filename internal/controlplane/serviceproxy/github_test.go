@@ -822,8 +822,9 @@ func TestTheLookupOfARepositorysIDIsDecidedAsItsRead(t *testing.T) {
 		}()
 
 		asked := w.pending()
-		assert.Equal(t, "github.unlisted", asked.Action)
-		assert.Contains(t, asked.Payload, orchestration.Field{Label: "Also", Value: read.Name})
+		assert.Equal(t, read.ID, asked.Action, "the owner is asked for the read that learns the repository")
+		assert.Contains(t, asked.Payload, orchestration.Field{Label: "Request",
+			Value: "GET /repositories/1447911125/pulls/786/files"})
 		assert.Empty(t, w.service.received(), "nothing is sent while the owner has not answered")
 
 		_, err := w.proxy.Decide(t.Context(), asked.ID, false, "")
@@ -838,7 +839,7 @@ func TestTheLookupOfARepositorysIDIsDecidedAsItsRead(t *testing.T) {
 func TestARepositorysNameThatStepsOutOfThePathIsNotResolved(t *testing.T) {
 	t.Parallel()
 
-	for _, fullName := range []string{"../hypomnema", "./hypomnema", "kl3inIT/..", "kl3inIT/.", "a.b/c", "o/r/x"} {
+	for _, fullName := range []string{"../hypomnema", "./hypomnema", "kl3inIT/..", "kl3inIT/.", "o/r/x", "/r", "o/"} {
 		t.Run(fullName, func(t *testing.T) {
 			t.Parallel()
 
@@ -909,4 +910,88 @@ func TestARequestThatAsksShowsTheRepositorysNameAsItIsNow(t *testing.T) {
 	for _, got := range w.service.received() {
 		assert.NotEqual(t, http.MethodPut, got.Method, "no merge was sent")
 	}
+}
+
+// Scenario (second review of #813): a request by a repository's id is never looser than its /repos form when the
+// read that learns the repository asks. The owner approves that read; only then is the id looked up, and the request
+// is decided as what it is: a merge or a read of files set to never is refused and never sent, and a read of files
+// that is allowed runs.
+func TestARequestByIDIsDecidedAsWhatItIsOnceItsLookupIsApproved(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name, method, path, never string
+		status                    int
+	}{
+		{"merge set to never", http.MethodPut, "/repositories/1447911125/pulls/786/merge", "github.pulls.merge",
+			http.StatusForbidden},
+		{"files set to never", http.MethodGet, "/repositories/1447911125/pulls/786/files?page=2", "github.pulls.read",
+			http.StatusForbidden},
+		{"files allowed", http.MethodGet, "/repositories/1447911125/pulls/786/files?page=2", "", http.StatusOK},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			w, gh := githubWorld(t, time.Minute)
+			ctx := t.Context()
+
+			require.NoError(t, w.svc.SetActionPolicy(ctx, serviceproxy.GitHubID, "default", "github.repos.read",
+				orchestration.PolicyAsk))
+
+			if c.never != "" {
+				require.NoError(t, w.svc.SetActionPolicy(ctx, serviceproxy.GitHubID, "default", c.never,
+					orchestration.PolicyNever))
+			}
+
+			answered := make(chan answer, 1)
+
+			go func() { answered <- gh.do(c.method, c.path, "", nil) }()
+
+			asked := w.pending()
+			require.Equal(t, "github.repos.read", asked.Action)
+			assert.Empty(t, w.service.received())
+
+			_, err := w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeOnce)
+			require.NoError(t, err)
+			assert.Equal(t, c.status, (<-answered).Status)
+
+			received := w.service.received()
+			require.NotEmpty(t, received)
+			assert.Equal(t, "https://api.github.com/repositories/1447911125", received[0].URL,
+				"the id is looked up once the read is approved")
+
+			if c.status != http.StatusOK {
+				assert.Len(t, received, 1, "the request itself is never sent")
+
+				return
+			}
+
+			require.Len(t, received, 2)
+			assert.Equal(t, "https://api.github.com"+c.path, received[1].URL)
+		})
+	}
+}
+
+// Scenario (second review of #813): every owner GitHub allows is resolved, such as the user "-" (id 75544), who
+// owns -/test (repository id 45484796; both read with gh api on 2026-11-18): a page of its files by the id reads as
+// its /repos form does, without asking.
+func TestAnOwnerNamedWithAHyphenIsResolved(t *testing.T) {
+	t.Parallel()
+
+	w, gh := githubWorld(t, time.Minute)
+	w.answering(func(r *http.Request) (int, string, bool) {
+		if r.URL.Path == "/repositories/45484796" {
+			return http.StatusOK, `{"id":45484796,"full_name":"-/test"}`, true
+		}
+
+		return 0, "", false
+	})
+
+	require.Equal(t, http.StatusOK, gh.do(http.MethodGet, "/repos/-/test/pulls/1/files", "", nil).Status)
+	require.Equal(t, http.StatusOK, gh.do(http.MethodGet, "/repositories/45484796/pulls/1/files?page=2", "",
+		nil).Status)
+	assert.Empty(t, w.approvals(""), "nobody is asked")
+	assert.Len(t, w.service.received(), 3)
 }

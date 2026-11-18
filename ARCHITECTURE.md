@@ -2158,11 +2158,13 @@ flowchart LR
       `GET /repositories/{id}` (10 s at most), and the name kept per Connection for 20 minutes, at most 1024 of
       them (github-mcp-server's `RepoAccessCache`). That lookup is the read `GET /repos/{owner}/{repo}` is
       (`github.repos.read`) and is decided as it first: only when the owner allows it, or a grant for the session or
-      the Routine stands, is anything sent or a kept name used; otherwise the request is `github.unlisted` with the
-      read beside it, refused when the read is set to never and asked with it otherwise. A GitHub Connection names
-      no repositories, so what it covers is what its token can read: an id GitHub does not answer with that
-      repository (404, an error, another id, an owner or name such as `.` or `..`) stays `github.unlisted` and
-      asks. When such a request asks, the owner is shown the repository's name read again from GitHub then, never
+      the Routine stands, is anything sent or a kept name used. Set to never, the request is refused; when it asks,
+      the owner is asked for that read, and nothing is sent until he approves. Then the id is resolved and the
+      request decided as its `/repos` form's action, so that it is never looser than that form (a merge set to never
+      is refused even after the read is approved). A GitHub Connection names no repositories, so what it covers is
+      what its token can read: an id GitHub does not answer with that repository (404, an error, another id, an
+      owner or name that is not GitHub's letters, digits, `.`, `-` and `_`, or is `.` or `..`) stays
+      `github.unlisted` and asks. When such a request asks, the owner is shown the repository's name read again from GitHub then, never
       a kept one, and only its id when it cannot be read. A release's asset upload goes
       to `uploads.github.com`, also reached. A log's download, which GitHub redirects to
       `results-receiver.actions.githubusercontent.com` or `productionresultssa<N>.blob.core.windows.net`, is
