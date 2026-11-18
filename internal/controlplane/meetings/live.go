@@ -92,9 +92,9 @@ type TrackListener struct {
 	Failed func(err error)
 }
 
-// Track is one track being recorded. It is kept among the meeting's tracks from the moment it starts opening, so
-// a second socket is refused busy and the meeting's end or deletion finds it while it opens, once it has opened and
-// after it failed to.
+// Track is one track being recorded. It is kept among the meeting's tracks from the moment it starts opening until
+// its last words are kept, so a second socket is refused busy and the meeting's end or deletion finds it while it
+// opens, once it has opened, after it failed to and while its last words are on their way.
 type Track struct {
 	svc     *Service
 	id      string
@@ -102,13 +102,13 @@ type Track struct {
 	opened  time.Time
 	failure func(error)
 
-	// ready is closed once the track has opened or failed to; live is set by then if it opened.
-	ready chan struct{}
-
-	mu     sync.Mutex
-	live   *speech.Live
-	file   *os.File
-	pos    int64
+	mu   sync.Mutex
+	live *speech.Live
+	file *os.File
+	pos  int64
+	// ending: the track is being ended, and takes no more audio; its opening, which takes its stream under the same
+	// lock, closes the stream if ending came first (the review of #827, finding 3).
+	ending bool
 	closed bool
 	done   chan struct{}
 }
@@ -129,8 +129,7 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 	}
 
 	t := &Track{
-		svc: s, id: id, track: track, opened: time.Now(), done: make(chan struct{}), ready: make(chan struct{}),
-		failure: l.Failed,
+		svc: s, id: id, track: track, opened: time.Now(), done: make(chan struct{}), failure: l.Failed,
 	}
 
 	s.mu.Lock()
@@ -150,8 +149,6 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 	s.tracks[trackKey(id, track)] = t
 	s.mu.Unlock()
 
-	defer close(t.ready)
-
 	live, err := s.openTrack(ctx, t, m, offset, l)
 	if err != nil {
 		t.end(ctx)
@@ -160,7 +157,7 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 	}
 
 	t.mu.Lock()
-	if t.closed {
+	if t.ending || t.closed {
 		// The meeting ended, or was deleted, while the track opened: it has no audio yet, so nothing is lost.
 		t.mu.Unlock()
 		live.Close()
@@ -170,6 +167,10 @@ func (s *Service) OpenTrack(ctx context.Context, id, track string, offset time.D
 
 	t.live = live
 	t.mu.Unlock()
+
+	if s.published != nil {
+		s.published()
+	}
 
 	return t, nil
 }
@@ -200,7 +201,7 @@ func (s *Service) openTrack(ctx context.Context, t *Track, m meetingstore.Meetin
 	}
 
 	t.mu.Lock()
-	if t.closed {
+	if t.ending || t.closed {
 		t.mu.Unlock()
 		_ = file.Close()
 
@@ -247,7 +248,7 @@ func (t *Track) Done() <-chan struct{} { return t.done }
 func (t *Track) Append(pcm []byte) error {
 	t.mu.Lock()
 
-	if t.closed {
+	if t.ending || t.closed {
 		t.mu.Unlock()
 
 		return ErrNotRecording
@@ -274,7 +275,7 @@ func (t *Track) Append(pcm []byte) error {
 // Finish ends the track after its last words are kept, waiting at most until ctx ends. A track still opening has
 // heard nothing yet and ends at once; its opening then closes what it opened.
 func (t *Track) Finish(ctx context.Context) {
-	if live := t.stream(); live != nil {
+	if live := t.take(); live != nil {
 		live.Finish(ctx)
 	}
 
@@ -283,7 +284,7 @@ func (t *Track) Finish(ctx context.Context) {
 
 // Close ends the track at once, the words already final kept.
 func (t *Track) Close(ctx context.Context) {
-	if live := t.stream(); live != nil {
+	if live := t.take(); live != nil {
 		live.Close()
 	}
 
@@ -291,7 +292,7 @@ func (t *Track) Close(ctx context.Context) {
 }
 
 func (t *Track) fail(ctx context.Context, err error) {
-	if live := t.stream(); live != nil {
+	if live := t.take(); live != nil {
 		live.Close()
 	}
 
@@ -300,22 +301,21 @@ func (t *Track) fail(ctx context.Context, err error) {
 	}
 }
 
-// stream is the track's stream to the provider; nil while the track opens or once it failed to open.
-func (t *Track) stream() *speech.Live {
-	select {
-	case <-t.ready:
-	default:
-		return nil
-	}
-
+// take marks the track ending and gives its stream to the provider to end; nil while the track opens, whose
+// opening then closes what it opened, or once it failed to open. Both happen under t.mu, so a stream is either taken
+// here or closed by its opening.
+func (t *Track) take() *speech.Live {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	t.ending = true
 
 	return t.live
 }
 
-// end closes the track's file, records the audio heard on the meetings' key and lets another socket record the
-// track; true the first time.
+// end closes the track's file, waits for its last words to be kept, records the audio heard on the meetings' key
+// and lets another socket record the track; true the first time. Until its words are kept the track stays among the
+// meeting's, so the meeting's end waits for them before it is transcribed (the review of #827, finding 2).
 func (t *Track) end(ctx context.Context) bool {
 	t.mu.Lock()
 	if t.closed {
@@ -331,6 +331,18 @@ func (t *Track) end(ctx context.Context) bool {
 		_ = t.file.Close()
 	}
 	t.mu.Unlock()
+
+	if live != nil {
+		// The stream was finished or closed; what it gave is kept, at most endWait, even when ctx has ended.
+		wait, cancel := context.WithTimeout(context.WithoutCancel(ctx), endWait)
+
+		select {
+		case <-live.Done():
+		case <-wait.Done():
+		}
+
+		cancel()
+	}
 
 	t.svc.forget(t)
 

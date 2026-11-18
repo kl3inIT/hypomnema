@@ -505,3 +505,121 @@ func TestADisconnectKeepsTheWordsAlreadyFinal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Already final.", d.Lines[0].Text)
 }
+
+// Scenario: the browser's socket drops while the words already final are still on their way to be kept (the
+// listener is slow), and the meeting is ended at once. The end waits for them: the line is kept before the meeting
+// is transcribed (review of #827, finding 2: the track was forgotten before its line was kept, and the line was
+// refused once the meeting had ended).
+func TestEndingRightAfterADisconnectKeepsTheWordsAlreadyFinal(t *testing.T) {
+	t.Parallel()
+
+	first := firstHalfSecond()
+	fake := &speechtest.Realtime{
+		Answer: func(stream int, _ map[string]any, received int) ([]string, bool) {
+			if !first(stream, received) {
+				return nil, false
+			}
+
+			return []string{speechtest.Tokens(true, false,
+				speechtest.Token{Text: "Already final.", Start: 0, End: 400})}, false
+		},
+	}
+	w := liveWorld(t, fake)
+	gate := newHold(t)
+	ctx := t.Context()
+
+	m, err := w.svc.StartLive(ctx, meetings.LiveStart{Kind: meetingstore.InPerson})
+	require.NoError(t, err)
+
+	k := &told{}
+	listener := k.listener()
+	preview := listener.Preview
+	listener.Preview = func(speaker, text string) {
+		// The socket is slow to take the preview: what is queued after it waits.
+		if text == "Already final." {
+			gate.wait()
+		}
+
+		preview(speaker, text)
+	}
+
+	tr, err := w.svc.OpenTrack(ctx, m.ID, meetingstore.TrackMic, 0, listener)
+	require.NoError(t, err)
+	require.NoError(t, tr.Append(pcm(time.Second, 0)))
+	gate.reachedIn(t)
+
+	// The socket's read failed: the track is closed, and the meeting is ended right after.
+	go tr.Close(ctx)
+
+	require.Eventually(t, func() bool { return tr.Append(pcm(100*time.Millisecond, 0)) != nil },
+		5*time.Second, time.Millisecond)
+
+	time.AfterFunc(200*time.Millisecond, gate.let)
+
+	ended, err := w.svc.End(ctx, m.ID)
+	require.NoError(t, err)
+	assert.Equal(t, meetingstore.Transcribed, ended.State)
+
+	d, err := w.svc.Get(ctx, m.ID)
+	require.NoError(t, err)
+	require.Len(t, d.Lines, 1, "the words already final are kept before the meeting ends")
+	assert.Equal(t, "Already final.", d.Lines[0].Text)
+}
+
+// Scenario: the meeting is ended just as its microphone's track takes the stream it opened. The end finishes that
+// stream: the provider's connection is closed, and the track takes no more audio (review of #827, finding 3: the
+// track was forgotten while its stream and its goroutines went on).
+func TestEndingAsATrackOpensClosesItsStream(t *testing.T) {
+	t.Parallel()
+
+	fake := &speechtest.Realtime{}
+	w := liveWorld(t, fake)
+	gate := newHold(t)
+	meetings.SetPublished(w.svc, gate.wait)
+
+	ctx := t.Context()
+
+	m, err := w.svc.StartLive(ctx, meetings.LiveStart{Kind: meetingstore.InPerson})
+	require.NoError(t, err)
+
+	type opened struct {
+		track *meetings.Track
+		err   error
+	}
+
+	out := make(chan opened, 1)
+
+	go func() {
+		tr, err := w.svc.OpenTrack(ctx, m.ID, meetingstore.TrackMic, 0, (&told{}).listener())
+		out <- opened{tr, err}
+	}()
+
+	gate.reachedIn(t)
+
+	ended, err := w.svc.End(ctx, m.ID)
+	require.NoError(t, err)
+	assert.Equal(t, meetingstore.Transcribed, ended.State)
+
+	gate.let()
+
+	var o opened
+
+	select {
+	case o = <-out:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the track did not finish opening")
+	}
+
+	if o.err == nil {
+		// Not closed by its socket here: the end alone has to close what the track opened.
+		require.Error(t, o.track.Append(pcm(100*time.Millisecond, 0)), "an ended track takes no audio")
+	} else {
+		require.ErrorIs(t, o.err, meetings.ErrNotRecording)
+	}
+
+	require.Eventually(t, func() bool {
+		s := fake.Streams()
+
+		return len(s) == 1 && s[0].Closed
+	}, 5*time.Second, 10*time.Millisecond, "the provider's stream is closed")
+}

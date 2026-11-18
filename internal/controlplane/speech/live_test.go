@@ -384,3 +384,68 @@ func TestAReconnectFallsBehindPastThirtySeconds(t *testing.T) {
 
 	require.ErrorIs(t, live.Append(tenth()), speech.ErrBehind)
 }
+
+// Scenario: the provider's stream breaks after six seconds; ten more seconds come while the new stream's handshake
+// waits, and the recording is stopped before it answers. Finishing waits for the new stream: the last five seconds
+// sent and all ten not yet sent reach it, then the end, and the words it gives at the end are given (review of #827,
+// finding 1: the queue was dropped and the new stream refused because the stream was finishing).
+func TestFinishingWhileReconnectingSendsTheAudioWaiting(t *testing.T) {
+	t.Parallel()
+
+	second := 10 * len(tenth())
+	fake, reached, let := heldReconnect(t, 6*second, nil)
+	fake.End = func(stream int, _ map[string]any) []string {
+		if stream != 1 {
+			return nil
+		}
+
+		return []string{speechtest.Tokens(true, false,
+			speechtest.Token{Text: "Last words.", Start: 14000, End: 14500, Speaker: "1"})}
+	}
+	svc := liveService(fake.Serve(t), nil)
+	t.Cleanup(let)
+
+	h := &heard{}
+
+	live, err := svc.Live(t.Context(), speech.LiveRequest{After: -1}, h.listener())
+	require.NoError(t, err)
+
+	for range 60 {
+		require.NoError(t, live.Append(tenth()))
+	}
+
+	reachedIn(t, reached)
+
+	for range 100 {
+		require.NoError(t, live.Append(tenth()))
+	}
+
+	finished := make(chan struct{})
+
+	go func() {
+		defer close(finished)
+
+		live.Finish(t.Context())
+	}()
+
+	// The stream is finishing once it takes no more audio; the handshake is still held.
+	require.Eventually(t, func() bool { return live.Append(nil) != nil }, 5*time.Second, time.Millisecond)
+
+	let()
+
+	select {
+	case <-finished:
+	case <-time.After(20 * time.Second):
+		t.Fatal("finishing did not end")
+	}
+
+	streams := fake.Streams()
+	require.Equal(t, 2, len(streams), "the new stream is awaited") //nolint:testifylint // the streams hold audio
+	//nolint:testifylint // Len would print the audio
+	assert.Equal(t, 15*second, len(streams[1].Audio), "five seconds replayed, then the ten not yet sent")
+	assert.Equal(t, []string{""}, streams[1].Texts, "then the end")
+	assert.Equal(t, []speech.Segment{
+		{Start: 15 * time.Second, End: 15500 * time.Millisecond, Text: "Last words.", Speaker: "1"},
+	}, h.said(), "the words given at the end are kept")
+	assert.Empty(t, h.failed)
+}

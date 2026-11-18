@@ -3627,12 +3627,15 @@ gateway chat model writes its summary, decisions and actions.
   not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
   frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
   sent, then the audio that came meanwhile (kept up to 30 s; past it the track ends behind), and shifts the new
-  stream's times; a track whose socket drops keeps the words already final; a final token that ends at or before the track's last kept line is dropped, so
+  stream's times; a stream stopped while a new one is awaited waits for it (a wait before asking is cut short) and
+  sends it that audio before the end; a track whose socket drops keeps the words already final, and stays among the
+  meeting's tracks until they are kept; a final token that ends at or before the track's last kept line is dropped, so
   a replay, or a browser that reconnects with an earlier offset, never keeps a line twice. A stream more than 30 s
   behind ends its track. Lines are appended as final (`meetingstore.AppendLine`). Each track's PCM is written to
   `<id>.<track>.pcm` at its offset on the meeting's clock; `POST /meetings/{id}/end` first stops any track opening
-  (one still opening ends at once, having heard nothing, and one asked for later is refused `ended`), lets open
-  tracks keep their last words (at most 20 s), mixes the tracks into one WAV as the meeting's recording, removes the track files, and
+  (one still opening ends at once, having heard nothing, its stream closed by its opening or by the end, whichever
+  comes second, and one asked for later is refused `ended`), lets open or closing tracks keep their last words (at
+  most 20 s), mixes the tracks into one WAV as the meeting's recording, removes the track files, and
   moves the meeting to `transcribed` and its notes to `writing` in one guarded transaction, once (never through
   `transcribing`). Each track's audio seconds are counted on the `meetings` key when it closes. Nothing ends a
   meeting by itself: one left recording keeps its length (`duration_ms`, the longest track kept) to resume from.

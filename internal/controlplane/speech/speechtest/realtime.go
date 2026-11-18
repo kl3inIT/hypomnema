@@ -20,6 +20,8 @@ type Stream struct {
 	// Audio is every binary frame's bytes, in order; Texts every text frame after the start ("" is the end).
 	Audio []byte
 	Texts []string
+	// Closed: the stream's connection has ended.
+	Closed bool
 }
 
 // Realtime is the fake. Answer is asked after each binary frame, with the stream's number from 0, the stream's start
@@ -96,6 +98,12 @@ func (f *Realtime) serve(w http.ResponseWriter, r *http.Request) {
 	n := len(f.streams)
 	f.streams = append(f.streams, stream)
 	f.mu.Unlock()
+
+	defer func() {
+		f.mu.Lock()
+		stream.Closed = true
+		f.mu.Unlock()
+	}()
 
 	send := func(messages []string) bool {
 		for _, m := range messages {

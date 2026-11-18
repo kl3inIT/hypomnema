@@ -93,6 +93,8 @@ type Service struct {
 	closing map[string]bool
 	// ending lets one live meeting end at a time.
 	ending sync.Mutex
+	// published, when set, is called as a track has taken its stream; tests hold it there.
+	published func()
 }
 
 // New returns a Service; the recordings' folder is made when missing.

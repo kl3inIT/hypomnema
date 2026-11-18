@@ -117,12 +117,15 @@ type Live struct {
 	lastEnd       time.Duration
 	finishing     bool
 	ended         bool
-	closed        bool
-	finished      chan struct{}
-	finishedOnce  sync.Once
-	wake          chan struct{}
-	stop          chan struct{}
-	stopOnce      sync.Once
+	// reconnecting: a new stream is awaited after a failure; retry is the wait before it is asked for, if any.
+	reconnecting bool
+	retry        *time.Timer
+	closed       bool
+	finished     chan struct{}
+	finishedOnce sync.Once
+	wake         chan struct{}
+	stop         chan struct{}
+	stopOnce     sync.Once
 
 	events      []func()
 	eventWake   chan struct{}
@@ -262,6 +265,11 @@ func (l *Live) Append(pcm []byte) error {
 		return errors.New("the stream takes no more audio")
 	}
 
+	if len(pcm) == 0 {
+		// Nothing to send; an empty frame would be taken for the end.
+		return nil
+	}
+
 	// The audio not yet sent waits, while a new stream is awaited too, up to the bound (the issue's row #11).
 	if int64(l.queued+len(pcm)) > durationToBytes(LiveMaxBehind) {
 		return ErrBehind
@@ -277,7 +285,8 @@ func (l *Live) Append(pcm []byte) error {
 }
 
 // Finish ends the stream: the audio given is sent, then the end, and the last segments are given before it returns,
-// or after liveFinishTimeout, or when ctx ends.
+// or after liveFinishTimeout, or when ctx ends. While a new stream is awaited after a failure, it waits for it and
+// sends it the audio not yet sent (the review of #827, finding 1); a wait before asking for it is cut short.
 func (l *Live) Finish(ctx context.Context) {
 	l.mu.Lock()
 
@@ -290,7 +299,18 @@ func (l *Live) Finish(ctx context.Context) {
 
 	l.finishing = true
 
-	if l.conn == nil {
+	switch {
+	case l.conn != nil:
+	case l.reconnecting:
+		if l.retry != nil && l.retry.Stop() {
+			l.retry = nil
+			gen := l.generation
+
+			// The new stream lives past this call, as the first did (Live).
+			go l.reconnect(context.WithoutCancel(ctx), gen)
+		}
+	default:
+		// The provider gave up: nothing can hear the audio left.
 		l.flush()
 		l.closeFinished()
 	}
@@ -329,6 +349,13 @@ func (l *Live) Close() {
 	l.closed = true
 	conn := l.conn
 	l.conn = nil
+	l.reconnecting = false
+
+	if l.retry != nil {
+		l.retry.Stop()
+		l.retry = nil
+	}
+
 	l.queue, l.queued = nil, 0
 	l.replay, l.replayBytes = nil, 0
 	l.retained, l.retainedBytes = nil, 0
@@ -344,6 +371,9 @@ func (l *Live) Close() {
 		_ = conn.Close(websocket.StatusNormalClosure, "done")
 	}
 }
+
+// Done is closed once the stream has ended and every call to its listener was made: the last segments are kept.
+func (l *Live) Done() <-chan struct{} { return l.eventsDone }
 
 func (l *Live) waitEvents(ctx context.Context) {
 	select {
@@ -602,6 +632,7 @@ func (l *Live) failed(ctx context.Context, gen int, reason string) {
 	case l.finishing:
 		l.closeFinished()
 	case l.attempt >= len(l.backoff):
+		l.reconnecting = false
 		l.svc.cfg.Logger.WarnContext(ctx, "a live transcription gave up", slog.String("event", "speech.live_abandoned"),
 			slog.Int("attempts", l.attempt), slog.String("reason", reason))
 		l.emit(func() {
@@ -617,7 +648,8 @@ func (l *Live) failed(ctx context.Context, gen int, reason string) {
 		l.svc.cfg.Logger.WarnContext(ctx, "a live transcription failed; opening a new one",
 			slog.String("event", "speech.live_reconnecting"), slog.Int("attempt", l.attempt),
 			slog.String("reason", reason))
-		time.AfterFunc(wait, func() { l.reconnect(ctx, next) })
+		l.reconnecting = true
+		l.retry = time.AfterFunc(wait, func() { l.reconnect(ctx, next) })
 	}
 
 	l.mu.Unlock()
@@ -625,10 +657,12 @@ func (l *Live) failed(ctx context.Context, gen int, reason string) {
 	_ = broken.Close(websocket.StatusNormalClosure, "reconnect")
 }
 
-// reconnect opens a new stream, replays the retained audio into it and shifts its times to the meeting's clock.
+// reconnect opens a new stream, replays the retained audio into it and shifts its times to the meeting's clock. A
+// stream finishing meanwhile still gets it: the audio waiting is sent to it before the end.
 func (l *Live) reconnect(base context.Context, gen int) {
 	l.mu.Lock()
-	stale := l.closed || l.finishing || gen != l.generation
+	stale := l.closed || gen != l.generation
+	l.retry = nil
 	l.mu.Unlock()
 
 	if stale {
@@ -643,7 +677,7 @@ func (l *Live) reconnect(base context.Context, gen int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.closed || l.finishing || gen != l.generation {
+	if l.closed || gen != l.generation {
 		if conn != nil {
 			_ = conn.CloseNow()
 		}
@@ -652,7 +686,18 @@ func (l *Live) reconnect(base context.Context, gen int) {
 	}
 
 	if err != nil {
+		if l.finishing {
+			// Finishing waits for no further try.
+			l.reconnecting = false
+			l.flush()
+			l.closeFinished()
+
+			return
+		}
+
 		if l.attempt >= len(l.backoff) {
+			l.reconnecting = false
+
 			l.emit(func() {
 				if l.listener.Failed != nil {
 					l.listener.Failed(err)
@@ -664,7 +709,7 @@ func (l *Live) reconnect(base context.Context, gen int) {
 
 		wait := l.backoff[l.attempt]
 		l.attempt++
-		time.AfterFunc(wait, func() { l.reconnect(base, gen) })
+		l.retry = time.AfterFunc(wait, func() { l.reconnect(base, gen) })
 
 		return
 	}
@@ -672,6 +717,7 @@ func (l *Live) reconnect(base context.Context, gen int) {
 	// Anarlog's replay offset: the new stream starts at the replayed tail, which the audio not yet sent follows, not
 	// at the recording's start.
 	l.conn = conn
+	l.reconnecting = false
 	l.replay, l.replayBytes = l.retained, l.retainedBytes
 	l.retained, l.retainedBytes = nil, 0
 	l.base = l.req.Offset + bytesToDuration(l.sent-int64(l.queued+l.replayBytes))
