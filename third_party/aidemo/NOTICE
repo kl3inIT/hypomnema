@@ -1,0 +1,34 @@
+MIT License
+
+Copyright (c) 2026 Andrii Taran
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Source: https://github.com/tandryukha/aidemo at b67235a.
+
+What is ported from it here (issue #818, part 1), in Go, in
+internal/controlplane/videos/compose: from src/compose.ts, IDLE_CAP_MS, FPS,
+MAX_STRETCH, MIN_FACTOR, mergeIdle, sceneAutoIdle, keepIntervals,
+offsetInKeeps, the retime, hold and overrun trim of a scene and the remap of
+an event through them, extractAndConcat, concatSegments, the "contain" filter
+of resizeOutput, overlayPngBatches and the audio of muxAudio (keep.go,
+compose.go); from src/ffmpeg.ts, runFfmpeg, probeDurationMs and
+probeFreezeSpans (ffmpeg.go); from src/voice.ts, GAP_MS and
+assembleNarration (keep.go, compose.go). Each file says what it took, and how
+it differs.

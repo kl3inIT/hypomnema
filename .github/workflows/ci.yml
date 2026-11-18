@@ -108,11 +108,24 @@ jobs:
         run: >-
           command -v ffprobe || { sudo apt-get update -o Acquire::Retries=3 &&
           sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg; }
+      # The videos are made with the control plane's pinned ffmpeg (issue #818, row 9), installed here as the control
+      # plane installs it, and kept between runs while its pin is unchanged.
+      - name: Cache the pinned ffmpeg
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/hypomnema-ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('internal/controlplane/videos/ffmpeg/release.go', 'internal/controlplane/videos/ffmpeg/fonts/*') }}
+      - name: Install the pinned ffmpeg
+        timeout-minutes: 15
+        run: |
+          go run ./internal/controlplane/videos/ffmpeg/installffmpeg "$HOME/.cache/hypomnema-ffmpeg"
+          echo "HYPOMNEMA_FFMPEG_DIR=$HOME/.cache/hypomnema-ffmpeg" >> "$GITHUB_ENV"
       - name: make unit
         run: make unit
         env:
           HYPOMNEMA_BOX_TEST: required
           HYPOMNEMA_NEED_FFPROBE: required
+          HYPOMNEMA_NEED_FFMPEG: required
 
   race:
     name: Race
