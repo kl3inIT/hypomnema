@@ -2739,8 +2739,9 @@ capabilities do not exist yet.
   each; the YAML is their one home (`modelgateway/attributes.go`). One it does not set is models.dev's for the model
   of its first target, under that provider's vendor (the snapshot of `modelgateway/prices`: `limit.context`,
   `limit.output`, `modalities.input`, `reasoning` and `reasoning_options` of type `effort`); else it is unknown.
-  A subscription's window is its own before models.dev's: a Codex one's from Codex's list (500,000 for
-  `gpt-6.2-sol` and `gpt-6.1-terra`, 272,000 for a model it does not list), an Antigravity one's window and largest
+  A subscription's window is its own before models.dev's: a Codex one's from Codex's list at `rust-v0.169.1`
+  (500,000 for `gpt-6.2-sol`, `gpt-6.1-sol` and `gpt-6.1-terra`, 372,000 for `gpt-daybreak-red-latest`, 272,000 for
+  every other model and one it does not list), an Antigravity one's window and largest
   output as Google serves them, `maxTokens` and `maxOutputTokens` of `fetchAvailableModels` under the first active
   account, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
   levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
