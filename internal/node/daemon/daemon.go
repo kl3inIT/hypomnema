@@ -48,6 +48,12 @@ var ErrUnauthorized = errors.New("the control plane refused the node token")
 
 var errReplaced = errors.New("another connection of this node took over")
 
+// errLeaseRefused ends a session whose lease heartbeat the control plane refused, so that the node says hello again:
+// the hello renews a lease that ran out while the control plane was away, or offers a reattach once its outcome was
+// marked unknown (issue #833). Omnara's daemon reconciles and registers again when its heartbeat is refused
+// (internal/machinedaemon/client.go:147-170, "daemon connection lost; reconciling before reconnect").
+var errLeaseRefused = errors.New("the control plane refused a lease heartbeat")
+
 // Reporter is how a Runner reports what one worker does; *Worker is the
 // daemon's.
 type Reporter interface {
@@ -114,6 +120,8 @@ type Config struct {
 	Commands Commands
 	// Takes are the takes the phone films (issue #817), said at hello and uploaded; nil: none.
 	Takes Takes
+	// LeaseEvery is how often a running Dispatch's lease is renewed; zero: LeaseEvery.
+	LeaseEvery time.Duration
 }
 
 // Phone is the phone a node holds (issue #417); *device.Manager is the
@@ -494,7 +502,12 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 	beat := time.NewTimer(0)
 	defer beat.Stop()
 
-	lease := time.NewTicker(LeaseEvery)
+	every := d.cfg.LeaseEvery
+	if every <= 0 {
+		every = LeaseEvery
+	}
+
+	lease := time.NewTicker(every)
 	defer lease.Stop()
 
 	if err := d.replay(ctx); err != nil {
@@ -562,14 +575,30 @@ func (d *Daemon) replay(ctx context.Context) error {
 	return nil
 }
 
+// renewLeases sends a lease heartbeat for each running Dispatch. One whose
+// reattach is still queued has no lease until the reattach is answered, and a
+// heartbeat at its old epoch would be refused and make the node say hello again
+// claiming that old epoch (issue #833).
 func (d *Daemon) renewLeases(ctx context.Context) error {
 	held, err := d.db.List(ctx)
 	if err != nil {
 		return err
 	}
 
+	pending, err := d.db.Pending(ctx)
+	if err != nil {
+		return err
+	}
+
+	reattaching := map[string]bool{}
+	for _, r := range pending {
+		if r.Kind == nodeproto.ReportReattach {
+			reattaching[r.DispatchID] = true
+		}
+	}
+
 	for _, h := range held {
-		if h.State == statedb.StateAccepted {
+		if h.State == statedb.StateAccepted && !reattaching[h.ID] {
 			d.ephemeralReport(nodeproto.Report{Kind: nodeproto.ReportHeartbeat, DispatchID: h.ID, Epoch: h.Epoch})
 		}
 	}

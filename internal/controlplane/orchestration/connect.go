@@ -30,6 +30,7 @@ type DispositionKind string
 // Dispositions.
 const (
 	// DispositionRetain: the Dispatch is still the node's at that epoch; carry on.
+	// Its lease is renewed with the answer.
 	DispositionRetain DispositionKind = "retain"
 	// DispositionReattach: its outcome was marked unknown while the node was
 	// away; reattach to the same process (ReattachDispatch) or report it ended.
@@ -162,6 +163,18 @@ func (s *Service) disposition(ctx context.Context, q *store.Queries, now int64, 
 	case status == DispatchUnknown || status == DispatchStopUnknown:
 		return DispositionReattach, nil
 	case int(d.Epoch) == c.Epoch:
+		// Retaining renews the lease: it may have run out while the control
+		// plane was down, and a lease that ran out is never renewed by a
+		// heartbeat (issue #833). Omnara's registration ends the same way, by
+		// renewing the lease of the runtime it reconciled
+		// (machine_daemon_runtime_store.go:218-233, "finalize daemon runtime
+		// registration lease").
+		if _, err := q.RetainLease(ctx, store.RetainLeaseParams{
+			Now: now, LeaseExpiresAt: now + LeaseDuration.Milliseconds(), ID: d.ID, Epoch: d.Epoch,
+		}); err != nil {
+			return "", fmt.Errorf("renewing the lease of retained dispatch %s: %w", d.ID, err)
+		}
+
 		return DispositionRetain, nil
 	default:
 		return DispositionRelease, nil

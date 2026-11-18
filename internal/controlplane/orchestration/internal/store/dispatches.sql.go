@@ -1184,6 +1184,34 @@ func (q *Queries) RequestStop(ctx context.Context, arg RequestStopParams) (int64
 	return result.RowsAffected()
 }
 
+const retainLease = `-- name: RetainLease :execrows
+UPDATE dispatches
+SET updated_at = ?1, lease_expires_at = CAST(?2 AS INTEGER)
+WHERE id = ?3 AND epoch = ?4 AND status IN ('starting', 'running', 'stopping')
+`
+
+type RetainLeaseParams struct {
+	Now            int64
+	LeaseExpiresAt int64
+	ID             string
+	Epoch          int64
+}
+
+// A node's hello renews the lease of a Dispatch it is told to retain, even one that ran out while the control plane
+// was down and before the reaper marked it unknown (issue #833).
+func (q *Queries) RetainLease(ctx context.Context, arg RetainLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, retainLease,
+		arg.Now,
+		arg.LeaseExpiresAt,
+		arg.ID,
+		arg.Epoch,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setCLISessionRef = `-- name: SetCLISessionRef :exec
 UPDATE conversations SET cli_session_ref = ?1, updated_at = ?2 WHERE id = ?3
 `

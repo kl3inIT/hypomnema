@@ -125,8 +125,16 @@ func (d *Daemon) acked(ctx context.Context, ack nodeproto.ReportAck) error {
 	d.mu.Unlock()
 
 	if ephemeral {
-		if r.Kind == nodeproto.ReportHeartbeat && ack.Status == nodeproto.AckCommitted {
+		switch {
+		case r.Kind != nodeproto.ReportHeartbeat:
+		case ack.Status == nodeproto.AckCommitted:
 			d.beat(r.DispatchID, ack.Response)
+		case ack.Status == nodeproto.AckRejected:
+			d.logger.WarnContext(ctx, "a lease heartbeat was refused; saying hello again",
+				slog.String("event", "node.lease_refused"), slog.String("dispatch_id", r.DispatchID),
+				slog.String("error", ack.Error))
+
+			return fmt.Errorf("%w: %s: %s", errLeaseRefused, r.DispatchID, ack.Error)
 		}
 
 		return nil
