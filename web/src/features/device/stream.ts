@@ -197,3 +197,38 @@ export function stateLine(state: PhoneState | null): string {
       return "Connecting…"
   }
 }
+
+// Filming is the take an agent films of the phone, as the view's `take` message says it (issue #817): its time
+// `atMs` at `at`, which goes on while it records.
+export type Filming = {
+  take: string
+  title: string
+  agent: string
+  state: "recording" | "paused"
+  atMs: number
+  at: number
+  said: string
+}
+
+// filmingOf reads a `take` message; null when no take is filmed.
+export function filmingOf(m: Record<string, unknown>): Filming | null {
+  if (typeof m.take !== "string" || m.take === "") return null
+
+  const at = typeof m.at === "string" ? Date.parse(m.at) : Number.NaN
+
+  return {
+    take: m.take,
+    title: typeof m.title === "string" ? m.title : "",
+    agent: typeof m.agent === "string" ? m.agent : "",
+    state: m.state === "paused" ? "paused" : "recording",
+    atMs: typeof m.at_ms === "number" ? m.at_ms : 0,
+    at: Number.isNaN(at) ? Date.now() : at,
+    said: typeof m.said === "string" ? m.said : "",
+  }
+}
+
+// filmedFor is how long a take has been filmed at now: its time when it was said, and the time since while it
+// records.
+export function filmedFor(f: Filming, now: number): number {
+  return f.state === "recording" ? f.atMs + Math.max(now - f.at, 0) : f.atMs
+}

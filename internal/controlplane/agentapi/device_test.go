@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +26,7 @@ import (
 // with err when it is set.
 type sharedPhone struct {
 	calls []string
+	works []string
 	err   error
 }
 
@@ -31,12 +34,14 @@ func (p *sharedPhone) Tools(context.Context) ([]devicetool.Tool, error) {
 	return devicetool.Tools(), p.err
 }
 
-func (p *sharedPhone) Call(_ context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
+func (p *sharedPhone) Call(_ context.Context, c phone.Caller, tool string, arguments json.RawMessage,
+) (json.RawMessage, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
 
-	p.calls = append(p.calls, fmt.Sprintf("%s %s %s", agent, tool, arguments))
+	p.calls = append(p.calls, fmt.Sprintf("%s %s %s", c.Key, tool, arguments))
+	p.works = append(p.works, c.Work)
 
 	return json.RawMessage(`{"content":[{"type":"image","data":"cG5n","mimeType":"image/png"}],"isError":false}`), nil
 }
@@ -175,4 +180,49 @@ func TestAPhoneCallThatFailsSaysWhy(t *testing.T) {
 	status, body := none.call(http.MethodGet, agenttool.PathDeviceTools, noneKey, nil)
 	assert.Equal(t, http.StatusServiceUnavailable, status)
 	assert.Contains(t, string(body), "no phone")
+}
+
+// Scenario: the phone is told what each caller works on, which a take it
+// films ends with (issue #817): a worker's Dispatch, and a Bot's turn, which
+// is another turn once the chat's turn settled and the next began.
+func TestThePhoneKnowsTheWorkOfEachCall(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	p := &sharedPhone{}
+	withPhone(w, p)
+
+	ctx := t.Context()
+
+	key, err := w.svc.AddAgentSession(ctx, "dsp_1", nil)
+	require.NoError(t, err)
+
+	status, _ := w.useDevice(key, devicetool.VideoStart, `{"title":"Sign in"}`)
+	require.Equal(t, http.StatusOK, status)
+
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	require.NoError(t, w.svc.MarkChatTurn(ctx, chat.ID, "pi-1"))
+
+	status, _ = w.useDevice(pi, devicetool.Screen, `{}`)
+	require.Equal(t, http.StatusOK, status)
+
+	require.NoError(t, w.svc.SettleChatTurn(ctx, chat.ID, "pi-1"))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, w.svc.MarkChatTurn(ctx, chat.ID, "pi-1"))
+
+	status, _ = w.useDevice(pi, devicetool.Screen, `{}`)
+	require.Equal(t, http.StatusOK, status)
+
+	require.Len(t, p.works, 3)
+	assert.Equal(t, "dispatch dsp_1", p.works[0])
+	assert.True(t, strings.HasPrefix(p.works[1], "turn "+chat.ID+" pi-1@"), p.works[1])
+	assert.NotEqual(t, p.works[1], p.works[2], "the chat's next turn is other work")
 }

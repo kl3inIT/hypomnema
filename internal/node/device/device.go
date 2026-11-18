@@ -31,13 +31,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 const (
-	// IdleAfter is how long the phone runs after its last use (issue #417): a start, a Touch, or a view of its
-	// screen open. Using the phone over adb does not count; another start puts the stop off.
+	// IdleAfter is how long the phone runs after its last use (issue #417): a start, a Touch, a view of its
+	// screen open, or a take filmed (issue #817). Using the phone over adb does not count; another start puts the stop off.
 	IdleAfter = 15 * time.Minute
 	// BootWithin is how long the emulator has to finish booting.
 	BootWithin = 5 * time.Minute
@@ -94,6 +95,9 @@ type Options struct {
 	GPU string
 	// CPUs is the machine's CPU count; zero: runtime.NumCPU.
 	CPUs int
+	// FreeBytes says how much disk is free where a take is written; nil: the file system's own
+	// (platform.FreeBytes).
+	FreeBytes func(path string) (uint64, error)
 }
 
 // DefaultGPU is the renderer the trial machine proved: Mesa's llvmpipe
@@ -155,6 +159,12 @@ type Manager struct {
 	// starts it in a test; nil: scrcpy on the phone.
 	live         screen
 	screenSource func(ctx context.Context) (screenStream, error)
+
+	// film is what an agent films of the phone (take.go); beforeWrite is a test's hook before each frame is
+	// written, and fed one after each packet a take was given; nil: none.
+	film        filming
+	beforeWrite func() error
+	fed         func(packet)
 }
 
 // record is what the node keeps of the programs it started, in run.json, so
@@ -201,12 +211,18 @@ func newManager(opts Options, comps []component) *Manager {
 		opts.CPUs = runtime.NumCPU()
 	}
 
+	if opts.FreeBytes == nil {
+		opts.FreeBytes = platform.FreeBytes
+	}
+
 	m := &Manager{
 		opts: opts, comps: comps, in: installer{dir: opts.Dir, client: opts.Client},
 		changed: make(chan struct{}, 1), agents: agents{stale: map[string]bool{}, boot: map[string]uint64{}},
 	}
 	m.state = m.restingState()
+	m.film.uploads = make(chan struct{}, 1)
 	m.refresh()
+	m.recoverTakes()
 
 	return m
 }
@@ -262,6 +278,11 @@ func (m *Manager) set(state, reason string) {
 	}
 
 	m.live.stateChanged(state, reason)
+
+	// A phone that stopped running ends the take filmed on it, keeping what was filmed.
+	if state != nodeproto.DeviceRunning {
+		m.endRunning(devicetool.EndedPhoneEnd, "the phone is "+state)
+	}
 
 	select {
 	case m.changed <- struct{}{}:
@@ -709,7 +730,7 @@ func (m *Manager) Sweep(ctx context.Context) {
 		return
 	}
 
-	// A view open is a use: the phone is not stopped under the owner's eyes.
+	// A view open is a use: the phone is not stopped under the owner's eyes; so is a take filmed.
 	watched := m.live.watched()
 
 	m.mu.Lock()

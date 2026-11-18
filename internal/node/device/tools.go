@@ -78,9 +78,15 @@ type agents struct {
 // background, and the call says to come back. Every call puts the phone's
 // idle stop off.
 func (m *Manager) Call(ctx context.Context, agent, tool string, arguments json.RawMessage) nodeproto.DeviceAnswer {
-	call, err := devicetool.Read(tool, arguments)
+	call, err := devicetool.ReadNode(tool, arguments)
 	if err != nil {
 		return failed(err.Error())
+	}
+
+	// Filming does not wait for an agent's call: a line is stamped when it comes, and the owner's takeover
+	// pauses a take at once (video.go).
+	if devicetool.IsVideo(tool) {
+		return m.video(ctx, agent, call)
 	}
 
 	m.agents.mu.Lock()
@@ -152,7 +158,12 @@ func (m *Manager) runTool(ctx context.Context, agent string, c devicetool.Call) 
 	case devicetool.Key:
 		return m.key(ctx, c.Key), true
 	case devicetool.Launch:
-		return m.launch(ctx, c.Package), true
+		answer := m.launch(ctx, c.Package)
+		if !answer.IsError {
+			m.launchedFor(ctx, agent, c.Package)
+		}
+
+		return answer, true
 	case devicetool.Logcat:
 		return m.logcat(ctx, c), false
 	default:

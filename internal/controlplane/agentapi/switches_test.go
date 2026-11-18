@@ -136,5 +136,9 @@ func TestABotTurnsThePhoneOff(t *testing.T) {
 
 	status, _ := w.useDevice(pi, devicetool.Tap, `{"target":"#3"}`)
 	assert.Equal(t, http.StatusNotFound, status)
+
+	// Filming is under the phone's switch (issue #817).
+	status, _ = w.useDevice(pi, devicetool.VideoStart, `{"title":"Sign in"}`)
+	assert.Equal(t, http.StatusNotFound, status)
 	assert.Empty(t, p.calls)
 }

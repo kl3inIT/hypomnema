@@ -1965,6 +1965,80 @@ export type NodeList = {
   data: Array<Node>;
 };
 
+export type TakeList = {
+  data: Array<Take>;
+};
+
+/**
+ * A take (issue #817): its segments in order on one timeline, the steps said on it and where the owner's takeover paused it. `recording` and `paused` while it is filmed, `finalizing` while the node closes its last segment, `uploading` until every file reached the control plane, then `available`; `failed` with `reason` when it got no frame or could not be kept.
+ */
+export type Take = {
+  id: string;
+  title: string;
+  /**
+   * The agent's key
+   */
+  agent: string;
+  /**
+   * Who filmed it
+   */
+  agent_name?: string;
+  /**
+   * The node that filmed it.
+   */
+  node: string;
+  /**
+   * The app the agent opened last while filming.
+   */
+  app_package?: string;
+  app_version?: string;
+  started_at: string;
+  /**
+   * recording, paused, finalizing, uploading, available or failed.
+   */
+  state: string;
+  /**
+   * What ended it: stop, work_end (the agent's Dispatch or turn ended), phone_end, stream_error, writer_error, disk_low or restart.
+   */
+  ended_by?: string;
+  reason?: string;
+  duration_ms: number;
+  segments: Array<TakeSegment>;
+  steps: Array<TakeStep>;
+  pauses: Array<TakePause>;
+};
+
+export type TakeSegment = {
+  file: string;
+  /**
+   * Where it starts on the take's timeline.
+   */
+  at_ms: number;
+  length_ms: number;
+  /**
+   * When its last frame starts, from the segment's start; the screen is still after it until the segment ends. A player seeks into that still tail from just before it: a browser does not seek into a file's last sample.
+   */
+  last_frame_ms: number;
+  width: number;
+  height: number;
+  bytes: number;
+  sha256: string;
+};
+
+export type TakeStep = {
+  at_ms: number;
+  text: string;
+  tap?: {
+    x: number;
+    y: number;
+  };
+  chapter?: string;
+};
+
+export type TakePause = {
+  at_ms: number;
+};
+
 export type DeviceList = {
   data: Array<DeviceNode>;
   /**
@@ -4164,6 +4238,8 @@ export type MemoryOfAgent = string;
 
 export type SkillName = string;
 
+export type TakeId = string;
+
 export type ArtifactId = string;
 
 export type ArtifactRevisionNumber = number;
@@ -5171,6 +5247,147 @@ export type OpenDeviceViewResponses = {
 };
 
 export type OpenDeviceViewResponse = OpenDeviceViewResponses[keyof OpenDeviceViewResponses];
+
+export type ListTakesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/takes';
+};
+
+export type ListTakesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListTakesError = ListTakesErrors[keyof ListTakesErrors];
+
+export type ListTakesResponses = {
+  /**
+   * The takes.
+   */
+  200: TakeList;
+};
+
+export type ListTakesResponse = ListTakesResponses[keyof ListTakesResponses];
+
+export type DeleteTakeData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}';
+};
+
+export type DeleteTakeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteTakeError = DeleteTakeErrors[keyof DeleteTakeErrors];
+
+export type DeleteTakeResponses = {
+  /**
+   * Deleted.
+   */
+  204: void;
+};
+
+export type DeleteTakeResponse = DeleteTakeResponses[keyof DeleteTakeResponses];
+
+export type GetTakeData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}';
+};
+
+export type GetTakeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetTakeError = GetTakeErrors[keyof GetTakeErrors];
+
+export type GetTakeResponses = {
+  /**
+   * The take.
+   */
+  200: Take;
+};
+
+export type GetTakeResponse = GetTakeResponses[keyof GetTakeResponses];
+
+export type ReadTakeSegmentData = {
+  body?: never;
+  headers?: {
+    Range?: string;
+  };
+  path: {
+    take_id: string;
+    file: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/segments/{file}';
+};
+
+export type ReadTakeSegmentErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadTakeSegmentError = ReadTakeSegmentErrors[keyof ReadTakeSegmentErrors];
+
+export type ReadTakeSegmentResponses = {
+  /**
+   * The segment.
+   */
+  200: Blob | File;
+  /**
+   * The part of the segment asked for.
+   */
+  206: Blob | File;
+};
+
+export type ReadTakeSegmentResponse = ReadTakeSegmentResponses[keyof ReadTakeSegmentResponses];
+
+export type GetTakeArchiveData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/archive';
+};
+
+export type GetTakeArchiveErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetTakeArchiveError = GetTakeArchiveErrors[keyof GetTakeArchiveErrors];
+
+export type GetTakeArchiveResponses = {
+  /**
+   * The zip.
+   */
+  200: Blob | File;
+};
+
+export type GetTakeArchiveResponse = GetTakeArchiveResponses[keyof GetTakeArchiveResponses];
 
 export type ResumeNodeData = {
   body?: never;

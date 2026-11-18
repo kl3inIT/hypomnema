@@ -5401,6 +5401,72 @@ type SupersetRequest struct {
 // SupersetRequestMethod defines model for SupersetRequest.Method.
 type SupersetRequestMethod string
 
+// Take A take (issue #817): its segments in order on one timeline, the steps said on it and where the owner's takeover paused it. `recording` and `paused` while it is filmed, `finalizing` while the node closes its last segment, `uploading` until every file reached the control plane, then `available`; `failed` with `reason` when it got no frame or could not be kept.
+type Take struct {
+	// Agent The agent's key
+	Agent string `json:"agent"`
+
+	// AgentName Who filmed it
+	AgentName *string `json:"agent_name,omitempty"`
+
+	// AppPackage The app the agent opened last while filming.
+	AppPackage *string `json:"app_package,omitempty"`
+	AppVersion *string `json:"app_version,omitempty"`
+	DurationMs int64   `json:"duration_ms"`
+
+	// EndedBy What ended it: stop, work_end (the agent's Dispatch or turn ended), phone_end, stream_error, writer_error, disk_low or restart.
+	EndedBy *string `json:"ended_by,omitempty"`
+	Id      string  `json:"id"`
+
+	// Node The node that filmed it.
+	Node      string        `json:"node"`
+	Pauses    []TakePause   `json:"pauses"`
+	Reason    *string       `json:"reason,omitempty"`
+	Segments  []TakeSegment `json:"segments"`
+	StartedAt time.Time     `json:"started_at"`
+
+	// State recording, paused, finalizing, uploading, available or failed.
+	State string     `json:"state"`
+	Steps []TakeStep `json:"steps"`
+	Title string     `json:"title"`
+}
+
+// TakeList defines model for TakeList.
+type TakeList struct {
+	Data []Take `json:"data"`
+}
+
+// TakePause defines model for TakePause.
+type TakePause struct {
+	AtMs int64 `json:"at_ms"`
+}
+
+// TakeSegment defines model for TakeSegment.
+type TakeSegment struct {
+	// AtMs Where it starts on the take's timeline.
+	AtMs   int64  `json:"at_ms"`
+	Bytes  int64  `json:"bytes"`
+	File   string `json:"file"`
+	Height int    `json:"height"`
+
+	// LastFrameMs When its last frame starts, from the segment's start; the screen is still after it until the segment ends. A player seeks into that still tail from just before it: a browser does not seek into a file's last sample.
+	LastFrameMs int64  `json:"last_frame_ms"`
+	LengthMs    int64  `json:"length_ms"`
+	Sha256      string `json:"sha256"`
+	Width       int    `json:"width"`
+}
+
+// TakeStep defines model for TakeStep.
+type TakeStep struct {
+	AtMs    int64   `json:"at_ms"`
+	Chapter *string `json:"chapter,omitempty"`
+	Tap     *struct {
+		X int `json:"x"`
+		Y int `json:"y"`
+	} `json:"tap,omitempty"`
+	Text string `json:"text"`
+}
+
 // Task defines model for Task.
 type Task struct {
 	BlockedReason     *BlockedReason `json:"blocked_reason,omitempty"`
@@ -5968,6 +6034,9 @@ type SkillName = string
 // SupersetDashboardID defines model for SupersetDashboardID.
 type SupersetDashboardID = string
 
+// TakeID defines model for TakeID.
+type TakeID = string
+
 // TaskID defines model for TaskID.
 type TaskID = string
 
@@ -6417,6 +6486,11 @@ type SearchSkillsParams struct {
 
 	// Owner Only the skills of this GitHub owner.
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
+}
+
+// ReadTakeSegmentParams defines parameters for ReadTakeSegment.
+type ReadTakeSegmentParams struct {
+	Range *string `json:"Range,omitempty"`
 }
 
 // ListTasksParams defines parameters for ListTasks.
@@ -7520,7 +7594,7 @@ type ClientInterface interface {
 	// Corresponds with GET /device (the `GetDevice` operationId).
 	GetDevice(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	//
 	// Corresponds with POST /device/views (the `OpenDeviceView` operationId).
 	OpenDeviceView(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -8984,6 +9058,37 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /skills/{skill}/revisions/{revision}/files (the `ListSkillFiles` operationId).
 	ListSkillFiles(ctx context.Context, skill SkillName, revision int, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+	//
+	// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+	//
+	// Corresponds with GET /takes (the `ListTakes` operationId).
+	ListTakes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteTake Delete a take and its files (owner only)
+	//
+	// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+	//
+	// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+	DeleteTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTake A take with its segments, steps and pauses (owner only)
+	//
+	// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+	GetTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	//
+	// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+	GetTakeArchive(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+	//
+	// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+	//
+	// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+	ReadTakeSegment(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListTasks The Tasks a board shows, most recently changed first
 	//
@@ -10895,7 +11000,7 @@ func (c *Client) GetDevice(ctx context.Context, reqEditors ...RequestEditorFn) (
 	return c.Client.Do(req)
 }
 
-// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 //
 // Corresponds with POST /device/views (the `OpenDeviceView` operationId).
 func (c *Client) OpenDeviceView(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -14380,6 +14485,87 @@ func (c *Client) GetSkillArchive(ctx context.Context, skill SkillName, revision 
 // Corresponds with GET /skills/{skill}/revisions/{revision}/files (the `ListSkillFiles` operationId).
 func (c *Client) ListSkillFiles(ctx context.Context, skill SkillName, revision int, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSkillFilesRequest(c.Server, skill, revision)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+//
+// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+//
+// Corresponds with GET /takes (the `ListTakes` operationId).
+func (c *Client) ListTakes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTakesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteTake Delete a take and its files (owner only)
+//
+// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+//
+// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+func (c *Client) DeleteTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteTakeRequest(c.Server, takeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTake A take with its segments, steps and pauses (owner only)
+//
+// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+func (c *Client) GetTake(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTakeRequest(c.Server, takeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+//
+// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+func (c *Client) GetTakeArchive(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTakeArchiveRequest(c.Server, takeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+//
+// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+//
+// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+func (c *Client) ReadTakeSegment(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadTakeSegmentRequest(c.Server, takeId, file, params)
 	if err != nil {
 		return nil, err
 	}
@@ -25263,6 +25449,191 @@ func NewListSkillFilesRequest(server string, skill SkillName, revision int) (*ht
 	return req, nil
 }
 
+// NewListTakesRequest constructs an http.Request for the ListTakes method
+func NewListTakesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteTakeRequest constructs an http.Request for the DeleteTake method
+func NewDeleteTakeRequest(server string, takeId TakeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetTakeRequest constructs an http.Request for the GetTake method
+func NewGetTakeRequest(server string, takeId TakeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetTakeArchiveRequest constructs an http.Request for the GetTakeArchive method
+func NewGetTakeArchiveRequest(server string, takeId TakeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s/archive", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadTakeSegmentRequest constructs an http.Request for the ReadTakeSegment method
+func NewReadTakeSegmentRequest(server string, takeId TakeID, file string, params *ReadTakeSegmentParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "file", file, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s/segments/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Range != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Range", *params.Range, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Range", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewListTasksRequest constructs an http.Request for the ListTasks method
 func NewListTasksRequest(server string, params *ListTasksParams) (*http.Request, error) {
 	var err error
@@ -26491,7 +26862,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /device (the `GetDevice` operationId).
 	GetDeviceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetDeviceResponse, error)
 
-	// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -28149,6 +28520,47 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /skills/{skill}/revisions/{revision}/files (the `ListSkillFiles` operationId).
 	ListSkillFilesWithResponse(ctx context.Context, skill SkillName, revision int, reqEditors ...RequestEditorFn) (*ListSkillFilesResponse, error)
+
+	// ListTakesWithResponse The takes agents filmed of the phone, the newest first (owner only; issue
+	//
+	// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes (the `ListTakes` operationId).
+	ListTakesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListTakesResponse, error)
+
+	// DeleteTakeWithResponse Delete a take and its files (owner only)
+	//
+	// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+	DeleteTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*DeleteTakeResponse, error)
+
+	// GetTakeWithResponse A take with its segments, steps and pauses (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+	GetTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeResponse, error)
+
+	// GetTakeArchiveWithResponse An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+	GetTakeArchiveWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeArchiveResponse, error)
+
+	// ReadTakeSegmentWithResponse One segment of an available take, for the owner's player (owner only)
+	//
+	// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+	ReadTakeSegmentWithResponse(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*ReadTakeSegmentResponse, error)
 
 	// ListTasksWithResponse The Tasks a board shows, most recently changed first
 	//
@@ -39017,6 +39429,225 @@ func (r ListSkillFilesResponse) ContentType() string {
 	return ""
 }
 
+type ListTakesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TakeList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListTakesResponse) GetJSON200() *TakeList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListTakesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListTakesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTakesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTakesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListTakesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteTakeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteTakeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteTakeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteTakeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteTakeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteTakeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetTakeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Take
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTakeResponse) GetJSON200() *Take {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetTakeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTakeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTakeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTakeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTakeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetTakeArchiveResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetTakeArchiveResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTakeArchiveResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTakeArchiveResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTakeArchiveResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTakeArchiveResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReadTakeSegmentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReadTakeSegmentResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadTakeSegmentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadTakeSegmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadTakeSegmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadTakeSegmentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListTasksResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -40899,7 +41530,7 @@ func (c *ClientWithResponses) GetDeviceWithResponse(ctx context.Context, reqEdit
 	return ParseGetDeviceResponse(rsp)
 }
 
-// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+// OpenDeviceViewWithResponse A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -43774,6 +44405,77 @@ func (c *ClientWithResponses) ListSkillFilesWithResponse(ctx context.Context, sk
 		return nil, err
 	}
 	return ParseListSkillFilesResponse(rsp)
+}
+
+// ListTakesWithResponse The takes agents filmed of the phone, the newest first (owner only; issue
+//
+// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes (the `ListTakes` operationId).
+func (c *ClientWithResponses) ListTakesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListTakesResponse, error) {
+	rsp, err := c.ListTakes(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTakesResponse(rsp)
+}
+
+// DeleteTakeWithResponse Delete a take and its files (owner only)
+//
+// A take still filmed is ended first. Its files are removed and a tombstone is left, so a late upload of it is refused; a take its node still holds while offline is removed there at the node's next hello.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /takes/{take_id} (the `DeleteTake` operationId).
+func (c *ClientWithResponses) DeleteTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*DeleteTakeResponse, error) {
+	rsp, err := c.DeleteTake(ctx, takeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteTakeResponse(rsp)
+}
+
+// GetTakeWithResponse A take with its segments, steps and pauses (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes/{take_id} (the `GetTake` operationId).
+func (c *ClientWithResponses) GetTakeWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeResponse, error) {
+	rsp, err := c.GetTake(ctx, takeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTakeResponse(rsp)
+}
+
+// GetTakeArchiveWithResponse An available take's segments and its take.json as a zip, as an opaque download (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes/{take_id}/archive (the `GetTakeArchive` operationId).
+func (c *ClientWithResponses) GetTakeArchiveWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*GetTakeArchiveResponse, error) {
+	rsp, err := c.GetTakeArchive(ctx, takeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTakeArchiveResponse(rsp)
+}
+
+// ReadTakeSegmentWithResponse One segment of an available take, for the owner's player (owner only)
+//
+// Served with Range requests (206 Partial Content), so a player seeks in it without reading it whole.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
+func (c *ClientWithResponses) ReadTakeSegmentWithResponse(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*ReadTakeSegmentResponse, error) {
+	rsp, err := c.ReadTakeSegment(ctx, takeId, file, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadTakeSegmentResponse(rsp)
 }
 
 // ListTasksWithResponse The Tasks a board shows, most recently changed first
@@ -51390,6 +52092,153 @@ func ParseListSkillFilesResponse(rsp *http.Response) (*ListSkillFilesResponse, e
 	return response, nil
 }
 
+// ParseListTakesResponse parses an HTTP response from a ListTakesWithResponse call
+func ParseListTakesResponse(rsp *http.Response) (*ListTakesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTakesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TakeList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteTakeResponse parses an HTTP response from a DeleteTakeWithResponse call
+func ParseDeleteTakeResponse(rsp *http.Response) (*DeleteTakeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteTakeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetTakeResponse parses an HTTP response from a GetTakeWithResponse call
+func ParseGetTakeResponse(rsp *http.Response) (*GetTakeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTakeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Take
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetTakeArchiveResponse parses an HTTP response from a GetTakeArchiveWithResponse call
+func ParseGetTakeArchiveResponse(rsp *http.Response) (*GetTakeArchiveResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTakeArchiveResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadTakeSegmentResponse parses an HTTP response from a ReadTakeSegmentWithResponse call
+func ParseReadTakeSegmentResponse(rsp *http.Response) (*ReadTakeSegmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadTakeSegmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListTasksResponse parses an HTTP response from a ListTasksWithResponse call
 func ParseListTasksResponse(rsp *http.Response) (*ListTasksResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -51887,7 +52736,7 @@ type ServerInterface interface {
 	// GetDevice The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	// (GET /device)
 	GetDevice(w http.ResponseWriter, r *http.Request)
-	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	// (POST /device/views)
 	OpenDeviceView(w http.ResponseWriter, r *http.Request)
 	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
@@ -52340,6 +53189,21 @@ type ServerInterface interface {
 	// ListSkillFiles The files of one revision of a skill, by path
 	// (GET /skills/{skill}/revisions/{revision}/files)
 	ListSkillFiles(w http.ResponseWriter, r *http.Request, skill SkillName, revision int)
+	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+	// (GET /takes)
+	ListTakes(w http.ResponseWriter, r *http.Request)
+	// DeleteTake Delete a take and its files (owner only)
+	// (DELETE /takes/{take_id})
+	DeleteTake(w http.ResponseWriter, r *http.Request, takeId TakeID)
+	// GetTake A take with its segments, steps and pauses (owner only)
+	// (GET /takes/{take_id})
+	GetTake(w http.ResponseWriter, r *http.Request, takeId TakeID)
+	// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	// (GET /takes/{take_id}/archive)
+	GetTakeArchive(w http.ResponseWriter, r *http.Request, takeId TakeID)
+	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+	// (GET /takes/{take_id}/segments/{file})
+	ReadTakeSegment(w http.ResponseWriter, r *http.Request, takeId TakeID, file string, params ReadTakeSegmentParams)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(w http.ResponseWriter, r *http.Request, params ListTasksParams)
@@ -59631,6 +60495,157 @@ func (siw *ServerInterfaceWrapper) ListSkillFiles(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListTakes operation middleware
+func (siw *ServerInterfaceWrapper) ListTakes(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTakes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTake operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTake(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTake(w, r, takeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTake operation middleware
+func (siw *ServerInterfaceWrapper) GetTake(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTake(w, r, takeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTakeArchive operation middleware
+func (siw *ServerInterfaceWrapper) GetTakeArchive(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTakeArchive(w, r, takeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadTakeSegment operation middleware
+func (siw *ServerInterfaceWrapper) ReadTakeSegment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "file" -------------
+	var file string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "file", r.PathValue("file"), &file, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "file", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReadTakeSegmentParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadTakeSegment(w, r, takeId, file, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTasks operation middleware
 func (siw *ServerInterfaceWrapper) ListTasks(w http.ResponseWriter, r *http.Request) {
 
@@ -59977,6 +60992,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/device/stop", wrapper.StopNodeDevice)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/device", wrapper.GetDevice)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/device/views", wrapper.OpenDeviceView)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes", wrapper.ListTakes)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/takes/{take_id}", wrapper.DeleteTake)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}", wrapper.GetTake)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/segments/{file}", wrapper.ReadTakeSegment)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/archive", wrapper.GetTakeArchive)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/resume", wrapper.ResumeNode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
@@ -69259,6 +70279,228 @@ func (response ListSkillFilesdefaultJSONResponse) VisitListSkillFilesResponse(w 
 	return err
 }
 
+type ListTakesRequestObject struct {
+}
+
+type ListTakesResponseObject interface {
+	VisitListTakesResponse(w http.ResponseWriter) error
+}
+
+type ListTakes200JSONResponse TakeList
+
+func (response ListTakes200JSONResponse) VisitListTakesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTakesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListTakesdefaultJSONResponse) VisitListTakesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTakeRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+}
+
+type DeleteTakeResponseObject interface {
+	VisitDeleteTakeResponse(w http.ResponseWriter) error
+}
+
+type DeleteTake204Response struct {
+}
+
+func (response DeleteTake204Response) VisitDeleteTakeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTakedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteTakedefaultJSONResponse) VisitDeleteTakeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTakeRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+}
+
+type GetTakeResponseObject interface {
+	VisitGetTakeResponse(w http.ResponseWriter) error
+}
+
+type GetTake200JSONResponse Take
+
+func (response GetTake200JSONResponse) VisitGetTakeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTakedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetTakedefaultJSONResponse) VisitGetTakeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTakeArchiveRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+}
+
+type GetTakeArchiveResponseObject interface {
+	VisitGetTakeArchiveResponse(w http.ResponseWriter) error
+}
+
+type GetTakeArchive200ApplicationzipResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetTakeArchive200ApplicationzipResponse) VisitGetTakeArchiveResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/zip")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetTakeArchivedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetTakeArchivedefaultJSONResponse) VisitGetTakeArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadTakeSegmentRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+	File   string `json:"file"`
+	Params ReadTakeSegmentParams
+}
+
+type ReadTakeSegmentResponseObject interface {
+	VisitReadTakeSegmentResponse(w http.ResponseWriter) error
+}
+
+type ReadTakeSegment200Videomp4Response struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadTakeSegment200Videomp4Response) VisitReadTakeSegmentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "video/mp4")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadTakeSegment206Videomp4Response struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadTakeSegment206Videomp4Response) VisitReadTakeSegmentResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "video/mp4")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(206)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadTakeSegmentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReadTakeSegmentdefaultJSONResponse) VisitReadTakeSegmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTasksRequestObject struct {
 	Params ListTasksParams
 }
@@ -69804,7 +71046,7 @@ type StrictServerInterface interface {
 	// GetDevice The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	// (GET /device)
 	GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error)
-	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused
+	// OpenDeviceView A ticket to watch the phone and take it over (owner only; issue #417). The ticket opens the WebSocket `/api/v1/device/views/{ticket}` once, within a short time. Opening it starts the phone's machine when it is stopped and the phone when it is not running, and keeps the phone from its idle stop while it is open. There the client receives the screen as binary messages, one H.264 access unit each in Annex-B behind serve-emu's 16-byte SEMU header (`SEMU`, version 1, a flags byte whose bit 0 marks a key frame, two zero bytes, the time in microseconds), a key frame with the SPS and PPS before it; and JSON messages `control` (`controller`: `agent` or `you`), `state` (`state`: `waking` while the machine starts, then the phone's states as `GET /device` names them, and `reason`), `screen` (`width`, `height` in pixels) and `error` (`reason`: the screen could not be streamed). It sends `takeControl`, `releaseControl` and `reset-video` (a key frame asked for), and, while it holds control, `touch` (`action`: `down`, `move`, `up`; `x`, `y` from 0 to 1 of the screen), `key` (`keycode`: Android's), `text` (`text`), `back`, `home`, `recents` and `power`. While the owner holds control every agent's phone call is answered that the tools are paused. While an agent films a take (issue #817), a JSON message `take` says it: `take` (its id, empty once no take is filmed), `title`, `agent`, `state` (`recording` or `paused`; `takeControl` pauses it first, and nothing the owner does is filmed until `releaseControl`), `at_ms` (the take's time at `at`), `at` and `said` (the last line said)
 	// (POST /device/views)
 	OpenDeviceView(ctx context.Context, request OpenDeviceViewRequestObject) (OpenDeviceViewResponseObject, error)
 	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
@@ -70257,6 +71499,21 @@ type StrictServerInterface interface {
 	// ListSkillFiles The files of one revision of a skill, by path
 	// (GET /skills/{skill}/revisions/{revision}/files)
 	ListSkillFiles(ctx context.Context, request ListSkillFilesRequestObject) (ListSkillFilesResponseObject, error)
+	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
+	// (GET /takes)
+	ListTakes(ctx context.Context, request ListTakesRequestObject) (ListTakesResponseObject, error)
+	// DeleteTake Delete a take and its files (owner only)
+	// (DELETE /takes/{take_id})
+	DeleteTake(ctx context.Context, request DeleteTakeRequestObject) (DeleteTakeResponseObject, error)
+	// GetTake A take with its segments, steps and pauses (owner only)
+	// (GET /takes/{take_id})
+	GetTake(ctx context.Context, request GetTakeRequestObject) (GetTakeResponseObject, error)
+	// GetTakeArchive An available take's segments and its take.json as a zip, as an opaque download (owner only)
+	// (GET /takes/{take_id}/archive)
+	GetTakeArchive(ctx context.Context, request GetTakeArchiveRequestObject) (GetTakeArchiveResponseObject, error)
+	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
+	// (GET /takes/{take_id}/segments/{file})
+	ReadTakeSegment(ctx context.Context, request ReadTakeSegmentRequestObject) (ReadTakeSegmentResponseObject, error)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(ctx context.Context, request ListTasksRequestObject) (ListTasksResponseObject, error)
@@ -76800,6 +78057,136 @@ func (sh *strictHandler) ListSkillFiles(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSkillFilesResponseObject); ok {
 		if err := validResponse.VisitListSkillFilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTakes operation middleware
+func (sh *strictHandler) ListTakes(w http.ResponseWriter, r *http.Request) {
+	var request ListTakesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTakes(ctx, request.(ListTakesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTakes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTakesResponseObject); ok {
+		if err := validResponse.VisitListTakesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTake operation middleware
+func (sh *strictHandler) DeleteTake(w http.ResponseWriter, r *http.Request, takeId TakeID) {
+	var request DeleteTakeRequestObject
+
+	request.TakeId = takeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTake(ctx, request.(DeleteTakeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTake")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTakeResponseObject); ok {
+		if err := validResponse.VisitDeleteTakeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTake operation middleware
+func (sh *strictHandler) GetTake(w http.ResponseWriter, r *http.Request, takeId TakeID) {
+	var request GetTakeRequestObject
+
+	request.TakeId = takeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTake(ctx, request.(GetTakeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTake")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTakeResponseObject); ok {
+		if err := validResponse.VisitGetTakeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTakeArchive operation middleware
+func (sh *strictHandler) GetTakeArchive(w http.ResponseWriter, r *http.Request, takeId TakeID) {
+	var request GetTakeArchiveRequestObject
+
+	request.TakeId = takeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTakeArchive(ctx, request.(GetTakeArchiveRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTakeArchive")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTakeArchiveResponseObject); ok {
+		if err := validResponse.VisitGetTakeArchiveResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadTakeSegment operation middleware
+func (sh *strictHandler) ReadTakeSegment(w http.ResponseWriter, r *http.Request, takeId TakeID, file string, params ReadTakeSegmentParams) {
+	var request ReadTakeSegmentRequestObject
+
+	request.TakeId = takeId
+	request.File = file
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadTakeSegment(ctx, request.(ReadTakeSegmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadTakeSegment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadTakeSegmentResponseObject); ok {
+		if err := validResponse.VisitReadTakeSegmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

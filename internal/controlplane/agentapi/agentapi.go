@@ -71,6 +71,8 @@ type Store interface {
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
 	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
 	OwnerTurn(ctx context.Context, chatID string) (bool, error)
+	// ChatTurn names the turn a chat's pi works on now, empty between turns (issue #817).
+	ChatTurn(ctx context.Context, chatID string) (string, error)
 	// ApprovedOnce says whether the owner approved a chat's request once and it has not run (issue #748).
 	ApprovedOnce(ctx context.Context, n orchestration.NewApproval) (bool, error)
 	// ShowArtifact and ArtifactMakerOfDispatch show an artifact for the show_artifact tool (issue #536), a

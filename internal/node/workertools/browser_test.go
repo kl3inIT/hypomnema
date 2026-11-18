@@ -242,6 +242,15 @@ func TestAWorkerUsesThePhone(t *testing.T) {
 	require.Len(t, cp.deviceCalls, 1)
 	assert.Equal(t, "device_tap", cp.deviceCalls[0].Tool)
 	assert.JSONEq(t, `{"target":"#2"}`, string(cp.deviceCalls[0].Arguments))
+
+	// Filming the phone goes on the phone's route too (issue #817).
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{
+		"name": "video_start", "arguments": map[string]any{"title": "Sign in"},
+	}})
+	c.read()
+
+	require.Len(t, cp.deviceCalls, 2)
+	assert.Equal(t, "video_start", cp.deviceCalls[1].Tool)
 	assert.Empty(t, cp.calls, "a phone call does not go to the browser")
 
 	without := browsing(t, &controlPlane{result: shot})
