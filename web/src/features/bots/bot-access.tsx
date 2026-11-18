@@ -22,7 +22,7 @@ import { useProfiles } from "@/features/agents/use-profiles"
 import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { IntegrationMark } from "@/features/settings/service-cards"
 import { said } from "@/lib/said"
-import { useServices } from "@/features/settings/use-integrations"
+import { useHostKinds, useServices } from "@/features/settings/use-integrations"
 
 import { allowed, keptSettings, scopeList, withName, withScope } from "./bots-state"
 import { putBotKey, usePutBot } from "./use-bots"
@@ -326,6 +326,7 @@ export function BotAccess({ bot }: { bot: Bot }) {
   // replacing at that moment.
   const saving = useIsMutating({ mutationKey: putBotKey }) > 0
   const services = useServices()
+  const kinds = useHostKinds()
   const profiles = useProfiles()
 
   function save(
@@ -361,11 +362,24 @@ export function BotAccess({ bot }: { bot: Bot }) {
   )
   const connections = [
     ...forChats,
-    ...allowed(bot.connections, forChats).map<Item>((name) => ({
-      name,
-      label: <span className="shrink-0 font-medium">{name}</span>,
-      detail: "Not used in chats",
-    })),
+    ...allowed(bot.connections, forChats).map<Item>((name) => {
+      const [integration = ""] = name.split(":")
+
+      return {
+        name,
+        label: (
+          <>
+            <IntegrationMark
+              id={integration}
+              kind={kinds[integration]}
+              className="size-4 shrink-0"
+            />
+            <span className="shrink-0 font-medium">{name}</span>
+          </>
+        ),
+        detail: "Not used in chats",
+      }
+    }),
   ]
 
   // The Superset Connections the Bot may use, each with the dashboards it may read.
