@@ -4184,11 +4184,12 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
   standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only in the first round; findings that make a change incorrect are reported with an offer to send them
-  to the change's worker as a follow-up, and the next round's review is given the earlier review's findings, the
+  the spec only in the first round; findings that make a change incorrect are sent to the change's worker as a
+  follow-up without asking the owner (issue #871; owner, 2026-11-18), and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
-  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), two rounds at most; a review first reads
+  `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
+  and the owner told in one line, with no question; a review first reads
   what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
   so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
