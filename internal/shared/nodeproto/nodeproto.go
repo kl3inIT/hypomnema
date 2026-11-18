@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
@@ -408,6 +409,9 @@ type ExecAnswer struct {
 type DeviceAnswer struct {
 	Content []DeviceContent `json:"content"`
 	IsError bool            `json:"isError"`
+	// Take is a video tool's take as the node holds it (issue #817), for the control plane, which keeps it and
+	// gives the agent the text only.
+	Take *devicetool.Take `json:"take,omitempty"`
 }
 
 // DeviceContent is one part of a DeviceAnswer: text, or a PNG as base64.

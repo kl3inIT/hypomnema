@@ -183,7 +183,7 @@ func (m *Manager) freeEnough(dir string) bool {
 
 // StartTake starts filming the phone as a take, for agent. The phone must be
 // running. A take started with the same request id answers the same take.
-func (m *Manager) StartTake(_ context.Context, agent, id, title, requestID string) (devicetool.Take, error) {
+func (m *Manager) StartTake(ctx context.Context, agent, id, title, requestID string) (devicetool.Take, error) {
 	if !takeIDs.MatchString(id) {
 		return devicetool.Take{}, errors.New("the take's id is not one the control plane gives")
 	}
@@ -257,9 +257,9 @@ func (m *Manager) StartTake(_ context.Context, agent, id, title, requestID strin
 	go m.writeTake(t)
 
 	m.save(t)
-	m.streamFor(true)
+	m.streamOn(ctx)
 
-	m.opts.Logger.Info("a take started", slog.String("event", "device.take_started"), slog.String("take", id))
+	m.opts.Logger.InfoContext(ctx, "a take started", slog.String("event", "device.take_started"), slog.String("take", id))
 
 	return snapshot(meta), nil
 }
@@ -299,7 +299,7 @@ func (m *Manager) feed(p packet) bool {
 	if ended != nil {
 		go func() {
 			m.save(ended)
-			m.streamFor(false)
+			m.streamOff()
 		}()
 	}
 
@@ -534,7 +534,7 @@ func (m *Manager) StopTake(id, endedBy, reason string) (devicetool.Take, error) 
 
 	if ended {
 		m.save(t)
-		m.streamFor(false)
+		m.streamOff()
 	}
 
 	return snapshot(meta), nil
@@ -579,7 +579,7 @@ func (m *Manager) endRunning(endedBy, reason string) {
 	f.mu.Unlock()
 
 	m.save(t)
-	m.streamFor(false)
+	m.streamOff()
 }
 
 // TakeStatus is a take's state as the node holds it.
@@ -634,7 +634,7 @@ func (m *Manager) writeTake(t *take) {
 
 		if ended {
 			m.save(t)
-			m.streamFor(false)
+			m.streamOff()
 		}
 	}
 
@@ -937,7 +937,7 @@ func (m *Manager) DropTake(id string) {
 	f.mu.Unlock()
 
 	if ended {
-		m.streamFor(false)
+		m.streamOff()
 	}
 
 	<-t.done

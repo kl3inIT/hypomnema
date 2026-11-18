@@ -46,9 +46,9 @@ func (w *bitWriter) ue(v uint32) {
 
 func (w *bitWriter) se(v int32) {
 	if v <= 0 {
-		w.ue(uint32(-2 * v)) //nolint:gosec // Small test values.
+		w.ue(uint32(-2 * v))
 	} else {
-		w.ue(uint32(2*v - 1)) //nolint:gosec // Small test values.
+		w.ue(uint32(2*v - 1))
 	}
 }
 

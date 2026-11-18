@@ -350,14 +350,10 @@ func (m *Manager) askKeyFrame(stream screenStream) {
 	}
 }
 
-// streamFor keeps the stream open for a take (on), or lets it end with the
-// last view once no take runs. A take that starts asks for a key frame.
-func (m *Manager) streamFor(on bool) {
+// streamOn keeps the stream open for a take, starting it when no view did,
+// and asks for a key frame for the take's first segment.
+func (m *Manager) streamOn(ctx context.Context) {
 	s := &m.live
-
-	if !on {
-		on = m.filmingNow()
-	}
 
 	s.mu.Lock()
 
@@ -366,23 +362,34 @@ func (m *Manager) streamFor(on bool) {
 		s.wake = make(chan struct{}, 1)
 	}
 
-	s.filming = on
-	serve := on && !s.serving
-	if serve {
-		s.serving = true
-	}
-
+	s.filming = true
+	serve := !s.serving
+	s.serving = true
 	stream := s.stream
-	idle := !s.used()
 	s.poke()
 	s.mu.Unlock()
 
 	switch {
 	case serve:
-		go m.serveScreen(context.Background())
-	case on && stream != nil:
+		go m.serveScreen(context.WithoutCancel(ctx))
+	case stream != nil:
 		m.askKeyFrame(stream)
-	case idle && stream != nil:
+	}
+}
+
+// streamOff lets the stream end with the last view once no take runs.
+func (m *Manager) streamOff() {
+	on := m.filmingNow()
+	s := &m.live
+
+	s.mu.Lock()
+	s.filming = on
+	stream := s.stream
+	idle := !s.used()
+	s.poke()
+	s.mu.Unlock()
+
+	if idle && stream != nil {
 		stream.Close()
 	}
 }

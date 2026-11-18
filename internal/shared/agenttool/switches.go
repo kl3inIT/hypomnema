@@ -209,10 +209,12 @@ var ToolFamilies = []ToolFamily{
 			"not to send it in a chat, to sign in himself in your tab, and to change that password."},
 	{Name: "phone", Description: "The phone a node holds", Pattern: devicetool.Prefix + "*",
 		Tools: []string{devicetool.Screen, devicetool.Layout, devicetool.Tap, devicetool.Swipe, devicetool.Type,
-			devicetool.Key, devicetool.Launch, devicetool.Logcat},
+			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.VideoStart, devicetool.VideoSay,
+			devicetool.VideoStop, devicetool.VideoStatus},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
-			"and tap its numbered boxes. Never sign in to an account on it, and never buy or pay: ask the owner."},
+			"and tap its numbered boxes. Never sign in to an account on it, and never buy or pay: ask the owner. " +
+			"To film a demo of an app, video_start a take, call video_say right before each action, then video_stop."},
 }
 
 // ToolNames are the names of every tool of the control plane.
@@ -245,10 +247,17 @@ func (s ToolSwitches) Allows(tool string) bool {
 	return len(s.On) == 0 || slices.ContainsFunc(s.On, func(entry string) bool { return matches(entry, tool) })
 }
 
-// matches says whether an entry, a name or a name's start and `*`, names the tool.
+// matches says whether an entry, a name or a name's start and `*`, names the tool. A family's Pattern names
+// every tool of the family: the phone's device_* switches its video_* tools too (issue #817).
 func matches(entry, tool string) bool {
 	if start, family := strings.CutSuffix(entry, "*"); family {
-		return strings.HasPrefix(tool, start)
+		if strings.HasPrefix(tool, start) {
+			return true
+		}
+
+		return slices.ContainsFunc(ToolFamilies, func(f ToolFamily) bool {
+			return f.Pattern == entry && slices.Contains(f.Tools, tool)
+		})
 	}
 
 	return entry == tool

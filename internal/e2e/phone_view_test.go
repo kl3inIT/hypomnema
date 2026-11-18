@@ -195,7 +195,8 @@ func TestTheOwnerWatchesAndTakesOverThePhoneThroughTheNode(t *testing.T) {
 	send(`{"type":"touch","action":"down","x":0.5,"y":0.25}`)
 	assert.Equal(t, nodeproto.DeviceViewMessage{Type: "touch", Action: "down", X: 0.5, Y: 0.25}, <-screen.inputs)
 
-	answer, err := shared.Call(t.Context(), "d-dsp_1", devicetool.Screen, nil)
+	worker := phone.Caller{Key: "d-dsp_1", Name: "dispatch dsp_1", Work: "dispatch dsp_1"}
+	answer, err := shared.Call(t.Context(), worker, devicetool.Screen, nil)
 	require.NoError(t, err)
 	assert.Contains(t, string(answer), "paused while the owner controls the phone")
 

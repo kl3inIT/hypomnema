@@ -262,7 +262,7 @@ func (w *segmentWriter) close(length time.Duration) (segmentInfo, bool, error) {
 		return segmentInfo{}, true, w.fail(err)
 	}
 
-	total := time.Duration(end) * time.Second / segmentTimescale
+	total := time.Duration(end) * time.Second / segmentTimescale //nolint:gosec // Ticks of a take, far below 2^63.
 
 	if err := writeDuration(w.f, total); err != nil {
 		return segmentInfo{}, true, w.fail(fmt.Errorf("writing the segment's duration: %w", err))

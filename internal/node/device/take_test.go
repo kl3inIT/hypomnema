@@ -138,9 +138,10 @@ func ffprobe(t *testing.T, path string) probe {
 		t.Skip("ffprobe is not on PATH")
 	}
 
+	//nolint:gosec // ffprobe on the test's own file.
 	out, err := exec.CommandContext(t.Context(), bin, "-v", "error", "-show_frames", "-show_format",
 		"-show_streams", "-show_entries", "frame=pts_time,key_frame:format=duration:"+
-			"stream=width,height,codec_name,duration", "-of", "json", path).Output() //nolint:gosec // The test's own file.
+			"stream=width,height,codec_name,duration", "-of", "json", path).Output()
 	require.NoError(t, err, "ffprobe could not read %s", path)
 
 	var p probe
@@ -717,4 +718,3 @@ func TestANodeThatStartsAgainEndsItsTakes(t *testing.T) {
 	_, err = next.TakeStatus("tk_cut")
 	require.ErrorIs(t, err, ErrNoTake)
 }
-

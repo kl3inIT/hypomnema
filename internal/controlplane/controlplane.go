@@ -44,6 +44,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/takes"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -418,8 +419,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The phone a node holds (issue #417), given to every worker as the browser is. A call that finds its
 	// machine stopped starts it as `machines start` does.
+	// The takes agents film of it (issue #817) are kept in the data folder.
+	phoneTakes, err := takes.Open(filepath.Join(filepath.Dir(cfg.Database.Path), "takes"))
+	if err != nil {
+		return err
+	}
+
 	sharedPhone := phone.New(phone.Config{
 		Nodes: svc, Link: nodes, Machines: machineMgr, Views: nodeViews(nodes), Logger: logger,
+		Takes: phoneTakes, WorkAlive: workAlive(svc, logger),
 	})
 	agents.WithDevice(sharedPhone)
 
@@ -776,6 +784,44 @@ func nodeViews(nodes *nodeapi.Server) phone.Views {
 		}
 
 		return end, nil
+	}
+}
+
+// workAlive says whether the work a take was started for goes on (issue
+// #817, row 7): a worker's Dispatch until it is settled or its worker exited
+// without a report (ReportFinished, ReportExited), a Bot's turn while its
+// chat's turn mark is the same (agent_settled, a cut turn and a pi that
+// exited clear it). Any other agent's work goes on; its take ends at its
+// stop or the phone's end. A store that cannot be read keeps the take.
+func workAlive(svc *orchestration.Service, logger *slog.Logger) func(ctx context.Context, work string) bool {
+	return func(ctx context.Context, work string) bool {
+		switch {
+		case strings.HasPrefix(work, agentapi.WorkDispatch):
+			d, err := svc.GetDispatch(ctx, strings.TrimPrefix(work, agentapi.WorkDispatch))
+			if errors.Is(err, orchestration.ErrNotFound) {
+				return false
+			}
+
+			if err != nil {
+				logger.WarnContext(ctx, "a take's Dispatch could not be read", slog.String("error", err.Error()))
+
+				return true
+			}
+
+			return !d.Settled() && d.Status != orchestration.DispatchUnknown &&
+				d.Status != orchestration.DispatchStopUnknown
+		case strings.HasPrefix(work, agentapi.WorkTurn):
+			chat, turn, _ := strings.Cut(strings.TrimPrefix(work, agentapi.WorkTurn), " ")
+
+			now, err := svc.ChatTurn(ctx, chat)
+			if err != nil {
+				return !errors.Is(err, orchestration.ErrNotFound)
+			}
+
+			return turn != "" && now == turn
+		default:
+			return true
+		}
 	}
 }
 
