@@ -440,12 +440,17 @@ test("the owner sees the meetings by day, as cards or a table", async ({ page, i
   await expect(page.getByRole("region", { name: "Earlier" }).getByTestId("meeting")).toHaveCount(1)
 
   const weekly = page.getByRole("link", { name: "Weekly sync with Kai" })
-  // Each voice's badge reads its initial once named, else its number (issue #807), before its name and share.
-  await expect(weekly.getByRole("list", { name: "Speakers" }).getByRole("listitem")).toHaveText([
-    "YYou9%",
-    "KKai73%",
-    "3Speaker 318%",
-  ])
+  // Each voice's badge reads its initial once named, else its number (issue #807); past two voices only the badges
+  // stay, each naming its voice and share.
+  const voices = weekly.getByRole("list", { name: "Speakers" }).getByRole("listitem")
+  await expect(voices).toHaveText(["Y", "K", "3"])
+  await expect(voices.nth(1)).toHaveAttribute("title", "Kai 73%")
+  await expect(
+    page
+      .getByRole("link", { name: "1:1 with Minh" })
+      .getByRole("list", { name: "Speakers" })
+      .getByRole("listitem"),
+  ).toHaveText(["YYou40%", "MMinh60%"])
   await expect(weekly).toContainText("2 open of 3")
   await expect(weekly).toContainText("Upload · Soniox")
   await expect(weekly).toContainText("Ready")
