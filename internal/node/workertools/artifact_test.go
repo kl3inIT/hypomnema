@@ -35,7 +35,7 @@ func TestAWorkerShowsAFolderOfItsWorktree(t *testing.T) {
 		"dashboard/data.json":           `[{"region":"North"}]`,
 		"dashboard/.env":                "TOKEN=x",
 		"dashboard/node_modules/a.js":   "x",
-		"dashboard/notes.docx":          "x",
+		"dashboard/notes.docm":          "x",
 		"dashboard/charts/regions.json": "[]",
 	}
 
@@ -54,7 +54,7 @@ func TestAWorkerShowsAFolderOfItsWorktree(t *testing.T) {
 		"name": "show_artifact", "arguments": map[string]any{"title": "Sales", "path": "dashboard"},
 	}})
 	assert.Equal(t, "Shown as artifact art_1 (revision 1).\nLeft out .env (hidden), node_modules/ (packages), "+
-		"notes.docx (not a kind of file a page loads).", text(t, c.read()))
+		"notes.docm (not a kind of file a page loads).", text(t, c.read()))
 
 	require.Len(t, cp.calls, 1)
 	assert.Equal(t, "show_artifact", cp.calls[0].Tool)
