@@ -1650,7 +1650,7 @@ flowchart LR
   changes state (omp's scout, gemini-cli's investigator). The reviewer and the explorer are told to change nothing;
   nothing enforces it (issue #50, closed by the owner: each Task has its own worktree and the owner reviews every
   pull request). `deploy/profiles/` holds samples on Codex, whose model is a gateway model named by the
-  deployment: `codex-worker`, with the implementer's instruction, and `reviewer-codex.yaml`, which makes
+  deployment: `implementer-codex` (`codex-worker` until 2026-11-18, issue #835), with the implementer's instruction, and `reviewer-codex.yaml`, which makes
   `reviewer` itself run on Codex with the seeded reviewer's instruction. `reviewer-claude.yaml` (issue #756) is
   the same instruction on Claude Code under the Claude subscription, with one paragraph more, that a review of a
   Claude author's change says it was not independent; no migration seeds it, as the seeded `reviewer` already runs
@@ -4895,9 +4895,11 @@ the internet, so that a machine created at a provider can install the node from 
   written under one was read under the other, [#381](https://github.com/kl3inIT/hypomnema/issues/381)).
 - Since [#381](https://github.com/kl3inIT/hypomnema/issues/381) (v0.9.23) a Claude Code worker may instead run through
   the gateway with a key of its Dispatch; the profile `implementer-gateway` tried it and is no longer listed (2026-11-16).
-- Profiles since 2026-11-16 (issue #661): `implementer` (Claude Code, Opus 5.5, the default; backup `codex-worker`),
+- Profiles since 2026-11-18 (issues #661, #835; named `<role>` for a role's default and `<role>-<vendor>` for another
+  vendor's): `implementer` (Claude Code, Opus 5.5, the default; fallback `implementer-codex`),
   `explorer` (Claude Code, Sonnet 5.5), `reviewer` (Codex, gpt-6.1-sol, effort high, so another vendor reviews a
-  Claude Code worker's change), `codex-worker` (Codex, gpt-6.1-sol) and `superset-report-worker` (Codex), against
+  Claude Code worker's change), `reviewer-claude` (Claude Code, Opus 5.5), `implementer-codex` (Codex, gpt-6.2-sol;
+  `codex-worker` on gpt-6.1-sol until 2026-11-18) and `superset-report-worker` (Codex), against
   the provider `model-gateway` for Codex. The trial profiles `omp-worker`, `opencode-worker`, `omp-claude`,
   `omp-claude-sub` and the separate `codex-reviewer` were removed (hidden, their versions kept).
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
