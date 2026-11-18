@@ -9,7 +9,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/workertools"
 )
 
-func (t *turn) recoverFinish(ctx context.Context, w *runner.Worker, e event) {
+func (t *turn) trackTools(ctx context.Context, w *runner.Worker, e event) {
 	var message struct {
 		Content []struct {
 			Type      string          `json:"type"`
@@ -27,17 +27,20 @@ func (t *turn) recoverFinish(ctx context.Context, w *runner.Worker, e event) {
 
 	for _, block := range message.Content {
 		switch {
-		case e.Type == "assistant" && block.Type == "tool_use" && block.ID != "" &&
-			block.Name == "mcp__"+workertools.Name+"__finish":
-			if t.finishCalls == nil {
-				t.finishCalls = make(map[string]json.RawMessage)
+		case e.Type == "assistant" && block.Type == "tool_use" && block.ID != "":
+			if t.toolCalls == nil {
+				t.toolCalls = make(map[string]*json.RawMessage)
 			}
-			t.finishCalls[block.ID] = block.Input
+			if block.Name == "mcp__"+workertools.Name+"__finish" {
+				t.toolCalls[block.ID] = &block.Input
+			} else if e.Parent == "" {
+				t.toolCalls[block.ID] = nil
+			}
 		case e.Type == "user" && block.Type == "tool_result":
-			input, ok := t.finishCalls[block.ToolUseID]
-			delete(t.finishCalls, block.ToolUseID)
-			if ok && block.IsError && closedPermissionStream(block.Content) {
-				recordRecoveredFinish(ctx, w, input)
+			input := t.toolCalls[block.ToolUseID]
+			delete(t.toolCalls, block.ToolUseID)
+			if input != nil && len(*input) > 0 && block.IsError && closedPermissionStream(block.Content) {
+				recordRecoveredFinish(ctx, w, *input)
 			}
 		}
 	}

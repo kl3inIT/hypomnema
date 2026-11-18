@@ -14,6 +14,7 @@
 package claude
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -64,7 +65,8 @@ type ClaudeRuntime struct {
 	// and where its tools ask for a token.
 	URL string
 	// Env is added to each worker's environment (tests).
-	Env []string
+	Env               []string
+	continuationLimit time.Duration
 }
 
 var _ runner.Runtime = (*ClaudeRuntime)(nil)
@@ -137,18 +139,22 @@ func (rt *ClaudeRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.
 
 	initialize := []byte(`{"type":"control_request","request_id":"init","request":{"subtype":"initialize"}}`)
 
-	return runner.Launch{Format: Format, Write: write, First: [][]byte{initialize, first}, Turn: &turn{}}, nil
+	return runner.Launch{Format: Format, Write: write, First: [][]byte{initialize, first}, Turn: rt.newTurn()}, nil
+}
+
+func (rt *ClaudeRuntime) newTurn() *turn {
+	return &turn{continuationLimit: cmp.Or(rt.continuationLimit, maxContinuation)}
 }
 
 // Adopted is a turn read on from where an earlier daemon left it, with what
 // it had learnt by then.
 func (rt *ClaudeRuntime) Adopted(state []byte) runner.Turn {
-	t := &turn{}
+	t := rt.newTurn()
 
 	var s saved
 	if json.Unmarshal(state, &s) == nil {
 		t.result, t.limited, t.toolsDown = s.Result, s.Limited, s.ToolsDown
-		t.background, t.finishCalls = s.Background, s.FinishCalls
+		t.background, t.toolCalls, t.wait = s.Background, s.ToolCalls, s.Wait
 	}
 
 	return t
@@ -157,11 +163,12 @@ func (rt *ClaudeRuntime) Adopted(state []byte) runner.Turn {
 // saved is what a turn keeps across a daemon restart: the result event, a
 // rate limit's reset, and a tools server that failed.
 type saved struct {
-	Result      *event                     `json:"result,omitempty"`
-	Limited     *time.Time                 `json:"limited,omitempty"`
-	ToolsDown   string                     `json:"tools_down,omitempty"`
-	Background  bool                       `json:"background,omitempty"`
-	FinishCalls map[string]json.RawMessage `json:"finish_calls,omitempty"`
+	Result     *event                      `json:"result,omitempty"`
+	Limited    *time.Time                  `json:"limited,omitempty"`
+	ToolsDown  string                      `json:"tools_down,omitempty"`
+	Background bool                        `json:"background,omitempty"`
+	ToolCalls  map[string]*json.RawMessage `json:"tool_calls,omitempty"`
+	Wait       continuation                `json:"wait,omitzero"`
 }
 
 // gatewayAccount is the offer's AccountRef when the model gateway serves the
@@ -215,6 +222,7 @@ func (rt *ClaudeRuntime) credentials(o nodeproto.Offer) ([]string, error) {
 func (rt *ClaudeRuntime) env(configDir string, credentials []string) []string {
 	out := append([]string{"CLAUDE_CONFIG_DIR=" + configDir}, credentials...)
 	out = append(out, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+		"CLAUDE_CODE_SDK_READS_SESSION_STATE=1",
 		"LANG=C.UTF-8", "MCP_TOOL_TIMEOUT="+strconv.FormatInt(toolTimeout.Milliseconds(), 10))
 
 	out = append(out, runner.HostEnv()...)
@@ -248,6 +256,8 @@ type event struct {
 	Result    string          `json:"result"`
 	IsError   bool            `json:"is_error"`
 	Queued    int             `json:"queued_turn_count"`
+	State     string          `json:"state"`
+	Parent    string          `json:"parent_tool_use_id"`
 	Message   json.RawMessage `json:"message,omitempty"`
 	Tasks     []struct {
 		Type string `json:"task_type"`
@@ -273,10 +283,12 @@ type event struct {
 // turn is one stream-JSON turn. Its lines come from one goroutine, and it is
 // read once the worker exited.
 type turn struct {
-	result      *event
-	limited     *time.Time
-	background  bool
-	finishCalls map[string]json.RawMessage
+	result            *event
+	limited           *time.Time
+	background        bool
+	toolCalls         map[string]*json.RawMessage
+	wait              continuation
+	continuationLimit time.Duration
 	// toolsDown is the tools server's status when it failed to start.
 	toolsDown string
 }
@@ -302,7 +314,23 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 			}
 		}
 	case e.Type == "control_request":
+		t.wait.Active = true
 		permission(ctx, w, e)
+	case e.Type == "system" && e.Subtype == "session_state_changed":
+		switch e.State {
+		case "idle":
+			if t.wait.Running {
+				t.wait.IdleAt = time.Time{}
+			}
+			t.wait.Running = false
+			t.wait.Active = false
+		case "requires_action":
+			t.wait.Running = false
+			t.wait.Active = true
+		case "running":
+			t.wait.Running = true
+			t.wait.IdleAt = time.Time{}
+		}
 	case e.Type == "system" && e.Subtype == "background_tasks_changed" && e.Tasks != nil:
 		t.background = false
 		for _, task := range e.Tasks {
@@ -312,26 +340,37 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 			}
 		}
 	case e.Type == "assistant" || e.Type == "user":
-		t.recoverFinish(ctx, w, e)
+		if e.Type == "assistant" && e.Parent == "" {
+			t.wait.Active = true
+		}
+		t.trackTools(ctx, w, e)
+	case e.Type == "stream_event" && e.Parent == "":
+		t.wait.Active = true
 	case e.Type == "result":
 		t.onResult(ctx, w, e)
 	case e.Type == "rate_limit_event" && e.RateLimit != nil && e.RateLimit.Status == "rejected":
 		limited := time.Unix(e.RateLimit.ResetsAt, 0).UTC()
 		t.limited = &limited
 	}
+	t.armIdle(time.Now())
 }
 
 func (t *turn) onResult(ctx context.Context, w *runner.Worker, e event) {
+	t.result = &e
+	t.wait.Active = false
+	t.wait.IdleAt = time.Time{}
 	if !e.IsError && !strings.HasPrefix(e.Subtype, "error") && (t.background || e.Queued > 0) {
 		_, finished, err := bridge.Finished(bridge.Dir(w.Dir()))
 		w.Report(ctx, err)
 		if !finished {
+			if t.wait.HardAt.IsZero() {
+				t.wait.HardAt = time.Now().Add(t.continuationLimit)
+			}
 			return
 		}
 	}
 
-	t.result = &e
-	w.Report(ctx, w.Send(ctx, []byte(shim.CloseLine)))
+	t.closeInput(ctx, w, time.Now())
 }
 
 // permission answers a permission prompt: allowed, for now.
@@ -383,7 +422,7 @@ func (t *turn) State() []byte {
 	//nolint:errchkjson // The event as it was decoded, and a time.
 	raw, _ := json.Marshal(saved{
 		Result: t.result, Limited: t.limited, ToolsDown: t.toolsDown,
-		Background: t.background, FinishCalls: t.finishCalls,
+		Background: t.background, ToolCalls: t.toolCalls, Wait: t.wait,
 	})
 
 	return raw
@@ -408,6 +447,8 @@ func (t *turn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
 	lower := strings.ToLower(res.Result)
 
 	switch {
+	case t.wait.Failure != "":
+		f.Class, f.Summary = "worker_error", t.wait.Failure
 	case t.toolsDown != "":
 		f.Class = "worker_error"
 		f.Summary = "the worker's tools server (" + workertools.Name + ") did not start: its status was " + t.toolsDown

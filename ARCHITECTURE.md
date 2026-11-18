@@ -4346,8 +4346,13 @@ Node (`internal/node`):
     - the session id from `system/init`, as started;
     - a Dispatch can include a follow-up turn from background Bash. A successful `result` while Claude reports
       background Bash or queued turns does not close stdin; permission replies still go over the same pipe.
-      The background hold survives adoption. A result with no outstanding work, a terminal error, or a result
-      after `finish` closes stdin (issue #867).
+      If the background work settles without another result, the node closes stdin after 2 s with no pending
+      work or follow-up turn (up to 10 minutes between turns if Claude still says `running`), and uses the most
+      recent result. The hold and its deadlines survive adoption.
+      A result with no outstanding work, a terminal error, or a result after `finish` also closes stdin.
+      Within a held continuation, the node kills the shim's session group and records an exit if Claude stays
+      alive for 30 s after stdin closes or for 4 hours after the first held result, whichever comes first
+      (issue #867).
     - if Claude's journal matches an explicit `finish` call to a closed-stdio permission error, the node validates
       the same tool arguments and records a fallback in the bridge. A normal finish takes precedence. The node
       sends the chosen report through the same durable outbox; prose or a PR alone is not a final report.

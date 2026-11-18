@@ -234,12 +234,16 @@ func exitOf(cmd *exec.Cmd, err error) Exit {
 }
 
 func writeExit(dir string, e Exit) error {
+	return saveExit(dir, e, ExitFile+".tmp")
+}
+
+func saveExit(dir string, e Exit, tempName string) error {
 	raw, err := json.Marshal(e)
 	if err != nil {
 		return err
 	}
 
-	tmp := filepath.Join(dir, ExitFile+".tmp")
+	tmp := filepath.Join(dir, tempName)
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return fmt.Errorf("writing the exit file: %w", err)
 	}
@@ -264,6 +268,21 @@ func ReadExit(dir string) (Exit, bool, error) {
 	}
 
 	return e, true, nil
+}
+
+// KillAndRecordExit ends a timed-out worker and leaves its transcript eligible for final delivery.
+func KillAndRecordExit(dir string, pid int, reason string) error {
+	if _, done, _ := ReadExit(dir); done {
+		return nil
+	}
+	if err := Kill(pid); err != nil {
+		return fmt.Errorf("killing a timed-out shim: %w", err)
+	}
+
+	if _, done, _ := ReadExit(dir); done {
+		return nil
+	}
+	return saveExit(dir, Exit{Code: -1, Error: reason}, ExitFile+".kill.tmp")
 }
 
 // Send writes lines to a running shim's worker.

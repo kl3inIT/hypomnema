@@ -94,6 +94,10 @@ type Turn interface {
 	State() []byte
 }
 
+type turnPoller interface {
+	Poll(ctx context.Context, w *Worker, caughtUp bool) (changed bool, killReason string)
+}
+
 // Result is what the CLI said of its turn.
 type Result struct {
 	// Done says the CLI ended the turn with its result.
@@ -552,11 +556,12 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 	defer close(w.done)
 
 	offset, _ := readCheckpoint(w.dir)
+	poller, polls := w.turn.(turnPoller)
 
 	for {
 		relay(ctx, w)
 
-		n, err := readFrom(ctx, w, offset)
+		n, err := readFrom(ctx, w, offset, polls)
 		offset += n
 
 		if n > 0 {
@@ -573,7 +578,7 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 			exit, done, _ := shim.ReadExit(w.dir)
 			if done {
 				// Read once more: the last lines may have landed with the exit.
-				if more, _ := readFrom(ctx, w, offset); more > 0 {
+				if more, _ := readFrom(ctx, w, offset, polls); more > 0 {
 					offset += more
 					writeCheckpoint(w.dir, offset, w.turn.State())
 
@@ -593,7 +598,19 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 				return
 			}
 		}
+		if polls && ctx.Err() == nil {
+			changed, reason := poller.Poll(ctx, w, n == 0 && err == nil)
+			if changed {
+				writeCheckpoint(w.dir, offset, w.turn.State())
+			}
+			if pid := w.shimPID(); reason != "" && pid > 0 {
+				w.Report(ctx, shim.KillAndRecordExit(w.dir, pid, reason))
+			}
+		}
 
+		if polls && n > 0 && ctx.Err() == nil {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -621,7 +638,7 @@ func shimGone(w *Worker) (bool, string) {
 
 // readFrom hands every complete line after offset to the turn and returns
 // how many bytes it consumed; a released worker's turn is handed no more.
-func readFrom(ctx context.Context, w *Worker, offset int64) (int64, error) {
+func readFrom(ctx context.Context, w *Worker, offset int64, batch bool) (int64, error) {
 	f, err := os.Open(filepath.Join(w.dir, shim.JournalFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
@@ -640,7 +657,7 @@ func readFrom(ctx context.Context, w *Worker, offset int64) (int64, error) {
 
 	var n int64
 
-	for ctx.Err() == nil {
+	for count := 0; (!batch || count < 128) && ctx.Err() == nil; count++ {
 		line, err := br.ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
 			// A partial line waits for the rest.

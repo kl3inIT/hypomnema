@@ -120,8 +120,19 @@ func fakeClaude(mode string) int {
 				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Write", "input": map[string]any{"x": 1}},
 			})
 		case msg.Type == "control_response" && msg.Response.RequestID == "perm_1":
-			if mode == "background" || mode == "queued" {
-				emitInterimResult(out, mode == "queued")
+			if mode == "idle-after-background" || mode == "stuck-background" {
+				emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
+					"tasks": []map[string]string{{"task_id": "bg", "task_type": "local_bash"}}})
+				emit(out, map[string]any{"type": "result", "subtype": "success", "result": "waiting"})
+				if mode == "idle-after-background" {
+					emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+					emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
+				}
+				continue
+			}
+
+			if mode == "background" || mode == "queued" || mode == "running" || mode == "tool-in-flight" {
+				emitInterimResult(out, mode)
 				continue
 			}
 
@@ -168,7 +179,8 @@ func fakeClaude(mode string) int {
 	return exit
 }
 
-func emitInterimResult(out *json.Encoder, queued bool) {
+func emitInterimResult(out *json.Encoder, mode string) {
+	queued := mode == "queued"
 	result := map[string]any{"type": "result", "subtype": "success", "result": "waiting"}
 	if queued {
 		result["queued_turn_count"] = 1
@@ -177,11 +189,22 @@ func emitInterimResult(out *json.Encoder, queued bool) {
 			"tasks": []map[string]string{{"task_id": "bg", "task_type": "local_bash"}}})
 	}
 	emit(out, result)
+	if mode == "tool-in-flight" {
+		emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_use", "id": "pending", "name": "Bash", "input": map[string]any{"command": "true"}},
+		}}})
+	}
 	emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
 	time.Sleep(500 * time.Millisecond)
 	if !queued {
 		emit(out, map[string]any{"type": "system", "subtype": "task_notification", "task_id": "bg", "status": "stopped"})
 		emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+	}
+	if mode == "running" {
+		emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "running"})
+	}
+	if mode == "running" || mode == "tool-in-flight" {
+		time.Sleep(settleWait + 500*time.Millisecond)
 	}
 	emit(out, map[string]any{"type": "control_request", "request_id": "perm_after",
 		"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Bash"}})
@@ -485,12 +508,13 @@ func TestTurnWithoutFinishFails(t *testing.T) {
 func TestInterimResultKeepsPermissionStreamOpen(t *testing.T) {
 	t.Parallel()
 
-	for _, mode := range []string{"background", "queued"} {
+	for _, mode := range []string{"background", "queued", "running", "tool-in-flight"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			g := newRig(t, mode)
 			r := newReporter("dsp_1")
 			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+			t.Cleanup(func() { g.sup.Release(r.ID()) })
 			r.wait(t)
 
 			require.Len(t, r.finished, 1)
@@ -498,6 +522,47 @@ func TestInterimResultKeepsPermissionStreamOpen(t *testing.T) {
 			assert.Equal(t, "finished after Bash", r.finished[0].Summary)
 		})
 	}
+}
+
+func TestBackgroundSettlesWithoutAnotherResult(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "idle-after-background")
+	r := newReporter("dsp_1")
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+	t.Cleanup(func() { g.sup.Release(r.ID()) })
+	select {
+	case <-r.done:
+	case <-time.After(6 * time.Second):
+		t.Fatal("the worker stayed open after background Bash and the final result")
+	}
+	require.Len(t, r.finished, 1)
+	assert.Equal(t, "worker_error", r.finished[0].Class)
+	assert.Equal(t, "stopped without finish: waiting", r.finished[0].Summary)
+}
+
+func TestBackgroundContinuationHardDeadline(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "stuck-background")
+	g.rt.continuationLimit = 500 * time.Millisecond
+	r := newReporter("dsp_1")
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+	t.Cleanup(func() { g.sup.Release(r.ID()) })
+	r.wait(t)
+
+	require.Len(t, r.finished, 1)
+	assert.Zero(t, r.stopped)
+	assert.Equal(t, "worker_error", r.finished[0].Class)
+	assert.Equal(t, "Claude Code exceeded the background continuation deadline", r.finished[0].Summary)
+	dir := filepath.Join(g.sup.Home, "run", r.ID())
+	exit, done, err := shim.ReadExit(dir)
+	require.NoError(t, err)
+	require.True(t, done, "the transcript can deliver the journal's final lines")
+	assert.Equal(t, -1, exit.Code)
+	pid, err := shim.PID(dir)
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 3*time.Second, 20*time.Millisecond)
 }
 
 func TestRecoversOnlyAnExplicitFinishWithAClosedPermissionStream(t *testing.T) {
