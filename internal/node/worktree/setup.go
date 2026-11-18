@@ -1,7 +1,6 @@
 package worktree
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -71,7 +70,7 @@ func setupScript(path string) (string, error) {
 // it. A script that fails, runs out of time or cannot be read is logged and
 // the worktree stands, as in Orca (runtime-local-worktree-setup.ts): the
 // worker starts, and can still install what is missing itself.
-func (m Maker) setup(ctx context.Context, path string) {
+func (m Maker) setup(ctx context.Context, path string, lock *mirrorLock) {
 	script, err := setupScript(path)
 	if err != nil {
 		m.warn(ctx, path, err.Error(), "")
@@ -98,24 +97,14 @@ func (m Maker) setup(ctx context.Context, path string) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var output bytes.Buffer
-
-	cmd := exec.CommandContext(ctx, shell, "-c", script) //nolint:gosec // the repository's own declared script
-	cmd.Dir = path
-	cmd.Stdout, cmd.Stderr = &output, &output
-	// Git must not wait for a person (Orca: promptGuardShellEnv).
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path)
-	// The script's children end with it when its time is up (Orca: signalProcessTree).
-	ownGroup(cmd)
-	cmd.WaitDelay = 5 * time.Second
-
-	err = cmd.Run()
+	output, err := (mirrorGit{lock: lock, stall: timeout, grace: m.GitGrace}).runProcess(ctx, path,
+		append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path), shell, "-c", script)
 
 	switch {
 	case ctx.Err() != nil:
-		m.warn(ctx, path, fmt.Sprintf("the setup script did not end within %s", timeout), tail(output.Bytes()))
+		m.warn(ctx, path, fmt.Sprintf("the setup script did not end within %s", timeout), output)
 	case err != nil:
-		m.warn(ctx, path, "the setup script failed: "+err.Error(), tail(output.Bytes()))
+		m.warn(ctx, path, "the setup script failed: "+err.Error(), output)
 	}
 }
 
@@ -139,13 +128,4 @@ func (m Maker) warn(ctx context.Context, path, message, output string) {
 	m.Logger.WarnContext(context.WithoutCancel(ctx), message,
 		slog.String("event", "node.worktree.setup_failed"), slog.String("worktree", path),
 		slog.String("output", output))
-}
-
-// tail is the end of a script's output.
-func tail(output []byte) string {
-	if len(output) > setupOutputKept {
-		output = output[len(output)-setupOutputKept:]
-	}
-
-	return strings.TrimSpace(string(output))
 }

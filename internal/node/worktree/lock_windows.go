@@ -2,7 +2,6 @@ package worktree
 
 import (
 	"context"
-	"os/exec"
 
 	"github.com/gofrs/flock"
 )
@@ -18,6 +17,3 @@ func openMirrorLock(ctx context.Context, path string) (*mirrorLock, error) {
 
 	return &mirrorLock{lock}, nil
 }
-
-// Windows development builds do not support Unix descriptor inheritance.
-func (*mirrorLock) inherit(*exec.Cmd) {}

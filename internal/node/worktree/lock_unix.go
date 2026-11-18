@@ -43,7 +43,7 @@ func openMirrorLock(ctx context.Context, path string) (*mirrorLock, error) {
 	return nil, ctx.Err()
 }
 
-// Close, not LOCK_UN, releases this reference without unlocking an orphaned Git process's descriptor.
+// Close, not LOCK_UN, releases this reference without unlocking the supervisor's descriptor.
 func (lock *mirrorLock) inherit(cmd *exec.Cmd) {
 	cmd.ExtraFiles = append(cmd.ExtraFiles, lock.File)
 }

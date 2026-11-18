@@ -51,6 +51,9 @@ type Config struct {
 	Token string `json:"token"`
 	// WorktreeRoot is where the node makes its worktrees.
 	WorktreeRoot string `json:"worktree_root"`
+	// MirrorGitStall and MirrorGitGrace are optional Go durations for mirror Git commands.
+	MirrorGitStall string `json:"mirror_git_stall,omitempty"`
+	MirrorGitGrace string `json:"mirror_git_grace,omitempty"`
 	// DisableAutoUpdate keeps the node at its version (Nezha's
 	// disable_auto_update). UpdateEveryMinutes sets how often it looks for a
 	// newer release (Nezha's self_update_period); zero is a random interval of
@@ -177,6 +180,14 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	stall, err := mirrorDuration("mirror_git_stall", cfg.MirrorGitStall)
+	if err != nil {
+		return err
+	}
+	grace, err := mirrorDuration("mirror_git_grace", cfg.MirrorGitGrace)
+	if err != nil {
+		return err
+	}
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -264,7 +275,8 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	all := runners{
 		supervisor: &runner.Supervisor{
-			Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+			Home: home, Exe: exe, URL: cfg.URL, Logger: logger,
+			Worktrees: worktree.Maker{Root: home, Logger: logger, GitStall: stall, GitGrace: grace},
 		},
 		byRuntime: byRuntime, transcripts: transcripts, skills: skills.Cache{
 			Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
@@ -330,6 +342,17 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 
 	return err
+}
+
+func mirrorDuration(name, value string) (time.Duration, error) {
+	if value == "" {
+		return 0, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration, got %q", name, value)
+	}
+	return duration, nil
 }
 
 // Unit is a systemd user unit for the daemon. KillMode=process keeps workers

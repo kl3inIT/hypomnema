@@ -102,7 +102,7 @@ func TestMirrorLockDoesNotBlockAnotherRepository(t *testing.T) {
 	require.NoError(t, err)
 	src.URL = filepath.Join(dir, filepath.FromSlash(src.Repo.Path))
 	other.URL = src.URL
-	maker := Maker{Root: filepath.Join(dir, "node"), lockTimeout: 200 * time.Millisecond}
+	maker := Maker{Root: filepath.Join(dir, "node")}
 
 	mirror := maker.mirrorPath(src.Repo)
 	require.NoError(t, os.MkdirAll(filepath.Dir(mirror), 0o700))
@@ -110,12 +110,11 @@ func TestMirrorLockDoesNotBlockAnotherRepository(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, lock.Close()) })
 
-	blocked, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 	err = maker.Ensure(blocked, src, "main", "blocked", filepath.Join(dir, "wt", "blocked"))
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.ErrorContains(t, err, "wait limit 200ms")
-	require.NoError(t, blocked.Err())
+	require.ErrorContains(t, err, "locking mirror")
 	assert.NoDirExists(t, mirror)
 
 	ctx, cancelOther := context.WithTimeout(t.Context(), 10*time.Second)
@@ -190,7 +189,7 @@ func TestMirrorRemoveWaitsForTheSameLock(t *testing.T) {
 
 	dir := t.TempDir()
 	origin(t, dir)
-	maker := Maker{Root: filepath.Join(dir, "node"), lockTimeout: 200 * time.Millisecond}
+	maker := Maker{Root: filepath.Join(dir, "node")}
 	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
 	require.NoError(t, err)
 	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
@@ -200,7 +199,9 @@ func TestMirrorRemoveWaitsForTheSameLock(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = lock.Close() })
 
-	err = maker.Remove(t.Context(), src, path)
+	blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	err = maker.Remove(blocked, src, path)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.FileExists(t, filepath.Join(path, ".git"))
 	require.NoError(t, lock.Close())

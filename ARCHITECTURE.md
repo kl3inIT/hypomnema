@@ -4481,12 +4481,20 @@ Node (`internal/node`):
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
   `origin/*` before each new worktree. A file lock in the node home's `mirror-locks/`, keyed by the mirror's
   relative path hash, serializes clone, fetch, worktree add and remove across node processes. On Linux and
-  macOS, Git inherits the locked descriptor so a daemon exit does not release the lock while Git still has it.
-  Lock acquisition waits up to ten minutes; each Git command gets five minutes, and cancellation or timeout
-  kills its Unix process group. Other mirrors and worktree setup do not wait on that lock. Mirror fetches
-  disable automatic maintenance and retry `cannot lock ref` once (issue #868).
+  macOS a supervisor holds the lock while Git runs; neither Git nor its children inherit it. On cancellation
+  or daemon exit the supervisor signals the Git process group with TERM, then KILL after the grace period,
+  before releasing its copy of the lock. The lock wait follows the Dispatch context, with no separate
+  deadline. Clone and fetch request progress output; Git has an inactivity limit rather than a total deadline.
+  The node config can set `mirror_git_stall` (default `5m`) and `mirror_git_grace` (default `1s`) as Go durations.
+  A clone is published by rename only after success. On Linux and macOS, after an interrupted mirror operation
+  the node clears leftover Git lockfiles before updating the mirror under the lock. Node Git disables hooks; mirror fetches
+  also disable automatic maintenance and retry `cannot lock ref` once (issue #868). Worker Git does not take
+  the node's mirror lock.
   `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
-  branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
+  branch on a retry. A separate lock for the worktree path serializes checkout, setup and removal for that path.
+  A pending marker written before checkout and cleared after setup distinguishes incomplete worktrees from
+  completed or pre-upgrade ones. The node recreates a pending checkout on retry. Other mirrors and worktrees
+  do not wait for its setup. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub
