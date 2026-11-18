@@ -103,9 +103,14 @@ func (g gatewayAccounts) Verified(ctx context.Context, accountID string) error {
 
 // accountToken says a subscription's answer in the gateway's words.
 func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, error) {
-	var cooling *subscription.CoolingError
+	var (
+		cooling *subscription.CoolingError
+		verify  *subscription.VerificationError
+	)
 
 	switch {
+	case errors.As(err, &verify):
+		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrAccountResting, err)
 	case errors.As(err, &cooling):
 		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until}
 	case errors.Is(err, subscription.ErrNoAccount):

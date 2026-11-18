@@ -819,6 +819,12 @@ func (s *Server) antigravityImage(
 		}
 	}
 
+	if errors.Is(err, ErrAccountResting) {
+		// Marked meanwhile by another request (issue #822): the next account serves this one.
+		return antigravity.ImageAnswer{}, imageRefusal(http.StatusServiceUnavailable, "account_verification_required",
+			"Google asks for the Antigravity account to be verified", 0), nil
+	}
+
 	if err != nil {
 		return antigravity.ImageAnswer{}, nil, err
 	}

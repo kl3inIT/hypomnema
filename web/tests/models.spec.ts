@@ -503,7 +503,8 @@ test("the owner sees an Antigravity account Google wants verified", async ({ pag
 
   const note = row.getByTestId("verification")
   await expect(note).toContainText("Google asked to verify it 25m ago")
-  await expect(note).toContainText("Tried again")
+  await expect(note).toContainText("Next retry")
+  await expect(note).not.toContainText("Tried again")
 
   const verify = row.getByRole("button", { name: "Verify second@gmail.example with Google" })
   await expect(verify).toHaveAttribute("href", verifyLink)

@@ -457,7 +457,7 @@ function VerificationNote({ account }: { account: Account }) {
         Google asked to verify it {since(verification.asked_at)}.{" "}
         {tryDue(verification)
           ? "The next request tries it again."
-          : `Tried again ${until(verification.next_try_at)}.`}
+          : `Next retry ${until(verification.next_try_at)}.`}
       </span>
       {verification.url && <VerifyButton label={account.label} url={verification.url} />}
     </p>

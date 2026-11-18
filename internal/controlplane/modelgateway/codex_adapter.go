@@ -69,6 +69,11 @@ type AccountToken struct {
 // in, or every one needs a new login.
 var ErrNoAccount = errors.New("no account can be used")
 
+// ErrAccountResting says an account cannot be used before a later time, such
+// as one Google wants verified that is not due for its next try (issue #822):
+// its request goes to the next account.
+var ErrAccountResting = errors.New("the account rests until its next try")
+
 // CoolingError says every account of a kind waits for a usage limit to end.
 type CoolingError struct{ Until time.Time }
 

@@ -676,11 +676,6 @@ func vendorToken[T any](ctx context.Context, s *Service, id string) (T, Token, e
 		}
 	}
 
-	// An account Google wants verified is not asked before its next try (issue #822).
-	if err := s.verifyWaits(a.Account); err != nil {
-		return none, Token{}, err
-	}
-
 	token, err := s.tokenOf(ctx, a.Account)
 	if err != nil {
 		return none, Token{}, err
@@ -722,6 +717,12 @@ func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until
 }
 
 func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, error) {
+	// No token of an account Google wants verified is given before its next try (issue #822): every path that hands
+	// one out comes here, the retry after a 401 too (TokenAfterRefusal), so nothing is sent to Google early.
+	if err := s.verifyWaits(a); err != nil {
+		return Token{}, err
+	}
+
 	name, ok := vault.NameFromRef(a.SecretRef)
 	if !ok {
 		return Token{}, fmt.Errorf("%w: account %s", ErrNoTokens, a.ID)

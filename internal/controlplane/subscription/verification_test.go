@@ -182,3 +182,37 @@ func TestSigningInAgainClearsTheMark(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, a.ID, token.AccountID)
 }
+
+// Scenario (issue #822, review of #826): two requests run under one account; one is answered VALIDATION_REQUIRED and
+// marks it, then the other's token is refused with a 401. Its retry gets no new token before the account's next
+// try: every path that hands out a token keeps the rest, not only Token.
+func TestTheRetryAfterARefusalWaitsForTheNextTry(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+
+	a, err := w.login()
+	require.NoError(t, err)
+
+	token, err := w.subs.Token(t.Context(), "antigravity", "")
+	require.NoError(t, err)
+
+	_, err = w.subs.NeedsVerification(t.Context(), a.ID, verifyLink, "Verify your account to continue.")
+	require.NoError(t, err)
+
+	_, err = w.subs.TokenAfterRefusal(t.Context(), token)
+
+	var verify *subscription.VerificationError
+	require.ErrorAs(t, err, &verify)
+	assert.Equal(t, t0.Add(10*time.Minute), verify.RetryAt)
+	assert.Equal(t, verifyLink, verify.URL)
+
+	_, err = w.subs.Roster(t.Context(), a.ID)
+	require.ErrorAs(t, err, &verify, "the full list waits too")
+
+	w.clock.advance(10 * time.Minute)
+
+	again, err := w.subs.TokenAfterRefusal(t.Context(), token)
+	require.NoError(t, err, "its next try has come")
+	assert.True(t, again.Verifying)
+}

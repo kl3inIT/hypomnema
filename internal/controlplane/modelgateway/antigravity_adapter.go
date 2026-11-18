@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -183,6 +184,13 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 			resp, err = s.antigravityPost(ctx, token, built)
 		}
 
+		if errors.Is(err, ErrAccountResting) {
+			release()
+
+			// Marked meanwhile by another request (issue #822): the next account serves this one.
+			return antigravityResting(), nil
+		}
+
 		if err != nil {
 			release()
 
@@ -200,7 +208,6 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 	}
 
 	s.accountState.served(token.AccountID)
-	s.antigravityVerified(ctx, token)
 	s.readQuota(ctx, token.AccountID)
 
 	stream := antigravity.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
@@ -209,6 +216,9 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 		event: stream.Event, finished: stream.Finished, completion: stream.Completion,
 		failed:  func() bool { return stream.Failed() != nil },
 		release: release,
+		// A 200 is not yet a success: the mark of an account to verify is
+		// cleared only once its answer has ended well (issue #822).
+		succeeded: func() { s.antigravityVerified(ctx, token) },
 		refusal: func() *http.Response {
 			failure := stream.Failed()
 			if failure == nil {
@@ -281,8 +291,7 @@ func (s *Server) antigravityRefused(
 	case f.Reason == antigravity.ReasonVerification:
 		s.antigravityNeedsVerification(ctx, token, f)
 
-		return openAIError(http.StatusServiceUnavailable, typeServer, "account_verification_required",
-			"Google asks for the Antigravity account to be verified", 0)
+		return antigravityResting()
 	case !usedUp.IsZero():
 		wait = usedUp.Sub(now)
 		s.antigravity.wait(token.AccountID, model, usedUp)
@@ -343,7 +352,7 @@ func (s *Server) antigravityNeedsVerification(ctx context.Context, token Account
 		return
 	}
 
-	if _, err := v.NeedsVerification(context.WithoutCancel(ctx), token.AccountID, f.URL, f.Message); err != nil {
+	if _, err := v.NeedsVerification(context.WithoutCancel(ctx), token.AccountID, f.ValidationURL, f.Message); err != nil {
 		s.logger.ErrorContext(ctx, "marking an Antigravity account to verify",
 			slog.String("event", "modelgateway.antigravity_verify_mark_failed"),
 			slog.String("account_id", token.AccountID), slog.String("error", err.Error()))
@@ -363,6 +372,13 @@ func (s *Server) antigravityVerified(ctx context.Context, token AccountToken) {
 			slog.String("event", "modelgateway.antigravity_verify_clear_failed"),
 			slog.String("account_id", token.AccountID), slog.String("error", err.Error()))
 	}
+}
+
+// antigravityResting is the answer of an account that may not be used before
+// its next try: a 503, so the next account, or the model's next target, serves.
+func antigravityResting() *http.Response {
+	return openAIError(http.StatusServiceUnavailable, typeServer, "account_verification_required",
+		"Google asks for the Antigravity account to be verified", 0)
 }
 
 // antigravityPark takes an account out of use until a time, with the reason
