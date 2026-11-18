@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -184,6 +185,7 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 			s.changeLimits(id, func(e *limitsEntry) { e.restUntil = now.Add(wait) })
 		case refused.status == http.StatusUnauthorized || refused.status == http.StatusForbidden:
 			s.changeLimits(id, func(e *limitsEntry) { e.refused, e.refusedVersion = err, token.Version })
+			s.markPlan(ctx, a, refused.status)
 		}
 
 		return entry.orElse(err, now)
@@ -192,6 +194,8 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 	if _, ok := reader.(limitsWithResets); !ok {
 		resets = readResets(ctx, s.vendors[a.Runtime], token)
 	}
+
+	s.markPlan(ctx, a, http.StatusOK)
 
 	limits := Limits{Windows: windows, ReadAt: now, Resets: resets}
 	s.changeLimits(id, func(e *limitsEntry) {
@@ -222,6 +226,32 @@ func (e limitsEntry) orElse(err error, now time.Time) (Limits, error) {
 	}
 
 	return Limits{}, err
+}
+
+// planMarker is a Vendor whose limits call says whether the account has the
+// subscription at all (OpenCode Go: 403).
+type planMarker interface {
+	limitsPlan(status int, current string) (plan string, change bool)
+}
+
+// markPlan sets the plan the vendor gives an account after its limits call
+// answered status. A failure to record it is logged: the limits stand.
+func (s *Service) markPlan(ctx context.Context, a Account, status int) {
+	marker, ok := s.vendors[a.Runtime].(planMarker)
+	if !ok {
+		return
+	}
+
+	plan, change := marker.limitsPlan(status, a.Plan)
+	if !change {
+		return
+	}
+
+	if err := s.accounts.SetAccountPlan(ctx, a.ID, a.Email, plan); err != nil {
+		s.logger.WarnContext(ctx, "an account's plan was not recorded",
+			slog.String("event", "subscription.plan_failed"), slog.String("account_id", a.ID),
+			slog.String("error", err.Error()))
+	}
 }
 
 func (s *Service) changeLimits(id string, change func(*limitsEntry)) {

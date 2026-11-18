@@ -54,7 +54,9 @@ const (
 	// subscription's model: what Google serves it with (issue #587), else
 	// CLIProxyAPI's registry of them.
 	SourceAntigravity Source = "antigravity"
-	SourceUnknown     Source = "unknown"
+	// SourceOpenCodeGo is the window or largest output OpenCode Go's model list gives a Go model (issue #854).
+	SourceOpenCodeGo Source = "opencode_go"
+	SourceUnknown    Source = "unknown"
 )
 
 // codexWindows are the context windows Codex itself gives its models, which a
@@ -158,16 +160,16 @@ func (s *Service) Resolve(ctx context.Context, m Model) (Resolved, error) {
 
 	// What Google serves an Antigravity model with comes before the copied table, as omp takes maxTokens and
 	// maxOutputTokens from fetchAvailableModels (issue #587); a value the model sets still wins.
-	if s.served != nil && kind == "antigravity_subscription" {
+	// OpenCode Go's list gives each model's window and largest output too (issue #854).
+	source := map[string]Source{"antigravity_subscription": SourceAntigravity, openCodeGoKind: SourceOpenCodeGo}[kind]
+	if s.served != nil && source != "" {
 		if window, output, ok := s.served(ctx, kind, upstream); ok {
 			if window > 0 && m.Attributes.ContextWindow == nil {
-				out.ContextWindow = Value[int64]{
-					Value: &window, Source: SourceAntigravity, ModelsDev: out.ContextWindow.ModelsDev,
-				}
+				out.ContextWindow = Value[int64]{Value: &window, Source: source, ModelsDev: out.ContextWindow.ModelsDev}
 			}
 
 			if output > 0 && m.Attributes.MaxOutput == nil {
-				out.MaxOutput = Value[int64]{Value: &output, Source: SourceAntigravity, ModelsDev: out.MaxOutput.ModelsDev}
+				out.MaxOutput = Value[int64]{Value: &output, Source: source, ModelsDev: out.MaxOutput.ModelsDev}
 			}
 		}
 	}
