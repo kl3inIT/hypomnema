@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -14,16 +16,32 @@ import (
 
 type fakeServed map[string][]string
 
-func (f fakeServed) ServedNames(_ context.Context, runtime string) ([]string, bool) {
+// readAt is when every list of a fakeServed was read.
+var readAt = time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
+
+func (f fakeServed) ServedList(_ context.Context, runtime string) ([]string, time.Time, bool) {
 	names, ok := f[runtime]
 
-	return names, ok
+	return names, readAt, ok
+}
+
+// readings serves one list, read anew at each step.
+type readings struct {
+	names []string
+	read  time.Time
+}
+
+func (r *readings) ServedList(_ context.Context, runtime string) ([]string, time.Time, bool) {
+	return r.names, r.read, runtime == "codex"
 }
 
 type fakeProviders struct {
 	list  []orchestration.Provider
 	asked map[string][]string
 	fail  string
+	// pinned are models a profile uses, which are not removed; removed are the provider and model of each removal.
+	pinned  []string
+	removed []string
 }
 
 func (f *fakeProviders) ListProviders(context.Context) ([]orchestration.Provider, error) {
@@ -34,6 +52,16 @@ func (f *fakeProviders) SetProviderModels(_ context.Context, name string, models
 	f.asked["set "+name] = models
 
 	return models, []string{"gemini-old"}, nil
+}
+
+func (f *fakeProviders) RemoveProviderModel(_ context.Context, name, model string) (bool, error) {
+	if slices.Contains(f.pinned, model) {
+		return false, errors.New("a profile uses " + model)
+	}
+
+	f.removed = append(f.removed, name+" "+model)
+
+	return true, nil
 }
 
 func (f *fakeProviders) AddProviderModels(_ context.Context, name string, models []string) ([]string, error) {
@@ -77,25 +105,27 @@ func TestEachSubscriptionProviderIsGivenWhatItsVendorServes(t *testing.T) {
 	assert.Contains(t, logs.String(), "event=gateway.vendor_models_failed provider=claude-subscription")
 }
 
-// Scenario (review of #832, round 5): a Codex model the provider lists is left out of two answered readings in a
-// row. After the first it stays, as one reading can miss it; after the second it is dropped, so that /v1/models
-// lists no model every account's list leaves out (issue #814).
+// Scenario (review of #832): a Codex model the provider lists is left out of two readings in a row. After the first
+// it stays, as one reading can miss it; after the second it is dropped, so that /v1/models lists no model every
+// account's list leaves out (issue #814). A reading is counted once however often it is seen, and a model a profile
+// uses keeps only itself.
 func TestACodexModelLeftOutTwiceIsDropped(t *testing.T) {
 	providers := &fakeProviders{
 		list: []orchestration.Provider{{
 			Name: "codex-subscription", Kind: orchestration.ProviderCodexSubscription,
-			Models: []string{"gpt-6.1-terra", "gpt-gone"},
+			Models: []string{"gpt-6.1-terra", "gpt-gone", "gpt-pinned"},
 		}},
-		asked: map[string][]string{},
+		asked:  map[string][]string{},
+		pinned: []string{"gpt-pinned"},
 	}
-	v := &vendorModels{
-		subs: fakeServed{"codex": {"gpt-6.1-terra", "gpt-6.2-sol"}}, providers: providers,
-		logger: slog.New(slog.DiscardHandler),
-	}
+	served := &readings{names: []string{"gpt-6.1-terra"}, read: readAt}
+	v := &vendorModels{subs: served, providers: providers, logger: slog.New(slog.DiscardHandler)}
 
 	v.update(t.Context())
-	assert.Equal(t, []string{"gpt-6.1-terra", "gpt-6.2-sol", "gpt-gone"}, providers.asked["set codex-subscription"])
+	v.update(t.Context()) // the same reading seen again
+	assert.Empty(t, providers.removed, "one reading so far")
 
+	served.read = readAt.Add(time.Hour)
 	v.update(t.Context())
-	assert.Equal(t, []string{"gpt-6.1-terra", "gpt-6.2-sol"}, providers.asked["set codex-subscription"])
+	assert.Equal(t, []string{"codex-subscription gpt-gone"}, providers.removed, "the pinned model keeps only itself")
 }

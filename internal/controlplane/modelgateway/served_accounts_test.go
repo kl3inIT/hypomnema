@@ -21,6 +21,8 @@ type rosterGoogle struct {
 
 	served map[string][]string
 	asked  []string
+	// waits are the moments each TokenFor's request stops waiting for the lists (AccountWaitEnds), zero when none.
+	waits []time.Time
 }
 
 func (a *rosterGoogle) TokenFor(
@@ -28,6 +30,9 @@ func (a *rosterGoogle) TokenFor(
 ) (modelgateway.AccountToken, error) {
 	a.mu.Lock()
 	a.asked = append(a.asked, model)
+
+	wait, _ := modelgateway.AccountWaitEnds(ctx)
+	a.waits = append(a.waits, wait)
 
 	var others []string
 
@@ -328,4 +333,109 @@ func TestAHeldAccountIsAskedAgainBeforeItIsSentTo(t *testing.T) {
 	status, _, body = g.call(t, g.key, askFlash+`}`)
 	assert.Equal(t, http.StatusServiceUnavailable, status, body)
 	assert.Equal(t, before+1, got.calls(), "only the second account was called")
+}
+
+func (a *rosterGoogle) Serves(_ context.Context, accountID, model string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return slices.Contains(a.served[accountID], model)
+}
+
+func (a *rosterAccounts) Serves(_ context.Context, accountID, model string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return slices.Contains(a.served[accountID], model)
+}
+
+func (a *refusingRosters) Serves(context.Context, string, string) bool { return false }
+
+// Scenario (review of #832, round 6): one chat request picks twice, the first account answering 503. Both picks
+// share the one moment the request stops waiting for the accounts' lists, set when it entered the gateway.
+func TestEveryPickOfARequestSharesItsWait(t *testing.T) {
+	t.Parallel()
+
+	account := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_a", "acc_b"}}},
+		served: map[string][]string{
+			"acc_a": {"gemini-3.8-flash-high"}, "acc_b": {"gemini-3.8-flash-high"},
+		},
+	}
+
+	answer := stream(geminiEvents...)
+	backend, _ := cloudCode(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer acc_a-access-0" {
+			http.Error(w, `{"error":{"code":503,"status":"UNAVAILABLE"}}`, http.StatusServiceUnavailable)
+
+			return
+		}
+
+		answer(w, r)
+	})
+	g := newAntigravityGateway(t, backend, account)
+
+	status, _, body := g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	account.mu.Lock()
+	defer account.mu.Unlock()
+
+	require.Len(t, account.waits, 2)
+	assert.False(t, account.waits[0].IsZero())
+	assert.Equal(t, account.waits[0], account.waits[1], "one wait for the whole request")
+}
+
+// Scenario (review of #832, round 6): a held account is sent the very token it was given, not asked for a new one,
+// so that what came with it (such as a retry it claimed) stays.
+func TestAHeldAccountIsSentItsOwnToken(t *testing.T) {
+	t.Parallel()
+
+	account := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{
+			ids:   []string{"acc_1", "acc_2"},
+			quota: map[string]map[string]float64{"acc_1": {"gemini-3.8-flash-high": 0.05}, "acc_2": {}},
+		}},
+		served: map[string][]string{"acc_1": {"gemini-3.8-flash-high"}, "acc_2": {"gemini-3.8-flash-high"}},
+	}
+
+	var armed atomic.Bool
+
+	answer := stream(geminiEvents...)
+	backend, got := cloudCode(t, func(w http.ResponseWriter, r *http.Request) {
+		if armed.Load() && r.Header.Get("Authorization") == "Bearer acc_2-access-0" {
+			http.Error(w, `{"error":{"code":503,"status":"UNAVAILABLE"}}`, http.StatusServiceUnavailable)
+
+			return
+		}
+
+		answer(w, r)
+	})
+	g := newAntigravityGateway(t, backend, account)
+
+	status, _, body := g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+	require.Eventually(t, func() bool {
+		g.call(t, g.key, askFlash+`}`)
+		h, _ := got.last(t)
+
+		return h.Get("Authorization") == "Bearer acc_2-access-0"
+	}, 5*time.Second, 20*time.Millisecond)
+
+	armed.Store(true)
+
+	account.mu.Lock()
+	before := len(account.asked)
+	account.mu.Unlock()
+
+	status, _, body = g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	h, _ := got.last(t)
+	assert.Equal(t, "Bearer access-0", h.Get("Authorization"), "the held account served")
+
+	account.mu.Lock()
+	defer account.mu.Unlock()
+
+	assert.Len(t, account.asked, before+3, "two picks and the end of the accounts; none for the held account")
 }

@@ -217,3 +217,50 @@ func TestAClaudeListFallsToTheNextAccountWhenTheFirstFails(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, []string{"claude-new"}, names, "the last list answered")
 }
+
+// Scenario (review of #832, round 6): the last list a Claude account answered stays until a newer answer replaces it,
+// as main kept it: an hour without asking again, even when another account could now answer; and when the account
+// that answered is disabled and the other fails, the list stays.
+func TestTheLastClaudeListAnsweredStays(t *testing.T) {
+	w := newClaudeWorld(t)
+	ids := w.loginN(2)
+
+	var calls atomic.Int32
+
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+
+			return
+		}
+
+		_, _ = rw.Write([]byte(`{"data": [{"id": "claude-second"}], "has_more": false}`))
+	})
+
+	names, ok := w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-second"}, names)
+
+	// Six minutes on, the first account could be asked again; the list answered is kept for the hour.
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = rw.Write([]byte(`{"data": [{"id": "claude-first"}], "has_more": false}`))
+	})
+	w.clock.advance(6 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-second"}, names)
+	assert.EqualValues(t, 2, calls.Load(), "nothing asked within the hour")
+
+	// The account that answered is disabled and the other fails: the list stays.
+	require.NoError(t, w.orch.DisableAccount(t.Context(), ids[1]))
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+	})
+	w.clock.advance(61 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-second"}, names)
+}

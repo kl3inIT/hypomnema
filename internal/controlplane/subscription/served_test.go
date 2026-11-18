@@ -493,24 +493,85 @@ func TestAFirstReadThatFailsIsToldToo(t *testing.T) {
 func TestARequestWaitsOnceForEveryListBeingRead(t *testing.T) {
 	t.Parallel()
 
-	const wait = 300 * time.Millisecond
+	const wait = 500 * time.Millisecond
 
 	w := newAntigravityWorld(t, ideSecret)
 	w.subs.WaitForListsAtMost(wait)
 	twoAccounts(t, w)
 
+	w.google.set(func(g *google) { g.user, g.email = "third", "third@gmail.example" })
+	_, err := w.login()
+	require.NoError(t, err)
+
 	hold := make(chan struct{})
 	release := sync.OnceFunc(func() { close(hold) })
 	t.Cleanup(release)
-	w.google.set(func(g *google) { g.holds["pro"], g.holds["ultra"], g.arrived = hold, hold, make(chan string, 4) })
+	w.google.set(func(g *google) {
+		g.holds["pro"], g.holds["ultra"], g.holds["third"], g.arrived = hold, hold, hold, make(chan string, 8)
+	})
 
+	// One wait for three lists, not three: the bound sits between them, wide enough for a loaded machine.
 	started := time.Now()
-	_, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+	_, err = w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
 	took := time.Since(started)
 
 	var cooling *subscription.CoolingError
 	require.ErrorAs(t, err, &cooling)
-	assert.Less(t, took, wait+wait/2, "one wait for both lists")
+	assert.Less(t, took, 2*wait, "one wait for every list")
+}
+
+// Scenario (review of #832, round 6): a request has its own deadline for the accounts' lists, set when it entered the
+// gateway. Past it, a pick does not wait again for a list still being read, however long the subscriptions' own wait.
+func TestAPickWaitsNoLaterThanItsRequest(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	twoAccounts(t, w)
+
+	hold := make(chan struct{})
+	release := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	w.google.set(func(g *google) { g.holds["ultra"], g.arrived = hold, make(chan string, 4) })
+
+	ctx := subscription.WithListDeadline(t.Context(), time.Now().Add(100*time.Millisecond))
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := w.subs.TokenFor(ctx, "antigravity", "gemini-4-carbon-high", "")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		var cooling *subscription.CoolingError
+		require.ErrorAs(t, err, &cooling)
+	case <-time.After(10 * time.Second):
+		release()
+		t.Fatal("the pick waited past its request's deadline")
+	}
+}
+
+// Scenario (review of #832, round 6): the Ultra account, the only one whose list has Carbon, loses it while its token
+// is refreshed, and every list is known. The request is told no account serves Carbon, not that no account could be
+// used.
+func TestAModelLostDuringARefreshIsNotServed(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	_, ultra := twoAccounts(t, w)
+
+	_, ok := w.subs.ServedNames(t.Context(), "antigravity")
+	require.True(t, ok)
+
+	w.google.set(func(g *google) {
+		g.onRefresh = func(context.Context) { w.subs.ForgetModel(ultra.ID, "gemini-4-carbon-high") }
+	})
+	w.clock.advance(59*time.Minute + 30*time.Second) // the tokens are due, the lists are not
+
+	token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+	require.ErrorIs(t, err, subscription.ErrModelNotServed)
+	assert.Empty(t, token.AccountID)
 }
 
 // Scenario (review of #832, round 5): the Ultra account's token is due, and while it is refreshed the owner
@@ -530,8 +591,9 @@ func TestAnAccountDisabledDuringItsRefreshIsNotGiven(t *testing.T) {
 
 	w.clock.advance(59*time.Minute + 30*time.Second) // the tokens are due, the lists are not
 
+	// The Pro account, the only one left usable, has a known list without Carbon: no account serves it now.
 	token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
-	require.ErrorIs(t, err, subscription.ErrNoAccount)
+	require.ErrorIs(t, err, subscription.ErrModelNotServed)
 	assert.Empty(t, token.AccountID)
 
 	require.NoError(t, w.orch.EnableAccount(t.Context(), ultra.ID))

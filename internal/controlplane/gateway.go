@@ -66,7 +66,17 @@ func (g gatewayAccounts) Token(
 func (g gatewayAccounts) TokenFor(
 	ctx context.Context, runtime, model, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.TokenFor(ctx, runtime, model, session, skip...))
+	return accountToken(g.subs.TokenFor(listDeadline(ctx), runtime, model, session, skip...))
+}
+
+// listDeadline gives the subscriptions the moment the gateway's request stops waiting for the accounts' lists of
+// models: one bound for the whole request (issue #814).
+func listDeadline(ctx context.Context) context.Context {
+	if t, ok := modelgateway.AccountWaitEnds(ctx); ok {
+		return subscription.WithListDeadline(ctx, t)
+	}
+
+	return ctx
 }
 
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
@@ -84,6 +94,11 @@ func (g gatewayAccounts) NoteQuota(accountID string, left float64) {
 
 func (g gatewayAccounts) NoteAnswer(runtime, accountID string, h http.Header) {
 	g.subs.NoteAnswer(runtime, accountID, h)
+}
+
+// Serves says an account can still be sent a request for a model (issue #814).
+func (g gatewayAccounts) Serves(ctx context.Context, accountID, model string) bool {
+	return g.subs.Serves(ctx, accountID, model)
 }
 
 // TokenAfterRefusalFor is TokenAfterRefusal for a request for a model (issue #814).
@@ -565,7 +580,8 @@ const (
 
 // servedNames is what a runtime's accounts are served (subscription.Service.ServedNames).
 type servedNames interface {
-	ServedNames(ctx context.Context, runtime string) ([]string, bool)
+	// ServedList is what they are served, with when the latest list it was made from was read.
+	ServedList(ctx context.Context, runtime string) ([]string, time.Time, bool)
 }
 
 // providerModels lists the providers and adds models to one (orchestration.Service).
@@ -573,6 +589,7 @@ type providerModels interface {
 	ListProviders(ctx context.Context) ([]orchestration.Provider, error)
 	AddProviderModels(ctx context.Context, name string, models []string) ([]string, error)
 	SetProviderModels(ctx context.Context, name string, models []string) (added, removed []string, err error)
+	RemoveProviderModel(ctx context.Context, name, model string) (bool, error)
 }
 
 // rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
@@ -588,23 +605,22 @@ type vendorModels struct {
 	subs      servedNames
 	providers providerModels
 	logger    *slog.Logger
-	// misses counts, by provider and model, the answered readings in a row that left the model out (dropAfter).
-	misses map[string]map[string]int
+	drops     *drops
 }
 
 func (v *vendorModels) update(ctx context.Context) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	if v.misses == nil {
-		v.misses = map[string]map[string]int{}
+	if v.drops == nil {
+		v.drops = &drops{misses: map[string]map[string]int{}, reads: map[string]time.Time{}}
 	}
 
-	addVendorModels(ctx, v.subs, v.providers, v.logger, v.misses)
+	addVendorModels(ctx, v.subs, v.providers, v.logger, v.drops)
 }
 
-// dropAfter is how many answered readings in a row must leave a model out before a Codex provider drops it (review
-// of #832): one is not enough, as an account can be read without it once.
+// dropAfter is how many readings in a row must leave a model out before a Codex provider drops it (review of #832):
+// one is not enough, as an account can be read without it once.
 const dropAfter = 2
 
 // droppingRuntimes are the runtimes whose providers drop, after dropAfter readings, a model their vendor's lists
@@ -612,29 +628,69 @@ const dropAfter = 2
 // names would be listed by /v1/models and refused. Claude's list does not name every model it serves.
 var droppingRuntimes = map[string]bool{"codex": true}
 
-// kept are the names a provider is set to: what the vendor serves, and each model it lists that was left out of
-// fewer than dropAfter answered readings in a row. misses is updated.
-func kept(listed, served []string, misses map[string]int) []string {
-	out := slices.Clone(served)
+// drops counts, by provider and model, the readings in a row that left a model out; a reading is counted once, by
+// when it was read, however many updates see it.
+type drops struct {
+	misses map[string]map[string]int
+	reads  map[string]time.Time
+}
+
+// due are the models a provider lists that dropAfter readings in a row, the one read at read the last, left out.
+func (d *drops) due(provider string, listed, served []string, read time.Time) []string {
+	if !read.After(d.reads[provider]) {
+		return nil
+	}
+
+	d.reads[provider] = read
+
+	misses := d.misses[provider]
+	if misses == nil {
+		misses = map[string]int{}
+		d.misses[provider] = misses
+	}
 
 	for name := range misses {
-		if slices.Contains(served, name) {
+		if slices.Contains(served, name) || !slices.Contains(listed, name) {
 			delete(misses, name)
 		}
 	}
+
+	var out []string
 
 	for _, name := range listed {
 		if slices.Contains(served, name) {
 			continue
 		}
 
-		misses[name]++
-		if misses[name] < dropAfter {
+		if misses[name]++; misses[name] >= dropAfter {
 			out = append(out, name)
 		}
 	}
 
 	return out
+}
+
+// drop takes each due model off a provider's list on its own, so that one a profile uses, which is refused, keeps
+// none of the others.
+func drop(
+	ctx context.Context, providers providerModels, logger *slog.Logger, provider string, due []string,
+) (removed []string) {
+	for _, name := range due {
+		ok, err := providers.RemoveProviderModel(ctx, provider, name)
+		if err != nil {
+			logger.WarnContext(ctx, "a model its vendor no longer serves was kept",
+				slog.String("event", "gateway.vendor_models_kept"), slog.String("provider", provider),
+				slog.String("model", name), slog.String("error", err.Error()))
+
+			continue
+		}
+
+		if ok {
+			removed = append(removed, name)
+		}
+	}
+
+	return removed
 }
 
 // vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
@@ -658,10 +714,7 @@ func vendorModelsLoop(ctx context.Context, v *vendorModels) {
 // addVendorModels adds to each subscription provider the models its vendor serves that it does not list, as Codex,
 // OpenClaw, omp and Hermes take a subscription's models from its vendor. A vendor that does not answer, or a runtime
 // with no account logged in, leaves the provider as it is: its list is the fallback.
-func addVendorModels(
-	ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger,
-	misses map[string]map[string]int,
-) {
+func addVendorModels(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger, d *drops) {
 	list, err := providers.ListProviders(ctx)
 	if err != nil {
 		logger.WarnContext(ctx, "the providers could not be read for their vendors' models",
@@ -676,7 +729,7 @@ func addVendorModels(
 			continue
 		}
 
-		names, ok := subs.ServedNames(ctx, runtime)
+		names, read, ok := subs.ServedList(ctx, runtime)
 		if !ok {
 			continue
 		}
@@ -689,20 +742,10 @@ func addVendorModels(
 		switch {
 		case rosterRuntimes[runtime]:
 			added, removed, err = providers.SetProviderModels(ctx, p.Name, names)
-		case droppingRuntimes[runtime] && misses != nil:
-			if misses[p.Name] == nil {
-				misses[p.Name] = map[string]int{}
-			}
-
-			added, removed, err = providers.SetProviderModels(ctx, p.Name, kept(p.Models, names, misses[p.Name]))
-			if err != nil {
-				// A model a profile uses refuses the drop (SetProviderModels): the provider still gains the new ones.
-				logger.WarnContext(ctx, "a provider's models its vendor no longer serves were not dropped",
-					slog.String("event", "gateway.vendor_models_kept"), slog.String("provider", p.Name),
-					slog.String("error", err.Error()))
-
-				removed = nil
-				added, err = providers.AddProviderModels(ctx, p.Name, names)
+		case droppingRuntimes[runtime] && d != nil:
+			added, err = providers.AddProviderModels(ctx, p.Name, names)
+			if err == nil {
+				removed = drop(ctx, providers, logger, p.Name, d.due(p.Name, p.Models, names, read))
 			}
 		default:
 			added, err = providers.AddProviderModels(ctx, p.Name, names)

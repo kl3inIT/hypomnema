@@ -53,6 +53,27 @@ type servedView struct {
 	// still in flight: until it ends, the list is not given, so that no model is left out of it (issue #814).
 	known   bool
 	reading bool
+	// read is when the latest of the lists it was made from was read (ServedList).
+	read time.Time
+}
+
+type listDeadlineKey struct{}
+
+// WithListDeadline bounds how long a request waits for the accounts' lists of models being read: one deadline for the
+// whole request, however many picks and fallbacks it makes (issue #814).
+func WithListDeadline(ctx context.Context, deadline time.Time) context.Context {
+	return context.WithValue(ctx, listDeadlineKey{}, deadline)
+}
+
+// ServedList is ServedNames with when the latest list it was made from was read, so that a caller counts a reading
+// once however often it asks (issue #814).
+func (s *Service) ServedList(ctx context.Context, runtime string) (names []string, read time.Time, ok bool) {
+	v := s.servedOf(ctx, runtime)
+	if v.reading {
+		return nil, time.Time{}, false
+	}
+
+	return v.names, v.read, v.known
 }
 
 // OnFirstList tells first the runtime of an account whose first list of models was just read, so that the providers'
@@ -102,8 +123,12 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 		return servedView{}
 	}
 
-	// One deadline for the whole reading, however many accounts' first lists are being read (issue #814).
+	// One deadline for the whole reading, however many accounts' first lists are being read, and no later than the
+	// request's own (WithListDeadline; issue #814).
 	deadline := time.Now().Add(s.servedWait)
+	if d, ok := ctx.Value(listDeadlineKey{}).(time.Time); ok && d.Before(deadline) {
+		deadline = d
+	}
 
 	if !perAccount[runtime] {
 		return s.firstServed(ctx, runtime, accounts, deadline)
@@ -128,38 +153,39 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 	return v
 }
 
-// firstServed is what a runtime whose list is not each account's own (Claude, OpenCode Go) is served: the list of
-// its first usable account whose last reading answered, as main read it (issue #623); when none answered, the last
-// list any of them answered, as main kept its last reading.
+// firstServed is what a runtime whose list is not each account's own (Claude, OpenCode Go) is served, as main read it
+// (issue #623): the last list answered, kept for servedKept and then replaced only by a newer answer, from its
+// first usable account that answers. Until one does, whatever accounts are disabled or fail, the last list stays.
 func (s *Service) firstServed(
 	ctx context.Context, runtime string, accounts []Account, deadline time.Time,
 ) servedView {
-	var stale *servedReading
+	s.servedMu.Lock()
+	good, ok := s.firstGood[runtime]
+	s.servedMu.Unlock()
+
+	if ok && s.clock.Now().Sub(good.read) < servedKept {
+		return good
+	}
 
 	for _, a := range usable(accounts, runtime) {
 		r := s.reading(ctx, runtime, a.ID, deadline)
-		if r.at.IsZero() {
+		if !r.answered() || (ok && !r.at.After(good.read)) {
 			continue
 		}
 
-		if r.answered() {
-			v := newServedView()
-			v.add(r)
+		v := newServedView()
+		v.add(r)
 
-			return v
+		s.servedMu.Lock()
+		if current, kept := s.firstGood[runtime]; !kept || v.read.After(current.read) {
+			s.firstGood[runtime] = v
 		}
+		s.servedMu.Unlock()
 
-		if stale == nil || r.at.After(stale.at) {
-			stale = &r
-		}
+		return v
 	}
 
-	v := newServedView()
-	if stale != nil {
-		v.add(*stale)
-	}
-
-	return v
+	return good
 }
 
 func newServedView() servedView {
@@ -169,6 +195,10 @@ func newServedView() servedView {
 // add adds what one account is served.
 func (v *servedView) add(r servedReading) {
 	v.known = true
+
+	if r.at.After(v.read) {
+		v.read = r.at
+	}
 
 	for _, m := range r.models {
 		if !slices.Contains(v.names, m.Name) {

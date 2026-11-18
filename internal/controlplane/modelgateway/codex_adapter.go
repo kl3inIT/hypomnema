@@ -112,6 +112,9 @@ type ModelTokens interface {
 	// ErrModelNotServed when the account is no longer usable or its list no
 	// longer has the model.
 	TokenAfterRefusalFor(ctx context.Context, refused AccountToken, model string) (AccountToken, error)
+	// Serves says an account is still usable, not cooling, and its list has
+	// the model.
+	Serves(ctx context.Context, accountID, model string) bool
 }
 
 // ErrModelNotServed says no account's list of models has the model asked for
