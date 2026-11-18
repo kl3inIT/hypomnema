@@ -79,10 +79,8 @@ type Subscriptions interface {
 	// Token returns a valid access token of an account of a runtime that can be
 	// used and is not among skip, ordered by the session (sticky, so one
 	// conversation keeps one account) or round-robin when the session is empty;
-	// ErrNoAccount or a *CoolingError when none can. A model, when given, is
-	// served only under the accounts whose vendor lists it, when the runtime's
-	// list is authoritative and one lists it (issue #814).
-	Token(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error)
+	// ErrNoAccount or a *CoolingError when none can.
+	Token(ctx context.Context, runtime, session string, skip ...string) (AccountToken, error)
 	// TokenAfterRefusal refreshes an account whose token the vendor refused
 	// and returns the new one.
 	TokenAfterRefusal(ctx context.Context, refused AccountToken) (AccountToken, error)
@@ -98,6 +96,16 @@ type Subscriptions interface {
 	// NoteAnswer gives the headers of an answer served under an account, for
 	// what they say of its limits (issue #199).
 	NoteAnswer(runtime, accountID string, h http.Header)
+}
+
+// ModelTokens is Subscriptions that can give, for a request for a model, a
+// token of only the accounts whose vendor lists the model, when one does
+// (issue #814): CLIProxyAPI picks only an auth that registered the model
+// (sdk/cliproxy/auth/conductor_selection.go authSupportsRouteModel), omp the
+// accounts discovery saw serve it (packages/ai/src/auth/select.ts accountIds).
+// Subscriptions without it give any account, as Token does.
+type ModelTokens interface {
+	TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error)
 }
 
 // codexSubscription serves chat from the Codex backend.
@@ -120,7 +128,7 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underAccounts(ctx, codexRuntime, "", built.CacheKey, nil,
+	resp, err := s.underAccounts(ctx, codexRuntime, call.upstream.Model, built.CacheKey, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.codexCall(ctx, &token, built)
 			if err != nil {

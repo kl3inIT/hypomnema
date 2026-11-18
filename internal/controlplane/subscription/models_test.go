@@ -99,3 +99,80 @@ func TestNoAccountMeansNoServedModels(t *testing.T) {
 	assert.False(t, ok)
 	assert.Empty(t, names)
 }
+
+// Scenario (issue #814, review of #832): two Codex accounts are served different models, as omp and CLIProxyAPI
+// read Codex's list per account. Both lists are listed; a request for the model only the second account is served
+// goes to it every time, and one for a model both have takes either, as before.
+func TestCodexModelsAreListedAndRoutedPerAccount(t *testing.T) {
+	w := newWorld(t)
+	first := w.login()
+
+	w.openai.set(func(o *openAI) { o.account = "second-chatgpt-account" })
+	second := w.login()
+	require.NotEqual(t, first.ID, second.ID)
+
+	chatgpt := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Chatgpt-Account-Id") == "second-chatgpt-account" {
+			_, _ = rw.Write([]byte(`{"models": [
+				{"slug": "gpt-6.2-sol", "visibility": "list", "supported_in_api": true},
+				{"slug": "gpt-review-second-only", "visibility": "list", "supported_in_api": true}]}`))
+
+			return
+		}
+
+		_, _ = rw.Write([]byte(`{"models": [{"slug": "gpt-6.2-sol", "visibility": "list", "supported_in_api": true}]}`))
+	}))
+	t.Cleanup(chatgpt.Close)
+	w.codex.ReadLimitsFrom(chatgpt.URL)
+
+	names, ok := w.subs.ServedNames(t.Context(), "codex")
+	require.True(t, ok)
+	assert.ElementsMatch(t, []string{"gpt-6.2-sol", "gpt-review-second-only"}, names)
+
+	for _, session := range []string{"", "", "conversation-1", "conversation-2"} {
+		token, err := w.subs.TokenFor(t.Context(), "codex", "gpt-review-second-only", session)
+		require.NoError(t, err)
+		assert.Equal(t, second.ID, token.AccountID, "session %q", session)
+	}
+
+	var both []string
+
+	for range 2 {
+		token, err := w.subs.TokenFor(t.Context(), "codex", "gpt-6.2-sol", "")
+		require.NoError(t, err)
+
+		both = append(both, token.AccountID)
+	}
+
+	assert.ElementsMatch(t, []string{first.ID, second.ID}, both, "in turn, as without a model")
+}
+
+// Scenario (issue #814): with two Claude accounts, the list is the first account's, as before: neither omp nor
+// CLIProxyAPI reads Anthropic's list per account, and a request for a Claude model may go to either account.
+func TestAClaudeListIsTheFirstAccounts(t *testing.T) {
+	w := newClaudeWorld(t)
+	ids := w.loginN(2)
+
+	var calls atomic.Int32
+
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = rw.Write([]byte(`{"data": [{"id": "claude-opus-5-5"}], "has_more": false}`))
+	})
+
+	names, ok := w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-opus-5-5"}, names)
+	assert.EqualValues(t, 1, calls.Load(), "one account is asked")
+
+	var picked []string
+
+	for range 2 {
+		token, err := w.subs.TokenFor(t.Context(), "claude", "claude-opus-5-5", "")
+		require.NoError(t, err)
+
+		picked = append(picked, token.AccountID)
+	}
+
+	assert.ElementsMatch(t, ids, picked)
+}

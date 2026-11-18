@@ -53,7 +53,7 @@ type accounts struct {
 	answers map[string]string
 }
 
-func (a *accounts) Token(_ context.Context, _, _, _ string, skip ...string) (modelgateway.AccountToken, error) {
+func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelgateway.AccountToken, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -113,7 +113,7 @@ func (a *accounts) TokenAfterRefusal(
 
 	others := slices.DeleteFunc(slices.Clone(all), func(id string) bool { return id == refused.AccountID })
 
-	return a.Token(ctx, "", "", "", others...)
+	return a.Token(ctx, "", "", others...)
 }
 
 func (a *accounts) CoolDown(_ context.Context, _, id string, until time.Time, reason string) error {

@@ -736,23 +736,24 @@ func (s *Server) antigravityImages(ctx context.Context, req ImageRequest) (Image
 
 	var res ImageResult
 
-	resp, err := s.underAccounts(ctx, antigravityRuntime, "", "", nil, func(token AccountToken) (*http.Response, error) {
-		got, refusal, err := s.antigravityImage(ctx, token, req.Prompt, opts)
-		if err != nil || refusal != nil {
-			return refusal, err
-		}
+	resp, err := s.underAccounts(ctx, antigravityRuntime, antigravity.ImageModel, "", nil,
+		func(token AccountToken) (*http.Response, error) {
+			got, refusal, err := s.antigravityImage(ctx, token, req.Prompt, opts)
+			if err != nil || refusal != nil {
+				return refusal, err
+			}
 
-		res = ImageResult{Created: s.svc.clock.Now().Unix(), AccountID: token.AccountID}
-		res.Tokens.Prompt, res.Tokens.Completion = got.InputTokens, got.OutputTokens
+			res = ImageResult{Created: s.svc.clock.Now().Unix(), AccountID: token.AccountID}
+			res.Tokens.Prompt, res.Tokens.Completion = got.InputTokens, got.OutputTokens
 
-		for _, img := range got.Images {
-			res.Images = append(res.Images, GeneratedImage{
-				B64JSON: img.B64JSON, MIME: cmpOr(img.MIME, "image/png"), RevisedPrompt: img.RevisedPrompt,
-			})
-		}
+			for _, img := range got.Images {
+				res.Images = append(res.Images, GeneratedImage{
+					B64JSON: img.B64JSON, MIME: cmpOr(img.MIME, "image/png"), RevisedPrompt: img.RevisedPrompt,
+				})
+			}
 
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
-	})
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+		})
 	if err == nil && resp.StatusCode == http.StatusOK {
 		return res, nil
 	}

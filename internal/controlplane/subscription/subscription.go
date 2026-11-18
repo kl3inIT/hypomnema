@@ -431,10 +431,16 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 	return s.TokenFor(ctx, runtime, "", session, skip...)
 }
 
-// TokenFor is Token for a request for a model: of a runtime whose list of an account's models is authoritative,
-// only the accounts whose list has the model are taken, when one has it (servers, issue #814), and every rule of
-// Token then orders those. An empty model is Token.
+// TokenFor is Token for a request for a model: of a runtime whose vendor lists each account's own models
+// (perAccount), only the accounts whose list has the model are taken, when one has it (issue #814), and every rule of
+// Token then orders those. An empty model is Token. The lists are read before the accounts, so that what reading them
+// found of an account (a login refused, a mark) decides whether it is given.
 func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (Token, error) {
+	var servers []string
+	if model != "" && perAccount[runtime] {
+		servers = s.servedOf(ctx, runtime).by[model]
+	}
+
 	accounts, err := s.List(ctx)
 	if err != nil {
 		return Token{}, err
@@ -450,7 +456,12 @@ func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, 
 		}
 	}
 
-	ofRuntime = s.servers(ctx, runtime, model, ofRuntime)
+	// Only the accounts whose list has the model, when one has it: CLIProxyAPI picks only an auth that registered
+	// the model (sdk/cliproxy/auth/conductor_selection.go authSupportsRouteModel), and omp enforces the accounts
+	// discovery saw serve it only when one of them is there (packages/ai/src/auth/select.ts enforceAccounts).
+	if len(servers) > 0 {
+		ofRuntime = slices.DeleteFunc(ofRuntime, func(a Account) bool { return !slices.Contains(servers, a.ID) })
+	}
 
 	if len(ofRuntime) == 0 {
 		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)

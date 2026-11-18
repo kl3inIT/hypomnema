@@ -179,7 +179,7 @@ func (s *Server) serveResponses(
 			return
 		}
 
-		resp, err := s.underAccounts(ctx, codexRuntime, "", built.CacheKey, nil,
+		resp, err := s.underAccounts(ctx, codexRuntime, target.Model, built.CacheKey, nil,
 			func(token AccountToken) (*http.Response, error) {
 				resp, err := s.codexCall(ctx, &token, built)
 				if err != nil {

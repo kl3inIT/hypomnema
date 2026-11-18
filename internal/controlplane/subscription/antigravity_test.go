@@ -57,9 +57,14 @@ type google struct {
 	rosters     map[string]string
 	rosterFails map[string]bool
 	owners      map[string]string
-	agents      []string
-	extra       []string
-	hosts       []string
+	// holds, by user, keeps fetchAvailableModels from answering that user until it is closed; arrived is told the
+	// user of each such call as it starts. revokedUsers are the users whose refresh token is refused.
+	holds        map[string]chan struct{}
+	arrived      chan string
+	revokedUsers map[string]bool
+	agents       []string
+	extra        []string
+	hosts        []string
 }
 
 func newGoogle(t *testing.T) *google {
@@ -68,6 +73,7 @@ func newGoogle(t *testing.T) *google {
 	g := &google{
 		t: t, project: "bright-wave-1234", user: "1122334455", email: googleEmail,
 		rosters: map[string]string{}, rosterFails: map[string]bool{}, owners: map[string]string{},
+		holds: map[string]chan struct{}{}, revokedUsers: map[string]bool{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token", g.token)
@@ -102,7 +108,13 @@ func newGoogle(t *testing.T) *google {
 			user := g.owners[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
 			roster, own := g.rosters[user]
 			fails := g.rosterFails[user]
+			hold, arrived := g.holds[user], g.arrived
 			g.mu.Unlock()
+
+			if hold != nil {
+				arrived <- user
+				<-hold
+			}
 
 			if fails {
 				http.Error(w, `{"error":{"status":"UNAVAILABLE"}}`, http.StatusServiceUnavailable)
@@ -218,6 +230,13 @@ func (g *google) token(w http.ResponseWriter, r *http.Request) {
 		user = "1122334455"
 		if given != "" {
 			user = given[1:]
+		}
+
+		if g.revokedUsers[user] {
+			http.Error(w, `{"error":"invalid_grant","error_description":"Token has been expired or revoked."}`,
+				http.StatusBadRequest)
+
+			return
 		}
 	}
 

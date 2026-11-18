@@ -125,7 +125,7 @@ func (s *Server) underAccounts(
 	}
 
 	for {
-		token, err := s.accounts.Token(ctx, runtime, model, session, tried...)
+		token, err := s.token(ctx, runtime, model, session, tried...)
 		if err != nil {
 			stopping = err
 
@@ -169,6 +169,16 @@ func (s *Server) underAccounts(
 	}
 
 	return nil, stopping
+}
+
+// token is a token of an account of a runtime, of one whose vendor lists
+// model when the accounts can say (ModelTokens) and a model is given.
+func (s *Server) token(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error) {
+	if byModel, ok := s.accounts.(ModelTokens); ok && model != "" {
+		return byModel.TokenFor(ctx, runtime, model, session, skip...)
+	}
+
+	return s.accounts.Token(ctx, runtime, session, skip...)
 }
 
 // cool keeps an account out of use after a failure, for as long as 9router-go

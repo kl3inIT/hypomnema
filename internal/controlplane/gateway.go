@@ -55,6 +55,13 @@ func gatewaySecrets(v *vault.Service) modelgateway.Secrets {
 type gatewayAccounts struct{ subs *subscription.Service }
 
 func (g gatewayAccounts) Token(
+	ctx context.Context, runtime, session string, skip ...string,
+) (modelgateway.AccountToken, error) {
+	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
+}
+
+// TokenFor is Token for a request for a model: only the accounts whose vendor lists it, when one does (issue #814).
+func (g gatewayAccounts) TokenFor(
 	ctx context.Context, runtime, model, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
 	return accountToken(g.subs.TokenFor(ctx, runtime, model, session, skip...))
@@ -467,6 +474,11 @@ type providerModels interface {
 	SetProviderModels(ctx context.Context, name string, models []string) (added, removed []string, err error)
 }
 
+// rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
+// authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639). The others only gain models: Anthropic's
+// list does not name every model it serves (OpenClaw, Hermes), and Codex's is read per account.
+var rosterRuntimes = map[string]bool{"antigravity": true}
+
 // vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
 // the start and then every hour, until ctx ends.
 func vendorModelsLoop(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger) {
@@ -513,7 +525,7 @@ func addVendorModels(ctx context.Context, subs servedNames, providers providerMo
 			err            error
 		)
 
-		if subscription.RosterRuntimes[runtime] {
+		if rosterRuntimes[runtime] {
 			added, removed, err = providers.SetProviderModels(ctx, p.Name, names)
 		} else {
 			added, err = providers.AddProviderModels(ctx, p.Name, names)
