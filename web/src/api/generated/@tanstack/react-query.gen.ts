@@ -2508,9 +2508,9 @@ export const listBotSkillsOptions = (options: Options<ListBotSkillsData>) => que
 export const listBotToolsQueryKey = (options: Options<ListBotToolsData>) => createQueryKey('listBotTools', options);
 
 /**
- * The names of Hypomnema's tools a Bot's pi gets in any chat, after the Bot's switches
+ * The names of the tools a Bot's pi gets in any chat, after the Bot's switches
  *
- * Those that do not depend on the chat (issue #723): not Superset's, WhatsApp's, Zalo's or the phone's. `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
+ * Hypomnema's tools pi lists in any of the Bot's chats (issues #723, #789): Superset's, WhatsApp's and Zalo's when an account of them is on the Bot's list, the phone's while a node holds it; then the commands it reaches an account with through the service proxy (gws, lark-cli, gh, glab). `hypomnema bots prompt` writes the "Tools" block of pi's prompt from them, as a worker's node does from its offer's tools.
  */
 export const listBotToolsOptions = (options: Options<ListBotToolsData>) => queryOptions<ListBotToolsResponse, ListBotToolsError, ListBotToolsResponse, ReturnType<typeof listBotToolsQueryKey>>({
   queryFn: async ({ queryKey, signal }) => {

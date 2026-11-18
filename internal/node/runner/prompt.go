@@ -109,8 +109,9 @@ func Prompt(d statedb.Dispatch) string {
 		b.WriteString("\nFor this kind of task:\n" + s + "\n")
 	}
 
-	// The accounts the Run was given, and the command each is used with (issue #103); the phone (issue #417).
-	b.WriteString(agenttool.Brief(o.Uses, o.Device))
+	// The accounts the Run was given, and the command each is used with (issue #103). The phone (issue #417) is a
+	// family of the "Tools" block (issue #789).
+	b.WriteString(agenttool.Brief(o.Uses))
 	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.AgentKey != ""))
 
 	if o.Repo != "" {

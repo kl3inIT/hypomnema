@@ -101,22 +101,31 @@ func routineTool(a agent) (agenttool.BrowserTool, bool) {
 
 	return agenttool.BrowserTool{
 		Name: agenttool.ToolRoutines,
-		Description: "Your Routines: work you do on a schedule, a script that runs with no model or a prompt you " +
-			"work on with your model in a new chat each time. action list shows yours with their ids, schedules, " +
-			"state and last run; look before you make one, and never make one twice. action set makes the " +
-			"Routine named, on at once, or changes it; what you leave out stays. Before you set one, say in one " +
-			"sentence when it runs and what it does, and have the owner's yes in this chat. Give a schedule, " +
-			"every_minutes or cron with timezone, and what runs: script, a file you wrote under routines/ in the " +
-			"folder you work in, with its #! line (it runs later in that folder with your commands, no model and " +
-			"no tools, and prints what it did), or prompt, or both. With both, the script runs first as a check: " +
-			"when it prints nothing, or its last line is {\"wakeAgent\": false}, the run ends there and costs no " +
-			"turn; otherwise you are woken with what it printed before the prompt. Give what runs whole each time " +
-			"you change it: prompt alone drops a check. What runs is the text as it was when you set it: after " +
-			"changing the file, set the Routine again. action run starts a run now, in the background; its result " +
-			"is added to this chat when it ends, and list with the name shows how it went. After you set one, run " +
-			"it once and tell the owner what that run did; if it failed, say so and that he can undo the Routine " +
-			"on its card. Pausing, removing and undoing a Routine are the owner's. A Routine's own run makes, " +
-			"changes and starts no Routines.",
+		Description: "Make, list and run your Routines: work done on a schedule, a script that runs with no " +
+			"model or a prompt you work on with your model in a new chat each time. Use it when the owner asks " +
+			"for something on a schedule; what is asked for once is done now, without a Routine. action list " +
+			"shows yours with their ids, schedules, state and last run: look before you make one, and never make " +
+			"one twice. action set makes the Routine named, on at once, or changes it; what you leave out stays. " +
+			"Before you set one, say in one sentence when it runs and what it does, and have the owner's yes in " +
+			"this chat. Give a schedule, every_minutes or cron with timezone, a summary, and what runs: script, a " +
+			"file you wrote under routines/ in the folder you work in, with its #! line (it runs later in that " +
+			"folder with your commands, no model and no tools, and prints what it did), or prompt, or both. A " +
+			"script has commands, not tools: it reads a Superset chart with `hypomnema superset chart " +
+			"<dashboard> <chart> [--filter \"Name=value\"]` and refreshes an artifact with `hypomnema artifact " +
+			"show --id <id> --path <folder>`. A script is at most 100,000 bytes: keep longer code in a file of " +
+			"your folder (routines/lib/report.py) run by a short script (exec python3 routines/lib/report.py), " +
+			"never split across Routines, and tell the owner the Routine runs that file. With both, the script " +
+			"runs first as a cheap check: when it prints nothing, or its last line is {\"wakeAgent\": false}, " +
+			"the run ends there and costs no turn; otherwise you are woken with what it printed (stderr too) " +
+			"before the prompt, so print what changed; a failing script fails the run without waking you. Keep " +
+			"what it last saw, and what it is set to watch, in files of your folder (a config under files/), " +
+			"which a Routine's run may change; never the script. Give what runs whole each time you change it: " +
+			"prompt alone drops a check. What runs is the text as it was when you set it: after changing the " +
+			"script, set the Routine again. action run starts a run now, in the background; its result is added " +
+			"to this chat when it ends, and list with the name shows how it went. After you set one, run it once " +
+			"and tell the owner what that run did; if it failed, say so and that he can undo the Routine on its " +
+			"card. Pausing, removing and undoing a Routine are the owner's. A Routine's own run makes, changes " +
+			"and starts no Routines.",
 		InputSchema: raw,
 	}, true
 }

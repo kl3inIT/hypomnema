@@ -70,15 +70,17 @@ func artifactTool(a agent) (agenttool.BrowserTool, bool) {
 	return agenttool.BrowserTool{
 		Name: agenttool.ToolShowArtifact,
 		Description: "Show the owner a page, a PDF, an image or any file " + where + ", as an artifact: a card he " +
-			"opens beside the chat, full screen or on its own page. Send html, one self-contained HTML document of " +
+			"opens beside the chat, full screen or on its own page; the result gives its id. Use it for something " +
+			"he should look at (a page, a dashboard, a chart, a diagram); for a page or a dashboard, load the " +
+			"pages skill first. A file to download is not an artifact. Send html, one self-contained HTML document of " +
 			"at most 256 KB, or path, a file or a folder in the folder you work in; a folder has index.html at its " +
 			"top and beside it only what the page loads (styles, scripts, data, images, fonts), at most 5 MB and " +
 			"200 files. A page runs in a locked frame: no network requests, cookies or storage; scripts, styles " +
 			"and fonts load only from cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com and Google Fonts, images " +
 			"are data: URLs or come from those CDNs; embed the data it needs. Never put a secret in it. To change " +
-			"an artifact you showed, call this again with " +
-			"its id and the new html or path: the card shows the next revision in place. Never show a second " +
-			"artifact for the same thing.",
+			"an artifact you showed, or one a Bot or a worker of the same chat showed, call this again with its " +
+			"id and the new html or path instead of showing a second one: the card shows the next revision in " +
+			"place.",
 		InputSchema: raw,
 	}, true
 }

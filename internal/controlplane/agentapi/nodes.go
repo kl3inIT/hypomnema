@@ -119,7 +119,8 @@ func nodeToolList() []agenttool.BrowserTool {
 			Name: agenttool.ToolNodeExec,
 			Description: "Run a shell command on a node's machine, as its node's user would over SSH, and get " +
 				"its exit code and output (stdout and stderr together; the first and the last 32 KB of a longer " +
-				"one). It runs at once, without asking anyone, so check what a command removes before running " +
+				"one). Use it for work on another machine of Hypomnema's; for the machine you are on, use your own " +
+				"shell instead. It runs at once, without asking anyone, so check what a command removes before running " +
 				"it. sudo works without a prompt where the owner keeps the node's sudo password; the password " +
 				"is never shown to you. Nothing waits for input: use -y and non-interactive flags. A command " +
 				"that takes longer than five minutes runs in the background (background: true): read it with " +
@@ -131,12 +132,14 @@ func nodeToolList() []agenttool.BrowserTool {
 		{
 			Name: agenttool.ToolNodeProcess,
 			Description: "Say what a command node_exec started in the background has come to: still running, " +
-				"or its exit code, with its output so far. An ended one is kept for an hour.",
+				"or its exit code, with its output so far. Use it to follow such a command instead of starting it " +
+				"again. An ended one is kept for an hour.",
 			InputSchema: processSchema,
 		},
 		{
-			Name:        agenttool.ToolNodeProcessKill,
-			Description: "Kill a command node_exec started in the background, and what it started.",
+			Name: agenttool.ToolNodeProcessKill,
+			Description: "Kill a command node_exec started in the background, and what it started. Use it for " +
+				"one that is no longer wanted or has hung; one that ended needs nothing.",
 			InputSchema: killSchema,
 		},
 	}

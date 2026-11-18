@@ -143,7 +143,7 @@ func (s *Server) supersetToolList(ctx context.Context, a agent) []agenttool.Brow
 		{
 			Name: toolSupersetDashboards,
 			Description: "List the owner's Superset dashboards by title: each one's number, title, slug and when " +
-				"it was last changed, at most 100. Start here to find a dashboard's number.",
+				"it was last changed, at most 100. Use it first, to find a dashboard's number.",
 			InputSchema: with(map[string]any{
 				"search": map[string]any{"type": "string", "description": "Only the titles that contain this."},
 			}),
@@ -151,16 +151,21 @@ func (s *Server) supersetToolList(ctx context.Context, a agent) []agenttool.Brow
 		{
 			Name: toolSupersetDashboard,
 			Description: "Read a Superset dashboard: its charts (number, name, kind, dataset, and whether its " +
-				"data can be read) and its filters with the value each has when the dashboard opens.",
+				"data can be read) and its filters with the value each has when the dashboard opens. Use it before " +
+				"reading a chart's rows, to find the chart's number and the filters' names.",
 			InputSchema: with(map[string]any{"dashboard": dashboard}, "dashboard"),
 		},
 		{
 			Name: toolSupersetChartData,
 			Description: "Read a chart's rows as its dashboard shows them when it opens: columns, rows, row_count, " +
 				"the sql Superset ran, computed_at (when the figures were computed; say it when you report one) " +
-				"and cached. The chart's own row limit holds. format csv gives the rows alone with a header line. " +
+				"and cached. Use it for a figure, a table or a list a chart shows; a list of people is personal " +
+				"data. The chart's own row limit holds. format csv gives the rows alone with a header line. " +
 				"filters sets the dashboard's filters as its filter bar does, so Superset computes the figures " +
-				"with them: answer a filtered question this way, never by summing or averaging rows.",
+				"with them: answer a filtered question (\"last week\", \"unit X\") this way, with the values " +
+				"superset_filter_values lists, never by filtering, summing or averaging the rows of an unfiltered " +
+				"read: a count of distinct people, a median or a rate is right only when Superset computes it " +
+				"with the filter.",
 			InputSchema: with(map[string]any{
 				"dashboard": dashboard,
 				"chart":     map[string]any{"type": "integer", "description": "The chart's number."},
@@ -178,7 +183,8 @@ func (s *Server) supersetToolList(ctx context.Context, a agent) []agenttool.Brow
 		{
 			Name: toolSupersetFilterValues,
 			Description: "List the values a select filter of a dashboard offers, as its filter bar lists them: " +
-				"each value with how many rows have it, the most frequent first, at most 1000.",
+				"each value with how many rows have it, the most frequent first, at most 1000. Use it to find the " +
+				"values to set as filters on superset_chart_data.",
 			InputSchema: with(map[string]any{
 				"dashboard": dashboard,
 				"filter":    map[string]any{"type": "string", "description": "The filter's name, or its id."},
@@ -187,9 +193,10 @@ func (s *Server) supersetToolList(ctx context.Context, a agent) []agenttool.Brow
 		},
 		{
 			Name: toolSupersetAPI,
-			Description: "Send one request to Superset's API, for what the other superset tools do not read " +
-				"(a dataset's columns, the list of charts, a saved query), and get Superset's answer as it came: " +
-				"status, content_type, body (base64 when it is not text) and the action it was. A read runs at " +
+			Description: "Send one request to Superset's API and get Superset's answer as it came: " +
+				"status, content_type, body (base64 when it is not text) and the action it was. Use it only for " +
+				"what the other superset tools do not read (a dataset's columns, the list of charts, a saved " +
+				"query); a chart's figures come from superset_chart_data instead. A read runs at " +
 				"once; creating, changing or deleting something, running SQL and administering users wait for " +
 				"the owner's approval, and the answer then says what to do. Superset describes its API at GET " +
 				"/api/v1/_openapi.",
