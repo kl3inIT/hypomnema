@@ -502,13 +502,69 @@ func TestReview826OldSignInCannotChangeVerification(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, verifyLink, world.verification(account.ID).Verification.URL)
 			} else {
-				require.ErrorAs(t, err, new(*subscription.VerificationError))
+				require.Error(t, err)
+				assert.NotErrorAs(t, err, new(*subscription.VerificationError))
 				current, err := world.subs.Get(t.Context(), account.ID)
 				require.NoError(t, err)
 				assert.Nil(t, current.Verification)
 			}
 		})
 	}
+}
+
+func TestReview826OldLimitsRefusalDoesNotReturnVerifyLink(t *testing.T) {
+	t.Parallel()
+	world := newAntigravityWorld(t, ideSecret)
+	account, err := world.login()
+	require.NoError(t, err)
+	world.google.set(func(fake *google) {
+		fake.onRead = func(_ http.ResponseWriter, r *http.Request) bool {
+			world.google.set(func(fake *google) { fake.onRead = nil })
+			_, err := world.loginWithContext(r.Context())
+			assert.NoError(t, err)
+			world.google.set(func(fake *google) { fake.asks = verifyLink })
+
+			return false
+		}
+	})
+
+	_, err = world.subs.Limits(t.Context(), account.ID, true)
+	require.ErrorIs(t, err, subscription.ErrNoLimits)
+	assert.NotErrorAs(t, err, new(*subscription.VerificationError))
+}
+
+func TestReview826ManualRefreshDoesNotClaimDueRetry(t *testing.T) {
+	t.Parallel()
+	world := newAntigravityWorld(t, ideSecret)
+	account, err := world.login()
+	require.NoError(t, err)
+	markDuringCall(t, world, account.ID)(t.Context())
+	world.clock.advance(10 * time.Minute)
+
+	_, err = world.subs.Refresh(t.Context(), account.ID)
+	require.NoError(t, err)
+	assert.Equal(t, world.clock.Now(), world.verification(account.ID).Verification.RetryAt)
+	_, err = world.subs.Models(t.Context(), account.ID)
+	require.NoError(t, err)
+}
+
+func TestReview826RejectedDueRetryDoesNotStopAccountSelection(t *testing.T) {
+	t.Parallel()
+	world := newAntigravityWorld(t, ideSecret)
+	marked, err := world.login()
+	require.NoError(t, err)
+	markDuringCall(t, world, marked.ID)(t.Context())
+	world.clock.advance(2 * time.Hour)
+	world.google.set(func(fake *google) { fake.user, fake.email = "99", "second@gmail.example" })
+	other, err := world.login()
+	require.NoError(t, err)
+	world.subs.NoteQuota(other.ID, 0)
+	world.google.set(func(fake *google) { fake.revoked = true })
+
+	token, err := world.subs.Token(t.Context(), "antigravity", "")
+	require.NoError(t, err)
+	assert.Equal(t, other.ID, token.AccountID)
+	assert.Equal(t, world.clock.Now().Add(time.Hour), world.verification(marked.ID).Verification.RetryAt)
 }
 
 func TestReview826ClaimSurvives401Refresh(t *testing.T) {

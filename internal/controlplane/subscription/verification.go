@@ -29,6 +29,8 @@ import (
 // VERIFICATION_COOLDOWN_SCHEDULE).
 var verifySchedule = []time.Duration{10 * time.Minute, time.Hour, 6 * time.Hour, 24 * time.Hour}
 
+var errVerificationSuperseded = errors.New("the verification response came from an earlier sign-in")
+
 // verifyWait is the rest after an initial refusal or a claimed retry.
 func verifyWait(failures int) time.Duration {
 	return verifySchedule[min(max(failures, 1), len(verifySchedule))-1]
@@ -137,7 +139,10 @@ func (s *Service) noteVerification(ctx context.Context, token Token, err error) 
 
 		retry, markErr := s.NeedsVerification(ctx, token, verify.URL, verify.Message)
 		if markErr != nil {
-			return errors.Join(err, markErr)
+			return markErr
+		}
+		if retry.IsZero() {
+			return errVerificationSuperseded
 		}
 
 		verify.RetryAt = retry

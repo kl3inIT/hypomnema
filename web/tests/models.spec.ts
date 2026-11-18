@@ -617,6 +617,49 @@ test("the owner sees an Antigravity account Google wants verified", async ({ pag
   }
 })
 
+test("an earlier manual limits read cannot restore a Verify link after sign-in", async ({
+  page,
+}) => {
+  await fakeServer(page)
+  let releaseOld!: () => void
+  const oldReady = new Promise<void>((resolve) => {
+    releaseOld = resolve
+  })
+  await page.route("**/api/v1/accounts/acc_verify/limits*", async (route) => {
+    const fresh = new URL(route.request().url()).searchParams.get("fresh") === "true"
+    if (fresh) await oldReady
+    await route.fulfill({
+      json: fresh
+        ? { windows: [], unavailable: "verification", verification_url: verifyLink }
+        : { windows: [], unavailable: "failed" },
+    })
+  })
+
+  try {
+    await page.goto("/settings/models")
+    const row = card(page, "Antigravity").getByLabel("Antigravity account second@gmail.example")
+    const read = row.getByRole("button", { name: "Read the limits of second@gmail.example again" })
+    const oldRequest = page.waitForRequest("**/api/v1/accounts/acc_verify/limits?fresh=true")
+    await read.click()
+    await oldRequest
+    await row.getByRole("button", { name: "Sign second@gmail.example in again" }).click()
+    const dialog = page.getByRole("dialog", { name: /^Sign .* in again$/ })
+    await dialog
+      .getByLabel("2. Paste what the page gives back")
+      .fill("http://localhost:1455/auth/callback?code=xyz&state=abc")
+    await dialog.getByRole("button", { name: "Sign in" }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(row.getByTestId("verification")).toHaveCount(0)
+    releaseOld()
+    await expect(read).toBeEnabled()
+    await expect(
+      row.getByRole("button", { name: "Verify second@gmail.example with Google" }),
+    ).toHaveCount(0)
+  } finally {
+    releaseOld()
+  }
+})
+
 test("signing Antigravity in again drops the old Verify link without waiting for limits", async ({
   page,
 }) => {

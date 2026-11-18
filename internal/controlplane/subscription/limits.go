@@ -178,6 +178,9 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 	}
 
 	if err = s.noteVerification(ctx, token, err); err != nil {
+		if errors.Is(err, errVerificationSuperseded) {
+			return Limits{}, ErrNoLimits
+		}
 		if verify := (*VerificationError)(nil); errors.As(err, &verify) {
 			return Limits{}, err // Not hidden behind an earlier reading: the owner has a link to open.
 		}

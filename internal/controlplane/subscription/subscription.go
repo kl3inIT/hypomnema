@@ -472,7 +472,7 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 		return Account{}, err
 	}
 
-	if err := s.refresh(ctx, a, 0, new(atomic.Int64)); err != nil {
+	if err := s.refresh(ctx, a, 0, nil); err != nil {
 		return Account{}, err
 	}
 
@@ -552,6 +552,10 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 
 		token, err := s.usableToken(ctx, a)
 		if err != nil {
+			if errors.Is(err, vault.ErrLoginRequired) || errors.Is(err, ErrNoTokens) {
+				continue
+			}
+
 			var verify *VerificationError
 			if !errors.As(err, &verify) {
 				return Token{}, err
@@ -925,7 +929,13 @@ func (s *Service) refresh(ctx context.Context, a Account, stale int, retry *atom
 		}
 
 		exchange = func(ctx context.Context, payload vault.Payload) (vault.Refreshed, error) {
-			if err := s.CheckVerification(ctx, check); err != nil {
+			var err error
+			if retry == nil {
+				_, err = s.currentVerification(ctx, check)
+			} else {
+				err = s.CheckVerification(ctx, check)
+			}
+			if err != nil {
 				return vault.Refreshed{}, err
 			}
 

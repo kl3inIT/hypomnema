@@ -72,11 +72,16 @@ export function useResetAccountLimits() {
   const queryClient = useQueryClient()
 
   return (accountId: string) => {
+    void queryClient.cancelQueries({ queryKey: freshLimitsKey(accountId), exact: true })
     void queryClient.resetQueries({
       queryKey: getAccountLimitsQueryKey({ path: { account_id: accountId } }),
       exact: true,
     })
   }
+}
+
+function freshLimitsKey(accountId: string) {
+  return getAccountLimitsQueryKey({ path: { account_id: accountId }, query: { fresh: true } })
 }
 
 // useShowLimits shows limits the server answered with, such as after a reset, as an account's limits: the body
@@ -90,12 +95,25 @@ export function useShowLimits(accountId: string) {
 
 // useRefreshLimits asks the vendor for an account's limits now and shows what it answers.
 export function useRefreshLimits(accountId: string) {
+  const queryClient = useQueryClient()
   const show = useShowLimits(accountId)
 
   return useMutation({
-    mutationFn: async () =>
-      (await getAccountLimits({ path: { account_id: accountId }, query: { fresh: true } })).data,
-    onSuccess: show,
+    mutationFn: () =>
+      queryClient.fetchQuery({
+        queryKey: freshLimitsKey(accountId),
+        staleTime: 0,
+        queryFn: async ({ signal }) => {
+          const { data } = await getAccountLimits({
+            path: { account_id: accountId },
+            query: { fresh: true },
+            signal,
+            throwOnError: true,
+          })
+          if (!signal.aborted) show(data)
+          return data
+        },
+      }),
   })
 }
 
