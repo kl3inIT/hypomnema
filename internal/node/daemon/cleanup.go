@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -90,9 +91,20 @@ func (d *Daemon) cleanWorktrees(ctx context.Context, out chan<- nodeproto.Messag
 func (d *Daemon) cleanBatch(ctx context.Context, out chan<- nodeproto.Message, acks <-chan nodeproto.CleanupAck,
 	paths []nodeproto.WorktreePath,
 ) error {
+	if len(paths) == 0 {
+		return nil
+	}
 	ack, err := d.requestCleanup(ctx, out, acks, paths)
 	if err != nil {
 		return err
+	}
+	if ack.Split {
+		if len(paths) == 1 {
+			d.cleanupWarning(ctx, paths[0].Path, errors.New("the cleanup confirmation exceeds the node message limit"))
+			return nil
+		}
+		middle := len(paths) / 2
+		return errors.Join(d.cleanBatch(ctx, out, acks, paths[:middle]), d.cleanBatch(ctx, out, acks, paths[middle:]))
 	}
 	ctx, err = d.cleanupProtection(ctx, ack)
 	if err != nil {

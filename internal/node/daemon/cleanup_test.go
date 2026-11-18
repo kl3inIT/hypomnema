@@ -103,6 +103,59 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 	assert.DirExists(t, unknown)
 }
 
+func TestOversizedCleanupBatchRetriesWithoutDroppingSibling(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancel()
+	db, err := statedb.Open(ctx, filepath.Join(root, "state.db"), time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	paths := []nodeproto.WorktreePath{
+		{Path: filepath.Join(root, "big", "task")}, {Path: filepath.Join(root, "small", "task")},
+	}
+	var removed []string
+	d := New(Config{Maintenance: &Maintenance{
+		Stopped: func(string, bool) bool { return true },
+		CleanWorktree: func(_ context.Context, path string, _ bool, stopped func() bool) error {
+			if stopped() {
+				removed = append(removed, path)
+			}
+			return nil
+		},
+	}}, db, nil, slog.New(slog.DiscardHandler))
+	out, acks := make(chan nodeproto.Message), make(chan nodeproto.CleanupAck)
+	done := make(chan error, 1)
+	go func() { done <- d.cleanBatch(ctx, out, acks, paths) }()
+	protected := []string{}
+	dispatch := platform.NewID("dsp")
+	for _, batch := range [][]nodeproto.WorktreePath{paths, paths[:1], paths[1:]} {
+		select {
+		case msg := <-out:
+			var check nodeproto.CleanupCheck
+			require.NoError(t, json.Unmarshal(msg.Payload, &check))
+			require.Equal(t, batch, check.Paths)
+			ack := nodeproto.CleanupAck{ID: check.ID, Split: true}
+			if batch[0] == paths[1] {
+				ack = nodeproto.CleanupAck{ID: check.ID, Protected: &protected, Worktrees: []nodeproto.CleanupWorktree{{
+					WorktreePath: paths[1], Dispatches: []string{dispatch}, Accepted: []string{dispatch},
+				}}}
+			}
+			select {
+			case acks <- ack:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+		case err := <-done:
+			t.Fatalf("cleanup ended before checking both siblings: %v", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+	}
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{paths[1].Path}, removed)
+}
+
 func TestOfferMeasuresDiskBeforeJournalingAccept(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

@@ -1331,6 +1331,11 @@ func TestTasksShowWhyATaskWaits(t *testing.T) {
 	assert.Contains(t, out, "    waiting: no connected node can run its agent")
 }
 
+func TestDiskWaitUsesPlainLanguage(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "no suitable node has enough measured free disk space", waitingLine(orchestration.ReasonNodesLowDisk))
+}
+
 // pi's environment names its chat; the Runs it creates record it.
 func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	w := newWorld(t)

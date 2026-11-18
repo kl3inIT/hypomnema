@@ -44,17 +44,27 @@ func resolvedPath(path string) (string, error) {
 }
 
 func Protect(ctx context.Context, target, home, allowed string) error {
+	_, err := deletionProtection(ctx, target, home, allowed)
+	return err
+}
+
+func deletionProtection(ctx context.Context, target, home, allowed string) ([]os.FileInfo, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if resolved, err := filepath.EvalSymlinks(target); err != nil || resolved != target {
-		return fmt.Errorf("cannot identify deletion target: %s", target)
+		return nil, fmt.Errorf("cannot identify deletion target: %s", target)
 	}
 	paths, _ := ctx.Value(protectionKey{}).([]string)
+	var homeIdentity os.FileInfo
 	if home != "" {
 		resolved, err := resolvedPath(home)
 		if err != nil {
-			return err
+			return nil, err
+		}
+		homeIdentity, err = os.Stat(resolved)
+		if err != nil || !homeIdentity.IsDir() {
+			return nil, fmt.Errorf("cannot identify the node home: %s", home)
 		}
 		paths = slices.Clone(paths)
 		retained := []string{
@@ -69,34 +79,42 @@ func Protect(ctx context.Context, target, home, allowed string) error {
 	}
 	mounts, err := mountedPaths()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return protectIdentities(ctx, target, paths, mounts)
+	return checkedIdentities(ctx, target, paths, mounts, homeIdentity)
 }
 
-func protectIdentities(ctx context.Context, target string, paths []string, mounts []mountedPath) error {
+func checkedIdentities(ctx context.Context, target string, paths []string, mounts []mountedPath,
+	homeIdentity os.FileInfo,
+) ([]os.FileInfo, error) {
 	for _, mount := range mounts {
 		if mount.alias && containsPath(mount.path, target) {
-			return fmt.Errorf("cannot establish original ancestry of mounted deletion target: %s", target)
+			return nil, fmt.Errorf("cannot establish original ancestry of mounted deletion target: %s", target)
 		}
 	}
 	roots, ancestors, err := protectedIdentities(ctx, target, paths, mounts)
-	if err != nil || len(ancestors) == 0 {
-		return err
+	if err != nil {
+		return nil, err
+	}
+	if len(ancestors) == 0 && homeIdentity == nil {
+		return nil, nil
 	}
 	for dir := target; ; dir = filepath.Dir(dir) {
 		info, err := os.Stat(dir)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if sameIdentity(info, roots) || (dir == target && sameIdentity(info, ancestors)) {
-			return fmt.Errorf("deletion overlaps a protected filesystem identity: %s", dir)
+			return nil, fmt.Errorf("deletion overlaps a protected filesystem identity: %s", dir)
 		}
 		if dir == filepath.Dir(dir) {
 			break
 		}
 	}
-	return filepath.WalkDir(target, func(path string, entry fs.DirEntry, err error) error {
+	if homeIdentity != nil {
+		roots = append(roots, homeIdentity)
+	}
+	err = filepath.WalkDir(target, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -115,6 +133,7 @@ func protectIdentities(ctx context.Context, target string, paths []string, mount
 		}
 		return nil
 	})
+	return roots, err
 }
 
 func protectedIdentities(ctx context.Context, target string, paths []string, mounts []mountedPath) (

@@ -69,7 +69,11 @@ func placeRoleBackup(ctx context.Context, q *store.Queries, p *placement, task s
 		}
 		var spec *DispatchSpec
 		if started {
-			spec = placeHandoff(p, conv, backup, host.asking(backup))
+			var wait string
+			spec, wait = placeHandoff(p, conv, backup, host.asking(backup))
+			if wait != "" {
+				return nil, current, wait, nil
+			}
 			if spec == nil {
 				return nil, current, "role handoff unavailable: " + backup.runtime + "/" + backup.model, nil
 			}

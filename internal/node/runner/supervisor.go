@@ -116,7 +116,8 @@ func Session(d statedb.Dispatch) string {
 // Supervisor runs the node's workers, of every runtime.
 type Supervisor struct {
 	// Home is the node's home: run/<dispatch> holds each shim.
-	Home string
+	Home       string
+	SocketHome string
 	// Exe is the node binary, run as `Exe shim --dir D`.
 	Exe string
 	// URL is the control plane's base URL, where a worker's tools reach the agent API.
@@ -130,12 +131,13 @@ type Supervisor struct {
 
 // Worker is one worker the Supervisor follows.
 type Worker struct {
-	id     string
-	dir    string
-	r      daemon.Reporter
-	turn   Turn
-	logger *slog.Logger
-	cancel context.CancelFunc
+	id        string
+	dir       string
+	socketDir string
+	r         daemon.Reporter
+	turn      Turn
+	logger    *slog.Logger
+	cancel    context.CancelFunc
 	// done is closed when the worker's journal reader returned.
 	done chan struct{}
 	// shimBy, for an adopted worker whose shim had written no PID file, is
@@ -178,7 +180,7 @@ func (w *Worker) shimPID() int {
 
 // Send writes lines to the worker's input.
 func (w *Worker) Send(ctx context.Context, lines ...[]byte) error {
-	return shim.Send(ctx, w.dir, lines...)
+	return shim.Send(ctx, w.socketDir, lines...)
 }
 
 // Report logs an error of reporting or of writing to the worker.
@@ -190,6 +192,13 @@ func (w *Worker) Report(ctx context.Context, err error) {
 }
 
 func (s *Supervisor) dir(id string) string { return filepath.Join(s.Home, "run", id) }
+
+func (s *Supervisor) socketDir(id string) string {
+	if s.SocketHome == "" {
+		return s.dir(id)
+	}
+	return filepath.Join(s.SocketHome, "run", id)
+}
 
 func (s *Supervisor) put(w *Worker) bool {
 	s.mu.Lock()
@@ -339,26 +348,27 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		_ = shim.RevokeLaunch(dir)
 		return err
 	}
-	pid, err := shim.Start(s.Exe, dir)
+	socketDir := s.socketDir(d.ID)
+	pid, err := shim.Start(s.Exe, socketDir)
 	if err != nil {
 		_ = shim.RevokeLaunch(dir)
 		return err
 	}
 	started = true
 
-	if err := waitSocket(ctx, dir); err != nil {
+	if err := waitSocket(ctx, socketDir); err != nil {
 		_ = shim.RevokeLaunch(dir)
 
 		return err
 	}
 
-	if err := shim.Send(ctx, dir, launch.First...); err != nil {
+	if err := shim.Send(ctx, socketDir, launch.First...); err != nil {
 		_ = shim.RevokeLaunch(dir)
 
 		return err
 	}
 
-	s.watch(ctx, &Worker{id: d.ID, dir: dir, pid: pid, r: r, turn: launch.Turn})
+	s.watch(ctx, &Worker{id: d.ID, dir: dir, socketDir: socketDir, pid: pid, r: r, turn: launch.Turn})
 
 	return nil
 }
@@ -403,7 +413,7 @@ func (s *Supervisor) Adopt(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	}
 
 	_, state := readCheckpoint(dir)
-	w := &Worker{id: d.ID, dir: dir, r: r, turn: rt.Adopted(state), started: true}
+	w := &Worker{id: d.ID, dir: dir, socketDir: s.socketDir(d.ID), r: r, turn: rt.Adopted(state), started: true}
 
 	pid, err := shim.PID(dir)
 	if err != nil {
@@ -460,7 +470,7 @@ func (s *Supervisor) Stop(id string) {
 		return
 	}
 
-	_ = shim.Send(context.Background(), w.dir, interrupt, []byte(shim.CloseLine))
+	_ = shim.Send(context.Background(), w.socketDir, interrupt, []byte(shim.CloseLine))
 
 	time.AfterFunc(stopGrace, func() {
 		if _, done, _ := shim.ReadExit(w.dir); !done && w.shimPID() > 0 {

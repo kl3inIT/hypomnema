@@ -77,8 +77,8 @@ func WriteSpec(dir string, s Spec) error {
 }
 
 // Main runs the shim over dir until its worker exits.
-func Main(ctx context.Context, dir string) error {
-	dir, err := realShimDir(dir)
+func Main(ctx context.Context, socketDir string) error {
+	dir, err := realShimDir(socketDir)
 	if err != nil {
 		return err
 	}
@@ -124,11 +124,15 @@ func Main(ctx context.Context, dir string) error {
 
 	_ = os.Remove(filepath.Join(dir, SocketFile))
 
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "unix", filepath.Join(dir, SocketFile))
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(socketDir, SocketFile), Net: "unix"})
 	if err != nil {
 		return fmt.Errorf("listening on the input socket: %w", err)
 	}
-	defer ln.Close() //nolint:errcheck // the shim is exiting
+	ln.SetUnlinkOnClose(false)
+	defer func() {
+		_ = ln.Close()
+		_ = os.Remove(filepath.Join(dir, SocketFile))
+	}()
 
 	cmd := exec.CommandContext(ctx, spec.Argv[0], spec.Argv[1:]...) //nolint:gosec // the daemon's own spec
 	cmd.Env, cmd.Dir, cmd.Stderr = spec.Env, spec.Dir, stderr

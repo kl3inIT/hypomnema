@@ -166,7 +166,7 @@ func removeGoEntry(ctx context.Context, worktreeVolume string, entry cacheEntry,
 	if err != nil || mount != work {
 		return err
 	}
-	return removeAt(ctx, root, name, mount, info)
+	return removeAt(ctx, root, name, mount, info, nil)
 }
 
 func isHex(name string, size int) bool {
@@ -232,8 +232,10 @@ func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
 	defer func() {
 		current, err := os.Lstat(store)
 		opened, statErr := handle.Stat()
-		if err == nil && statErr == nil && os.SameFile(current, opened) && Protect(ctx, cache, c.NodeHome, "") == nil {
-			_ = removeAt(ctx, root, cacheName, mount, cacheInfo)
+		if err == nil && statErr == nil && os.SameFile(current, opened) {
+			if retained, err := deletionProtection(ctx, cache, c.NodeHome, ""); err == nil {
+				_ = removeAt(ctx, root, cacheName, mount, cacheInfo, retained)
+			}
 		}
 	}()
 	if !RealDir(cache) || !SameVolume(worktreeVolume, cache) {

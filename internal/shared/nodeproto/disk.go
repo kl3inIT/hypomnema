@@ -39,4 +39,5 @@ type CleanupAck struct {
 	ID        string            `json:"id"`
 	Worktrees []CleanupWorktree `json:"worktrees"`
 	Protected *[]string         `json:"protected,omitempty"`
+	Split     bool              `json:"split,omitempty"`
 }

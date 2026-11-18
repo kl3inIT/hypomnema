@@ -3,6 +3,7 @@
 package diskguard
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,7 +27,45 @@ func TestProtectedDescendantMountIdentityPreventsDeletion(t *testing.T) {
 	require.NoError(t, os.Symlink(child, mount))
 	paths := []string{open}
 	require.NoError(t, Protect(WithProtection(t.Context(), paths...), closed, "", ""))
-	require.ErrorContains(t, protectIdentities(t.Context(), closed, paths, []mountedPath{{path: mount, alias: true}}),
-		"protected filesystem identity")
+	_, err = checkedIdentities(t.Context(), closed, paths, []mountedPath{{path: mount, alias: true}}, nil)
+	require.ErrorContains(t, err, "protected filesystem identity")
 	assert.FileExists(t, file)
+}
+
+func TestManagedRemovalKeepsRenamedNodeHome(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	home := filepath.Join(root, "home")
+	target := filepath.Join(root, "closed")
+	branch := filepath.Join(target, "branch")
+	moved := filepath.Join(branch, "moved")
+	marker := filepath.Join(target, "before-branch")
+	require.NoError(t, os.Mkdir(home, 0o700))
+	require.NoError(t, os.MkdirAll(branch, 0o700))
+	require.NoError(t, os.WriteFile(marker, nil, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "state.db"), []byte("state"), 0o600))
+
+	ctx := &removalContext{Context: t.Context(), afterEntry: func() bool {
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			return false
+		}
+		require.NoError(t, os.Rename(home, moved))
+		return true
+	}}
+	err = RemoveManagedTree(ctx, target, home, "", func() bool { return true })
+	require.ErrorContains(t, err, "encountered a protected filesystem identity")
+	assert.FileExists(t, filepath.Join(moved, "state.db"))
+}
+
+type removalContext struct {
+	context.Context //nolint:containedctx // The test intercepts Err at deterministic points in the deletion walk.
+	afterEntry      func() bool
+}
+
+func (ctx *removalContext) Err() error {
+	if ctx.afterEntry != nil && ctx.afterEntry() {
+		ctx.afterEntry = nil
+	}
+	return ctx.Context.Err()
 }

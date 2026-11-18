@@ -178,7 +178,11 @@ func saveConfig(home string, cfg Config) error {
 
 // Run runs the daemon with the runtimes' workers until ctx ends.
 func Run(ctx context.Context, home string, logger *slog.Logger) error {
-	home, err := canonicalHome(home)
+	socketHome, err := filepath.Abs(home)
+	if err != nil {
+		return fmt.Errorf("resolving the configured node home: %w", err)
+	}
+	home, err = filepath.EvalSymlinks(socketHome)
 	if err != nil {
 		return fmt.Errorf("resolving the node home: %w", err)
 	}
@@ -273,7 +277,8 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	all := runners{
 		supervisor: &runner.Supervisor{
-			Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+			Home: home, SocketHome: socketHome, Exe: exe, URL: cfg.URL, Logger: logger,
+			Worktrees: worktree.Maker{Root: home, Logger: logger},
 		},
 		byRuntime: byRuntime, transcripts: transcripts, skills: skills.Cache{
 			Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
@@ -354,14 +359,6 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 
 	return err
-}
-
-func canonicalHome(home string) (string, error) {
-	path, err := filepath.Abs(home)
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(path)
 }
 
 // Unit is a systemd user unit for the daemon. KillMode=process keeps workers

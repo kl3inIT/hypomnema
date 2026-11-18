@@ -759,12 +759,7 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 			c.srv.logger.WarnContext(ctx, "could not check worktree cleanup", slog.Any("error", err))
 			return c.send(ctx, nodeproto.TypeCleanupAck, nodeproto.CleanupAck{ID: check.ID})
 		}
-		ack := nodeproto.CleanupAck{ID: check.ID, Worktrees: worktrees, Protected: &protected}
-		msg, err := nodeproto.Encode(nodeproto.TypeCleanupAck, ack)
-		if err != nil || len(msg.Payload) >= nodeproto.MaxMessageBytes-1024 {
-			return c.send(ctx, nodeproto.TypeCleanupAck, nodeproto.CleanupAck{ID: check.ID})
-		}
-		return c.send(ctx, nodeproto.TypeCleanupAck, ack)
+		return c.send(ctx, nodeproto.TypeCleanupAck, cleanupReply(check.ID, worktrees, protected))
 	case nodeproto.TypeItems:
 		var b nodeproto.Items
 		if err := json.Unmarshal(msg.Payload, &b); err != nil || b.DispatchID == "" {
@@ -780,6 +775,18 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		return c.send(ctx, nodeproto.TypeError,
 			nodeproto.Error{Code: nodeproto.ErrorInvalid, Message: "unexpected message " + string(msg.Type)})
 	}
+}
+
+func cleanupReply(id string, worktrees []nodeproto.CleanupWorktree, protected []string) nodeproto.CleanupAck {
+	ack := nodeproto.CleanupAck{ID: id, Worktrees: worktrees, Protected: &protected}
+	msg, err := nodeproto.Encode(nodeproto.TypeCleanupAck, ack)
+	if err != nil {
+		return nodeproto.CleanupAck{ID: id}
+	}
+	if len(msg.Payload) >= nodeproto.MaxMessageBytes-1024 {
+		return nodeproto.CleanupAck{ID: id, Split: true}
+	}
+	return ack
 }
 
 // gpusOf is a heartbeat's GPUs as the registry keeps them.

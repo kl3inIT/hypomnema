@@ -1147,6 +1147,11 @@ func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
 	assert.Nil(t, w.task(tasks[0].ID).NotBefore, "a Task a backup may take over is not held until the reset")
 	assert.NotNil(t, w.task(tasks[1].ID).NotBefore, "a Task that names its runtime waits for the reset")
 
+	require.NoError(t, w.s.NodeDisk(ctx, both.ID, w.diskSample(0)))
+	assert.Empty(t, w.schedule().Created, "the backup cannot move the pinned worktree")
+	assert.Equal(t, ReasonNodesLowDisk, w.task(tasks[0].ID).WaitingReason)
+	require.NoError(t, w.s.NodeDisk(ctx, both.ID, w.diskSample(testDiskFloor)))
+
 	out := w.schedule()
 	require.Len(t, out.Created, 1, "the Task that names its runtime waits")
 

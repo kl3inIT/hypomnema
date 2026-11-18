@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -414,6 +415,38 @@ func TestAdoptedWorkerCanBeStopped(t *testing.T) {
 		assert.NoDirExists(t, temp)
 		assert.FileExists(t, filepath.Join(again.sup.dir("dsp_1"), shim.JournalFile))
 	}
+}
+
+func TestWorkerUsesShortConfiguredHomeForSocket(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("requires Unix domain sockets and a detached shim")
+	}
+	g := newRig(t, "hang")
+	realHome := filepath.Join(g.sup.Home, strings.Repeat("long", 30))
+	require.NoError(t, os.Mkdir(realHome, 0o700))
+	short, err := os.MkdirTemp("", "hy-") //nolint:usetesting // The test name in t.TempDir can exceed the socket limit.
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(short)) })
+	alias := filepath.Join(short, "h")
+	require.NoError(t, os.Symlink(realHome, alias))
+	if len(filepath.Join(alias, "run", "dsp_1", shim.SocketFile)) >= 104 {
+		t.Skip("temporary base path is too long for a Unix socket")
+	}
+	g.sup.Home, err = filepath.EvalSymlinks(realHome)
+	require.NoError(t, err)
+	g.sup.SocketHome = alias
+	t.Cleanup(func() { g.sup.Release("dsp_1") })
+	r := newReporter()
+	g.start(r)
+	again := g.restart()
+	again.sup.SocketHome = alias
+	t.Cleanup(func() { again.sup.Release("dsp_1") })
+	second := newReporter()
+	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
+	again.sup.Stop("dsp_1")
+	second.wait(t)
+	assert.Equal(t, 1, second.stopped)
 }
 
 // Scenario: the daemon restarts after it read the start of the journal. The

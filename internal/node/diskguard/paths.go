@@ -172,14 +172,15 @@ func RemoveManagedTree(ctx context.Context, path, home, allowed string, stopped 
 	if !before.IsDir() {
 		return fmt.Errorf("not a real directory: %s", path)
 	}
+	protected, err := deletionProtection(ctx, path, home, allowed)
+	if err != nil {
+		return err
+	}
 	if err := CheckTree(ctx, path); err != nil {
 		return err
 	}
 	if !stopped() || ctx.Err() != nil {
 		return ctx.Err()
-	}
-	if err := Protect(ctx, path, home, allowed); err != nil {
-		return err
 	}
 	current, err := os.Lstat(path)
 	if err != nil || !RealDir(path) || !os.SameFile(before, current) {
@@ -189,10 +190,12 @@ func RemoveManagedTree(ctx context.Context, path, home, allowed string, stopped 
 	if err != nil {
 		return err
 	}
-	return removeAt(ctx, root, name, mount, before)
+	return removeAt(ctx, root, name, mount, before, protected)
 }
 
-func removeAt(ctx context.Context, parent *os.Root, name string, mount mountID, expected os.FileInfo) error {
+func removeAt(ctx context.Context, parent *os.Root, name string, mount mountID, expected os.FileInfo,
+	protected []os.FileInfo,
+) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -202,6 +205,9 @@ func removeAt(ctx context.Context, parent *os.Root, name string, mount mountID, 
 	}
 	if expected != nil && !os.SameFile(expected, info) {
 		return fmt.Errorf("entry changed: %s", name)
+	}
+	if sameIdentity(info, protected) {
+		return fmt.Errorf("deletion encountered a protected filesystem identity: %s", filepath.Join(parent.Name(), name))
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
 		if err := checkMountAt(parent, name, mount); err != nil {
@@ -226,7 +232,7 @@ func removeAt(ctx context.Context, parent *os.Root, name string, mount mountID, 
 			return err
 		}
 		for _, entry := range entries {
-			if err := removeAt(ctx, dir, entry.Name(), mount, nil); err != nil && !os.IsNotExist(err) {
+			if err := removeAt(ctx, dir, entry.Name(), mount, nil, protected); err != nil && !os.IsNotExist(err) {
 				return err
 			}
 		}

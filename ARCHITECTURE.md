@@ -4540,19 +4540,23 @@ Node (`internal/node`):
 - After connecting and every five minutes, the node scans its managed `<worktree root>/<run>/<task>` directories.
   In batches over the node link, orchestration confirms the exact Conversation node and path, a finished or
   canceled Run, and no unsettled Dispatch there. It also sends paths still needed by open Runs or unsettled
-  Dispatches. The node compares real paths and filesystem identities, including mounts below protected paths,
+  Dispatches. If a confirmation is too large for one message, the node retries smaller batches; it keeps a
+  worktree whose individual confirmation still does not fit. The node compares real paths and filesystem
+  identities, including mounts below protected paths,
   against every deletion target. It keeps ambiguous targets and protects the node home, except for explicitly
   managed worktrees, Dispatch temp directories, and the particular Git worktree's registration. It rechecks
   local Dispatches and shim process groups and skips the shim requirement for a recorded disk decline before
-  launch. It removes files relative to pinned directory handles, without traversing symlinks or crossing mounts,
-  and removes the Run directory only if empty. Git cleanup keeps checkouts with ignored, untracked, or hidden
+  launch. It removes files relative to pinned directory handles, checking their identities against the protected
+  set during traversal so a directory renamed into the deletion tree is kept. It neither follows symlinks nor
+  crosses mounts, and removes the Run directory only if empty. Git cleanup keeps checkouts with ignored, untracked, or hidden
   index entries. `git worktree remove` runs without force in a filesystem sandbox (Linux Landlock or macOS
   `sandbox-exec`); if confinement is unavailable, the checkout is kept.
   Open Runs keep their worktrees for follow-ups.
 - Setup and the worker get private `TMPDIR`, `TEMP` and `TMP` under `run/<dispatch>/tmp`. The node also reclaims
   that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
   shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write
-  its PID. A saved PID alone is not enough to signal a process group. Disk
+  its PID. A saved PID alone is not enough to signal a process group. The shim socket uses the configured home
+  path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
   maintenance never scans shared `/tmp` or removes state or its sidecars, accounts, shim records and journals,
   Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.
 - Below the trim threshold, the node removes only standard Go build cache entries older than five days plus one

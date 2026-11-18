@@ -227,7 +227,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 			return err
 		}
 	} else if spec == nil && reason == "" && len(r.chain) == 0 {
-		if spec, r, err = placeBackup(ctx, q, p, task, r, host, recentExpiries); err != nil {
+		if spec, r, reason, err = placeBackup(ctx, q, p, task, r, host, recentExpiries); err != nil {
 			return err
 		}
 	}
@@ -289,44 +289,45 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // (t3code: one hop).
 func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
 	recentExpiries map[string]bool,
-) (*DispatchSpec, resolved, error) {
+) (*DispatchSpec, resolved, string, error) {
 	if task.Runtime.String != "" || task.Model.String != "" {
-		return nil, r, nil
+		return nil, r, "", nil
 	}
 
 	a := p.availability(r.runtime, r.gateway, r.accounts)
 	if a.Reason != ReasonAccountsCooling {
-		return nil, r, nil
+		return nil, r, "", nil
 	}
 
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
-		return nil, r, err
+		return nil, r, "", err
 	}
 
 	started := conv.ID != ""
 
 	if started {
 		if !open {
-			return nil, r, nil
+			return nil, r, "", nil
 		}
 
 		if may, err := mayHandOff(ctx, q, task); err != nil || !may {
-			return nil, r, err
+			return nil, r, "", err
 		}
 	}
 
 	own, err := q.GetProfileVersion(ctx, r.versionID)
 	if err != nil {
-		return nil, r, notFound(err, "profile version", r.versionID)
+		return nil, r, "", notFound(err, "profile version", r.versionID)
 	}
 
 	// A Run a Bot created falls back only to profiles on the Bot's workers list, read now (issue #169).
 	mayGive, err := runBotGives(ctx, q, task.RunID)
 	if err != nil {
-		return nil, r, err
+		return nil, r, "", err
 	}
 
+	var reason string
 	for _, name := range splitNames(own.Fallbacks) {
 		if !mayGive(name) {
 			continue
@@ -334,27 +335,33 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 
 		v, err := q.CurrentProfileVersion(ctx, name)
 		if err != nil {
-			return nil, r, notFound(err, "profile", name)
+			return nil, r, "", notFound(err, "profile", name)
 		}
 
 		b, err := resolveVersion(ctx, q, task, v)
 		if err != nil {
-			return nil, r, err
+			return nil, r, "", err
 		}
 
-		spec, _ := placeNew(p, task, b, host.asking(b), recentExpiries)
+		var spec *DispatchSpec
+		var wait string
 		if started {
-			spec = placeHandoff(p, conv, b, host.asking(b))
+			spec, wait = placeHandoff(p, conv, b, host.asking(b))
+		} else {
+			spec, wait = placeNew(p, task, b, host.asking(b), recentExpiries)
+		}
+		if wait == ReasonNodesLowDisk {
+			reason = wait
 		}
 
 		if spec != nil {
 			b.fallbackFor, b.fallbackUntil, b.handoff = task.Profile, a.At.UnixMilli(), started
 
-			return spec, b, nil
+			return spec, b, "", nil
 		}
 	}
 
-	return nil, r, nil
+	return nil, r, reason, nil
 }
 
 // runBotGives says which profiles the Bot that created a Run may give work
@@ -420,9 +427,9 @@ func runGroup(ctx context.Context, q *store.Queries, runID string) (string, int,
 // node, where the worktree is, in that worktree. No reference has more than
 // one machine; Orca and t3code keep the working directory when a session
 // moves to another agent, and here that directory is on one node (inferred).
-func placeHandoff(p *placement, conv store.Conversation, b resolved, host where) *DispatchSpec {
-	if !p.nodeReady(conv.NodeID, b.runtime, host) {
-		return nil
+func placeHandoff(p *placement, conv store.Conversation, b resolved, host where) (*DispatchSpec, string) {
+	if p.checkNodeFit(conv.NodeID, b.runtime, host) != nil {
+		return nil, ""
 	}
 
 	account := GatewayAccountRef
@@ -431,10 +438,13 @@ func placeHandoff(p *placement, conv store.Conversation, b resolved, host where)
 	}
 
 	if account == "" || (b.gateway && !p.gatewayHasAccount(b.accounts)) {
-		return nil
+		return nil, ""
+	}
+	if p.lowDisk(conv.NodeID) {
+		return nil, ReasonNodesLowDisk
 	}
 
-	return &DispatchSpec{NodeID: conv.NodeID, Worktree: conv.Worktree, Runtime: b.runtime, AccountRef: account}
+	return &DispatchSpec{NodeID: conv.NodeID, Worktree: conv.Worktree, Runtime: b.runtime, AccountRef: account}, ""
 }
 
 // mayHandOff reports whether a Task whose worker met a limit under way may
