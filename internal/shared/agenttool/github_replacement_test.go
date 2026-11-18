@@ -18,7 +18,9 @@ func TestReplacementCommentsAndClosesWithSeparateApprovals(t *testing.T) {
 	const oldURL = "https://github.com/owner/repo/pull/827"
 	const comment = "Replaced by " + newURL + "."
 	issues := []struct{ URL string }{{URL: "https://github.com/owner/repo/issues/820"}}
-	newPR := githubPR{URL: newURL, Body: "Closes #820. **Supersedes #827**\n", State: "OPEN", ClosingIssuesReferences: issues}
+	newPR := githubPR{
+		URL: newURL, Body: "Closes #820. **Supersedes #827**\n", State: "OPEN", ClosingIssuesReferences: issues,
+	}
 	oldPR := githubPR{URL: oldURL, State: "OPEN", ClosingIssuesReferences: issues}
 	var writes [][]string
 	commentAllowed, closeAllowed := false, false
@@ -74,9 +76,12 @@ func TestReplacementRequiresSharedIssue(t *testing.T) {
 		if args[2] == oldURL {
 			issue = "https://github.com/owner/repo/issues/822"
 		}
-		return json.NewEncoder(out).Encode(githubPR{URL: args[2], State: "OPEN", ClosingIssuesReferences: []struct{ URL string }{{URL: issue}}})
+		return json.NewEncoder(out).Encode(githubPR{
+			URL: args[2], State: "OPEN", ClosingIssuesReferences: []struct{ URL string }{{URL: issue}},
+		})
 	}
-	require.ErrorContains(t, reconcileReplacement([]string{newURL, "827"}, io.Discard, call), "do not name a shared closing issue")
+	err := reconcileReplacement([]string{newURL, "827"}, io.Discard, call)
+	require.ErrorContains(t, err, "do not name a shared closing issue")
 }
 
 func TestReplacementDeclarations(t *testing.T) {

@@ -2,9 +2,7 @@ package orchestration
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -56,9 +54,10 @@ func reviewReport(spec, result string) *ReviewStall {
 
 	return &ReviewStall{
 		PullRequest: pr, Verdict: verdict,
-		MergeState: reviewValue(result, "Merge state", "BEHIND", "BLOCKED", "CLEAN", "DIRTY", "DRAFT", "HAS_HOOKS", "UNKNOWN", "UNSTABLE"),
-		Mergeable:  reviewValue(result, "Mergeable", "MERGEABLE", "CONFLICTING", "UNKNOWN"),
-		Checks:     reviewValue(result, "Checks", "PASSING", "FAILING", "PENDING", "UNKNOWN"),
+		MergeState: reviewValue(result, "Merge state", "BEHIND", "BLOCKED", "CLEAN", "DIRTY", "DRAFT",
+			"HAS_HOOKS", "UNKNOWN", "UNSTABLE"),
+		Mergeable: reviewValue(result, "Mergeable", "MERGEABLE", "CONFLICTING", "UNKNOWN"),
+		Checks:    reviewValue(result, "Checks", "PASSING", "FAILING", "PENDING", "UNKNOWN"),
 	}
 }
 
@@ -73,29 +72,29 @@ func reviewValue(result, field string, allowed ...string) string {
 	return "UNKNOWN"
 }
 
-func reviewAfterTask(ctx context.Context, q *store.Queries, task store.Task, result string) (*ReviewStall, error) {
+func reviewAfterTask(ctx context.Context, q *store.Queries, task store.Task, result string) (ReviewStall, error) {
 	review := reviewReport(task.Spec, result)
 	if review == nil {
-		return nil, nil
+		return ReviewStall{}, nil
 	}
 
 	run, err := q.GetRun(ctx, task.RunID)
 	if err != nil {
-		return nil, fmt.Errorf("reading review run: %w", err)
+		return ReviewStall{}, fmt.Errorf("reading review run: %w", err)
 	}
 	if run.Status != string(RunOpen) {
-		return nil, nil
+		return ReviewStall{}, nil
 	}
 
 	tasks, err := q.ListTasksByRun(ctx, task.RunID)
 	if err != nil {
-		return nil, fmt.Errorf("reading review rounds: %w", err)
+		return ReviewStall{}, fmt.Errorf("reading review rounds: %w", err)
 	}
 
 	rounds := 0
 	for _, candidate := range tasks {
 		if !TaskStatus(candidate.Status).terminal() {
-			return nil, nil
+			return ReviewStall{}, nil
 		}
 		if candidate.Status != string(TaskSucceeded) {
 			continue
@@ -109,14 +108,11 @@ func reviewAfterTask(ctx context.Context, q *store.Queries, task store.Task, res
 	review.TaskID = task.ID
 	review.WaitingForOwner = review.Verdict == "incorrect" && rounds >= maxReviewRounds
 
-	return review, nil
+	return *review, nil
 }
 
 func activeReviewStall(ctx context.Context, q *store.Queries, runID string) (*ReviewStall, error) {
 	payload, err := q.LatestRunTaskEvent(ctx, nullString(runID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, fmt.Errorf("reading run review stall: %w", err)
 	}

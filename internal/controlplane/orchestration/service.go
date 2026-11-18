@@ -846,7 +846,7 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 		if err != nil {
 			return err
 		}
-		if review != nil {
+		if review.TaskID != "" {
 			payload["review"] = review
 		}
 	}

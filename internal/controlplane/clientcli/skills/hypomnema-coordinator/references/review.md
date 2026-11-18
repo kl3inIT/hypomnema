@@ -44,13 +44,14 @@ request open for the review.
    do not dispatch it again. When the review left `review_stall`, act on the branch below before ending your
    turn. If the verdict is unknown, get the actual verdict; never treat it as correct.
 5. A verdict of correct: read the PR's current merge state, head and required checks, since the wake is a snapshot.
-   If the PR already merged, report it and finish the Run. If it conflicts, send the author a follow-up to merge
-   the base, resolve the conflict, rerun checks, and report the new head; have the resulting change reviewed again.
+   If the PR already merged, report it and finish the Run. If it conflicts or must be brought up to date, send
+   the author a follow-up to merge the base, resolve any conflict, rerun checks, and report the new head; have the
+   resulting change reviewed again.
    For red checks, have the author fix the failure and report the updated head; for pending checks, have the author
    watch them. For an unmet policy or permission the author cannot fix, tell the owner what is blocking the PR and
    leave the Run open. A correct verdict with green checks on a mergeable PR: send the author a follow-up that
-   the review passed and asks it to turn
-   on auto-merge, as its rules say for its repository:
+   the review passed and asks it to turn on auto-merge only if the spec permits it, as its rules say for its
+   repository:
    ```text
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```

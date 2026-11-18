@@ -22,7 +22,8 @@ type githubPR struct {
 
 type githubCall func(out io.Writer, args ...string) error
 
-var replacementLine = regexp.MustCompile(`(?i)^(?:(?:closes|fixes|resolves) #[1-9][0-9]*\.\s+)?(?:[-*]\s+)?\*{0,2}(?:replaces|supersedes) #([1-9][0-9]*)\b`)
+var replacementLine = regexp.MustCompile(`(?i)^(?:(?:closes|fixes|resolves) #[1-9][0-9]*\.\s+)?` +
+	`(?:[-*]\s+)?\*{0,2}(?:replaces|supersedes) #([1-9][0-9]*)\b`)
 
 func reconcileReplacement(args []string, out io.Writer, call githubCall) error {
 	if len(args) == 0 || len(args) > 2 {
@@ -82,7 +83,7 @@ func fetchReplacementPR(call githubCall, url, fields string) (githubPR, error) {
 
 func replacedNumber(explicit []string, body string) (int, error) {
 	number := 0
-	if len(explicit) == 1 {
+	if len(explicit) > 0 {
 		var err error
 		number, err = strconv.Atoi(explicit[0])
 		if err != nil || number <= 0 {

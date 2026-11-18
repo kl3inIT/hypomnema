@@ -52,9 +52,11 @@ func (q *Queries) LastEventSeq(ctx context.Context) (int64, error) {
 }
 
 const latestRunTaskEvent = `-- name: LatestRunTaskEvent :one
-SELECT e.payload FROM events e JOIN runs r ON r.id = e.run_id
-WHERE e.run_id = ?1 AND r.status = 'open' AND e.kind IN ('task.created', 'task.status')
-ORDER BY e.seq DESC LIMIT 1
+SELECT CAST(coalesce((
+    SELECT e.payload FROM events e JOIN runs r ON r.id = e.run_id
+    WHERE e.run_id = ?1 AND r.status = 'open' AND e.kind IN ('task.created', 'task.status')
+    ORDER BY e.seq DESC LIMIT 1
+), '{}') AS TEXT) AS payload
 `
 
 func (q *Queries) LatestRunTaskEvent(ctx context.Context, runID sql.NullString) (string, error) {
