@@ -845,6 +845,11 @@ var commands = []command{
 		flags:   jsonFlag, run: imageOrder,
 	},
 	{
+		name: "accounts import", args: "claude", min: 1, max: 1,
+		summary: "keep a Claude account on the control plane from the session Claude Code saved: --file, or --detect (owner)",
+		flags:   accountsImportFlags, run: accountsImport,
+	},
+	{
 		name:    "muse accounts",
 		summary: "the owner's Muse accounts in order, each with its state and usage, and the tools' switch (owner)",
 		flags:   jsonFlag, run: museAccounts,

@@ -300,8 +300,45 @@ func (s *Service) Complete(ctx context.Context, a *Attempt, pasted, label string
 		return Account{}, fmt.Errorf("%w: %w", ErrLoginFailed, err)
 	}
 
+	return s.save(ctx, a.Runtime, login, label)
+}
+
+// credentialImporter is a vendor whose CLI keeps a session in a file the
+// owner can bring to the control plane (Claude: .credentials.json).
+type credentialImporter interface {
+	ImportCredentials(ctx context.Context, raw []byte) (Login, error)
+}
+
+// Import stores the session a vendor's CLI kept in its credentials file, as a
+// completed sign-in is stored (issue #828): a new account, or new tokens for
+// the account the vendor's id already has. raw is never logged.
+func (s *Service) Import(ctx context.Context, runtime string, raw []byte, label string) (Account, error) {
+	vendor, ok := s.vendors[runtime]
+	if !ok {
+		return Account{}, fmt.Errorf("%w: %q", ErrUnknownVendor, runtime)
+	}
+
+	importer, ok := vendor.(credentialImporter)
+	if !ok {
+		return Account{}, fmt.Errorf("%w: %s accounts are not imported from a file", ErrUnknownVendor, runtime)
+	}
+
+	login, err := importer.ImportCredentials(ctx, raw)
+	if err != nil {
+		if errors.Is(err, ErrBadPaste) {
+			return Account{}, err
+		}
+
+		return Account{}, fmt.Errorf("%w: %w", ErrLoginFailed, err)
+	}
+
+	return s.save(ctx, runtime, login, label)
+}
+
+// save records a login's account and seals its tokens in the vault.
+func (s *Service) save(ctx context.Context, runtime string, login Login, label string) (Account, error) {
 	acct, err := s.accounts.SaveAccountLogin(ctx, orchestration.AccountLogin{
-		Runtime: a.Runtime, ExternalID: login.ExternalID, FormerExternalID: login.FormerExternalID,
+		Runtime: runtime, ExternalID: login.ExternalID, FormerExternalID: login.FormerExternalID,
 		Email: login.Email, Plan: login.Plan,
 		Project: login.Project, Label: label,
 	}, func(id string) string { return vault.Ref(secretName(id)) })

@@ -1665,6 +1665,30 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Account" }
         default: { $ref: "#/components/responses/Error" }
+  /account-imports:
+    post:
+      operationId: ImportAccount
+      summary: Keep an account from the session its CLI saved; only the owner
+      description: >-
+        The credentials are Claude Code's `.credentials.json` (issue #828), as
+        OmniRoute and Hermes read it: its access and refresh tokens are sealed
+        in the vault, refreshed first when the access token is about to end,
+        and never answered or logged. Who the account is comes from the
+        vendor, as a sign-in's does; an account the vendor already knows takes
+        the new tokens. The control plane refreshes them from then on, so the
+        session on the machine the file came from may be signed out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewAccountImport" }
+      responses:
+        "201":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
   /account-sign-ins:
     post:
       operationId: BeginAccountSignIn
@@ -7163,6 +7187,25 @@ components:
           maxLength: 4096
           writeOnly: true
           description: The token `claude setup-token` prints, one line.
+    NewAccountImport:
+      type: object
+      required: [runtime, credentials]
+      additionalProperties: false
+      properties:
+        runtime:
+          type: string
+          enum: [claude]
+          description: The kind of subscription; only Claude Code's file is read.
+        credentials:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          writeOnly: true
+          description: The whole `.credentials.json` Claude Code saved, as text.
+        label:
+          type: string
+          maxLength: 64
+          description: The account's name for the owner; its e-mail when left out. Kept by an account imported again.
     NewAccountSignIn:
       type: object
       required: [runtime]
