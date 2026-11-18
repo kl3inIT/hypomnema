@@ -12,6 +12,7 @@ package worktree
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,9 +22,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/flock"
-
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
+)
+
+const (
+	mirrorLockTimeout = 10 * time.Minute
+	mirrorGitTimeout  = 5 * time.Minute
+	mirrorLockPoll    = 100 * time.Millisecond
 )
 
 // Maker makes worktrees under Root.
@@ -36,6 +41,8 @@ type Maker struct {
 	Logger *slog.Logger
 	// SetupTimeout replaces how long a setup script may run, in tests.
 	SetupTimeout time.Duration
+	lockTimeout  time.Duration
+	gitTimeout   time.Duration
 }
 
 // Source is the repository a worktree is made from.
@@ -90,7 +97,7 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 		return fmt.Errorf("the worktree %q is not absolute", path)
 	}
 
-	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+	if worktreeExists(path) {
 		return nil
 	}
 
@@ -112,51 +119,100 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string) (
 	}
 
 	mirror := m.mirrorPath(src.Repo)
+	lock, err := m.lockMirror(ctx, mirror)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = lock.Close() }()
+
+	if worktreeExists(path) {
+		return false, nil
+	}
+
 	if err := os.MkdirAll(filepath.Dir(mirror), 0o700); err != nil {
 		return false, fmt.Errorf("making %s: %w", filepath.Dir(mirror), err)
 	}
 
-	lock := flock.New(mirror + ".lock")
-	defer func() { _ = lock.Close() }()
-
-	if _, err := lock.TryLockContext(ctx, 100*time.Millisecond); err != nil {
-		return false, fmt.Errorf("locking mirror %s: %w", mirror, err)
-	}
-
-	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
-		return false, nil
-	}
-
-	if err := m.updateMirror(ctx, src, mirror); err != nil {
+	git := mirrorGit{lock: lock, timeout: m.gitTimeout}
+	if err := m.updateMirror(ctx, git, src, mirror); err != nil {
 		return false, err
 	}
 
+	//nolint:gosec // G703: the worktree path comes from the control plane's Dispatch.
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false, fmt.Errorf("making %s: %w", filepath.Dir(path), err)
 	}
 
 	branch := Branch(taskID)
 
-	if git(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch) == nil {
+	err = git.run(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	if err == nil {
 		// A retry: the branch keeps what the earlier attempt committed.
-		return true, git(ctx, mirror, nil, "worktree", "add", path, branch)
+		return true, git.run(ctx, mirror, nil, "worktree", "add", path, branch)
 	}
 
-	return true, git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
+	if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 1 ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return false, err
+	}
+
+	baseRef := "refs/remotes/origin/" + base
+	return true, git.run(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, baseRef)
+}
+
+func worktreeExists(path string) bool {
+	//nolint:gosec // G703: the worktree path comes from the control plane's Dispatch.
+	_, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil
 }
 
 // Remove removes a worktree; its branch stays.
 func (m Maker) Remove(ctx context.Context, src Source, path string) error {
 	mirror := m.mirrorPath(src.Repo)
+	lock, err := m.lockMirror(ctx, mirror)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+
 	if _, err := os.Stat(mirror); err != nil {
 		return os.RemoveAll(path)
 	}
 
-	if err := git(ctx, mirror, nil, "worktree", "remove", "--force", path); err != nil {
+	git := mirrorGit{lock: lock, timeout: m.gitTimeout}
+	if err := git.run(ctx, mirror, nil, "worktree", "remove", "--force", path); err != nil {
 		return errors.Join(err, os.RemoveAll(path))
 	}
 
 	return nil
+}
+
+func (m Maker) lockMirror(ctx context.Context, mirror string) (*mirrorLock, error) {
+	dir := filepath.Join(m.Root, "mirror-locks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("making %s: %w", dir, err)
+	}
+
+	rel, err := filepath.Rel(m.Root, mirror)
+	if err != nil {
+		return nil, fmt.Errorf("finding mirror relative to node home: %w", err)
+	}
+
+	timeout := m.lockTimeout
+	if timeout == 0 {
+		timeout = mirrorLockTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	path := filepath.Join(dir, fmt.Sprintf("%x.lock", sha256.Sum256([]byte(rel))))
+	lock, err := openMirrorLock(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("locking mirror %s (wait limit %s): %w", mirror, timeout, err)
+	}
+
+	return lock, nil
 }
 
 // mirrorPath is where a repository's bare mirror is kept: under its path for
@@ -173,53 +229,79 @@ func (m Maker) mirrorPath(r githost.Repo) string {
 
 // updateMirror clones the repository bare the first time, then fetches its
 // branches as origin/*, so the base is current.
-func (m Maker) updateMirror(ctx context.Context, src Source, path string) error {
+func (m Maker) updateMirror(ctx context.Context, git mirrorGit, src Source, path string) error {
 	url := src.URL
 	if m.URL != "" {
 		url = fmt.Sprintf(m.URL, src.Repo.Path)
 	}
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if err := git(ctx, "", src.Env, "clone", "--bare", "--", url, path); err != nil {
+		if err := git.run(ctx, "", src.Env, "clone", "--bare", "--", url, path); err != nil {
 			return err
 		}
 	}
 
 	// The worker pushes to origin: it goes where the mirror is fetched from, over SSH once the repository is
 	// registered with an SSH address.
-	if err := git(ctx, path, nil, "remote", "set-url", "origin", url); err != nil {
+	if err := git.run(ctx, path, nil, "remote", "set-url", "origin", url); err != nil {
 		return err
 	}
 
 	// Into remote-tracking refs: a branch checked out in a worktree must not be overwritten.
-	return fetchMirror(ctx, path, url, src.Env)
+	return git.fetch(ctx, path, url, src.Env)
 }
 
-func fetchMirror(ctx context.Context, path, url string, env []string) error {
+type mirrorGit struct {
+	lock    *mirrorLock
+	timeout time.Duration
+}
+
+func (git mirrorGit) fetch(ctx context.Context, path, url string, env []string) error {
 	env = append(append([]string{}, env...), "LC_ALL=C")
-	args := []string{"fetch", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"}
-	err := git(ctx, path, env, args...)
-	if err != nil && ctx.Err() == nil && strings.Contains(err.Error(), "error: cannot lock ref '") {
-		return git(ctx, path, env, args...)
+	args := []string{"fetch", "--no-auto-gc", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"}
+	err := git.run(ctx, path, env, args...)
+	if err != nil && ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) &&
+		strings.Contains(err.Error(), "error: cannot lock ref '") {
+		return git.run(ctx, path, env, args...)
 	}
 
 	return err
 }
 
-// git runs git in dir with env added to the node's own. The error names the
+// run runs git in dir with env added to the node's own. The error names the
 // arguments and what git printed; a token is in neither, only in env.
-func git(ctx context.Context, dir string, env []string, args ...string) error {
+func (git mirrorGit) run(ctx context.Context, dir string, env []string, args ...string) error {
 	if dir != "" {
 		args = append([]string{"-C", dir}, args...)
 	}
 
 	var stderr bytes.Buffer
 
+	timeout := git.timeout
+	if timeout == 0 {
+		timeout = mirrorGitTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // git with this package's own subcommands
 	cmd.Stderr = &stderr
 	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), env...)
+	ownGroup(cmd)
+	cmd.WaitDelay = time.Second
+	if git.lock != nil {
+		git.lock.inherit(cmd)
+	}
 
 	if err := cmd.Run(); err != nil {
+		if cmd.Process != nil {
+			_ = cmd.Cancel()
+		}
+		if ctx.Err() != nil {
+			err = errors.Join(err, fmt.Errorf("git command (limit %s): %w", timeout, ctx.Err()))
+		}
+
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 

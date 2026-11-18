@@ -4476,9 +4476,12 @@ Node (`internal/node`):
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
-  `origin/*` before each new worktree. A file lock beside each mirror serializes clone, fetch, and worktree add,
-  even across node processes sharing the same home. Other mirrors and worktree setup do not wait on that lock.
-  A fetch reporting `cannot lock ref` is retried once (issue #868).
+  `origin/*` before each new worktree. A file lock in the node home's `mirror-locks/`, keyed by the mirror's
+  relative path hash, serializes clone, fetch, worktree add and remove across node processes. On Linux and
+  macOS, Git inherits the locked descriptor so a daemon exit does not release the lock while Git still has it.
+  Lock acquisition waits up to ten minutes; each Git command gets five minutes, and cancellation or timeout
+  kills its Unix process group. Other mirrors and worktree setup do not wait on that lock. Mirror fetches
+  disable automatic maintenance and retry `cannot lock ref` once (issue #868).
   `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
   branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's

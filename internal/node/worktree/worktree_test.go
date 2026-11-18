@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
@@ -103,19 +102,20 @@ func TestMirrorLockDoesNotBlockAnotherRepository(t *testing.T) {
 	require.NoError(t, err)
 	src.URL = filepath.Join(dir, filepath.FromSlash(src.Repo.Path))
 	other.URL = src.URL
-	maker := Maker{Root: filepath.Join(dir, "node")}
+	maker := Maker{Root: filepath.Join(dir, "node"), lockTimeout: 200 * time.Millisecond}
 
 	mirror := maker.mirrorPath(src.Repo)
 	require.NoError(t, os.MkdirAll(filepath.Dir(mirror), 0o700))
-	lock := flock.New(mirror + ".lock")
-	require.NoError(t, lock.Lock())
+	lock, err := maker.lockMirror(t.Context(), mirror)
+	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, lock.Close()) })
 
-	blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	blocked, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	err = maker.Ensure(blocked, src, "main", "blocked", filepath.Join(dir, "wt", "blocked"))
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.ErrorContains(t, err, "locking mirror")
+	require.ErrorContains(t, err, "wait limit 200ms")
+	require.NoError(t, blocked.Err())
 	assert.NoDirExists(t, mirror)
 
 	ctx, cancelOther := context.WithTimeout(t.Context(), 10*time.Second)
@@ -123,6 +123,89 @@ func TestMirrorLockDoesNotBlockAnotherRepository(t *testing.T) {
 	path := filepath.Join(dir, "wt", "other")
 	require.NoError(t, maker.Ensure(ctx, other, "main", "other", path))
 	assert.Equal(t, Branch("other"), run(t, path, "branch", "--show-current"))
+}
+
+func TestMirrorLockCannotCollideWithGitLabSubgroup(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	for _, order := range []struct{ name, first, second string }{
+		{"project-first", "team/project", "team/project.git.lock/other"},
+		{"subgroup-first", "team/project.git.lock/other", "team/project"},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			origin(t, dir)
+			maker := Maker{Root: filepath.Join(dir, "node")}
+			for index, repo := range []string{order.first, order.second} {
+				src, err := SourceOf("gitlab.com", "gitlab", repo, "")
+				require.NoError(t, err)
+				src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+				task := strconv.Itoa(index)
+				path := filepath.Join(dir, "wt", task)
+				require.NoError(t, maker.Ensure(t.Context(), src, "main", task, path))
+				assert.Equal(t, Branch(task), run(t, path, "branch", "--show-current"))
+			}
+		})
+	}
+}
+
+func TestMirrorFetchDoesNotStartAutomaticMaintenance(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	dir := t.TempDir()
+	origin(t, dir)
+	maker := Maker{Root: filepath.Join(dir, "node")}
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "seed", filepath.Join(dir, "wt", "seed")))
+
+	src.Env = []string{
+		"GIT_TRACE2_EVENT=" + filepath.Join(dir, "trace"),
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=true",
+	}
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "next", filepath.Join(dir, "wt", "next")))
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, root.Close()) })
+	trace, err := root.ReadFile("trace")
+	require.NoError(t, err)
+	assert.Contains(t, string(trace), `"name":"fetch"`)
+	assert.NotContains(t, string(trace), `"name":"maintenance"`)
+	assert.NotContains(t, string(trace), `"name":"gc"`)
+}
+
+func TestMirrorRemoveWaitsForTheSameLock(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	dir := t.TempDir()
+	origin(t, dir)
+	maker := Maker{Root: filepath.Join(dir, "node"), lockTimeout: 200 * time.Millisecond}
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+	path := filepath.Join(dir, "wt", "task")
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "task", path))
+	lock, err := maker.lockMirror(t.Context(), maker.mirrorPath(src.Repo))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lock.Close() })
+
+	err = maker.Remove(t.Context(), src, path)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.FileExists(t, filepath.Join(path, ".git"))
+	require.NoError(t, lock.Close())
+	require.NoError(t, maker.Remove(t.Context(), src, path))
+	assert.NoDirExists(t, path)
 }
 
 func TestFetchRetriesARefLockErrorOnlyOnce(t *testing.T) {
@@ -161,7 +244,7 @@ exit 1
 			root, err := os.OpenRoot(trialDir)
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, root.Close()) })
-			err = fetchMirror(t.Context(), dir, "origin", []string{
+			err = (mirrorGit{}).fetch(t.Context(), dir, "origin", []string{
 				"GIT_TEST_MODE=" + trial.mode, "GIT_TEST_ATTEMPTS=" + filepath.Join(trialDir, "attempts"),
 			})
 			if trial.failure == "" {
