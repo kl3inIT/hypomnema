@@ -554,6 +554,18 @@ func TestADispatchMarkedUnknownWhileItsNodeStaysConnectedIsReattached(t *testing
 		return d.Status == orchestration.DispatchRunning && d.Epoch == 2
 	}, wait, 10*time.Millisecond, "the node reattaches")
 
+	// The worker reports at the epoch the node holds, which the reattach's answer moves on.
+	db, err := statedb.Open(t.Context(), w.state, time.Now)
+	require.NoError(t, err)
+
+	defer func() { _ = db.Close() }()
+
+	require.Eventually(t, func() bool {
+		h, err := db.Get(t.Context(), worker.ID())
+
+		return err == nil && h.Epoch == 2
+	}, wait, 10*time.Millisecond, "the node takes the reattach's epoch")
+
 	w.eventually(task.ID, orchestration.TaskRunning)
 
 	require.NoError(t, worker.Finished(t.Context(), success()))
