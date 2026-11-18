@@ -93,6 +93,9 @@ func TestOwnerLogsACodexSubscriptionInAndRemovesIt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "refreshed; token until ")
 
+	_, err = run("accounts", "models", id[1], "--all")
+	require.ErrorIs(t, err, subscription.ErrNoModelList, "only Antigravity shows its whole list")
+
 	_, err = run("accounts", "rm", id[1])
 	require.NoError(t, err)
 

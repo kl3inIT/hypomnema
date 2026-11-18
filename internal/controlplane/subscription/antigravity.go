@@ -292,32 +292,32 @@ func (a *Antigravity) token(ctx context.Context, doing string, form url.Values) 
 // (packages/catalog/src/discovery/antigravity.ts, ANTIGRAVITY_DISCOVERY_DENYLIST; issue #639).
 var antigravityDenied = []string{"chat_20706", "chat_23310", "gemini-2.5-pro"}
 
-// Models implements ModelLister: the models the backend serves this account,
-// with each one's remaining quota (fetchAvailableModels, as 9router-go's
-// handlers/chat/antigravity_quota.go and CLIProxyAPI's sdk/auth/antigravity_models.go
-// read it). The names are the ones a request must carry.
-func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, error) {
-	var (
-		answer struct {
-			Models map[string]struct {
-				IsInternal bool `json:"isInternal"`
-				// Disabled is a model the account is not served now; omp leaves it out as it does an internal one
-				// (packages/catalog/src/discovery/antigravity.ts; issue #623).
-				Disabled bool `json:"disabled"`
-				// MaxTokens and MaxOutputTokens are the model's window and largest output, as omp reads them
-				// (packages/catalog/src/discovery/antigravity.ts, contextWindow and maxTokens).
-				MaxTokens       int64 `json:"maxTokens"`
-				MaxOutputTokens int64 `json:"maxOutputTokens"`
-				QuotaInfo       *struct {
-					RemainingFraction *float64 `json:"remainingFraction"`
-					ResetTime         string   `json:"resetTime"`
-				} `json:"quotaInfo"`
-			} `json:"models"`
-		}
-		failed []error
-	)
+// antigravityRow is one row of the list fetchAvailableModels answers.
+type antigravityRow struct {
+	IsInternal bool `json:"isInternal"`
+	// Disabled is a model the account is not served now; omp leaves it out as it does an internal one
+	// (packages/catalog/src/discovery/antigravity.ts; issue #623).
+	Disabled bool `json:"disabled"`
+	// MaxTokens and MaxOutputTokens are the model's window and largest output, as omp reads them
+	// (packages/catalog/src/discovery/antigravity.ts, contextWindow and maxTokens).
+	MaxTokens       int64 `json:"maxTokens"`
+	MaxOutputTokens int64 `json:"maxOutputTokens"`
+	QuotaInfo       *struct {
+		RemainingFraction *float64 `json:"remainingFraction"`
+		ResetTime         string   `json:"resetTime"`
+	} `json:"quotaInfo"`
+}
+
+// roster asks the Code Assist hosts in order for the account's list of models, every row as the first host that
+// answers gives it.
+func (a *Antigravity) roster(ctx context.Context, token Token) (map[string]antigravityRow, error) {
+	var failed []error
 
 	for _, host := range a.opt.CodeAssistHosts {
+		var answer struct {
+			Models map[string]antigravityRow `json:"models"`
+		}
+
 		address := strings.TrimRight(host, "/") + "/" + cloudcode.APIVersion + ":fetchAvailableModels"
 
 		err := a.call(ctx, http.MethodPost, address, token.AccessToken, map[string]string{"project": token.Project}, &answer)
@@ -327,34 +327,69 @@ func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, e
 			continue
 		}
 
-		models := make([]ServedModel, 0, len(answer.Models))
-
-		for name, info := range answer.Models {
-			if info.IsInternal || info.Disabled || slices.Contains(antigravityDenied, name) {
-				continue
-			}
-
-			model := ServedModel{
-				Name: name, Remaining: -1, Window: max(info.MaxTokens, 0), Output: max(info.MaxOutputTokens, 0),
-			}
-
-			if q := info.QuotaInfo; q != nil {
-				if q.RemainingFraction != nil {
-					model.Remaining = *q.RemainingFraction
-				}
-
-				model.ResetsAt, _ = time.Parse(time.RFC3339, q.ResetTime)
-			}
-
-			models = append(models, model)
-		}
-
-		slices.SortFunc(models, func(x, y ServedModel) int { return strings.Compare(x.Name, y.Name) })
-
-		return models, nil
+		return answer.Models, nil
 	}
 
 	return nil, fmt.Errorf("asking which models the account is served: %w", errors.Join(failed...))
+}
+
+// Models implements ModelLister: the models the backend serves this account,
+// with each one's remaining quota (fetchAvailableModels, as 9router-go's
+// handlers/chat/antigravity_quota.go and CLIProxyAPI's sdk/auth/antigravity_models.go
+// read it). The names are the ones a request must carry.
+func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, error) {
+	rows, err := a.roster(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	models := make([]ServedModel, 0, len(rows))
+
+	for name, info := range rows {
+		if info.IsInternal || info.Disabled || slices.Contains(antigravityDenied, name) {
+			continue
+		}
+
+		model := ServedModel{
+			Name: name, Remaining: -1, Window: max(info.MaxTokens, 0), Output: max(info.MaxOutputTokens, 0),
+		}
+
+		if q := info.QuotaInfo; q != nil {
+			if q.RemainingFraction != nil {
+				model.Remaining = *q.RemainingFraction
+			}
+
+			model.ResetsAt, _ = time.Parse(time.RFC3339, q.ResetTime)
+		}
+
+		models = append(models, model)
+	}
+
+	slices.SortFunc(models, func(x, y ServedModel) int { return strings.Compare(x.Name, y.Name) })
+
+	return models, nil
+}
+
+// Roster implements RosterLister: every row of the account's list, with the marks Models leaves a row out for
+// (issue #814).
+func (a *Antigravity) Roster(ctx context.Context, token Token) ([]RosterRow, error) {
+	rows, err := a.roster(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]RosterRow, 0, len(rows))
+
+	for name, info := range rows {
+		out = append(out, RosterRow{
+			Name: name, Internal: info.IsInternal, Disabled: info.Disabled,
+			Denied: slices.Contains(antigravityDenied, name),
+		})
+	}
+
+	slices.SortFunc(out, func(x, y RosterRow) int { return strings.Compare(x.Name, y.Name) })
+
+	return out, nil
 }
 
 // codeAssist is what loadCodeAssist says of an account.

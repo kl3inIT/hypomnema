@@ -3909,7 +3909,9 @@ The owner's commands:
     placed: Claude Code runs only through the gateway); `accounts login codex|antigravity|claude
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
-    models it serves the account, with what is left of each quota (Antigravity only); `accounts limits <account>`
+    models it serves the account, with what is left of each quota (Antigravity only), and with `--all` prints every
+    row of an Antigravity account's list with its `isInternal`, `disabled` and `denied` marks, the rows the gateway
+    leaves out among them, and no token (issue #814); `accounts limits <account>`
     prints what is left of each window of a Claude or Codex subscription, 5 hours, week and a model's own week,
     with its reset (issue #199, step 3, after 9router-go, Orca and OpenMausBot): one call with the account's
     token to `api.anthropic.com/api/oauth/usage` or `chatgpt.com/backend-api/wham/usage`, neither a published
