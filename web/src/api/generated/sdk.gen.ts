@@ -312,7 +312,7 @@ export const openNodeTerminal = <ThrowOnError extends boolean = true>(options: O
 });
 
 /**
- * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+ * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
  */
 export const stopNodeMachine = <ThrowOnError extends boolean = true>(options: Options<StopNodeMachineData, ThrowOnError>): RequestResult<StopNodeMachineResponses, StopNodeMachineErrors, ThrowOnError> => (options.client ?? client).post<StopNodeMachineResponses, StopNodeMachineErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -321,7 +321,7 @@ export const stopNodeMachine = <ThrowOnError extends boolean = true>(options: Op
 });
 
 /**
- * Turn a stopped machine on (owner only); it takes work again once its node connects
+ * Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
  */
 export const startNodeMachine = <ThrowOnError extends boolean = true>(options: Options<StartNodeMachineData, ThrowOnError>): RequestResult<StartNodeMachineResponses, StartNodeMachineErrors, ThrowOnError> => (options.client ?? client).post<StartNodeMachineResponses, StartNodeMachineErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

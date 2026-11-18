@@ -8575,12 +8575,12 @@ type ClientInterface interface {
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	//
 	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 	StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	//
 	// Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
 	StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -13279,7 +13279,7 @@ func (c *Client) ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
-// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 //
 // Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 func (c *Client) StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -13294,7 +13294,7 @@ func (c *Client) StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors
 	return c.Client.Do(req)
 }
 
-// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 //
 // Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
 func (c *Client) StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -28049,14 +28049,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*ResumeNodeResponse, error)
 
-	// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
 	StartNodeMachineWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*StartNodeMachineResponse, error)
 
-	// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -43551,7 +43551,7 @@ func (c *ClientWithResponses) ResumeNodeWithResponse(ctx context.Context, nodeId
 	return ParseResumeNodeResponse(rsp)
 }
 
-// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -43564,7 +43564,7 @@ func (c *ClientWithResponses) StartNodeMachineWithResponse(ctx context.Context, 
 	return ParseStartNodeMachineResponse(rsp)
 }
 
-// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -53270,10 +53270,10 @@ type ServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(w http.ResponseWriter, r *http.Request, nodeId NodeID)
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	// (POST /nodes/{node_id}/start)
 	StartNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	// (POST /nodes/{node_id}/stop)
 	StopNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
 	// OpenNodeTerminal A ticket for a terminal on a node (owner only). The ticket opens the WebSocket `/api/v1/terminals/{ticket}` once, within a short time; there the client sends JSON, `{data}` for what is typed and `{height, width}` for a resize, and receives the shell's bytes in binary frames
@@ -71637,10 +71637,10 @@ type StrictServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(ctx context.Context, request ResumeNodeRequestObject) (ResumeNodeResponseObject, error)
-	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
 	// (POST /nodes/{node_id}/start)
 	StartNodeMachine(ctx context.Context, request StartNodeMachineRequestObject) (StartNodeMachineResponseObject, error)
-	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
 	// (POST /nodes/{node_id}/stop)
 	StopNodeMachine(ctx context.Context, request StopNodeMachineRequestObject) (StopNodeMachineResponseObject, error)
 	// OpenNodeTerminal A ticket for a terminal on a node (owner only). The ticket opens the WebSocket `/api/v1/terminals/{ticket}` once, within a short time; there the client sends JSON, `{data}` for what is typed and `{height, width}` for a resize, and receives the shell's bytes in binary frames

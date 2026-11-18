@@ -362,9 +362,12 @@ sequenceDiagram
     failed, and a due destroy is tried again. Nothing is created or destroyed without the owner asking.
   - Stop and start (`machines stop|start <node>`, `POST /nodes/{node_id}/stop` and `/start`, owner only): a
     machine that is ready and on is turned off at the provider and keeps its disk, as Coder's AWS template stops
-    an instance instead of destroying it. Its node is drained first, and a node that runs a Dispatch is refused.
-    The machine's power is `stopping`, then `stopped`; a start makes the node active again and the power
-    `starting` until the node says hello. A stop or a start the provider did not carry out is asked again every
+    an instance instead of destroying it. A node that runs a Dispatch is refused. The machine's power is
+    `stopping`, then `stopped`; a start makes it `starting` until the node says hello, and a node takes no work
+    while its machine's power is set. A stop and a start leave the node's status, the owner's drain, as it was: a
+    node the owner drained comes back drained, and only `nodes resume` makes it active, as Nomad's
+    `upsertNodeTxn` retains a node's scheduling eligibility and a Kubernetes cordon (`spec.unschedulable`) outlasts
+    a node's restart (issue #844). A stop or a start the provider did not carry out is asked again every
     pass, with the reason recorded. One power step runs for a machine at a time: a stop or start asked (by the
     owner or the phone) waits for the one in flight, and the pass leaves a machine whose step is in flight to the
     next pass and reads each other machine again before acting on it, as client-go's workqueue hands a key to one
@@ -721,7 +724,8 @@ sequenceDiagram
     `failed`, with no agent's call running and no view open. The 30 minutes count from the first look that finds
     all of that; a call or a view, its start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
-    `phone.machine_stopped`. The next call or view starts the machine again (above).
+    `phone.machine_stopped`. The next call or view starts the machine again (above); a node the owner
+    drained stays drained through both.
   - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
     the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
     gives the rules that matter most: look before acting, act by box number, never sign in or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in

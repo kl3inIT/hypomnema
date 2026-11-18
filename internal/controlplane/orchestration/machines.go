@@ -457,6 +457,7 @@ func nonNilMap(m map[string]string) map[string]string {
 // BeginMachineStop starts stopping a provider's machine: its node takes no
 // more work and the machine is to be stopped at the provider. It is refused
 // while the node runs Dispatches, and for a machine that is not ready and on.
+// The node's status, the owner's drain, is left as it is (issue #844).
 func (s *Service) BeginMachineStop(ctx context.Context, nodeID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		active, err := q.CountActiveDispatchesOfNode(ctx, store.CountActiveDispatchesOfNodeParams{
@@ -486,8 +487,9 @@ func (s *Service) MachineStopped(ctx context.Context, nodeID string) error {
 	})
 }
 
-// BeginMachineStart starts starting a stopped machine: its node takes work
-// again, and the machine is on once the node says hello.
+// BeginMachineStart starts starting a stopped machine: the machine is on once
+// the node says hello, and then its node takes work again unless the owner
+// drained it (issue #844).
 func (s *Service) BeginMachineStart(ctx context.Context, nodeID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		n, err := q.StartMachine(ctx, store.StartMachineParams{Now: now, ID: nodeID})

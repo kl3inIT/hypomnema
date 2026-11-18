@@ -639,7 +639,7 @@ export const openNodeTerminalMutation = (options?: Partial<Options<OpenNodeTermi
 };
 
 /**
- * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+ * Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its status; refused with 409 while it runs a Dispatch
  */
 export const stopNodeMachineMutation = (options?: Partial<Options<StopNodeMachineData>>): UseMutationOptions<StopNodeMachineResponse, StopNodeMachineError, Options<StopNodeMachineData>> => {
   const mutationOptions: UseMutationOptions<StopNodeMachineResponse, StopNodeMachineError, Options<StopNodeMachineData>> = {
@@ -656,7 +656,7 @@ export const stopNodeMachineMutation = (options?: Partial<Options<StopNodeMachin
 };
 
 /**
- * Turn a stopped machine on (owner only); it takes work again once its node connects
+ * Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
  */
 export const startNodeMachineMutation = (options?: Partial<Options<StartNodeMachineData>>): UseMutationOptions<StartNodeMachineResponse, StartNodeMachineError, Options<StartNodeMachineData>> => {
   const mutationOptions: UseMutationOptions<StartNodeMachineResponse, StartNodeMachineError, Options<StartNodeMachineData>> = {

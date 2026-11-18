@@ -206,7 +206,7 @@ func (m *Manager) Stop(ctx context.Context, nodeID string) (orchestration.Node, 
 }
 
 // Start turns a stopped machine on. It takes work again once its node says
-// hello. When the provider does not start it now, the machine stays
+// hello, unless the owner drained the node, which a stop and a start keep. When the provider does not start it now, the machine stays
 // `starting`, the loop asks again, and the error is returned.
 func (m *Manager) Start(ctx context.Context, nodeID string) (orchestration.Node, error) {
 	unlock, err := m.steps.lock(ctx, nodeID)
