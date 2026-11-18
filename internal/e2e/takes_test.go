@@ -379,6 +379,23 @@ func TestAWorkerFilmsATakeTheOwnerWatches(t *testing.T) {
 	require.False(t, failed)
 	assert.Contains(t, text, "available")
 
+	// The worker lists its takes (issue #851): its own, without a file; none is filming now.
+	text, failed = r.tool(devicetool.VideoList, `{}`)
+	require.False(t, failed, text)
+	assert.Contains(t, text, id+` "Sign in to the shop": available, ended by stop`)
+	assert.NotContains(t, text, "seg-001")
+
+	text, failed = r.tool(devicetool.VideoList, `{"state":"recording"}`)
+	require.False(t, failed, text)
+	assert.Equal(t, "You have no take that is recording.", text)
+
+	// The phone's location reaches the node as the other phone tools do (issue #851).
+	_, failed = r.tool(devicetool.Location, `{"latitude":21.0285,"longitude":105.8542}`)
+	require.False(t, failed)
+	r.held.mu.Lock()
+	assert.Contains(t, r.held.calls, `d-dsp_1 device_location {"latitude":21.0285,"longitude":105.8542}`)
+	r.held.mu.Unlock()
+
 	status, _, body := r.api(r.owner, http.MethodGet, "/takes/"+id, nil)
 	require.Equal(t, http.StatusOK, status, string(body))
 
