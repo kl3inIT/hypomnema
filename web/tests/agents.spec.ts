@@ -328,7 +328,7 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   const tools = page.getByRole("group", { name: "Tools", exact: true })
-  await expect(tools.getByLabel("Preset")).toHaveText("Full")
+  await expect(tools.getByLabel("Preset").locator('[data-slot="select-value"]')).toHaveText("Full")
   await tools.getByLabel("Add exceptions").fill("phone")
   await expect(page.getByRole("button", { name: "Save revision" })).toBeEnabled()
   await tools.scrollIntoViewIfNeeded()
