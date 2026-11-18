@@ -22,10 +22,10 @@ A recording can be one more reader of that stream, with the packets' own device 
 
 | Reference (all MIT) | Capture | How the agent's steps meet the timeline | Replay script | Post-production | Review |
 |---|---|---|---|---|---|
-| autodemo (73e5408) | CDP frames / ScreenCaptureKit 60 fps (`native/capture.swift:87-95`) | live `camera_say{text, click:[x,y], chapter}` just before each action, stamped on the session clock minus pauses (`src/mcp.js:270-321`, `src/live.js:106,154-161`) | scenes JSON (`src/mcp.js:40-50`) | Kokoro TTS; lines pushed so they never overlap (`live.js:225-234`); idle fast-forward (`render.js:17-37`); zoom + cursor ripple at the click; canvas → ffmpeg, 9:16 | none |
-| aidemo (b67235a, most complete) | Playwright recordVideo, ffmpeg, OBS, simctl, Maestro | storyboard + jobs `record/voice/captions/compose/qa/probe` (`src/mcp/server.ts:967-1330`) | storyboard (`src/types.ts:626-669, 988-1062`), resume from a scene, reuse by content hash | fit voice to video: idle cut to 400 ms, `setpts` retime 0.5–2×, else freeze or slow push-in (`src/compose.ts:76-89`); Whisper word captions (`src/captions.ts:105-190`); zoompan, 9:16 | agent's own `lint/probe/qa` |
+| autodemo (73e5408) | CDP frames / ScreenCaptureKit 60 fps (`native/capture.swift:87-95`) | live `camera_say{text, click:[x,y], chapter}` just before each action, stamped on the session clock minus pauses (`src/mcp.js:270-321`, `src/live.js:106,154-161`) | scenes JSON (`src/mcp.js:40-50`) | Kokoro TTS; long takes "are fine" (no cap, `src/mcp.js:287`); lines pushed so they never overlap (`live.js:225-234`); idle fast-forward (`render.js:17-37`); zoom + cursor ripple at the click; canvas → ffmpeg, 9:16 | none |
+| aidemo (b67235a, most complete) | Playwright recordVideo, ffmpeg, OBS, simctl, Maestro | storyboard + jobs `record/voice/captions/compose/qa/probe` (`src/mcp/server.ts:967-1330`) | storyboard (`src/types.ts:626-669, 988-1062`), resume from a scene, reuse by content hash | fit voice to video: idle cut to 400 ms, `setpts` retime (`MIN_FACTOR` 0.5, `MAX_STRETCH` 1.6, `:80-81`), else freeze or slow push-in (`src/compose.ts:76-89`); Whisper word captions (`src/captions.ts:105-190`); zoompan, 9:16 | agent's own `lint/probe/qa` |
 | voila (MIT) | CDP JPEG frames → 30 fps | one `voila_record(url, steps_yaml)` (`mcp.js:43-158`) | recipe in `recipe.json` and in the MP4's metadata (`pipeline.js:16-44`) | voice first, each step held for its clip + 600 ms (`tour.js:234-247`) | `voila_review` sampled frames |
-| demotape (MIT) | AVFoundation 30 fps + 60 Hz event log | JSON `scenes:[{say, steps, expect}]`; the action fires at 70% of its line (`driver.mjs:922-975`) | same JSON; `expect` stops the take at the first failure | Whisper words (`Captions.swift:321`), 9:16 reframe, silence cut with pitch kept | vision model checks each scene, retries; exit 3 = a person must look (`DemoVerifier.swift`) |
+| demotape (MIT) | AVFoundation 30 fps + 60 Hz event log | JSON `scenes:[{say, steps, expect}]`; reveal/commit split with a configurable action lead (`tools/demo-driver/driver.mjs:922-975`; `expect` fail-fast `:958-962`) | same JSON; `expect` stops the take at the first failure | Whisper words (`Captions.swift:321`), 9:16 reframe, silence cut with pitch kept | vision model checks each scene, retries; exit 3 = a person must look (`DemoVerifier.swift`) |
 | agent-demo-video (MIT) | Playwright screencast → 30 fps | actions logged with ms offsets (`src/capture.ts:36-45,356`) | Markdown `### SHOT` blocks (`src/parse-script.ts:25-60`) | ElevenLabs timestamps / faster-whisper words; video stretched to the voice, freeze last frame (`src/timeline.ts:29-36`); 9:16 | a separate reviewer agent on a contact sheet (`skills/demo-video/SKILL.md:40-58`) |
 | screencli (MIT, core on a paid server) | Playwright WebM | live `narrate(text)` + clicks stamped on wall-clock time (`recording/event-log.ts:10,23`) | none | zoom, cursor, idle gaps > 3 s cut, 9:16 | none |
 
@@ -51,6 +51,10 @@ scrcpy-with-webui-and-ai, GhostThumb, ghost-in-the-droid/android-agent.
 5. A vision check per scene (demotape, agent-demo-video), then the owner approves (owner, 2026-11-18).
 
 Split into three issues: recording + step tools; voice, compose and captions; replay and checks.
+
+## Review of the first design (2026-11-18)
+
+A Codex review of the first take design (issue #817) found that a take cannot use the view's dropping queue, must merge config as scrcpy's demuxer does, needs a session clock rather than the last PTS (still screens send nothing), must count the still tail, needs a lease over several calls, a transfer path of its own, and an access contract. It also pointed to fMP4 through `bluenviron/mediacommon` as MediaMTX records live H.264 (`mediamtx/internal/recorder/format_fmp4*.go`, 6d41178; mediacommon 75fa748), which plays in browsers. The design was revised on the issue.
 
 ## Sources
 
