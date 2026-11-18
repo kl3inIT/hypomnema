@@ -747,7 +747,7 @@ function Performance({ usage }: { usage: GatewayUsage }) {
       <Tabs defaultValue="provider">
         <TabsList aria-label="Compare by">
           <TabsTrigger value="provider">By provider and model</TabsTrigger>
-          <TabsTrigger value="account">By account</TabsTrigger>
+          <TabsTrigger value="account">By subscription account</TabsTrigger>
         </TabsList>
         <TabsContent value="provider">
           <PerformanceTable

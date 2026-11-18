@@ -104,9 +104,9 @@ what a profile was called or did before.
   attempts in a row failed so, and `dispatches` which. Read the Task (`hypomnema tasks show <task_id> --json`) and
   tell the owner the reason, the count and what the last attempt reported. Change nothing on your own: the Task is
   retried as before, and whether to change its spec, profile or model is the owner's choice.
-- `hypomnema tasks show` and `runs show` say what a Task or a Run used (`usage`): the gateway's requests, tokens and
-  cost at API prices, and the tokens a runtime outside the gateway reported. Give it when the owner asks what work
-  cost.
+- `hypomnema tasks show <task_id> --json` and `hypomnema runs show <run_id> --json` say what a Task or a Run used
+  (`usage`): the gateway's requests, tokens and cost at API prices, and the tokens a runtime outside the gateway
+  reported. Give it when the owner asks what work cost.
 
 ## Task specs
 
