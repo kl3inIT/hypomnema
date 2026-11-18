@@ -76,13 +76,11 @@ type Browser interface {
 	Page(ctx context.Context, key string, cookies []browser.Cookie) (Page, error)
 	DisposeContext(ctx context.Context, key string)
 	OpenOwnerTab(ctx context.Context, address string) error
+	// EvaluateOwnerTab runs a script in the owner's tab; ErrHeld while he holds the browser.
+	EvaluateOwnerTab(ctx context.Context, expression string, result any) error
 	ProfileCookies(ctx context.Context, domain string) ([]browser.Cookie, error)
 	ClearProfileCookies(ctx context.Context, cookies []browser.Cookie) error
 }
-
-// Checker asks muse.ai whether a cookie jar is signed in, answering the
-// account's Muse id (signin.go).
-type Checker func(ctx context.Context, cookies []browser.Cookie) (string, error)
 
 // Config is how the pool is set up.
 type Config struct {
@@ -91,10 +89,8 @@ type Config struct {
 	Browser  Browser
 	// SecretName names the vault secret of an account's cookie jar.
 	SecretName func(accountID string) string
-	// Check is the sign-in's check; the default asks muse.ai.
-	Check  Checker
-	Logger *slog.Logger
-	Clock  platform.Clock
+	Logger     *slog.Logger
+	Clock      platform.Clock
 }
 
 // Service is the pool.
@@ -139,13 +135,6 @@ func newService(cfg Config, st *store, m *media) *Service {
 
 	if cfg.Clock == nil {
 		cfg.Clock = platform.SystemClock{}
-	}
-
-	if cfg.Check == nil {
-		client := newHTTP()
-		cfg.Check = func(ctx context.Context, cookies []browser.Cookie) (string, error) {
-			return checkSignIn(ctx, client, Site, cookies)
-		}
 	}
 
 	return &Service{cfg: cfg, store: st, media: m, t: defaultTimings, turn: make(chan struct{}, 1)}

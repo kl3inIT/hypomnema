@@ -1,6 +1,8 @@
 package browser
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -207,4 +209,57 @@ func TestTheProfilesCookiesAreReadAndClearedByDomain(t *testing.T) {
 	cookies, err = none.ProfileCookies(t.Context(), "muse.ai")
 	require.NoError(t, err)
 	assert.Empty(t, cookies, "no Chrome, no cookies")
+}
+
+// A script runs in the owner's own tab, attached to it on a connection of its
+// own, only while the owner does not hold the browser; with no owner's tab it
+// answers ErrNoSuchTab.
+func TestAScriptRunsInTheOwnersTabUnlessHeld(t *testing.T) {
+	t.Parallel()
+
+	chrome := contextChrome()
+	inner := chrome.answer
+	chrome.answer = func(method, session string) (string, []string) {
+		if method == "Runtime.evaluate" {
+			return `{"result":{"type":"object","value":{"status":200,"ok":true,"viewer":"42"}}}`, nil
+		}
+
+		return inner(method, session)
+	}
+
+	e := runningEngine(chrome.serve(t))
+	e.cfg.Dir = t.TempDir()
+
+	var got struct {
+		Status int    `json:"status"`
+		Viewer string `json:"viewer"`
+	}
+
+	require.ErrorIs(t, e.EvaluateOwnerTab(t.Context(), "1", &got), ErrNoSuchTab, "no owner's tab yet")
+	assert.Empty(t, chrome.sent(), "nothing is asked of Chrome without the tab")
+
+	require.NoError(t, os.MkdirAll(e.sockets(), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(e.sockets(), sessionName(OwnerTab)+boundTab),
+		[]byte(`{"targetId":"OWN","url":"https://muse.ai/"}`), 0o600))
+
+	require.NoError(t, e.EvaluateOwnerTab(t.Context(), "check()", &got))
+	assert.Equal(t, 200, got.Status)
+	assert.Equal(t, "42", got.Viewer)
+
+	sent := chrome.sent()
+	require.Len(t, sent, 3)
+	assert.Contains(t, sent[0], `Target.attachToTarget {"flatten":true,"targetId":"OWN"}`)
+	assert.Contains(t, sent[1], `S1 Runtime.evaluate {"awaitPromise":true,"expression":"check()","returnByValue":true}`)
+	assert.Contains(t, sent[2], `Target.detachFromTarget {"sessionId":"S1"}`)
+
+	e.control.Take(t.Context(), time.Now())
+
+	got.Status = 0
+
+	require.ErrorIs(t, e.EvaluateOwnerTab(t.Context(), "check()", &got), ErrHeld)
+	assert.Zero(t, got.Status)
+	assert.Len(t, chrome.sent(), 3, "nothing is sent while the owner holds the browser")
+
+	require.True(t, e.control.Release())
+	require.NoError(t, e.EvaluateOwnerTab(t.Context(), "check()", &got))
 }

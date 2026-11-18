@@ -185,6 +185,11 @@ const authCheck = `(async () => {
   } catch (e) { return {status: 0, ok: false, viewer: '', error: String(e)}; }
 })()`
 
+// ownerAuthCheck is authCheck in the owner's tab, which may not be on
+// muse.ai yet: from elsewhere it answers status -1 without fetching.
+const ownerAuthCheck = `((location.hostname === 'muse.ai' || location.hostname.endsWith('.muse.ai')) ? ` +
+	authCheck + ` : {status: -1, ok: false, viewer: ''})`
+
 // sessionCheck reads the account's workspace (www's upstream/muse.py:117-143):
 // "assigned" with a running VM is ready.
 const sessionCheck = `(async () => {
