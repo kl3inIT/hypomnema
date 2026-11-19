@@ -305,7 +305,7 @@ func (gitlab) RequestURL(r Repo, n int) string {
 // AutoMerge on GitLab needs "Pipelines must succeed"
 // (only_allow_merge_if_pipeline_succeeds) and a pipeline on the merge
 // request: glab sends auto_merge only when there is one, and merges at once
-// otherwise (mr_merge.go:223-230, 286-289), so the worker waits for it, as
+// otherwise (mr_merge.go:223-230, 286-289), so the worker waits once for it (one bounded wait; a glab wait for a merge request pipeline was not found in mr_merge.go, the rest of glab was not read), as
 // Renovate does (platform/gitlab/index.ts:641-700). Enable is t3code's
 // (GitLabPullRequestCli.ts:1018-1023), pinned with --sha (mr_merge.go:91).
 // Not tried on a live GitLab project.
@@ -319,7 +319,7 @@ func (gitlab) AutoMerge(r Repo, _ string) AutoMerge {
 		View:     "glab mr view <iid> --output json",
 		Draft:    "draft is true",
 		Conflict: "has_conflicts is true",
-		Before:   "its pipeline is not null; while it is, wait and read it again",
+		Before:   "its pipeline is not null; if it is null, wait once with `sleep 60` and read it one more time, never in a loop; if it is still null, do not enable auto-merge: finish and say the merge request has no pipeline",
 		Enable:   "glab mr merge <iid> --auto-merge --yes --sha <sha>",
 		Watch:    "glab ci status --live --branch <branch>",
 		Merged:   "glab mr view <iid> --output json",
