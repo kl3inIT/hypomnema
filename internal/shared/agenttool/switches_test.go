@@ -72,9 +72,16 @@ func TestThePhoneFamilyIsThePhonesTools(t *testing.T) {
 		offered = append(offered, tool.Name)
 	}
 
+	// video_make and video_get are the control plane's, served on its own tools route, apart from the phone
+	// (issue #818); the phone's switch names them too.
+	offered = append(offered, devicetool.VideoMake, devicetool.VideoGet)
+
 	phone := ToolFamilies[len(ToolFamilies)-1]
 	require.Equal(t, "phone", phone.Name)
 	assert.ElementsMatch(t, offered, phone.Tools)
+	assert.False(t, devicetool.Routed(devicetool.VideoMake), "a render is not the phone's")
+	assert.False(t, devicetool.Routed(devicetool.VideoGet))
+	assert.True(t, devicetool.Routed(devicetool.VideoStatus))
 }
 
 // The phone's switch is one: switching device_* off takes the video tools of

@@ -136,6 +136,31 @@ func TestTheOwnerSeesAndChangesTheAudioProviders(t *testing.T) {
 	assert.Equal(t, openapi.AudioProvider("elevenlabs"), ordered.JSON200.Tts[0].Provider)
 	assert.Equal(t, openapi.AudioProvider("soniox"), ordered.JSON200.Stt[0].Provider)
 
+	// The voice Soniox speaks videos with (issue #818, row 5): the owner's to set, empty for its own default.
+	refusedVoice, err := pi.SetAudioVoiceWithResponse(ctx, "soniox", openapi.AudioVoice{Voice: "Linh"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refusedVoice.StatusCode())
+
+	voiced, err := owner.SetAudioVoiceWithResponse(ctx, "soniox", openapi.AudioVoice{Voice: " Linh "})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, voiced.StatusCode(), string(voiced.Body))
+	require.NotNil(t, voiced.JSON200.Providers[0].Voice)
+	assert.Equal(t, "Linh", *voiced.JSON200.Providers[0].Voice)
+	assert.Nil(t, voiced.JSON200.Providers[1].Voice, "ElevenLabs keeps its own default")
+
+	set, err := g.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"soniox": "Linh"}, set.Voices)
+
+	cleared, err := owner.SetAudioVoiceWithResponse(ctx, "soniox", openapi.AudioVoice{Voice: ""})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, cleared.StatusCode(), string(cleared.Body))
+	assert.Nil(t, cleared.JSON200.Providers[0].Voice)
+
+	bad, err := owner.SetAudioVoiceWithResponse(ctx, "soniox", openapi.AudioVoice{Voice: "a\nb"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, bad.StatusCode())
+
 	switched, err := owner.SetAudioProviderWithResponse(ctx, "elevenlabs", openapi.AudioProviderChange{On: false})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, switched.StatusCode(), string(switched.Body))

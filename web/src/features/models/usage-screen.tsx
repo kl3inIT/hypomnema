@@ -658,7 +658,7 @@ function RequestSheet({
                 >
                   <p className={noAccount ? "font-medium" : "font-medium text-destructive"}>
                     {noAccount
-                      ? "The gateway did not send this request"
+                      ? "No account could serve this request"
                       : request.status > 0
                         ? `The provider answered ${request.status}`
                         : o.label}

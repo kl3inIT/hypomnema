@@ -637,3 +637,36 @@ func TestComposeTailLandscapeAndCaptions(t *testing.T) {
 	assert.True(t, captioned[int(600/frameMs)], "the cue is shown at 0.6 s")
 	assert.False(t, captioned[int(1500/frameMs)], "the cue is gone at 1.5 s")
 }
+
+// A take filmed before the node recorded its screen's size is made without its taps' rings, with a warning
+// (issue #818).
+func TestComposeWithoutTheScreenDrawsNoRing(t *testing.T) {
+	t.Parallel()
+
+	tools := tools(t)
+	dir := t.TempDir()
+
+	writeSegment(t, tools, filepath.Join(dir, "0.mp4"), 360, 640, 0, 3000, 2000,
+		func(tMs float64) bool { return true })
+
+	take := devicetool.Take{
+		ID: "tk_noscreen", DurationMs: 3000,
+		Segments: []devicetool.TakeSegment{{File: "0.mp4", LengthMs: 3000, LastFrameMs: 2000, Width: 360, Height: 640}},
+		Steps:    []devicetool.TakeStep{{AtMs: 0, Text: "Một", Tap: &devicetool.TakeTap{X: 10, Y: 10}}},
+	}
+
+	raw, err := json.Marshal(take)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "take.json"), raw, 0o600))
+
+	speech := &fakeSpeech{dir: dir, calls: map[string]int{}, lines: map[string]tone{"Một": {hz: 440, ms: 500}}}
+
+	res, err := Compose(t.Context(), tools, Input{
+		Dir: dir, Voice: []string{speech.speak(t, "Một")}, Aspect: Portrait, Work: filepath.Join(dir, "work"),
+		Out: filepath.Join(dir, "v.mp4"),
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Scenes, 1)
+	assert.Nil(t, res.Scenes[0].RingAtMs)
+	assert.Contains(t, res.Warnings, "the take does not say its screen's size, so its taps get no ring")
+}

@@ -610,7 +610,7 @@ test("the models page shows account refusals apart from provider failures", asyn
   const requests = page.getByRole("table", { name: "Requests" })
   await requests.getByRole("row", { name: /GPT/ }).filter({ hasText: "No account free" }).click()
   const sheet = page.getByRole("dialog")
-  await expect(sheet).toContainText("The gateway did not send this request")
+  await expect(sheet).toContainText("No account could serve this request")
   await expect(sheet).not.toContainText("The provider answered")
 })
 
