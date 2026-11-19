@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,19 +26,30 @@ type fileIdentity struct {
 
 type processFiles map[fileIdentity]struct{}
 
-func sweepSystemTemp(ctx context.Context, home, userHome string, before time.Time) error {
+func sweepSystemTemp(ctx context.Context, home, userHome string, before time.Time, logger *slog.Logger) error {
 	const shared = "/tmp"
+	snapshot := sync.OnceValues(func() (processFiles, error) {
+		open, skipped, err := allProcessFiles(ctx, "/proc", os.Geteuid())
+		if skipped > 0 {
+			logger.WarnContext(ctx, "could not fully inspect some processes during shared temp cleanup",
+				slog.Int("skipped_processes", skipped))
+		}
+		return open, err
+	})
 	alternate := os.TempDir()
-	sharedGuard := WithProtection(ctx, userHome)
-	if alternate == shared || containsPath(alternate, userHome) || !RealDir(alternate) {
-		return sweepTemp(sharedGuard, shared, home, before, allProcessFiles)
+	sharedGuard := ctx
+	if userHome != "" {
+		sharedGuard = WithProtection(ctx, userHome)
 	}
-	return errors.Join(sweepTemp(WithProtection(sharedGuard, alternate), shared, home, before, allProcessFiles),
-		sweepTemp(ctx, alternate, home, before, allProcessFiles))
+	if alternate == shared || containsPath(alternate, userHome) || !RealDir(alternate) {
+		return sweepTemp(sharedGuard, shared, home, before, snapshot)
+	}
+	return errors.Join(sweepTemp(WithProtection(sharedGuard, alternate), shared, home, before, snapshot),
+		sweepTemp(ctx, alternate, home, before, snapshot))
 }
 
 func sweepTemp(ctx context.Context, path, home string, before time.Time,
-	openFiles func(context.Context) (processFiles, error),
+	openFiles func() (processFiles, error),
 ) error {
 	root, err := OpenRealDir(path)
 	if err != nil {
@@ -82,12 +96,14 @@ func sweepTemp(ctx context.Context, path, home string, before time.Time,
 		if err := walk.visit(ctx, root, name, info); err != nil {
 			continue
 		}
-		open, err = openFiles(ctx)
-		if err != nil {
-			return err
-		}
-		if err := walk.visit(ctx, root, name, info); err != nil {
-			continue
+		if open == nil {
+			open, err = openFiles()
+			if err != nil {
+				return err
+			}
+			if err := walk.visit(ctx, root, name, info); err != nil {
+				continue
+			}
 		}
 		walk.inspect = false
 		if err := walk.visit(ctx, root, name, info); err != nil && !os.IsNotExist(err) && removalErr == nil {
@@ -97,70 +113,80 @@ func sweepTemp(ctx context.Context, path, home string, before time.Time,
 	return removalErr
 }
 
-func allProcessFiles(ctx context.Context) (processFiles, error) {
-	mounts, err := os.ReadFile("/proc/self/mountinfo")
+func allProcessFiles(ctx context.Context, proc string, uid int) (processFiles, int, error) {
+	entries, err := os.ReadDir(proc)
 	if err != nil {
-		return nil, err
-	}
-	for line := range strings.SplitSeq(string(mounts), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 6 && fields[4] == "/proc" && strings.Contains(line, "hidepid=") {
-			return nil, errors.New("cannot inspect all live processes on a restricted /proc mount")
-		}
-	}
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	open := make(processFiles)
+	skipped := 0
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, skipped, err
 		}
 		if _, err := strconv.ParseUint(entry.Name(), 10, 32); err != nil {
 			continue
 		}
-		if err := open.addProcess(filepath.Join("/proc", entry.Name())); err != nil && !processGone(err) {
-			return nil, fmt.Errorf("cannot verify open files of process %s: %w", entry.Name(), err)
+		path := filepath.Join(proc, entry.Name())
+		owned, err := processHasUID(path, uid)
+		switch {
+		case processGone(err):
+			continue
+		case errors.Is(err, fs.ErrPermission):
+			skipped++
+		case err != nil:
+			return nil, skipped, fmt.Errorf("cannot identify process %s: %w", entry.Name(), err)
+		case owned:
+			if !open.addProcess(path) {
+				skipped++
+			}
 		}
 	}
-	return open, nil
+	return open, skipped, nil
 }
 
-func (open processFiles) addProcess(path string) error {
-	if err := open.addMaps(filepath.Join(path, "maps")); err != nil {
-		return err
+func processHasUID(path string, uid int) (bool, error) {
+	status, err := os.ReadFile(filepath.Join(path, "status")) //nolint:gosec // status of a process enumerated in procfs
+	if err != nil {
+		return false, err
 	}
+	for line := range strings.SplitSeq(string(status), "\n") {
+		if fields, ok := strings.CutPrefix(line, "Uid:"); ok {
+			return slices.Contains(strings.Fields(fields), strconv.Itoa(uid)), nil
+		}
+	}
+	return false, errors.New("proc status has no Uid field")
+}
+
+func (open processFiles) addProcess(path string) bool {
+	complete := processReadable(open.addMaps(filepath.Join(path, "maps")))
 	tasks, err := os.ReadDir(filepath.Join(path, "task"))
 	if err != nil {
-		return err
+		return complete && processReadable(err)
 	}
 	for _, task := range tasks {
-		if err := open.addTask(filepath.Join(path, "task", task.Name())); err != nil && !processGone(err) {
-			return err
-		}
+		complete = open.addTask(filepath.Join(path, "task", task.Name())) && complete
 	}
-	return nil
+	return complete
 }
 
-func (open processFiles) addTask(path string) error {
+func (open processFiles) addTask(path string) bool {
+	complete := true
 	for _, name := range []string{"cwd", "root"} {
-		if err := open.addStat(filepath.Join(path, name)); err != nil {
-			return err
-		}
+		complete = processReadable(open.addStat(filepath.Join(path, name))) && complete
 	}
 	dir := filepath.Join(path, "fd")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return complete && processReadable(err)
 	}
 	for _, entry := range entries {
-		if err := open.addStat(filepath.Join(dir, entry.Name())); err != nil {
-			return err
-		}
+		complete = processReadable(open.addStat(filepath.Join(dir, entry.Name()))) && complete
 	}
-	return nil
+	return complete
 }
+
+func processReadable(err error) bool { return err == nil || processGone(err) }
 
 func (open processFiles) addStat(path string) error {
 	info, err := os.Stat(path)

@@ -36,6 +36,12 @@ type Caches struct {
 }
 
 func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
+	c.trim(ctx, whileIdle, sweepSystemTemp)
+}
+
+func (c Caches) trim(ctx context.Context, whileIdle func(func()),
+	sweep func(context.Context, string, string, time.Time, *slog.Logger) error,
+) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -59,12 +65,15 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
 		for _, root := range locations {
 			c.trimGoCache(WithProtection(ctx, module), root, volume, needsRoom)
 		}
-		guard := WithProtection(ctx, c.WorktreeRoot, module)
-		guard = WithProtection(guard, locations...)
-		before := time.Now().Add(-time.Duration(c.Policy.TempMaxAgeHours) * time.Hour)
-		if err := sweepSystemTemp(guard, c.NodeHome, c.UserHome, before); err != nil {
-			c.Logger.WarnContext(ctx, "could not sweep shared temporary files", slog.Any("error", err))
-		}
+	}
+	guard := WithProtection(ctx, c.WorktreeRoot)
+	if module != "" {
+		guard = WithProtection(guard, module)
+	}
+	guard = WithProtection(guard, locations...)
+	before := time.Now().Add(-time.Duration(c.Policy.TempMaxAgeHours) * time.Hour)
+	if err := sweep(guard, c.NodeHome, c.UserHome, before, c.Logger); err != nil {
+		c.Logger.WarnContext(ctx, "could not sweep shared temporary files", slog.Any("error", err))
 	}
 	if !pressure || !RealDir(c.UserHome) {
 		return
@@ -105,7 +114,7 @@ func (c Caches) goCaches(ctx context.Context) ([]string, string, error) {
 	if err != nil {
 		goBin, err = exec.LookPath("go")
 		if err != nil {
-			return paths, fallbackGoModuleCache(c.UserHome), nil
+			return c.fallbackGoCaches(paths, nil)
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -115,11 +124,11 @@ func (c Caches) goCaches(ctx context.Context) ([]string, string, error) {
 	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, "", err
+		return c.fallbackGoCaches(paths, err)
 	}
 	var config goCacheConfig
 	if err := json.Unmarshal(output, &config); err != nil {
-		return nil, "", err
+		return c.fallbackGoCaches(paths, err)
 	}
 	if filepath.IsAbs(config.GOCACHE) && !slices.Contains(paths, config.GOCACHE) {
 		paths = append(paths, config.GOCACHE)
@@ -127,14 +136,50 @@ func (c Caches) goCaches(ctx context.Context) ([]string, string, error) {
 	return slices.Compact(paths), config.GOMODCACHE, nil
 }
 
-func fallbackGoModuleCache(home string) string {
+func (c Caches) fallbackGoCaches(paths []string, cause error) ([]string, string, error) {
+	if dir, err := os.UserCacheDir(); err == nil && filepath.IsAbs(dir) {
+		paths = append(paths, filepath.Join(dir, "go-build"))
+	}
+	settings := make(map[string]string)
+	file := os.Getenv("GOENV")
+	if file == "" {
+		if dir, err := os.UserConfigDir(); err == nil {
+			file = filepath.Join(dir, "go", "env")
+		}
+	}
+	if file != "" && file != "off" {
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(c.UserHome, file)
+		}
+		info, err := os.Stat(file) //nolint:gosec // the worker's Go configuration
+		if err == nil && info.Mode().IsRegular() {
+			data, readErr := os.ReadFile(file) //nolint:gosec // the worker's Go configuration
+			if readErr == nil {
+				for line := range strings.SplitSeq(string(data), "\n") {
+					if key, value, ok := strings.Cut(line, "="); ok {
+						settings[key] = strings.TrimRight(value, "\r")
+					}
+				}
+			}
+		}
+	}
+	if build := settings["GOCACHE"]; filepath.IsAbs(build) {
+		paths = append(paths, filepath.Clean(build))
+	}
 	if module := os.Getenv("GOMODCACHE"); filepath.IsAbs(module) {
-		return filepath.Clean(module)
+		return slices.Compact(paths), filepath.Clean(module), cause
 	}
-	if gopath := filepath.SplitList(os.Getenv("GOPATH")); len(gopath) > 0 && filepath.IsAbs(gopath[0]) {
-		return filepath.Join(gopath[0], "pkg", "mod")
+	if module := settings["GOMODCACHE"]; filepath.IsAbs(module) {
+		return slices.Compact(paths), filepath.Clean(module), cause
 	}
-	return filepath.Join(home, "go", "pkg", "mod")
+	gopath := os.Getenv("GOPATH")
+	if gopath == "" {
+		gopath = settings["GOPATH"]
+	}
+	if dirs := filepath.SplitList(gopath); len(dirs) > 0 && filepath.IsAbs(dirs[0]) {
+		return slices.Compact(paths), filepath.Join(dirs[0], "pkg", "mod"), cause
+	}
+	return slices.Compact(paths), filepath.Join(c.UserHome, "go", "pkg", "mod"), cause
 }
 
 func (c Caches) trimGoCache(ctx context.Context, root, worktreeVolume string, needsRoom func() bool) {
