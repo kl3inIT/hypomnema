@@ -14,7 +14,8 @@ const addGatewayUsageDaily = `-- name: AddGatewayUsageDaily :exec
 INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
                                  client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
                                  cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced,
-                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens)
+                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens,
+                                 estimated_requests, estimated_prompt_tokens, measured_prompt_tokens, measured_cached_tokens)
 SELECT CAST(?1 AS INTEGER),
        CAST(CASE
            WHEN k.bot_id IS NOT NULL THEN k.bot_id
@@ -28,8 +29,11 @@ SELECT CAST(?1 AS INTEGER),
        CAST(?15 AS INTEGER), CAST(?16 AS INTEGER), CAST(?17 AS INTEGER),
        CAST(?18 AS INTEGER), CAST(?19 AS INTEGER), CAST(?20 AS INTEGER),
        CAST(?21 AS INTEGER), CAST(?22 AS INTEGER), CAST(?23 AS INTEGER),
-       CAST(?24 AS INTEGER)
-FROM gateway_keys k WHERE k.id = CAST(?25 AS TEXT)
+       CAST(?24 AS INTEGER), CAST(?25 AS INTEGER),
+       CASE WHEN ?25 = 1 THEN ?9 ELSE 0 END,
+       CASE WHEN ?25 = 0 THEN ?9 ELSE 0 END,
+       CASE WHEN ?25 = 0 THEN ?11 ELSE 0 END
+FROM gateway_keys k WHERE k.id = CAST(?26 AS TEXT)
 ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE SET
     requests = requests + excluded.requests, ok = ok + excluded.ok, failed = failed + excluded.failed,
     client_gone = client_gone + excluded.client_gone, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
@@ -41,7 +45,11 @@ ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE
     cost_micros = cost_micros + excluded.cost_micros, unpriced = unpriced + excluded.unpriced,
     ok_duration_ms = ok_duration_ms + excluded.ok_duration_ms, ttft_ms = ttft_ms + excluded.ttft_ms,
     ttft_count = ttft_count + excluded.ttft_count, generation_ms = generation_ms + excluded.generation_ms,
-    generation_tokens = generation_tokens + excluded.generation_tokens
+    generation_tokens = generation_tokens + excluded.generation_tokens,
+    estimated_requests = estimated_requests + excluded.estimated_requests,
+    estimated_prompt_tokens = estimated_prompt_tokens + excluded.estimated_prompt_tokens,
+    measured_prompt_tokens = measured_prompt_tokens + excluded.measured_prompt_tokens,
+    measured_cached_tokens = measured_cached_tokens + excluded.measured_cached_tokens
 `
 
 type AddGatewayUsageDailyParams struct {
@@ -69,6 +77,7 @@ type AddGatewayUsageDailyParams struct {
 	TtftCount        int64
 	GenerationMs     int64
 	GenerationTokens int64
+	Estimated        int64
 	KeyID            string
 }
 
@@ -100,6 +109,7 @@ func (q *Queries) AddGatewayUsageDaily(ctx context.Context, arg AddGatewayUsageD
 		arg.TtftCount,
 		arg.GenerationMs,
 		arg.GenerationTokens,
+		arg.Estimated,
 		arg.KeyID,
 	)
 	return err
@@ -996,7 +1006,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 }
 
 const listGatewayUsageDaily = `-- name: ListGatewayUsageDaily :many
-SELECT day, caller, model, provider, upstream_model, account_id, requests, ok, failed, client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced, ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens FROM gateway_usage_daily WHERE day >= ?1 ORDER BY day, caller, model, provider, upstream_model, account_id
+SELECT day, caller, model, provider, upstream_model, account_id, requests, ok, failed, client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced, ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens, estimated_requests, estimated_prompt_tokens, measured_prompt_tokens, measured_cached_tokens FROM gateway_usage_daily WHERE day >= ?1 ORDER BY day, caller, model, provider, upstream_model, account_id
 `
 
 // The ledger's rows from a UTC day on, for the periods longer than the request rows are kept.
@@ -1036,6 +1046,10 @@ func (q *Queries) ListGatewayUsageDaily(ctx context.Context, since int64) ([]Gat
 			&i.TtftCount,
 			&i.GenerationMs,
 			&i.GenerationTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
+			&i.MeasuredCachedTokens,
 		); err != nil {
 			return nil, err
 		}
@@ -1436,7 +1450,10 @@ SELECT CAST((created_at - ?1) / ?2 AS INTEGER) AS bucket,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -1455,19 +1472,22 @@ type UsageBucketsParams struct {
 }
 
 type UsageBucketsRow struct {
-	Bucket           int64
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	Bucket                int64
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 func (q *Queries) UsageBuckets(ctx context.Context, arg UsageBucketsParams) ([]UsageBucketsRow, error) {
@@ -1485,6 +1505,9 @@ func (q *Queries) UsageBuckets(ctx context.Context, arg UsageBucketsParams) ([]U
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1512,7 +1535,10 @@ SELECT account_id AS id,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -1526,19 +1552,22 @@ GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, accoun
 `
 
 type UsageByAccountRow struct {
-	ID               string
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	ID                    string
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAccountRow, error) {
@@ -1556,6 +1585,9 @@ func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAcc
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1591,7 +1623,10 @@ SELECT CAST(CASE
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(u.outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN u.estimated = 0 THEN u.cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(u.estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN u.estimated = 1 THEN u.prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN u.estimated = 0 THEN u.prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(u.web_searches) AS INTEGER) AS web_searches,
@@ -1605,20 +1640,23 @@ GROUP BY 1, 2 ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, 2, 1
 `
 
 type UsageByKeyRow struct {
-	ID               string
-	Name             string
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	ID                    string
+	Name                  string
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 // A key the control plane made for a chat's pi counts under the chat's Bot, and one made for a worker's Dispatch
@@ -1641,6 +1679,9 @@ func (q *Queries) UsageByKey(ctx context.Context, since int64) ([]UsageByKeyRow,
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1668,7 +1709,10 @@ SELECT model AS name,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -1682,19 +1726,22 @@ GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model
 `
 
 type UsageByModelRow struct {
-	Name             string
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	Name                  string
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 func (q *Queries) UsageByModel(ctx context.Context, since int64) ([]UsageByModelRow, error) {
@@ -1712,6 +1759,9 @@ func (q *Queries) UsageByModel(ctx context.Context, since int64) ([]UsageByModel
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1739,7 +1789,10 @@ const usageTotals = `-- name: UsageTotals :one
 SELECT CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(COALESCE(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')), 0) AS INTEGER) AS failed,
        CAST(COALESCE(SUM(prompt_tokens), 0) AS INTEGER) AS prompt_tokens,
-       CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(estimated = 1), 0) AS INTEGER) AS estimated_requests,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END), 0) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END), 0) AS INTEGER) AS measured_prompt_tokens,
        CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
        CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens,
        CAST(COALESCE(SUM(web_searches), 0) AS INTEGER) AS web_searches,
@@ -1752,18 +1805,21 @@ FROM gateway_usage WHERE created_at >= ?1
 `
 
 type UsageTotalsRow struct {
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 // The Usage page (issue #199, step 4). A request failed when its outcome is upstream_error, transport_error or
@@ -1776,6 +1832,9 @@ func (q *Queries) UsageTotals(ctx context.Context, since int64) (UsageTotalsRow,
 		&i.Failed,
 		&i.PromptTokens,
 		&i.CachedTokens,
+		&i.EstimatedRequests,
+		&i.EstimatedPromptTokens,
+		&i.MeasuredPromptTokens,
 		&i.CompletionTokens,
 		&i.ReasoningTokens,
 		&i.WebSearches,
