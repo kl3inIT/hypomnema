@@ -52,7 +52,9 @@ export function SetMainItem({ bot, chat, isMain }: { bot: string; chat: string; 
       <Star />
       <span className="flex flex-col">
         Set as main chat
-        {isMain && <span className="text-xs text-muted-foreground">This is already the main chat</span>}
+        {isMain && (
+          <span className="text-xs text-muted-foreground">This is already the main chat</span>
+        )}
       </span>
     </DropdownMenuItem>
   )
