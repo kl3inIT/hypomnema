@@ -1,6 +1,7 @@
 package captions
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -246,4 +247,31 @@ func TestARingFlipsTheWholeCue(t *testing.T) {
 	for _, pf := range placed(t, "bar", PositionPreset, 720, 1280, c, ring) {
 		assert.InDelta(t, 0, pf.top, 0)
 	}
+}
+
+// A character the preset's font has no glyph for is folded to one it has (NFKC) or left out, so libass never
+// falls back to a font of the machine (the review of #943; the coordinator's choice, 2026-11-19).
+func TestOnlyWhatTheFontDrawsIsShown(t *testing.T) {
+	t.Parallel()
+
+	for preset, tc := range map[string]struct{ words, want []string }{
+		"one-word": {[]string{"ﬃﬃ", "Ổn✅", "😀😀", "định"}, []string{"FFIFFI", "ỔN", "ĐỊNH"}},
+		"clean":    {[]string{"ﬃ→", "Ổn✅", "😀😀", "định"}, []string{"ffi", "Ổn", "định"}},
+		"mono":     {[]string{"ＡＢＣ", "Ổn✅", "😀😀", "định"}, []string{"ABC", "Ổn", "định"}},
+	} {
+		var seen []string
+
+		for _, pf := range placed(t, preset, PositionPreset, 1280, 720, []Cue{cue(0.5, tc.words...)}, nil) {
+			for _, w := range shownWords(pf) {
+				if !slices.Contains(seen, w) {
+					seen = append(seen, w)
+				}
+			}
+		}
+
+		assert.Equal(t, tc.want, seen, preset)
+	}
+
+	// A cue of nothing drawable draws nothing.
+	assert.Empty(t, placed(t, "clean", PositionPreset, 720, 1280, []Cue{cue(0.5, "😀", "✅")}, nil))
 }

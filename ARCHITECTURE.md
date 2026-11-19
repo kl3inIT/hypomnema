@@ -931,7 +931,9 @@ sequenceDiagram
     eleven (`presets.go`, its macOS fonts mapped to the bundled ones) and aidemo's `bar`, Clean the default;
     position `preset`, `bottom`, `lower_third`, `center` or `top`. Each is laid out as demotape's drawBlock (`styled.go`):
     an em of 5 % of the height (6.2 % animated) times the preset's scale, at least 20 px, given to libass through
-    the font's OS/2 win metrics (a small OS/2 and head reader; text measured with `x/image/font/sfnt`), at most 2
+    the font's OS/2 win metrics (a small OS/2 and head reader; text measured with `x/image/font/sfnt` as libass
+    lays it out: each advance rounded where libass rounds it, at its shaping size and after the squeeze; a character
+    the font lacks folded by NFKC or left out, so libass never falls back to a font of the machine), at most 2
     words a line on a tall video, stepped through windows of the cue, each word at least 0.42 s (one or two words
     at a time) or 0.14 s; the block, as drawn, at most 0.94 of the width (shrunk, then squeezed with `\fscx` at the
     floor); a box as a `\p1` rounded rectangle, each line an `\an8\pos` event; a cue at the bottom moves to the top,

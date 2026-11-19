@@ -2,23 +2,31 @@
 // Sources/DemoTape/CaptionBurner.swift: captionOverlay (lines 185-231: the window of words on screen, the words
 // popped in, the active word, the position by aspect and its offsets), window (line 235), wordsForCue's floors
 // (lines 252-270), widthFitScale (line 349), minCaptionFontSize (line 358), drawBlock (lines 360-423: the ideal
-// size, padding, line height and box radius, the shrink to the width) and wordColor (line 444). Issue #908, rows 8
-// and 9.
+// size, padding, line height and box radius, the shrink to the width) and wordColor (line 444). Also ported:
+// from agent-demo-video (https://github.com/OrionArchitekton/agent-demo-video) at commit f63b61a,
+// src/captions.ts, toWordAss (lines 93-125: one ASS event a state of the growing words, each event positioned in
+// the video's own pixels), MIT, Copyright (c) 2026 agent-demo-video authors; and from aidemo
+// (https://github.com/tandryukha/aidemo) at commit b67235a, src/compose.ts, the caption flip on a collision (lines
+// 1060-1068 and 2001-2006), MIT, Copyright (c) 2026 Andrii Taran. Each is under the license below, with its own
+// copyright line. Issue #908, rows 8 and 9.
 //
 // What differs, and why: demotape draws each frame's block with Core Text; here each stretch of a cue in which
 // what is shown stays the same is one block of ASS events, burned by libass: the box a \p1 rounded rectangle on
 // layer 0, each line of words an \an8\pos event on layer 1, as agent-demo-video writes one event a state of its
-// growing words (src/captions.ts, toWordAss, lines 93-125). The size is an em, given to libass as its Fontsize
-// through the font's OS/2 metrics (fonts.go), and a line's top is libass's, its ascender; the width cap counts the
-// outline, and the box's padding only for a preset with a box (demotape counts the padding always, an
+// growing words. The size is an em, given to libass as its Fontsize through the font's OS/2 metrics (fonts.go),
+// and a line's top is libass's, its ascender; the width cap is on the pixels libass draws (fonts.go, span) and counts
+// the outline, and the box's padding only for a preset with a box (demotape counts the padding always, an
 // inference), and the glyphs' ink besides their advances; at the 20 px floor a block still too wide is squeezed
 // with \fscx, where demotape keeps its width and is clipped (an inference). A cue at the bottom flips to the top,
-// whole, while a tap's ring reaches its tallest block (aidemo's flip on a collision, src/compose.ts, lines 1060-1068
-// and 2001-2006, tested against the block, not a fixed band).
+// whole, while a tap's ring reaches its tallest block (aidemo's flip, tested against the block, not a fixed band).
+// A character the preset's font lacks is folded (NFKC) or left out, so that libass draws only the measured font
+// (the coordinator's choice, 2026-11-19).
 //
 // MIT License
 //
 // Copyright (c) 2026 DemoTape contributors
+// Copyright (c) 2026 agent-demo-video authors
+// Copyright (c) 2026 Andrii Taran
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -220,7 +228,7 @@ type block struct {
 	lines [][]word
 	// em is the type's size in pixels, fx the horizontal squeeze (1 is none).
 	em, fx float64
-	// textW is the widest line's span at em, before fx.
+	// textW is the widest line's span at em and fx, as libass lays it out, in whole pixels.
 	textW               float64
 	padX, padY, outline float64
 	lineH               float64
@@ -299,6 +307,9 @@ func (r *renderer) frames(c Cue) ([]frame, error) {
 		}
 
 		lines := r.lines(visible, maxWords, t)
+		if len(lines) == 0 {
+			continue // Nothing of it can be drawn.
+		}
 
 		b, err := r.layout(lines)
 		if err != nil {
@@ -340,18 +351,39 @@ func (r *renderer) lines(visible []Word, maxWords int, t float64) [][]word {
 		var line []word
 
 		for _, w := range visible[i:min(i+maxWords, len(visible))] {
-			text := DisplayWord(strings.TrimSpace(w.Word), r.p.WordByWord())
-			if r.p.Uppercase {
-				text = strings.ToUpper(text)
+			text := r.drawable(DisplayWord(strings.TrimSpace(w.Word), r.p.WordByWord()))
+			if text == "" {
+				continue
 			}
 
-			line = append(line, word{text: escape(norm.NFC.String(text)), color: r.color(w, t)})
+			line = append(line, word{text: escape(text), color: r.color(w, t)})
 		}
 
-		out = append(out, line)
+		if len(line) > 0 {
+			out = append(out, line)
+		}
 	}
 
 	return out
+}
+
+// drawable is a word as the preset's font draws it: compatibility forms folded (NFKC: ﬃ to ffi, full-width
+// letters to their own), uppercased when the preset is, and any character the font still has no glyph for left
+// out, so that libass never falls back to a font of the machine the width is not measured with (the
+// coordinator's choice, 2026-11-19, on the review of #943).
+func (r *renderer) drawable(text string) string {
+	text = norm.NFKC.String(text)
+	if r.p.Uppercase {
+		text = norm.NFC.String(strings.ToUpper(text))
+	}
+
+	return strings.Map(func(c rune) rune {
+		if r.f.has(c) {
+			return c
+		}
+
+		return -1
+	}, text)
 }
 
 // color is a word's color at t: base for a phrase preset; active while spoken, base once spoken, future before.
@@ -393,41 +425,45 @@ func (r *renderer) layout(lines [][]word) (block, error) {
 
 	ideal := max(MinFontSize, r.h*scale*r.p.FontScale)
 
-	b, err := r.measure(lines, ideal)
+	b, err := r.measure(lines, ideal, 1)
 	if err != nil {
 		return block{}, err
 	}
 
 	if s := WidthFitScale(r.drawn(b), r.w, SafeFraction); s < 1 {
-		if b, err = r.measure(lines, max(MinFontSize, ideal*s)); err != nil {
+		if b, err = r.measure(lines, max(MinFontSize, ideal*s), 1); err != nil {
 			return block{}, err
 		}
 	}
 
-	// At the floor, the text is squeezed to fit, to whole pixels, as the box is drawn in them.
+	// At the floor, the text is squeezed to fit, to whole pixels, as the box is drawn in them. libass rounds each
+	// glyph's advance after the squeeze, so the squeeze is measured as written, and narrowed until it fits.
 	if limit := math.Floor(r.w * SafeFraction); r.drawn(b) > limit && b.textW > 0 {
-		b.fx = (limit - r.drawn(b) + b.textW) / b.textW
-		b.w = r.width(b)
+		fx := math.Floor((limit-(r.drawn(b)-b.textW))/b.textW*1e4) / 1e4
 
-		// The box is rounded up to a whole pixel, which may take one more.
-		if r.drawn(b) > limit {
-			b.fx = (limit - 1 - r.drawn(b) + b.textW*b.fx) / b.textW
-			b.w = r.width(b)
+		for ; fx > 0.01; fx -= 0.0005 {
+			if b, err = r.measure(lines, b.em, fx); err != nil {
+				return block{}, err
+			}
+
+			if r.drawn(b) <= limit {
+				break
+			}
 		}
 	}
 
 	return b, nil
 }
 
-// measure lays a block out at an em.
-func (r *renderer) measure(lines [][]word, em float64) (block, error) {
-	b := block{lines: lines, em: em, fx: 1, padX: em * padXEm, padY: em * padYEm, lineH: r.f.assSize(em) * lineSpacing}
+// measure lays a block out at an em and a squeeze.
+func (r *renderer) measure(lines [][]word, em, fx float64) (block, error) {
+	b := block{lines: lines, em: em, fx: fx, padX: em * padXEm, padY: em * padYEm, lineH: r.f.assSize(em) * lineSpacing}
 	if r.p.Outline {
 		b.outline = em * outlineEm
 	}
 
 	for _, line := range lines {
-		span, err := r.f.span(lineText(line), em)
+		span, err := r.f.span(lineText(line), round2(r.f.assSize(em)), round2(100*fx)/100)
 		if err != nil {
 			return block{}, err
 		}
@@ -445,10 +481,10 @@ func (r *renderer) measure(lines [][]word, em float64) (block, error) {
 // A bar's band is the video's width, and its block is its text.
 func (r *renderer) width(b block) float64 {
 	if r.p.HasBox() && !r.p.Bar {
-		return math.Ceil(b.textW*b.fx + 2*b.padX - 1e-9)
+		return math.Ceil(b.textW + 2*b.padX - 1e-9)
 	}
 
-	return b.textW*b.fx + 2*b.outline
+	return b.textW + 2*b.outline
 }
 
 // drawn is a block's width in the pixels libass draws: its edges, anti-aliased, touch a pixel more on each side
@@ -644,7 +680,10 @@ func rgba(hex string) (r, g, b, a int) {
 	}
 }
 
+// round2 is a number to the two decimals num writes it with, as libass reads it back.
+func round2(v float64) float64 { return math.Round(v*100) / 100 }
+
 // num is a number as ASS reads it, to two decimals, with no trailing zeros.
 func num(v float64) string {
-	return strconv.FormatFloat(math.Round(v*100)/100, 'f', -1, 64)
+	return strconv.FormatFloat(round2(v), 'f', -1, 64)
 }

@@ -20,7 +20,7 @@ import (
 // (libass a6613d2, libass/ass_font.c: set_font_metrics, lines 355-365, and ass_face_set_size, lines 585-594): a font
 // whose em is to be e pixels is asked for at e × (usWinAscent + usWinDescent) / unitsPerEm. Those come from the
 // OS/2 and head tables, which x/image's sfnt does not expose, so a small reader takes them from the file; the text
-// is measured with sfnt, unhinted, as libass lays it out with hinting off and kerning off (its default, Kerning: no).
+// is measured with sfnt as libass lays it out (span), kerning off (its default, Kerning: no).
 
 // metrics are a font's sizes in its own units.
 type metrics struct {
@@ -100,17 +100,32 @@ func (f *face) assSize(em float64) float64 {
 	return em * float64(f.WinAscent+f.WinDescent) / float64(f.UnitsPerEm)
 }
 
-// span is a line's width in pixels at an em of em pixels: from the left of its first glyph's ink or of its
-// pen, whichever is further left, to the right of the furthest ink or of the pen after its last advance. libass
-// centers a line on its advances, and a glyph's ink may reach past them (a W's arms); the cap counts both.
-func (f *face) span(text string, em float64) (float64, error) {
+// shapeSize is the Fontsize libass shapes and loads every glyph at, with hinting off, before scaling it to its
+// own: "not too small to prevent grid fitting rounding effects" (libass/ass_render.c, fix_glyph_scaling, lines
+// 1981-2002; ffmpeg's subtitles filter leaves libass's hinting at none).
+const shapeSize = 256
+
+// span is a line's width in pixels, set at an ASS Fontsize of size and squeezed to fx, as libass lays it out: each
+// glyph's advance is FreeType's at shapeSize, loaded with FT_LOAD_DEFAULT and so rounded to a whole pixel there
+// (libass/ass_shaper.c, ass_glyph_metrics_construct, lines 253-274), then scaled by fx × size / shapeSize and
+// rounded to 1/64 px, one glyph at a time (ass_shaper.c, line 656); its ink is the unhinted outline, scaled alike
+// (libass/ass_font.c, lines 782-786). The span runs from the left of the first glyph's ink or of the pen, whichever
+// is further left, to the right of the furthest ink or of the pen after the last advance: libass centers a line on
+// its advances, and a glyph's ink may reach past them (a W's arms). Rounding where libass rounds keeps a line of a
+// thousand narrow glyphs as wide as drawn, which the sum of exact advances fell 14 px short of (the review of #943).
+func (f *face) span(text string, size, fx float64) (float64, error) {
 	var (
 		buf         sfnt.Buffer
-		pen         fixed.Int26_6
+		pen         int64 // 26.6
 		left, right = 0.0, 0.0
 	)
 
-	ppem := fixed.Int26_6(math.Round(em * 64))
+	units := fixed.I(f.UnitsPerEm) // sfnt at a ppem of unitsPerEm gives the font's own units, in 26.6.
+	height := int64(f.WinAscent + f.WinDescent)
+	// FreeType's x scale for a size request of shapeSize (FT_SIZE_REQUEST_TYPE_REAL_DIM, height only), 16.16.
+	xScale := (int64(shapeSize*64)<<16 + height/2) / height
+	scale := fx * size / shapeSize
+	inkPx := fx * size / float64(height) // a font unit of the outline, in pixels
 
 	for _, r := range text {
 		idx, err := f.font.GlyphIndex(&buf, r)
@@ -118,20 +133,33 @@ func (f *face) span(text string, em float64) (float64, error) {
 			return 0, err
 		}
 
-		bounds, advance, err := f.font.GlyphBounds(&buf, idx, ppem, font.HintingNone)
+		bounds, advance, err := f.font.GlyphBounds(&buf, idx, units, font.HintingNone)
 		if err != nil {
 			return 0, err
 		}
 
+		at := float64(pen) / 64
 		if bounds.Max.X > bounds.Min.X {
-			left = math.Min(left, float64(pen+bounds.Min.X)/64)
-			right = math.Max(right, float64(pen+bounds.Max.X)/64)
+			left = math.Min(left, at+float64(bounds.Min.X)/64*inkPx)
+			right = math.Max(right, at+float64(bounds.Max.X)/64*inkPx)
 		}
 
-		pen += advance
+		// FT_MulFix, then FT_PIX_ROUND: the hinted advance at shapeSize, in 26.6; then libass's ass_lrint.
+		shaped := (int64(advance)/64*xScale + 0x8000) >> 16
+		shaped = (shaped + 32) &^ 63
+		pen += int64(math.RoundToEven(float64(shaped) * scale))
 	}
 
 	return math.Max(right, float64(pen)/64) - left, nil
+}
+
+// has says whether the font has a glyph for a character.
+func (f *face) has(r rune) bool {
+	var buf sfnt.Buffer
+
+	idx, err := f.font.GlyphIndex(&buf, r)
+
+	return err == nil && idx != 0
 }
 
 // fontFiles are the fonts the presets use, by their full name, and their files as the ffmpeg install writes them.

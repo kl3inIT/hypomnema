@@ -93,7 +93,7 @@ func TestTheEmIsGivenThroughTheFontsMetrics(t *testing.T) {
 	r, err := newRenderer("one-word", 720, 1280)
 	require.NoError(t, err)
 
-	b, err := r.measure([][]word{{{text: "A"}}}, 1280*0.062*1.75)
+	b, err := r.measure([][]word{{{text: "A"}}}, 1280*0.062*1.75, 1)
 	require.NoError(t, err)
 	assert.InDelta(t, 138.88, b.em, 1e-9, "One Word before the width cap")
 }

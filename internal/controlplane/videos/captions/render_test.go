@@ -247,6 +247,7 @@ func TestEveryBlockFitsTheWidthAsDrawn(t *testing.T) {
 		preset string
 		size   [2]int
 		text   string
+		label  string
 	}
 
 	var checks []check
@@ -257,26 +258,49 @@ func TestEveryBlockFitsTheWidthAsDrawn(t *testing.T) {
 		}
 
 		for _, size := range sizes {
-			checks = append(checks, check{p.ID, size, line})
+			checks = append(checks, check{p.ID, size, line, "line"})
 		}
 	}
 
 	for _, preset := range []string{"one-word", "word-pair", "clean"} {
-		checks = append(checks, check{preset, sizes[0], strings.Repeat("Ư", 60)})
+		checks = append(checks, check{preset, sizes[0], strings.Repeat("Ư", 60), "Ư×60"})
 	}
 
 	// The probe of the plan's review: W×100 drew 678 px in One Word against 676.8 px planned from the advances.
-	checks = append(checks, check{"one-word", sizes[0], strings.Repeat("W", 100)})
+	checks = append(checks, check{"one-word", sizes[0], strings.Repeat("W", 100), "W×100"})
+
+	// The review of #943: narrow glyphs by the hundred drew 678 and 690 px, as libass rounds each advance at its
+	// shaping size; and a ligature the fonts lack (ﬃ) fell back to a system font the measure did not know, 720 px.
+	for _, preset := range []string{"one-word", "word-pair", "clean", "minimal", "mono", "bar"} {
+		checks = append(checks,
+			check{preset, sizes[0], strings.Repeat("I", 100), "I×100"},
+			check{preset, sizes[0], strings.Repeat("I", 1000), "I×1000"},
+			check{preset, sizes[0], strings.Repeat("l.", 400), "l.×400"},
+			check{preset, sizes[0], strings.Repeat("ﬃ", 35), "ﬃ×35"},
+			check{preset, sizes[0], "Ổn✅" + strings.Repeat("😀", 40) + "định", "emoji"})
+	}
+
+	ps := map[string]string{
+		fontExtraBold: "BeVietnamPro-ExtraBold", fontBold: "BeVietnamPro-Bold",
+		fontMedium: "BeVietnamPro-Medium", fontMono: "JetBrainsMono-SemiBold",
+	}
 
 	for _, c := range checks {
-		t.Run(fmt.Sprintf("%s-%dx%d-%d", c.preset, c.size[0], c.size[1], len([]rune(c.text))), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s-%dx%d-%s", c.preset, c.size[0], c.size[1], c.label), func(t *testing.T) {
 			t.Parallel()
 
 			w, h := c.size[0], c.size[1]
 			ass, r, frames := rendered(t, c.preset, PositionPreset, w, h, []Cue{cue(0.3, strings.Fields(c.text)...)}, nil)
 
 			for _, pf := range frames {
-				img, _ := burn(t, tl, ass, w, h, mid(pf), "error")
+				img, log := burn(t, tl, ass, w, h, mid(pf), "info")
+
+				// libass draws every glyph with the preset's font: none falls back to one the measure does not know.
+				for _, l := range strings.Split(log, "\n") {
+					if strings.Contains(l, "fontselect:") {
+						assert.True(t, strings.HasSuffix(l, ", "+ps[r.p.Font]), "%s: %s", c.preset, l)
+					}
+				}
 
 				drawn := notGrey(img)
 				if r.p.Bar {
@@ -286,8 +310,11 @@ func TestEveryBlockFitsTheWidthAsDrawn(t *testing.T) {
 					assert.True(t, near(rgb(img, 0, row), band, 8), "the band starts at 0")
 					assert.True(t, near(rgb(img, w-1, row), band, 8), "the band ends at W")
 
+					// The text: what is neither the band nor the grey. The band's own first and last columns are
+					// drawn a level off its color (its anti-aliased edges), and are not text.
 					drawn = func(x, y int) bool {
-						return !near(rgb(img, x, y), band, 0) && rgb(img, x, y) != [3]int{grey, grey, grey}
+						return x > 0 && x < w-1 && !near(rgb(img, x, y), band, 0) &&
+							rgb(img, x, y) != [3]int{grey, grey, grey}
 					}
 				}
 
