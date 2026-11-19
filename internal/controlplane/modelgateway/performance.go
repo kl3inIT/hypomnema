@@ -34,7 +34,7 @@ type Performance struct {
 	generationMs, generation int64
 }
 
-// SuccessRate is the share answered among requests that completed or failed at the provider.
+// SuccessRate leaves out requests the client left and the gateway's account refusals.
 func (p *Performance) SuccessRate() (float64, bool) {
 	n := p.OK + p.Failed
 	if n <= 0 {

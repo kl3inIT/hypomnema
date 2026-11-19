@@ -3643,7 +3643,7 @@ type GatewayRequest struct {
 	CreatedAt  time.Time `json:"created_at"`
 	DurationMs int64     `json:"duration_ms"`
 
-	// Error The provider's message for a request that failed.
+	// Error The provider's error or the gateway's reason for refusing the request.
 	Error *string `json:"error,omitempty"`
 
 	// Estimated The provider reported no usage; the counts are the sizes divided by four.
@@ -3667,7 +3667,7 @@ type GatewayRequest struct {
 	Provider        string `json:"provider"`
 	ReasoningTokens int64  `json:"reasoning_tokens"`
 
-	// Status The provider's HTTP status; 0 when it gave none.
+	// Status The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
 	Status int  `json:"status"`
 	Stream bool `json:"stream"`
 

@@ -2511,11 +2511,11 @@ export type GatewayRequest = {
   attempts: number;
   outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone' | 'no_account';
   /**
-   * The provider's HTTP status; 0 when it gave none.
+   * The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
    */
   status: number;
   /**
-   * The provider's message for a request that failed.
+   * The provider's error or the gateway's reason for refusing the request.
    */
   error?: string;
   prompt_tokens: number;

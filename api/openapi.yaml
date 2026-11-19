@@ -7634,10 +7634,10 @@ components:
           x-enum-varnames: [Ok, UpstreamError, TransportError, Truncated, ClientGone, GatewayNoAccount]
         status:
           type: integer
-          description: The provider's HTTP status; 0 when it gave none.
+          description: The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
         error:
           type: string
-          description: The provider's message for a request that failed.
+          description: The provider's error or the gateway's reason for refusing the request.
         prompt_tokens: { type: integer, format: int64 }
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }

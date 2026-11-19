@@ -235,7 +235,7 @@ func (s *Server) underGo(
 	ctx context.Context, session, wire string, body []byte, accept string,
 	answer func(AccountToken, *http.Response) *http.Response,
 ) (*http.Response, error) {
-	return s.underModelAccounts(ctx, openCodeGoRuntime, session, nil, nil, func(token AccountToken) (*http.Response, error) {
+	attempt := func(token AccountToken) (*http.Response, error) {
 		resp, err := s.goPost(ctx, token, session, wire, body, accept)
 		if err != nil {
 			return nil, err
@@ -252,7 +252,8 @@ func (s *Server) underGo(
 		}
 
 		return answer(token, resp), nil
-	})
+	}
+	return s.underModelAccounts(ctx, openCodeGoRuntime, session, nil, nil, attempt)
 }
 
 // goPost sends a body to Go on a wire under a key.

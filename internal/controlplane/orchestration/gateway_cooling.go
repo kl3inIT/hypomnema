@@ -10,26 +10,36 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
-func gatewayRoute(runtime, wire string) string {
-	switch {
-	case runtime == "codex", runtime == "omp" && wire == "openai-responses":
-		return "/v1/responses"
-	case runtime == "claude", runtime == "omp" && wire == "anthropic-messages":
-		return "/v1/messages"
-	default:
-		return "/v1/chat/completions"
+func gatewayRoute(ctx context.Context, q *store.Queries, runtime, model string) (string, error) {
+	switch runtime {
+	case "codex":
+		return "/v1/responses", nil
+	case "claude":
+		return "/v1/messages", nil
+	case "omp":
+		wire, err := modelAPI(ctx, q, GatewayAccountRef, model)
+		if err != nil {
+			return "", err
+		}
+		switch wire {
+		case "openai-responses":
+			return "/v1/responses", nil
+		case "anthropic-messages":
+			return "/v1/messages", nil
+		}
 	}
+	return "/v1/chat/completions", nil
 }
 
 func gatewayReset(
 	ctx context.Context, q *store.Queries, now int64, d store.Dispatch, conv store.Conversation,
 ) (*time.Time, error) {
-	wire, err := modelAPI(ctx, q, conv.AccountRef, d.Model.String)
+	route, err := gatewayRoute(ctx, q, conv.Runtime, d.Model.String)
 	if err != nil {
 		return nil, err
 	}
 	fact, err := q.GetGatewayModelCooling(ctx, store.GetGatewayModelCoolingParams{
-		Route: gatewayRoute(conv.Runtime, wire), Model: d.Model.String,
+		Route: route, Model: d.Model.String,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("reading cooldown of gateway model %s: %w", d.Model.String, err)

@@ -1439,7 +1439,7 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 		provider = p
 	}
 
-	gateway, accounts, wire := false, "", ""
+	gateway, accounts := false, ""
 
 	if provider != "" {
 		row, err := q.GetProvider(ctx, provider)
@@ -1450,13 +1450,20 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 		gateway, accounts = throughGateway(row.Kind), subscriptionAccounts[row.Kind]
 		if model != "" {
 			model = GatewayModelName(row.Kind, provider, model)
-			wire = GatewayWires[row.Kind]
+		}
+	}
+	var route string
+	if gateway {
+		var err error
+		route, err = gatewayRoute(ctx, q, runtime, model)
+		if err != nil {
+			return resolved{}, err
 		}
 	}
 
 	return resolved{
 		runtime: runtime, model: model,
 		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
-		accounts: accounts, req: requestOf(v), gatewayRoute: gatewayRoute(runtime, wire),
+		accounts: accounts, req: requestOf(v), gatewayRoute: route,
 	}, nil
 }

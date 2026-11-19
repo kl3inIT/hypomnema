@@ -60,7 +60,9 @@ func (g gatewayAccounts) Token(
 	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
 }
 
-func (g gatewayAccounts) FirstFree(ctx context.Context, runtime string, modelReset func(string) time.Time) (time.Time, error) {
+func (g gatewayAccounts) FirstFree(
+	ctx context.Context, runtime string, modelReset func(string) time.Time,
+) (time.Time, error) {
 	return g.subs.FirstFree(ctx, runtime, modelReset)
 }
 
