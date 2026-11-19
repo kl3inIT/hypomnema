@@ -76,6 +76,8 @@ type Usage struct {
 	// Characters what speech spoke (issue #694); zero for every other request.
 	Audio      time.Duration
 	Characters int64
+	VideoID    string
+	VideoRev   int
 	// WebSearches are the searches a request made (issue #723): one for a
 	// web/search, and a model's own, which its provider reports beside the
 	// tokens; Images are the images an image request made.
@@ -154,7 +156,8 @@ func (s *Service) recordUsage(ctx context.Context, u Usage) error {
 			DurationMs: u.Duration.Milliseconds(), AccountID: u.AccountID, Error: clip(u.Error, maxErrorText),
 			CacheWriteTokens: u.Tokens.CacheWrite, CacheWrite1hTokens: u.Tokens.CacheWrite1h,
 			CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, AudioMs: u.Audio.Milliseconds(),
-			Characters: u.Characters, WebSearches: u.WebSearches, Images: u.Images, TtftMs: ttftMs(u.TTFT), Now: now,
+			Characters: u.Characters, WebSearches: u.WebSearches, Images: u.Images, TtftMs: ttftMs(u.TTFT),
+			VideoID: u.VideoID, VideoRev: int64(u.VideoRev), Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording usage: %w", err)
 		}
@@ -251,6 +254,8 @@ func usageOf(r store.ListGatewayUsageRow) Usage {
 		},
 		Audio:       time.Duration(r.AudioMs) * time.Millisecond,
 		Characters:  r.Characters,
+		VideoID:     r.VideoID,
+		VideoRev:    int(r.VideoRev),
 		WebSearches: r.WebSearches,
 		Images:      r.Images,
 		Duration:    time.Duration(r.DurationMs) * time.Millisecond,

@@ -37,12 +37,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/captions"
 )
 
 // clipFormat is the format the clips are spoken in.
@@ -70,7 +72,8 @@ func voiceHash(text, provider, model, voice, lang string) string {
 // answers speaks the first, and every other line with it; a clip made before
 // with the same text, provider, model and voice is reused. done is told how
 // many lines are voiced, after each.
-func (s *Service) speak(ctx context.Context, lines []string, asked string, done func(n int)) (spoken, error) {
+func (s *Service) speak(ctx context.Context, source AudioSource, lines []string, asked string, done func(n int),
+) (spoken, error) {
 	set, err := s.settings(ctx)
 	if err != nil {
 		return spoken{}, err
@@ -94,7 +97,7 @@ func (s *Service) speak(ctx context.Context, lines []string, asked string, done 
 			continue
 		}
 
-		clip, err := s.clip(ctx, lines[0], p, voiceOf(p))
+		clip, err := s.clip(ctx, source, lines[0], p, voiceOf(p))
 		if err != nil {
 			if ctx.Err() != nil {
 				return spoken{}, ctx.Err()
@@ -121,7 +124,7 @@ func (s *Service) speak(ctx context.Context, lines []string, asked string, done 
 	done(1)
 
 	for k, line := range lines[1:] {
-		clip, err := s.clip(ctx, line, out.provider, out.voice)
+		clip, err := s.clip(ctx, source, line, out.provider, out.voice)
 		if err != nil {
 			return spoken{}, fmt.Errorf("scene %d, %s: %w", k+2, out.provider, err)
 		}
@@ -142,7 +145,7 @@ func (s *Service) settings(ctx context.Context) (speech.Settings, error) {
 }
 
 // clip is a line spoken by a provider: from the cache, or asked and kept there.
-func (s *Service) clip(ctx context.Context, text, provider, voice string) (string, error) {
+func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, voice string) (string, error) {
 	hash := voiceHash(text, provider, speech.Model(provider, speech.KindTTS), voice, Language)
 	path := filepath.Join(s.cfg.Dir, voiceDir, hash+"."+clipFormat)
 
@@ -150,7 +153,7 @@ func (s *Service) clip(ctx context.Context, text, provider, voice string) (strin
 		return path, nil
 	}
 
-	out, err := s.cfg.Speech.Speak(ctx, speech.SpeakRequest{
+	out, err := s.cfg.Speech.Speak(ctx, source, speech.SpeakRequest{
 		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider,
 	})
 	if err != nil {
@@ -161,16 +164,70 @@ func (s *Service) clip(ctx context.Context, text, provider, voice string) (strin
 		return "", err
 	}
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, out.Audio, 0o600); err != nil {
+	if err := writeCache(path, out.Audio); err != nil {
 		return "", err
+	}
+
+	return path, nil
+}
+
+func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string) ([]captions.Word, error) {
+	info, err := os.Stat(clip)
+	if err != nil {
+		return nil, err
+	}
+
+	path := clip + ".words.json"
+	var words []captions.Word
+
+	if raw, err := os.ReadFile(path); err == nil { //nolint:gosec // The voice cache's own file.
+		if json.Unmarshal(raw, &words) == nil && len(words) > 0 {
+			return words, nil
+		}
+	}
+
+	t, err := s.cfg.Speech.Transcribe(ctx, source, speech.TranscribeRequest{
+		Audio: speech.Audio{
+			Name: filepath.Base(clip), MIME: "audio/mpeg", Size: info.Size(),
+			Open: func() (io.ReadCloser, error) { return os.Open(clip) }, //nolint:gosec // The voice cache's own file.
+		},
+		Language: Language,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pieces := make([]captions.Piece, 0, len(t.Words))
+	for _, w := range t.Words {
+		pieces = append(pieces, captions.Piece{Text: w.Word, Start: w.Start.Seconds(), End: w.End.Seconds()})
+	}
+
+	words = captions.Words(pieces, t.Provider == speech.ProviderSoniox)
+	if len(words) > 0 {
+		raw, err := json.Marshal(words)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := writeCache(path, raw); err != nil {
+			return nil, err
+		}
+	}
+
+	return words, nil
+}
+
+func writeCache(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
 	}
 
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 
-		return "", err
+		return err
 	}
 
-	return path, nil
+	return nil
 }

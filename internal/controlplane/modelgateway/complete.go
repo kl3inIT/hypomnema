@@ -156,6 +156,14 @@ const meetingsKeyName = "meetings"
 // chat's key: the one named meetings that still works, made the first time with no secret kept, since nothing
 // outside calls with it.
 func (s *Service) MeetingsKey(ctx context.Context) (string, error) {
+	return s.ownerAudioKey(ctx, meetingsKeyName)
+}
+
+func (s *Service) VideosKey(ctx context.Context) (string, error) {
+	return s.ownerAudioKey(ctx, "videos")
+}
+
+func (s *Service) ownerAudioKey(ctx context.Context, prefix string) (string, error) {
 	keys, err := s.ListKeys(ctx)
 	if err != nil {
 		return "", err
@@ -167,14 +175,14 @@ func (s *Service) MeetingsKey(ctx context.Context) (string, error) {
 		taken[k.Name] = true
 
 		if k.RevokedAt == nil && k.DispatchID == "" && k.ChatID == "" &&
-			(k.Name == meetingsKeyName || strings.HasPrefix(k.Name, meetingsKeyName+"-")) {
+			(k.Name == prefix || strings.HasPrefix(k.Name, prefix+"-")) {
 			return k.ID, nil
 		}
 	}
 
-	name := meetingsKeyName
+	name := prefix
 	for n := 2; taken[name]; n++ {
-		name = meetingsKeyName + "-" + strconv.Itoa(n)
+		name = prefix + "-" + strconv.Itoa(n)
 	}
 
 	k, _, err := s.addKey(ctx, name, []string{AllModels}, keyOwner{endpoints: []Endpoint{EndpointAudio}})
