@@ -47,7 +47,7 @@ import (
 //     (inference: OpenClaw's accountId is always there and optional, named
 //     here only when there is a choice, so a one-account agent is not asked).
 //
-// The owner's token, the coordinator token and a Routine's script have no
+// The owner can use every Superset Connection. The coordinator token and a Routine's script have no
 // MCP and keep the commands.
 //
 // A Bot the owner limited to some dashboards of a Connection reads them
@@ -85,7 +85,7 @@ func (s *Server) WithRelay(r Relay) *Server {
 // supersetLabels are the Superset Connections an agent of its kind uses with
 // the tools: none when it is not given them.
 func (s *Server) supersetLabels(ctx context.Context, a agent) ([]string, error) {
-	if s.relay == nil || !(a.dispatchID != "" || a.chatID != "" && a.bot != "") {
+	if s.relay == nil || !a.hasAgentTools() {
 		return nil, nil
 	}
 
@@ -326,9 +326,7 @@ func (s *Server) supersetCall(w http.ResponseWriter, r *http.Request, a agent, l
 
 	rc := serviceproxy.Call{
 		Integration: serviceproxy.SupersetID, Label: label, ChatID: a.chatID,
-		Caller: serviceproxy.Caller{
-			Name: a.name, DispatchID: a.dispatchID, Coordinator: a.dispatchID == "", ChatID: a.chatID,
-		},
+		Caller: a.proxyCaller(),
 	}
 
 	out, rows, err := s.runSuperset(r.Context(), rc, a.scopeOf(label), call.Tool, in)

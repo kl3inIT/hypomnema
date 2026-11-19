@@ -122,7 +122,7 @@ export function useGatewayKeys() {
   return useQuery(listGatewayKeysOptions())
 }
 
-// useRefreshGatewayKeys reads the keys again after one is made or revoked: every cached read of their list.
+// useRefreshGatewayKeys reads the keys again after a change, invalidating every cached read of the list.
 export function useRefreshGatewayKeys() {
   const queryClient = useQueryClient()
 

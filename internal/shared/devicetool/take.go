@@ -37,22 +37,25 @@ var EndedBy = []string{
 // the control plane (issue #817, row 10): its segments in order, each placed
 // on the take's timeline, the steps said, and where the owner paused it.
 type Take struct {
-	ID         string        `json:"id"`
-	Title      string        `json:"title"`
-	Agent      string        `json:"agent"`
-	AgentName  string        `json:"agent_name,omitempty"`
-	Node       string        `json:"node,omitempty"`
-	RequestID  string        `json:"request_id,omitempty"`
-	AppPackage string        `json:"app_package,omitempty"`
-	AppVersion string        `json:"app_version,omitempty"`
-	StartedAt  time.Time     `json:"started_at"`
-	State      string        `json:"state"`
-	EndedBy    string        `json:"ended_by,omitempty"`
-	Reason     string        `json:"reason,omitempty"`
-	DurationMs int64         `json:"duration_ms"`
-	Segments   []TakeSegment `json:"segments"`
-	Steps      []TakeStep    `json:"steps"`
-	Pauses     []TakePause   `json:"pauses"`
+	ID         string    `json:"id"`
+	Title      string    `json:"title"`
+	Agent      string    `json:"agent"`
+	AgentName  string    `json:"agent_name,omitempty"`
+	Node       string    `json:"node,omitempty"`
+	RequestID  string    `json:"request_id,omitempty"`
+	AppPackage string    `json:"app_package,omitempty"`
+	AppVersion string    `json:"app_version,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
+	State      string    `json:"state"`
+	EndedBy    string    `json:"ended_by,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
+	DurationMs int64     `json:"duration_ms"`
+	// Screen is the phone's screen in pixels, the space a step's tap is in; absent from a take filmed before the
+	// node recorded it (issue #818).
+	Screen   *TakeScreen   `json:"screen,omitempty"`
+	Segments []TakeSegment `json:"segments"`
+	Steps    []TakeStep    `json:"steps"`
+	Pauses   []TakePause   `json:"pauses"`
 }
 
 // TakeSegment is one segment's file, where it starts on the take's timeline and how long it lasts.
@@ -82,6 +85,12 @@ type TakeStep struct {
 type TakeTap struct {
 	X int `json:"x"`
 	Y int `json:"y"`
+}
+
+// TakeScreen is the size of the phone's screen, in pixels.
+type TakeScreen struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
 }
 
 // TakePause is where the owner's takeover paused a take, on its timeline.

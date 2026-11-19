@@ -203,7 +203,7 @@ type session struct {
 
 func (s session) connection() string { return orchestration.Use(s.integration, s.label) }
 
-// tunnel carries one connection of a tool to one host of an Integration.
+// tunnel carries one connection of a tool to one host of an Integration, for an agent or the owner.
 func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 	caller, err := p.cfg.Agents.Caller(r)
 	if err != nil {

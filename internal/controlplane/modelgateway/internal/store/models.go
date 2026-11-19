@@ -14,6 +14,7 @@ type GatewayAudioProvider struct {
 	SttPosition sql.NullInt64
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
+	Voice       string
 }
 
 type GatewayImageProvider struct {
@@ -24,17 +25,19 @@ type GatewayImageProvider struct {
 }
 
 type GatewayKey struct {
-	ID         string
-	Name       string
-	KeyHash    string
-	Models     string
-	CreatedAt  int64
-	RevokedAt  sql.NullInt64
-	DispatchID sql.NullString
-	ChatID     sql.NullString
-	KeyPrefix  string
-	BotID      sql.NullString
-	Endpoints  sql.NullString
+	ID              string
+	Name            string
+	KeyHash         string
+	Models          string
+	CreatedAt       int64
+	RevokedAt       sql.NullInt64
+	DispatchID      sql.NullString
+	ChatID          sql.NullString
+	KeyPrefix       string
+	BotID           sql.NullString
+	Endpoints       sql.NullString
+	SecretVersionID sql.NullString
+	MaskedValue     string
 }
 
 type GatewayModel struct {

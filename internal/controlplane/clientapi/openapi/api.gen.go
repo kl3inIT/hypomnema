@@ -1010,6 +1010,42 @@ func (e MeetingItemKind) Valid() bool {
 	}
 }
 
+// Defines values for MeetingKind.
+const (
+	InPerson MeetingKind = "in_person"
+	Online   MeetingKind = "online"
+)
+
+// Valid indicates whether the value is a known member of the MeetingKind enum.
+func (e MeetingKind) Valid() bool {
+	switch e {
+	case InPerson:
+		return true
+	case Online:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingLiveTrack.
+const (
+	MeetingLiveTrackMic MeetingLiveTrack = "mic"
+	MeetingLiveTrackTab MeetingLiveTrack = "tab"
+)
+
+// Valid indicates whether the value is a known member of the MeetingLiveTrack enum.
+func (e MeetingLiveTrack) Valid() bool {
+	switch e {
+	case MeetingLiveTrackMic:
+		return true
+	case MeetingLiveTrackTab:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MeetingNotesState.
 const (
 	MeetingNotesStateFailed  MeetingNotesState = "failed"
@@ -1034,9 +1070,28 @@ func (e MeetingNotesState) Valid() bool {
 	}
 }
 
+// Defines values for MeetingSource.
+const (
+	Live   MeetingSource = "live"
+	Upload MeetingSource = "upload"
+)
+
+// Valid indicates whether the value is a known member of the MeetingSource enum.
+func (e MeetingSource) Valid() bool {
+	switch e {
+	case Live:
+		return true
+	case Upload:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MeetingState.
 const (
 	MeetingStateFailed       MeetingState = "failed"
+	MeetingStateRecording    MeetingState = "recording"
 	MeetingStateTranscribed  MeetingState = "transcribed"
 	MeetingStateTranscribing MeetingState = "transcribing"
 )
@@ -1046,9 +1101,32 @@ func (e MeetingState) Valid() bool {
 	switch e {
 	case MeetingStateFailed:
 		return true
+	case MeetingStateRecording:
+		return true
 	case MeetingStateTranscribed:
 		return true
 	case MeetingStateTranscribing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingTrack.
+const (
+	MeetingTrackFile MeetingTrack = "file"
+	MeetingTrackMic  MeetingTrack = "mic"
+	MeetingTrackTab  MeetingTrack = "tab"
+)
+
+// Valid indicates whether the value is a known member of the MeetingTrack enum.
+func (e MeetingTrack) Valid() bool {
+	switch e {
+	case MeetingTrackFile:
+		return true
+	case MeetingTrackMic:
+		return true
+	case MeetingTrackTab:
 		return true
 	default:
 		return false
@@ -1847,6 +1925,78 @@ func (e TranscriptItemKind) Valid() bool {
 	}
 }
 
+// Defines values for VideoMakeAspect.
+const (
+	VideoMakeAspectN169 VideoMakeAspect = "16:9"
+	VideoMakeAspectN916 VideoMakeAspect = "9:16"
+)
+
+// Valid indicates whether the value is a known member of the VideoMakeAspect enum.
+func (e VideoMakeAspect) Valid() bool {
+	switch e {
+	case VideoMakeAspectN169:
+		return true
+	case VideoMakeAspectN916:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VideoRevisionAspect.
+const (
+	VideoRevisionAspectN169 VideoRevisionAspect = "16:9"
+	VideoRevisionAspectN916 VideoRevisionAspect = "9:16"
+)
+
+// Valid indicates whether the value is a known member of the VideoRevisionAspect enum.
+func (e VideoRevisionAspect) Valid() bool {
+	switch e {
+	case VideoRevisionAspectN169:
+		return true
+	case VideoRevisionAspectN916:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VideoRevisionState.
+const (
+	VideoRevisionStateApproved         VideoRevisionState = "approved"
+	VideoRevisionStateCaptioning       VideoRevisionState = "captioning"
+	VideoRevisionStateChangesRequested VideoRevisionState = "changes_requested"
+	VideoRevisionStateComposing        VideoRevisionState = "composing"
+	VideoRevisionStateFailed           VideoRevisionState = "failed"
+	VideoRevisionStateQueued           VideoRevisionState = "queued"
+	VideoRevisionStateReview           VideoRevisionState = "review"
+	VideoRevisionStateVoicing          VideoRevisionState = "voicing"
+)
+
+// Valid indicates whether the value is a known member of the VideoRevisionState enum.
+func (e VideoRevisionState) Valid() bool {
+	switch e {
+	case VideoRevisionStateApproved:
+		return true
+	case VideoRevisionStateCaptioning:
+		return true
+	case VideoRevisionStateChangesRequested:
+		return true
+	case VideoRevisionStateComposing:
+		return true
+	case VideoRevisionStateFailed:
+		return true
+	case VideoRevisionStateQueued:
+		return true
+	case VideoRevisionStateReview:
+		return true
+	case VideoRevisionStateVoicing:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WebSearchKeyState.
 const (
 	WebSearchKeyStateReady   WebSearchKeyState = "ready"
@@ -2083,16 +2233,16 @@ func (e WorkspaceChangeStatus) Valid() bool {
 
 // Defines values for WorkspaceEntryType.
 const (
-	Directory WorkspaceEntryType = "directory"
-	File      WorkspaceEntryType = "file"
+	WorkspaceEntryTypeDirectory WorkspaceEntryType = "directory"
+	WorkspaceEntryTypeFile      WorkspaceEntryType = "file"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceEntryType enum.
 func (e WorkspaceEntryType) Valid() bool {
 	switch e {
-	case Directory:
+	case WorkspaceEntryTypeDirectory:
 		return true
-	case File:
+	case WorkspaceEntryTypeFile:
 		return true
 	default:
 		return false
@@ -2599,6 +2749,9 @@ type AudioProviderLink struct {
 
 	// State ready: it is asked in its turn. resting: each of its keys rests until `resting_until`, for `rest`. not_set_up: no key in the vault. off: the owner switched it off.
 	State AudioProviderLinkState `json:"state"`
+
+	// Voice The voice it speaks a video with when none is asked; absent, its own default.
+	Voice *string `json:"voice,omitempty"`
 }
 
 // AudioProviderLinkState ready: it is asked in its turn. resting: each of its keys rests until `resting_until`, for `rest`. not_set_up: no key in the vault. off: the owner switched it off.
@@ -2653,6 +2806,11 @@ type AudioTranscript struct {
 type AudioUsage struct {
 	Month AudioTally `json:"month"`
 	Today AudioTally `json:"today"`
+}
+
+// AudioVoice defines model for AudioVoice.
+type AudioVoice struct {
+	Voice string `json:"voice"`
 }
 
 // BlockedReason defines model for BlockedReason.
@@ -3126,7 +3284,7 @@ type ConnectionUse struct {
 type CreatedGatewayKey struct {
 	Key GatewayKey `json:"key"`
 
-	// Secret The key's value, answered this once; only its hash is kept.
+	// Secret The key's value, also kept encrypted in the vault.
 	Secret string `json:"secret"`
 }
 
@@ -3323,6 +3481,9 @@ type GatewayKey struct {
 	// LastUsedAt When the gateway last served a request with it; absent when never.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 
+	// MaskedValue The first six and last four characters with the rest masked; absent when no value is stored.
+	MaskedValue *string `json:"masked_value,omitempty"`
+
 	// Models The model names it may use; `*` is every model.
 	Models []string `json:"models"`
 	Name   string   `json:"name"`
@@ -3337,6 +3498,23 @@ type GatewayKeyList struct {
 
 	// LiveWorkerKeys How many keys made for a Dispatch or a chat's pi work now.
 	LiveWorkerKeys int `json:"live_worker_keys"`
+}
+
+// GatewayKeyUpdate defines model for GatewayKeyUpdate.
+type GatewayKeyUpdate struct {
+	// Endpoints The new list of kinds besides chat; empty means none, omitted means unchanged.
+	Endpoints *[]GatewayEndpoint `json:"endpoints,omitempty"`
+
+	// Models The new list of model names; empty means every model, omitted means unchanged.
+	Models *[]string `json:"models,omitempty"`
+
+	// Name The new name; when omitted the name is unchanged.
+	Name *string `json:"name,omitempty"`
+}
+
+// GatewayKeyValue defines model for GatewayKeyValue.
+type GatewayKeyValue struct {
+	Secret string `json:"secret"`
 }
 
 // GatewayModel defines model for GatewayModel.
@@ -3964,14 +4142,19 @@ type Me struct {
 
 // Meeting defines model for Meeting.
 type Meeting struct {
-	Actions    int       `json:"actions"`
-	CreatedAt  time.Time `json:"created_at"`
-	DurationMs int64     `json:"duration_ms"`
+	Actions   int       `json:"actions"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// DurationMs Its length; while it records, what is kept so far, where a resumed recording goes on.
+	DurationMs int64 `json:"duration_ms"`
 
 	// Failure Why hearing it failed
-	Failure     *string      `json:"failure,omitempty"`
-	FileName    string       `json:"file_name"`
-	Id          string       `json:"id"`
+	Failure  *string `json:"failure,omitempty"`
+	FileName string  `json:"file_name"`
+	Id       string  `json:"id"`
+
+	// Kind How a live meeting is held; online records the microphone and a shared tab.
+	Kind        *MeetingKind `json:"kind,omitempty"`
 	Language    *string      `json:"language,omitempty"`
 	MediaType   string       `json:"media_type"`
 	Model       *string      `json:"model,omitempty"`
@@ -3980,11 +4163,14 @@ type Meeting struct {
 	People      []string     `json:"people"`
 
 	// Provider The speech-to-text provider that heard it.
-	Provider *string          `json:"provider,omitempty"`
-	Size     int64            `json:"size"`
+	Provider *string `json:"provider,omitempty"`
+	Size     int64   `json:"size"`
+
+	// Source How the meeting came, uploaded or recorded live.
+	Source   MeetingSource    `json:"source"`
 	Speakers []MeetingSpeaker `json:"speakers"`
 
-	// State Where the meeting's transcription stands.
+	// State Where the meeting's transcription stands; a live meeting is recording until it ends.
 	State MeetingState `json:"state"`
 	Title string       `json:"title"`
 
@@ -4045,6 +4231,9 @@ type MeetingItem struct {
 	// OwnerSpeaker The label of the voice that does it
 	OwnerSpeaker *string `json:"owner_speaker,omitempty"`
 
+	// OwnerTrack What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	OwnerTrack *MeetingTrack `json:"owner_track,omitempty"`
+
 	// Quote The sentence it rests on.
 	Quote *string `json:"quote,omitempty"`
 
@@ -4061,24 +4250,35 @@ type MeetingItemUpdate struct {
 	Done bool `json:"done"`
 }
 
+// MeetingKind How a live meeting is held; online records the microphone and a shared tab.
+type MeetingKind string
+
 // MeetingLine defines model for MeetingLine.
 type MeetingLine struct {
 	EndMs int64 `json:"end_ms"`
 
 	// Heard The label the provider heard it as.
 	Heard string `json:"heard"`
-	N     int    `json:"n"`
 
-	// Speaker The label of the voice it is shown as.
+	// N The line's number
+	N int `json:"n"`
+
+	// Speaker The label of the voice it is shown as
 	Speaker string `json:"speaker"`
 	StartMs int64  `json:"start_ms"`
 	Text    string `json:"text"`
+
+	// Track What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	Track MeetingTrack `json:"track"`
 }
 
 // MeetingList defines model for MeetingList.
 type MeetingList struct {
 	Data []Meeting `json:"data"`
 }
+
+// MeetingLiveTrack defines model for MeetingLiveTrack.
+type MeetingLiveTrack string
 
 // MeetingNotes defines model for MeetingNotes.
 type MeetingNotes struct {
@@ -4117,24 +4317,41 @@ type MeetingSettingsUpdate struct {
 	NotesModel string `json:"notes_model"`
 }
 
+// MeetingSource How the meeting came, uploaded or recorded live.
+type MeetingSource string
+
 // MeetingSpeaker defines model for MeetingSpeaker.
 type MeetingSpeaker struct {
-	// Label The voice's label
+	// Label The voice's label on its track, the provider's or m1, m2… for one the owner made.
 	Label string `json:"label"`
 
 	// Name The name shown
 	Name  string `json:"name"`
 	Named bool   `json:"named"`
 
+	// Owner The owner's own voice
+	Owner bool `json:"owner"`
+
 	// Share Its share of the meeting's talk
 	Share float32 `json:"share"`
 
 	// TalkMs How long its lines last.
 	TalkMs int64 `json:"talk_ms"`
+
+	// Track What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	Track MeetingTrack `json:"track"`
 }
 
-// MeetingState Where the meeting's transcription stands.
+// MeetingState Where the meeting's transcription stands; a live meeting is recording until it ends.
 type MeetingState string
+
+// MeetingTrack What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+type MeetingTrack string
+
+// MeetingTrackRequest defines model for MeetingTrackRequest.
+type MeetingTrackRequest struct {
+	Track MeetingLiveTrack `json:"track"`
+}
 
 // MeetingWord defines model for MeetingWord.
 type MeetingWord struct {
@@ -4507,6 +4724,21 @@ type NewIntegrationClient struct {
 type NewLarkChannelPerson struct {
 	// Who Their email in the app's Lark organization, or their open_id.
 	Who string `json:"who"`
+}
+
+// NewLiveMeeting defines model for NewLiveMeeting.
+type NewLiveMeeting struct {
+	// Kind How a live meeting is held; online records the microphone and a shared tab.
+	Kind MeetingKind `json:"kind"`
+
+	// Language An ISO 639-1 code, such as vi; absent, the provider finds it.
+	Language *string `json:"language,omitempty"`
+
+	// People Who is in the meeting; they help name the speakers.
+	People *[]string `json:"people,omitempty"`
+
+	// Title Absent
+	Title *string `json:"title,omitempty"`
 }
 
 // NewNode defines model for NewNode.
@@ -5572,6 +5804,9 @@ type SpeakerSuggestion struct {
 
 	// Name The name the voice called itself.
 	Name string `json:"name"`
+
+	// Track What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	Track MeetingTrack `json:"track"`
 }
 
 // SupersetAnswer defines model for SupersetAnswer.
@@ -5980,6 +6215,95 @@ type TranscriptWord struct {
 	Start   float32 `json:"start"`
 	Word    string  `json:"word"`
 }
+
+// Video A video made of one take (issue
+type Video struct {
+	// Approved The approved revision; absent when none is.
+	Approved  *int      `json:"approved,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Id        string    `json:"id"`
+
+	// MadeBy The agent's key that asked for it first
+	MadeBy     string          `json:"made_by"`
+	MadeByName string          `json:"made_by_name"`
+	Revisions  []VideoRevision `json:"revisions"`
+
+	// Take The take it is made of.
+	Take  string `json:"take"`
+	Title string `json:"title"`
+}
+
+// VideoChanges defines model for VideoChanges.
+type VideoChanges struct {
+	// Lines Each scene's line, edited; as many as the revision has.
+	Lines *[]string `json:"lines,omitempty"`
+	Note  *string   `json:"note,omitempty"`
+}
+
+// VideoList defines model for VideoList.
+type VideoList struct {
+	Data []Video `json:"data"`
+}
+
+// VideoMake defines model for VideoMake.
+type VideoMake struct {
+	// Aspect Absent: 9:16.
+	Aspect *VideoMakeAspect `json:"aspect,omitempty"`
+
+	// Captions Absent: true.
+	Captions *bool  `json:"captions,omitempty"`
+	Take     string `json:"take"`
+
+	// Title The video's title, on its first make; absent: the take's.
+	Title *string `json:"title,omitempty"`
+
+	// Voice Absent: each provider's set on Settings → Audio.
+	Voice *string `json:"voice,omitempty"`
+}
+
+// VideoMakeAspect Absent: 9:16.
+type VideoMakeAspect string
+
+// VideoRevision One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed at a stage with its cause, interrupted when the control plane stopped while it was made.
+type VideoRevision struct {
+	Aspect      VideoRevisionAspect `json:"aspect"`
+	Captions    bool                `json:"captions"`
+	CreatedAt   time.Time           `json:"created_at"`
+	FailedCause *string             `json:"failed_cause,omitempty"`
+
+	// FailedStage The stage it failed at.
+	FailedStage *string `json:"failed_stage,omitempty"`
+	LengthMs    int64   `json:"length_ms"`
+
+	// Lines What each scene's voice says, a scene a step of the take (steps said at once are one).
+	Lines []string `json:"lines"`
+	Model *string  `json:"model,omitempty"`
+
+	// Note What the owner asked for when he asked for changes.
+	Note *string `json:"note,omitempty"`
+
+	// Parent The revision it was made from.
+	Parent *int `json:"parent,omitempty"`
+
+	// Provider The provider that spoke every scene.
+	Provider  *string            `json:"provider,omitempty"`
+	Rev       int                `json:"rev"`
+	State     VideoRevisionState `json:"state"`
+	UpdatedAt time.Time          `json:"updated_at"`
+
+	// UsedVoice The voice it spoke with; absent
+	UsedVoice *string `json:"used_voice,omitempty"`
+
+	// Voice The voice asked for; absent
+	Voice    *string  `json:"voice,omitempty"`
+	Warnings []string `json:"warnings"`
+}
+
+// VideoRevisionAspect defines model for VideoRevision.Aspect.
+type VideoRevisionAspect string
+
+// VideoRevisionState defines model for VideoRevision.State.
+type VideoRevisionState string
 
 // WebFetchRequest defines model for WebFetchRequest.
 type WebFetchRequest struct {
@@ -6411,6 +6735,12 @@ type TakeID = string
 // TaskID defines model for TaskID.
 type TaskID = string
 
+// VideoID defines model for VideoID.
+type VideoID = string
+
+// VideoRev defines model for VideoRev.
+type VideoRev = int
+
 // WorkspaceID defines model for WorkspaceID.
 type WorkspaceID = string
 
@@ -6739,6 +7069,12 @@ type UploadMeetingParams struct {
 	People *[]string `form:"people,omitempty" json:"people,omitempty"`
 }
 
+// NameMeetingSpeakerParams defines parameters for NameMeetingSpeaker.
+type NameMeetingSpeakerParams struct {
+	// Track The voice's track; absent, the one track that has the label.
+	Track *MeetingTrack `form:"track,omitempty" json:"track,omitempty"`
+}
+
 // ListMemoryNotesParams defines parameters for ListMemoryNotes.
 type ListMemoryNotesParams struct {
 	// Bot A Bot's memory, by its id; give this or agent.
@@ -6877,6 +7213,23 @@ type ListTasksParams struct {
 	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// MakeVideoParams defines parameters for MakeVideo.
+type MakeVideoParams struct {
+	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RequestVideoChangesParams defines parameters for RequestVideoChanges.
+type RequestVideoChangesParams struct {
+	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ReadVideoFileParams defines parameters for ReadVideoFile.
+type ReadVideoFileParams struct {
+	Range *string `json:"Range,omitempty"`
+}
+
 // ImportAccountJSONRequestBody defines body for ImportAccount for application/json ContentType.
 type ImportAccountJSONRequestBody = NewAccountImport
 
@@ -6976,6 +7329,9 @@ type SetAudioProviderJSONRequestBody = AudioProviderChange
 // AddAudioKeyJSONRequestBody defines body for AddAudioKey for application/json ContentType.
 type AddAudioKeyJSONRequestBody = AudioNewKey
 
+// SetAudioVoiceJSONRequestBody defines body for SetAudioVoice for application/json ContentType.
+type SetAudioVoiceJSONRequestBody = AudioVoice
+
 // SetImageOrderJSONRequestBody defines body for SetImageOrder for application/json ContentType.
 type SetImageOrderJSONRequestBody = ImageOrder
 
@@ -6984,6 +7340,9 @@ type SetImageProviderJSONRequestBody = ImageProviderChange
 
 // CreateGatewayKeyJSONRequestBody defines body for CreateGatewayKey for application/json ContentType.
 type CreateGatewayKeyJSONRequestBody = NewGatewayKey
+
+// UpdateGatewayKeyJSONRequestBody defines body for UpdateGatewayKey for application/json ContentType.
+type UpdateGatewayKeyJSONRequestBody = GatewayKeyUpdate
 
 // SetGatewayModelAttributesJSONRequestBody defines body for SetGatewayModelAttributes for application/json ContentType.
 type SetGatewayModelAttributesJSONRequestBody = GatewayModelSettings
@@ -7051,6 +7410,9 @@ type SetMeetingSettingsJSONRequestBody = MeetingSettingsUpdate
 // SetMeetingWordsJSONRequestBody defines body for SetMeetingWords for application/json ContentType.
 type SetMeetingWordsJSONRequestBody = MeetingWordsUpdate
 
+// StartLiveMeetingJSONRequestBody defines body for StartLiveMeeting for application/json ContentType.
+type StartLiveMeetingJSONRequestBody = NewLiveMeeting
+
 // FixMeetingWordJSONRequestBody defines body for FixMeetingWord for application/json ContentType.
 type FixMeetingWordJSONRequestBody = MeetingWordFix
 
@@ -7062,6 +7424,9 @@ type SetMeetingLineSpeakerJSONRequestBody = SpeakerName
 
 // NameMeetingSpeakerJSONRequestBody defines body for NameMeetingSpeaker for application/json ContentType.
 type NameMeetingSpeakerJSONRequestBody = SpeakerName
+
+// OpenMeetingTrackJSONRequestBody defines body for OpenMeetingTrack for application/json ContentType.
+type OpenMeetingTrackJSONRequestBody = MeetingTrackRequest
 
 // PutMemoryNoteJSONRequestBody defines body for PutMemoryNote for application/json ContentType.
 type PutMemoryNoteJSONRequestBody = MemoryNoteText
@@ -7128,6 +7493,12 @@ type SetSkillEveryoneJSONRequestBody = SkillEveryone
 
 // FollowUpTaskJSONRequestBody defines body for FollowUpTask for application/json ContentType.
 type FollowUpTaskJSONRequestBody = NewFollowUp
+
+// MakeVideoJSONRequestBody defines body for MakeVideo for application/json ContentType.
+type MakeVideoJSONRequestBody = VideoMake
+
+// RequestVideoChangesJSONRequestBody defines body for RequestVideoChanges for application/json ContentType.
+type RequestVideoChangesJSONRequestBody = VideoChanges
 
 // FetchWebJSONRequestBody defines body for FetchWeb for application/json ContentType.
 type FetchWebJSONRequestBody = WebFetchRequest
@@ -8083,6 +8454,24 @@ type ClientInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKey(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SetAudioVoiceWithBody Set the voice a provider speaks a video with when none is asked; only the owner
+	//
+	// Empty sets it back to the provider's own default. It counts from the next revision made.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+	SetAudioVoiceWithBody(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
+	//
+	// Empty sets it back to the provider's own default. It counts from the next revision made.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+	SetAudioVoice(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	//
 	// Codex (gpt-image-2) and Antigravity (gemini-3.1-flash-image), each with its one model, in the owner's order, by default Codex first. A provider can make images while an account of it is logged in on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the Models page. It rests while each such account rests after a limit, until the vendor's reset.
@@ -8129,14 +8518,14 @@ type ClientInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeys(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKeyWithBody Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -8147,6 +8536,25 @@ type ClientInterface interface {
 	//
 	// Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 	RevokeGatewayKey(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateGatewayKeyWithBody Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithBody(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+	GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	//
@@ -8737,6 +9145,24 @@ type ClientInterface interface {
 	// Corresponds with POST /meetings (the `UploadMeeting` operationId).
 	UploadMeetingWithBody(ctx context.Context, params *UploadMeetingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// StartLiveMeetingWithBody Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeetingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeeting(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 	//
 	// Corresponds with DELETE /meetings/{meeting_id} (the `DeleteMeeting` operationId).
@@ -8746,6 +9172,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EndLiveMeeting End a meeting being recorded; only the owner
+	//
+	// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+	EndLiveMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// FixMeetingWordWithBody Replace a word heard wrong in one line or the whole meeting; only the owner
 	//
@@ -8813,21 +9246,35 @@ type ClientInterface interface {
 
 	// NameMeetingSpeakerWithBody Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenMeetingTrackWithBody A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrackWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrack(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 	//
@@ -9561,6 +10008,80 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /tools (the `ListTools` operationId).
 	ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListVideos The videos made of takes, the newest first, each with its revisions (owner only; issue
+	//
+	// A video is made of one take: its dead time cut, a Vietnamese voice for each step, captions and a ring at each tap. Each make or change request adds a revision, made one at a time by the control plane's runner: queued, voicing, composing, captioning, then review; the owner approves one revision or asks for changes.
+	//
+	// Corresponds with GET /videos (the `ListVideos` operationId).
+	ListVideos(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MakeVideoWithBody Make a take into a video, or a new revision of its video (owner only)
+	//
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /videos (the `MakeVideo` operationId).
+	MakeVideoWithBody(ctx context.Context, params *MakeVideoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MakeVideo Make a take into a video, or a new revision of its video (owner only)
+	//
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /videos (the `MakeVideo` operationId).
+	MakeVideo(ctx context.Context, params *MakeVideoParams, body MakeVideoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteVideo Delete a video, its revisions and their files (owner only)
+	//
+	// Refused with conflict while one of its revisions is queued or being made.
+	//
+	// Corresponds with DELETE /videos/{video_id} (the `DeleteVideo` operationId).
+	DeleteVideo(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetVideo A video with its revisions (owner only)
+	//
+	// Corresponds with GET /videos/{video_id} (the `GetVideo` operationId).
+	GetVideo(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApproveVideoRevision Approve a revision in review; the one approved before goes back to review (owner only)
+	//
+	// An approved revision is approved already.
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/approve (the `ApproveVideoRevision` operationId).
+	ApproveVideoRevision(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestVideoChangesWithBody Ask for changes to a revision in review (owner only)
+	//
+	// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+	RequestVideoChangesWithBody(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestVideoChanges Ask for changes to a revision in review (owner only)
+	//
+	// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+	RequestVideoChanges(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadVideoThumbnail A made revision's first frame, as a JPEG (owner only)
+	//
+	// Corresponds with GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg (the `ReadVideoThumbnail` operationId).
+	ReadVideoThumbnail(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadVideoFile A made revision's MP4, to play or download (owner only)
+	//
+	// Served with Range requests (206 Partial Content), in any state after it was made: review, approved or changes_requested.
+	//
+	// Corresponds with GET /videos/{video_id}/revisions/{rev}/video.mp4 (the `ReadVideoFile` operationId).
+	ReadVideoFile(ctx context.Context, videoId VideoID, rev VideoRev, params *ReadVideoFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// FetchWebWithBody Read a public web page as markdown; any token, a Bot's included
 	//
@@ -11673,6 +12194,44 @@ func (c *Client) RemoveAudioKey(ctx context.Context, provider AudioProvider, nam
 	return c.Client.Do(req)
 }
 
+// SetAudioVoiceWithBody Set the voice a provider speaks a video with when none is asked; only the owner
+//
+// Empty sets it back to the provider's own default. It counts from the next revision made.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+func (c *Client) SetAudioVoiceWithBody(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAudioVoiceRequestWithBody(c.Server, provider, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
+//
+// Empty sets it back to the provider's own default. It counts from the next revision made.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+func (c *Client) SetAudioVoice(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAudioVoiceRequest(c.Server, provider, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 //
 // Codex (gpt-image-2) and Antigravity (gemini-3.1-flash-image), each with its one model, in the owner's order, by default Codex first. A provider can make images while an account of it is logged in on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the Models page. It rests while each such account rests after a limit, until the vendor's reset.
@@ -11779,7 +12338,7 @@ func (c *Client) ListGatewayKeys(ctx context.Context, reqEditors ...RequestEdito
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKeyWithBody Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes any type of body and a specified content type.
 //
@@ -11796,7 +12355,7 @@ func (c *Client) CreateGatewayKeyWithBody(ctx context.Context, contentType strin
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes a body of the `application/json` content type.
 //
@@ -11818,6 +12377,55 @@ func (c *Client) CreateGatewayKey(ctx context.Context, body CreateGatewayKeyJSON
 // Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 func (c *Client) RevokeGatewayKey(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRevokeGatewayKeyRequest(c.Server, keyId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateGatewayKeyWithBody Edit an owner-made key without changing its value; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *Client) UpdateGatewayKeyWithBody(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateGatewayKeyRequestWithBody(c.Server, keyId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateGatewayKeyRequest(c.Server, keyId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+//
+// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+func (c *Client) GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGatewayKeyValueRequest(c.Server, keyId)
 	if err != nil {
 		return nil, err
 	}
@@ -13187,6 +13795,44 @@ func (c *Client) UploadMeetingWithBody(ctx context.Context, params *UploadMeetin
 	return c.Client.Do(req)
 }
 
+// StartLiveMeetingWithBody Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *Client) StartLiveMeetingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartLiveMeetingRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *Client) StartLiveMeeting(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartLiveMeetingRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 //
 // Corresponds with DELETE /meetings/{meeting_id} (the `DeleteMeeting` operationId).
@@ -13207,6 +13853,23 @@ func (c *Client) DeleteMeeting(ctx context.Context, meetingId MeetingID, reqEdit
 // Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 func (c *Client) GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMeetingRequest(c.Server, meetingId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EndLiveMeeting End a meeting being recorded; only the owner
+//
+// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+//
+// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+func (c *Client) EndLiveMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEndLiveMeetingRequest(c.Server, meetingId)
 	if err != nil {
 		return nil, err
 	}
@@ -13363,13 +14026,13 @@ func (c *Client) GetMeetingRecording(ctx context.Context, meetingId MeetingID, r
 
 // NameMeetingSpeakerWithBody Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes any type of body and a specified content type.
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *Client) NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewNameMeetingSpeakerRequestWithBody(c.Server, meetingId, label, contentType, body)
+func (c *Client) NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewNameMeetingSpeakerRequestWithBody(c.Server, meetingId, label, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -13382,13 +14045,47 @@ func (c *Client) NameMeetingSpeakerWithBody(ctx context.Context, meetingId Meeti
 
 // NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *Client) NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewNameMeetingSpeakerRequest(c.Server, meetingId, label, body)
+func (c *Client) NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewNameMeetingSpeakerRequest(c.Server, meetingId, label, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenMeetingTrackWithBody A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *Client) OpenMeetingTrackWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenMeetingTrackRequestWithBody(c.Server, meetingId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *Client) OpenMeetingTrack(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenMeetingTrackRequest(c.Server, meetingId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -15212,6 +15909,180 @@ func (c *Client) ReopenTask(ctx context.Context, taskId TaskID, reqEditors ...Re
 // Corresponds with GET /tools (the `ListTools` operationId).
 func (c *Client) ListTools(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListToolsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListVideos The videos made of takes, the newest first, each with its revisions (owner only; issue
+//
+// A video is made of one take: its dead time cut, a Vietnamese voice for each step, captions and a ring at each tap. Each make or change request adds a revision, made one at a time by the control plane's runner: queued, voicing, composing, captioning, then review; the owner approves one revision or asks for changes.
+//
+// Corresponds with GET /videos (the `ListVideos` operationId).
+func (c *Client) ListVideos(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListVideosRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MakeVideoWithBody Make a take into a video, or a new revision of its video (owner only)
+//
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /videos (the `MakeVideo` operationId).
+func (c *Client) MakeVideoWithBody(ctx context.Context, params *MakeVideoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMakeVideoRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MakeVideo Make a take into a video, or a new revision of its video (owner only)
+//
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /videos (the `MakeVideo` operationId).
+func (c *Client) MakeVideo(ctx context.Context, params *MakeVideoParams, body MakeVideoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMakeVideoRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteVideo Delete a video, its revisions and their files (owner only)
+//
+// Refused with conflict while one of its revisions is queued or being made.
+//
+// Corresponds with DELETE /videos/{video_id} (the `DeleteVideo` operationId).
+func (c *Client) DeleteVideo(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteVideoRequest(c.Server, videoId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetVideo A video with its revisions (owner only)
+//
+// Corresponds with GET /videos/{video_id} (the `GetVideo` operationId).
+func (c *Client) GetVideo(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetVideoRequest(c.Server, videoId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApproveVideoRevision Approve a revision in review; the one approved before goes back to review (owner only)
+//
+// An approved revision is approved already.
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/approve (the `ApproveVideoRevision` operationId).
+func (c *Client) ApproveVideoRevision(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApproveVideoRevisionRequest(c.Server, videoId, rev)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestVideoChangesWithBody Ask for changes to a revision in review (owner only)
+//
+// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+func (c *Client) RequestVideoChangesWithBody(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestVideoChangesRequestWithBody(c.Server, videoId, rev, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestVideoChanges Ask for changes to a revision in review (owner only)
+//
+// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+func (c *Client) RequestVideoChanges(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestVideoChangesRequest(c.Server, videoId, rev, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadVideoThumbnail A made revision's first frame, as a JPEG (owner only)
+//
+// Corresponds with GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg (the `ReadVideoThumbnail` operationId).
+func (c *Client) ReadVideoThumbnail(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadVideoThumbnailRequest(c.Server, videoId, rev)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadVideoFile A made revision's MP4, to play or download (owner only)
+//
+// Served with Range requests (206 Partial Content), in any state after it was made: review, approved or changes_requested.
+//
+// Corresponds with GET /videos/{video_id}/revisions/{rev}/video.mp4 (the `ReadVideoFile` operationId).
+func (c *Client) ReadVideoFile(ctx context.Context, videoId VideoID, rev VideoRev, params *ReadVideoFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadVideoFileRequest(c.Server, videoId, rev, params)
 	if err != nil {
 		return nil, err
 	}
@@ -19612,6 +20483,53 @@ func NewRemoveAudioKeyRequest(server string, provider AudioProvider, name string
 	return req, nil
 }
 
+// NewSetAudioVoiceRequest calls the generic SetAudioVoice builder with application/json body
+func NewSetAudioVoiceRequest(server string, provider AudioProvider, body SetAudioVoiceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetAudioVoiceRequestWithBody(server, provider, "application/json", bodyReader)
+}
+
+// NewSetAudioVoiceRequestWithBody constructs an http.Request for the SetAudioVoice method, with any body, and a specified content type
+func NewSetAudioVoiceRequestWithBody(server string, provider AudioProvider, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/audio/providers/%s/voice", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetImagesRequest constructs an http.Request for the GetImages method
 func NewGetImagesRequest(server string) (*http.Request, error) {
 	var err error
@@ -19820,6 +20738,87 @@ func NewRevokeGatewayKeyRequest(server string, keyId string) (*http.Request, err
 	}
 
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateGatewayKeyRequest calls the generic UpdateGatewayKey builder with application/json body
+func NewUpdateGatewayKeyRequest(server string, keyId string, body UpdateGatewayKeyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateGatewayKeyRequestWithBody(server, keyId, "application/json", bodyReader)
+}
+
+// NewUpdateGatewayKeyRequestWithBody constructs an http.Request for the UpdateGatewayKey method, with any body, and a specified content type
+func NewUpdateGatewayKeyRequestWithBody(server string, keyId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/keys/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetGatewayKeyValueRequest constructs an http.Request for the GetGatewayKeyValue method
+func NewGetGatewayKeyValueRequest(server string, keyId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/keys/%s/value", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -22570,6 +23569,46 @@ func NewUploadMeetingRequestWithBody(server string, params *UploadMeetingParams,
 	return req, nil
 }
 
+// NewStartLiveMeetingRequest calls the generic StartLiveMeeting builder with application/json body
+func NewStartLiveMeetingRequest(server string, body StartLiveMeetingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewStartLiveMeetingRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewStartLiveMeetingRequestWithBody constructs an http.Request for the StartLiveMeeting method, with any body, and a specified content type
+func NewStartLiveMeetingRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/live")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewDeleteMeetingRequest constructs an http.Request for the DeleteMeeting method
 func NewDeleteMeetingRequest(server string, meetingId MeetingID) (*http.Request, error) {
 	var err error
@@ -22631,6 +23670,40 @@ func NewGetMeetingRequest(server string, meetingId MeetingID) (*http.Request, er
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewEndLiveMeetingRequest constructs an http.Request for the EndLiveMeeting method
+func NewEndLiveMeetingRequest(server string, meetingId MeetingID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "meeting_id", meetingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/%s/end", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -22862,18 +23935,18 @@ func NewGetMeetingRecordingRequest(server string, meetingId MeetingID) (*http.Re
 }
 
 // NewNameMeetingSpeakerRequest calls the generic NameMeetingSpeaker builder with application/json body
-func NewNameMeetingSpeakerRequest(server string, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody) (*http.Request, error) {
+func NewNameMeetingSpeakerRequest(server string, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewNameMeetingSpeakerRequestWithBody(server, meetingId, label, "application/json", bodyReader)
+	return NewNameMeetingSpeakerRequestWithBody(server, meetingId, label, params, "application/json", bodyReader)
 }
 
 // NewNameMeetingSpeakerRequestWithBody constructs an http.Request for the NameMeetingSpeaker method, with any body, and a specified content type
-func NewNameMeetingSpeakerRequestWithBody(server string, meetingId MeetingID, label string, contentType string, body io.Reader) (*http.Request, error) {
+func NewNameMeetingSpeakerRequestWithBody(server string, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -22905,7 +23978,81 @@ func NewNameMeetingSpeakerRequestWithBody(server string, meetingId MeetingID, la
 		return nil, err
 	}
 
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Track != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "track", *params.Track, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
 	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewOpenMeetingTrackRequest calls the generic OpenMeetingTrack builder with application/json body
+func NewOpenMeetingTrackRequest(server string, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewOpenMeetingTrackRequestWithBody(server, meetingId, "application/json", bodyReader)
+}
+
+// NewOpenMeetingTrackRequestWithBody constructs an http.Request for the OpenMeetingTrack method, with any body, and a specified content type
+func NewOpenMeetingTrackRequestWithBody(server string, meetingId MeetingID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "meeting_id", meetingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/%s/tickets", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -26568,6 +27715,363 @@ func NewListToolsRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListVideosRequest constructs an http.Request for the ListVideos method
+func NewListVideosRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewMakeVideoRequest calls the generic MakeVideo builder with application/json body
+func NewMakeVideoRequest(server string, params *MakeVideoParams, body MakeVideoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewMakeVideoRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewMakeVideoRequestWithBody constructs an http.Request for the MakeVideo method, with any body, and a specified content type
+func NewMakeVideoRequestWithBody(server string, params *MakeVideoParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IdempotencyKey != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Idempotency-Key", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewDeleteVideoRequest constructs an http.Request for the DeleteVideo method
+func NewDeleteVideoRequest(server string, videoId VideoID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetVideoRequest constructs an http.Request for the GetVideo method
+func NewGetVideoRequest(server string, videoId VideoID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewApproveVideoRevisionRequest constructs an http.Request for the ApproveVideoRevision method
+func NewApproveVideoRevisionRequest(server string, videoId VideoID, rev VideoRev) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "rev", rev, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s/revisions/%s/approve", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRequestVideoChangesRequest calls the generic RequestVideoChanges builder with application/json body
+func NewRequestVideoChangesRequest(server string, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestVideoChangesRequestWithBody(server, videoId, rev, params, "application/json", bodyReader)
+}
+
+// NewRequestVideoChangesRequestWithBody constructs an http.Request for the RequestVideoChanges method, with any body, and a specified content type
+func NewRequestVideoChangesRequestWithBody(server string, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "rev", rev, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s/revisions/%s/changes", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IdempotencyKey != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Idempotency-Key", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewReadVideoThumbnailRequest constructs an http.Request for the ReadVideoThumbnail method
+func NewReadVideoThumbnailRequest(server string, videoId VideoID, rev VideoRev) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "rev", rev, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s/revisions/%s/thumbnail.jpg", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadVideoFileRequest constructs an http.Request for the ReadVideoFile method
+func NewReadVideoFileRequest(server string, videoId VideoID, rev VideoRev, params *ReadVideoFileParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "rev", rev, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s/revisions/%s/video.mp4", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Range != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Range", *params.Range, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Range", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewFetchWebRequest calls the generic FetchWeb builder with application/json body
 func NewFetchWebRequest(server string, body FetchWebJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -27672,6 +29176,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKeyWithResponse(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*RemoveAudioKeyResponse, error)
 
+	// SetAudioVoiceWithBodyWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
+	//
+	// Empty sets it back to the provider's own default. It counts from the next revision made.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+	SetAudioVoiceWithBodyWithResponse(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioVoiceResponse, error)
+
+	// SetAudioVoiceWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
+	//
+	// Empty sets it back to the provider's own default. It counts from the next revision made.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+	SetAudioVoiceWithResponse(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioVoiceResponse, error)
+
 	// GetImagesWithResponse The image providers in the order a request asks them, each with its switch, state, model and usage
 	//
 	// Codex (gpt-image-2) and Antigravity (gemini-3.1-flash-image), each with its one model, in the owner's order, by default Codex first. A provider can make images while an account of it is logged in on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the Models page. It rests while each such account rests after a limit, until the vendor's reset.
@@ -27722,14 +29244,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeysWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGatewayKeysResponse, error)
 
-	// CreateGatewayKeyWithBodyWithResponse Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGatewayKeyResponse, error)
 
-	// CreateGatewayKeyWithResponse Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -27742,6 +29264,27 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 	RevokeGatewayKeyWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*RevokeGatewayKeyResponse, error)
+
+	// UpdateGatewayKeyWithBodyWithResponse Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithBodyWithResponse(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error)
+
+	// UpdateGatewayKeyWithResponse Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithResponse(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error)
+
+	// GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+	GetGatewayKeyValueWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*GetGatewayKeyValueResponse, error)
 
 	// ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
 	//
@@ -28396,6 +29939,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /meetings (the `UploadMeeting` operationId).
 	UploadMeetingWithBodyWithResponse(ctx context.Context, params *UploadMeetingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadMeetingResponse, error)
 
+	// StartLiveMeetingWithBodyWithResponse Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeetingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error)
+
+	// StartLiveMeetingWithResponse Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeetingWithResponse(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error)
+
 	// DeleteMeetingWithResponse Delete a meeting with its recording, transcript and notes; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -28409,6 +29970,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*GetMeetingResponse, error)
+
+	// EndLiveMeetingWithResponse End a meeting being recorded; only the owner
+	//
+	// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+	EndLiveMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*EndLiveMeetingResponse, error)
 
 	// FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
 	//
@@ -28480,21 +30050,35 @@ type ClientWithResponsesInterface interface {
 
 	// NameMeetingSpeakerWithBodyWithResponse Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
+	NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
 
 	// NameMeetingSpeakerWithResponse Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
+	NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
+
+	// OpenMeetingTrackWithBodyWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrackWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error)
+
+	// OpenMeetingTrackWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrackWithResponse(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error)
 
 	// ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
 	//
@@ -29356,6 +30940,92 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /tools (the `ListTools` operationId).
 	ListToolsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListToolsResponse, error)
+
+	// ListVideosWithResponse The videos made of takes, the newest first, each with its revisions (owner only; issue
+	//
+	// A video is made of one take: its dead time cut, a Vietnamese voice for each step, captions and a ring at each tap. Each make or change request adds a revision, made one at a time by the control plane's runner: queued, voicing, composing, captioning, then review; the owner approves one revision or asks for changes.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos (the `ListVideos` operationId).
+	ListVideosWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideosResponse, error)
+
+	// MakeVideoWithBodyWithResponse Make a take into a video, or a new revision of its video (owner only)
+	//
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos (the `MakeVideo` operationId).
+	MakeVideoWithBodyWithResponse(ctx context.Context, params *MakeVideoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MakeVideoResponse, error)
+
+	// MakeVideoWithResponse Make a take into a video, or a new revision of its video (owner only)
+	//
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos (the `MakeVideo` operationId).
+	MakeVideoWithResponse(ctx context.Context, params *MakeVideoParams, body MakeVideoJSONRequestBody, reqEditors ...RequestEditorFn) (*MakeVideoResponse, error)
+
+	// DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
+	//
+	// Refused with conflict while one of its revisions is queued or being made.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /videos/{video_id} (the `DeleteVideo` operationId).
+	DeleteVideoWithResponse(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*DeleteVideoResponse, error)
+
+	// GetVideoWithResponse A video with its revisions (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/{video_id} (the `GetVideo` operationId).
+	GetVideoWithResponse(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*GetVideoResponse, error)
+
+	// ApproveVideoRevisionWithResponse Approve a revision in review; the one approved before goes back to review (owner only)
+	//
+	// An approved revision is approved already.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/approve (the `ApproveVideoRevision` operationId).
+	ApproveVideoRevisionWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*ApproveVideoRevisionResponse, error)
+
+	// RequestVideoChangesWithBodyWithResponse Ask for changes to a revision in review (owner only)
+	//
+	// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+	RequestVideoChangesWithBodyWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestVideoChangesResponse, error)
+
+	// RequestVideoChangesWithResponse Ask for changes to a revision in review (owner only)
+	//
+	// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+	RequestVideoChangesWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestVideoChangesResponse, error)
+
+	// ReadVideoThumbnailWithResponse A made revision's first frame, as a JPEG (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg (the `ReadVideoThumbnail` operationId).
+	ReadVideoThumbnailWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*ReadVideoThumbnailResponse, error)
+
+	// ReadVideoFileWithResponse A made revision's MP4, to play or download (owner only)
+	//
+	// Served with Range requests (206 Partial Content), in any state after it was made: review, approved or changes_requested.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/{video_id}/revisions/{rev}/video.mp4 (the `ReadVideoFile` operationId).
+	ReadVideoFileWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *ReadVideoFileParams, reqEditors ...RequestEditorFn) (*ReadVideoFileResponse, error)
 
 	// FetchWebWithBodyWithResponse Read a public web page as markdown; any token, a Bot's included
 	//
@@ -33486,6 +35156,54 @@ func (r RemoveAudioKeyResponse) ContentType() string {
 	return ""
 }
 
+type SetAudioVoiceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Audio
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetAudioVoiceResponse) GetJSON200() *Audio {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetAudioVoiceResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetAudioVoiceResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetAudioVoiceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetAudioVoiceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetAudioVoiceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetImagesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -33761,6 +35479,116 @@ func (r RevokeGatewayKeyResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RevokeGatewayKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateGatewayKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GatewayKey
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateGatewayKeyResponse) GetJSON200() *GatewayKey {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateGatewayKeyResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateGatewayKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateGatewayKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateGatewayKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateGatewayKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetGatewayKeyValueResponse200Headers the declared response headers of an HTTP 200 response for GetGatewayKeyValue
+type GetGatewayKeyValueResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetGatewayKeyValueResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GatewayKeyValue
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetGatewayKeyValueResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSON200() *GatewayKeyValue {
+	return r.JSON200
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetGatewayKeyValueResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGatewayKeyValueResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGatewayKeyValueResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetGatewayKeyValueResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -36385,6 +38213,54 @@ func (r UploadMeetingResponse) ContentType() string {
 	return ""
 }
 
+type StartLiveMeetingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Meeting
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r StartLiveMeetingResponse) GetJSON201() *Meeting {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StartLiveMeetingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StartLiveMeetingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartLiveMeetingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartLiveMeetingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartLiveMeetingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteMeetingResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -36468,6 +38344,54 @@ func (r GetMeetingResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetMeetingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EndLiveMeetingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Meeting
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r EndLiveMeetingResponse) GetJSON200() *Meeting {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r EndLiveMeetingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r EndLiveMeetingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EndLiveMeetingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EndLiveMeetingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EndLiveMeetingResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -36749,6 +38673,54 @@ func (r NameMeetingSpeakerResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r NameMeetingSpeakerResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type OpenMeetingTrackResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *TerminalTicket
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r OpenMeetingTrackResponse) GetJSON201() *TerminalTicket {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r OpenMeetingTrackResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r OpenMeetingTrackResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OpenMeetingTrackResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OpenMeetingTrackResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OpenMeetingTrackResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -40861,6 +42833,369 @@ func (r ListToolsResponse) ContentType() string {
 	return ""
 }
 
+type ListVideosResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *VideoList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListVideosResponse) GetJSON200() *VideoList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListVideosResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListVideosResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListVideosResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListVideosResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListVideosResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MakeVideoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Video
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r MakeVideoResponse) GetJSON201() *Video {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r MakeVideoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r MakeVideoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MakeVideoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MakeVideoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MakeVideoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteVideoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteVideoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteVideoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteVideoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteVideoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteVideoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetVideoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Video
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetVideoResponse) GetJSON200() *Video {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetVideoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetVideoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetVideoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetVideoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetVideoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ApproveVideoRevisionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Video
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ApproveVideoRevisionResponse) GetJSON200() *Video {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ApproveVideoRevisionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ApproveVideoRevisionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ApproveVideoRevisionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ApproveVideoRevisionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ApproveVideoRevisionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RequestVideoChangesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Video
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RequestVideoChangesResponse) GetJSON200() *Video {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RequestVideoChangesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RequestVideoChangesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestVideoChangesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestVideoChangesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RequestVideoChangesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReadVideoThumbnailResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReadVideoThumbnailResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadVideoThumbnailResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadVideoThumbnailResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadVideoThumbnailResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadVideoThumbnailResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReadVideoFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReadVideoFileResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadVideoFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadVideoFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadVideoFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadVideoFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type FetchWebResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -42657,6 +44992,36 @@ func (c *ClientWithResponses) RemoveAudioKeyWithResponse(ctx context.Context, pr
 	return ParseRemoveAudioKeyResponse(rsp)
 }
 
+// SetAudioVoiceWithBodyWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
+//
+// Empty sets it back to the provider's own default. It counts from the next revision made.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+func (c *ClientWithResponses) SetAudioVoiceWithBodyWithResponse(ctx context.Context, provider AudioProvider, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioVoiceResponse, error) {
+	rsp, err := c.SetAudioVoiceWithBody(ctx, provider, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAudioVoiceResponse(rsp)
+}
+
+// SetAudioVoiceWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
+//
+// Empty sets it back to the provider's own default. It counts from the next revision made.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
+func (c *ClientWithResponses) SetAudioVoiceWithResponse(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioVoiceResponse, error) {
+	rsp, err := c.SetAudioVoice(ctx, provider, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAudioVoiceResponse(rsp)
+}
+
 // GetImagesWithResponse The image providers in the order a request asks them, each with its switch, state, model and usage
 //
 // Codex (gpt-image-2) and Antigravity (gemini-3.1-flash-image), each with its one model, in the owner's order, by default Codex first. A provider can make images while an account of it is logged in on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the Models page. It rests while each such account rests after a limit, until the vendor's reset.
@@ -42743,7 +45108,7 @@ func (c *ClientWithResponses) ListGatewayKeysWithResponse(ctx context.Context, r
 	return ParseListGatewayKeysResponse(rsp)
 }
 
-// CreateGatewayKeyWithBodyWithResponse Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -42756,7 +45121,7 @@ func (c *ClientWithResponses) CreateGatewayKeyWithBodyWithResponse(ctx context.C
 	return ParseCreateGatewayKeyResponse(rsp)
 }
 
-// CreateGatewayKeyWithResponse Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -42780,6 +45145,45 @@ func (c *ClientWithResponses) RevokeGatewayKeyWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseRevokeGatewayKeyResponse(rsp)
+}
+
+// UpdateGatewayKeyWithBodyWithResponse Edit an owner-made key without changing its value; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *ClientWithResponses) UpdateGatewayKeyWithBodyWithResponse(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error) {
+	rsp, err := c.UpdateGatewayKeyWithBody(ctx, keyId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateGatewayKeyResponse(rsp)
+}
+
+// UpdateGatewayKeyWithResponse Edit an owner-made key without changing its value; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error) {
+	rsp, err := c.UpdateGatewayKey(ctx, keyId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateGatewayKeyResponse(rsp)
+}
+
+// GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+func (c *ClientWithResponses) GetGatewayKeyValueWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*GetGatewayKeyValueResponse, error) {
+	rsp, err := c.GetGatewayKeyValue(ctx, keyId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGatewayKeyValueResponse(rsp)
 }
 
 // ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
@@ -43897,6 +46301,36 @@ func (c *ClientWithResponses) UploadMeetingWithBodyWithResponse(ctx context.Cont
 	return ParseUploadMeetingResponse(rsp)
 }
 
+// StartLiveMeetingWithBodyWithResponse Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *ClientWithResponses) StartLiveMeetingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error) {
+	rsp, err := c.StartLiveMeetingWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartLiveMeetingResponse(rsp)
+}
+
+// StartLiveMeetingWithResponse Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *ClientWithResponses) StartLiveMeetingWithResponse(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error) {
+	rsp, err := c.StartLiveMeeting(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartLiveMeetingResponse(rsp)
+}
+
 // DeleteMeetingWithResponse Delete a meeting with its recording, transcript and notes; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
@@ -43921,6 +46355,21 @@ func (c *ClientWithResponses) GetMeetingWithResponse(ctx context.Context, meetin
 		return nil, err
 	}
 	return ParseGetMeetingResponse(rsp)
+}
+
+// EndLiveMeetingWithResponse End a meeting being recorded; only the owner
+//
+// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+func (c *ClientWithResponses) EndLiveMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*EndLiveMeetingResponse, error) {
+	rsp, err := c.EndLiveMeeting(ctx, meetingId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEndLiveMeetingResponse(rsp)
 }
 
 // FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
@@ -44041,13 +46490,13 @@ func (c *ClientWithResponses) GetMeetingRecordingWithResponse(ctx context.Contex
 
 // NameMeetingSpeakerWithBodyWithResponse Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *ClientWithResponses) NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
-	rsp, err := c.NameMeetingSpeakerWithBody(ctx, meetingId, label, contentType, body, reqEditors...)
+func (c *ClientWithResponses) NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
+	rsp, err := c.NameMeetingSpeakerWithBody(ctx, meetingId, label, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -44056,17 +46505,43 @@ func (c *ClientWithResponses) NameMeetingSpeakerWithBodyWithResponse(ctx context
 
 // NameMeetingSpeakerWithResponse Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *ClientWithResponses) NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
-	rsp, err := c.NameMeetingSpeaker(ctx, meetingId, label, body, reqEditors...)
+func (c *ClientWithResponses) NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
+	rsp, err := c.NameMeetingSpeaker(ctx, meetingId, label, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseNameMeetingSpeakerResponse(rsp)
+}
+
+// OpenMeetingTrackWithBodyWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *ClientWithResponses) OpenMeetingTrackWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error) {
+	rsp, err := c.OpenMeetingTrackWithBody(ctx, meetingId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenMeetingTrackResponse(rsp)
+}
+
+// OpenMeetingTrackWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *ClientWithResponses) OpenMeetingTrackWithResponse(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error) {
+	rsp, err := c.OpenMeetingTrack(ctx, meetingId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenMeetingTrackResponse(rsp)
 }
 
 // ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
@@ -45582,6 +48057,152 @@ func (c *ClientWithResponses) ListToolsWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseListToolsResponse(rsp)
+}
+
+// ListVideosWithResponse The videos made of takes, the newest first, each with its revisions (owner only; issue
+//
+// A video is made of one take: its dead time cut, a Vietnamese voice for each step, captions and a ring at each tap. Each make or change request adds a revision, made one at a time by the control plane's runner: queued, voicing, composing, captioning, then review; the owner approves one revision or asks for changes.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos (the `ListVideos` operationId).
+func (c *ClientWithResponses) ListVideosWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideosResponse, error) {
+	rsp, err := c.ListVideos(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListVideosResponse(rsp)
+}
+
+// MakeVideoWithBodyWithResponse Make a take into a video, or a new revision of its video (owner only)
+//
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos (the `MakeVideo` operationId).
+func (c *ClientWithResponses) MakeVideoWithBodyWithResponse(ctx context.Context, params *MakeVideoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MakeVideoResponse, error) {
+	rsp, err := c.MakeVideoWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMakeVideoResponse(rsp)
+}
+
+// MakeVideoWithResponse Make a take into a video, or a new revision of its video (owner only)
+//
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos (the `MakeVideo` operationId).
+func (c *ClientWithResponses) MakeVideoWithResponse(ctx context.Context, params *MakeVideoParams, body MakeVideoJSONRequestBody, reqEditors ...RequestEditorFn) (*MakeVideoResponse, error) {
+	rsp, err := c.MakeVideo(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMakeVideoResponse(rsp)
+}
+
+// DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
+//
+// Refused with conflict while one of its revisions is queued or being made.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /videos/{video_id} (the `DeleteVideo` operationId).
+func (c *ClientWithResponses) DeleteVideoWithResponse(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*DeleteVideoResponse, error) {
+	rsp, err := c.DeleteVideo(ctx, videoId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteVideoResponse(rsp)
+}
+
+// GetVideoWithResponse A video with its revisions (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/{video_id} (the `GetVideo` operationId).
+func (c *ClientWithResponses) GetVideoWithResponse(ctx context.Context, videoId VideoID, reqEditors ...RequestEditorFn) (*GetVideoResponse, error) {
+	rsp, err := c.GetVideo(ctx, videoId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetVideoResponse(rsp)
+}
+
+// ApproveVideoRevisionWithResponse Approve a revision in review; the one approved before goes back to review (owner only)
+//
+// An approved revision is approved already.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/approve (the `ApproveVideoRevision` operationId).
+func (c *ClientWithResponses) ApproveVideoRevisionWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*ApproveVideoRevisionResponse, error) {
+	rsp, err := c.ApproveVideoRevision(ctx, videoId, rev, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApproveVideoRevisionResponse(rsp)
+}
+
+// RequestVideoChangesWithBodyWithResponse Ask for changes to a revision in review (owner only)
+//
+// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+func (c *ClientWithResponses) RequestVideoChangesWithBodyWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestVideoChangesResponse, error) {
+	rsp, err := c.RequestVideoChangesWithBody(ctx, videoId, rev, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestVideoChangesResponse(rsp)
+}
+
+// RequestVideoChangesWithResponse Ask for changes to a revision in review (owner only)
+//
+// The revision becomes changes_requested, with the note for the agent. When lines are given and differ from the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the video is made again whole. A note alone starts nothing. An approved revision is never changed: asking for changes to one is refused with conflict.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
+func (c *ClientWithResponses) RequestVideoChangesWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestVideoChangesResponse, error) {
+	rsp, err := c.RequestVideoChanges(ctx, videoId, rev, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestVideoChangesResponse(rsp)
+}
+
+// ReadVideoThumbnailWithResponse A made revision's first frame, as a JPEG (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg (the `ReadVideoThumbnail` operationId).
+func (c *ClientWithResponses) ReadVideoThumbnailWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, reqEditors ...RequestEditorFn) (*ReadVideoThumbnailResponse, error) {
+	rsp, err := c.ReadVideoThumbnail(ctx, videoId, rev, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadVideoThumbnailResponse(rsp)
+}
+
+// ReadVideoFileWithResponse A made revision's MP4, to play or download (owner only)
+//
+// Served with Range requests (206 Partial Content), in any state after it was made: review, approved or changes_requested.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/{video_id}/revisions/{rev}/video.mp4 (the `ReadVideoFile` operationId).
+func (c *ClientWithResponses) ReadVideoFileWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *ReadVideoFileParams, reqEditors ...RequestEditorFn) (*ReadVideoFileResponse, error) {
+	rsp, err := c.ReadVideoFile(ctx, videoId, rev, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadVideoFileResponse(rsp)
 }
 
 // FetchWebWithBodyWithResponse Read a public web page as markdown; any token, a Bot's included
@@ -48467,6 +51088,39 @@ func ParseRemoveAudioKeyResponse(rsp *http.Response) (*RemoveAudioKeyResponse, e
 	return response, nil
 }
 
+// ParseSetAudioVoiceResponse parses an HTTP response from a SetAudioVoiceWithResponse call
+func ParseSetAudioVoiceResponse(rsp *http.Response) (*SetAudioVoiceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetAudioVoiceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Audio
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetImagesResponse parses an HTTP response from a GetImagesWithResponse call
 func ParseGetImagesResponse(rsp *http.Response) (*GetImagesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -48656,6 +51310,92 @@ func ParseRevokeGatewayKeyResponse(rsp *http.Response) (*RevokeGatewayKeyRespons
 		}
 		response.JSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseUpdateGatewayKeyResponse parses an HTTP response from a UpdateGatewayKeyWithResponse call
+func ParseUpdateGatewayKeyResponse(rsp *http.Response) (*UpdateGatewayKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateGatewayKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GatewayKey
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetGatewayKeyValueResponse parses an HTTP response from a GetGatewayKeyValueWithResponse call
+func ParseGetGatewayKeyValueResponse(rsp *http.Response) (*GetGatewayKeyValueResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGatewayKeyValueResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GatewayKeyValue
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetGatewayKeyValueResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil
@@ -50463,6 +53203,39 @@ func ParseUploadMeetingResponse(rsp *http.Response) (*UploadMeetingResponse, err
 	return response, nil
 }
 
+// ParseStartLiveMeetingResponse parses an HTTP response from a StartLiveMeetingWithResponse call
+func ParseStartLiveMeetingResponse(rsp *http.Response) (*StartLiveMeetingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartLiveMeetingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Meeting
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteMeetingResponse parses an HTTP response from a DeleteMeetingWithResponse call
 func ParseDeleteMeetingResponse(rsp *http.Response) (*DeleteMeetingResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -50508,6 +53281,39 @@ func ParseGetMeetingResponse(rsp *http.Response) (*GetMeetingResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest MeetingDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEndLiveMeetingResponse parses an HTTP response from a EndLiveMeetingWithResponse call
+func ParseEndLiveMeetingResponse(rsp *http.Response) (*EndLiveMeetingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EndLiveMeetingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Meeting
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -50703,6 +53509,39 @@ func ParseNameMeetingSpeakerResponse(rsp *http.Response) (*NameMeetingSpeakerRes
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOpenMeetingTrackResponse parses an HTTP response from a OpenMeetingTrackWithResponse call
+func ParseOpenMeetingTrackResponse(rsp *http.Response) (*OpenMeetingTrackResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OpenMeetingTrackResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest TerminalTicket
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -53574,6 +56413,252 @@ func ParseListToolsResponse(rsp *http.Response) (*ListToolsResponse, error) {
 	return response, nil
 }
 
+// ParseListVideosResponse parses an HTTP response from a ListVideosWithResponse call
+func ParseListVideosResponse(rsp *http.Response) (*ListVideosResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListVideosResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VideoList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMakeVideoResponse parses an HTTP response from a MakeVideoWithResponse call
+func ParseMakeVideoResponse(rsp *http.Response) (*MakeVideoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MakeVideoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Video
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteVideoResponse parses an HTTP response from a DeleteVideoWithResponse call
+func ParseDeleteVideoResponse(rsp *http.Response) (*DeleteVideoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteVideoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetVideoResponse parses an HTTP response from a GetVideoWithResponse call
+func ParseGetVideoResponse(rsp *http.Response) (*GetVideoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetVideoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Video
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseApproveVideoRevisionResponse parses an HTTP response from a ApproveVideoRevisionWithResponse call
+func ParseApproveVideoRevisionResponse(rsp *http.Response) (*ApproveVideoRevisionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ApproveVideoRevisionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Video
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRequestVideoChangesResponse parses an HTTP response from a RequestVideoChangesWithResponse call
+func ParseRequestVideoChangesResponse(rsp *http.Response) (*RequestVideoChangesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestVideoChangesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Video
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadVideoThumbnailResponse parses an HTTP response from a ReadVideoThumbnailWithResponse call
+func ParseReadVideoThumbnailResponse(rsp *http.Response) (*ReadVideoThumbnailResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadVideoThumbnailResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadVideoFileResponse parses an HTTP response from a ReadVideoFileWithResponse call
+func ParseReadVideoFileResponse(rsp *http.Response) (*ReadVideoFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadVideoFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseFetchWebResponse parses an HTTP response from a FetchWebWithResponse call
 func ParseFetchWebResponse(rsp *http.Response) (*FetchWebResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -53903,6 +56988,9 @@ type ServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(w http.ResponseWriter, r *http.Request, provider AudioProvider, name string)
+	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
+	// (PUT /gateway/audio/providers/{provider}/voice)
+	SetAudioVoice(w http.ResponseWriter, r *http.Request, provider AudioProvider)
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	// (GET /gateway/images)
 	GetImages(w http.ResponseWriter, r *http.Request)
@@ -53915,12 +57003,18 @@ type ServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(w http.ResponseWriter, r *http.Request)
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(w http.ResponseWriter, r *http.Request)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
 	// (DELETE /gateway/keys/{key_id})
 	RevokeGatewayKey(w http.ResponseWriter, r *http.Request, keyId string)
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	// (PATCH /gateway/keys/{key_id})
+	UpdateGatewayKey(w http.ResponseWriter, r *http.Request, keyId string)
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/value)
+	GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(w http.ResponseWriter, r *http.Request)
@@ -54086,12 +57180,18 @@ type ServerInterface interface {
 	// UploadMeeting Upload a meeting's recording, at most 128 MB; only the owner
 	// (POST /meetings)
 	UploadMeeting(w http.ResponseWriter, r *http.Request, params UploadMeetingParams)
+	// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+	// (POST /meetings/live)
+	StartLiveMeeting(w http.ResponseWriter, r *http.Request)
 	// DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 	// (DELETE /meetings/{meeting_id})
 	DeleteMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
+	// EndLiveMeeting End a meeting being recorded; only the owner
+	// (POST /meetings/{meeting_id}/end)
+	EndLiveMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
 	// (POST /meetings/{meeting_id}/fix)
 	FixMeetingWord(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
@@ -54109,7 +57209,10 @@ type ServerInterface interface {
 	GetMeetingRecording(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	// (PUT /meetings/{meeting_id}/speakers/{label})
-	NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string)
+	NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string, params NameMeetingSpeakerParams)
+	// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	// (POST /meetings/{meeting_id}/tickets)
+	OpenMeetingTrack(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 	// (GET /memory-notes)
 	ListMemoryNotes(w http.ResponseWriter, r *http.Request, params ListMemoryNotesParams)
@@ -54371,6 +57474,30 @@ type ServerInterface interface {
 	// ListTools Hypomnema's tools by family, the names a profile's or a Bot's tools and tools_off take (issue #536)
 	// (GET /tools)
 	ListTools(w http.ResponseWriter, r *http.Request)
+	// ListVideos The videos made of takes, the newest first, each with its revisions (owner only; issue
+	// (GET /videos)
+	ListVideos(w http.ResponseWriter, r *http.Request)
+	// MakeVideo Make a take into a video, or a new revision of its video (owner only)
+	// (POST /videos)
+	MakeVideo(w http.ResponseWriter, r *http.Request, params MakeVideoParams)
+	// DeleteVideo Delete a video, its revisions and their files (owner only)
+	// (DELETE /videos/{video_id})
+	DeleteVideo(w http.ResponseWriter, r *http.Request, videoId VideoID)
+	// GetVideo A video with its revisions (owner only)
+	// (GET /videos/{video_id})
+	GetVideo(w http.ResponseWriter, r *http.Request, videoId VideoID)
+	// ApproveVideoRevision Approve a revision in review; the one approved before goes back to review (owner only)
+	// (POST /videos/{video_id}/revisions/{rev}/approve)
+	ApproveVideoRevision(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev)
+	// RequestVideoChanges Ask for changes to a revision in review (owner only)
+	// (POST /videos/{video_id}/revisions/{rev}/changes)
+	RequestVideoChanges(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params RequestVideoChangesParams)
+	// ReadVideoThumbnail A made revision's first frame, as a JPEG (owner only)
+	// (GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg)
+	ReadVideoThumbnail(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev)
+	// ReadVideoFile A made revision's MP4, to play or download (owner only)
+	// (GET /videos/{video_id}/revisions/{rev}/video.mp4)
+	ReadVideoFile(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params ReadVideoFileParams)
 	// FetchWeb Read a public web page as markdown; any token, a Bot's included
 	// (POST /web/fetch)
 	FetchWeb(w http.ResponseWriter, r *http.Request)
@@ -57294,6 +60421,32 @@ func (siw *ServerInterfaceWrapper) RemoveAudioKey(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// SetAudioVoice operation middleware
+func (siw *ServerInterfaceWrapper) SetAudioVoice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider AudioProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAudioVoice(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetImages operation middleware
 func (siw *ServerInterfaceWrapper) GetImages(w http.ResponseWriter, r *http.Request) {
 
@@ -57393,6 +60546,58 @@ func (siw *ServerInterfaceWrapper) RevokeGatewayKey(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RevokeGatewayKey(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateGatewayKey operation middleware
+func (siw *ServerInterfaceWrapper) UpdateGatewayKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateGatewayKey(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGatewayKeyValue operation middleware
+func (siw *ServerInterfaceWrapper) GetGatewayKeyValue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGatewayKeyValue(w, r, keyId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -59313,6 +62518,20 @@ func (siw *ServerInterfaceWrapper) UploadMeeting(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// StartLiveMeeting operation middleware
+func (siw *ServerInterfaceWrapper) StartLiveMeeting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartLiveMeeting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteMeeting operation middleware
 func (siw *ServerInterfaceWrapper) DeleteMeeting(w http.ResponseWriter, r *http.Request) {
 
@@ -59356,6 +62575,32 @@ func (siw *ServerInterfaceWrapper) GetMeeting(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMeeting(w, r, meetingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EndLiveMeeting operation middleware
+func (siw *ServerInterfaceWrapper) EndLiveMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meeting_id" -------------
+	var meetingId MeetingID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meeting_id", r.PathValue("meeting_id"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meeting_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EndLiveMeeting(w, r, meetingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -59537,8 +62782,50 @@ func (siw *ServerInterfaceWrapper) NameMeetingSpeaker(w http.ResponseWriter, r *
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params NameMeetingSpeakerParams
+
+	// ------------- Optional query parameter "track" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "track", r.URL.Query(), &params.Track, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "track"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "track", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.NameMeetingSpeaker(w, r, meetingId, label)
+		siw.Handler.NameMeetingSpeaker(w, r, meetingId, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OpenMeetingTrack operation middleware
+func (siw *ServerInterfaceWrapper) OpenMeetingTrack(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meeting_id" -------------
+	var meetingId MeetingID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meeting_id", r.PathValue("meeting_id"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meeting_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenMeetingTrack(w, r, meetingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -62034,6 +65321,301 @@ func (siw *ServerInterfaceWrapper) ListTools(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListVideos operation middleware
+func (siw *ServerInterfaceWrapper) ListVideos(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVideos(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MakeVideo operation middleware
+func (siw *ServerInterfaceWrapper) MakeVideo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params MakeVideoParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MakeVideo(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteVideo operation middleware
+func (siw *ServerInterfaceWrapper) DeleteVideo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteVideo(w, r, videoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVideo operation middleware
+func (siw *ServerInterfaceWrapper) GetVideo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVideo(w, r, videoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApproveVideoRevision operation middleware
+func (siw *ServerInterfaceWrapper) ApproveVideoRevision(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "rev" -------------
+	var rev VideoRev
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rev", r.PathValue("rev"), &rev, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rev", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApproveVideoRevision(w, r, videoId, rev)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestVideoChanges operation middleware
+func (siw *ServerInterfaceWrapper) RequestVideoChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "rev" -------------
+	var rev VideoRev
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rev", r.PathValue("rev"), &rev, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rev", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RequestVideoChangesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestVideoChanges(w, r, videoId, rev, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadVideoThumbnail operation middleware
+func (siw *ServerInterfaceWrapper) ReadVideoThumbnail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "rev" -------------
+	var rev VideoRev
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rev", r.PathValue("rev"), &rev, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rev", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadVideoThumbnail(w, r, videoId, rev)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadVideoFile operation middleware
+func (siw *ServerInterfaceWrapper) ReadVideoFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "rev" -------------
+	var rev VideoRev
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rev", r.PathValue("rev"), &rev, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rev", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReadVideoFileParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadVideoFile(w, r, videoId, rev, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // FetchWeb operation middleware
 func (siw *ServerInterfaceWrapper) FetchWeb(w http.ResponseWriter, r *http.Request) {
 
@@ -62221,6 +65803,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}", wrapper.GetTake)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/segments/{file}", wrapper.ReadTakeSegment)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/archive", wrapper.GetTakeArchive)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos", wrapper.ListVideos)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos", wrapper.MakeVideo)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/videos/{video_id}", wrapper.DeleteVideo)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/{video_id}", wrapper.GetVideo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/approve", wrapper.ApproveVideoRevision)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/changes", wrapper.RequestVideoChanges)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/video.mp4", wrapper.ReadVideoFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/thumbnail.jpg", wrapper.ReadVideoThumbnail)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/resume", wrapper.ResumeNode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
@@ -62283,6 +65873,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys", wrapper.ListGatewayKeys)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/keys", wrapper.CreateGatewayKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.RevokeGatewayKey)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.UpdateGatewayKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys/{key_id}/value", wrapper.GetGatewayKeyValue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage", wrapper.GetGatewayUsage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage/requests", wrapper.ListGatewayRequests)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/web-search", wrapper.GetWebSearch)
@@ -62304,6 +65896,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/providers/{provider}", wrapper.SetAudioProvider)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/audio/providers/{provider}/keys", wrapper.AddAudioKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/audio/providers/{provider}/keys/{name}", wrapper.RemoveAudioKey)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/providers/{provider}/voice", wrapper.SetAudioVoice)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/order/{kind}", wrapper.SetAudioOrder)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots", wrapper.ListBots)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots", wrapper.CreateBot)
@@ -62392,6 +65985,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/fix", wrapper.FixMeetingWord)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/speakers/{label}", wrapper.NameMeetingSpeaker)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/lines/{n}/speaker", wrapper.SetMeetingLineSpeaker)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/live", wrapper.StartLiveMeeting)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/tickets", wrapper.OpenMeetingTrack)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/end", wrapper.EndLiveMeeting)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/meetings/{meeting_id}/items/{item_id}", wrapper.UpdateMeetingItem)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-actions", wrapper.ListMeetingActions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-settings", wrapper.GetMeetingSettings)
@@ -65939,6 +69535,46 @@ func (response RemoveAudioKeydefaultJSONResponse) VisitRemoveAudioKeyResponse(w 
 	return err
 }
 
+type SetAudioVoiceRequestObject struct {
+	Provider AudioProvider `json:"provider"`
+	Body     *SetAudioVoiceJSONRequestBody
+}
+
+type SetAudioVoiceResponseObject interface {
+	VisitSetAudioVoiceResponse(w http.ResponseWriter) error
+}
+
+type SetAudioVoice200JSONResponse Audio
+
+func (response SetAudioVoice200JSONResponse) VisitSetAudioVoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAudioVoicedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetAudioVoicedefaultJSONResponse) VisitSetAudioVoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetImagesRequestObject struct {
 }
 
@@ -66155,6 +69791,109 @@ type RevokeGatewayKeydefaultJSONResponse struct {
 }
 
 func (response RevokeGatewayKeydefaultJSONResponse) VisitRevokeGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGatewayKeyRequestObject struct {
+	KeyId string `json:"key_id"`
+	Body  *UpdateGatewayKeyJSONRequestBody
+}
+
+type UpdateGatewayKeyResponseObject interface {
+	VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error
+}
+
+type UpdateGatewayKey200JSONResponse GatewayKey
+
+func (response UpdateGatewayKey200JSONResponse) VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGatewayKeydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateGatewayKeydefaultJSONResponse) VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValueRequestObject struct {
+	KeyId string `json:"key_id"`
+}
+
+type GetGatewayKeyValueResponseObject interface {
+	VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error
+}
+
+type GetGatewayKeyValue200ResponseHeaders struct {
+	CacheControl *string
+}
+
+type GetGatewayKeyValue200JSONResponse struct {
+	Body    GatewayKeyValue
+	Headers GetGatewayKeyValue200ResponseHeaders
+}
+
+func (response GetGatewayKeyValue200JSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValue404JSONResponse Error
+
+func (response GetGatewayKeyValue404JSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValuedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetGatewayKeyValuedefaultJSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -68360,6 +72099,45 @@ func (response UploadMeetingdefaultJSONResponse) VisitUploadMeetingResponse(w ht
 	return err
 }
 
+type StartLiveMeetingRequestObject struct {
+	Body *StartLiveMeetingJSONRequestBody
+}
+
+type StartLiveMeetingResponseObject interface {
+	VisitStartLiveMeetingResponse(w http.ResponseWriter) error
+}
+
+type StartLiveMeeting201JSONResponse Meeting
+
+func (response StartLiveMeeting201JSONResponse) VisitStartLiveMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartLiveMeetingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartLiveMeetingdefaultJSONResponse) VisitStartLiveMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteMeetingRequestObject struct {
 	MeetingId MeetingID `json:"meeting_id"`
 }
@@ -68421,6 +72199,45 @@ type GetMeetingdefaultJSONResponse struct {
 }
 
 func (response GetMeetingdefaultJSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EndLiveMeetingRequestObject struct {
+	MeetingId MeetingID `json:"meeting_id"`
+}
+
+type EndLiveMeetingResponseObject interface {
+	VisitEndLiveMeetingResponse(w http.ResponseWriter) error
+}
+
+type EndLiveMeeting200JSONResponse Meeting
+
+func (response EndLiveMeeting200JSONResponse) VisitEndLiveMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EndLiveMeetingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response EndLiveMeetingdefaultJSONResponse) VisitEndLiveMeetingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -68641,6 +72458,7 @@ func (response GetMeetingRecordingdefaultJSONResponse) VisitGetMeetingRecordingR
 type NameMeetingSpeakerRequestObject struct {
 	MeetingId MeetingID `json:"meeting_id"`
 	Label     string    `json:"label"`
+	Params    NameMeetingSpeakerParams
 	Body      *NameMeetingSpeakerJSONRequestBody
 }
 
@@ -68668,6 +72486,46 @@ type NameMeetingSpeakerdefaultJSONResponse struct {
 }
 
 func (response NameMeetingSpeakerdefaultJSONResponse) VisitNameMeetingSpeakerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenMeetingTrackRequestObject struct {
+	MeetingId MeetingID `json:"meeting_id"`
+	Body      *OpenMeetingTrackJSONRequestBody
+}
+
+type OpenMeetingTrackResponseObject interface {
+	VisitOpenMeetingTrackResponse(w http.ResponseWriter) error
+}
+
+type OpenMeetingTrack201JSONResponse TerminalTicket
+
+func (response OpenMeetingTrack201JSONResponse) VisitOpenMeetingTrackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenMeetingTrackdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response OpenMeetingTrackdefaultJSONResponse) VisitOpenMeetingTrackResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -72112,6 +75970,351 @@ func (response ListToolsdefaultJSONResponse) VisitListToolsResponse(w http.Respo
 	return err
 }
 
+type ListVideosRequestObject struct {
+}
+
+type ListVideosResponseObject interface {
+	VisitListVideosResponse(w http.ResponseWriter) error
+}
+
+type ListVideos200JSONResponse VideoList
+
+func (response ListVideos200JSONResponse) VisitListVideosResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVideosdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListVideosdefaultJSONResponse) VisitListVideosResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MakeVideoRequestObject struct {
+	Params MakeVideoParams
+	Body   *MakeVideoJSONRequestBody
+}
+
+type MakeVideoResponseObject interface {
+	VisitMakeVideoResponse(w http.ResponseWriter) error
+}
+
+type MakeVideo201JSONResponse Video
+
+func (response MakeVideo201JSONResponse) VisitMakeVideoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MakeVideodefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response MakeVideodefaultJSONResponse) VisitMakeVideoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteVideoRequestObject struct {
+	VideoId VideoID `json:"video_id"`
+}
+
+type DeleteVideoResponseObject interface {
+	VisitDeleteVideoResponse(w http.ResponseWriter) error
+}
+
+type DeleteVideo204Response struct {
+}
+
+func (response DeleteVideo204Response) VisitDeleteVideoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteVideodefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteVideodefaultJSONResponse) VisitDeleteVideoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVideoRequestObject struct {
+	VideoId VideoID `json:"video_id"`
+}
+
+type GetVideoResponseObject interface {
+	VisitGetVideoResponse(w http.ResponseWriter) error
+}
+
+type GetVideo200JSONResponse Video
+
+func (response GetVideo200JSONResponse) VisitGetVideoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVideodefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetVideodefaultJSONResponse) VisitGetVideoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveVideoRevisionRequestObject struct {
+	VideoId VideoID  `json:"video_id"`
+	Rev     VideoRev `json:"rev"`
+}
+
+type ApproveVideoRevisionResponseObject interface {
+	VisitApproveVideoRevisionResponse(w http.ResponseWriter) error
+}
+
+type ApproveVideoRevision200JSONResponse Video
+
+func (response ApproveVideoRevision200JSONResponse) VisitApproveVideoRevisionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApproveVideoRevisiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ApproveVideoRevisiondefaultJSONResponse) VisitApproveVideoRevisionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestVideoChangesRequestObject struct {
+	VideoId VideoID  `json:"video_id"`
+	Rev     VideoRev `json:"rev"`
+	Params  RequestVideoChangesParams
+	Body    *RequestVideoChangesJSONRequestBody
+}
+
+type RequestVideoChangesResponseObject interface {
+	VisitRequestVideoChangesResponse(w http.ResponseWriter) error
+}
+
+type RequestVideoChanges200JSONResponse Video
+
+func (response RequestVideoChanges200JSONResponse) VisitRequestVideoChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestVideoChangesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RequestVideoChangesdefaultJSONResponse) VisitRequestVideoChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadVideoThumbnailRequestObject struct {
+	VideoId VideoID  `json:"video_id"`
+	Rev     VideoRev `json:"rev"`
+}
+
+type ReadVideoThumbnailResponseObject interface {
+	VisitReadVideoThumbnailResponse(w http.ResponseWriter) error
+}
+
+type ReadVideoThumbnail200ImagejpegResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadVideoThumbnail200ImagejpegResponse) VisitReadVideoThumbnailResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadVideoThumbnaildefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReadVideoThumbnaildefaultJSONResponse) VisitReadVideoThumbnailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadVideoFileRequestObject struct {
+	VideoId VideoID  `json:"video_id"`
+	Rev     VideoRev `json:"rev"`
+	Params  ReadVideoFileParams
+}
+
+type ReadVideoFileResponseObject interface {
+	VisitReadVideoFileResponse(w http.ResponseWriter) error
+}
+
+type ReadVideoFile200Videomp4Response struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadVideoFile200Videomp4Response) VisitReadVideoFileResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "video/mp4")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadVideoFile206Videomp4Response struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadVideoFile206Videomp4Response) VisitReadVideoFileResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "video/mp4")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(206)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadVideoFiledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReadVideoFiledefaultJSONResponse) VisitReadVideoFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type FetchWebRequestObject struct {
 	Body *FetchWebJSONRequestBody
 }
@@ -72453,6 +76656,9 @@ type StrictServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(ctx context.Context, request RemoveAudioKeyRequestObject) (RemoveAudioKeyResponseObject, error)
+	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
+	// (PUT /gateway/audio/providers/{provider}/voice)
+	SetAudioVoice(ctx context.Context, request SetAudioVoiceRequestObject) (SetAudioVoiceResponseObject, error)
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	// (GET /gateway/images)
 	GetImages(ctx context.Context, request GetImagesRequestObject) (GetImagesResponseObject, error)
@@ -72465,12 +76671,18 @@ type StrictServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(ctx context.Context, request ListGatewayKeysRequestObject) (ListGatewayKeysResponseObject, error)
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(ctx context.Context, request CreateGatewayKeyRequestObject) (CreateGatewayKeyResponseObject, error)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
 	// (DELETE /gateway/keys/{key_id})
 	RevokeGatewayKey(ctx context.Context, request RevokeGatewayKeyRequestObject) (RevokeGatewayKeyResponseObject, error)
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	// (PATCH /gateway/keys/{key_id})
+	UpdateGatewayKey(ctx context.Context, request UpdateGatewayKeyRequestObject) (UpdateGatewayKeyResponseObject, error)
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/value)
+	GetGatewayKeyValue(ctx context.Context, request GetGatewayKeyValueRequestObject) (GetGatewayKeyValueResponseObject, error)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(ctx context.Context, request ListGatewayModelsRequestObject) (ListGatewayModelsResponseObject, error)
@@ -72636,12 +76848,18 @@ type StrictServerInterface interface {
 	// UploadMeeting Upload a meeting's recording, at most 128 MB; only the owner
 	// (POST /meetings)
 	UploadMeeting(ctx context.Context, request UploadMeetingRequestObject) (UploadMeetingResponseObject, error)
+	// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+	// (POST /meetings/live)
+	StartLiveMeeting(ctx context.Context, request StartLiveMeetingRequestObject) (StartLiveMeetingResponseObject, error)
 	// DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 	// (DELETE /meetings/{meeting_id})
 	DeleteMeeting(ctx context.Context, request DeleteMeetingRequestObject) (DeleteMeetingResponseObject, error)
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(ctx context.Context, request GetMeetingRequestObject) (GetMeetingResponseObject, error)
+	// EndLiveMeeting End a meeting being recorded; only the owner
+	// (POST /meetings/{meeting_id}/end)
+	EndLiveMeeting(ctx context.Context, request EndLiveMeetingRequestObject) (EndLiveMeetingResponseObject, error)
 	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
 	// (POST /meetings/{meeting_id}/fix)
 	FixMeetingWord(ctx context.Context, request FixMeetingWordRequestObject) (FixMeetingWordResponseObject, error)
@@ -72660,6 +76878,9 @@ type StrictServerInterface interface {
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	// (PUT /meetings/{meeting_id}/speakers/{label})
 	NameMeetingSpeaker(ctx context.Context, request NameMeetingSpeakerRequestObject) (NameMeetingSpeakerResponseObject, error)
+	// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	// (POST /meetings/{meeting_id}/tickets)
+	OpenMeetingTrack(ctx context.Context, request OpenMeetingTrackRequestObject) (OpenMeetingTrackResponseObject, error)
 	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 	// (GET /memory-notes)
 	ListMemoryNotes(ctx context.Context, request ListMemoryNotesRequestObject) (ListMemoryNotesResponseObject, error)
@@ -72921,6 +77142,30 @@ type StrictServerInterface interface {
 	// ListTools Hypomnema's tools by family, the names a profile's or a Bot's tools and tools_off take (issue #536)
 	// (GET /tools)
 	ListTools(ctx context.Context, request ListToolsRequestObject) (ListToolsResponseObject, error)
+	// ListVideos The videos made of takes, the newest first, each with its revisions (owner only; issue
+	// (GET /videos)
+	ListVideos(ctx context.Context, request ListVideosRequestObject) (ListVideosResponseObject, error)
+	// MakeVideo Make a take into a video, or a new revision of its video (owner only)
+	// (POST /videos)
+	MakeVideo(ctx context.Context, request MakeVideoRequestObject) (MakeVideoResponseObject, error)
+	// DeleteVideo Delete a video, its revisions and their files (owner only)
+	// (DELETE /videos/{video_id})
+	DeleteVideo(ctx context.Context, request DeleteVideoRequestObject) (DeleteVideoResponseObject, error)
+	// GetVideo A video with its revisions (owner only)
+	// (GET /videos/{video_id})
+	GetVideo(ctx context.Context, request GetVideoRequestObject) (GetVideoResponseObject, error)
+	// ApproveVideoRevision Approve a revision in review; the one approved before goes back to review (owner only)
+	// (POST /videos/{video_id}/revisions/{rev}/approve)
+	ApproveVideoRevision(ctx context.Context, request ApproveVideoRevisionRequestObject) (ApproveVideoRevisionResponseObject, error)
+	// RequestVideoChanges Ask for changes to a revision in review (owner only)
+	// (POST /videos/{video_id}/revisions/{rev}/changes)
+	RequestVideoChanges(ctx context.Context, request RequestVideoChangesRequestObject) (RequestVideoChangesResponseObject, error)
+	// ReadVideoThumbnail A made revision's first frame, as a JPEG (owner only)
+	// (GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg)
+	ReadVideoThumbnail(ctx context.Context, request ReadVideoThumbnailRequestObject) (ReadVideoThumbnailResponseObject, error)
+	// ReadVideoFile A made revision's MP4, to play or download (owner only)
+	// (GET /videos/{video_id}/revisions/{rev}/video.mp4)
+	ReadVideoFile(ctx context.Context, request ReadVideoFileRequestObject) (ReadVideoFileResponseObject, error)
 	// FetchWeb Read a public web page as markdown; any token, a Bot's included
 	// (POST /web/fetch)
 	FetchWeb(ctx context.Context, request FetchWebRequestObject) (FetchWebResponseObject, error)
@@ -75471,6 +79716,39 @@ func (sh *strictHandler) RemoveAudioKey(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// SetAudioVoice operation middleware
+func (sh *strictHandler) SetAudioVoice(w http.ResponseWriter, r *http.Request, provider AudioProvider) {
+	var request SetAudioVoiceRequestObject
+
+	request.Provider = provider
+
+	var body SetAudioVoiceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAudioVoice(ctx, request.(SetAudioVoiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAudioVoice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAudioVoiceResponseObject); ok {
+		if err := validResponse.VisitSetAudioVoiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetImages operation middleware
 func (sh *strictHandler) GetImages(w http.ResponseWriter, r *http.Request) {
 	var request GetImagesRequestObject
@@ -75633,6 +79911,65 @@ func (sh *strictHandler) RevokeGatewayKey(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeGatewayKeyResponseObject); ok {
 		if err := validResponse.VisitRevokeGatewayKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateGatewayKey operation middleware
+func (sh *strictHandler) UpdateGatewayKey(w http.ResponseWriter, r *http.Request, keyId string) {
+	var request UpdateGatewayKeyRequestObject
+
+	request.KeyId = keyId
+
+	var body UpdateGatewayKeyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateGatewayKey(ctx, request.(UpdateGatewayKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateGatewayKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateGatewayKeyResponseObject); ok {
+		if err := validResponse.VisitUpdateGatewayKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGatewayKeyValue operation middleware
+func (sh *strictHandler) GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string) {
+	var request GetGatewayKeyValueRequestObject
+
+	request.KeyId = keyId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGatewayKeyValue(ctx, request.(GetGatewayKeyValueRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGatewayKeyValue")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGatewayKeyValueResponseObject); ok {
+		if err := validResponse.VisitGetGatewayKeyValueResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -77230,6 +81567,37 @@ func (sh *strictHandler) UploadMeeting(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// StartLiveMeeting operation middleware
+func (sh *strictHandler) StartLiveMeeting(w http.ResponseWriter, r *http.Request) {
+	var request StartLiveMeetingRequestObject
+
+	var body StartLiveMeetingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartLiveMeeting(ctx, request.(StartLiveMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartLiveMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartLiveMeetingResponseObject); ok {
+		if err := validResponse.VisitStartLiveMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteMeeting operation middleware
 func (sh *strictHandler) DeleteMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
 	var request DeleteMeetingRequestObject
@@ -77275,6 +81643,32 @@ func (sh *strictHandler) GetMeeting(w http.ResponseWriter, r *http.Request, meet
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeetingResponseObject); ok {
 		if err := validResponse.VisitGetMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EndLiveMeeting operation middleware
+func (sh *strictHandler) EndLiveMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
+	var request EndLiveMeetingRequestObject
+
+	request.MeetingId = meetingId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EndLiveMeeting(ctx, request.(EndLiveMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EndLiveMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EndLiveMeetingResponseObject); ok {
+		if err := validResponse.VisitEndLiveMeetingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -77436,11 +81830,12 @@ func (sh *strictHandler) GetMeetingRecording(w http.ResponseWriter, r *http.Requ
 }
 
 // NameMeetingSpeaker operation middleware
-func (sh *strictHandler) NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string) {
+func (sh *strictHandler) NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string, params NameMeetingSpeakerParams) {
 	var request NameMeetingSpeakerRequestObject
 
 	request.MeetingId = meetingId
 	request.Label = label
+	request.Params = params
 
 	var body NameMeetingSpeakerJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
@@ -77462,6 +81857,39 @@ func (sh *strictHandler) NameMeetingSpeaker(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(NameMeetingSpeakerResponseObject); ok {
 		if err := validResponse.VisitNameMeetingSpeakerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OpenMeetingTrack operation middleware
+func (sh *strictHandler) OpenMeetingTrack(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
+	var request OpenMeetingTrackRequestObject
+
+	request.MeetingId = meetingId
+
+	var body OpenMeetingTrackJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenMeetingTrack(ctx, request.(OpenMeetingTrackRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenMeetingTrack")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenMeetingTrackResponseObject); ok {
+		if err := validResponse.VisitOpenMeetingTrackResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -79849,6 +84277,232 @@ func (sh *strictHandler) ListTools(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListToolsResponseObject); ok {
 		if err := validResponse.VisitListToolsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVideos operation middleware
+func (sh *strictHandler) ListVideos(w http.ResponseWriter, r *http.Request) {
+	var request ListVideosRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVideos(ctx, request.(ListVideosRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVideos")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVideosResponseObject); ok {
+		if err := validResponse.VisitListVideosResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MakeVideo operation middleware
+func (sh *strictHandler) MakeVideo(w http.ResponseWriter, r *http.Request, params MakeVideoParams) {
+	var request MakeVideoRequestObject
+
+	request.Params = params
+
+	var body MakeVideoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MakeVideo(ctx, request.(MakeVideoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MakeVideo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MakeVideoResponseObject); ok {
+		if err := validResponse.VisitMakeVideoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteVideo operation middleware
+func (sh *strictHandler) DeleteVideo(w http.ResponseWriter, r *http.Request, videoId VideoID) {
+	var request DeleteVideoRequestObject
+
+	request.VideoId = videoId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteVideo(ctx, request.(DeleteVideoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteVideo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteVideoResponseObject); ok {
+		if err := validResponse.VisitDeleteVideoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetVideo operation middleware
+func (sh *strictHandler) GetVideo(w http.ResponseWriter, r *http.Request, videoId VideoID) {
+	var request GetVideoRequestObject
+
+	request.VideoId = videoId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetVideo(ctx, request.(GetVideoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetVideo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetVideoResponseObject); ok {
+		if err := validResponse.VisitGetVideoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApproveVideoRevision operation middleware
+func (sh *strictHandler) ApproveVideoRevision(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev) {
+	var request ApproveVideoRevisionRequestObject
+
+	request.VideoId = videoId
+	request.Rev = rev
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApproveVideoRevision(ctx, request.(ApproveVideoRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApproveVideoRevision")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApproveVideoRevisionResponseObject); ok {
+		if err := validResponse.VisitApproveVideoRevisionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RequestVideoChanges operation middleware
+func (sh *strictHandler) RequestVideoChanges(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params RequestVideoChangesParams) {
+	var request RequestVideoChangesRequestObject
+
+	request.VideoId = videoId
+	request.Rev = rev
+	request.Params = params
+
+	var body RequestVideoChangesJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RequestVideoChanges(ctx, request.(RequestVideoChangesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RequestVideoChanges")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RequestVideoChangesResponseObject); ok {
+		if err := validResponse.VisitRequestVideoChangesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadVideoThumbnail operation middleware
+func (sh *strictHandler) ReadVideoThumbnail(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev) {
+	var request ReadVideoThumbnailRequestObject
+
+	request.VideoId = videoId
+	request.Rev = rev
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadVideoThumbnail(ctx, request.(ReadVideoThumbnailRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadVideoThumbnail")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadVideoThumbnailResponseObject); ok {
+		if err := validResponse.VisitReadVideoThumbnailResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadVideoFile operation middleware
+func (sh *strictHandler) ReadVideoFile(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params ReadVideoFileParams) {
+	var request ReadVideoFileRequestObject
+
+	request.VideoId = videoId
+	request.Rev = rev
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadVideoFile(ctx, request.(ReadVideoFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadVideoFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadVideoFileResponseObject); ok {
+		if err := validResponse.VisitReadVideoFileResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

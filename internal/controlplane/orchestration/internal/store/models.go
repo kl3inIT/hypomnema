@@ -410,6 +410,7 @@ type GatewayAudioProvider struct {
 	SttPosition sql.NullInt64
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
+	Voice       string
 }
 
 type GatewayImageProvider struct {
@@ -420,17 +421,19 @@ type GatewayImageProvider struct {
 }
 
 type GatewayKey struct {
-	ID         string
-	Name       string
-	KeyHash    string
-	Models     string
-	CreatedAt  int64
-	RevokedAt  sql.NullInt64
-	DispatchID sql.NullString
-	ChatID     sql.NullString
-	KeyPrefix  string
-	BotID      sql.NullString
-	Endpoints  sql.NullString
+	ID              string
+	Name            string
+	KeyHash         string
+	Models          string
+	CreatedAt       int64
+	RevokedAt       sql.NullInt64
+	DispatchID      sql.NullString
+	ChatID          sql.NullString
+	KeyPrefix       string
+	BotID           sql.NullString
+	Endpoints       sql.NullString
+	SecretVersionID sql.NullString
+	MaskedValue     string
 }
 
 type GatewayModel struct {
@@ -568,6 +571,8 @@ type Meeting struct {
 	Model      string
 	CreatedAt  int64
 	UpdatedAt  int64
+	Source     string
+	Kind       string
 }
 
 type MeetingItem struct {
@@ -583,11 +588,13 @@ type MeetingItem struct {
 	Quote        sql.NullString
 	Line         sql.NullInt64
 	StartMs      sql.NullInt64
+	OwnerTrack   sql.NullString
 }
 
 type MeetingLine struct {
 	MeetingID string
 	N         int64
+	Track     string
 	StartMs   int64
 	EndMs     int64
 	Speaker   string
@@ -616,6 +623,7 @@ type MeetingSetting struct {
 
 type MeetingSpeaker struct {
 	MeetingID string
+	Track     string
 	Label     string
 	Position  int64
 	Name      sql.NullString
@@ -975,6 +983,39 @@ type User struct {
 	PasswordHash string
 	CreatedAt    int64
 	UpdatedAt    int64
+}
+
+type Video struct {
+	ID         string
+	TakeID     string
+	Title      string
+	MadeBy     string
+	MadeByName string
+	CreatedAt  int64
+}
+
+type VideoRevision struct {
+	VideoID     string
+	Rev         int64
+	Parent      sql.NullInt64
+	State       string
+	Lines       string
+	Voice       string
+	Captions    int64
+	Aspect      string
+	Provider    string
+	Model       string
+	UsedVoice   string
+	LengthMs    int64
+	FailedStage string
+	FailedCause string
+	Note        string
+	Warnings    string
+	RequestedBy string
+	RequestID   string
+	RequestHash string
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 type WebSession struct {

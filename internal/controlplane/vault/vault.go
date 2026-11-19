@@ -208,51 +208,64 @@ func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64
 
 // Create stores a new secret as its first version.
 func (s *Service) Create(ctx context.Context, n NewSecret) (Secret, error) {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		_, err := s.create(ctx, q, n, now)
+		return err
+	}); err != nil {
+		return Secret{}, fmt.Errorf("creating a secret: %w", err)
+	}
+
+	return s.Get(ctx, n.Name)
+}
+
+// CreateTx stores a secret in the referring record's transaction and returns the first version's id.
+func (s *Service) CreateTx(ctx context.Context, tx *sql.Tx, n NewSecret, now int64) (string, error) {
+	return s.create(ctx, store.New(tx), n, now)
+}
+
+func (s *Service) create(ctx context.Context, q *store.Queries, n NewSecret, now int64) (string, error) {
 	if s.keyring == nil {
-		return Secret{}, ErrNotConfigured
+		return "", ErrNotConfigured
 	}
 
 	if !namePattern.MatchString(n.Name) {
-		return Secret{}, fmt.Errorf("%w: a secret's name is lowercase letters, digits and dashes", ErrInvalid)
+		return "", fmt.Errorf("%w: a secret's name is lowercase letters, digits and dashes", ErrInvalid)
 	}
 
 	if err := validPayload(n.Kind, n.Payload); err != nil {
-		return Secret{}, err
+		return "", err
 	}
 
 	metadata, err := encodeMetadata(n.Metadata)
 	if err != nil {
-		return Secret{}, err
+		return "", err
 	}
 
 	id := identity{SecretID: s.newID("sec"), VersionID: s.newID("secv"), VersionNumber: 1, Kind: n.Kind}
 
 	sealedVersion, err := seal(s.keyring, id, n.Payload)
 	if err != nil {
-		return Secret{}, err
+		return "", err
 	}
 
-	err = s.write(ctx, func(q *store.Queries, now int64) error {
-		if _, err := q.GetSecretByName(ctx, n.Name); err == nil {
-			return fmt.Errorf("%w: secret %q exists; rotate it to change its value", ErrConflict, n.Name)
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reading secret %q: %w", n.Name, err)
-		}
-
-		if err := q.InsertSecret(ctx, store.InsertSecretParams{
-			ID: id.SecretID, Name: n.Name, Kind: string(n.Kind), Metadata: metadata,
-			CurrentVersionID: id.VersionID, Now: now,
-		}); err != nil {
-			return fmt.Errorf("storing secret %q: %w", n.Name, err)
-		}
-
-		return insertVersion(ctx, q, id, sealedVersion, knownTime(n.AccessTokenExpiresAt), now)
-	})
-	if err != nil {
-		return Secret{}, fmt.Errorf("creating a secret: %w", err)
+	if _, err := q.GetSecretByName(ctx, n.Name); err == nil {
+		return "", fmt.Errorf("%w: secret %q exists; rotate it to change its value", ErrConflict, n.Name)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("reading secret %q: %w", n.Name, err)
 	}
 
-	return s.Get(ctx, n.Name)
+	if err := q.InsertSecret(ctx, store.InsertSecretParams{
+		ID: id.SecretID, Name: n.Name, Kind: string(n.Kind), Metadata: metadata,
+		CurrentVersionID: id.VersionID, Now: now,
+	}); err != nil {
+		return "", fmt.Errorf("storing secret %q: %w", n.Name, err)
+	}
+
+	if err := insertVersion(ctx, q, id, sealedVersion, knownTime(n.AccessTokenExpiresAt), now); err != nil {
+		return "", err
+	}
+
+	return id.VersionID, nil
 }
 
 // Rotate stores a new value as the secret's next version, which becomes the
@@ -358,6 +371,21 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 	})
 }
 
+// DeleteByVersionTx removes the entire secret a record owns in the transaction that unlinks it.
+func DeleteByVersionTx(ctx context.Context, tx *sql.Tx, versionID string) error {
+	q := store.New(tx)
+	version, err := q.GetSecretVersion(ctx, versionID)
+	if err != nil {
+		return fmt.Errorf("reading secret version %s: %w", versionID, err)
+	}
+
+	if err := q.DeleteSecret(ctx, version.SecretID); err != nil {
+		return fmt.Errorf("deleting secret %s: %w", version.SecretID, err)
+	}
+
+	return nil
+}
+
 // Get describes one secret.
 func (s *Service) Get(ctx context.Context, name string) (Secret, error) {
 	q := store.New(s.db)
@@ -411,6 +439,25 @@ func (s *Service) Open(ctx context.Context, name string) (Opened, error) {
 	}
 
 	return s.openVersion(row, current)
+}
+
+// OpenVersion opens the specific immutable secret version a record refers to.
+func (s *Service) OpenVersion(ctx context.Context, versionID string) (Opened, error) {
+	if s.keyring == nil {
+		return Opened{}, ErrNotConfigured
+	}
+
+	q := store.New(s.db)
+	version, err := q.GetSecretVersion(ctx, versionID)
+	if err != nil {
+		return Opened{}, notFound(err, versionID)
+	}
+	row, err := q.GetSecretByID(ctx, version.SecretID)
+	if err != nil {
+		return Opened{}, notFound(err, version.SecretID)
+	}
+
+	return s.openVersion(row, version)
 }
 
 func (s *Service) openVersion(row store.Secret, current store.SecretVersion) (Opened, error) {

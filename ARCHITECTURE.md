@@ -798,9 +798,10 @@ sequenceDiagram
     control plane answers alone: the calling agent's own takes (id, title, state, ended_by, start, length), the
     newest 20, as the owner's `GET /takes` restricted to the agent, never another's and never a file (issue #851). They are listed, routed and switched
     with the phone's tools: a worker's tools server and a Bot's `hypomnema mcp` pass every `device_*` and `video_*`
-    name to the phone's routes (`devicetool.Routed`), and the phone family's switch `device_*` names them too
-    (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and `video_end` are never
-    offered.
+    name but `video_make` and `video_get` to the phone's routes (`devicetool.Routed`), and the phone family's switch
+    `device_*` names them too (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and
+    `video_end` are never offered. A take records the phone's screen size (`screen`, from `wm size` at
+    `video_start`, its override when one is set), the pixels a step's tap is in (issue #818).
   - The take holds the phone (`internal/controlplane/phone/lease.go`): `video_start` makes a lease of {take, agent
     key, work}, work being a worker's Dispatch or a Bot's turn (its chat's turn mark, `orchestration.ChatTurn`).
     While it lives another agent's phone calls are answered "The phone is filming for …" and reach no node;
@@ -853,8 +854,8 @@ sequenceDiagram
     pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
     A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
     seek into a file's last sample.
-  - Making a video of a take (issue #818, part 1 of 3: the compose core; the revisions, runner, voice, captions,
-    access and Studio are parts 2 and 3, and nothing calls the core yet). The control plane installs a pinned
+  - Making a video of a take (issue #818; parts 1 and 2 of 3: the compose core, then the revisions, runner, voice,
+    captions and access; the Studio page and the take and video tabs are part 3). The control plane installs a pinned
     static ffmpeg and ffprobe (`internal/controlplane/videos/ffmpeg`, BtbN/FFmpeg-Builds' GPL build n9.0.2 for
     linux/amd64 and linux/arm64, as a node installs scrcpy-server): at start, in the background, unless
     `HYPOMNEMA_FFMPEG=0`, into `ffmpeg/` beside the database, the file's size and SHA-256 checked, ffmpeg, ffprobe
@@ -876,7 +877,48 @@ sequenceDiagram
     to the video's; each scene's voice is padded to its scene's length, captions (an ASS file) burned in when
     given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
-    scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build.
+    scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
+    and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
+  - Videos and revisions (`internal/controlplane/videos`, migration 00126). A **video** belongs to one take (one
+    row of `videos`, its take unique); each make or change request adds an immutable **revision** (`video_revisions`:
+    rev 1, 2, …, its parent, the lines, voice, captions and aspect it is made with, the provider, model and voice
+    that spoke it, its length, warnings and state). States: `queued`, `voicing`, `composing`, `captioning`,
+    then `review`; `approved` or `changes_requested` by the owner; `failed` with its stage and cause. At most one
+    revision is approved: approving another moves it back to review; an approved revision is never changed, and
+    a change request on one is refused. A make of a take with a video adds a revision with the latest one's lines
+    (a retry of a failed one); requested_by and request_id make a make or change request safe to repeat. One
+    **runner** goroutine makes the queued revisions one at a time, the oldest first, claiming each by a conditional
+    update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
+    failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
+    10 revisions wait; one has 20 minutes and does not start with less than 400 MB free. Voicing goes through
+    `speech.Service` in Vietnamese (`vi`), one clip per scene: the first text-to-speech provider of the owner's
+    order that is on and answers speaks the first scene and then every other one, with the voice asked or that
+    provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
+    no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
+    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision. Composing is
+    `compose.Compose`; captioning transcribes each scene's clip with its words' times through the speech service,
+    joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
+    cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
+    punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
+    one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
+    word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
+    part 1 (`compose.Burn`). A scene with no word times fails the revision at `captioning`; with captions off the
+    stage is skipped. The first frame is the revision's thumbnail. Everything is made in
+    `videos/<video>/<rev>/.work/`, the thumbnail then the MP4 renamed into place only once whole; any failure
+    removes the revision's folder. A video with a revision queued or being made is not deleted, nor is its take
+    (409).
+  - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
+    `{take, title?, aspect?, captions?, voice?}` with an Idempotency-Key, `GET` and `DELETE /videos/{id}`, `POST
+    /videos/{id}/revisions/{rev}/approve`, `POST /videos/{id}/revisions/{rev}/changes` `{lines?, note?}` with an
+    Idempotency-Key (a note alone is kept and starts nothing; changed lines queue a new revision, the other lines'
+    clips reused), `GET /videos/{id}/revisions/{rev}/video.mp4` with Range requests and `GET
+    .../thumbnail.jpg`, in review, approved or changes_requested; `hypomnema videos list|get|make|request-changes|
+    approve|delete|download`. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
+    `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
+    the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
+    latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
+    (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
+    column `voice` of `gateway_audio_providers`). The speech the runner asks is not recorded on a gateway key.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1236,8 +1278,8 @@ sequenceDiagram
     limit), and a change over a limit is refused and changes nothing. `view` lists a directory two levels deep
     with sizes, or a file's numbered lines (`view_range`), cut at 16,000 characters. Each command reads the
     directory again inside its transaction. A Lark group's chat, whose prompt leaves the memory out (issue #246),
-    is not given the tool; nor is any other token (owner, coordinator, a Routine's script), which has no MCP. Its
-    description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
+    is not given the tool. The owner has a directory with only `USER.md`; the coordinator and Routine scripts
+    have no MCP. Its description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
     provider caches stay the same; Anthropic's system-prompt text, which asks to record progress, is not used.
     Which agent changed a memory and with which command is logged, never the text. A node of a release before
     issue #536 defines the old `{target, action, text, match}` tool itself and calls `POST /agent/v1/memory`,
@@ -1887,6 +1929,11 @@ flowchart LR
       `curl`, the same way, through the Integration's proxy: what a pinned tool's own list does not cover, such as
       Search Console, which gws lacks (issue [#617](https://github.com/kl3inIT/hypomnema/issues/617); treg's
       `treg run` and `shell --proxy`, Onyx's egress proxy).
+      On the owner's machine, `hypomnema exec <integration>:<label> -- <command> [args...]` runs the local CLI
+      through the same launcher and tunnel using the saved owner token (issue #888). A pinned worker install is
+      not needed. For example, `hypomnema exec lark:me -- lark-cli im chats get --as user --chat-id <chat-id>`
+      reads a chat using the owner's Lark user Connection. The tunnel checks the Connection and applies the same
+      action policies; the child gets a placeholder, not the owner token or the service token.
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -2976,9 +3023,14 @@ capabilities do not exist yet.
   at, in dollars per million tokens. `PUT /gateway/models/{model}/attributes` (the owner's; a slash in the name as
   `%2F`) sets them in the model's YAML, keeping the rest of it; one left out comes from models.dev again. The Models
   page lists the gateway's models with them, each with an edit form whose empty fields show models.dev's values.
-- A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
-  public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
-  `tokens add` cannot make one.
+- A gateway key (`hyp_gateway_v1_…`, the client tokens' format) authenticates by its SHA-256, with the public
+  models (`*`: every model) and other endpoints it may use. It is not a client token: the client API refuses it,
+  and `tokens add` cannot make one. A new owner-made key also points to an encrypted vault version (issue #887);
+  creating the key and storing the version commit together and revoking it removes the secret without removing
+  usage. Only the owner may `GET /gateway/keys/{key_id}/value` (not cached) or `PATCH /gateway/keys/{key_id}` to
+  change its name, models or endpoints without changing its value, id or usage. The Gateway keys page masks all
+  but the first six and last four characters and offers show/hide and copy as 9router does. Older keys can be
+  edited but have only a prefix and no value to read. Dispatch, chat and Bot keys cannot be edited or read here.
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
@@ -3736,9 +3788,10 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   whether the public proxy cuts a long blocking transcription from a tool outside.
 
 Meetings (`internal/controlplane/meetings`, `orchestration/meetingstore`, `modelgateway/complete.go`,
-`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues #721 and #747,
-[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a meeting's recording; it is
-heard with who spoke when (Audio, above) and a gateway chat model writes its summary, decisions and actions.
+`clientapi/meetings.go`, `clientapi/meetinglive.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues
+#721, #747 and #820, [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a
+meeting's recording, or records one live from the browser; it is heard with who spoke when (Audio, above) and a
+gateway chat model writes its summary, decisions and actions.
 - Data (migrations 00104, 00105): `meetings` (title and whether the owner gave it, language, people as JSON (a
   `terms` column is left from before #747, no longer written or read), the
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
@@ -3749,7 +3802,12 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
   hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
-  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771).
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771). 00125 (issue
+  #820) rebuilt the tables, keeping every row: `meetings` gained `source` (`upload`, every meeting before it, or
+  `live`) and `kind` (`online` or `in_person` for a live one), the state `recording`, and `size` 0 while it records;
+  a voice is one of a track's (`meeting_speakers` keyed `(meeting_id, track, label)`, `meeting_lines.track`,
+  `meeting_items.owner_track`): `file` for an upload, `mic` and `tab` for a live meeting (MemoryOS V108, V197).
+  Lines are read by `start_ms`, then `n`, which stays a line's id.
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3782,8 +3840,32 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   whose title came already joins it; a decision that restates an action on its line is
   dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
   one the owner did not give.
-- Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
-  has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
+- Recording live (`meetings/live.go`, `meetings/wav.go`, `speech/live.go`, `clientapi/meetinglive.go`; issue #820,
+  after MemoryOS's meeting recorder): `POST /meetings/live {kind, language?, title?, people?}` makes a meeting
+  `recording`, refused while another records (one at a time, so at most two streams). Each track (the microphone;
+  online also a shared tab) asks `POST /meetings/{id}/tickets {track}` for a 60 s single-use ticket, then opens the
+  WebSocket `/api/v1/meetings/{id}/stream/{ticket}?track=&offset=` (outside the contract, as a terminal's, both
+  server deadlines lifted): PCM16 24 kHz mono frames of at most 64 KiB and one `{"type":"end"}` in; `ready`,
+  `preview`, `line` (kept), `finished`, `error {code}` out; a ping every 20 s; a track with no audio for 60 s
+  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v5`, the key as a
+  bearer header, endpoint detection, diarization except an online microphone, which is the owner, shown "You" and
+  not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
+  frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
+  sent, then the audio that came meanwhile (kept up to 30 s; past it the track ends behind), and shifts the new
+  stream's times; a stream stopped while a new one is awaited waits for it (a wait before asking is cut short) and
+  sends it that audio before the end; a track whose socket drops keeps the words already final, and stays among the
+  meeting's tracks until they are kept; a final token that ends at or before the track's last kept line is dropped, so
+  a replay, or a browser that reconnects with an earlier offset, never keeps a line twice. A stream more than 30 s
+  behind ends its track. Lines are appended as final (`meetingstore.AppendLine`). Each track's PCM is written to
+  `<id>.<track>.pcm` at its offset on the meeting's clock; `POST /meetings/{id}/end` first stops any track opening
+  (one still opening ends at once, having heard nothing, its stream closed by its opening or by the end, whichever
+  comes second, and one asked for later is refused `ended`), lets open or closing tracks keep their last words (at
+  most 20 s), mixes the tracks into one WAV as the meeting's recording, removes the track files, and
+  moves the meeting to `transcribed` and its notes to `writing` in one guarded transaction, once (never through
+  `transcribing`). Each track's audio seconds are counted on the `meetings` key when it closes. Nothing ends a
+  meeting by itself: one left recording keeps its length (`duration_ms`, the longest track kept) to resume from.
+- Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}?track=`, the track absent
+  for the one track holding the label; a name another voice of its track has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
   body; `file_name`, `media_type`, `language`, `title`, `people` in the query), `GET`
@@ -3794,7 +3876,15 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
   /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
   meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix`.
-- On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
+- On the web: Record, beside Upload recording, asks Online (only where a tab's sound can be shared, Chromium on a
+  computer) or In person, the language and the people, asks for the tab then the microphone, and opens the
+  meeting's page on a recording bar (time, a level meter a track, a warning when the tab is silent 20 s or no longer
+  shared, Stop asked first, then "Saving the last words…") over the live transcript in the turn layout with what
+  is being said. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
+  tab closes and holds a screen wake lock; a socket that drops reconnects after 1/2/5/10/20 s with up to 30 s of
+  audio queued, its offset the time of the first queued frame, which nothing is dropped before until the new
+  socket is ready. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.
+  The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
   title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
@@ -3807,8 +3897,8 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   repository), and Notes model, picked with the single-model picker the Bots use
   (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
-- Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
-  editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
+- Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
+  recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -3816,8 +3906,8 @@ issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-ev
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
 Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots without a node release, as
-OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Both
-servers, a Bot's (`hypomnema mcp`) and a worker's (`hypomnema-node mcp`), list them on `GET /agent/v1/tools` and
+OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. The
+servers, `hypomnema mcp` for a Bot or the owner and `hypomnema-node mcp` for a worker, list them on `GET /agent/v1/tools` and
 run one on `POST /agent/v1/tools/call` (`{tool, arguments}`; the answer is the tool's result as MCP has it); a tool
 an agent was not given is a 404 there. The phone's tools stay on their own routes, which both servers list
 beside the one list (see "A phone, on a node that holds one"). The list follows the agent's settings at each
@@ -3829,19 +3919,26 @@ again on it. A turn that calls no tool keeps the list it had. The older routes s
 `POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
 gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
-| Tool | Worker | Bot's pi | Owner, coordinator token, Routine script |
+| Tool | Worker | Bot's pi | Owner |
 |---|---|---|---|
-| `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | no (`hypomnema memory`) |
-| `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
-| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
-| `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
-| `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | no (`hypomnema audio`) |
-| `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | no |
-| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
-| the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
-| the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
-| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
+| `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | shared `USER.md` only |
+| `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no chat (`hypomnema artifact show`) |
+| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no Bot (`hypomnema routines`) |
+| `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | all three |
+| `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | both |
+| `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | yes, while on |
+| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | all Superset Connections |
+| `whatsapp_*`, `zalo_*` (Messaging, above) | no | for its Bot's Connections, reads on the owner's turn | all messaging Connections, sends follow the same approval policy |
+| the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | yes, its own tab per token |
+| the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | yes, when a node holds the phone |
+| `video_make`, `video_get` | its own takes | its own takes | its own takes |
+| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | yes |
 | `ask`, `finish` (the node's own) | yes | no | no |
+
+The consolidated tool routes give no tools to the coordinator token or Routine scripts. The owner's `hypomnema mcp` and
+`hypomnema tools list` / `tools call` use the token from `client.json` and share the same tool adapter. On the
+owner's machine, add the server with `claude mcp add hypomnema -- hypomnema mcp` or
+`codex mcp add hypomnema -- hypomnema mcp` (see the [CLI guide](README.md#using-your-tools-and-accounts-locally)).
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web`, `hypomnema image` and `hypomnema audio` are.
@@ -3862,8 +3959,8 @@ allowlists to exceptions to `full` so existing access stays the same; unused boo
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
   gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
   its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
-  reaches its running pi and workers at their next call. The owner's token, the coordinator token and a Routine's
-  script have no switches (no MCP).
+  reaches its running pi and workers at their next call. The owner's token has tools without switches;
+  the coordinator token and a Routine's script have neither MCP nor switches.
 - Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
   `finish`) are not switched here.
 - Set with `profiles apply` (YAML), `bots set --preset report --tools phone --tools-off web_fetch`, or the web's
@@ -3911,11 +4008,13 @@ flowchart LR
         D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
     end
     PH -- "node socket" --> PN["node holding the phone"]
-    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "chat pi's token" --> L
-    B -- "chat pi's token" --> D
+    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp / tools"] -- "chat pi's or owner's token" --> L
+    B -- "chat pi's or owner's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
     N -- "Dispatch key" --> D
-    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
+    O["Owner"] -- "MCP stdio or CLI" --> B
+    O -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
+    R["Routine script"] --> C
     C --> M
     C --> A
     C --> SP
@@ -3926,10 +4025,9 @@ flowchart LR
   three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker
   keeps its own `web.run` search, which the gateway answers on `/v1/alpha/search`, and gets `web_fetch` and
   `generate_image` (Codex's own `image_gen` is offered only under an OpenAI login); omp and opencode get all three,
-  their own web and image tools off (see their runtime, below). A Bot's pi gets all three (pi has none of its
-  own). A runtime not named, and any other agent (the owner's token, the coordinator token, a Routine's script,
-  which has no MCP and keeps the commands), gets none; a tool this control plane does not have (no web, no images)
-  is not listed.
+  their own web and image tools off (see their runtime, below). A Bot's pi and the owner get all three.
+  An unnamed runtime, a coordinator token, and a Routine's script get none; a tool this control plane does not
+  have (no web, no images) is not listed.
 - How to use them is in their descriptions, not in a skill (no reference teaches a tool with one): `web_search`
   says when to search and to read the pages that answer, `web_fetch` to use it rather than curl or wget and the
   browser (`agent_browser_*`) for a page that needs a sign-in, a script or clicks (issue #723, decision 2.1, as
@@ -4199,8 +4297,10 @@ The owner's commands:
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
-    table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images|none]` prints a gateway key once, with `gateway keys list` and
-    `gateway keys revoke <id>`; `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
+    table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
+    owner key (requires the vault). `gateway keys set <id>` takes `--name`, `--models` and `--endpoints`;
+    `gateway keys show-value <id>` reads its value again. `gateway keys list` never prints the value;
+    `gateway keys revoke <id>` stops the key. `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
     `{find, with}`, applied in order, an empty `with` deleting the text), empty by default and applied to the
     system instruction only, as CLIProxyAPI's `sensitive-words-replace`; `gateway usage [--limit N]` lists the
@@ -5142,6 +5242,8 @@ internal/controlplane/serviceproxy  the one service proxy: an account's token ad
 internal/controlplane/skillssh  search of skills.sh and its audits, as the skills CLI does
 internal/controlplane/superset  Superset's API for agents: charts' data and the queries a chart runs
 internal/controlplane/vault  the vault: encrypted secrets and their versions, the keyring, rewrap
+internal/controlplane/videos  videos of takes and their revisions, the runner that voices, composes and captions them, the voice cache
+internal/controlplane/videos/captions  cues from a voice's word times and the ASS file with the spoken word highlighted (aidemo's cue rules, demotape's highlight, ported)
 internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
 internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client
@@ -5164,7 +5266,8 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions, a meeting recorded live (its tracks, their audio mixed into one WAV, its end)
+internal/controlplane/speech/speechtest  a fake of Soniox's realtime WebSocket for the tests of meetings recorded live
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores

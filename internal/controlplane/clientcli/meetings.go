@@ -274,7 +274,8 @@ func meetingsNotes(ctx context.Context, e *env, fs *flag.FlagSet) error {
 func meetingsSpeaker(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	id, label := fs.Arg(0), fs.Arg(1)
 
-	resp, err := e.api.NameMeetingSpeakerWithResponse(ctx, id, label, openapi.SpeakerName{Name: fs.Arg(2)})
+	resp, err := e.api.NameMeetingSpeakerWithResponse(ctx, id, label, &openapi.NameMeetingSpeakerParams{},
+		openapi.SpeakerName{Name: fs.Arg(2)})
 	if err != nil {
 		return fmt.Errorf("naming a voice of %s: %w", id, err)
 	}

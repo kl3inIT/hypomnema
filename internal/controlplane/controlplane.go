@@ -46,6 +46,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/takes"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -354,7 +355,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
-		gatewaySecrets(secrets)).WithProviderList(gatewayProviderList(svc)).
+		gatewaySecrets(secrets)).WithKeyVault(secrets).WithProviderList(gatewayProviderList(svc)).
 		WithServedLimits(gatewayServedLimits(subscriptions)).WithServedWire(gatewayServedWire(subscriptions))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
@@ -432,8 +433,24 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The ffmpeg videos are made with (issue #818, row 9): a pinned build installed beside the database, in the
 	// background so that serving does not wait for it.
+	ffmpegTools := func(context.Context) (ffmpeg.Tools, error) {
+		return ffmpeg.Tools{}, errors.New("ffmpeg is off on this control plane (HYPOMNEMA_FFMPEG=0)")
+	}
+
 	if !cfg.FFmpegOff {
-		ffmpeg.New(ffmpeg.Config{Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "ffmpeg"), Logger: logger}).Start(ctx)
+		installer := ffmpeg.New(ffmpeg.Config{Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "ffmpeg"), Logger: logger})
+		installer.Start(ctx)
+		ffmpegTools = installer.Ensure
+	}
+
+	// The videos made of the takes (issue #818, rows 1, 2, 5 and 6): rows beside the others, files in videos/
+	// beside the database, one runner making them one at a time.
+	videoSvc, err := videos.New(videos.Config{
+		DB: db, Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "videos"), Takes: phoneTakes, Speech: voice,
+		Settings: gateway.AudioSettings, Tools: ffmpegTools, Logger: logger,
+	})
+	if err != nil {
+		return err
 	}
 
 	sharedPhone := phone.New(phone.Config{
@@ -441,6 +458,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Takes: phoneTakes, WorkAlive: workAlive(svc, logger),
 	})
 	agents.WithDevice(sharedPhone)
+	agents.WithVideos(videoSvc, phoneTakes)
 
 	// An agent's commands on a node's machine (issue #543), sudo given the node's password from the vault.
 	agents.WithNodeExec(svc, nodes, nodeSudo(secrets))
@@ -590,7 +608,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	api.WithPhone(ownersPhone{sharedPhone})
-	api.WithTakes(ownerTakes{Store: phoneTakes, phone: sharedPhone})
+	api.WithTakes(ownerTakes{Store: phoneTakes, phone: sharedPhone, videos: videoSvc})
+	api.WithVideos(videoSvc)
 
 	if musePool != nil {
 		api.WithMuse(musePool)
@@ -641,6 +660,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 				slog.String("event", "controlplane.loop_failed"), slog.String("error", err.Error()))
 			cancel(fmt.Errorf("scheduler: %w", err))
 		}
+	}()
+
+	videosDone := make(chan struct{})
+
+	go func() {
+		defer close(videosDone)
+
+		videoSvc.Run(ctx)
 	}()
 
 	machinesDone := make(chan struct{})
@@ -749,6 +776,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-channelsDone
 	<-loopDone
 	<-machinesDone
+	<-videosDone
 	<-refreshDone
 	<-vendorModelsDone
 	<-keysDone
@@ -840,13 +868,25 @@ func workAlive(svc *orchestration.Service, logger *slog.Logger) func(ctx context
 }
 
 // ownerTakes are the takes as the owner reads and deletes them: a take still
-// filmed is ended on its node before its files go.
+// filmed is ended on its node before its files go, and a take a video is
+// being made of is not deleted (issue #818, row 2).
 type ownerTakes struct {
 	*takes.Store
-	phone *phone.Phone
+	phone  *phone.Phone
+	videos *videos.Service
 }
 
 func (o ownerTakes) Delete(ctx context.Context, id string) error {
+	busy, err := o.videos.TakeInWork(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if busy {
+		return fmt.Errorf("%w: a video of take %s is being made; delete the take once it is made",
+			orchestration.ErrConflict, id)
+	}
+
 	o.phone.EndTake(ctx, id)
 
 	return o.Store.Delete(id)
