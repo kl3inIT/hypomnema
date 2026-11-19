@@ -1297,12 +1297,14 @@ test("tool calls shown off leave only the answers", async ({ page }) => {
 // what the chat sent, newest first, and ↓ goes back to the empty box.
 test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page }) => {
   await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
-  const other = { ...chat, id: "cht_2", title: "login page" }
-  // The other chat: listed beside this one, with no work of its own.
+  // The other chat: another Bot's main chat (issue #471), listed beside this one, with no work of its own.
+  const other = { ...chat, id: "cht_2", title: "login page", bot: "bot_reviewer" }
+  const reviewer = { ...builder, id: "bot_reviewer", main: false, name: "reviewer", position: 1 }
   await page.route(
     (url) =>
       url.pathname.startsWith("/api/v1/") &&
       (url.pathname === "/api/v1/chats" ||
+        url.pathname === "/api/v1/bots" ||
         url.pathname.startsWith(`/api/v1/chats/${other.id}`) ||
         url.searchParams.get("chat_id") === other.id),
     (route) => {
@@ -1310,24 +1312,30 @@ test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page }
       const body =
         path === "/chats"
           ? { data: [chat, other] }
-          : path === `/chats/${other.id}`
-            ? other
-            : { data: [] }
+          : path === "/bots"
+            ? {
+                data: [
+                  { ...builder, position: 0, main_chat: chat.id },
+                  { ...reviewer, main_chat: other.id },
+                ],
+              }
+            : path === `/chats/${other.id}`
+              ? other
+              : { data: [] }
 
       return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) })
     },
   )
-  // goTo opens a chat from the Bot's chats in the list, which a phone shows in the drawer behind ≡.
+  // goTo opens a Bot's main chat from its row in the list, which a phone shows in the drawer behind ≡.
   const goTo = async (title: string) => {
     await openMenu(page)
-    // The Bot's two chats are under it, shown with its toggle once the list is read.
-    const toggle = page
-      .getByRole("button", { name: /the chats of builder$/ })
+    const row = page
+      .getByRole("navigation", { name: "Bots" })
+      .getByRole("link", { name: title })
       .filter({ visible: true })
       .first()
-    await expect(toggle).toBeVisible()
-    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click()
-    await page.getByRole("link", { name: title }).filter({ visible: true }).first().click()
+    await expect(row).toBeVisible()
+    await row.click()
   }
 
   await open(page)
