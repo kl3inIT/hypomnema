@@ -3786,7 +3786,7 @@ type GatewayRequest struct {
 	CreatedAt  time.Time `json:"created_at"`
 	DurationMs int64     `json:"duration_ms"`
 
-	// Error The provider's message for a request that failed.
+	// Error The provider's error or the reason the request ended early, when available.
 	Error *string `json:"error,omitempty"`
 
 	// Estimated The provider reported no usage; the counts are the sizes divided by four.
@@ -3864,7 +3864,9 @@ type GatewayUsageBucket struct {
 type GatewayUsageCounts struct {
 	// AudioSeconds The seconds of recordings transcriptions heard.
 	AudioSeconds float32 `json:"audio_seconds"`
-	CachedTokens int64   `json:"cached_tokens"`
+
+	// CachedTokens Input tokens read from the provider's cache on measured requests.
+	CachedTokens int64 `json:"cached_tokens"`
 
 	// Characters The characters speech spoke.
 	Characters       int64 `json:"characters"`
@@ -3873,13 +3875,22 @@ type GatewayUsageCounts struct {
 	// CostMicros What the priced requests cost at their vendor's API price, in micro-dollars; for a subscription, what the same tokens would cost at the API, not what the plan costs.
 	CostMicros int64 `json:"cost_micros"`
 
+	// EstimatedPromptTokens Input tokens on those estimated requests, already included in prompt_tokens.
+	EstimatedPromptTokens int64 `json:"estimated_prompt_tokens"`
+
+	// EstimatedRequests Requests with estimated usage. Excludes ledger history whose request rows were already purged before the split was recorded.
+	EstimatedRequests int64 `json:"estimated_requests"`
+
 	// Failed The requests the provider refused, none answered, or whose answer ended early.
 	Failed int64 `json:"failed"`
 
 	// Images The images image requests made.
 	Images int64 `json:"images"`
 
-	// PromptTokens Tokens in, those read from the provider's cache included.
+	// MeasuredPromptTokens Input tokens on measured requests, the denominator for the cache share. Excludes ledger history whose request rows were already purged before the split was recorded.
+	MeasuredPromptTokens int64 `json:"measured_prompt_tokens"`
+
+	// PromptTokens All input tokens, including cached and estimated tokens.
 	PromptTokens    int64 `json:"prompt_tokens"`
 	ReasoningTokens int64 `json:"reasoning_tokens"`
 	Requests        int64 `json:"requests"`

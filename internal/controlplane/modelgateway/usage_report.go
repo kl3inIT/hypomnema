@@ -96,8 +96,9 @@ func defaultError(o Outcome) string {
 
 // UsageCounts are the counts of a set of requests.
 type UsageCounts struct {
-	Requests, Failed                      int64
-	Prompt, Cached, Completion, Reasoning int64
+	Requests, Failed                                   int64
+	Prompt, Cached, Completion, Reasoning              int64
+	EstimatedRequests, EstimatedPrompt, MeasuredPrompt int64
 	// CostMicros is the cost of the requests the price book prices, in
 	// micro-dollars; Unpriced counts those with tokens it has no price for
 	// (Coder's has_unpriced_usage).
@@ -193,7 +194,9 @@ func (s *Service) Usage(ctx context.Context, period string, offset time.Duration
 
 	report.Totals = UsageCounts{
 		Requests: totals.Requests, Failed: totals.Failed, Prompt: totals.PromptTokens, Cached: totals.CachedTokens,
-		Completion: totals.CompletionTokens, Reasoning: totals.ReasoningTokens,
+		EstimatedRequests: totals.EstimatedRequests, EstimatedPrompt: totals.EstimatedPromptTokens,
+		MeasuredPrompt: totals.MeasuredPromptTokens,
+		Completion:     totals.CompletionTokens, Reasoning: totals.ReasoningTokens,
 		CostMicros: totals.CostMicros, Unpriced: totals.Unpriced,
 		WebSearches: totals.WebSearches, Audio: time.Duration(totals.AudioMs) * time.Millisecond,
 		Characters: totals.Characters, Images: totals.Images,
@@ -218,7 +221,9 @@ func (s *Service) Usage(ctx context.Context, period string, offset time.Duration
 			Start: origin.Add(time.Duration(i) * p.Bucket).UTC(),
 			UsageCounts: UsageCounts{
 				Requests: b.Requests, Failed: b.Failed, Prompt: b.PromptTokens, Cached: b.CachedTokens,
-				Completion: b.CompletionTokens, Reasoning: b.ReasoningTokens, CostMicros: b.CostMicros, Unpriced: b.Unpriced,
+				EstimatedRequests: b.EstimatedRequests, EstimatedPrompt: b.EstimatedPromptTokens,
+				MeasuredPrompt: b.MeasuredPromptTokens,
+				Completion:     b.CompletionTokens, Reasoning: b.ReasoningTokens, CostMicros: b.CostMicros, Unpriced: b.Unpriced,
 				WebSearches: b.WebSearches, Audio: time.Duration(b.AudioMs) * time.Millisecond,
 				Characters: b.Characters, Images: b.Images,
 			},
@@ -287,7 +292,9 @@ func (s *Service) usageByModel(ctx context.Context, q *store.Queries, since time
 	for _, r := range rows {
 		out = append(out, UsageGroup{ID: r.Name, Name: r.Name, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
-			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
+			EstimatedRequests: r.EstimatedRequests, EstimatedPrompt: r.EstimatedPromptTokens,
+			MeasuredPrompt: r.MeasuredPromptTokens,
+			Completion:     r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
 			WebSearches: r.WebSearches, Audio: time.Duration(r.AudioMs) * time.Millisecond,
 			Characters: r.Characters, Images: r.Images,
 		}})
@@ -306,7 +313,9 @@ func (s *Service) usageByKey(ctx context.Context, q *store.Queries, since time.T
 	for _, r := range rows {
 		out = append(out, UsageGroup{ID: r.ID, Name: r.Name, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
-			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
+			EstimatedRequests: r.EstimatedRequests, EstimatedPrompt: r.EstimatedPromptTokens,
+			MeasuredPrompt: r.MeasuredPromptTokens,
+			Completion:     r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
 			WebSearches: r.WebSearches, Audio: time.Duration(r.AudioMs) * time.Millisecond,
 			Characters: r.Characters, Images: r.Images,
 		}})
@@ -327,7 +336,9 @@ func (s *Service) usageByAccount(ctx context.Context, q *store.Queries, since ti
 	for _, r := range rows {
 		out = append(out, UsageGroup{ID: r.ID, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
-			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
+			EstimatedRequests: r.EstimatedRequests, EstimatedPrompt: r.EstimatedPromptTokens,
+			MeasuredPrompt: r.MeasuredPromptTokens,
+			Completion:     r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
 			WebSearches: r.WebSearches, Audio: time.Duration(r.AudioMs) * time.Millisecond,
 			Characters: r.Characters, Images: r.Images,
 		}})

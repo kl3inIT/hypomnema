@@ -2512,10 +2512,25 @@ export type GatewayUsageCounts = {
    */
   failed: number;
   /**
-   * Tokens in, those read from the provider's cache included.
+   * All input tokens, including cached and estimated tokens.
    */
   prompt_tokens: number;
+  /**
+   * Input tokens read from the provider's cache on measured requests.
+   */
   cached_tokens: number;
+  /**
+   * Input tokens on measured requests, the denominator for the cache share. Excludes ledger history whose request rows were already purged before the split was recorded.
+   */
+  measured_prompt_tokens: number;
+  /**
+   * Requests with estimated usage. Excludes ledger history whose request rows were already purged before the split was recorded.
+   */
+  estimated_requests: number;
+  /**
+   * Input tokens on those estimated requests, already included in prompt_tokens.
+   */
+  estimated_prompt_tokens: number;
   completion_tokens: number;
   reasoning_tokens: number;
 };
@@ -2631,7 +2646,7 @@ export type GatewayRequest = {
    */
   status: number;
   /**
-   * The provider's message for a request that failed.
+   * The provider's error or the reason the request ended early, when available.
    */
   error?: string;
   prompt_tokens: number;
