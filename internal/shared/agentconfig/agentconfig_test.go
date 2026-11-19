@@ -101,3 +101,68 @@ func TestEachFileParses(t *testing.T) {
 	assert.Equal(t, "https://opencode.ai/config.json", oc["$schema"])
 	assert.Equal(t, "hypomnema/"+awkward, oc["model"])
 }
+
+// Scenario: the owner's omp file reads the key's models from the gateway (proxy discovery) and names the chosen one
+// as the default; the owner's OpenCode file names every model with its size and the chosen one as the default,
+// while a worker's names its one model (issue #907).
+func TestTheOwnersFilesNameEveryModel(t *testing.T) {
+	t.Parallel()
+
+	g := agentconfig.Gateway{
+		URL: "https://hyp.example/v1", Key: awkward, Model: "a/one", ContextWindow: 500000,
+		Others: []agentconfig.Model{{ID: "a/one"}, {ID: "b/two", ContextWindow: 200000, MaxOutput: 64000}, {ID: "c/three"}},
+	}
+
+	var models struct {
+		Providers map[string]struct {
+			BaseURL    string `yaml:"baseUrl"`
+			APIKey     string `yaml:"apiKey"`
+			AuthHeader bool   `yaml:"authHeader"`
+			Discovery  struct {
+				Type string `yaml:"type"`
+			} `yaml:"discovery"`
+		} `yaml:"providers"`
+	}
+
+	require.NoError(t, yaml.Unmarshal([]byte(agentconfig.OmpDiscovery(g)), &models))
+	p := models.Providers[agentconfig.ProviderID]
+	assert.Equal(t, "https://hyp.example/v1", p.BaseURL)
+	assert.Equal(t, awkward, p.APIKey)
+	assert.True(t, p.AuthHeader)
+	assert.Equal(t, "proxy", p.Discovery.Type)
+
+	var settings struct {
+		ModelRoles map[string]string `yaml:"modelRoles"`
+	}
+
+	require.NoError(t, yaml.Unmarshal([]byte(agentconfig.OmpSettings(g)), &settings))
+	assert.Equal(t, "hypomnema/a/one", settings.ModelRoles["default"])
+
+	type limit struct {
+		Context int64 `json:"context"`
+		Output  int64 `json:"output"`
+	}
+
+	var oc struct {
+		Model     string `json:"model"`
+		Providers map[string]struct {
+			Models map[string]struct {
+				Limit limit `json:"limit"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+
+	file, err := agentconfig.OpencodeFile(g)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(file), &oc))
+	assert.Equal(t, "hypomnema/a/one", oc.Model)
+	got := oc.Providers[agentconfig.ProviderID].Models
+	assert.Len(t, got, 3)
+	assert.Equal(t, limit{500000, agentconfig.DefaultMaxOutput}, got["a/one"].Limit)
+	assert.Equal(t, limit{200000, 64000}, got["b/two"].Limit)
+	assert.Equal(t, limit{agentconfig.DefaultContextWindow, agentconfig.DefaultMaxOutput}, got["c/three"].Limit)
+
+	g.Others = nil
+	worker := agentconfig.OpencodeConfig(g)["providers"].(map[string]any)[agentconfig.ProviderID].(map[string]any)
+	assert.Len(t, worker["models"], 1, "a worker's file names its model alone")
+}

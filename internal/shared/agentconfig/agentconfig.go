@@ -42,6 +42,39 @@ type Gateway struct {
 	// ContextWindow and MaxOutput are the model's, when known; zero is DefaultContextWindow and DefaultMaxOutput.
 	ContextWindow int64
 	MaxOutput     int64
+	// Others are the other models the key may use, which a file for the owner names beside Model (Connect a tool,
+	// issue #907); a worker's key is good for its model alone, so its files name that one.
+	Others []Model
+}
+
+// Model is one more model a file names: its name and size, as Gateway has them for its own.
+type Model struct {
+	ID            string
+	ContextWindow int64
+	MaxOutput     int64
+}
+
+// models are the file's models, Gateway's own first, each with its size or the defaults.
+func (g Gateway) models() []Model {
+	out := []Model{{ID: g.Model, ContextWindow: g.window(), MaxOutput: g.output()}}
+
+	for _, m := range g.Others {
+		if m.ID == g.Model {
+			continue
+		}
+
+		if m.ContextWindow <= 0 {
+			m.ContextWindow = DefaultContextWindow
+		}
+
+		if m.MaxOutput <= 0 {
+			m.MaxOutput = DefaultMaxOutput
+		}
+
+		out = append(out, m)
+	}
+
+	return out
 }
 
 // Root is the gateway's origin: its URL without /v1, where Anthropic's Messages are served.
