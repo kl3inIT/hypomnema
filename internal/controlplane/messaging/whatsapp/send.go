@@ -37,6 +37,9 @@ func (a *account) Send(ctx context.Context, out messaging.Outgoing) (messaging.M
 	if out.Text == "" && len(out.File) == 0 {
 		return messaging.Message{}, errors.New("whatsapp: a message needs a text or a file")
 	}
+	if err := ValidateCaption(out.Text, out.FileName, out.File); err != nil {
+		return messaging.Message{}, err
+	}
 
 	mentioned, err := mentionJIDs(out.Text, out.Mentions)
 	if err != nil {
@@ -239,6 +242,14 @@ func sendMIME(name string, data []byte) string {
 	}
 
 	return http.DetectContentType(data[:min(len(data), 512)])
+}
+
+func ValidateCaption(text, name string, data []byte) error {
+	if text != "" && len(data) > 0 && sendKind(sendMIME(name, data)) == "audio" {
+		return errors.New("whatsapp: audio cannot carry a caption; send the text separately")
+	}
+
+	return nil
 }
 
 // sendKind is how a file is sent: an image, a video or an audio by its type, any other as a document (wacli

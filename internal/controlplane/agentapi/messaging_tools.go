@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging/whatsapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -141,7 +142,7 @@ func (s *Server) messagingLabels(ctx context.Context, a agent, m messagingServic
 }
 
 // messagingToolList is every messaging service's tools the caller is offered.
-func (s *Server) messagingToolList(ctx context.Context, a agent) []agenttool.BrowserTool {
+func (s *Server) messagingToolList(ctx context.Context, a agent, relayMentions bool) []agenttool.BrowserTool {
 	var out []agenttool.BrowserTool
 
 	for _, m := range messagingServices {
@@ -154,7 +155,7 @@ func (s *Server) messagingToolList(ctx context.Context, a agent) []agenttool.Bro
 		}
 
 		if len(labels) > 0 {
-			out = append(out, m.tools(labels)...)
+			out = append(out, m.tools(labels, relayMentions)...)
 		}
 	}
 
@@ -162,7 +163,7 @@ func (s *Server) messagingToolList(ctx context.Context, a agent) []agenttool.Bro
 }
 
 // tools are a service's tools for the accounts an agent may use.
-func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
+func (m messagingService) tools(labels []string, relayMentions bool) []agenttool.BrowserTool {
 	with := func(properties map[string]any, required ...string) json.RawMessage {
 		if len(labels) > 1 {
 			properties["account"] = map[string]any{"type": "string", "enum": labels,
@@ -191,7 +192,7 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 		"reply_to": map[string]any{"type": "string", "description": "The id of the message it answers."},
 	}
 
-	if m.tags {
+	if m.tags && relayMentions {
 		// As mautrix-whatsapp tags a member: "@" + the JID's user part in the text, the JID in MentionedJID
 		// (pkg/msgconv/from-matrix.go, convertPill).
 		sender = "sender (their id, which " + m.send + "'s mentions takes)"
@@ -254,6 +255,10 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 			InputSchema: with(send, "chat"),
 		},
 	}
+}
+
+func relaysWhatsAppMentions(r *http.Request) bool {
+	return r.Header.Get(agenttool.HeaderWhatsAppMentions) == "1"
 }
 
 type messagingArgs struct {
@@ -489,13 +494,12 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 ) {
 	var in agenttool.WhatsAppSendCall
 	if json.Unmarshal(orEmpty(raw), &in) != nil {
-		answerTool(w, m.send+" takes {chat, text, path, reply_to, mentions}", true)
+		answerTool(w, m.send+" takes a JSON object matching its tool schema", true)
 
 		return
 	}
 
 	in.Chat = strings.TrimSpace(in.Chat)
-	in.Mentions = slices.DeleteFunc(in.Mentions, func(id string) bool { return strings.TrimSpace(id) == "" })
 
 	switch {
 	case in.Chat == "":
@@ -518,6 +522,22 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 		answerTool(w, m.send+" does not tag members yet; send it without mentions", true)
 
 		return
+	case len(in.Mentions) > 0 && !relaysWhatsAppMentions(r):
+		answerTool(w, "this machine's tools cannot send WhatsApp mentions yet; update them to tag members", true)
+
+		return
+	case slices.ContainsFunc(in.Mentions, func(id string) bool { return strings.TrimSpace(id) == "" }):
+		answerTool(w, "mentions must not contain blank member ids; nothing was sent", true)
+
+		return
+	}
+
+	if m.send == agenttool.ToolWhatsAppSend {
+		if err := whatsapp.ValidateCaption(in.Text, in.FileName, in.File); err != nil {
+			answerTool(w, err.Error(), true)
+
+			return
+		}
 	}
 
 	// A member the text does not write @ for would be sent untagged: refused before the owner is asked (#852).

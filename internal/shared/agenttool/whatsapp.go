@@ -5,6 +5,8 @@ package agenttool
 // show_artifact's files are read (internal/shared/toolsmcp/whatsapp.go).
 const ToolWhatsAppSend = "whatsapp_send"
 
+const HeaderWhatsAppMentions = "Hypomnema-WhatsApp-Mentions"
+
 // WhatsAppSendCall is the arguments of a whatsapp_send or zalo_send call as the control plane takes them: the
 // agent's own, and the file its tools server read from Path. A server of an earlier release passes the agent's
 // arguments on unchanged, without File.

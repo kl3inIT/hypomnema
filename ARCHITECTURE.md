@@ -2548,8 +2548,10 @@ flowchart LR
       sent is kept in the mirror as his. `mentions` tags members of a group by their ids as `whatsapp_messages`
       gives a sender (a number's JID, a LID JID or a bare number): they go in the message's
       `ContextInfo.MentionedJID`, beside the quote of a reply, and the text writes `@` and each id's number, as
-      mautrix-whatsapp sends a mention (`pkg/msgconv/from-matrix.go`, `convertPill`). A mention the text does not
-      write is refused before the owner is asked; the approval shows who is tagged, by the name their messages in
+      mautrix-whatsapp sends a mention (`pkg/msgconv/from-matrix.go`, `convertPill`). The control plane offers and
+      accepts mentions only when the tools server advertises that it relays them (`Hypomnema-WhatsApp-Mentions`).
+      A blank mention, a mention the text does not write, or an audio file with a caption is refused before the
+      owner is asked; the approval shows who is tagged, by the name their messages in
       the chat give ([issue #852](https://github.com/kl3inIT/hypomnema/issues/852)). `zalo_send` does not tag.
     - **Every image and file is downloaded** ([issue #634](https://github.com/kl3inIT/hypomnema/issues/634)): a
       media message keeps its download keys (the mirror's version 1, `wa_version`); four workers download each as

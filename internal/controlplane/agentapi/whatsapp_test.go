@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/toolsmcp"
 )
 
 // ownWhatsApp stands for the owner's WhatsApp the control plane keeps: one group, one message, what it was
@@ -227,24 +227,53 @@ func TestABotTagsAMemberOfAGroupAsTheOwnerApproves(t *testing.T) {
 	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "tag Lan in PMO: the quote is ready")
 	require.NoError(t, err)
 
-	tools := w.tools(pi)
-	i := slices.IndexFunc(tools, func(tool agenttool.BrowserTool) bool { return tool.Name == agenttool.ToolWhatsAppSend })
-	require.GreaterOrEqual(t, i, 0)
-	assert.Contains(t, tools[i].Description, "@84339013010 for 84339013010@s.whatsapp.net")
-	assert.Contains(t, string(tools[i].InputSchema), `"mentions"`)
+	legacy, err := json.Marshal(w.tools(pi))
+	require.NoError(t, err)
+	assert.Contains(t, string(legacy), `"whatsapp_send"`)
+	assert.NotContains(t, string(legacy), `"mentions"`)
+	assert.NotContains(t, string(legacy), "To tag members")
 
-	_, text, isError := w.use(pi, agenttool.ToolWhatsAppSend,
-		`{"chat":"120363@g.us","text":"Lan, the quote is ready","mentions":["84911111111@s.whatsapp.net"]}`)
-	assert.True(t, isError)
-	assert.Contains(t, text, "does not write @84911111111")
-	assert.Empty(t, w.judge.asked, "the owner is not asked for a send that would go untagged")
+	relay := toolsmcp.NewAgentWithClient(w.srv.URL, pi, w.srv.Client())
+	tools, err := relay.Tools(ctx, agenttool.PathTools)
+	require.NoError(t, err)
+	modern, err := json.Marshal(tools)
+	require.NoError(t, err)
+	assert.Contains(t, string(modern), "@84339013010 for 84339013010@s.whatsapp.net")
+	assert.Contains(t, string(modern), `"mentions"`)
 
 	call := `{"chat":"120363@g.us","text":"@84911111111 the quote is ready","reply_to":"m1",` +
 		`"mentions":["84911111111@s.whatsapp.net"]}`
 	w.judge.approved = true
 
-	_, text, isError = w.use(pi, agenttool.ToolWhatsAppSend, call)
-	require.False(t, isError, text)
+	_, text, isError := w.use(pi, agenttool.ToolWhatsAppSend, call)
+	require.True(t, isError)
+	assert.Contains(t, text, "cannot send WhatsApp mentions yet")
+	assert.Empty(t, w.judge.asked)
+	assert.Empty(t, w.whatsapp.sent)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "voice.mp3"), []byte("ID3"), 0o600))
+	for _, invalid := range []struct{ args, message string }{
+		{`{"chat":"120363@g.us","text":"Lan, the quote is ready","mentions":["84911111111@s.whatsapp.net"]}`,
+			"does not write @84911111111"},
+		{`{"chat":"120363@g.us","text":"Hi","mentions":[" "]}`, "blank member ids"},
+		{`{"chat":"120363@g.us","text":"@84911111111 listen","mentions":["84911111111@s.whatsapp.net"],"path":"voice.mp3"}`,
+			"audio cannot carry a caption"},
+		{`{"chat":"120363@g.us","text":"Listen","path":"voice.mp3"}`, "audio cannot carry a caption"},
+	} {
+		result, err := relay.SendCall(ctx, agenttool.PathToolsCall, agenttool.ToolWhatsAppSend,
+			json.RawMessage(invalid.args), dir)
+		require.NoError(t, err)
+		raw, ok := result.(json.RawMessage)
+		require.True(t, ok)
+		assert.Contains(t, string(raw), `"isError":true`)
+		assert.Contains(t, string(raw), invalid.message)
+	}
+	assert.Empty(t, w.judge.asked, "the owner is not asked for a send that would lose text or tags")
+	assert.Empty(t, w.whatsapp.sent)
+
+	_, err = relay.SendCall(ctx, agenttool.PathToolsCall, agenttool.ToolWhatsAppSend, json.RawMessage(call), dir)
+	require.NoError(t, err)
 	require.Len(t, w.judge.asked, 1)
 	assert.Contains(t, w.judge.asked[0].Fields,
 		orchestration.Field{Label: "Tagging", Value: "Lan (84911111111@s.whatsapp.net)"})
