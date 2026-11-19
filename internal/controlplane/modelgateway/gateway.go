@@ -30,6 +30,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -101,14 +102,21 @@ type Key struct {
 	DispatchID string
 	// ChatID is set on a key made for one chat's pi.
 	ChatID string
+	botID  string
 	// Prefix is the key's start, shown to tell keys apart; empty for a key made
 	// before it was kept.
-	Prefix    string
-	CreatedAt time.Time
-	RevokedAt *time.Time
+	Prefix      string
+	MaskedValue string
+	CreatedAt   time.Time
+	RevokedAt   *time.Time
 	// LastUsedAt is when the gateway last served a request with the key; nil
 	// for one never used. ListKeys sets it.
 	LastUsedAt *time.Time
+}
+
+// OwnerMade reports whether this key belongs to the owner rather than a worker.
+func (k Key) OwnerMade() bool {
+	return k.DispatchID == "" && k.ChatID == "" && k.botID == ""
 }
 
 // keyPrefixLength is how much of a key is kept in the clear: its kind and six
@@ -164,6 +172,7 @@ type Service struct {
 	newID     func(prefix string) string
 	providers Providers
 	secrets   Secrets
+	keyVault  *vault.Service
 	// allProviders lists every provider, for the models of the subscriptions (issue #549).
 	allProviders func(ctx context.Context) ([]ProviderInfo, error)
 	// served gives the window and largest output a subscription's vendor serves a model with (issue #587).
@@ -181,12 +190,16 @@ func New(
 }
 
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
+	return s.writeTx(ctx, func(tx *sql.Tx, now int64) error { return fn(store.New(tx), now) })
+}
+
+func (s *Service) writeTx(ctx context.Context, fn func(tx *sql.Tx, now int64) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning a transaction: %w", err)
 	}
 
-	if err := fn(store.New(tx), s.clock.Now().UnixMilli()); err != nil {
+	if err := fn(tx, s.clock.Now().UnixMilli()); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 
@@ -497,8 +510,15 @@ func modelFromRow(row store.GatewayModel, targets []store.GatewayModelTarget) Mo
 	return m
 }
 
-// AddKey makes a gateway key and returns it with its secret, shown only
-// here. models lists the public names it may use; empty means every model.
+// WithKeyVault connects the vault that keeps the owner's gateway key values.
+func (s *Service) WithKeyVault(secrets *vault.Service) *Service {
+	s.keyVault = secrets
+
+	return s
+}
+
+// AddKey makes an owner key and returns it with its encrypted-at-rest value.
+// models lists the public names it may use; empty means every model.
 // endpoints lists the kinds it may use besides chat; nil means every kind, and
 // an empty list none.
 func (s *Service) AddKey(ctx context.Context, name string, models []string, endpoints []Endpoint) (Key, string, error) {
@@ -506,29 +526,45 @@ func (s *Service) AddKey(ctx context.Context, name string, models []string, endp
 		return Key{}, "", fmt.Errorf("%w: a key's name is lowercase letters, digits and dashes", ErrInvalid)
 	}
 
+	if err := validateKeyAccess(models, endpoints); err != nil {
+		return Key{}, "", err
+	}
+
 	if len(models) == 0 {
 		models = []string{AllModels}
 	}
 
+	return s.addKey(ctx, name, models, keyOwner{endpoints: endpoints, keepValue: true})
+}
+
+func validateKeyAccess(models []string, endpoints []Endpoint) error {
 	for _, m := range models {
 		if m != AllModels && !modelNamePattern.MatchString(m) {
-			return Key{}, "", fmt.Errorf("%w: %q is not a model name", ErrInvalid, m)
+			return fmt.Errorf("%w: %q is not a model name", ErrInvalid, m)
 		}
 	}
 
 	for _, e := range endpoints {
 		if !slices.Contains(Endpoints, e) {
-			return Key{}, "", fmt.Errorf("%w: %q is not search, fetch, images or audio", ErrInvalid, e)
+			return fmt.Errorf("%w: %q is not search, fetch, images or audio", ErrInvalid, e)
 		}
 	}
 
-	if endpoints != nil {
-		// Kept in one order, once each, so the list reads the same however it was asked.
-		asked := endpoints
-		endpoints = slices.DeleteFunc(slices.Clone(Endpoints), func(e Endpoint) bool { return !slices.Contains(asked, e) })
+	return nil
+}
+
+func keyEndpointsJSON(endpoints []Endpoint) (sql.NullString, error) {
+	if endpoints == nil {
+		return sql.NullString{}, nil
 	}
 
-	return s.addKey(ctx, name, models, keyOwner{endpoints: endpoints})
+	ordered := slices.DeleteFunc(slices.Clone(Endpoints), func(e Endpoint) bool { return !slices.Contains(endpoints, e) })
+	encoded, err := json.Marshal(ordered)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("encoding the key's endpoints: %w", err)
+	}
+
+	return sql.NullString{String: string(encoded), Valid: true}, nil
 }
 
 // AddDispatchKey makes the key a Dispatch's worker calls the gateway with,
@@ -637,6 +673,7 @@ type keyOwner struct {
 	botID string
 	// endpoints are the kinds an owner's key may use besides chat; nil is every kind.
 	endpoints []Endpoint
+	keepValue bool
 }
 
 func (s *Service) addKey(ctx context.Context, name string, models []string, owner keyOwner) (Key, string, error) {
@@ -650,20 +687,35 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 		return Key{}, "", fmt.Errorf("encoding the key's models: %w", err)
 	}
 
-	var kinds sql.NullString
-
-	if owner.endpoints != nil {
-		b, err := json.Marshal(owner.endpoints)
-		if err != nil {
-			return Key{}, "", fmt.Errorf("encoding the key's endpoints: %w", err)
-		}
-
-		kinds = sql.NullString{String: string(b), Valid: true}
+	kinds, err := keyEndpointsJSON(owner.endpoints)
+	if err != nil {
+		return Key{}, "", err
 	}
 
 	id := s.newID("gwk")
 
-	err = s.write(ctx, func(q *store.Queries, now int64) error {
+	err = s.writeTx(ctx, func(tx *sql.Tx, now int64) error {
+		q := store.New(tx)
+		var secretVersionID sql.NullString
+		var maskedValue string
+
+		if owner.keepValue {
+			if s.keyVault == nil {
+				return vault.ErrNotConfigured
+			}
+
+			versionID, err := s.keyVault.CreateTx(ctx, tx, vault.NewSecret{
+				Name: strings.ReplaceAll(id, "_", "-"), Kind: vault.KindGeneric,
+				Payload: vault.Payload{vault.KeyValue: secret},
+			}, now)
+			if err != nil {
+				return err
+			}
+
+			secretVersionID = sql.NullString{String: versionID, Valid: true}
+			maskedValue = secret[:6] + strings.Repeat("•", len(secret)-10) + secret[len(secret)-4:]
+		}
+
 		if owner.dispatchID != "" {
 			if _, err := q.RevokeGatewayKeysOfDispatch(ctx, store.RevokeGatewayKeysOfDispatchParams{
 				Now:        sql.NullInt64{Int64: now, Valid: true},
@@ -687,6 +739,7 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 			DispatchID: sql.NullString{String: owner.dispatchID, Valid: owner.dispatchID != ""},
 			ChatID:     sql.NullString{String: owner.chatID, Valid: owner.chatID != ""},
 			BotID:      sql.NullString{String: owner.botID, Valid: owner.botID != ""}, Now: now,
+			SecretVersionID: secretVersionID, MaskedValue: maskedValue,
 		}); err != nil {
 			return fmt.Errorf("%w: storing key %q: %w", ErrConflict, name, err)
 		}
@@ -754,23 +807,32 @@ func (s *Service) ListKeys(ctx context.Context) ([]Key, error) {
 
 // RevokeKey stops a key from working. Revoking twice is a conflict.
 func (s *Service) RevokeKey(ctx context.Context, id string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		n, err := q.RevokeGatewayKey(ctx, store.RevokeGatewayKeyParams{
-			Now: sql.NullInt64{Int64: now, Valid: true}, ID: id,
-		})
-		if err != nil {
-			return fmt.Errorf("revoking key %s: %w", id, err)
-		}
-
-		if n == 1 {
-			return nil
-		}
-
-		if _, err := q.GetGatewayKey(ctx, id); errors.Is(err, sql.ErrNoRows) {
+	return s.writeTx(ctx, func(tx *sql.Tx, now int64) error {
+		q := store.New(tx)
+		row, err := q.GetGatewayKey(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: key %s", ErrNotFound, id)
 		}
 
-		return fmt.Errorf("%w: key %s is already revoked", ErrConflict, id)
+		if err != nil {
+			return fmt.Errorf("reading key %s: %w", id, err)
+		}
+
+		if row.RevokedAt.Valid {
+			return fmt.Errorf("%w: key %s is already revoked", ErrConflict, id)
+		}
+
+		if _, err := q.RevokeGatewayKey(ctx, store.RevokeGatewayKeyParams{
+			Now: sql.NullInt64{Int64: now, Valid: true}, ID: id,
+		}); err != nil {
+			return fmt.Errorf("revoking key %s: %w", id, err)
+		}
+
+		if row.SecretVersionID.Valid {
+			return vault.DeleteByVersionTx(ctx, tx, row.SecretVersionID.String)
+		}
+
+		return nil
 	})
 }
 
@@ -817,6 +879,7 @@ func keyFromRow(r store.GatewayKey) (Key, error) {
 
 	k := Key{
 		ID: r.ID, Name: r.Name, Models: models, DispatchID: r.DispatchID.String, ChatID: r.ChatID.String,
+		botID: r.BotID.String, MaskedValue: r.MaskedValue,
 		Prefix: r.KeyPrefix, CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
 	}
 

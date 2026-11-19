@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
-import type { GatewayKey as Key } from "../src/api/generated/types.gen.js"
+import type { GatewayKey as Key, GatewayKeyUpdate } from "../src/api/generated/types.gen.js"
 
 // The Gateway keys page of Settings (issue #199, step 6), built, against a fake client API, on a phone and a
 // desktop.
@@ -16,6 +16,8 @@ const served = (name: string, provider: string) => ({
 })
 
 const secret = "hyp_gateway_v1_Ab12Cd34ef56gh78ij90klmnopqrstuv_x9"
+const laptopSecret = "hyp_gateway_v1_Zx81Qa34ef56gh78ij90klmnopqrstuv_Pq4x"
+const mask = (value: string) => value.slice(0, 6) + "•".repeat(value.length - 10) + value.slice(-4)
 
 async function fakeServer(page: Page, start?: Key[]) {
   let keys: Key[] = start ?? [
@@ -23,6 +25,7 @@ async function fakeServer(page: Page, start?: Key[]) {
       id: "gwk_1",
       name: "opencode-laptop",
       prefix: "hyp_gateway_v1_Zx81Qa",
+      masked_value: mask(laptopSecret),
       models: ["*"],
       endpoints: ["search", "fetch", "images", "audio"],
       created_at: iso(now - 9 * 86_400_000),
@@ -37,6 +40,7 @@ async function fakeServer(page: Page, start?: Key[]) {
       created_at: iso(now - 2 * 86_400_000),
     },
   ]
+  const values = new Map([["gwk_1", laptopSecret]])
   const calls: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -60,13 +64,33 @@ async function fakeServer(page: Page, start?: Key[]) {
         id: `gwk_${keys.length + 1}`,
         name: body.name,
         prefix: secret.slice(0, 21),
+        masked_value: mask(secret),
         models: body.models?.length ? body.models : ["*"],
         endpoints: body.endpoints ?? ["search", "fetch", "images", "audio"],
         created_at: iso(now),
       }
       keys = [...keys, key]
+      values.set(key.id, secret)
 
       return json({ key, secret }, 201)
+    }
+
+    const id = path.split("/")[3] ?? ""
+    if (
+      request.method() === "GET" &&
+      path.startsWith("/gateway/keys/") &&
+      path.endsWith("/value")
+    ) {
+      calls.push(call)
+      const value = values.get(id)
+      return value ? json({ secret: value }) : json({ message: "No stored value" }, 404)
+    }
+
+    if (request.method() === "PATCH" && path.startsWith("/gateway/keys/")) {
+      const body = request.postDataJSON() as GatewayKeyUpdate
+      calls.push(`${call} ${body.name} ${body.models?.join(",")}; ${body.endpoints?.join(",")}`)
+      keys = keys.map((key) => (key.id === id ? { ...key, ...body } : key))
+      return json(keys.find((key) => key.id === id))
     }
 
     if (request.method() === "DELETE" && path.startsWith("/gateway/keys/")) {
@@ -117,18 +141,24 @@ const fits = (page: Page) =>
   page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 // Scenario: the owner opens the page. It gives the address a tool is pointed at, and the keys by name, start,
-// models, what else each may use and when each was last used, never a value; the keys of workers are only counted.
+// models, what else each may use and when each was last used, masked by default; workers' keys are only counted.
 test("the owner sees the gateway's address and keys", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/settings/gateway-keys")
 
   await expect(page.getByLabel("Base URL", { exact: true })).toHaveValue(/\/v1$/)
   const laptop = page.getByRole("row", { name: "opencode-laptop" })
-  await expect(laptop).toContainText("hyp_gateway_v1_Zx81Qa…")
+  await expect(laptop).toContainText(mask(laptopSecret))
+  await expect(laptop).not.toContainText(laptopSecret)
   await expect(laptop).toContainText("Every model")
   await expect(laptop).toContainText("Making and editing images")
   await expect(laptop).toContainText("40m ago")
   const desktop = page.getByRole("row", { name: "omp-desktop" })
+  await expect(desktop).toContainText("hyp_gateway_v1_Lm40Pr…")
+  await expect(desktop).toContainText(
+    "Made before keys could be shown again; make a new one to copy it.",
+  )
+  await expect(desktop.getByRole("button", { name: /Show key|Copy key/ })).toHaveCount(0)
   // A model reads as its name, with its maker's mark.
   await expect(desktop).toContainText("Claude Sonnet 5.5")
   await expect(desktop).toContainText("GPT-5.5-Codex")
@@ -139,12 +169,12 @@ test("the owner sees the gateway's address and keys", async ({ page }) => {
   await shot(page, "gateway-keys")
 })
 
-// Scenario: the owner makes a key for one tool, limited to some models, and copies it; its value is shown once and
-// the list then shows it by its start. The models are grouped by the provider that serves them; a provider's box
+// Scenario: the owner makes a key for one tool, limited to some models, and copies it; the list masks its value.
+// The models are grouped by the provider that serves them; a provider's box
 // takes all of its models, and the search narrows the list. A key with no model chosen is refused before it is sent.
 // Besides chat a key may search, read pages, make images and hear or make speech (issue #694), each ticked at first; one unticked is not given
 // (issue #664), and a key given every kind names none, so a kind added later is given too.
-test("the owner creates a key and sees it once", async ({ page }) => {
+test("the owner creates a key and sees its value", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/gateway-keys")
 
@@ -183,12 +213,13 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   await shot(page, "gateway-keys-create-endpoints")
   await dialog.getByRole("button", { name: "Create key" }).click()
 
-  await expect(dialog).toContainText("cannot be shown again")
+  await expect(dialog).toContainText("You can copy it again from the list")
   await expect(dialog.getByLabel("The new key")).toHaveValue(secret)
   await shot(page, "gateway-keys-created")
   await dialog.getByRole("button", { name: "Done" }).click()
 
   const phone = page.getByRole("row", { name: "opencode-phone" })
+  await expect(phone).toContainText(mask(secret))
   await expect(phone).toContainText("Claude Opus 5.5")
   await expect(phone).toContainText("Reading a web page")
   await expect(phone).not.toContainText("Making and editing images")
@@ -197,6 +228,53 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   expect(calls).toContain(
     "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex; search,fetch,audio",
   )
+})
+
+test("the owner copies from the masked list, shows and hides, then edits the same key", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"])
+  const calls = await fakeServer(page)
+  await page.goto("/settings/gateway-keys")
+  const laptop = page.getByRole("row", { name: "opencode-laptop" })
+
+  await expect(laptop.getByText(mask(laptopSecret))).toBeVisible()
+  expect(calls).not.toContain("GET /gateway/keys/gwk_1/value")
+  await laptop.getByRole("button", { name: "Copy key for opencode-laptop" }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(laptopSecret)
+  await expect(laptop.getByText(laptopSecret, { exact: true })).toHaveCount(0)
+
+  await laptop.getByRole("button", { name: "Show key for opencode-laptop" }).click()
+  await expect(laptop.getByText(laptopSecret, { exact: true })).toBeVisible()
+  await shot(page, "gateway-keys-shown")
+  await laptop.getByRole("button", { name: "Hide key for opencode-laptop" }).click()
+  await expect(laptop.getByText(laptopSecret, { exact: true })).toHaveCount(0)
+
+  await laptop.getByRole("button", { name: "Edit opencode-laptop" }).click()
+  const dialog = page.getByRole("dialog", { name: "Edit opencode-laptop" })
+  await expect(dialog.getByLabel("Name")).toHaveValue("opencode-laptop")
+  await expect(dialog.getByRole("radio", { name: /Every model/ })).toBeChecked()
+  const images = dialog.getByRole("checkbox", { name: /Making and editing images/ })
+  await expect(images).toBeChecked()
+  await dialog.getByLabel("Name").fill("opencode-tool")
+  await dialog.getByRole("radio", { name: /Only these models/ }).click()
+  await dialog.getByRole("checkbox", { name: "GPT-5.5-Codex" }).click()
+  await images.click()
+  await shot(page, "gateway-keys-edit")
+  await dialog.getByRole("button", { name: "Save changes" }).click()
+  await expect(dialog).toHaveCount(0)
+
+  const edited = page.getByRole("row", { name: "opencode-tool" })
+  await expect(edited).toContainText("GPT-5.5-Codex")
+  await expect(edited).not.toContainText("Making and editing images")
+  await expect(edited).toContainText(mask(laptopSecret))
+  expect(calls).toContain(
+    "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; search,fetch,audio",
+  )
+  await edited.getByRole("button", { name: "Show key for opencode-tool" }).click()
+  await expect(edited.getByText(laptopSecret, { exact: true })).toBeVisible()
+  expect(await fits(page)).toBe(true)
 })
 
 // Scenario: the owner revokes a key after being told a tool using it is refused from now on.

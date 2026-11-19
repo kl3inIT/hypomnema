@@ -13,15 +13,16 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // Scenario: the owner sets the gateway up on the server: declares a model
 // served by a provider that exists, makes a key for pi limited to it, and
-// later removes both. The key is printed once and never listed.
+// later edits, reads and revokes the key. Its value is never listed.
 func TestOwnerSetsUpTheGateway(t *testing.T) {
 	t.Parallel()
 
-	cfg := migratedConfig(t)
+	cfg := vaultConfig(t, sqlitetest.Migrated(t, orchestration.Migrate), "k1", keygen(t, "k1"))
 
 	db, err := sqlite.Open(t.Context(), cfg.Database)
 	require.NoError(t, err)
@@ -61,6 +62,15 @@ func TestOwnerSetsUpTheGateway(t *testing.T) {
 	assert.Contains(t, out, id+"\tpi\tactive\tgpt-sol")
 	assert.NotContains(t, out, secret)
 
+	out, err = command(t, cfg, "gateway", "keys", "set", id, "--name", "pi-tool", "--models", "*", "--endpoints", "none")
+	require.NoError(t, err)
+	assert.Contains(t, out, "key pi-tool ("+id+") for every model; chat only")
+	assert.NotContains(t, out, secret)
+
+	out, err = command(t, cfg, "gateway", "keys", "show-value", id)
+	require.NoError(t, err)
+	assert.Equal(t, secret+"\n", out)
+
 	// A gateway key is not a client API token, and the client API's command
 	// cannot make one.
 	_, err = command(t, cfg, "tokens", "add", "web", "--kind", "gateway")
@@ -72,7 +82,7 @@ func TestOwnerSetsUpTheGateway(t *testing.T) {
 
 	out, err = command(t, cfg, "gateway", "keys", "list")
 	require.NoError(t, err)
-	assert.Contains(t, out, "\tpi\trevoked ")
+	assert.Contains(t, out, "\tpi-tool\trevoked ")
 
 	_, err = command(t, cfg, "gateway", "models", "rm", "gpt-sol")
 	require.NoError(t, err)

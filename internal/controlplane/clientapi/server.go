@@ -173,12 +173,14 @@ type GatewayModels interface {
 	SetAttributes(ctx context.Context, name string, a modelgateway.Attributes) (modelgateway.Model, error)
 }
 
-// GatewayKeys makes, lists and revokes the keys clients give the gateway
+// GatewayKeys manages the keys clients give the gateway
 // (modelgateway.Service).
 type GatewayKeys interface {
 	ListKeys(ctx context.Context) ([]modelgateway.Key, error)
 	AddKey(ctx context.Context, name string, models []string, endpoints []modelgateway.Endpoint,
 	) (modelgateway.Key, string, error)
+	UpdateKey(ctx context.Context, id string, change modelgateway.KeyUpdate) (modelgateway.Key, error)
+	KeyValue(ctx context.Context, id string) (string, error)
 	RevokeKey(ctx context.Context, id string) error
 }
 

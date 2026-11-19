@@ -11,6 +11,9 @@ VALUES (@id, @secret_id, @version_number, @payload_keys, @encryption_scheme, @ke
 -- name: GetSecretByName :one
 SELECT * FROM secrets WHERE name = @name;
 
+-- name: GetSecretByID :one
+SELECT * FROM secrets WHERE id = @id;
+
 -- name: ListSecrets :many
 SELECT * FROM secrets ORDER BY name;
 
