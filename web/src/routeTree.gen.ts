@@ -34,6 +34,7 @@ import { Route as SettingsDictionaryRouteImport } from './routes/settings.dictio
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsImagesRouteImport } from './routes/settings.images'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
+import { Route as SettingsMachinesRouteImport } from './routes/settings.machines'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsMuseRouteImport } from './routes/settings.muse'
 import { Route as SettingsNotesModelRouteImport } from './routes/settings.notes-model'
@@ -43,6 +44,9 @@ import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
 import { Route as SettingsWebSearchRouteImport } from './routes/settings.web-search'
 import { Route as MachinesNodeIdTerminalRouteImport } from './routes/machines_.$nodeId.terminal'
+import { Route as SettingsAgentsIndexRouteImport } from './routes/settings.agents.index'
+import { Route as SettingsAgentsNameRouteImport } from './routes/settings.agents.$name'
+import { Route as SettingsAgentsNewRouteImport } from './routes/settings.agents.new'
 import { Route as SettingsSkillsIndexRouteImport } from './routes/settings.skills.index'
 import { Route as SettingsSkillsNameRouteImport } from './routes/settings.skills.$name'
 import { Route as StudioTakesTakeIdRouteImport } from './routes/studio_.takes.$takeId'
@@ -173,6 +177,11 @@ const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   path: '/settings/integrations',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsMachinesRoute = SettingsMachinesRouteImport.update({
+  id: '/settings/machines',
+  path: '/settings/machines',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsModelsRoute = SettingsModelsRouteImport.update({
   id: '/settings/models',
   path: '/settings/models',
@@ -216,6 +225,21 @@ const SettingsWebSearchRoute = SettingsWebSearchRouteImport.update({
 const MachinesNodeIdTerminalRoute = MachinesNodeIdTerminalRouteImport.update({
   id: '/machines_/$nodeId/terminal',
   path: '/machines/$nodeId/terminal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsAgentsIndexRoute = SettingsAgentsIndexRouteImport.update({
+  id: '/settings/agents/',
+  path: '/settings/agents/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsAgentsNameRoute = SettingsAgentsNameRouteImport.update({
+  id: '/settings/agents/$name',
+  path: '/settings/agents/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsAgentsNewRoute = SettingsAgentsNewRouteImport.update({
+  id: '/settings/agents/new',
+  path: '/settings/agents/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsSkillsIndexRoute = SettingsSkillsIndexRouteImport.update({
@@ -262,6 +286,7 @@ export interface FileRoutesByFullPath {
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/machines': typeof SettingsMachinesRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
@@ -274,9 +299,12 @@ export interface FileRoutesByFullPath {
   '/bots/': typeof BotsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
+  '/settings/agents/$name': typeof SettingsAgentsNameRoute
+  '/settings/agents/new': typeof SettingsAgentsNewRoute
   '/settings/skills/$name': typeof SettingsSkillsNameRoute
   '/studio/takes/$takeId': typeof StudioTakesTakeIdRoute
   '/studio/videos/$videoId': typeof StudioVideosVideoIdRoute
+  '/settings/agents/': typeof SettingsAgentsIndexRoute
   '/settings/skills/': typeof SettingsSkillsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -302,6 +330,7 @@ export interface FileRoutesByTo {
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/machines': typeof SettingsMachinesRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
@@ -314,9 +343,12 @@ export interface FileRoutesByTo {
   '/bots': typeof BotsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
+  '/settings/agents/$name': typeof SettingsAgentsNameRoute
+  '/settings/agents/new': typeof SettingsAgentsNewRoute
   '/settings/skills/$name': typeof SettingsSkillsNameRoute
   '/studio/takes/$takeId': typeof StudioTakesTakeIdRoute
   '/studio/videos/$videoId': typeof StudioVideosVideoIdRoute
+  '/settings/agents': typeof SettingsAgentsIndexRoute
   '/settings/skills': typeof SettingsSkillsIndexRoute
 }
 export interface FileRoutesById {
@@ -343,6 +375,7 @@ export interface FileRoutesById {
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/machines': typeof SettingsMachinesRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
@@ -355,9 +388,12 @@ export interface FileRoutesById {
   '/bots/': typeof BotsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines_/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
+  '/settings/agents/$name': typeof SettingsAgentsNameRoute
+  '/settings/agents/new': typeof SettingsAgentsNewRoute
   '/settings/skills/$name': typeof SettingsSkillsNameRoute
   '/studio_/takes/$takeId': typeof StudioTakesTakeIdRoute
   '/studio_/videos/$videoId': typeof StudioVideosVideoIdRoute
+  '/settings/agents/': typeof SettingsAgentsIndexRoute
   '/settings/skills/': typeof SettingsSkillsIndexRoute
 }
 export interface FileRouteTypes {
@@ -385,6 +421,7 @@ export interface FileRouteTypes {
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
+    | '/settings/machines'
     | '/settings/models'
     | '/settings/muse'
     | '/settings/notes-model'
@@ -397,9 +434,12 @@ export interface FileRouteTypes {
     | '/bots/'
     | '/settings/'
     | '/machines/$nodeId/terminal'
+    | '/settings/agents/$name'
+    | '/settings/agents/new'
     | '/settings/skills/$name'
     | '/studio/takes/$takeId'
     | '/studio/videos/$videoId'
+    | '/settings/agents/'
     | '/settings/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -425,6 +465,7 @@ export interface FileRouteTypes {
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
+    | '/settings/machines'
     | '/settings/models'
     | '/settings/muse'
     | '/settings/notes-model'
@@ -437,9 +478,12 @@ export interface FileRouteTypes {
     | '/bots'
     | '/settings'
     | '/machines/$nodeId/terminal'
+    | '/settings/agents/$name'
+    | '/settings/agents/new'
     | '/settings/skills/$name'
     | '/studio/takes/$takeId'
     | '/studio/videos/$videoId'
+    | '/settings/agents'
     | '/settings/skills'
   id:
     | '__root__'
@@ -465,6 +509,7 @@ export interface FileRouteTypes {
     | '/settings/gateway-keys'
     | '/settings/images'
     | '/settings/integrations'
+    | '/settings/machines'
     | '/settings/models'
     | '/settings/muse'
     | '/settings/notes-model'
@@ -477,9 +522,12 @@ export interface FileRouteTypes {
     | '/bots/'
     | '/settings/'
     | '/machines_/$nodeId/terminal'
+    | '/settings/agents/$name'
+    | '/settings/agents/new'
     | '/settings/skills/$name'
     | '/studio_/takes/$takeId'
     | '/studio_/videos/$videoId'
+    | '/settings/agents/'
     | '/settings/skills/'
   fileRoutesById: FileRoutesById
 }
@@ -506,6 +554,7 @@ export interface RootRouteChildren {
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsImagesRoute: typeof SettingsImagesRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
+  SettingsMachinesRoute: typeof SettingsMachinesRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsMuseRoute: typeof SettingsMuseRoute
   SettingsNotesModelRoute: typeof SettingsNotesModelRoute
@@ -518,9 +567,12 @@ export interface RootRouteChildren {
   BotsIndexRoute: typeof BotsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   MachinesNodeIdTerminalRoute: typeof MachinesNodeIdTerminalRoute
+  SettingsAgentsNameRoute: typeof SettingsAgentsNameRoute
+  SettingsAgentsNewRoute: typeof SettingsAgentsNewRoute
   SettingsSkillsNameRoute: typeof SettingsSkillsNameRoute
   StudioTakesTakeIdRoute: typeof StudioTakesTakeIdRoute
   StudioVideosVideoIdRoute: typeof StudioVideosVideoIdRoute
+  SettingsAgentsIndexRoute: typeof SettingsAgentsIndexRoute
   SettingsSkillsIndexRoute: typeof SettingsSkillsIndexRoute
 }
 
@@ -701,6 +753,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/machines': {
+      id: '/settings/machines'
+      path: '/settings/machines'
+      fullPath: '/settings/machines'
+      preLoaderRoute: typeof SettingsMachinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/models': {
       id: '/settings/models'
       path: '/settings/models'
@@ -764,6 +823,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MachinesNodeIdTerminalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/agents/': {
+      id: '/settings/agents/'
+      path: '/settings/agents'
+      fullPath: '/settings/agents/'
+      preLoaderRoute: typeof SettingsAgentsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/agents/$name': {
+      id: '/settings/agents/$name'
+      path: '/settings/agents/$name'
+      fullPath: '/settings/agents/$name'
+      preLoaderRoute: typeof SettingsAgentsNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/agents/new': {
+      id: '/settings/agents/new'
+      path: '/settings/agents/new'
+      fullPath: '/settings/agents/new'
+      preLoaderRoute: typeof SettingsAgentsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/skills/': {
       id: '/settings/skills/'
       path: '/settings/skills'
@@ -818,6 +898,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsImagesRoute: SettingsImagesRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
+  SettingsMachinesRoute: SettingsMachinesRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsMuseRoute: SettingsMuseRoute,
   SettingsNotesModelRoute: SettingsNotesModelRoute,
@@ -830,9 +911,12 @@ const rootRouteChildren: RootRouteChildren = {
   BotsIndexRoute: BotsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   MachinesNodeIdTerminalRoute: MachinesNodeIdTerminalRoute,
+  SettingsAgentsNameRoute: SettingsAgentsNameRoute,
+  SettingsAgentsNewRoute: SettingsAgentsNewRoute,
   SettingsSkillsNameRoute: SettingsSkillsNameRoute,
   StudioTakesTakeIdRoute: StudioTakesTakeIdRoute,
   StudioVideosVideoIdRoute: StudioVideosVideoIdRoute,
+  SettingsAgentsIndexRoute: SettingsAgentsIndexRoute,
   SettingsSkillsIndexRoute: SettingsSkillsIndexRoute,
 }
 export const routeTree = rootRouteImport

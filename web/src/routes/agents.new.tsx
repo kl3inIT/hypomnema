@@ -1,24 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
-import { NewAgentScreen } from "@/features/agents/profile-screen"
-import { AppSidebar } from "@/features/shell/app-shell"
-
-// from names the agent a new one starts as a copy of (issue #200).
-type Search = { from?: string }
-
+// The old address of a new agent leads to its place in Settings, with the agent it copies (issue #857).
 export const Route = createFileRoute("/agents/new")({
-  validateSearch: (s: Record<string, unknown>): Search =>
+  validateSearch: (s: Record<string, unknown>): { from?: string } =>
     typeof s.from === "string" && s.from ? { from: s.from } : {},
-  component: NewAgent,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/settings/agents/new", search, replace: true })
+  },
 })
-
-function NewAgent() {
-  const { from } = Route.useSearch()
-
-  return (
-    <>
-      <AppSidebar />
-      <NewAgentScreen from={from} />
-    </>
-  )
-}

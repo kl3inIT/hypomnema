@@ -1,13 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
-import { AgentsScreen } from "@/features/agents/agents-screen"
-import { AppSidebar } from "@/features/shell/app-shell"
-
+// The Agents moved into Settings (issue #857); the old address, in bookmarks and in chats, leads there, as OpenClaw
+// keeps a page's old path as an alias of its place under /settings (ui/src/app-route-paths.ts, "/nodes" for
+// "/settings/devices").
 export const Route = createFileRoute("/agents/")({
-  component: () => (
-    <>
-      <AppSidebar />
-      <AgentsScreen />
-    </>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/agents", replace: true })
+  },
 })

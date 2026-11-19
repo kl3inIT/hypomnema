@@ -36,7 +36,7 @@ type View = "configuration" | "versions" | "memory"
 function Crumbs({ here }: { here: string }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <Link to="/agents" className="text-muted-foreground hover:text-foreground">
+      <Link to="/settings/agents" className="text-muted-foreground hover:text-foreground">
         Agents
       </Link>
       <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
@@ -62,7 +62,10 @@ export function ProfileScreen({ name }: { name: string }) {
           {profile.error ? (
             <div className="flex flex-col items-center gap-3 py-10 text-sm text-muted-foreground">
               <p>This agent could not be read. It may not exist.</p>
-              <Link to="/agents" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              <Link
+                to="/settings/agents"
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
                 Back to Agents
               </Link>
             </div>
@@ -85,7 +88,7 @@ export function ProfileScreen({ name }: { name: string }) {
                 {/* OpenMausBot's "Duplicate" in a bot's menu (Apache License 2.0,
                     https://github.com/milind-soni/OpenMausBot; src/components/SidebarBotMenu.tsx). */}
                 <Link
-                  to="/agents/new"
+                  to="/settings/agents/new"
                   search={{ from: p.name }}
                   className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
@@ -207,7 +210,7 @@ function Removal({ profile }: { profile: Profile }) {
   const gone = async () => {
     // The list is read again before the page leaves; this agent's own queries go with its page.
     await queryClient.invalidateQueries({ queryKey: everyCall(listProfilesQueryKey()) })
-    await navigate({ to: "/agents" })
+    await navigate({ to: "/settings/agents" })
     const path = { name: profile.name }
     queryClient.removeQueries({ queryKey: getProfileQueryKey({ path }) })
     queryClient.removeQueries({ queryKey: listProfileVersionsQueryKey({ path }) })
@@ -339,7 +342,9 @@ export function NewAgentScreen({ from }: { from?: string }) {
             <NewAgentForm
               initial={start}
               models={models.data ?? []}
-              onSaved={(p) => void navigate({ to: "/agents/$name", params: { name: p.name } })}
+              onSaved={(p) =>
+                void navigate({ to: "/settings/agents/$name", params: { name: p.name } })
+              }
             />
           )}
         </div>

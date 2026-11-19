@@ -1,13 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
-import { MachinesScreen } from "@/features/machines/machines-screen"
-import { AppSidebar } from "@/features/shell/app-shell"
-
+// The Machines moved into Settings (issue #857); the old address leads there, as OpenClaw keeps "/nodes" as an alias
+// of "/settings/devices" (ui/src/app-route-paths.ts). A machine's terminal keeps its own page,
+// /machines/<node>/terminal, outside Settings' frame.
 export const Route = createFileRoute("/machines")({
-  component: () => (
-    <>
-      <AppSidebar />
-      <MachinesScreen />
-    </>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/machines", replace: true })
+  },
 })
