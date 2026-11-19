@@ -44,6 +44,8 @@ var (
 	ErrInvalid = errors.New("invalid request")
 	// ErrUnauthorized: the key is malformed, unknown or revoked.
 	ErrUnauthorized = errors.New("unknown gateway key")
+	// ErrUnavailable: a gateway operation requires an unavailable service.
+	ErrUnavailable = errors.New("unavailable")
 	// ErrForbidden: the key may not use the model.
 	ErrForbidden = errors.New("the key may not use this model")
 )
@@ -701,7 +703,7 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 
 		if owner.keepValue {
 			if s.keyVault == nil {
-				return vault.ErrNotConfigured
+				return keyVaultError(vault.ErrNotConfigured)
 			}
 
 			versionID, err := s.keyVault.CreateTx(ctx, tx, vault.NewSecret{
@@ -709,7 +711,7 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 				Payload: vault.Payload{vault.KeyValue: secret},
 			}, now)
 			if err != nil {
-				return err
+				return keyVaultError(err)
 			}
 
 			secretVersionID = sql.NullString{String: versionID, Valid: true}

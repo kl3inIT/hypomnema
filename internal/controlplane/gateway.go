@@ -383,7 +383,7 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 	}
 
 	o.printf("key %s (%s) for %s; %s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k))
-	o.printf("give it to the client as its API key; the owner can read it again with gateway keys show-value:\n%s\n", secret)
+	o.printf("give it to the client as its API key; read it again with gateway keys show-value:\n%s\n", secret)
 
 	return nil
 }

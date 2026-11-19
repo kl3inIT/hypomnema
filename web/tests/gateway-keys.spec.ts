@@ -242,7 +242,9 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
   await expect(laptop.getByText(mask(laptopSecret))).toBeVisible()
   expect(calls).not.toContain("GET /gateway/keys/gwk_1/value")
   await laptop.getByRole("button", { name: "Copy key for opencode-laptop" }).click()
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(laptopSecret)
+  await expect
+    .poll(() => page.evaluate<string>("navigator.clipboard.readText()"))
+    .toBe(laptopSecret)
   await expect(laptop.getByText(laptopSecret, { exact: true })).toHaveCount(0)
 
   await laptop.getByRole("button", { name: "Show key for opencode-laptop" }).click()

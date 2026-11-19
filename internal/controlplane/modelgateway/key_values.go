@@ -101,12 +101,12 @@ func (s *Service) KeyValue(ctx context.Context, id string) (string, error) {
 		return "", fmt.Errorf("%w: this gateway key has no stored value", ErrNotFound)
 	}
 	if s.keyVault == nil {
-		return "", vault.ErrNotConfigured
+		return "", keyVaultError(vault.ErrNotConfigured)
 	}
 
 	opened, err := s.keyVault.OpenVersion(ctx, row.SecretVersionID.String)
 	if err != nil {
-		return "", err
+		return "", keyVaultError(err)
 	}
 
 	value := opened.Payload[vault.KeyValue]
@@ -115,6 +115,17 @@ func (s *Service) KeyValue(ctx context.Context, id string) (string, error) {
 	}
 
 	return value, nil
+}
+
+func keyVaultError(err error) error {
+	switch {
+	case errors.Is(err, vault.ErrNotConfigured), errors.Is(err, vault.ErrKeyUnknown):
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	case errors.Is(err, vault.ErrNotFound):
+		return fmt.Errorf("%w: %w", ErrNotFound, err)
+	default:
+		return err
+	}
 }
 
 func liveOwnerKey(ctx context.Context, q *store.Queries, id string) (store.GatewayKey, error) {

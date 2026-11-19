@@ -8,7 +8,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
 
 // ListGatewayKeys lists the keys the owner made that still work.
@@ -151,11 +150,11 @@ func gatewayKeyError(err error) error {
 	switch {
 	case errors.Is(err, modelgateway.ErrInvalid):
 		return fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)
-	case errors.Is(err, modelgateway.ErrNotFound), errors.Is(err, vault.ErrNotFound):
+	case errors.Is(err, modelgateway.ErrNotFound):
 		return fmt.Errorf("%w: %w", orchestration.ErrNotFound, err)
 	case errors.Is(err, modelgateway.ErrConflict):
 		return fmt.Errorf("%w: %w", orchestration.ErrConflict, err)
-	case errors.Is(err, vault.ErrNotConfigured), errors.Is(err, vault.ErrKeyUnknown):
+	case errors.Is(err, modelgateway.ErrUnavailable):
 		return fmt.Errorf("%w: %w", orchestration.ErrUnavailable, err)
 	default:
 		return err

@@ -3,7 +3,6 @@ package controlplane
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -194,10 +193,9 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	var count int
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM secrets WHERE id = ?", secretID).Scan(&count))
 	assert.Zero(t, count)
-	var remainingRef sql.NullString
-	require.NoError(t, db.QueryRowContext(ctx, "SELECT secret_version_id FROM gateway_keys WHERE id = ?", id).
-		Scan(&remainingRef))
-	assert.False(t, remainingRef.Valid)
+	require.NoError(t, db.QueryRowContext(ctx,
+		"SELECT count(*) FROM gateway_keys WHERE id = ? AND secret_version_id IS NOT NULL", id).Scan(&count))
+	assert.Zero(t, count)
 	var usageKey string
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT key_id FROM gateway_usage WHERE id = 'request-1'").Scan(&usageKey))
 	assert.Equal(t, id, usageKey)
