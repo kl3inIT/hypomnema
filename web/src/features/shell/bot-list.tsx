@@ -1,11 +1,9 @@
 import { Link } from "@tanstack/react-router"
-import { ChevronRight, CircleDashed, Plus } from "lucide-react"
-import { type DragEvent, type ReactNode, useState } from "react"
+import { CircleDashed } from "lucide-react"
+import type { DragEvent, ReactNode } from "react"
 
 import "@/api/client"
 import type { Chat } from "@/api/generated/types.gen"
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { usePending } from "@/features/approvals/use-approvals"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { useBotName, useBots, useReorderBots } from "@/features/bots/use-bots"
@@ -15,15 +13,17 @@ import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { BotMenu, PinItem } from "./bot-menu"
-import { type BotRow, botSections, keepOpenBots, readOpenBots, visibleChats } from "./bot-rows"
+import { type BotRow, botSections, rowChat } from "./bot-rows"
 import { ChatMenu } from "./chat-menu"
 import { useChats } from "./chats"
 import { ReorderableList, RowGrab } from "./reorderable-list"
 import { type SortableBindings, useSortableBindings } from "./use-sortable-bindings"
 
-// BotList is the sidebar's Bots (issue #361): a row a Bot, which opens to its chats, as OpenMausBot's sidebar
-// (Apache License 2.0, https://github.com/milind-soni/OpenMausBot; src/components/Sidebar.tsx BotListItem,
-// BotThreadList). Every Bot is listed, in the one order the owner sets by dragging its avatar, with the main Bot
+// BotList is the sidebar's Bots (issue #361): a row a Bot, which opens its one main chat (issue #471), as
+// OpenMausBot's sidebar with its threads hidden (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
+// src/components/Sidebar.tsx BotListItem; src/lib/thread-preferences.ts, showThreads off) and Hermes Desktop's
+// Bot Chat. A Bot's other chats are not listed: they open from their cards, questions, approvals and links, and from
+// the Bot's page. Every Bot is listed, in the one order the owner sets by dragging its avatar, with the main Bot
 // first and the pinned Bots in a Pinned section under it (issue #470; OpenMausBot's src/lib/sidebar-layout.ts, the
 // "Pinned" header of t3code's Sidebar.tsx). A drag stays in its section; a phone shows the order without dragging.
 // Left out of OpenMausBot's: departments, unread marks and a queued state, none of which a chat here has.
@@ -33,15 +33,8 @@ export function BotList({ current }: { current?: string }) {
   // A chat in which pi asked for an approval says so here: the owner may not have it open.
   const pending = usePending()
   const waiting = new Set(pending.data?.flatMap((a) => (a.chat_id ? [a.chat_id] : [])))
-  const [open, setOpen] = useState(readOpenBots)
   const reorder = useReorderBots()
   const phone = useIsMobile()
-
-  function toggle(bot: string) {
-    const next = { ...open, [bot]: !open[bot] }
-    setOpen(next)
-    keepOpenBots(next)
-  }
 
   const pinned = new Set(bots.data?.filter((bot) => bot.pinned).map((bot) => bot.id))
   const sections = chats.data && botSections(bots.data ?? [], chats.data)
@@ -55,8 +48,6 @@ export function BotList({ current }: { current?: string }) {
       sortable={sortable}
       current={current}
       waiting={waiting}
-      open={open[row.bot] === true}
-      onToggle={() => toggle(row.bot)}
     />
   )
 
@@ -112,8 +103,6 @@ function BotItem({
   sortable,
   current,
   waiting,
-  open,
-  onToggle,
 }: {
   row: BotRow
   main: boolean
@@ -121,33 +110,22 @@ function BotItem({
   sortable?: SortableBindings
   current?: string
   waiting: Set<string>
-  open: boolean
-  onToggle: () => void
 }) {
   const { bot, chats } = row
   // The row is the Bot's id; it is shown by its name, which may change (issue #466).
   const name = useBotName(bot)
-  const latest = chats.at(0)
-  // OpenMausBot's hasThreadList: a Bot with one chat has nothing to open.
-  const hasChatList = chats.length > 1
-  // The chat a Bot's row stands for when it has no other.
-  const onlyChat = chats.length === 1 ? latest : undefined
-  const expanded = hasChatList && open
-  // Show all, kept while the page is open and not after, as OpenMausBot's sidebar keeps its showAll (issue #599).
-  const [showAll, setShowAll] = useState(false)
-  const short = visibleChats(chats, current, waiting, false)
-  const shown = showAll ? chats : short
-  const hidden = chats.length - short.length
+  const mainChat = chats.find((c) => c.id === row.mainChat)
+  // The main chat, or the chat that waits on the owner when the main chat does not (bot-rows.ts rowChat).
+  const target = rowChat(row, waiting)
   const needsYou = chats.some((c) => waiting.has(c.id))
   const working = chats.some((c) => c.working)
-  // The Bot's row stands for the open chat while its chats are not shown, as OpenMausBot's aria-current.
-  const here = !expanded && chats.some((c) => c.id === current)
-  // Every Bot but the main one has a menu, to pin it; a Bot that stands for its one chat has that chat's too.
-  const hasMenu = Boolean(onlyChat) || !main
-  const menuPlace = cn(
-    "absolute end-1 transition-opacity md:pointer-events-none md:opacity-0 md:group-focus-within/bot:pointer-events-auto md:group-focus-within/bot:opacity-100 md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100 md:has-[[data-popup-open]]:pointer-events-auto",
-    expanded ? "top-1/2 -translate-y-1/2" : "top-1.5",
-  )
+  // The Bot's row stands for every chat of the Bot that is open, as OpenMausBot's aria-current.
+  const here =
+    current !== undefined && (current === row.mainChat || chats.some((c) => c.id === current))
+  // Every Bot but the main one has a menu, to pin it; a Bot with a main chat has that chat's too.
+  const hasMenu = Boolean(mainChat) || !main
+  const menuPlace =
+    "absolute end-1 top-1.5 transition-opacity md:pointer-events-none md:opacity-0 md:group-focus-within/bot:pointer-events-auto md:group-focus-within/bot:opacity-100 md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100 md:has-[[data-popup-open]]:pointer-events-auto"
 
   const face = (
     <span className="relative flex">
@@ -172,7 +150,6 @@ function BotItem({
   )
 
   return (
-    // The Bot and its open chats move together when it is dragged.
     <div
       ref={sortable?.ref}
       style={sortable?.style}
@@ -180,19 +157,19 @@ function BotItem({
     >
       <div className="group/bot relative">
         <Link
-          {...(latest
-            ? { to: "/chats/$chatId", params: { chatId: latest.id } }
+          {...(target
+            ? { to: "/chats/$chatId", params: { chatId: target } }
             : { to: "/", search: { bot } })}
-          // The row carries its latest chat to the grid, as a chat's row does: a Bot with one chat shows no other.
-          {...(latest ? chatDrag(latest.id) : { draggable: false })}
+          // The row carries its main chat to the grid (issue #235).
+          {...(row.mainChat ? chatDrag(row.mainChat) : { draggable: false })}
           aria-current={here ? "page" : undefined}
           className={cn(
-            "flex min-h-11 w-full items-center gap-2.5 rounded-md py-1.5 ps-6 pe-2.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            "flex min-h-11 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
             here
               ? "bg-sidebar-row-active [:root:not(.dark)_&]:ring-1 [:root:not(.dark)_&]:ring-sidebar-border/70 [:root:not(.dark)_&]:ring-inset"
               : "group-hover/bot:bg-sidebar-row-hover",
             sortable?.dragging && "bg-sidebar-row-hover",
-            // Room for the row's menu, always shown on a phone (issue #503), as a chat row keeps it.
+            // Room for the row's menu, always shown on a phone (issue #503).
             hasMenu && "max-md:pe-9",
           )}
         >
@@ -204,17 +181,13 @@ function BotItem({
               <span className="min-w-0 flex-1 truncate text-sm leading-5 font-medium text-foreground">
                 {name}
               </span>
-              {!expanded && (
-                <span className="shrink-0 text-xs text-secondary-label tabular-nums transition-opacity md:group-focus-within/bot:opacity-0 md:group-hover/bot:opacity-0">
-                  <ChatState chat={latest} needsYou={needsYou} working={working} />
-                </span>
-              )}
-            </span>
-            {!expanded && (
-              <span className="truncate text-xs leading-4 text-muted-foreground">
-                {latest?.title ?? "No chats yet"}
+              <span className="shrink-0 text-xs text-secondary-label tabular-nums transition-opacity md:group-focus-within/bot:opacity-0 md:group-hover/bot:opacity-0">
+                <ChatState chat={mainChat} needsYou={needsYou} working={working} />
               </span>
-            )}
+            </span>
+            <span className="truncate text-xs leading-4 text-muted-foreground">
+              {mainChat ? mainChat.last_line || mainChat.title : row.mainChat ? "" : "No chat yet"}
+            </span>
           </span>
         </Link>
         {/* Hermes's avatar that turns into a grabber when pointed at or focused (chrome.tsx SidebarRowGrab); the
@@ -224,62 +197,21 @@ function BotItem({
             ariaLabel={`Move ${name}`}
             dragging={sortable.dragging}
             dragHandleProps={sortable.dragHandleProps}
-            className="absolute start-6 top-1/2 size-7 -translate-y-1/2"
+            className="absolute start-2.5 top-1/2 size-7 -translate-y-1/2"
           >
             {face}
           </RowGrab>
         ) : (
-          <span className="pointer-events-none absolute start-6 top-1/2 flex -translate-y-1/2">
+          <span className="pointer-events-none absolute start-2.5 top-1/2 flex -translate-y-1/2">
             {face}
           </span>
         )}
-        {hasChatList && (
-          <button
-            type="button"
-            aria-label={`${open ? "Hide" : "Show"} the chats of ${name}`}
-            aria-expanded={open}
-            onClick={onToggle}
-            className="absolute start-0.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ChevronRight
-              className={cn("size-3.5 transition-transform", open && "rotate-90")}
-              aria-hidden
-            />
-          </button>
-        )}
-        {/* OpenMausBot's new-chat button (L903), shown on hover; a phone starts a chat from New chat.
-            An anchor drawn by Button, as the pagination's links are (components/ui/pagination.tsx). */}
-        <span
-          className={cn(
-            "pointer-events-none absolute opacity-0 transition-opacity group-focus-within/bot:pointer-events-auto group-focus-within/bot:opacity-100 max-md:hidden md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100",
-            hasMenu ? "end-8" : "end-1",
-            expanded ? "top-1/2 -translate-y-1/2" : "top-1",
-          )}
-        >
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`New chat with ${name}`}
-                  nativeButton={false}
-                  render={<Link to="/" search={{ bot }} />}
-                />
-              }
-            >
-              <Plus aria-hidden />
-            </TooltipTrigger>
-            <TooltipContent>New chat with {name}</TooltipContent>
-          </Tooltip>
-        </span>
-        {/* The row's menu, as OpenMausBot's Bot row has an actions button after the new-thread one: Pin or Unpin
-            (issue #470), and, on a Bot that stands for its one chat, that chat's Delete (issue #503). Shown as a
-            chat row's is: on hover or focus, always on a phone. */}
-        {onlyChat ? (
+        {/* The row's menu, as OpenMausBot's Bot row has an actions button: Pin or Unpin (issue #470), and, on a Bot
+            with a main chat, that chat's Delete (issue #503). Shown on hover or focus, always on a phone. */}
+        {mainChat ? (
           <ChatMenu
-            chat={onlyChat}
-            current={onlyChat.id === current}
+            chat={mainChat}
+            current={mainChat.id === current}
             label={`Actions for ${name}`}
             className={menuPlace}
           >
@@ -289,28 +221,6 @@ function BotItem({
           !main && <BotMenu bot={bot} name={name} pinned={pinned} className={menuPlace} />
         )}
       </div>
-      {expanded && (
-        // The Bot's chats, under it, as t3code nests a project's threads (components/ui/sidebar.tsx SidebarMenuSub).
-        <ul
-          aria-label={`Chats of ${name}`}
-          className="ms-5 flex flex-col gap-px border-s border-sidebar-border ps-1.5"
-        >
-          {shown.map((c) => (
-            <li key={c.id}>
-              <ChatRow chat={c} current={c.id === current} waits={waiting.has(c.id)} />
-            </li>
-          ))}
-          {/* OpenMausBot's ThreadListFooter (Sidebar.tsx canShowAll), with the number it hides; Show less folds the
-              list back (owner, 2026-11-16). */}
-          {hidden > 0 && (
-            <li className="ps-0.5 text-muted-foreground">
-              <Button variant="ghost" size="xs" onClick={() => setShowAll(!showAll)}>
-                {showAll ? "Show less" : `Show all (${hidden})`}
-              </Button>
-            </li>
-          )}
-        </ul>
-      )}
     </div>
   )
 }
@@ -349,42 +259,4 @@ function chatDrag(chat: string) {
     },
     onDragEnd: () => setDragged(null),
   }
-}
-
-// ChatRow is a chat under its Bot; its menu (issue #484) shows over the row's end when the row is pointed at or
-// focused, and always on a phone, which has no pointer to rest on it.
-function ChatRow({ chat, current, waits }: { chat: Chat; current: boolean; waits: boolean }) {
-  return (
-    <div className="group/chat relative">
-      <Link
-        to="/chats/$chatId"
-        params={{ chatId: chat.id }}
-        aria-current={current ? "page" : undefined}
-        {...chatDrag(chat.id)}
-        className={cn(
-          "group/sidebar-row relative flex h-9 w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset max-md:pe-9",
-          current
-            ? "bg-sidebar-row-active [:root:not(.dark)_&]:ring-1 [:root:not(.dark)_&]:ring-sidebar-border/70 [:root:not(.dark)_&]:ring-inset"
-            : "group-hover/chat:bg-sidebar-row-hover group-has-[[data-popup-open]]/chat:bg-sidebar-row-hover",
-        )}
-      >
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm",
-            current || chat.working ? "font-medium text-foreground" : "text-foreground/75",
-          )}
-        >
-          {chat.title}
-        </span>
-        <span className="ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end text-xs text-secondary-label tabular-nums transition-opacity md:group-focus-within/chat:opacity-0 md:group-hover/chat:opacity-0 md:group-has-[[data-popup-open]]/chat:opacity-0">
-          <ChatState chat={chat} needsYou={waits} working={chat.working} />
-        </span>
-      </Link>
-      <ChatMenu
-        chat={chat}
-        current={current}
-        className="absolute end-1.5 top-1/2 -translate-y-1/2 transition-opacity md:pointer-events-none md:opacity-0 md:group-focus-within/chat:pointer-events-auto md:group-focus-within/chat:opacity-100 md:group-hover/chat:pointer-events-auto md:group-hover/chat:opacity-100 md:has-[[data-popup-open]]:pointer-events-auto"
-      />
-    </div>
-  )
 }

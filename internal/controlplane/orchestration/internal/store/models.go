@@ -157,6 +157,7 @@ type Bot struct {
 	GuaranteedDispatches sql.NullInt64
 	Fallbacks            string
 	Preset               string
+	MainChat             sql.NullString
 }
 
 type Channel struct {
