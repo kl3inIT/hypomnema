@@ -418,22 +418,20 @@ async function fakeServer(page: Page, empty = false) {
         const failed = url.searchParams.get("failed") === "true"
         const offset = Number(url.searchParams.get("offset") ?? 0)
         asked.push(`requests ${failed ? "failed" : "all"} ${offset}`)
-        const all = [
-          request(1),
-          refused,
-          request(3, {
-            key_name: "chat-pi",
-            model: "claude-sonnet",
-            provider: "antigravity-subscription",
-            upstream_model: "claude-sonnet-4-6",
-            account_label: "zeromail",
-            duration_ms: 1900,
-          }),
-          ...kinds,
-        ]
+        const truncated = request(3, {
+          key_name: "chat-pi",
+          model: "claude-sonnet",
+          provider: "antigravity-subscription",
+          upstream_model: "claude-sonnet-4-6",
+          account_label: "zeromail",
+          duration_ms: 1900,
+          outcome: "truncated",
+          error: "no event for 5m",
+        })
+        const all = [request(1), refused, truncated, ...kinds]
 
         return json({
-          data: failed ? [refused, kinds[2]] : offset === 0 ? all : [request(60)],
+          data: failed ? [refused, truncated, kinds[2]] : offset === 0 ? all : [request(60)],
           has_more: !failed && offset === 0,
         })
       }
@@ -573,7 +571,11 @@ test("the owner finds why a request failed", async ({ page }) => {
 
   await page.getByRole("switch", { name: "Failed only" }).click()
   const requests = page.getByRole("table", { name: "Requests" })
-  await expect(requests.getByRole("row")).toHaveCount(3)
+  await expect(requests.getByRole("row")).toHaveCount(4)
+  const reason = requests.getByText("no event for 5m", { exact: true })
+  await expect(reason).toBeVisible()
+  await reason.scrollIntoViewIfNeeded()
+  await shot(page, "usage-stream-reason")
   await requests.getByRole("row", { name: /GPT/ }).click()
 
   const sheet = page.getByRole("dialog")

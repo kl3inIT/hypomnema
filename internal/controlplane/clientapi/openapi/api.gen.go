@@ -3657,7 +3657,7 @@ type GatewayRequest struct {
 	CreatedAt  time.Time `json:"created_at"`
 	DurationMs int64     `json:"duration_ms"`
 
-	// Error The provider's message for a request that failed.
+	// Error The provider's error or the reason the request ended early, when available.
 	Error *string `json:"error,omitempty"`
 
 	// Estimated The provider reported no usage; the counts are the sizes divided by four.

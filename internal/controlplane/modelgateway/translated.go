@@ -48,6 +48,7 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 
 	events := bufio.NewScanner(resp.Body)
 	events.Buffer(make([]byte, 0, 64<<10), maxEventBytes)
+	var failure string
 
 	// next reads events until one gives chunks, or the stream ends.
 	next := func() [][]byte {
@@ -57,7 +58,14 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 				continue
 			}
 
-			if chunks := t.event(bytes.TrimSpace(data)); len(chunks) > 0 || t.failed() {
+			chunks := t.event(bytes.TrimSpace(data))
+			if t.failed() {
+				failure = streamEventError(data)
+
+				return chunks
+			}
+
+			if len(chunks) > 0 {
 				return chunks
 			}
 		}
@@ -129,6 +137,12 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 
 			s.logger.WarnContext(ctx, "a provider failed inside its answer",
 				slog.String("event", "modelgateway.stream_failed"), slog.String("provider", call.upstream.Provider))
+
+			if failure != "" {
+				_ = writer.CloseWithError(upstreamStreamError(failure))
+
+				return
+			}
 		}
 
 		// With no end mark written, the gateway tells the client the answer

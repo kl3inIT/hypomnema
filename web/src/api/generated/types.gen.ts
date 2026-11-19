@@ -2549,7 +2549,7 @@ export type GatewayRequest = {
    */
   status: number;
   /**
-   * The provider's message for a request that failed.
+   * The provider's error or the reason the request ended early, when available.
    */
   error?: string;
   prompt_tokens: number;

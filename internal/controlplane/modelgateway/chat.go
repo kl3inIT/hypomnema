@@ -517,8 +517,8 @@ func (s *Server) relayStream(
 
 	// A scanner blocks in Read and takes no deadline, so a silent provider is
 	// ended by closing its body, as 9router-go and Bifrost do.
-	idle := time.AfterFunc(s.idleTimeout, func() { _ = resp.Body.Close() })
-	defer idle.Stop()
+	idle := watchStreamIdle(resp.Body, s.idleTimeout)
+	defer idle.timer.Stop()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64<<10), maxLineBytes)
@@ -526,10 +526,11 @@ func (s *Server) relayStream(
 	var (
 		done, finished, clientGone bool
 		sent                       int
+		failure                    string
 	)
 
 	for scanner.Scan() {
-		idle.Reset(s.idleTimeout)
+		idle.reset()
 
 		// Only data lines are passed on; comments and event names are not, as
 		// in new-api and Bifrost.
@@ -539,6 +540,7 @@ func (s *Server) relayStream(
 		}
 
 		payload = bytes.TrimSpace(payload)
+		noteStreamFailure(&failure, payload)
 		if string(payload) == "[DONE]" {
 			done = true
 
@@ -582,6 +584,8 @@ func (s *Server) relayStream(
 	}
 
 	switch {
+	case failure != "":
+		record.Outcome, record.Error = OutcomeTruncated, failure
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
 	case done || finished:
@@ -593,7 +597,7 @@ func (s *Server) relayStream(
 	default:
 		// A provider that died looks like a clean end of the body, so only an
 		// end mark or a finish reason says the answer is whole (Bifrost).
-		record.Outcome = OutcomeTruncated
+		record.Outcome, record.Error = OutcomeTruncated, idle.endReason(scanner.Err(), "a finish reason or [DONE]")
 
 		_, _ = io.WriteString(w, `data: {"error":{"message":"the provider's answer ended early",`+
 			`"type":"server_error","code":"upstream_truncated"}}`+"\n\n")

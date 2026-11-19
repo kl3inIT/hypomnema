@@ -3443,7 +3443,9 @@ capabilities do not exist yet.
   `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
   it; migration 00121 filled it from the rows then kept.
   The ledger also keeps measured input/cache tokens and estimated request/input counts. The split starts from
-  requests still kept at migration 00129; older ledger totals remain but do not contribute to the cache share.
+  requests still kept at migration 00132; older ledger totals remain but do not contribute to the cache share.
+  When a stream ends early, the request row records the provider's stream error code and message, an idle timeout,
+  or that the upstream closed before the protocol's end marker.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. A chat orchestration
   deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's

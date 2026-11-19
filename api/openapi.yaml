@@ -7715,7 +7715,7 @@ components:
           description: The provider's HTTP status; 0 when it gave none.
         error:
           type: string
-          description: The provider's message for a request that failed.
+          description: The provider's error or the reason the request ended early, when available.
         prompt_tokens: { type: integer, format: int64 }
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }
