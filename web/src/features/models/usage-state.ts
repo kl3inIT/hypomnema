@@ -46,6 +46,11 @@ export function share(part: number, whole: number): string {
   return `${Math.round((part / whole) * 100)}%`
 }
 
+export function cacheShare(counts: GatewayUsageCounts): string | undefined {
+  const ratio = share(counts.cached_tokens, counts.measured_prompt_tokens)
+  return ratio ? `${ratio} of measured input` : undefined
+}
+
 export type Bar = {
   start: string
   label: string
@@ -162,7 +167,7 @@ export function tiles(c: GatewayUsageCounts): Tile[] {
     {
       label: "From cache",
       value: tokens(c.cached_tokens),
-      detail: c.cached_tokens > 0 ? `${share(c.cached_tokens, c.prompt_tokens)} of in` : undefined,
+      detail: cacheShare(c),
     },
     { label: "Tokens out", value: tokens(c.completion_tokens) },
     { label: "Reasoning", value: tokens(c.reasoning_tokens) },

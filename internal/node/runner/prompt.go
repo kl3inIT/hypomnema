@@ -34,7 +34,24 @@ const writeRules =
 	"before changing the task's scope, deploying or changing a server, deleting what your change did " +
 	"not make, or acting outside this directory and this task's pull request. " +
 	"Never use AskUserQuestion; no one reads it.\n" +
-	"- Do not end your turn on a plan, an offer to continue or a list of next steps when the Task asks for a change.\n"
+	"- Do not end your turn on a plan, an offer to continue or a list of next steps when the Task asks for a change.\n" +
+	// Issue #894, this repository's AGENTS.md rule of 2026-11-19 given to every repository: the touched checks
+	// once before pushing, after t3code AGENTS.md:102,111, OpenClaw AGENTS.md:86 and CONTRIBUTING.md:94, Orca
+	// AGENTS.md:8 and Coder AGENTS.md:46.
+	"- Run the checks of what you changed, once, after your last edit or merge and before pushing; CI runs the " +
+	"full suite. A repository's own instructions win where they say otherwise.\n" +
+	// Issue #894: merge the base only when needed, after OpenClaw AGENTS.md:46 and oh-my-opencode AGENTS.md:63.
+	"- Merge the base branch into yours only for a conflict, a red check whose cause is on the base, or when the " +
+	"repository's rules ask (such as a migration number); then rerun only the checks the merge affects.\n" +
+	// Issue #894: one blocking command to wait for CI, after Orca AGENTS.md:12-14, Coder
+	// .agents/skills/pull-requests/SKILL.md:65, Hermes
+	// skills/software-development/github/references/ci-troubleshooting.md:181, oh-my-opencode
+	// .agents/skills/work-with-pr/SKILL.md:199-212 and t3code AGENTS.md:159. Not waiting when a review comes first
+	// has no reference of its own: the coordinator's review step waits for CI itself
+	// (internal/controlplane/clientcli/skills/hypomnema-coordinator/references/review.md; owner, 2026-11-19).
+	"- Wait for CI with one command that blocks until it ends (the host's watch command, as in the merge steps " +
+	"below when they are given), never with a polling loop. When the task says a review comes first, do not wait for " +
+	"CI: report the pushed commit and finish; the coordinator follows CI.\n"
 
 const rules =
 // Issue #672: Orca's worker "needs no progress updates unless the task asks"
@@ -139,8 +156,12 @@ func Prompt(d statedb.Dispatch) string {
 		if readOnly {
 			b.WriteString("Read the repository here; leave it unchanged.\n")
 		} else {
-			fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
-				openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
+			publish := "push the branch"
+			if canPublish(o) {
+				publish = "push the branch with `publish_branch` (not `git push`, so the Run can prove its PR heads)"
+			}
+			fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
+				publish, openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
 			b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, o.Base, worktree.Branch(o.TaskID)))
 		}
 	} else {
@@ -237,7 +258,7 @@ func autoMerge(kind, host, path, base, branch string) string {
 		"setting or merge; do not open a gate only to ask whether to merge.\n", strings.Join(lacks, " or "))
 
 	fmt.Fprintf(&b, "2. Read the pull request with `%s`. A draft (%s) is left open. On a conflict (%s), merge %s "+
-		"into your branch, resolve it keeping the intent of both sides, run the repository's checks again and "+
+		"into your branch, resolve it keeping the intent of both sides, rerun the checks the merge affects and "+
 		"push; if you cannot tell what one side meant, ask.", m.View, m.Draft, m.Conflict, base)
 
 	if m.Before != "" {

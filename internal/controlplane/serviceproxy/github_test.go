@@ -98,6 +98,7 @@ func TestWhatGhAsksGitHubIsAnActionOfTheCatalog(t *testing.T) {
 		{`query { viewer { login } } mutation M { createPullRequest(input: {}) { clientMutationId } }`,
 			"github.pulls.create"},
 		{`mutation { mergePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }`, "github.pulls.merge"},
+		{`mutation { closePullRequest(input: {pullRequestId: "PR_1"}) { clientMutationId } }`, "github.pulls.write"},
 		{`query { repository(owner: "o", name: "r") { id } enterprise(slug: "e") { id } }`,
 			"github.graphql.repo.read"},
 		{`query { ...F } fragment F on Query { rateLimit { limit } }`, "github.other.read"},

@@ -1105,6 +1105,10 @@ func wakeText(e store.Event) string {
 	case EventTaskStatus:
 		switch to := str("to"); to {
 		case "succeeded", "failed", "blocked", "canceled":
+			if review, ok := p["review"].(map[string]any); ok {
+				return reviewWakeText(e, review)
+			}
+
 			if to == "blocked" && str("reason") != "" {
 				to += " (" + str("reason") + ")"
 			}
@@ -1128,4 +1132,16 @@ func wakeText(e store.Event) string {
 	}
 
 	return ""
+}
+
+func reviewWakeText(e store.Event, review map[string]any) string {
+	action := "Run stalled after review; follow the coordinator's review reference."
+	if review["waiting_for_owner"] == true {
+		action = "Review limit reached. Leave the Run waiting for the owner; add no Task and report the verdict and findings."
+	}
+
+	return fmt.Sprintf("Review Task %s of run %s: %s on %s (mergeable: %s, merge state: %s, required checks: %s). "+
+		"%s Read the findings: hypomnema tasks show %s --json",
+		e.TaskID.String, e.RunID.String, review["verdict"], review["pull_request"], review["mergeable"],
+		review["merge_state"], review["checks"], action, e.TaskID.String)
 }

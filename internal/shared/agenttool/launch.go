@@ -281,11 +281,12 @@ type Launcher struct {
 	Chat string
 	// RunKey is the key of the Routine's run whose script runs the tool;
 	// empty otherwise.
-	RunKey string
-	Client *http.Client
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
+	RunKey          string
+	OwnsReplacement replacementOwner
+	Client          *http.Client
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
 }
 
 // FromEnv is the launcher of an agent whose starter set the environment.
@@ -329,13 +330,25 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 		return err
 	}
 
+	if name == "gh" && len(rest) > 0 && rest[0] == "reconcile-replacement" {
+		return reconcileReplacement(ctx, rest[1:], l.Stdout, func(out io.Writer, args ...string) error {
+			call := l
+			call.Stdout = out
+			return call.runPinned(ctx, def, label, args)
+		}, l.OwnsReplacement)
+	}
+
+	return l.runPinned(ctx, def, label, rest)
+}
+
+func (l Launcher) runPinned(ctx context.Context, def Def, label string, args []string) error {
 	if l.ToolsHome == "" {
 		return fmt.Errorf("%s is run through Hypomnema, which did not set it up for this agent "+
 			"(%s, %s and %s are needed)", def.Name, EnvURL, EnvKey, EnvTools)
 	}
 
 	//nolint:gosec // The pinned tool, installed by this machine's own installer.
-	return l.launch(ctx, def, label, exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), rest...))
+	return l.launch(ctx, def, label, exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), args...))
 }
 
 // runCommand runs `<integration> [--account label] -- <command> [args...]`. The account flag is read only before

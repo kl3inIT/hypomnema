@@ -583,7 +583,9 @@ func TestAStreamThatEndsEarlyIsReportedAsTruncated(t *testing.T) {
 	assert.True(t, strings.HasPrefix(body, frame(chunkRole)+frame(chunkText)), body)
 	assert.Contains(t, body, `"code":"upstream_truncated"`)
 	assert.NotContains(t, body, "[DONE]")
-	assert.Equal(t, modelgateway.OutcomeTruncated, g.lastUsage(t).Outcome)
+	usage := g.lastUsage(t)
+	assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+	assert.Equal(t, "upstream closed before a finish reason or [DONE]", usage.Error)
 
 	// After one frame the provider says nothing more, until the gateway
 	// gives up on it and closes the connection.
@@ -598,7 +600,23 @@ func TestAStreamThatEndsEarlyIsReportedAsTruncated(t *testing.T) {
 
 	assert.Less(t, time.Since(started), 5*time.Second, "a silent provider must not hold the client")
 	assert.Contains(t, body, `"code":"upstream_truncated"`)
-	assert.Equal(t, modelgateway.OutcomeTruncated, quick.lastUsage(t).Outcome)
+	usage = quick.lastUsage(t)
+	assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+	assert.Equal(t, "no event for 150ms", usage.Error)
+}
+
+func TestChatRecordsAnErrorInTheStream(t *testing.T) {
+	t.Parallel()
+
+	const failure = `{"error":{"code":503,"message":"overloaded"}}`
+	upstream, _ := provider(t, stream(frame(chunkText), frame(failure)))
+	g := newChatGateway(t, modelgateway.Config{}, upstream)
+	status, _, body := g.call(t, g.key, `{"model":"gpt","stream":true}`)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Contains(t, body, failure)
+	usage := g.lastUsage(t)
+	assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+	assert.Equal(t, "503: overloaded", usage.Error)
 }
 
 // Scenario: a provider closes right after its finish reason, without the end
