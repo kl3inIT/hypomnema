@@ -136,8 +136,32 @@ VALUES (@id, @runtime, @label, 'active',
 UPDATE accounts SET updated_at = @now, email = @email, plan = @plan WHERE id = @id;
 
 -- name: SetAccountLogin :execrows
--- A new login of an account: who it is now, and the project it works in.
 UPDATE accounts SET updated_at = @now, email = @email, plan = @plan, project = @project WHERE id = @id;
+
+-- name: SetVerificationLogin :execrows
+UPDATE accounts
+SET updated_at = @now, verify_login_version = @version,
+    verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0, verify_retry_at = NULL
+WHERE id = @id AND verify_login_version < @version;
+
+-- name: ClaimAccountVerificationRetry :execrows
+UPDATE accounts SET updated_at = @now, verify_failures = verify_failures + 1, verify_retry_at = @next_retry_at
+WHERE id = @id AND verify_login_version <= @version AND verify_asked_at IS NOT NULL
+    AND verify_retry_at = @previous_retry_at AND verify_retry_at <= @now;
+
+-- name: SetAccountVerification :execrows
+-- Google asked for the account to be verified (issue #822).
+UPDATE accounts
+SET updated_at = @now, verify_url = @verify_url, verify_message = @verify_message, verify_asked_at = @verify_asked_at,
+    verify_failures = @verify_failures, verify_retry_at = @verify_retry_at
+WHERE id = @id AND verify_login_version <= @version;
+
+-- name: ClearAccountVerification :execrows
+-- A call under the account succeeded: Google no longer asks.
+UPDATE accounts
+SET updated_at = @now, verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0,
+    verify_retry_at = NULL
+WHERE id = @id AND verify_login_version <= @version AND verify_asked_at IS NOT NULL;
 
 -- name: AccountLabelTaken :one
 SELECT EXISTS (SELECT 1 FROM accounts WHERE runtime = @runtime AND label = @label);

@@ -370,9 +370,11 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	require.NoError(t, err)
 	migrations, err := provider(db)
 	require.NoError(t, err)
-	rolledBack, err := migrations.Down(ctx)
+	// Down to just before 135, whatever migrations came after it (as seedinstructions_test.go does).
+	rolledBack, err := migrations.DownTo(ctx, 134)
 	require.NoError(t, err)
-	assert.Equal(t, int64(135), rolledBack.Source.Version)
+	require.NotEmpty(t, rolledBack)
+	assert.Equal(t, int64(135), rolledBack[len(rolledBack)-1].Source.Version)
 	assertExistingUsage()
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))
