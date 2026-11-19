@@ -88,9 +88,7 @@ func (g gatewayAccounts) NoteAnswer(runtime, accountID string, h http.Header) {
 func (g gatewayAccounts) TokenAfterRefusal(
 	ctx context.Context, refused modelgateway.AccountToken,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.TokenAfterRefusal(ctx, subscription.Token{
-		AccountID: refused.AccountID, ExternalID: refused.ExternalID, Version: refused.Version,
-	}))
+	return accountToken(g.subs.TokenAfterRefusal(ctx, subsToken(refused)))
 }
 
 func (g gatewayAccounts) CoolDown(
@@ -99,11 +97,41 @@ func (g gatewayAccounts) CoolDown(
 	return g.subs.CoolDown(ctx, runtime, accountID, until, reason)
 }
 
+// NeedsVerification marks an account Google wants verified (issue #822).
+func (g gatewayAccounts) NeedsVerification(
+	ctx context.Context, token modelgateway.AccountToken, url, message string,
+) (time.Time, error) {
+	return g.subs.NeedsVerification(ctx, subsToken(token), url, message)
+}
+
+func (g gatewayAccounts) CheckVerification(ctx context.Context, token modelgateway.AccountToken) error {
+	_, err := accountToken(subscription.Token{}, g.subs.CheckVerification(ctx, subsToken(token)))
+
+	return err
+}
+
+// Verified clears that mark once a call works under the account.
+func (g gatewayAccounts) Verified(ctx context.Context, token modelgateway.AccountToken) error {
+	return g.subs.Verified(ctx, subsToken(token))
+}
+
+func subsToken(token modelgateway.AccountToken) subscription.Token {
+	return subscription.Token{
+		AccountID: token.AccountID, ExternalID: token.ExternalID, Version: token.Version,
+		VerificationRetry: token.VerificationRetry,
+	}
+}
+
 // accountToken says a subscription's answer in the gateway's words.
 func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, error) {
-	var cooling *subscription.CoolingError
+	var (
+		cooling *subscription.CoolingError
+		verify  *subscription.VerificationError
+	)
 
 	switch {
+	case errors.As(err, &verify):
+		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrAccountResting, err)
 	case errors.As(err, &cooling):
 		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until}
 	case errors.Is(err, subscription.ErrNoAccount):
@@ -114,7 +142,8 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 
 	return modelgateway.AccountToken{
 		AccountID: t.AccountID, ExternalID: t.ExternalID, AccessToken: t.AccessToken, Project: t.Project,
-		Plan: t.Plan, Version: t.Version,
+		Plan: t.Plan, Version: t.Version, Verifying: t.Verifying,
+		VerificationRetry: t.VerificationRetry,
 	}, nil
 }
 

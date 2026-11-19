@@ -96,9 +96,11 @@ hypomnema exec github.com:default -- gh api user
 ```
 
 The Lark example uses a user Connection; use `--as bot` with an app Connection. `exec` sets a loopback proxy and
-its `SSL_CERT_FILE` for the subprocess; the service's real credential stays on the control plane. If your CLI
-build does not honor that CA file (for example, a native Go build on Windows or macOS), use a Linux environment
-such as WSL. This is not a sandbox: run trusted commands that honor the HTTPS proxy. Tool switches and “Use in
+its `SSL_CERT_FILE` for the subprocess; the service's real credential stays on the control plane. On Windows and
+macOS, allow the one-time OS prompt to trust the local Hypomnema service proxy CA for your user. To revoke it and
+delete its local signing keys, run `hypomnema exec remove-ca`. If `exec` reports that its service hosts changed or
+the certificate is expiring, run that command and retry to trust a replacement. Linux requires no installation.
+This is not a sandbox: run trusted commands that honor the HTTPS proxy. Tool switches and “Use in
 chats” do not limit your owner token. The Connection's action policies still apply, including approvals for
 sends. See `hypomnema approvals` and rerun the same command after approving a request that was held.
 

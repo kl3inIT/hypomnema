@@ -33,6 +33,9 @@ type translation struct {
 	refusal func() *http.Response
 	// release is called once the answer is over, however it ends; may be nil.
 	release func()
+	// succeeded is called once the provider has ended the answer with no error
+	// in it; may be nil.
+	succeeded func()
 }
 
 // translated turns a provider's event stream into the answer. Nothing is
@@ -43,6 +46,12 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 	release := func() {
 		if t.release != nil {
 			t.release()
+		}
+	}
+
+	succeeded := func() {
+		if t.succeeded != nil && t.finished() && !t.failed() {
+			t.succeeded()
 		}
 	}
 
@@ -95,6 +104,7 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 		_ = resp.Body.Close()
 
 		release()
+		succeeded()
 
 		return &http.Response{
 			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
@@ -122,6 +132,8 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 			}
 
 			if t.finished() {
+				succeeded()
+
 				_, _ = io.WriteString(writer, "data: [DONE]\n\n")
 
 				break

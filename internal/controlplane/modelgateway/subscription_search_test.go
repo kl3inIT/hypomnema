@@ -286,6 +286,51 @@ func TestAnAntigravityAccountSearchesTheWeb(t *testing.T) {
 	assert.Empty(t, results, "no grounding, no results: the web search asks the next provider")
 }
 
+func TestReview826SearchSkipsNewlyMarkedAccounts(t *testing.T) {
+	t.Parallel()
+	for _, timing := range []string{"after pick", "during 401"} {
+		t.Run(timing, func(t *testing.T) {
+			t.Parallel()
+			google := &verifyingAccounts{googleAccount: googleAccount{accounts: accounts{
+				ids: []string{"acc_1", "acc_2"},
+			}}}
+			var accounts modelgateway.Subscriptions = google
+			if timing == "after pick" {
+				accounts = markedAfterPick{google}
+			}
+			got := &seen{}
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1internal:generateContent" {
+					http.NotFound(w, r)
+					return
+				}
+				got.add(r)
+				if timing == "during 401" && r.Header.Get("Authorization") == "Bearer access-0" {
+					token := modelgateway.AccountToken{AccountID: "acc_1"}
+					_, _ = google.NeedsVerification(r.Context(), token, "https://accounts.google.com/x", "")
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_, _ = io.WriteString(w, antigravitySearchAnswer)
+			}))
+			t.Cleanup(backend.Close)
+			search := searchGateway(t, modelgateway.Config{
+				Subscriptions: accounts, AntigravityBaseURL: backend.URL, AntigravityManifestURL: backend.URL + "/manifest",
+			})
+			results, err := search.Search(t.Context(), websearch.ProviderAntigravity, "go", 5)
+			require.NoError(t, err)
+			require.NotEmpty(t, results)
+			wantCalls := 1
+			if timing == "during 401" {
+				wantCalls = 2
+			}
+			assert.Equal(t, wantCalls, got.calls())
+			header, _ := got.last(t)
+			assert.Equal(t, "Bearer acc_2-access-0", header.Get("Authorization"))
+		})
+	}
+}
+
 // codexSearchAsks is Codex's standalone search request, as codex-rs sends it
 // (codex-api/src/endpoint/search.rs, its test): the session, the model, the
 // last turns, the commands and the settings.

@@ -164,8 +164,29 @@ relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A 
 client may choose a chat's id (`POST /chats` `id`, issue #357, after t3code's `newThreadId()` before the thread
 exists): it must have the shape the server makes (`cht_` and 26 characters of a-z and 2-7, `platform.IsID`) and not be
 taken (409). Before a chat with that id is made, the folder calls the attachments use (tree, folders, uploads, delete)
-take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). A chat has
-its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
+take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). A Bot has
+one **main chat** (issue #471, after OpenClaw's main session per agent, `src/routing/session-key.ts`, and Hermes
+Desktop's Bot Chat): `bots.main_chat` (migration 138, `Bot.main_chat`) points at the chat a click on the Bot opens
+and the web and the CLI write to. `POST /chats` (the web's New chat, `hypomnema chat --new`) makes a chat that
+becomes its Bot's main chat in the same write, as OpenClaw's `/new` starts a new session (`/new` typed in a web
+chat does the same for that chat's Bot and opens the new chat; `hypomnema chat /new` is `--new`); `POST /chats/main`
+returns the Bot's main chat, making one when it has none, read and made in one write so that the web and the CLI
+at once end in one. The web's first message to a Bot with no main chat goes through it with the id its page chose
+(and its title and model, used only when the chat is made): a main chat the CLI made meanwhile is answered instead
+(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
+never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and
+their wake-ups, approvals, Routines and their report cards, the queue, a cut turn, files, artifacts, pi's
+sessions), and only leaves the sidebar's row. Deleting the main chat clears the pointer, and the next message
+from the web or the CLI makes another. The migration chose each Bot's main chat among its chats that are not a
+Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another person's (a person message with a
+sender, or a title "Lark: <name>"), a Lark chat a `/new` moved away from (an owner message with a file Lark sent,
+kept under its `om_` message id, or a heard voice message) or a Routine's (named by a run, or opened with a
+Routine's prompt): the one with the owner's latest message, then the one active latest; a Bot with none has no main
+chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
+to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
+(`offset`); the first page also carries every Bot's main chat and every chat an Approval waits in, whatever their
+age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
+has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
 `chats.provider`, `model`, `effort`, migration 66, each NULL for its Bot's): `POST /chats` takes them and `PATCH
 /chats/{id}` changes them, a field given replacing the chat's and an empty one giving it back to the Bot; the model is
 checked as a Bot's is (one pi can reach, its provider found), the effort is one of the gateway's levels (`none` to
@@ -1954,6 +1975,14 @@ flowchart LR
       not needed. For example, `hypomnema exec lark:me -- lark-cli im chats get --as user --chat-id <chat-id>`
       reads a chat using the owner's Lark user Connection. The tunnel checks the Connection and applies the same
       action policies; the child gets a placeholder, not the owner token or the service token.
+      On Windows and macOS, `exec` terminates TLS on loopback and verifies a second TLS connection through the
+      same tunnel with the control plane's CA. The child sees a per-user CA trusted in CurrentUser\Root or the
+      login keychain. Only name-constrained issuing keys are kept with the CA certificate under the CLI's
+      private `exec-ca` directory; the root signing key is discarded. The issuing certificates carry the DNS
+      constraints in bounded groups so they also fit the macOS chain validator's limit. They cover the service CLI
+      catalogs, including connected GitLab hosts reported by the control plane. `hypomnema exec remove-ca` untrusts
+      the exact root and deletes the keys.
+      On Linux the child still verifies the control plane's temporary CA through `SSL_CERT_FILE`.
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -2926,6 +2955,29 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   `refresh_token_reused`) marks the account as needing a new login and is not tried again. Any other failure keeps
   the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
   error code only.
+- An Antigravity account Google wants verified (issue #822): a 403 whose `google.rpc.ErrorInfo` reason is
+  `VALIDATION_REQUIRED`, on chat or images (the gateway), on the models list or on the quota read, marks the account
+  (`subscription/verification.go`, `orchestration/account_verification.go`, columns `verify_*` of `accounts`):
+  Google's latest `validation_url`, its message, when it first asked, the retry count and the next
+  try. The gateway passes a marked account over until its next try, as a cooling one, and the models list and the
+  limits do not ask Google before it either; the tries come after 10 minutes, 1 hour, 6 hours, then every day
+  (opencode-antigravity-auth PR #338). One request atomically claims each due retry before contacting Google and
+  advances the schedule even if it receives no verification verdict. The same request may use a fallback host;
+  manual refresh does not claim a verification retry, and background refresh skips marked accounts. Further refusals
+  update the link but not the schedule. The current mark is checked before an OAuth refresh (manual or
+  background included), before handing out a token, and before each request with it (including a second host).
+  A mark made during a failed refresh wins over the OAuth error for routing, so the gateway tries the next
+  account. The link kept is the `validation_url` of the
+  `VALIDATION_REQUIRED` detail itself, none when it names none. The first call that works under the account clears
+  the mark (a chat only once its answer has ended well, not at its 200), and so does signing it in again
+  (opencode-antigravity-auth issue #589). The vault version written at sign-in bounds which responses can mark or
+  clear: responses using an earlier sign-in are ignored, while OAuth refresh keeps the same sign-in generation.
+  A discarded refusal does not supply a Verify link to the limits endpoint. Settings drops the account's cached
+  limits and cancels any outstanding manual read when sign-in succeeds. `GET /accounts` gives the mark as `verification`
+  (`url`, `message`, `asked_at`, `next_try_at`), `GET /accounts/{id}/limits` answers `unavailable: verification`
+  with `verification_url`, and `accounts list` prints it. Settings, Models shows the account "Needs verification"
+  with when Google asked, the next try and a Verify button that opens the link; the owner can still sign it in
+  again, turn it off or remove it.
 
 What the model gateway serves and from where (`modelgateway/http.go`, `chat.go`, `accounts.go`, `images.go`;
 `subscription/rank.go`; `websearch/chain.go`).
@@ -3366,9 +3418,9 @@ capabilities do not exist yet.
     of that account wait until the reset Google names (half an hour when it names none), a rate limit as long as
     Google asks; meanwhile the model is not sent to the backend, and other models are. No capacity at Google makes
     nothing wait. These waits are in memory. A 401 refreshes the tokens once.
-  - An account Google suspended for its terms is taken out of use for a day, one Google wants verified for ten
-    minutes; the cooldown's reason, with Google's link, shows in `accounts list`, and the request is answered 503
-    so the model's next target serves it.
+  - An account Google suspended for its terms is taken out of use for a day; the cooldown's reason, with Google's
+    link, shows in `accounts list`. One Google wants verified is marked and rests on a growing schedule (above,
+    issue #822). Either answer is a 503, so the next account, or the model's next target, serves the request.
   - The models the provider is seeded with are names read in the references; the ones Google serves an account are
     what `accounts models` lists, and the owner applies the provider again with those when they differ.
   - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the provider's
@@ -4369,8 +4421,11 @@ The owner's commands:
     result. `tasks transcript <task>` prints the latest attempt's transcript, a line an item (`--after`,
     `--json` for one item a line); `--follow` keeps printing until the worker has ended and nothing more comes.
 - `chat [message]` writes to pi and prints its replies and the tools it ran until it is idle (`--chat`, `--new`,
-  `--text-file`); `--bot <id>` starts a new chat with that Bot instead of the main one, and is refused with
-  `--chat` (issue #616); without a message it shows the chat. `chats` lists them. `runs create` sends
+  `--text-file`). Without `--chat` it writes to the main chat of the Bot `--bot <id>` names, the main Bot's
+  without it (`POST /chats/main`, which makes the main chat when the Bot has none; issue #471); `--new` starts a
+  new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
+  a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
+  `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
   `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
   (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
@@ -4833,8 +4888,8 @@ Node (`internal/node`):
   - A Bot's card: its avatar, name and model with its maker's mark, and its status in words, chosen in
     OpenMausBot's order: Waiting for you (a pending Approval in one of its chats, or a Task of one of its Runs in
     Needs you), No signal (its newest chat has no pi to answer), Working (a chat working, or a Dispatch of its
-    Runs live); idle says nothing. A line under the status says why. The card opens the chat that waits, else the
-    one that works, else the newest, else a new chat with that Bot (`/?bot=`).
+    Runs live); idle says nothing. A line under the status says why. The card opens the Bot's main chat (issue
+    #471), else a new chat with that Bot (`/?bot=`).
   - A machine's card: its state, "n of max" Dispatches, and a line a live Dispatch (starting, running or
     stopping) with the runtime's mark, the Task's first line and what its worker does now, or how long it has
     waited for an answer; an idle machine shows "–". A line opens the Task's panel over the map (`?task=`), and
@@ -4981,14 +5036,18 @@ Node (`internal/node`):
     its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
     the mouse or the keyboard, within its section; the page shows the new order at once and sends
     `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
-    shows the Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its latest
-    chat's title, and "Needs you", "Working" or the time.
-    Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
-    each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
-    with that Bot picked (`/?bot=`). A chat's row has a menu (issue #484, after t3code's thread menu), shown on
-    hover or focus and always on a phone, whose Delete asks first and, for the open chat, then opens New chat with
-    its Bot; a Bot row that stands for its one chat carries that chat's Delete ("Delete chat") in its own menu.
-    The phone's start page lists the same Bots.
+    is one Bot, with no list of its chats under it (issue #471, as OpenMausBot's sidebar with threads hidden): the
+    Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its main chat's last line
+    (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream brings a
+    line), and "Needs you", "Working" or the time.
+    Clicking it opens the Bot's main chat, or New chat with that Bot picked (`/?bot=`) when it has none; when
+    another chat of the Bot waits on the owner and the main chat does not, the row opens the newest such chat.
+    Dragging the row carries the main chat to the grid. The Bot row's menu (issue #484, after t3code's thread menu),
+    shown on hover or focus and always on a phone, carries the main chat's Delete ("Delete chat"), which asks first
+    and, for the open chat, then opens New chat with its Bot. The Bot's page lists its other chats ("Other chats",
+    `GET /chats?bot=`, 100 at a time with Show more), each with the same menu; on the Bots page a Bot's name opens
+    its main chat and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
+    their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its

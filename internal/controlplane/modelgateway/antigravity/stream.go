@@ -40,6 +40,10 @@ type Failure struct {
 	RetryAfter time.Duration
 	// URL is where Google sends the owner: to verify the account, or to appeal.
 	URL string
+	// ValidationURL is the validation_url of the detail whose reason is
+	// VALIDATION_REQUIRED, and nothing else: the link the owner verifies the
+	// account at (issue #822). Empty when that detail names none.
+	ValidationURL string
 }
 
 // Usage counts the tokens of one answer, in the chat format's names.
@@ -346,6 +350,13 @@ func failureOf(raw json.RawMessage, status int) *Failure {
 		for _, wait := range []string{detail.RetryDelay, detail.Metadata["quotaResetDelay"]} {
 			if d, err := time.ParseDuration(wait); err == nil && d > f.RetryAfter {
 				f.RetryAfter = d
+			}
+		}
+
+		if detail.Reason == ReasonVerification && f.ValidationURL == "" {
+			f.ValidationURL = detail.Metadata["validation_url"]
+			if f.ValidationURL == "" {
+				f.ValidationURL = detail.Metadata["validationUrl"]
 			}
 		}
 

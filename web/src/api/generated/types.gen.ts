@@ -2375,6 +2375,29 @@ export type Account = {
    * When the access token ends, when that is known; it is renewed before then.
    */
   token_expires_at?: string;
+  verification?: AccountVerification;
+};
+
+/**
+ * Google wants the account verified (issue #822): it answered a call under it with 403 VALIDATION_REQUIRED. The gateway passes the account over until next_try_at, then tries it again; a call that works, or signing in again, clears this.
+ */
+export type AccountVerification = {
+  /**
+   * The latest link Google gave, where the owner verifies the account.
+   */
+  url?: string;
+  /**
+   * Google's own words.
+   */
+  message?: string;
+  /**
+   * When Google first asked, since the account last worked.
+   */
+  asked_at: string;
+  /**
+   * When the account is tried again, after 10 minutes, 1 hour, 6 hours, then every day.
+   */
+  next_try_at: string;
 };
 
 export type GatewayKey = {
@@ -2859,13 +2882,17 @@ export type AccountLimits = {
    */
   read_at?: string;
   /**
-   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed.
+   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
    */
-  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed';
+  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed' | 'verification';
   /**
    * What went wrong, in the server's words, when the call failed.
    */
   detail?: string;
+  /**
+   * Where the owner verifies the account, when unavailable is verification and Google gave a link.
+   */
+  verification_url?: string;
 };
 
 export type GatewayModelTarget = {
@@ -3126,6 +3153,10 @@ export type Bot = {
    * Listed in the sidebar's Pinned section, under the main Bot.
    */
   pinned: boolean;
+  /**
+   * The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
+   */
+  main_chat?: string;
   provider?: string;
   model?: string;
   /**
@@ -3747,6 +3778,33 @@ export type NewChat = {
 };
 
 /**
+ * The Bot whose main chat is asked for. The other fields are the chat's when the Bot has none and it is made now (the web's first message to a Bot with no main chat, whose files were put under the id its page chose); a main chat that exists keeps its own.
+ */
+export type MainChatRequest = {
+  /**
+   * The id of the Bot; the main Bot when left out.
+   */
+  bot?: string;
+  /**
+   * The id of the chat made, as NewChat's; refused when malformed (400) or taken by another chat (409). A new id when left out.
+   */
+  id?: string;
+  title?: string;
+  /**
+   * Where the model is found.
+   */
+  provider?: string;
+  /**
+   * The chat's own model; its Bot's when left out.
+   */
+  model?: string;
+  /**
+   * The chat's own effort; its Bot's when left out.
+   */
+  effort?: string;
+};
+
+/**
  * What a chat's deletion left on the coordinator's machine.
  */
 export type ChatDeleted = {
@@ -3952,6 +4010,10 @@ export type Chat = {
    */
   coordinator: boolean;
   context_usage?: ChatContextUsage;
+  /**
+   * The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a list only, absent before either wrote.
+   */
+  last_line?: string;
   created_at: string;
   updated_at: string;
 };
@@ -11539,6 +11601,14 @@ export type ListChatsData = {
   path?: never;
   query?: {
     limit?: number;
+    /**
+     * Only the chats of the Bot of this id (issue
+     */
+    bot?: string;
+    /**
+     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+     */
+    offset?: number;
   };
   url: '/chats';
 };
@@ -11585,6 +11655,35 @@ export type CreateChatResponses = {
 };
 
 export type CreateChatResponse = CreateChatResponses[keyof CreateChatResponses];
+
+export type OpenMainChatData = {
+  body: MainChatRequest;
+  path?: never;
+  query?: never;
+  url: '/chats/main';
+};
+
+export type OpenMainChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMainChatError = OpenMainChatErrors[keyof OpenMainChatErrors];
+
+export type OpenMainChatResponses = {
+  /**
+   * The Bot's main chat.
+   */
+  200: Chat;
+  /**
+   * The Bot's main chat, made now.
+   */
+  201: Chat;
+};
+
+export type OpenMainChatResponse = OpenMainChatResponses[keyof OpenMainChatResponses];
 
 export type DeleteChatData = {
   body?: never;

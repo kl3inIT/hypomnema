@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/toast"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { useRefreshBots } from "@/features/bots/use-bots"
+import { everyCall } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
 // ChatMenu is the menu of a chat's row in the sidebar (issue #484), as t3code's Sidebar has a thread's menu with
@@ -41,6 +43,7 @@ export function ChatMenu({
   const [confirming, setConfirming] = useState(false)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const refreshBots = useRefreshBots()
 
   // What the server could not remove, read after the dialog's run and said after it closes.
   const left = useRef<string[]>([])
@@ -78,7 +81,10 @@ export function ChatMenu({
         }}
         onDone={async () => {
           if (current) await navigate({ to: "/", search: { bot: chat.bot } })
-          await queryClient.invalidateQueries({ queryKey: listChatsQueryKey(), exact: true })
+          // Every list of chats, a Bot's on its page too, and the Bots, without waiting: a deleted main chat is no
+          // Bot's any more.
+          void refreshBots()
+          await queryClient.invalidateQueries({ queryKey: everyCall(listChatsQueryKey()) })
           if (left.current.length > 0) {
             toast.add({
               type: "warning",

@@ -23,7 +23,8 @@ export type TeamBot = {
   activity: BotActivity
   // One plain line saying why the status is what it is; nothing when the Bot is idle.
   reason?: string
-  // The chat a click opens: the one that waits, else the one that works, else the newest; none starts a new one.
+  // The chat a click opens: the Bot's main chat, as every link to a Bot (issue #471); none starts one. The chat that
+  // waits on the owner is reached from the sidebar's row and from the work under the map.
   chat?: string
 }
 
@@ -84,7 +85,8 @@ export function teamBots({
     const live = work.filter((c) => liveDispatch(c))
     const working = own.filter((c) => c.working)
     const base = { id: bot.id, name: bot.name, model: bot.model, provider: bot.provider }
-    const newestChat = own[0]?.id
+    // A click on a Bot opens its main chat (issue #471), whichever chat moved last.
+    const home = bot.main_chat
 
     if (asking.length > 0 || needs.length > 0) {
       return {
@@ -100,7 +102,7 @@ export function teamBots({
                 ? "A worker asks you a question"
                 : `${questions.length} questions wait for you`
               : `${plural(needs.length, "Task needs", "Tasks need")} you`,
-        chat: asking[0]?.chat_id ?? needs.find((c) => c.run.chat_id)?.run.chat_id ?? newestChat,
+        chat: home,
       }
     }
 
@@ -110,7 +112,7 @@ export function teamBots({
         ...base,
         activity: "no-signal",
         reason: "No pi is set up to answer",
-        chat: newestChat,
+        chat: home,
       }
     }
 
@@ -124,11 +126,11 @@ export function teamBots({
           live.length > 0
             ? `${plural(live.length, "Task", "Tasks")} running on ${plural(machines, "machine", "machines")}`
             : `Replying in ${working[0]?.title}`,
-        chat: working[0]?.id ?? live.find((c) => c.run.chat_id)?.run.chat_id ?? newestChat,
+        chat: home,
       }
     }
 
-    return { ...base, activity: "idle", chat: newestChat }
+    return { ...base, activity: "idle", chat: home }
   })
 }
 

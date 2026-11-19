@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -79,8 +78,8 @@ type larkUpstream func(*http.Request) (*http.Response, error)
 func (f larkUpstream) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestOwnerExecReadsLarkThroughTheServiceProxy(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the test installs a Unix symlink on PATH")
+	if agenttool.UserTrustSupported() {
+		t.Skip("the subprocess test uses SSL_CERT_FILE and must not install a CA in the user's trust store")
 	}
 
 	w := newWorld(t)

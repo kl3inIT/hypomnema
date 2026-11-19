@@ -325,6 +325,20 @@ func TestTheBackendsRefusalsAreToldApart(t *testing.T) {
 	  {"reason":"VALIDATION_REQUIRED","metadata":{"validation_url":"https://accounts.google.com/verify"}}]}}`))
 	assert.Equal(t, antigravity.ReasonVerification, verify.Reason)
 	assert.Equal(t, "https://accounts.google.com/verify", verify.URL)
+	assert.Equal(t, "https://accounts.google.com/verify", verify.ValidationURL)
+
+	// The Verify link is the VALIDATION_REQUIRED reason's own validation_url, not a help link before it, and none
+	// when that reason names none (issue #822).
+	helped := antigravity.ParseFailure(http.StatusForbidden, []byte(`{"error":{"details":[
+	  {"@type":"type.googleapis.com/google.rpc.Help","links":[{"url":"https://support.google.com/help"}]},
+	  {"reason":"VALIDATION_REQUIRED","metadata":{"validation_url":"https://accounts.google.com/verify"}}]}}`))
+	assert.Equal(t, "https://accounts.google.com/verify", helped.ValidationURL)
+
+	bare := antigravity.ParseFailure(http.StatusForbidden, []byte(`{"error":{"details":[
+	  {"@type":"type.googleapis.com/google.rpc.Help","links":[{"url":"https://support.google.com/help"}]},
+	  {"reason":"VALIDATION_REQUIRED"}]}}`))
+	assert.Equal(t, antigravity.ReasonVerification, bare.Reason)
+	assert.Empty(t, bare.ValidationURL)
 
 	assert.Equal(t, http.StatusBadGateway, antigravity.ParseFailure(http.StatusBadGateway, []byte("<html>")).Status)
 
