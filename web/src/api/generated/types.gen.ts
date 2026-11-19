@@ -2456,6 +2456,40 @@ export type CreatedGatewayKey = {
   secret: string;
 };
 
+/**
+ * A tool Settings → Connect a tool writes a file for.
+ */
+export type GatewayTool = 'claude_code' | 'codex' | 'omp' | 'opencode';
+
+export type GatewayToolFile = {
+  /**
+   * Where the tool reads the file
+   */
+  path: string;
+  content: string;
+  /**
+   * The file's format: json, toml or yaml.
+   */
+  format: string;
+};
+
+export type GatewayToolConfig = {
+  tool: GatewayTool;
+  /**
+   * The models the key may use from the tool, by name.
+   */
+  models: Array<string>;
+  /**
+   * The model the files name; empty when the key may use none from the tool.
+   */
+  model: string;
+  /**
+   * The files hold the key's value; false, a placeholder in its place.
+   */
+  key_stored: boolean;
+  files: Array<GatewayToolFile>;
+};
+
 export type GatewayKeyValue = {
   secret: string;
 };
@@ -8114,6 +8148,43 @@ export type GetGatewayKeyValueResponses = {
 };
 
 export type GetGatewayKeyValueResponse = GetGatewayKeyValueResponses[keyof GetGatewayKeyValueResponses];
+
+export type GetGatewayToolConfigData = {
+  body?: never;
+  path: {
+    key_id: string;
+    tool: GatewayTool;
+  };
+  query: {
+    /**
+     * The gateway's origin as the tool will reach it, such as the web page's own.
+     */
+    base_url: string;
+    /**
+     * The model the file names; one the key may not use from the tool is the first it may.
+     */
+    model?: string;
+  };
+  url: '/gateway/keys/{key_id}/connect/{tool}';
+};
+
+export type GetGatewayToolConfigErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayToolConfigError = GetGatewayToolConfigErrors[keyof GetGatewayToolConfigErrors];
+
+export type GetGatewayToolConfigResponses = {
+  /**
+   * The tool's configuration.
+   */
+  200: GatewayToolConfig;
+};
+
+export type GetGatewayToolConfigResponse = GetGatewayToolConfigResponses[keyof GetGatewayToolConfigResponses];
 
 export type GetGatewayUsageData = {
   body?: never;

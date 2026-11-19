@@ -17,6 +17,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Cable,
   Check,
   Copy,
   AudioLines,
@@ -32,6 +33,7 @@ import {
   Trash2,
   type LucideIcon,
 } from "lucide-react"
+import { Link } from "@tanstack/react-router"
 import { useId, useState } from "react"
 import { z } from "zod"
 
@@ -42,7 +44,7 @@ import {
 } from "@/api/generated/@tanstack/react-query.gen"
 import { getGatewayKeyValue, revokeGatewayKey } from "@/api/generated/sdk.gen"
 import type { CreatedGatewayKey, GatewayEndpoint, GatewayKey } from "@/api/generated/types.gen"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -207,7 +209,7 @@ const columns: ColumnDef<typeof features, GatewayKey>[] = [
     id: "actions",
     enableSorting: false,
     header: () => <span className="sr-only">Actions</span>,
-    cell: ({ row }) => <RevokeKey gatewayKey={row.original} />,
+    cell: ({ row }) => <KeyActions gatewayKey={row.original} />,
   },
 ]
 
@@ -520,11 +522,22 @@ function KeyEndpoints({ endpoints }: { endpoints: GatewayEndpoint[] }) {
   )
 }
 
-function RevokeKey({ gatewayKey }: { gatewayKey: GatewayKey }) {
+// KeyActions are a row's actions: Connect opens Connect a tool with the key chosen (issue #907), as 9router's
+// CLI tools cards pick a key (ApiKeySelect.js); and revoking it.
+function KeyActions({ gatewayKey }: { gatewayKey: GatewayKey }) {
   const refresh = useRefreshGatewayKeys()
 
   return (
-    <span className="flex justify-end">
+    <span className="flex justify-end gap-1">
+      <Link
+        to="/settings/connect"
+        search={{ key: gatewayKey.id }}
+        className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+        aria-label={`Connect a tool with ${gatewayKey.name}`}
+        title="Connect a tool"
+      >
+        <Cable />
+      </Link>
       <ConfirmDialog
         trigger={
           <Button variant="ghost" size="icon-sm" aria-label={`Revoke ${gatewayKey.name}`}>
