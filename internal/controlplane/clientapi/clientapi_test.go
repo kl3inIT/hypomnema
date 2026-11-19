@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -124,7 +125,9 @@ func errorCode(t *testing.T, body []byte, status, want int) openapi.ErrorCode {
 }
 
 // Every operation in the contract has a policy, and no policy names an
-// operation that does not exist (Omnara's openapi_policies_test.go).
+// operation that does not exist (Omnara's openapi_policies_test.go). An
+// operation tagged gateway is the model gateway's, which takes a gateway key
+// and is not served here (issue #907).
 func TestEveryOperationHasAPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +137,12 @@ func TestEveryOperationHasAPolicy(t *testing.T) {
 	ops := map[string]bool{}
 	for _, item := range spec.Paths.Map() {
 		for _, op := range item.Operations() {
+			if slices.Contains(op.Tags, "gateway") {
+				assert.NotContains(t, policies, op.OperationID, "a gateway route is not the client API's")
+
+				continue
+			}
+
 			ops[op.OperationID] = true
 			assert.Contains(t, policies, op.OperationID)
 		}

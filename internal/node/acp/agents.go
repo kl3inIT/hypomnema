@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/agentconfig"
 )
 
 // The agents this runner drives, as data: what differs between two CLIs that
@@ -13,17 +14,8 @@ import (
 // (Orca's AcpLaunchSpec, OpenHands' table of ACP providers). Each is read in
 // the CLI's own source (docs/research/2026-11-10-acp-omp-opencode.md).
 
-const (
-	// providerID names the gateway in a CLI's configuration.
-	providerID = "hypomnema"
-	// keyVariable is the environment variable the CLI reads the gateway's key from.
-	keyVariable = "HYPOMNEMA_MODEL_KEY"
-	// The size of a model the gateway serves is not known to the node: these
-	// are the values omp's and opencode's own documentation use in their
-	// examples of a custom model (omp docs/models.md, opencode models.mdx).
-	contextWindow = 128000
-	maxOutput     = 16384
-)
+// keyVariable is the environment variable the CLI reads the gateway's key from.
+const keyVariable = "HYPOMNEMA_MODEL_KEY"
 
 // launch is how to start one turn of an agent.
 type launch struct {
@@ -75,30 +67,10 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 func prepareOmp(l launch) ([]string, []string, error) {
 	agentDir, sessions := filepath.Join(l.Dir, "agent"), filepath.Join(l.Dir, "sessions")
 
-	// The subscription's own wire when it has one (issue #549), as pi is given it: Messages at the gateway's root,
-	// Responses or chat under /v1.
-	api, base := "openai-completions", l.URL
-	switch l.API {
-	case "anthropic-messages":
-		api, base = l.API, strings.TrimSuffix(l.URL, "/v1")
-	case "openai-responses":
-		api = l.API
-	}
-
-	models := fmt.Sprintf(`providers:
-  %s:
-    baseUrl: %s
-    apiKey: %s
-    api: %s
-    models:
-      - id: %s
-        name: %s
-        input: [text]
-        reasoning: %t
-        contextWindow: %d
-        maxTokens: %d
-`, providerID, quoteYAML(base), keyVariable, api, quoteYAML(l.Model), quoteYAML(l.Model), l.Effort != "",
-		contextWindow, maxOutput)
+	// The size of a model the gateway serves is not known to the node: omp is given the defaults
+	// (agentconfig.DefaultContextWindow, DefaultMaxOutput). omp reads the key from keyVariable.
+	gw := agentconfig.Gateway{URL: l.URL, Key: keyVariable, Model: l.Model, API: l.API, Reasoning: l.Effort != ""}
+	models := agentconfig.OmpModels(gw)
 	config := "tools:\n  xdev: false\nweb_search:\n  enabled: false\ngenerate_image:\n  enabled: false\n"
 
 	for name, content := range map[string]string{
@@ -114,7 +86,7 @@ func prepareOmp(l launch) ([]string, []string, error) {
 		return nil, nil, fmt.Errorf("making omp's session directory: %w", err)
 	}
 
-	args := []string{"acp", "--model", providerID + "/" + l.Model, "--session-dir", sessions}
+	args := []string{"acp", "--model", agentconfig.OmpModel(gw), "--session-dir", sessions}
 	if l.Effort != "" {
 		args = append(args, "--thinking", l.Effort)
 	}
@@ -135,25 +107,15 @@ func prepareOmp(l launch) ([]string, []string, error) {
 // has the tools server's web and image tools only (issues #354, #492). It is
 // given no image model either, without which its image tool is not offered.
 func prepareOpencode(l launch) ([]string, []string, error) {
-	model := map[string]any{
-		"capabilities": map[string]any{"tools": true, "input": []string{"text"}, "output": []string{"text"}},
-		"limit":        map[string]any{"context": contextWindow, "output": maxOutput},
-	}
-
-	settings := map[string]any{
-		"model": providerID + "/" + l.Model,
-		"providers": map[string]any{providerID: map[string]any{
-			"package":  "@opencode/ai/providers/openai-compatible",
-			"settings": map[string]any{"baseURL": l.URL, "apiKey": "{env:" + keyVariable + "}"},
-			"models":   map[string]any{l.Model: model},
-		}},
-		"permissions": []map[string]string{
-			{"action": "*", "resource": "*", "effect": "allow"},
-			{"action": "execute", "resource": "*", "effect": "deny"},
-			{"action": "websearch", "resource": "*", "effect": "deny"},
-			{"action": "webfetch", "resource": "*", "effect": "deny"},
-			{"action": "experimental_image_generate", "resource": "*", "effect": "deny"},
-		},
+	settings := agentconfig.OpencodeConfig(agentconfig.Gateway{
+		URL: l.URL, Key: "{env:" + keyVariable + "}", Model: l.Model,
+	})
+	settings["permissions"] = []map[string]string{
+		{"action": "*", "resource": "*", "effect": "allow"},
+		{"action": "execute", "resource": "*", "effect": "deny"},
+		{"action": "websearch", "resource": "*", "effect": "deny"},
+		{"action": "webfetch", "resource": "*", "effect": "deny"},
+		{"action": "experimental_image_generate", "resource": "*", "effect": "deny"},
 	}
 	if l.Skills != "" {
 		settings["skills"] = []string{l.Skills}
@@ -198,9 +160,4 @@ func writeFile(name, content string) error {
 	}
 
 	return nil
-}
-
-// quoteYAML writes a string as a double-quoted YAML scalar.
-func quoteYAML(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }

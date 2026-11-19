@@ -2497,6 +2497,84 @@ export type CreatedGatewayKey = {
   secret: string;
 };
 
+/**
+ * A tool Settings → Connect a tool writes a file for.
+ */
+export type GatewayTool = 'claude_code' | 'codex' | 'omp' | 'opencode';
+
+export type GatewayToolFile = {
+  /**
+   * Where the tool reads the file
+   */
+  path: string;
+  content: string;
+  /**
+   * The file's format: json, toml or yaml.
+   */
+  format: string;
+};
+
+export type GatewayToolConfig = {
+  tool: GatewayTool;
+  /**
+   * The models the key may use from the tool, by name.
+   */
+  models: Array<string>;
+  /**
+   * The model the files name; empty when the key may use none from the tool.
+   */
+  model: string;
+  /**
+   * The files hold the key's value; false, a placeholder in its place.
+   */
+  key_stored: boolean;
+  files: Array<GatewayToolFile>;
+};
+
+/**
+ * Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
+ */
+export type CodexModelCatalog = {
+  models: Array<CodexModelInfo>;
+};
+
+/**
+ * One of Codex's ModelInfo; the fields below are the ones the gateway sets, every other field is Codex's bundled entry's as written. Codex's `description` and `default_reasoning_level` (the level it starts at, one of supported_reasoning_levels) are a string or null.
+ */
+export type CodexModelInfo = {
+  /**
+   * The gateway's name for the model.
+   */
+  slug: string;
+  display_name: string;
+  context_window?: number;
+  max_context_window?: number;
+  supported_reasoning_levels: Array<{
+    effort: string;
+    description: string;
+  }>;
+  input_modalities?: Array<string>;
+  visibility: string;
+  supported_in_api: boolean;
+  priority: number;
+  base_instructions?: string;
+  model_messages?: {
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+/**
+ * The model gateway's errors, in OpenAI's shape.
+ */
+export type GatewayError = {
+  error: {
+    message: string;
+    type: string;
+    code: string;
+  };
+};
+
 export type GatewayKeyValue = {
   secret: string;
 };
@@ -8194,6 +8272,43 @@ export type GetGatewayKeyValueResponses = {
 };
 
 export type GetGatewayKeyValueResponse = GetGatewayKeyValueResponses[keyof GetGatewayKeyValueResponses];
+
+export type GetGatewayToolConfigData = {
+  body?: never;
+  path: {
+    key_id: string;
+    tool: GatewayTool;
+  };
+  query: {
+    /**
+     * The gateway's origin as the tool will reach it, such as the web page's own.
+     */
+    base_url: string;
+    /**
+     * The model the file names; one the key may not use from the tool is the first it may.
+     */
+    model?: string;
+  };
+  url: '/gateway/keys/{key_id}/connect/{tool}';
+};
+
+export type GetGatewayToolConfigErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayToolConfigError = GetGatewayToolConfigErrors[keyof GetGatewayToolConfigErrors];
+
+export type GetGatewayToolConfigResponses = {
+  /**
+   * The tool's configuration.
+   */
+  200: GatewayToolConfig;
+};
+
+export type GetGatewayToolConfigResponse = GetGatewayToolConfigResponses[keyof GetGatewayToolConfigResponses];
 
 export type GetGatewayUsageData = {
   body?: never;

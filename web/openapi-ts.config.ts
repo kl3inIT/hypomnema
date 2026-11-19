@@ -20,6 +20,8 @@ export default defineConfig({
   // empty the same way (.tmp/kilocode/packages/sdk/js/script/build.ts:47-70, exportFromIndex: false).
   output: { path: "src/api/generated", entryFile: false },
   parser: {
+    // The model gateway's own routes (issue #907) take a gateway key, never the web client's session.
+    filters: { operations: { exclude: ["GET /v1/codex/models"] }, orphans: true },
     hooks: {
       operations: {
         isQuery: (operation) =>
