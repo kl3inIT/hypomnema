@@ -3444,6 +3444,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Routine" }
         default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: PatchRoutine
+      summary: Set a Routine's access; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [access]
+              properties:
+                access: { $ref: "#/components/schemas/RoutineAccess" }
+      responses:
+        "200":
+          description: The updated Routine.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Routine" }
+        default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: DeleteRoutine
       summary: Remove a Routine with its runs and its grants; only the owner
@@ -8811,13 +8831,14 @@ components:
         no model. A prompt Routine may have a script that runs first and
         wakes the Bot only when it finds work.
       required:
-        [id, bot, name, kind, schedule, sentence, timeout_seconds, state, announce, failures, skipped, created_by,
+        [id, bot, name, kind, access, schedule, sentence, timeout_seconds, state, announce, failures, skipped, created_by,
          can_undo, created_at, updated_at, grants]
       properties:
         id: { type: string }
         bot: { type: string, description: The id of the Bot whose Routine it is. }
         name: { type: string }
         kind: { $ref: "#/components/schemas/RoutineKind" }
+        access: { $ref: "#/components/schemas/RoutineAccess" }
         prompt: { type: string, description: What a prompt Routine gives its Bot. }
         script:
           type: string
@@ -8866,12 +8887,17 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Routine" }
+    RoutineAccess:
+      type: string
+      enum: [full, read]
+      description: Full is the default. Read lets a prompt-only Routine read the owner's accounts without acting.
     RoutineSettings:
       type: object
       additionalProperties: false
       required: [kind]
       properties:
         kind: { $ref: "#/components/schemas/RoutineKind" }
+        access: { $ref: "#/components/schemas/RoutineAccess", description: Only the owner may set this field. }
         prompt: { type: string }
         script:
           type: string
@@ -9535,6 +9561,7 @@ components:
         id: { type: string }
         title: { type: string }
         bot: { type: string, description: The id of the Bot the chat talks with. }
+        read_run: { type: boolean, description: This chat belongs to a read-only Routine run. }
         provider:
           type: string
           description: Where the chat's own model is found; absent with the model.

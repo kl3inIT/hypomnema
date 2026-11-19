@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // GitHub's /repositories/{repository_id}/… (issue #802). GitHub writes the links of a paged list with the
@@ -137,7 +138,16 @@ func byRepositoryID(req *http.Request, s session, named Action) (id, rest string
 // asks.
 func (p *Proxy) decideRequest(ctx context.Context, req *http.Request, body []byte, s session,
 ) (governing Action, verdict, message string, err error) {
+	if s.caller.ReadRun && !readRunIntegration(s.integration) && s.integration != SupersetID {
+		return Action{}, "read-only", agenttool.ReadRunRefusal, nil
+	}
 	named := s.catalog.Of(req, body, s.host)
+	if s.caller.ReadRun && s.integration == "lark" && named.Kind == Reads &&
+		!slices.ContainsFunc(larkMethodList(), func(method larkMethod) bool {
+			return method.Risk == larkRead && method.Method == req.Method && pathMatches(method.Path, req.URL.EscapedPath())
+		}) {
+		return named, "read-only", agenttool.ReadRunRefusal, nil
+	}
 
 	var repository byID
 

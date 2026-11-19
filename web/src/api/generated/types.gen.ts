@@ -3339,6 +3339,7 @@ export type Routine = {
   bot: string;
   name: string;
   kind: RoutineKind;
+  access: RoutineAccess;
   /**
    * What a prompt Routine gives its Bot.
    */
@@ -3411,8 +3412,14 @@ export type RoutineList = {
   data: Array<Routine>;
 };
 
+/**
+ * Full is the default. Read lets a prompt-only Routine read the owner's accounts without acting.
+ */
+export type RoutineAccess = 'full' | 'read';
+
 export type RoutineSettings = {
   kind: RoutineKind;
+  access?: RoutineAccess;
   prompt?: string;
   /**
    * A file name, never a path or a command line. With a prompt, the script runs first: when it prints nothing, or its last line is {"wakeAgent": false}, the run ends succeeded with no chat; otherwise the Bot is woken with what it printed before the prompt.
@@ -4051,6 +4058,10 @@ export type Chat = {
    * The id of the Bot the chat talks with.
    */
   bot: string;
+  /**
+   * This chat belongs to a read-only Routine run.
+   */
+  read_run?: boolean;
   /**
    * Where the chat's own model is found; absent with the model.
    */
@@ -10115,6 +10126,35 @@ export type GetRoutineResponses = {
 };
 
 export type GetRoutineResponse = GetRoutineResponses[keyof GetRoutineResponses];
+
+export type PatchRoutineData = {
+  body: {
+    access: RoutineAccess;
+  };
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}';
+};
+
+export type PatchRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PatchRoutineError = PatchRoutineErrors[keyof PatchRoutineErrors];
+
+export type PatchRoutineResponses = {
+  /**
+   * The updated Routine.
+   */
+  200: Routine;
+};
+
+export type PatchRoutineResponse = PatchRoutineResponses[keyof PatchRoutineResponses];
 
 export type UndoRoutineData = {
   body?: never;

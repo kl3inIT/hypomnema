@@ -21,8 +21,10 @@ export function Conversation({
   setups,
   onLoadEarlier,
   loadingEarlier = false,
+  readOnly,
 }: {
   view: ChatView
+  readOnly?: boolean
   local?: Local
   // onLoadEarlier brings the page of history before the oldest message read.
   onLoadEarlier?: () => void
@@ -56,7 +58,13 @@ export function Conversation({
         {items.length === 0
           ? empty
           : items.map((item) => (
-              <ChatItemView key={item.key} item={item} working={view.working} botName={botName} />
+              <ChatItemView
+                key={item.key}
+                item={item}
+                working={view.working}
+                botName={botName}
+                readOnly={readOnly}
+              />
             ))}
         {view.working && <WorkingFor />}
       </StickToBottom.Content>

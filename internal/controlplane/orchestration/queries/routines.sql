@@ -1,9 +1,9 @@
 -- name: InsertRoutine :exec
 INSERT INTO routines (id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone,
                       timeout_seconds, state, summary, chat_id, announce, next_run_at, created_by, undo,
-                      created_at, updated_at)
+                      created_at, updated_at, access)
 VALUES (@id, @bot, @name, @kind, @prompt, @script, @script_text, @every_minutes, @anchor_at, @cron, @timezone,
-        @timeout_seconds, 'on', @summary, @chat_id, @announce, @next_run_at, @created_by, @undo, @now, @now);
+        @timeout_seconds, 'on', @summary, @chat_id, @announce, @next_run_at, @created_by, @undo, @now, @now, @access);
 
 -- name: UpdateRoutine :exec
 -- What a Routine runs, when, and where its result goes; its state and its count of failures stay.
@@ -11,8 +11,11 @@ UPDATE routines
 SET kind = @kind, prompt = @prompt, script = @script, script_text = @script_text, every_minutes = @every_minutes,
     anchor_at = @anchor_at, cron = @cron, timezone = @timezone, timeout_seconds = @timeout_seconds,
     revision = @revision, summary = @summary, chat_id = @chat_id, announce = @announce, next_run_at = @next_run_at,
-    undo = @undo, updated_at = @now
+    undo = @undo, updated_at = @now, access = @access
 WHERE id = @id;
+
+-- name: SetRoutineAccess :exec
+UPDATE routines SET access = @access, undo = NULL, updated_at = @now WHERE id = @id;
 
 -- name: GetRoutine :one
 SELECT * FROM routines WHERE id = @id;
@@ -64,8 +67,8 @@ DELETE FROM routine_grants WHERE routine_id = @routine_id AND revision <> @revis
 -- name: InsertRoutinePrompt :exec
 -- A prompt run's chat opens with the prompt as a wake-up of the control plane, which the coordinator is given
 -- though no event of a Run is behind it (issue #267's kinds: a wake-up).
-INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
-VALUES (@chat_id, 'system', 'wake', @text, 1, @now);
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at, read_run)
+VALUES (@chat_id, 'system', 'wake', @text, 1, @now, @read_run);
 
 -- name: InsertRoutineRun :exec
 INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id)

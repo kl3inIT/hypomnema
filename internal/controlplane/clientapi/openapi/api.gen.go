@@ -1598,6 +1598,24 @@ func (e ReviewStallVerdict) Valid() bool {
 	}
 }
 
+// Defines values for RoutineAccess.
+const (
+	Full RoutineAccess = "full"
+	Read RoutineAccess = "read"
+)
+
+// Valid indicates whether the value is a known member of the RoutineAccess enum.
+func (e RoutineAccess) Valid() bool {
+	switch e {
+	case Full:
+		return true
+	case Read:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RoutineKind.
 const (
 	Prompt RoutineKind = "prompt"
@@ -3187,7 +3205,10 @@ type Chat struct {
 	Model *string `json:"model,omitempty"`
 
 	// Provider Where the chat's own model is found; absent with the model.
-	Provider  *string   `json:"provider,omitempty"`
+	Provider *string `json:"provider,omitempty"`
+
+	// ReadRun This chat belongs to a read-only Routine run.
+	ReadRun   *bool     `json:"read_run,omitempty"`
 	Title     string    `json:"title"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -5505,6 +5526,9 @@ type RoleMetric struct {
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
 type Routine struct {
+	// Access Full is the default. Read lets a prompt-only Routine read the owner's accounts without acting.
+	Access RoutineAccess `json:"access"`
+
 	// Announce A run's answer or a script's output goes to the chat it was made in.
 	Announce bool `json:"announce"`
 
@@ -5565,6 +5589,9 @@ type Routine struct {
 	Timezone       *string   `json:"timezone,omitempty"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
+
+// RoutineAccess Full is the default. Read lets a prompt-only Routine read the owner's accounts without acting.
+type RoutineAccess string
 
 // RoutineGrant An action of a Connection that passes in the Routine's runs without asking.
 type RoutineGrant struct {
@@ -5655,6 +5682,9 @@ type RoutineScriptLaunch struct {
 
 // RoutineSettings defines model for RoutineSettings.
 type RoutineSettings struct {
+	// Access Full is the default. Read lets a prompt-only Routine read the owner's accounts without acting.
+	Access *RoutineAccess `json:"access,omitempty"`
+
 	// Announce Whether a run's result goes to that chat; it does when absent.
 	Announce *bool `json:"announce,omitempty"`
 
@@ -7520,6 +7550,12 @@ type ListRoutinesParams struct {
 	ChatId *string `form:"chat_id,omitempty" json:"chat_id,omitempty"`
 }
 
+// PatchRoutineJSONBody defines parameters for PatchRoutine.
+type PatchRoutineJSONBody struct {
+	// Access Full is the default. Read lets a prompt-only Routine read the owner's accounts without acting.
+	Access RoutineAccess `json:"access"`
+}
+
 // ListRoutineRunsParams defines parameters for ListRoutineRuns.
 type ListRoutineRunsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -7869,6 +7905,9 @@ type PutRoleRoutingJSONRequestBody = Source
 
 // PreviewRoutineScheduleJSONRequestBody defines body for PreviewRoutineSchedule for application/json ContentType.
 type PreviewRoutineScheduleJSONRequestBody = RoutineSchedule
+
+// PatchRoutineJSONRequestBody defines body for PatchRoutine for application/json ContentType.
+type PatchRoutineJSONRequestBody PatchRoutineJSONBody
 
 // LaunchRoutineScriptJSONRequestBody defines body for LaunchRoutineScript for application/json ContentType.
 type LaunchRoutineScriptJSONRequestBody = RoutineLaunchRequest
@@ -10296,6 +10335,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /routines/{routine_id} (the `GetRoutine` operationId).
 	GetRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchRoutineWithBody Set a Routine's access; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+	PatchRoutineWithBody(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchRoutine Set a Routine's access; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+	PatchRoutine(ctx context.Context, routineId RoutineID, body PatchRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RevokeRoutineGrant Take back an "always for this Routine"; only the owner
 	//
@@ -15760,6 +15813,40 @@ func (c *Client) DeleteRoutine(ctx context.Context, routineId RoutineID, reqEdit
 // Corresponds with GET /routines/{routine_id} (the `GetRoutine` operationId).
 func (c *Client) GetRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetRoutineRequest(c.Server, routineId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PatchRoutineWithBody Set a Routine's access; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+func (c *Client) PatchRoutineWithBody(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchRoutineRequestWithBody(c.Server, routineId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PatchRoutine Set a Routine's access; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+func (c *Client) PatchRoutine(ctx context.Context, routineId RoutineID, body PatchRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchRoutineRequest(c.Server, routineId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -26812,6 +26899,53 @@ func NewGetRoutineRequest(server string, routineId RoutineID) (*http.Request, er
 	return req, nil
 }
 
+// NewPatchRoutineRequest calls the generic PatchRoutine builder with application/json body
+func NewPatchRoutineRequest(server string, routineId RoutineID, body PatchRoutineJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchRoutineRequestWithBody(server, routineId, "application/json", bodyReader)
+}
+
+// NewPatchRoutineRequestWithBody constructs an http.Request for the PatchRoutine method, with any body, and a specified content type
+func NewPatchRoutineRequestWithBody(server string, routineId RoutineID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewRevokeRoutineGrantRequest constructs an http.Request for the RevokeRoutineGrant method
 func NewRevokeRoutineGrantRequest(server string, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string) (*http.Request, error) {
 	var err error
@@ -31574,6 +31708,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /routines/{routine_id} (the `GetRoutine` operationId).
 	GetRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*GetRoutineResponse, error)
+
+	// PatchRoutineWithBodyWithResponse Set a Routine's access; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+	PatchRoutineWithBodyWithResponse(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchRoutineResponse, error)
+
+	// PatchRoutineWithResponse Set a Routine's access; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+	PatchRoutineWithResponse(ctx context.Context, routineId RoutineID, body PatchRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchRoutineResponse, error)
 
 	// RevokeRoutineGrantWithResponse Take back an "always for this Routine"; only the owner
 	//
@@ -41976,6 +42124,54 @@ func (r GetRoutineResponse) ContentType() string {
 	return ""
 }
 
+type PatchRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Routine
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PatchRoutineResponse) GetJSON200() *Routine {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PatchRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PatchRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PatchRoutineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RevokeRoutineGrantResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -48651,6 +48847,32 @@ func (c *ClientWithResponses) GetRoutineWithResponse(ctx context.Context, routin
 		return nil, err
 	}
 	return ParseGetRoutineResponse(rsp)
+}
+
+// PatchRoutineWithBodyWithResponse Set a Routine's access; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+func (c *ClientWithResponses) PatchRoutineWithBodyWithResponse(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchRoutineResponse, error) {
+	rsp, err := c.PatchRoutineWithBody(ctx, routineId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchRoutineResponse(rsp)
+}
+
+// PatchRoutineWithResponse Set a Routine's access; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /routines/{routine_id} (the `PatchRoutine` operationId).
+func (c *ClientWithResponses) PatchRoutineWithResponse(ctx context.Context, routineId RoutineID, body PatchRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchRoutineResponse, error) {
+	rsp, err := c.PatchRoutine(ctx, routineId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchRoutineResponse(rsp)
 }
 
 // RevokeRoutineGrantWithResponse Take back an "always for this Routine"; only the owner
@@ -56419,6 +56641,39 @@ func ParseGetRoutineResponse(rsp *http.Response) (*GetRoutineResponse, error) {
 	return response, nil
 }
 
+// ParsePatchRoutineResponse parses an HTTP response from a PatchRoutineWithResponse call
+func ParsePatchRoutineResponse(rsp *http.Response) (*PatchRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Routine
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRevokeRoutineGrantResponse parses an HTTP response from a RevokeRoutineGrantWithResponse call
 func ParseRevokeRoutineGrantResponse(rsp *http.Response) (*RevokeRoutineGrantResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -58843,6 +59098,9 @@ type ServerInterface interface {
 	// GetRoutine A Routine, with a script's text, its last run and what it is allowed always
 	// (GET /routines/{routine_id})
 	GetRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
+	// PatchRoutine Set a Routine's access; only the owner
+	// (PATCH /routines/{routine_id})
+	PatchRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
 	// RevokeRoutineGrant Take back an "always for this Routine"; only the owner
 	// (DELETE /routines/{routine_id}/grants/{integration}/{label}/{action})
 	RevokeRoutineGrant(w http.ResponseWriter, r *http.Request, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string)
@@ -65648,6 +65906,32 @@ func (siw *ServerInterfaceWrapper) GetRoutine(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// PatchRoutine operation middleware
+func (siw *ServerInterfaceWrapper) PatchRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchRoutine(w, r, routineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RevokeRoutineGrant operation middleware
 func (siw *ServerInterfaceWrapper) RevokeRoutineGrant(w http.ResponseWriter, r *http.Request) {
 
@@ -67661,6 +67945,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routine-schedule", wrapper.PreviewRoutineSchedule)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/routines/{routine_id}", wrapper.DeleteRoutine)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/routines/{routine_id}", wrapper.GetRoutine)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/routines/{routine_id}", wrapper.PatchRoutine)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/undo", wrapper.UndoRoutine)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/launch", wrapper.LaunchRoutineScript)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/pause", wrapper.PauseRoutine)
@@ -76054,6 +76339,46 @@ func (response GetRoutinedefaultJSONResponse) VisitGetRoutineResponse(w http.Res
 	return err
 }
 
+type PatchRoutineRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+	Body      *PatchRoutineJSONRequestBody
+}
+
+type PatchRoutineResponseObject interface {
+	VisitPatchRoutineResponse(w http.ResponseWriter) error
+}
+
+type PatchRoutine200JSONResponse Routine
+
+func (response PatchRoutine200JSONResponse) VisitPatchRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PatchRoutinedefaultJSONResponse) VisitPatchRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RevokeRoutineGrantRequestObject struct {
 	RoutineId   RoutineID       `json:"routine_id"`
 	Integration IntegrationID   `json:"integration"`
@@ -78930,6 +79255,9 @@ type StrictServerInterface interface {
 	// GetRoutine A Routine, with a script's text, its last run and what it is allowed always
 	// (GET /routines/{routine_id})
 	GetRoutine(ctx context.Context, request GetRoutineRequestObject) (GetRoutineResponseObject, error)
+	// PatchRoutine Set a Routine's access; only the owner
+	// (PATCH /routines/{routine_id})
+	PatchRoutine(ctx context.Context, request PatchRoutineRequestObject) (PatchRoutineResponseObject, error)
 	// RevokeRoutineGrant Take back an "always for this Routine"; only the owner
 	// (DELETE /routines/{routine_id}/grants/{integration}/{label}/{action})
 	RevokeRoutineGrant(ctx context.Context, request RevokeRoutineGrantRequestObject) (RevokeRoutineGrantResponseObject, error)
@@ -85090,6 +85418,39 @@ func (sh *strictHandler) GetRoutine(w http.ResponseWriter, r *http.Request, rout
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetRoutineResponseObject); ok {
 		if err := validResponse.VisitGetRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchRoutine operation middleware
+func (sh *strictHandler) PatchRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request PatchRoutineRequestObject
+
+	request.RoutineId = routineId
+
+	var body PatchRoutineJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchRoutine(ctx, request.(PatchRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchRoutineResponseObject); ok {
+		if err := validResponse.VisitPatchRoutineResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

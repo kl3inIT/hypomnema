@@ -52,10 +52,12 @@ export function ChatItemView({
   item,
   working,
   botName,
+  readOnly,
 }: {
   item: ChatItem
   working: boolean
   botName: string
+  readOnly?: boolean
 }) {
   switch (item.kind) {
     case "owner":
@@ -79,6 +81,7 @@ export function ChatItemView({
           chat={item.chat}
           fence={item.fence}
           botName={botName}
+          readOnly={readOnly}
         />
       )
     case "activity":
@@ -175,6 +178,7 @@ function Reply({
   chat,
   fence,
   botName,
+  readOnly,
 }: {
   text: string
   streaming: boolean
@@ -182,10 +186,11 @@ function Reply({
   chat?: string
   fence?: string
   botName: string
+  readOnly?: boolean
 }) {
   // Its MEDIA: lines leave the text and become files to download (issue #699); the reply being written shows its
   // files once it is done, as a Channel sends them after the reply.
-  const { shown, paths } = mediaOf(text, fence)
+  const { shown, paths } = readOnly ? { shown: text, paths: [] } : mediaOf(text, fence)
 
   return (
     <div
@@ -193,7 +198,7 @@ function Reply({
       data-testid={streaming ? "reply-streaming" : "reply"}
     >
       <h3 className="sr-only">{botName}</h3>
-      {shown && <Markdown text={shown} streaming={streaming} />}
+      {shown && <Markdown text={shown} streaming={streaming} textOnly={readOnly} />}
       {chat && paths.length > 0 && <ReplyFiles chat={chat} paths={paths} />}
       {!streaming && <Meta text={shown} createdAt={createdAt} align="start" />}
     </div>

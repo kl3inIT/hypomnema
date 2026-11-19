@@ -166,6 +166,7 @@ var policies = map[string]policy{
 	"ListRoutineRuns":        {},
 	"PreviewRoutineSchedule": {},
 	"PutRoutine":             {},
+	"PatchRoutine":           {scope: scopeOwner},
 	"RunRoutine":             {},
 	"LaunchRoutineScript":    {},
 	"UndoRoutine":            {scope: scopeOwner},
