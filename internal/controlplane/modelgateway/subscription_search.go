@@ -270,6 +270,9 @@ func (s *Server) antigravitySearch(
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", s.antigravity.identity.UserAgent(ctx))
+		if err := s.checkAntigravityVerification(ctx, token); err != nil {
+			return nil, err
+		}
 
 		resp, err := s.client.Do(req)
 		if err != nil {
@@ -288,6 +291,9 @@ func (s *Server) antigravitySearch(
 		}
 	}
 
+	if errors.Is(err, ErrAccountResting) {
+		return nil, antigravityResting(), nil
+	}
 	if err != nil {
 		return nil, nil, err
 	}

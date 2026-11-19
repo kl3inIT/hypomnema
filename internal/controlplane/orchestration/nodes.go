@@ -208,6 +208,8 @@ type Account struct {
 	Project   string
 	SecretRef string
 	Refresh   AccountRefresh
+	// Verification is set while Google wants the account verified (issue #822).
+	Verification *AccountVerification
 }
 
 // NodeToken is one credential of a node. It holds no secret.

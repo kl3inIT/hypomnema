@@ -802,6 +802,10 @@ func (s *Server) antigravityImage(
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", s.antigravity.identity.UserAgent(ctx))
 
+		if err := s.checkAntigravityVerification(ctx, token); err != nil {
+			return nil, err
+		}
+
 		resp, err := s.imageClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("calling Antigravity: %w", err)
@@ -817,6 +821,12 @@ func (s *Server) antigravityImage(
 		if token, err = s.accounts.TokenAfterRefusal(ctx, token); err == nil {
 			resp, err = send(token)
 		}
+	}
+
+	if errors.Is(err, ErrAccountResting) {
+		// Marked meanwhile by another request (issue #822): the next account serves this one.
+		return antigravity.ImageAnswer{}, imageRefusal(http.StatusServiceUnavailable, "account_verification_required",
+			"Google asks for the Antigravity account to be verified", 0), nil
 	}
 
 	if err != nil {
@@ -845,6 +855,7 @@ func (s *Server) antigravityImage(
 		}
 
 		s.imageRests.served(key)
+		s.antigravityVerified(ctx, token)
 
 		return got, nil, nil
 	}
@@ -855,7 +866,7 @@ func (s *Server) antigravityImage(
 	case antigravity.ReasonTermsViolation:
 		s.antigravityPark(ctx, token, now.Add(antigravitySuspended), "suspended by Google for its terms of service", f)
 	case antigravity.ReasonVerification:
-		s.antigravityPark(ctx, token, now.Add(antigravityVerify), "Google asks for the account to be verified", f)
+		s.antigravityNeedsVerification(ctx, token, f)
 	}
 
 	reset := antigravity.QuotaResetAt(raw)

@@ -372,9 +372,10 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 		UPDATE gateway_usage_daily SET requests = requests + 1, no_account = 1;
 	`)
 	require.NoError(t, err)
-	rolledBack, err := migrations.Down(ctx)
+	rolledBack, err := migrations.DownTo(ctx, coolingVersion-1)
 	require.NoError(t, err)
-	assert.Equal(t, int64(coolingVersion), rolledBack.Source.Version)
+	require.NotEmpty(t, rolledBack)
+	assert.Equal(t, int64(coolingVersion), rolledBack[len(rolledBack)-1].Source.Version)
 	assertExistingUsage()
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))

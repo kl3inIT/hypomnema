@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -79,6 +80,12 @@ type Token struct {
 	Plan string
 	// Version is the version of the account's secret the token is from.
 	Version int
+	// Verifying says Google asked for the account to be verified and this is
+	// its next try (issue #822): a call that works clears the mark (Verified).
+	Verifying bool
+	// VerificationRetry holds the claimed deadline across a fallback host or a 401 retry.
+	VerificationRetry *atomic.Int64
+	checkVerification func(context.Context) error
 }
 
 // Identity is who an account is at its vendor. None of it is secret.
@@ -143,10 +150,19 @@ type Accounts interface {
 		ctx context.Context, in orchestration.AccountLogin, secretRef func(accountID string) string,
 	) (orchestration.Account, error)
 	ListAccounts(ctx context.Context) ([]orchestration.Account, error)
+	VerificationState(ctx context.Context, id string) (*orchestration.AccountVerification, int, error)
+	SetVerificationLogin(ctx context.Context, id string, version int) error
+	ClaimVerificationRetry(
+		ctx context.Context, id string, version int, previous time.Time, wait time.Duration,
+	) (time.Time, error)
 	SetAccountPlan(ctx context.Context, id, email, plan string) error
 	CoolAccount(ctx context.Context, runtime, id string, until time.Time, reason string) error
 	RecordAccountRefresh(ctx context.Context, id string, r orchestration.AccountRefresh) error
 	RemoveAccountLogin(ctx context.Context, id string) error
+	MarkAccountVerification(
+		ctx context.Context, id string, version int, url, message string, wait time.Duration,
+	) (orchestration.AccountVerification, error)
+	ClearAccountVerification(ctx context.Context, id string, version int) (bool, error)
 }
 
 // State says whether an account's tokens can be used.
@@ -180,6 +196,7 @@ type Service struct {
 	clock    platform.Clock
 	logger   *slog.Logger
 	vendors  map[string]Vendor
+	signInMu sync.Mutex
 	// after is time.After outside tests: the pause between two refreshes.
 	after func(time.Duration) <-chan time.Time
 	// rr is the round-robin cursor per runtime, for a request with no session;
@@ -337,6 +354,11 @@ func (s *Service) Import(ctx context.Context, runtime string, raw []byte, label 
 
 // save records a login's account and seals its tokens in the vault.
 func (s *Service) save(ctx context.Context, runtime string, login Login, label string) (Account, error) {
+	if runtime == antigravityRuntime {
+		s.signInMu.Lock()
+		defer s.signInMu.Unlock()
+	}
+
 	acct, err := s.accounts.SaveAccountLogin(ctx, orchestration.AccountLogin{
 		Runtime: runtime, ExternalID: login.ExternalID, FormerExternalID: login.FormerExternalID,
 		Email: login.Email, Plan: login.Plan,
@@ -351,13 +373,13 @@ func (s *Service) save(ctx context.Context, runtime string, login Login, label s
 		return Account{}, fmt.Errorf("%w: account %s", ErrNoTokens, acct.ID)
 	}
 
-	_, err = s.vault.Get(ctx, name)
+	secret, err := s.vault.Get(ctx, name)
 
 	switch {
 	case err == nil:
-		_, err = s.vault.RotateTokenSet(ctx, name, login.Tokens)
+		secret, err = s.vault.RotateTokenSet(ctx, name, login.Tokens)
 	case errors.Is(err, vault.ErrNotFound):
-		_, err = s.vault.Create(ctx, vault.NewSecret{
+		secret, err = s.vault.Create(ctx, vault.NewSecret{
 			Name: name, Kind: vault.KindOAuthTokenSet, Payload: login.Tokens.Payload,
 			Metadata:             map[string]string{"account": acct.ID, "runtime": acct.Runtime},
 			AccessTokenExpiresAt: login.Tokens.AccessTokenExpiresAt,
@@ -366,6 +388,11 @@ func (s *Service) save(ctx context.Context, runtime string, login Login, label s
 
 	if err != nil {
 		return Account{}, fmt.Errorf("storing the tokens of account %s: %w", acct.ID, err)
+	}
+	if runtime == antigravityRuntime {
+		if err := s.accounts.SetVerificationLogin(ctx, acct.ID, secret.Version); err != nil {
+			return Account{}, err
+		}
 	}
 
 	if err := s.accounts.RecordAccountRefresh(ctx, acct.ID, orchestration.AccountRefresh{}); err != nil {
@@ -445,7 +472,7 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 		return Account{}, err
 	}
 
-	if err := s.refresh(ctx, a, 0); err != nil {
+	if err := s.refresh(ctx, a, 0, nil); err != nil {
 		return Account{}, err
 	}
 
@@ -514,15 +541,36 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 			continue
 		}
 
-		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(now) < useLead {
-			if err := s.refresh(ctx, a, 0); err != nil {
+		// An account Google wants verified rests until its next try (issue #822).
+		if v := a.Verification; v != nil && v.RetryAt.After(now) {
+			if free == nil || v.RetryAt.Before(*free) {
+				free = &v.RetryAt
+			}
+
+			continue
+		}
+
+		token, err := s.usableToken(ctx, a)
+		if err != nil {
+			if errors.Is(err, vault.ErrLoginRequired) || errors.Is(err, ErrNoTokens) {
+				continue
+			}
+
+			var verify *VerificationError
+			if !errors.As(err, &verify) {
 				return Token{}, err
 			}
+
+			if free == nil || verify.RetryAt.Before(*free) {
+				free = &verify.RetryAt
+			}
+
+			continue
 		}
 
 		s.keepPin(runtime, session, a.ID, now)
 
-		return s.tokenOf(ctx, a.Account)
+		return token, nil
 	}
 
 	if free != nil {
@@ -634,11 +682,20 @@ func (s *Service) TokenAfterRefusal(ctx context.Context, refused Token) (Token, 
 		return Token{}, err
 	}
 
-	if err := s.refresh(ctx, a, refused.Version); err != nil {
+	retry := refused.VerificationRetry
+	if retry == nil && a.Runtime == antigravityRuntime {
+		retry = new(atomic.Int64)
+	}
+	if err := s.refresh(ctx, a, refused.Version, retry); err != nil {
 		return Token{}, err
 	}
 
-	return s.tokenOf(ctx, a.Account)
+	a, err = s.Get(ctx, refused.AccountID)
+	if err != nil {
+		return Token{}, err
+	}
+
+	return s.tokenOf(ctx, a.Account, retry)
 }
 
 // ServedModel is a model a vendor serves an account, with what is left of
@@ -673,7 +730,12 @@ func (s *Service) Models(ctx context.Context, id string) ([]ServedModel, error) 
 		return nil, err
 	}
 
-	return lister.Models(ctx, token)
+	models, err := lister.Models(ctx, token)
+	if err := s.noteVerification(ctx, token, err); err != nil {
+		return nil, err
+	}
+
+	return models, nil
 }
 
 // RosterRow is one row of the list a vendor answers an account's models with, as it gives it, before the rows no
@@ -697,7 +759,12 @@ func (s *Service) Roster(ctx context.Context, id string) ([]RosterRow, error) {
 		return nil, err
 	}
 
-	return lister.Roster(ctx, token)
+	rows, err := lister.Roster(ctx, token)
+	if err := s.noteVerification(ctx, token, err); err != nil {
+		return nil, err
+	}
+
+	return rows, nil
 }
 
 // vendorToken returns an account's vendor as a T, when it is one, and a token of the account fresh enough to use.
@@ -714,17 +781,7 @@ func vendorToken[T any](ctx context.Context, s *Service, id string) (T, Token, e
 		return none, Token{}, fmt.Errorf("%w: %s", ErrNoModelList, a.Runtime)
 	}
 
-	if a.State != StateActive {
-		return none, Token{}, fmt.Errorf("%w: account %s is %s", ErrNoTokens, id, cmpState(a.State))
-	}
-
-	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
-		if err := s.refresh(ctx, a, 0); err != nil {
-			return none, Token{}, err
-		}
-	}
-
-	token, err := s.tokenOf(ctx, a.Account)
+	token, err := s.usableToken(ctx, a)
 	if err != nil {
 		return none, Token{}, err
 	}
@@ -764,7 +821,7 @@ func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until
 	return s.accounts.CoolAccount(ctx, runtime, accountID, until, reason)
 }
 
-func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, error) {
+func (s *Service) tokenOf(ctx context.Context, a orchestration.Account, retry *atomic.Int64) (Token, error) {
 	name, ok := vault.NameFromRef(a.SecretRef)
 	if !ok {
 		return Token{}, fmt.Errorf("%w: account %s", ErrNoTokens, a.ID)
@@ -783,16 +840,28 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, 
 		access = opened.Payload[vault.KeyValue]
 	}
 
-	return Token{
+	token := Token{
 		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: access,
 		Project: a.Project, Plan: a.Plan, Version: opened.Version,
-	}, nil
+	}
+	if a.Runtime == antigravityRuntime {
+		token.VerificationRetry = retry
+		mark, err := s.currentVerification(ctx, token)
+		if err != nil {
+			return Token{}, err
+		}
+
+		token.Verifying = mark != nil
+		token.checkVerification = func(ctx context.Context) error { return s.CheckVerification(ctx, token) }
+	}
+
+	return token, nil
 }
 
 // RefreshDue refreshes every account whose access token ends within its
-// vendor's lead. An account that needs a new login, or whose last refresh
-// failed and is not due for another try, is left alone. It returns what
-// failed, joined.
+// vendor's lead. An account that needs a new login, is marked for verification,
+// or whose last refresh failed and is not due for another try is left alone.
+// It returns what failed, joined.
 func (s *Service) RefreshDue(ctx context.Context) error {
 	accounts, err := s.List(ctx)
 	if err != nil {
@@ -817,6 +886,9 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 		if a.Refresh.RetryAt != nil && now.Before(*a.Refresh.RetryAt) {
 			continue
 		}
+		if a.Verification != nil {
+			continue
+		}
 
 		// Accounts are refreshed one after another with a pause between
 		// them, as 9router-go's background refresh does.
@@ -828,11 +900,15 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 			}
 		}
 
-		refreshed = true
+		if err := s.refresh(ctx, a, 0, nil); err != nil {
+			var verify *VerificationError
+			if errors.As(err, &verify) {
+				continue
+			}
 
-		if err := s.refresh(ctx, a, 0); err != nil {
 			failed = append(failed, err)
 		}
+		refreshed = true
 	}
 
 	return errors.Join(failed...)
@@ -860,7 +936,7 @@ func (s *Service) Loop(ctx context.Context) {
 // refresh exchanges the account's refresh token through the vault and
 // records how it went. stale is the version of the tokens found too old; zero
 // means the ones in the vault now.
-func (s *Service) refresh(ctx context.Context, a Account, stale int) error {
+func (s *Service) refresh(ctx context.Context, a Account, stale int, retry *atomic.Int64) error {
 	vendor, ok := s.vendors[a.Runtime]
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownVendor, a.Runtime)
@@ -879,12 +955,49 @@ func (s *Service) refresh(ctx context.Context, a Account, stale int) error {
 
 		stale = opened.Version
 	}
+	check := Token{AccountID: a.ID, Version: stale, VerificationRetry: retry}
+	exchange := vendor.Refresh
+	if a.Runtime == antigravityRuntime {
+		if _, err := s.currentVerification(ctx, check); err != nil {
+			return err
+		}
 
-	refreshed, err := s.vault.Refresh(ctx, name, stale, vendor.Refresh)
+		exchange = func(ctx context.Context, payload vault.Payload) (vault.Refreshed, error) {
+			var err error
+			if retry == nil {
+				_, err = s.currentVerification(ctx, check)
+			} else {
+				err = s.CheckVerification(ctx, check)
+			}
+			if err != nil {
+				return vault.Refreshed{}, err
+			}
+
+			return vendor.Refresh(ctx, payload)
+		}
+	}
+
+	refreshed, err := s.vault.Refresh(ctx, name, stale, exchange)
 	if err != nil {
-		return errors.Join(
+		var verify *VerificationError
+		if errors.As(err, &verify) {
+			return verify
+		}
+
+		failed := errors.Join(
 			fmt.Errorf("refreshing account %s: %w", a.ID, err),
 			s.accounts.RecordAccountRefresh(ctx, a.ID, s.failed(a, err)))
+		if a.Runtime == antigravityRuntime {
+			if _, rest := s.currentVerification(ctx, check); rest != nil {
+				if errors.As(rest, &verify) {
+					return verify
+				}
+
+				return errors.Join(rest, failed)
+			}
+		}
+
+		return failed
 	}
 
 	if err := s.accounts.RecordAccountRefresh(ctx, a.ID, orchestration.AccountRefresh{}); err != nil {
