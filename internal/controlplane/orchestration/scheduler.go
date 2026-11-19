@@ -233,6 +233,13 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 	}
 
 	if spec == nil {
+		if p.gatewayCoolingUntil(r) != 0 {
+			shown := ReasonAccountsCooling
+			if until := p.gatewayCooling[[2]string{r.gatewayRoute, r.model}]; until > now {
+				shown = gatewayCoolingReason(r.model, until)
+			}
+			return recordTaskWait(ctx, q, task, shown)
+		}
 		return s.wait(ctx, q, now, task, reason, out)
 	}
 
@@ -625,8 +632,18 @@ func runHost(ctx context.Context, q *store.Queries, runID string) (where, error)
 func (s *Service) wait(ctx context.Context, q *store.Queries, now int64, task store.Task, reason string,
 	out *Scheduled,
 ) error {
-	shown := or(reason, ReasonAccountsCooling)
+	if err := recordTaskWait(ctx, q, task, or(reason, ReasonAccountsCooling)); err != nil {
+		return err
+	}
 
+	if resolvesByItself(reason) {
+		return nil
+	}
+
+	return s.unplaceable(ctx, q, now, task, reason, out)
+}
+
+func recordTaskWait(ctx context.Context, q *store.Queries, task store.Task, shown string) error {
 	if !task.WaitingReason.Valid || task.WaitingReason.String != shown {
 		if err := q.SetTaskWaitingReason(ctx, store.SetTaskWaitingReasonParams{
 			WaitingReason: nullString(shown), ID: task.ID,
@@ -635,11 +652,7 @@ func (s *Service) wait(ctx context.Context, q *store.Queries, now int64, task st
 		}
 	}
 
-	if resolvesByItself(reason) {
-		return nil
-	}
-
-	return s.unplaceable(ctx, q, now, task, reason, out)
+	return nil
 }
 
 // resolvesByItself reports whether a wait ends without anyone acting: a

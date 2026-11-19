@@ -28,24 +28,33 @@ func (w *world) gatewayCooling(route, model string, reset time.Time) {
 
 type roleGatewayAccounts struct {
 	modelgateway.Subscriptions
+	clock platform.Clock
 	reset time.Time
 }
 
-func (a roleGatewayAccounts) Token(
+func (a *roleGatewayAccounts) Token(
 	_ context.Context, runtime, _ string, _ ...string,
 ) (modelgateway.AccountToken, error) {
-	if runtime == "codex" && !a.reset.IsZero() {
+	if runtime == "codex" && a.reset.After(a.clock.Now()) {
 		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: a.reset}
 	}
 	return modelgateway.AccountToken{AccountID: "account", AccessToken: "test-token"}, nil
 }
 
-func (roleGatewayAccounts) NoteAnswer(string, string, http.Header) {}
+func (*roleGatewayAccounts) NoteAnswer(string, string, http.Header) {}
 
-func (a roleGatewayAccounts) FirstFree(
+func (a *roleGatewayAccounts) CoolDown(_ context.Context, runtime, id string, until time.Time, _ string) error {
+	if runtime != "codex" || id != "account" {
+		return fmt.Errorf("unexpected account %s/%s", runtime, id)
+	}
+	a.reset = until
+	return nil
+}
+
+func (a *roleGatewayAccounts) FirstFree(
 	_ context.Context, runtime string, _ func(string) time.Time,
 ) (time.Time, error) {
-	if runtime == "codex" {
+	if runtime == "codex" && a.reset.After(a.clock.Now()) {
 		return a.reset, nil
 	}
 	return time.Time{}, nil
@@ -59,7 +68,7 @@ func (w *world) roleGateway(reset time.Time, backend *httptest.Server) (*modelga
 			return modelgateway.ProviderInfo{Name: provider.Name, Kind: provider.Kind, Models: provider.Models,
 				BaseURL: provider.BaseURL, APIKeyRef: provider.APIKeyRef}, err
 		}, func(context.Context, string) (string, error) { return "test-api-key", nil })
-	config := modelgateway.Config{Subscriptions: roleGatewayAccounts{reset: reset}}
+	config := modelgateway.Config{Subscriptions: &roleGatewayAccounts{clock: w.clock, reset: reset}}
 	if backend != nil {
 		config.CodexBaseURL, config.ClaudeBaseURL = backend.URL, backend.URL
 	}
@@ -141,9 +150,11 @@ func TestRoleWaitsForTheFirstResetWhenNoBackupIsUsable(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, response.Code)
 	require.NoError(t, w.finish(call, Outcome{Class: FailureRateLimited}))
 
+	wantReason := "no account free for " + first.Model + " until " + reset.Format(time.RFC3339)
 	for range 90 {
 		w.alive(w.node)
 		require.Empty(t, w.schedule().Created)
+		assert.Equal(t, wantReason, w.task(task.ID).WaitingReason)
 		w.advance(time.Minute)
 	}
 	var dispatches int
@@ -154,6 +165,7 @@ func TestRoleWaitsForTheFirstResetWhenNoBackupIsUsable(t *testing.T) {
 	created = w.schedule().Created
 	require.Len(t, created, 1)
 	assert.Equal(t, first.ConversationID, w.dispatchOf(created[0]).ConversationID)
+	assert.Empty(t, w.task(task.ID).WaitingReason)
 }
 
 func TestReviewerSkipsASecondCoolingEntry(t *testing.T) {
@@ -203,63 +215,106 @@ func TestRoleDoesNotAddAWaitWhenTheGatewayResetAlreadyPassed(t *testing.T) {
 
 func TestRoleRateLimitWithoutGatewayFactDoesNotLoop(t *testing.T) {
 	t.Parallel()
+	w := roleWorld(t)
+	backend := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, _ *http.Request) {
+		out.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(out, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
+	}))
+	defer backend.Close()
+	service, mux := w.roleGateway(time.Time{}, backend)
+	_, err := w.s.ApplyProvider(t.Context(), "", "name: remote\nkind: openai_compatible\nbase_url: "+
+		backend.URL+"/v1\napi_key_ref: vault:remote\nmodels: [remote-model]\n")
+	require.NoError(t, err)
+	_, err = service.ApplyModel(t.Context(), "name: claude-remote\ntargets: [{provider: remote, model: remote-model}]\n")
+	require.NoError(t, err)
+	_, err = w.s.ApplyProvider(t.Context(), "", "name: model-gateway\nkind: model_gateway\nmodels: [claude-remote]\n")
+	require.NoError(t, err)
+	require.NoError(t, w.s.ApplyRoleRouting(t.Context(), strings.ReplaceAll(defaultRoleRouting,
+		"provider: claude-subscription, model: claude-opus-5-5", "provider: model-gateway, model: claude-remote")))
+	w.gatewayCooling("/v1/responses", "codex-subscription/gpt-6.2-sol", t0.Add(time.Hour))
+	w.tasks(NewTask{Ref: "role", Kind: "broad", Spec: "work"})
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	first := w.dispatchOf(created[0])
+	call := w.begin(first.ID)
+	response := w.askGateway(service, mux, first, "/v1/messages",
+		`{"model":%q,"max_tokens":100,"messages":[{"role":"user","content":"work"}]}`)
+	require.Equal(t, http.StatusTooManyRequests, response.Code, response.Body.String())
+	assert.Empty(t, response.Header().Get("Retry-After"))
+	_, err = w.s.read().GetGatewayModelCooling(t.Context(), store.GetGatewayModelCoolingParams{
+		Route: "/v1/messages", Model: first.Model,
+	})
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	require.NoError(t, w.finish(call, Outcome{Class: FailureRateLimited}))
+	for range 4 {
+		w.alive(w.node)
+		require.Empty(t, w.schedule().Created)
+		w.advance(RateLimitCooldown / 4)
+	}
+	w.alive(w.node)
+	created = w.schedule().Created
+	require.Len(t, created, 1)
+	assert.Equal(t, first.ConversationID, w.dispatchOf(created[0]).ConversationID)
+}
+
+func TestCodexStreamUsageLimitDoesNotLoop(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []struct {
-		name, kind, route, request, body string
-		status                           int
+		name, fields string
+		wait         time.Duration
 	}{
-		{"codex-sse", "narrow", "/v1/responses", `{"model":%q,"input":"work"}`,
-			"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"usage_limit_reached\"}}}\n\n", http.StatusOK},
-		{"claude-api-429", "broad", "/v1/messages",
-			`{"model":%q,"max_tokens":100,"messages":[{"role":"user","content":"work"}]}`,
-			`{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`, http.StatusTooManyRequests},
+		{"provider-reset", `,"resets_in_seconds":5400`, 90 * time.Minute},
+		{"no-reset", "", time.Hour},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Parallel()
 			w := roleWorld(t)
+			body := `data: {"type":"response.failed","response":{"error":{"code":"usage_limit_reached"` +
+				scenario.fields + "}}}\n\n"
 			backend := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, _ *http.Request) {
-				out.WriteHeader(scenario.status)
-				_, _ = io.WriteString(out, scenario.body)
+				out.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(out, body)
 			}))
 			defer backend.Close()
 			service, mux := w.roleGateway(time.Time{}, backend)
-			backup := "claude-subscription/claude-opus-5-5"
-			backupRoute := "/v1/messages"
-			if scenario.kind == "broad" {
-				backup, backupRoute = "codex-subscription/gpt-6.2-sol", "/v1/responses"
-				_, err := w.s.ApplyProvider(t.Context(), "", "name: remote\nkind: openai_compatible\nbase_url: "+
-					backend.URL+"/v1\napi_key_ref: vault:remote\nmodels: [remote-model]\n")
-				require.NoError(t, err)
-				_, err = service.ApplyModel(t.Context(),
-					"name: claude-remote\ntargets: [{provider: remote, model: remote-model}]\n")
-				require.NoError(t, err)
-				_, err = w.s.ApplyProvider(t.Context(), "", "name: model-gateway\nkind: model_gateway\nmodels: [claude-remote]\n")
-				require.NoError(t, err)
-				require.NoError(t, w.s.ApplyRoleRouting(t.Context(), strings.ReplaceAll(defaultRoleRouting,
-					"provider: claude-subscription, model: claude-opus-5-5", "provider: model-gateway, model: claude-remote")))
-			}
-			w.gatewayCooling(backupRoute, backup, t0.Add(time.Hour))
-			w.tasks(NewTask{Ref: "role", Kind: scenario.kind, Spec: "work"})
-			created := w.schedule().Created
-			require.Len(t, created, 1)
-			first := w.dispatchOf(created[0])
-			call := w.begin(first.ID)
-			response := w.askGateway(service, mux, first, scenario.route, scenario.request)
-			require.Equal(t, scenario.status, response.Code, response.Body.String())
-			assert.Empty(t, response.Header().Get("Retry-After"))
-			_, err := w.s.read().GetGatewayModelCooling(t.Context(), store.GetGatewayModelCoolingParams{
-				Route: scenario.route, Model: first.Model,
-			})
-			require.ErrorIs(t, err, sql.ErrNoRows)
-			require.NoError(t, w.finish(call, Outcome{Class: FailureRateLimited}))
-			for range 4 {
+			task := w.tasks(NewTask{Ref: "role", Kind: "narrow", Runtime: "codex", Spec: "work"})[0]
+			firstConversation := ""
+			const route = "/v1/responses"
+			const request = `{"model":%q,"input":"work"}`
+			for minute := time.Duration(0); minute < 3*time.Hour; minute += time.Minute {
 				w.alive(w.node)
-				require.Empty(t, w.schedule().Created)
-				w.advance(RateLimitCooldown / 4)
+				created := w.schedule().Created
+				if minute%scenario.wait == 0 {
+					require.Len(t, created, 1, "at %s", minute)
+					dispatch := w.dispatchOf(created[0])
+					firstConversation = or(firstConversation, dispatch.ConversationID)
+					assert.Equal(t, firstConversation, dispatch.ConversationID)
+					assert.Empty(t, w.task(task.ID).WaitingReason)
+					call := w.begin(dispatch.ID)
+					reset := w.clock.Now().Add(scenario.wait)
+					response := w.askGateway(service, mux, dispatch, route, request)
+					require.Equal(t, http.StatusOK, response.Code)
+					assert.Equal(t, body, response.Body.String())
+					fact, err := w.s.read().GetGatewayModelCooling(t.Context(), store.GetGatewayModelCoolingParams{
+						Route: route, Model: dispatch.Model,
+					})
+					require.NoError(t, err)
+					assert.Equal(t, reset.UnixMilli(), fact.ResetsAt)
+					refused := w.askGateway(service, mux, dispatch, route, request)
+					require.Equal(t, http.StatusTooManyRequests, refused.Code)
+					assert.Equal(t, fmt.Sprint(int(scenario.wait.Seconds())), refused.Header().Get("Retry-After"))
+					require.NoError(t, w.finish(call, Outcome{Class: FailureRateLimited}))
+					wantReason := "no account free for " + dispatch.Model + " until " + reset.Format(time.RFC3339)
+					assert.Equal(t, wantReason, w.task(task.ID).WaitingReason)
+				} else {
+					require.Empty(t, created, "at %s", minute)
+				}
+				w.advance(time.Minute)
 			}
-			w.alive(w.node)
-			created = w.schedule().Created
-			require.Len(t, created, 1)
-			assert.Equal(t, first.ConversationID, w.dispatchOf(created[0]).ConversationID)
+			var dispatches int
+			row := w.db.QueryRowContext(t.Context(), "SELECT count(*) FROM dispatches WHERE task_id = ?", task.ID)
+			require.NoError(t, row.Scan(&dispatches))
+			assert.Equal(t, int(3*time.Hour/scenario.wait), dispatches)
 		})
 	}
 }
@@ -267,7 +322,7 @@ func TestRoleRateLimitWithoutGatewayFactDoesNotLoop(t *testing.T) {
 func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	_, db := migratedTo(t, 125)
+	_, db := migratedTo(t, 131)
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES ('key', 'key', 'hash', '["*"]', 1);
 		INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
@@ -287,8 +342,9 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	require.NoError(t, err)
 	migrations, err := provider(db)
 	require.NoError(t, err)
-	_, err = migrations.Down(ctx)
+	rolledBack, err := migrations.Down(ctx)
 	require.NoError(t, err)
+	assert.Equal(t, int64(134), rolledBack.Source.Version)
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))
 	assert.Equal(t, 1, requests)

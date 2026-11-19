@@ -154,7 +154,8 @@ func TestRoleRoutingWaitsForPinsAndReportsMissingModels(t *testing.T) {
 	require.Len(t, created, 1)
 	dispatch := w.dispatchOf(created[0])
 	assert.Equal(t, tasks[1].ID, dispatch.TaskID)
-	assert.Equal(t, "accounts_cooling", w.task(tasks[0].ID).WaitingReason)
+	wantReason := "no account free for claude-subscription/claude-opus-5-5 until " + t0.Add(time.Hour).Format(time.RFC3339)
+	assert.Equal(t, wantReason, w.task(tasks[0].ID).WaitingReason)
 	assert.Equal(t, "codex", dispatch.Runtime)
 	assert.False(t, dispatch.Handoff)
 

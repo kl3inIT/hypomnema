@@ -215,7 +215,7 @@ func (s *Server) codexRefused(ctx context.Context, token AccountToken, resp *htt
 }
 
 func (s *Server) codexCool(ctx context.Context, token AccountToken, failure *codex.Failure) {
-	s.cool(ctx, codexRuntime, token, failure.Status, failure.Type == "usage_limit_reached", failure.ResetsAt,
+	s.cool(ctx, codexRuntime, token, failure.Status, failure.UsageLimit(), failure.ResetsAt,
 		"usage limit")
 }
 

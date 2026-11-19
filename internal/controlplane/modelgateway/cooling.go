@@ -41,21 +41,25 @@ func (s *Server) coolingResponse(ctx context.Context, route string, c modelCooli
 	}
 
 	now := s.svc.clock.Now()
-	kept := context.WithoutCancel(ctx)
-	if err := s.svc.write(kept, func(q *store.Queries, _ int64) error {
-		return q.RecordModelCooling(kept, store.RecordModelCoolingParams{
-			Route: route, Model: record.Model, ObservedAt: now.UnixMilli(), ResetsAt: c.first.UnixMilli(),
-		})
-	}); err != nil {
-		s.logger.ErrorContext(ctx, "recording when a gateway model is free", slog.String("model", record.Model),
-			slog.String("route", route), slog.String("error", err.Error()))
-	}
+	s.recordModelCooling(ctx, route, record.Model, c.first, now)
 
 	noteServed(ctx, "")
 	record.Status, record.Outcome = http.StatusTooManyRequests, OutcomeNoAccount
 	record.Error = accountsCoolingMessage
 
 	return accountCoolingResponse(route, c.first, now)
+}
+
+func (s *Server) recordModelCooling(ctx context.Context, route, model string, until, now time.Time) {
+	kept := context.WithoutCancel(ctx)
+	if err := s.svc.write(kept, func(q *store.Queries, _ int64) error {
+		return q.RecordModelCooling(kept, store.RecordModelCoolingParams{
+			Route: route, Model: model, ObservedAt: now.UnixMilli(), ResetsAt: until.UnixMilli(),
+		})
+	}); err != nil {
+		s.logger.ErrorContext(ctx, "recording when a gateway model is free", slog.String("model", model),
+			slog.String("route", route), slog.String("error", err.Error()))
+	}
 }
 
 func accountCoolingResponse(route string, until, now time.Time) *http.Response {

@@ -809,8 +809,9 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 	if err != nil {
 		return notFound(err, "conversation", d.ConversationID)
 	}
+	var knownGatewayReset bool
 	if class == FailureRateLimited && conv.AccountRef == GatewayAccountRef {
-		resetsAt, err = gatewayReset(ctx, q, now, d, conv)
+		resetsAt, knownGatewayReset, err = gatewayReset(ctx, q, now, d, conv)
 		if err != nil {
 			return err
 		}
@@ -887,6 +888,11 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 
 	if task.CancelRequestedAt.Valid {
 		return cancelNow(ctx, q, now, d.TaskID)
+	}
+	if to == DispatchFailed && knownGatewayReset && resetsAt.UnixMilli() > now {
+		if err := recordTaskWait(ctx, q, task, gatewayCoolingReason(d.Model.String, resetsAt.UnixMilli())); err != nil {
+			return err
+		}
 	}
 
 	return s.afterSettle(ctx, q, now, d, conv, to, class, result, resetsAt)

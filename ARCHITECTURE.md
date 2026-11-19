@@ -3416,7 +3416,9 @@ capabilities do not exist yet.
   `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
   `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
   account cooldowns. A rate-limited role Task tries its next usable entry in the same worktree or waits for that
-  reset. Without a gateway fact, the Task uses the existing rate-limit cooldown before retrying the same entry.
+  reset and shows the model and reset time as the wait reason. A Codex `response.failed` usage limit also cools
+  the account and records the same fact if no account is free, before the unchanged event reaches the client.
+  Without a gateway fact, the Task uses the existing rate-limit cooldown before retrying the same entry.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`, `no_account`),
   the HTTP status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
