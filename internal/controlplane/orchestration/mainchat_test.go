@@ -145,7 +145,17 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 
 	assert.Equal(t, before, snapshot(ctx, t, db), "no chat, message, Run, Approval, Routine or Channel changed")
 
-	_, err = p.Down(ctx)
+	// This migration alone is taken back, whatever came after it.
+	var version int64
+
+	for _, src := range p.ListSources() {
+		if strings.HasSuffix(src.Path, "_bot_main_chat.sql") {
+			version = src.Version
+		}
+	}
+
+	require.NotZero(t, version)
+	_, err = p.ApplyVersion(ctx, version, false)
 	require.NoError(t, err)
 	assert.Equal(t, before, snapshot(ctx, t, db), "taken back, nothing else changed either")
 }
