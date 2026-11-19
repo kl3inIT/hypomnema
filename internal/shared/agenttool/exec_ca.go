@@ -56,7 +56,7 @@ func caTemplate(name string, names []string, now time.Time) *x509.Certificate {
 
 func createExecAuthority(names []string) (execCAFile, error) {
 	now := time.Now()
-	root := caTemplate(execRootName, names, now)
+	root := caTemplate(execRootName, nil, now)
 	root.MaxPathLen = 1
 	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -86,8 +86,9 @@ func createExecAuthority(names []string) (execCAFile, error) {
 	return record, nil
 }
 
-// execIssuerGroups bounds TLS chain size and keeps an exact hostname's excluded subtree
-// from excluding another declared hostname on the same issuer.
+// execIssuerGroups keeps DNS constraints below Apple's 1024-subtree limit
+// (Security/trust/trustd/SecPolicyServer.c) and bounds TLS chain size. Exact hostnames
+// and their subdomains cannot share an issuer because the exact name excludes its subtree.
 func execIssuerGroups(names []string) iter.Seq[[]string] {
 	return func(yield func([]string) bool) {
 		start := 0
@@ -181,7 +182,7 @@ func decodeExecAuthority(raw []byte) (*execAuthority, error) {
 }
 
 func (a *execAuthority) matches(names []string) bool {
-	if !a.root.PermittedDNSDomainsCritical || !slices.Equal(a.root.PermittedDNSDomains, names) ||
+	if !a.root.PermittedDNSDomainsCritical || len(a.root.PermittedDNSDomains) != 0 ||
 		time.Until(a.root.NotAfter) < 24*time.Hour {
 		return false
 	}

@@ -29,7 +29,7 @@ func (darwinExecTrust) trusted(ctx context.Context, a *execAuthority) (bool, err
 		return false, err
 	}
 
-	name := a.root.PermittedDNSDomains[0]
+	name := a.issuers[0].cert.PermittedDNSDomains[0]
 	if strings.HasPrefix(name, ".") {
 		name = "tls-check" + name
 	}

@@ -43,9 +43,11 @@ func TestLocalExecCAConstrainsTheSigningKey(t *testing.T) {
 	names := []string{".example.net", trustTestHost, "nested." + trustTestHost}
 	ca := newTestExecCA(t, names...)
 	require.True(t, ca.root.PermittedDNSDomainsCritical)
-	assert.Equal(t, names, ca.root.PermittedDNSDomains)
+	assert.Len(t, ca.root.ExcludedIPRanges, 2)
+	assert.Empty(t, ca.root.PermittedDNSDomains)
 	require.Len(t, ca.issuers, 2)
 	assert.True(t, ca.issuers[0].cert.PermittedDNSDomainsCritical)
+	assert.Equal(t, names[:2], ca.issuers[0].cert.PermittedDNSDomains)
 	assert.Equal(t, []string{"." + trustTestHost}, ca.issuers[0].cert.ExcludedDNSDomains)
 
 	roots := x509.NewCertPool()

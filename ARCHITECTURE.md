@@ -1978,9 +1978,10 @@ flowchart LR
       On Windows and macOS, `exec` terminates TLS on loopback and verifies a second TLS connection through the
       same tunnel with the control plane's CA. The child sees a per-user CA trusted in CurrentUser\Root or the
       login keychain. Only name-constrained issuing keys are kept with the CA certificate under the CLI's
-      private `exec-ca` directory; the root signing key is discarded so the constraints do not depend on the OS
-      applying them to its trust anchor. The issuer covers the service CLI catalogs, including connected GitLab
-      hosts reported by the control plane. `hypomnema exec remove-ca` untrusts the exact root and deletes the keys.
+      private `exec-ca` directory; the root signing key is discarded. The issuing certificates carry the DNS
+      constraints in bounded groups so they also fit the macOS chain validator's limit. They cover the service CLI
+      catalogs, including connected GitLab hosts reported by the control plane. `hypomnema exec remove-ca` untrusts
+      the exact root and deletes the keys.
       On Linux the child still verifies the control plane's temporary CA through `SSL_CERT_FILE`.
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
