@@ -58,6 +58,11 @@ const rules =
 // (src/main/runtime/orchestration/workers/launch/worker-dispatch-preamble.ts:71-73); omp's subagent, "No TODO
 // tracking, no progress updates" (packages/coding-agent/src/prompts/system/subagent-system-prompt.md:90).
 "- No one reads what you write before `finish`, so no progress messages are needed.\n" +
+	// Issue #895: Hermes hermes_bootstrap.py:455-465 exports a scratch path; Orca
+	// src/main/acp/launch/acp-private-temp.ts:36-40,73-85 gives each run a folder and removes it on exit.
+	// Codex codex-rs/linux-sandbox/src/linux_run_main.rs:59-61 uses bubblewrap for security isolation, not this.
+	"- Keep temporary files and directories under $TMPDIR, private to this task and removed after it ends. " +
+	"Never use /tmp or another hard-coded temp path, even for databases, sockets or clones you start yourself.\n" +
 	// Issue #672: finish the whole task, after Anthropic's Opus 5.5 page (its text for unattended runs) and Fable
 	// 5.2 page ("Finishing work"), omp's subagent ("While work remains ... continue with another tool call", and
 	// not to end "on a plan, a promise of further work, or a question", subagent-system-prompt.md:92,98) and Hermes's
