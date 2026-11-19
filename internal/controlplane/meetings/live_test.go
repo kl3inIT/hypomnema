@@ -623,3 +623,59 @@ func TestEndingAsATrackOpensClosesItsStream(t *testing.T) {
 		return len(s) == 1 && s[0].Closed
 	}, 5*time.Second, 10*time.Millisecond, "the provider's stream is closed")
 }
+
+// Scenario: the meeting is ended while its microphone's track has words on their way that a slow socket does not
+// take. The end waits for them once, at most its bound, and no more: the track's own wait for its last words shares
+// that bound (review of #840: the track waited a second bound once its Finish had used the first, so End took twice
+// as long as it says).
+func TestEndingKeepsOneBoundForTheLastWords(t *testing.T) {
+	t.Parallel()
+
+	const bound = time.Second
+
+	first := firstHalfSecond()
+	fake := &speechtest.Realtime{
+		Answer: func(stream int, _ map[string]any, received int) ([]string, bool) {
+			if !first(stream, received) {
+				return nil, false
+			}
+
+			return []string{speechtest.Tokens(true, false,
+				speechtest.Token{Text: "Already final.", Start: 0, End: 400})}, false
+		},
+	}
+	w := liveWorld(t, fake)
+	meetings.SetLastWords(w.svc, bound)
+
+	gate := newHold(t)
+	ctx := t.Context()
+
+	m, err := w.svc.StartLive(ctx, meetings.LiveStart{Kind: meetingstore.InPerson})
+	require.NoError(t, err)
+
+	k := &told{}
+	listener := k.listener()
+	preview := listener.Preview
+	listener.Preview = func(speaker, text string) {
+		// The socket does not take the preview until the test ends: what is queued after it waits.
+		if text == "Already final." {
+			gate.wait()
+		}
+
+		preview(speaker, text)
+	}
+
+	tr, err := w.svc.OpenTrack(ctx, m.ID, meetingstore.TrackMic, 0, listener)
+	require.NoError(t, err)
+	require.NoError(t, tr.Append(pcm(time.Second, 0)))
+	gate.reachedIn(t)
+
+	started := time.Now()
+	ended, err := w.svc.End(ctx, m.ID)
+	took := time.Since(started)
+
+	require.NoError(t, err)
+	assert.Equal(t, meetingstore.Transcribed, ended.State)
+	assert.GreaterOrEqual(t, took, bound, "the end waits for the last words")
+	assert.Less(t, took, bound*3/2, "the end waits for the last words once")
+}

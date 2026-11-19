@@ -95,6 +95,8 @@ type Service struct {
 	ending sync.Mutex
 	// published, when set, is called as a track has taken its stream; tests hold it there.
 	published func()
+	// lastWords bounds how long ending waits for the tracks' last words: endWait, shorter in tests.
+	lastWords time.Duration
 }
 
 // New returns a Service; the recordings' folder is made when missing.
@@ -108,7 +110,7 @@ func New(cfg Config) (*Service, error) {
 	}
 
 	return &Service{cfg: cfg, working: map[string]context.CancelFunc{}, tracks: map[string]*Track{},
-		closing: map[string]bool{}}, nil
+		closing: map[string]bool{}, lastWords: endWait}, nil
 }
 
 // Upload is a recording the owner sends, with what it was told about it.
