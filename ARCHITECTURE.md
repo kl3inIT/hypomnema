@@ -4350,12 +4350,27 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told in one line, with no question; a review first reads
+  and the owner told the verdict and findings, without adding a Task; a review first reads
   what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
   so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
-  reported, not replaced. `skills install` writes the stub
+  reported, not replaced.
+  A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
+  in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
+  A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
+  `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
+  the same PR ending incorrect shows as waiting for the owner on the
+  Run card and in the work that needs the owner; the review Task holds the findings. The coordinator checks the
+  current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
+  with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
+  Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
+  assigned ref, queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
+  must share a closing issue. Visible closing keywords in Markdown also
+  work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool
+  proxy and its approvals, without deleting a branch.
+  `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
   (`web-search` and `images` since issue #492; the guides' stubs `google-workspace`, `lark`, `aws`, `superset`

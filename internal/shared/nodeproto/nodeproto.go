@@ -658,6 +658,7 @@ const (
 	ReportStarted         = "started"
 	ReportHeartbeat       = "heartbeat"
 	ReportEffect          = "effect"
+	ReportPublishedHead   = "published_head"
 	ReportResource        = "resource"
 	ReportReleaseResource = "release_resource"
 	ReportQuestion        = "question"
@@ -667,6 +668,12 @@ const (
 	ReportStopped         = "stopped"
 	ReportReattach        = "reattach"
 )
+
+// PublishedHead reports a branch update performed by the node for this Dispatch.
+type PublishedHead struct {
+	Branch string `json:"branch"`
+	SHA    string `json:"sha"`
+}
 
 // Report is one node call about a Dispatch. ReportID is its request id: a
 // report sent again with the same id and payload gets the same answer.

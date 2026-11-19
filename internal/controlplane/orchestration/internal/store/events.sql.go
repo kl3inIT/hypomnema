@@ -51,6 +51,21 @@ func (q *Queries) LastEventSeq(ctx context.Context) (int64, error) {
 	return seq, err
 }
 
+const latestRunTaskEvent = `-- name: LatestRunTaskEvent :one
+SELECT CAST(coalesce((
+    SELECT e.payload FROM events e JOIN runs r ON r.id = e.run_id
+    WHERE e.run_id = ?1 AND r.status = 'open' AND e.kind IN ('task.created', 'task.status')
+    ORDER BY e.seq DESC LIMIT 1
+), '{}') AS TEXT) AS payload
+`
+
+func (q *Queries) LatestRunTaskEvent(ctx context.Context, runID sql.NullString) (string, error) {
+	row := q.db.QueryRowContext(ctx, latestRunTaskEvent, runID)
+	var payload string
+	err := row.Scan(&payload)
+	return payload, err
+}
+
 const listEvents = `-- name: ListEvents :many
 SELECT seq, kind, run_id, task_id, dispatch_id, question_id, node_id, payload, created_at FROM events
 WHERE seq > ?1

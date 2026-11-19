@@ -156,8 +156,12 @@ func Prompt(d statedb.Dispatch) string {
 		if readOnly {
 			b.WriteString("Read the repository here; leave it unchanged.\n")
 		} else {
-			fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
-				openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
+			publish := "push the branch"
+			if canPublish(o) {
+				publish = "push the branch with `publish_branch` (not `git push`, so the Run can prove its PR heads)"
+			}
+			fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
+				publish, openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
 			b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, o.Base, worktree.Branch(o.TaskID)))
 		}
 	} else {
