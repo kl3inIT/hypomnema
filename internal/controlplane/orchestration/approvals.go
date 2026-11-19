@@ -508,7 +508,8 @@ func approvalNotice(a Approval) string {
 // ApprovedOnce says whether the owner approved this very request of a chat, once, and it has not run yet (issue
 // #748): an act he approved after its turn ended runs on that approval alone, as OpenClaw runs an exec approved
 // later by the approval's authority (src/agents/bash-tools.exec-approval-followup.ts). It only reads: AskApproval
-// uses the approval when the request runs.
+// uses the approval when the request runs, so it takes the same approvals AskApproval would: those of the same
+// attempt at an Inbox to-do, or of none when the request is made in none (issue #845).
 func (s *Service) ApprovedOnce(ctx context.Context, n NewApproval) (bool, error) {
 	if n.ChatID == "" || n.MatchHash == "" {
 		return false, nil
@@ -523,7 +524,8 @@ func (s *Service) ApprovedOnce(ctx context.Context, n NewApproval) (bool, error)
 
 	for _, row := range same {
 		if row.ChatID.String == n.ChatID && !row.RunID.Valid && !row.RoutineRunID.Valid &&
-			row.Status == string(ApprovalApproved) && row.Scope.String == string(ScopeOnce) && !row.UsedAt.Valid {
+			row.AttemptID.String == n.AttemptID && row.Status == string(ApprovalApproved) &&
+			row.Scope.String == string(ScopeOnce) && !row.UsedAt.Valid {
 			return true, nil
 		}
 	}

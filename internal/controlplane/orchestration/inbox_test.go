@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,7 +25,17 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 135) // main's last before the Inbox's 00139.
+	// Every migration before the Inbox's, wherever main's last one is.
+	var version int64
+
+	for _, src := range p.ListSources() {
+		if strings.HasSuffix(src.Path, "_inbox.sql") {
+			version = src.Version
+		}
+	}
+
+	require.NotZero(t, version)
+	_, err = p.UpTo(ctx, version-1)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot_id, created_at, updated_at)

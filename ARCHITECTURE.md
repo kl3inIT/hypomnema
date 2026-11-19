@@ -2061,9 +2061,9 @@ flowchart LR
       scope and time, read with the row. When it is answered after its request ended, the coordinator is woken
       with that same row (`to_coordinator=1`, once), or the question the worker waits on is answered, and the
       repeat of the same request, recognized by its decoded content and not its bytes, passes once. An Approval
-      asked in an attempt at an Inbox to-do records it (`approvals.attempt_id`, migration 00139; set through
+      asked in an attempt at an Inbox to-do records it (`approvals.attempt_id`, migration 00142; set through
       `NewApproval.AttemptID`, which no tool passes yet), and the same request in another attempt, or in none, is
-      another Approval. Only the owner's token lists and answers Approvals
+      another Approval; `ApprovedOnce` takes only the same attempt's too. Only the owner's token lists and answers Approvals
       (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
       (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
       above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
@@ -3986,7 +3986,7 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migration 00139; issues #838 and #845, part 1 of the Inbox): the store of the
+Inbox (`orchestration/inboxstore`, migration 00142; issues #838 and #845, part 1 of the Inbox): the store of the
 to-dos that have to happen, whoever does them, and its state machine. Built is the store only.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
