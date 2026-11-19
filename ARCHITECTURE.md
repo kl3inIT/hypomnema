@@ -164,8 +164,29 @@ relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A 
 client may choose a chat's id (`POST /chats` `id`, issue #357, after t3code's `newThreadId()` before the thread
 exists): it must have the shape the server makes (`cht_` and 26 characters of a-z and 2-7, `platform.IsID`) and not be
 taken (409). Before a chat with that id is made, the folder calls the attachments use (tree, folders, uploads, delete)
-take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). A chat has
-its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
+take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). A Bot has
+one **main chat** (issue #471, after OpenClaw's main session per agent, `src/routing/session-key.ts`, and Hermes
+Desktop's Bot Chat): `bots.main_chat` (migration 138, `Bot.main_chat`) points at the chat a click on the Bot opens
+and the web and the CLI write to. `POST /chats` (the web's New chat, `hypomnema chat --new`) makes a chat that
+becomes its Bot's main chat in the same write, as OpenClaw's `/new` starts a new session (`/new` typed in a web
+chat does the same for that chat's Bot and opens the new chat; `hypomnema chat /new` is `--new`); `POST /chats/main`
+returns the Bot's main chat, making one when it has none, read and made in one write so that the web and the CLI
+at once end in one. The web's first message to a Bot with no main chat goes through it with the id its page chose
+(and its title and model, used only when the chat is made): a main chat the CLI made meanwhile is answered instead
+(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
+never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and
+their wake-ups, approvals, Routines and their report cards, the queue, a cut turn, files, artifacts, pi's
+sessions), and only leaves the sidebar's row. Deleting the main chat clears the pointer, and the next message
+from the web or the CLI makes another. The migration chose each Bot's main chat among its chats that are not a
+Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another person's (a person message with a
+sender, or a title "Lark: <name>"), a Lark chat a `/new` moved away from (an owner message with a file Lark sent,
+kept under its `om_` message id, or a heard voice message) or a Routine's (named by a run, or opened with a
+Routine's prompt): the one with the owner's latest message, then the one active latest; a Bot with none has no main
+chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
+to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
+(`offset`); the first page also carries every Bot's main chat and every chat an Approval waits in, whatever their
+age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
+has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
 `chats.provider`, `model`, `effort`, migration 66, each NULL for its Bot's): `POST /chats` takes them and `PATCH
 /chats/{id}` changes them, a field given replacing the chat's and an empty one giving it back to the Bot; the model is
 checked as a Bot's is (one pi can reach, its provider found), the effort is one of the gateway's levels (`none` to
@@ -4368,8 +4389,11 @@ The owner's commands:
     result. `tasks transcript <task>` prints the latest attempt's transcript, a line an item (`--after`,
     `--json` for one item a line); `--follow` keeps printing until the worker has ended and nothing more comes.
 - `chat [message]` writes to pi and prints its replies and the tools it ran until it is idle (`--chat`, `--new`,
-  `--text-file`); `--bot <id>` starts a new chat with that Bot instead of the main one, and is refused with
-  `--chat` (issue #616); without a message it shows the chat. `chats` lists them. `runs create` sends
+  `--text-file`). Without `--chat` it writes to the main chat of the Bot `--bot <id>` names, the main Bot's
+  without it (`POST /chats/main`, which makes the main chat when the Bot has none; issue #471); `--new` starts a
+  new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
+  a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
+  `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
   `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
   (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
@@ -4831,8 +4855,8 @@ Node (`internal/node`):
   - A Bot's card: its avatar, name and model with its maker's mark, and its status in words, chosen in
     OpenMausBot's order: Waiting for you (a pending Approval in one of its chats, or a Task of one of its Runs in
     Needs you), No signal (its newest chat has no pi to answer), Working (a chat working, or a Dispatch of its
-    Runs live); idle says nothing. A line under the status says why. The card opens the chat that waits, else the
-    one that works, else the newest, else a new chat with that Bot (`/?bot=`).
+    Runs live); idle says nothing. A line under the status says why. The card opens the Bot's main chat (issue
+    #471), else a new chat with that Bot (`/?bot=`).
   - A machine's card: its state, "n of max" Dispatches, and a line a live Dispatch (starting, running or
     stopping) with the runtime's mark, the Task's first line and what its worker does now, or how long it has
     waited for an answer; an idle machine shows "–". A line opens the Task's panel over the map (`?task=`), and
@@ -4979,14 +5003,18 @@ Node (`internal/node`):
     its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
     the mouse or the keyboard, within its section; the page shows the new order at once and sends
     `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
-    shows the Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its latest
-    chat's title, and "Needs you", "Working" or the time.
-    Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
-    each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
-    with that Bot picked (`/?bot=`). A chat's row has a menu (issue #484, after t3code's thread menu), shown on
-    hover or focus and always on a phone, whose Delete asks first and, for the open chat, then opens New chat with
-    its Bot; a Bot row that stands for its one chat carries that chat's Delete ("Delete chat") in its own menu.
-    The phone's start page lists the same Bots.
+    is one Bot, with no list of its chats under it (issue #471, as OpenMausBot's sidebar with threads hidden): the
+    Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its main chat's last line
+    (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream brings a
+    line), and "Needs you", "Working" or the time.
+    Clicking it opens the Bot's main chat, or New chat with that Bot picked (`/?bot=`) when it has none; when
+    another chat of the Bot waits on the owner and the main chat does not, the row opens the newest such chat.
+    Dragging the row carries the main chat to the grid. The Bot row's menu (issue #484, after t3code's thread menu),
+    shown on hover or focus and always on a phone, carries the main chat's Delete ("Delete chat"), which asks first
+    and, for the open chat, then opens New chat with its Bot. The Bot's page lists its other chats ("Other chats",
+    `GET /chats?bot=`, 100 at a time with Show more), each with the same menu; on the Bots page a Bot's name opens
+    its main chat and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
+    their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its

@@ -1,10 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 
 import "@/api/client"
 import { getChatQueryKey, listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import {
   abortChat,
+  createChat,
   removeQueuedChatMessage,
   sendChatMessage,
   sendQueuedChatMessage,
@@ -20,13 +22,14 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { usePending } from "@/features/approvals/use-approvals"
-import { useBotName, useMainBot } from "@/features/bots/use-bots"
+import { useBotName, useMainBot, useRefreshBots } from "@/features/bots/use-bots"
 import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
 import { OpenArtifactContext, type OpenArtifact } from "@/features/artifacts/open-artifact-context"
 import { OpenBrowserTabContext } from "@/features/browser/open-tab-context"
 import { OpenTakeContext } from "@/features/takes/open-take-context"
 import { useChat } from "@/features/shell/chats"
+import { everyCall } from "@/lib/query-keys"
 
 import { AttachDrop } from "./attach-drop"
 import { useAttachments } from "./attachments"
@@ -68,6 +71,8 @@ export function ChatBody({
   onOpenTake?: (take: string) => void
 }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const refreshBots = useRefreshBots()
   const { view, loadEarlier, loadingEarlier } = useChatStream(chatId)
   const chat = useChat(chatId)
   const [sending, setSending] = useState<ChatMessage[]>([])
@@ -114,7 +119,18 @@ export function ChatBody({
     }
   }
 
+  // /new starts a new chat with the chat's Bot, which becomes its main chat, and opens it (issue #471), as Lark's
+  // /new and `hypomnema chat /new`: the message is not sent, and this chat stays as it is.
+  async function startNew() {
+    const { data } = await createChat({ body: { bot } })
+    void refreshBots()
+    void queryClient.invalidateQueries({ queryKey: everyCall(listChatsQueryKey()) })
+    await navigate({ to: "/chats/$chatId", params: { chatId: data.id } })
+  }
+
   async function send(text: string, files: ChatAttachment[]) {
+    if (files.length === 0 && text.trim().toLowerCase() === "/new") return startNew()
+
     const shown: ChatMessage = {
       seq: -Date.now(),
       chat_id: chatId,
