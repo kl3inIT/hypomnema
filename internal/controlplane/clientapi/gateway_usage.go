@@ -194,7 +194,9 @@ func (s *Server) nameKeyGroups(ctx context.Context, groups []openapi.GatewayUsag
 func toUsageCounts(c modelgateway.UsageCounts) openapi.GatewayUsageCounts {
 	return openapi.GatewayUsageCounts{
 		Requests: c.Requests, Failed: c.Failed, PromptTokens: c.Prompt, CachedTokens: c.Cached,
-		CompletionTokens: c.Completion, ReasoningTokens: c.Reasoning, CostMicros: c.CostMicros, Unpriced: c.Unpriced,
+		EstimatedRequests: c.EstimatedRequests, EstimatedPromptTokens: c.EstimatedPrompt,
+		MeasuredPromptTokens: c.MeasuredPrompt,
+		CompletionTokens:     c.Completion, ReasoningTokens: c.Reasoning, CostMicros: c.CostMicros, Unpriced: c.Unpriced,
 		WebSearches: c.WebSearches, AudioSeconds: float32(c.Audio.Seconds()), Characters: c.Characters,
 		Images: c.Images,
 	}
@@ -234,7 +236,7 @@ func toPerformance(
 	for _, g := range groups {
 		item := openapi.GatewayPerformance{
 			Provider: g.Provider, Model: g.Model, Requests: g.Requests, Ok: g.OK, Failed: g.Failed,
-			ClientGone: g.ClientGone, CostMicros: g.CostMicros, Exact: g.Exact,
+			ClientGone: g.ClientGone, NoAccount: g.NoAccount, CostMicros: g.CostMicros, Exact: g.Exact,
 			TtftP50Ms: ms(g.TTFTP50), TtftP95Ms: ms(g.TTFTP95), LatencyP50Ms: ms(g.LatencyP50),
 			LatencyP95Ms: ms(g.LatencyP95), TtftAvgMs: ms(g.TTFTAvg), LatencyAvgMs: ms(g.LatencyAvg),
 		}

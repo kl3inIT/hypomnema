@@ -102,9 +102,9 @@ const json = (body: unknown) =>
   new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } })
 
 const vmap = {
-  id: "vmap",
+  id: "bot_vmap",
   main: false,
-  name: "vmap",
+  name: "VMAP",
   provider: "gateway",
   model: "gpt-sol",
   effort: "high",
@@ -133,7 +133,7 @@ function Controls({ onChange }: { onChange: (c: ChatChoice) => void }) {
 
   return (
     <ChatModelControls
-      bot="vmap"
+      bot="bot_vmap"
       choice={choice}
       onChange={(next) => {
         setChoice(next)
@@ -168,6 +168,8 @@ test("the owner picks a model and an effort in the composer", async () => {
   await user.click(await screen.findByRole("combobox", { name: "Model: gpt-sol" }))
   // The subscription's models are offered, under the subscription (issue #549).
   expect(await screen.findByRole("option", { name: /opus/i })).toBeInTheDocument()
+  // The default row names the Bot by its name, not its id (issue #939).
+  expect(screen.getByRole("option", { name: /^VMAP's model/ })).toBeInTheDocument()
   await user.click(await screen.findByRole("option", { name: /gpt-luna/i }))
   expect(changes.at(-1)).toEqual({ provider: "gateway", model: "gpt-luna", effort: "" })
 

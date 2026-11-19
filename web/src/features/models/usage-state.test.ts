@@ -43,6 +43,9 @@ describe("money", () => {
       requests: 2,
       failed: 0,
       prompt_tokens: 1,
+      measured_prompt_tokens: 1,
+      estimated_requests: 0,
+      estimated_prompt_tokens: 0,
       cached_tokens: 0,
       completion_tokens: 1,
       reasoning_tokens: 0,
@@ -95,6 +98,9 @@ describe("units", () => {
       requests: 6,
       failed: 0,
       prompt_tokens: 10,
+      measured_prompt_tokens: 10,
+      estimated_requests: 0,
+      estimated_prompt_tokens: 0,
       cached_tokens: 0,
       completion_tokens: 5,
       reasoning_tokens: 0,
@@ -124,6 +130,22 @@ describe("units", () => {
     const quiet = { ...counts, web_searches: 0, audio_seconds: 0, characters: 0, images: 0 }
     expect(unitsOf(quiet)).toBe("")
     expect(tiles(quiet)).toHaveLength(7)
+
+    const mixed = {
+      ...quiet,
+      prompt_tokens: 40,
+      estimated_requests: 1,
+      estimated_prompt_tokens: 30,
+      cached_tokens: 8,
+    }
+    expect(tiles(mixed).find((tile) => tile.label === "From cache")?.detail).toBe(
+      "80% of measured input",
+    )
+    expect(tiles(quiet).find((tile) => tile.label === "From cache")?.detail).toBe(
+      "0% of measured input",
+    )
+    const unknown = { ...mixed, measured_prompt_tokens: 0, cached_tokens: 0 }
+    expect(tiles(unknown).find((tile) => tile.label === "From cache")?.detail).toBeUndefined()
   })
 })
 
@@ -135,6 +157,7 @@ describe("performance", () => {
     ok: 10,
     failed: 1,
     client_gone: 1,
+    no_account: 0,
     cost_micros: 120,
     exact: true,
     success_rate: 10 / 11,

@@ -68,6 +68,22 @@ export function useAccountLimits(accountId: string, enabled: boolean) {
   })
 }
 
+export function useResetAccountLimits() {
+  const queryClient = useQueryClient()
+
+  return (accountId: string) => {
+    void queryClient.cancelQueries({ queryKey: freshLimitsKey(accountId), exact: true })
+    void queryClient.resetQueries({
+      queryKey: getAccountLimitsQueryKey({ path: { account_id: accountId } }),
+      exact: true,
+    })
+  }
+}
+
+function freshLimitsKey(accountId: string) {
+  return getAccountLimitsQueryKey({ path: { account_id: accountId }, query: { fresh: true } })
+}
+
 // useShowLimits shows limits the server answered with, such as after a reset, as an account's limits: the body
 // of their read, which the limits themselves are.
 export function useShowLimits(accountId: string) {
@@ -79,12 +95,25 @@ export function useShowLimits(accountId: string) {
 
 // useRefreshLimits asks the vendor for an account's limits now and shows what it answers.
 export function useRefreshLimits(accountId: string) {
+  const queryClient = useQueryClient()
   const show = useShowLimits(accountId)
 
   return useMutation({
-    mutationFn: async () =>
-      (await getAccountLimits({ path: { account_id: accountId }, query: { fresh: true } })).data,
-    onSuccess: show,
+    mutationFn: () =>
+      queryClient.fetchQuery({
+        queryKey: freshLimitsKey(accountId),
+        staleTime: 0,
+        queryFn: async ({ signal }) => {
+          const { data } = await getAccountLimits({
+            path: { account_id: accountId },
+            query: { fresh: true },
+            signal,
+            throwOnError: true,
+          })
+          if (!signal.aborted) show(data)
+          return data
+        },
+      }),
   })
 }
 
@@ -93,7 +122,7 @@ export function useGatewayKeys() {
   return useQuery(listGatewayKeysOptions())
 }
 
-// useRefreshGatewayKeys reads the keys again after one is made or revoked: every cached read of their list.
+// useRefreshGatewayKeys reads the keys again after a change, invalidating every cached read of the list.
 export function useRefreshGatewayKeys() {
   const queryClient = useQueryClient()
 

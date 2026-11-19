@@ -370,6 +370,55 @@ func TestTheOwnerReadsAnAccountsLimits(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
 }
 
+// Scenario (issue #822): Google wants an Antigravity account verified. The account's limits answer says so, with
+// Google's link for the Verify button, and the accounts list gives the link, when Google asked and the next try.
+func TestTheOwnerSeesAnAccountGoogleWantsVerified(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	google, err := w.svc.AddAccount(ctx, "antigravity", "trial")
+	require.NoError(t, err)
+
+	const link = "https://accounts.google.com/signin/continue?plt=1"
+
+	marked, err := w.svc.MarkAccountVerification(
+		ctx, google.ID, 0, link, "Verify your account to continue.", 10*time.Minute,
+	)
+	require.NoError(t, err)
+
+	fake := &signedIn{
+		svc: w.svc, states: map[string]subscription.State{google.ID: subscription.StateActive},
+		removed: map[string]bool{},
+		refused: map[string]error{google.ID: &subscription.VerificationError{
+			Message: "Verify your account to continue.", URL: link, AskedAt: marked.AskedAt, RetryAt: marked.RetryAt,
+		}},
+	}
+	w.srv.WithAccounts(fake)
+
+	owner, _ := w.token("web", bearertoken.Owner)
+
+	limits, err := owner.GetAccountLimitsWithResponse(ctx, google.ID, nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, limits.StatusCode(), string(limits.Body))
+	assert.Empty(t, limits.JSON200.Windows)
+	assert.Equal(t, openapi.AccountLimitsUnavailableVerification, val(limits.JSON200.Unavailable))
+	assert.Equal(t, link, val(limits.JSON200.VerificationUrl))
+
+	list, err := owner.ListAccountsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Len(t, list.JSON200.Data, 1)
+
+	v := list.JSON200.Data[0].Verification
+	require.NotNil(t, v)
+	assert.Equal(t, link, val(v.Url))
+	assert.Equal(t, "Verify your account to continue.", val(v.Message))
+	assert.True(t, marked.AskedAt.Equal(v.AskedAt))
+	assert.True(t, marked.RetryAt.Equal(v.NextTryAt))
+	assert.Equal(t, 10*time.Minute, v.NextTryAt.Sub(v.AskedAt))
+}
+
 // Scenario: the owner adds accounts from the Models page (issue #199, step
 // 2). A Claude or Codex sign-in gives a link and is completed with what the
 // browser ended on. A sign-in is completed once, a wrong address is refused and the

@@ -14,9 +14,11 @@ const chat = (id: string, title: string, bot = "coordinator") => ({
   created_at: at,
   updated_at: at,
 })
+// Each Bot has a main chat (issue #471), so New chat makes another: POST /chats.
 const bot = (name: string) => ({
   id: name,
   main: name === "coordinator",
+  main_chat: `cht_main_${name}`,
   name,
   model: "",
   persona: "",

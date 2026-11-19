@@ -168,7 +168,7 @@ test("meters show use against the totals and change at 65 % and 90 %", async () 
 })
 
 // Scenario: a node that was added but never connected has sent no measurement and no description of itself.
-test("a machine that has reported nothing shows dashes", async () => {
+test("a machine that has reported nothing has no disk measurement", async () => {
   nodesServer([
     node("new", {
       connected: false,
@@ -183,7 +183,8 @@ test("a machine that has reported nothing shows dashes", async () => {
 
   const card = await machine("new")
   expect(within(card).queryByRole("meter")).not.toBeInTheDocument()
-  expect(within(card).getAllByText("—")).toHaveLength(6)
+  expect(within(card).getAllByText("—")).toHaveLength(5)
+  expect(within(card).getByText("Not measured")).toBeVisible()
   expect(card).toHaveTextContent("Offline · never seen")
   expect(card).toHaveTextContent("0 of 4")
 })

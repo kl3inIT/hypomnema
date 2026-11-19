@@ -22,6 +22,7 @@ import {
   removeAudioKey,
   setAudioOrder,
   setAudioProvider,
+  setAudioVoice,
 } from "@/api/generated/sdk.gen"
 import type {
   Audio,
@@ -46,7 +47,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { FieldGroup } from "@/components/ui/field"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
@@ -121,7 +123,7 @@ function AudioSettings({ audio }: { audio: Audio }) {
         id="audio-tts"
         icon={AudioLines}
         title="Text to speech"
-        note="Asked in this order; drag a provider by its handle to change it."
+        note="Asked in this order; drag a provider by its handle to change it. A video of a take is spoken by the first that answers, every scene of it, with that provider's voice for videos."
       >
         <KindList kind="tts" order={audio.tts} links={links} />
       </SettingsSection>
@@ -486,9 +488,64 @@ function KindRow({
               </span>
             </span>
           </ItemDescription>
+          {kind === "tts" && link && <VoiceField provider={entry.provider} voice={link.voice} />}
         </ItemContent>
       </Item>
     </div>
+  )
+}
+
+// VoiceField is the voice a provider speaks a video of a take with when none is asked (issue #818, row 5), as
+// `hypomnema audio voice` sets it; empty, the provider's own default.
+function VoiceField({ provider, voice }: { provider: AudioProvider; voice?: string }) {
+  const id = useId()
+  const name = audioProviderName(provider)
+  const [value, setValue] = useState(voice ?? "")
+  const save = useChange(
+    async (next: string) =>
+      (await setAudioVoice({ path: { provider }, body: { voice: next } })).data,
+    (next) =>
+      next
+        ? `${name} speaks videos with ${next}`
+        : `${name} speaks videos with its own default voice`,
+  )
+  const changed = value.trim() !== (voice ?? "")
+
+  return (
+    <form
+      className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (changed) save.mutate(value.trim())
+      }}
+    >
+      <div className="sm:max-w-xs sm:flex-1">
+        <Field>
+          <FieldLabel htmlFor={id}>Voice for videos</FieldLabel>
+          <Input
+            id={id}
+            value={value}
+            maxLength={100}
+            autoComplete="off"
+            placeholder="Its own default"
+            onChange={(event) => setValue(event.target.value)}
+          />
+          <FieldDescription>A voice name or id of {name}&apos;s.</FieldDescription>
+        </Field>
+      </div>
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        aria-label={`Save ${name}'s voice for videos`}
+        disabled={!changed || save.isPending}
+        focusableWhenDisabled={save.isPending}
+      >
+        {save.isPending && <Spinner data-icon="inline-start" />}
+        Save
+      </Button>
+      <ErrorAlert error={save.error} />
+    </form>
   )
 }
 

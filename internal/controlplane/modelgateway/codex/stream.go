@@ -26,6 +26,10 @@ type Failure struct {
 	ResetsAt time.Time
 }
 
+func (f *Failure) UsageLimit() bool {
+	return f.Type == "usage_limit_reached" || f.Code == "usage_limit_reached"
+}
+
 // Usage counts the tokens of one answer, in the chat format's names.
 type Usage struct {
 	PromptTokens        int64          `json:"prompt_tokens"`
@@ -146,11 +150,7 @@ func (s *Stream) Event(data []byte) [][]byte {
 	case "error":
 		s.failure = failureOf(firstRaw(ev.Error, data))
 	case "response.failed":
-		if ev.Response != nil {
-			s.failure = failureOf(ev.Response.Error)
-		} else {
-			s.failure = failureOf(nil)
-		}
+		s.failure = responseFailure(ev.Response, time.Now())
 	case "response.output_text.delta", "response.text.delta":
 		s.streamed[ev.ItemID] = true
 
@@ -440,7 +440,7 @@ func ParseFailure(status int, body []byte) *Failure {
 	f := failureOf(raw)
 	f.Status = status
 
-	if f.Type == "usage_limit_reached" {
+	if f.UsageLimit() {
 		// The backend says 429 for this, but not always (CLIProxyAPI).
 		f.Status = http.StatusTooManyRequests
 	}
@@ -448,10 +448,29 @@ func ParseFailure(status int, body []byte) *Failure {
 	return f
 }
 
+func ParseResponseFailure(data []byte, now time.Time) *Failure {
+	var ev event
+	if json.Unmarshal(data, &ev) != nil || ev.Type != "response.failed" {
+		return nil
+	}
+	return responseFailure(ev.Response, now)
+}
+
+func responseFailure(response *responseObject, now time.Time) *Failure {
+	if response == nil {
+		return failureAt(nil, now)
+	}
+	return failureAt(response.Error, now)
+}
+
 // failureOf reads an error object of the backend. Its status is the one the
 // error names, else the one its type or code stands for (CLIProxyAPI,
 // codexTerminalFailureStatus).
 func failureOf(raw json.RawMessage) *Failure {
+	return failureAt(raw, time.Now())
+}
+
+func failureAt(raw json.RawMessage, now time.Time) *Failure {
 	var parsed struct {
 		Type            string      `json:"type"`
 		Code            any         `json:"code"`
@@ -486,7 +505,7 @@ func failureOf(raw json.RawMessage) *Failure {
 	if at, err := parsed.ResetsAt.Int64(); err == nil && at > 0 {
 		f.ResetsAt = time.Unix(at, 0)
 	} else if in, err := parsed.ResetsInSeconds.Float64(); err == nil && in > 0 {
-		f.ResetsAt = time.Now().Add(time.Duration(in * float64(time.Second)))
+		f.ResetsAt = now.Add(time.Duration(in * float64(time.Second)))
 	}
 
 	if f.Status < 400 || f.Status > 599 {

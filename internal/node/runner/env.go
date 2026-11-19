@@ -52,7 +52,7 @@ func Path() string { return WorkerPath(os.Getenv("HOME"), os.Getenv("PATH")) }
 func HostEnv() []string {
 	var out []string
 
-	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP"} {
+	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP", "GOCACHE"} {
 		v, ok := os.LookupEnv(name)
 		if name == "PATH" {
 			v = Path()

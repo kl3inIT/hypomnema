@@ -16,6 +16,7 @@ SET updated_at = @now, last_seen_at = @now, worktree_root = @worktree_root, runt
     daemon_version = @daemon_version, os = @os, arch = @arch, cpus = @cpus, memory_bytes = @memory_bytes,
     disk_bytes = @disk_bytes, unavailable_at = NULL, terminal = @terminal,
     device = @device, kvm = @kvm,
+    disk_policy = max(disk_policy, @disk_policy), disk_free_bytes = NULL, disk_sample_at = NULL,
     machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
     machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END,
     machine_power = CASE WHEN machine_power = 'starting' THEN NULL ELSE machine_power END
@@ -23,6 +24,11 @@ WHERE id = @id AND status <> 'deleted';
 
 -- name: TouchNode :exec
 UPDATE nodes SET last_seen_at = CAST(@now AS INTEGER) WHERE id = @id;
+
+-- name: SetNodeDisk :execrows
+UPDATE nodes SET disk_policy = 1, disk_free_bytes = @disk_free_bytes, disk_floor_bytes = @disk_floor_bytes,
+    disk_trim_bytes = @disk_trim_bytes, disk_sample_at = @disk_sample_at
+WHERE id = @id AND status <> 'deleted';
 
 -- name: SetNodeGitHosts :execrows
 UPDATE nodes SET git_hosts = @git_hosts WHERE id = @id AND status <> 'deleted';
@@ -136,8 +142,32 @@ VALUES (@id, @runtime, @label, 'active',
 UPDATE accounts SET updated_at = @now, email = @email, plan = @plan WHERE id = @id;
 
 -- name: SetAccountLogin :execrows
--- A new login of an account: who it is now, and the project it works in.
 UPDATE accounts SET updated_at = @now, email = @email, plan = @plan, project = @project WHERE id = @id;
+
+-- name: SetVerificationLogin :execrows
+UPDATE accounts
+SET updated_at = @now, verify_login_version = @version,
+    verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0, verify_retry_at = NULL
+WHERE id = @id AND verify_login_version < @version;
+
+-- name: ClaimAccountVerificationRetry :execrows
+UPDATE accounts SET updated_at = @now, verify_failures = verify_failures + 1, verify_retry_at = @next_retry_at
+WHERE id = @id AND verify_login_version <= @version AND verify_asked_at IS NOT NULL
+    AND verify_retry_at = @previous_retry_at AND verify_retry_at <= @now;
+
+-- name: SetAccountVerification :execrows
+-- Google asked for the account to be verified (issue #822).
+UPDATE accounts
+SET updated_at = @now, verify_url = @verify_url, verify_message = @verify_message, verify_asked_at = @verify_asked_at,
+    verify_failures = @verify_failures, verify_retry_at = @verify_retry_at
+WHERE id = @id AND verify_login_version <= @version;
+
+-- name: ClearAccountVerification :execrows
+-- A call under the account succeeded: Google no longer asks.
+UPDATE accounts
+SET updated_at = @now, verify_url = NULL, verify_message = NULL, verify_asked_at = NULL, verify_failures = 0,
+    verify_retry_at = NULL
+WHERE id = @id AND verify_login_version <= @version AND verify_asked_at IS NOT NULL;
 
 -- name: AccountLabelTaken :one
 SELECT EXISTS (SELECT 1 FROM accounts WHERE runtime = @runtime AND label = @label);

@@ -32,11 +32,20 @@ func val[T any](p *T) T {
 }
 
 func toRun(r orchestration.Run) openapi.Run {
+	var review *openapi.ReviewStall
+	if stall := r.ReviewStall; stall != nil {
+		review = &openapi.ReviewStall{
+			TaskId: stall.TaskID, PullRequest: stall.PullRequest, Verdict: openapi.ReviewStallVerdict(stall.Verdict),
+			MergeState: stall.MergeState, Mergeable: stall.Mergeable, Checks: openapi.ReviewStallChecks(stall.Checks),
+			WaitingForOwner: stall.WaitingForOwner,
+		}
+	}
+
 	return openapi.Run{
 		Id: r.ID, Objective: r.Objective, Status: openapi.RunStatus(r.Status), CreatedBy: r.CreatedBy,
 		Repo: ptr(r.Repo), RepoHost: ptr(r.RepoHost), Base: ptr(r.Base),
 		CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID), Bot: ptr(r.Bot), Uses: usesOf(r.Uses),
-		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, ReviewStall: review,
 	}
 }
 
@@ -166,10 +175,20 @@ func toNode(n orchestration.Node) openapi.Node {
 		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: ptr(n.MaxDispatches),
 		Reserved: toResources(n.Reserved), Allocatable: toResources(n.Allocatable), Requested: toResources(n.Requested),
 		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
-		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
+		Stats: toNodeStats(n.Stats), Disk: toNodeDisk(n.Disk), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal), Device: ptr(openapi.NodeDevice(n.Device)), Kvm: ptr(n.KVM),
 		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
+	}
+}
+
+func toNodeDisk(d *orchestration.DiskStatus) *openapi.NodeDisk {
+	if d == nil {
+		return nil
+	}
+
+	return &openapi.NodeDisk{
+		FreeBytes: d.FreeBytes, FloorBytes: d.FloorBytes, TrimBytes: d.TrimBytes, At: d.At, AgeMs: d.AgeMS,
 	}
 }
 

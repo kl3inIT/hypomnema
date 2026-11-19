@@ -97,15 +97,49 @@ func (q *Queries) DeleteMeetingWord(ctx context.Context, word string) error {
 const deleteSilentSpeakers = `-- name: DeleteSilentSpeakers :exec
 DELETE FROM meeting_speakers
 WHERE meeting_speakers.meeting_id = ?1
-  AND label NOT IN (SELECT l.speaker FROM meeting_lines l WHERE l.meeting_id = ?1)
-  AND label NOT IN (SELECT i.owner_speaker FROM meeting_items i
-                    WHERE i.meeting_id = ?1 AND i.owner_speaker IS NOT NULL)
+  AND NOT EXISTS (SELECT 1 FROM meeting_lines l
+                  WHERE l.meeting_id = meeting_speakers.meeting_id AND l.track = meeting_speakers.track
+                    AND l.speaker = meeting_speakers.label)
+  AND NOT EXISTS (SELECT 1 FROM meeting_items i
+                  WHERE i.meeting_id = meeting_speakers.meeting_id AND i.owner_track = meeting_speakers.track
+                    AND i.owner_speaker = meeting_speakers.label)
 `
 
 // Voices left with no line and owning no action, after a line or a voice was given to another.
 func (q *Queries) DeleteSilentSpeakers(ctx context.Context, meetingID string) error {
 	_, err := q.db.ExecContext(ctx, deleteSilentSpeakers, meetingID)
 	return err
+}
+
+const endLiveMeeting = `-- name: EndLiveMeeting :execrows
+UPDATE meetings SET state = 'transcribed', size = ?1, duration_ms = ?2, provider = ?3,
+    model = ?4, updated_at = ?5
+WHERE id = ?6 AND state = 'recording'
+`
+
+type EndLiveMeetingParams struct {
+	Size       int64
+	DurationMs int64
+	Provider   string
+	Model      string
+	Now        int64
+	ID         string
+}
+
+// A live meeting ends once: only from recording, and never through transcribing, which the work would hear again.
+func (q *Queries) EndLiveMeeting(ctx context.Context, arg EndLiveMeetingParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endLiveMeeting,
+		arg.Size,
+		arg.DurationMs,
+		arg.Provider,
+		arg.Model,
+		arg.Now,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const failMeeting = `-- name: FailMeeting :exec
@@ -124,7 +158,7 @@ func (q *Queries) FailMeeting(ctx context.Context, arg FailMeetingParams) error 
 }
 
 const getMeeting = `-- name: GetMeeting :one
-SELECT id, title, titled, language, people, terms, file_name, media_type, size, duration_ms, state, failure, attempts, provider, model, created_at, updated_at FROM meetings WHERE id = ?1
+SELECT id, title, titled, language, people, terms, file_name, media_type, size, duration_ms, state, failure, attempts, provider, model, created_at, updated_at, source, kind FROM meetings WHERE id = ?1
 `
 
 func (q *Queries) GetMeeting(ctx context.Context, id string) (Meeting, error) {
@@ -148,12 +182,14 @@ func (q *Queries) GetMeeting(ctx context.Context, id string) (Meeting, error) {
 		&i.Model,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Source,
+		&i.Kind,
 	)
 	return i, err
 }
 
 const getMeetingItem = `-- name: GetMeetingItem :one
-SELECT id, meeting_id, kind, position, text, owner, owner_speaker, due, done, quote, line, start_ms FROM meeting_items WHERE id = ?1
+SELECT id, meeting_id, kind, position, text, owner, owner_speaker, due, done, quote, line, start_ms, owner_track FROM meeting_items WHERE id = ?1
 `
 
 func (q *Queries) GetMeetingItem(ctx context.Context, id string) (MeetingItem, error) {
@@ -172,12 +208,13 @@ func (q *Queries) GetMeetingItem(ctx context.Context, id string) (MeetingItem, e
 		&i.Quote,
 		&i.Line,
 		&i.StartMs,
+		&i.OwnerTrack,
 	)
 	return i, err
 }
 
 const getMeetingLine = `-- name: GetMeetingLine :one
-SELECT meeting_id, n, start_ms, end_ms, speaker, heard, text FROM meeting_lines WHERE meeting_id = ?1 AND n = ?2
+SELECT meeting_id, n, track, start_ms, end_ms, speaker, heard, text FROM meeting_lines WHERE meeting_id = ?1 AND n = ?2
 `
 
 type GetMeetingLineParams struct {
@@ -191,6 +228,7 @@ func (q *Queries) GetMeetingLine(ctx context.Context, arg GetMeetingLineParams) 
 	err := row.Scan(
 		&i.MeetingID,
 		&i.N,
+		&i.Track,
 		&i.StartMs,
 		&i.EndMs,
 		&i.Speaker,
@@ -233,6 +271,41 @@ func (q *Queries) GetMeetingSettings(ctx context.Context) (MeetingSetting, error
 	return i, err
 }
 
+const insertLiveMeeting = `-- name: InsertLiveMeeting :execrows
+INSERT INTO meetings (id, title, titled, language, people, file_name, media_type, size, state, source, kind,
+                      created_at, updated_at)
+SELECT ?1, ?2, ?3, ?4, ?5, 'recording.wav', 'audio/wav', 0, 'recording', 'live', ?6, ?7,
+       ?7
+WHERE NOT EXISTS (SELECT 1 FROM meetings WHERE state = 'recording')
+`
+
+type InsertLiveMeetingParams struct {
+	ID       string
+	Title    string
+	Titled   int64
+	Language string
+	People   string
+	Kind     string
+	Now      int64
+}
+
+// A meeting recorded live (issue #820), only while no other is recording: one at a time, so at most two streams.
+func (q *Queries) InsertLiveMeeting(ctx context.Context, arg InsertLiveMeetingParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertLiveMeeting,
+		arg.ID,
+		arg.Title,
+		arg.Titled,
+		arg.Language,
+		arg.People,
+		arg.Kind,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertMeeting = `-- name: InsertMeeting :exec
 INSERT INTO meetings (id, title, titled, language, people, file_name, media_type, size, state, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'transcribing', ?9, ?9)
@@ -267,8 +340,10 @@ func (q *Queries) InsertMeeting(ctx context.Context, arg InsertMeetingParams) er
 }
 
 const insertMeetingItem = `-- name: InsertMeetingItem :exec
-INSERT INTO meeting_items (id, meeting_id, kind, position, text, owner, owner_speaker, due, quote, line, start_ms)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+INSERT INTO meeting_items (id, meeting_id, kind, position, text, owner, owner_track, owner_speaker, due, quote, line,
+                           start_ms)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+        ?12)
 `
 
 type InsertMeetingItemParams struct {
@@ -278,6 +353,7 @@ type InsertMeetingItemParams struct {
 	Position     int64
 	Text         string
 	Owner        sql.NullString
+	OwnerTrack   sql.NullString
 	OwnerSpeaker sql.NullString
 	Due          sql.NullString
 	Quote        sql.NullString
@@ -293,6 +369,7 @@ func (q *Queries) InsertMeetingItem(ctx context.Context, arg InsertMeetingItemPa
 		arg.Position,
 		arg.Text,
 		arg.Owner,
+		arg.OwnerTrack,
 		arg.OwnerSpeaker,
 		arg.Due,
 		arg.Quote,
@@ -303,13 +380,14 @@ func (q *Queries) InsertMeetingItem(ctx context.Context, arg InsertMeetingItemPa
 }
 
 const insertMeetingLine = `-- name: InsertMeetingLine :exec
-INSERT INTO meeting_lines (meeting_id, n, start_ms, end_ms, speaker, heard, text)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+INSERT INTO meeting_lines (meeting_id, n, track, start_ms, end_ms, speaker, heard, text)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 `
 
 type InsertMeetingLineParams struct {
 	MeetingID string
 	N         int64
+	Track     string
 	StartMs   int64
 	EndMs     int64
 	Speaker   string
@@ -321,6 +399,7 @@ func (q *Queries) InsertMeetingLine(ctx context.Context, arg InsertMeetingLinePa
 	_, err := q.db.ExecContext(ctx, insertMeetingLine,
 		arg.MeetingID,
 		arg.N,
+		arg.Track,
 		arg.StartMs,
 		arg.EndMs,
 		arg.Speaker,
@@ -346,11 +425,13 @@ func (q *Queries) InsertMeetingNotes(ctx context.Context, arg InsertMeetingNotes
 }
 
 const insertMeetingSpeaker = `-- name: InsertMeetingSpeaker :exec
-INSERT INTO meeting_speakers (meeting_id, label, position, name) VALUES (?1, ?2, ?3, ?4)
+INSERT INTO meeting_speakers (meeting_id, track, label, position, name)
+VALUES (?1, ?2, ?3, ?4, ?5)
 `
 
 type InsertMeetingSpeakerParams struct {
 	MeetingID string
+	Track     string
 	Label     string
 	Position  int64
 	Name      sql.NullString
@@ -359,6 +440,7 @@ type InsertMeetingSpeakerParams struct {
 func (q *Queries) InsertMeetingSpeaker(ctx context.Context, arg InsertMeetingSpeakerParams) error {
 	_, err := q.db.ExecContext(ctx, insertMeetingSpeaker,
 		arg.MeetingID,
+		arg.Track,
 		arg.Label,
 		arg.Position,
 		arg.Name,
@@ -380,12 +462,38 @@ func (q *Queries) InsertMeetingWord(ctx context.Context, arg InsertMeetingWordPa
 	return err
 }
 
+const lastMeetingLine = `-- name: LastMeetingLine :one
+SELECT CAST(coalesce(max(n), 0) AS INTEGER) AS n,
+       CAST(coalesce(max(CASE WHEN track = ?1 THEN end_ms END), -1) AS INTEGER) AS track_end_ms
+FROM meeting_lines WHERE meeting_id = ?2
+`
+
+type LastMeetingLineParams struct {
+	Track     string
+	MeetingID string
+}
+
+type LastMeetingLineRow struct {
+	N          int64
+	TrackEndMs int64
+}
+
+// The number the next line takes, and where a track's last line ends.
+func (q *Queries) LastMeetingLine(ctx context.Context, arg LastMeetingLineParams) (LastMeetingLineRow, error) {
+	row := q.db.QueryRowContext(ctx, lastMeetingLine, arg.Track, arg.MeetingID)
+	var i LastMeetingLineRow
+	err := row.Scan(&i.N, &i.TrackEndMs)
+	return i, err
+}
+
 const listMeetingActions = `-- name: ListMeetingActions :many
-SELECT i.id, i.meeting_id, i.kind, i.position, i.text, i.owner, i.owner_speaker, i.due, i.done, i.quote, i.line, i.start_ms, m.title AS meeting_title, m.created_at AS meeting_created_at, s.name AS speaker_name,
+SELECT i.id, i.meeting_id, i.kind, i.position, i.text, i.owner, i.owner_speaker, i.due, i.done, i.quote, i.line, i.start_ms, i.owner_track, m.title AS meeting_title, m.created_at AS meeting_created_at, m.kind AS meeting_kind,
+       s.name AS speaker_name,
        s.position AS speaker_position
 FROM meeting_items i
 JOIN meetings m ON m.id = i.meeting_id
-LEFT JOIN meeting_speakers s ON s.meeting_id = i.meeting_id AND s.label = i.owner_speaker
+LEFT JOIN meeting_speakers s
+    ON s.meeting_id = i.meeting_id AND s.track = i.owner_track AND s.label = i.owner_speaker
 WHERE i.kind = 'action'
 ORDER BY m.created_at DESC, m.id, i.position
 `
@@ -403,8 +511,10 @@ type ListMeetingActionsRow struct {
 	Quote            sql.NullString
 	Line             sql.NullInt64
 	StartMs          sql.NullInt64
+	OwnerTrack       sql.NullString
 	MeetingTitle     string
 	MeetingCreatedAt int64
+	MeetingKind      string
 	SpeakerName      sql.NullString
 	SpeakerPosition  sql.NullInt64
 }
@@ -432,8 +542,10 @@ func (q *Queries) ListMeetingActions(ctx context.Context) ([]ListMeetingActionsR
 			&i.Quote,
 			&i.Line,
 			&i.StartMs,
+			&i.OwnerTrack,
 			&i.MeetingTitle,
 			&i.MeetingCreatedAt,
+			&i.MeetingKind,
 			&i.SpeakerName,
 			&i.SpeakerPosition,
 		); err != nil {
@@ -451,7 +563,7 @@ func (q *Queries) ListMeetingActions(ctx context.Context) ([]ListMeetingActionsR
 }
 
 const listMeetingItems = `-- name: ListMeetingItems :many
-SELECT id, meeting_id, kind, position, text, owner, owner_speaker, due, done, quote, line, start_ms FROM meeting_items WHERE meeting_id = ?1 ORDER BY kind, position
+SELECT id, meeting_id, kind, position, text, owner, owner_speaker, due, done, quote, line, start_ms, owner_track FROM meeting_items WHERE meeting_id = ?1 ORDER BY kind, position
 `
 
 func (q *Queries) ListMeetingItems(ctx context.Context, meetingID string) ([]MeetingItem, error) {
@@ -476,6 +588,7 @@ func (q *Queries) ListMeetingItems(ctx context.Context, meetingID string) ([]Mee
 			&i.Quote,
 			&i.Line,
 			&i.StartMs,
+			&i.OwnerTrack,
 		); err != nil {
 			return nil, err
 		}
@@ -491,9 +604,10 @@ func (q *Queries) ListMeetingItems(ctx context.Context, meetingID string) ([]Mee
 }
 
 const listMeetingLines = `-- name: ListMeetingLines :many
-SELECT meeting_id, n, start_ms, end_ms, speaker, heard, text FROM meeting_lines WHERE meeting_id = ?1 ORDER BY n
+SELECT meeting_id, n, track, start_ms, end_ms, speaker, heard, text FROM meeting_lines WHERE meeting_id = ?1 ORDER BY start_ms, n
 `
 
+// By when they were said: the tracks of a live meeting append their lines out of n's order (issue #820).
 func (q *Queries) ListMeetingLines(ctx context.Context, meetingID string) ([]MeetingLine, error) {
 	rows, err := q.db.QueryContext(ctx, listMeetingLines, meetingID)
 	if err != nil {
@@ -506,6 +620,7 @@ func (q *Queries) ListMeetingLines(ctx context.Context, meetingID string) ([]Mee
 		if err := rows.Scan(
 			&i.MeetingID,
 			&i.N,
+			&i.Track,
 			&i.StartMs,
 			&i.EndMs,
 			&i.Speaker,
@@ -526,7 +641,7 @@ func (q *Queries) ListMeetingLines(ctx context.Context, meetingID string) ([]Mee
 }
 
 const listMeetingSpeakers = `-- name: ListMeetingSpeakers :many
-SELECT meeting_id, label, position, name FROM meeting_speakers WHERE meeting_id = ?1 ORDER BY position, label
+SELECT meeting_id, track, label, position, name FROM meeting_speakers WHERE meeting_id = ?1 ORDER BY track, position, label
 `
 
 func (q *Queries) ListMeetingSpeakers(ctx context.Context, meetingID string) ([]MeetingSpeaker, error) {
@@ -540,6 +655,7 @@ func (q *Queries) ListMeetingSpeakers(ctx context.Context, meetingID string) ([]
 		var i MeetingSpeaker
 		if err := rows.Scan(
 			&i.MeetingID,
+			&i.Track,
 			&i.Label,
 			&i.Position,
 			&i.Name,
@@ -587,7 +703,7 @@ func (q *Queries) ListMeetingWords(ctx context.Context) ([]string, error) {
 }
 
 const listMeetings = `-- name: ListMeetings :many
-SELECT m.id, m.title, m.titled, m.language, m.people, m.terms, m.file_name, m.media_type, m.size, m.duration_ms, m.state, m.failure, m.attempts, m.provider, m.model, m.created_at, m.updated_at, n.state AS notes_state, n.summary AS notes_summary,
+SELECT m.id, m.title, m.titled, m.language, m.people, m.terms, m.file_name, m.media_type, m.size, m.duration_ms, m.state, m.failure, m.attempts, m.provider, m.model, m.created_at, m.updated_at, m.source, m.kind, n.state AS notes_state, n.summary AS notes_summary,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action') AS actions,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action' AND i.done = 0)
            AS open_actions
@@ -623,6 +739,8 @@ type ListMeetingsRow struct {
 	Model        string
 	CreatedAt    int64
 	UpdatedAt    int64
+	Source       string
+	Kind         string
 	NotesState   string
 	NotesSummary string
 	Actions      int64
@@ -657,6 +775,8 @@ func (q *Queries) ListMeetings(ctx context.Context, arg ListMeetingsParams) ([]L
 			&i.Model,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Source,
+			&i.Kind,
 			&i.NotesState,
 			&i.NotesSummary,
 			&i.Actions,
@@ -676,20 +796,24 @@ func (q *Queries) ListMeetings(ctx context.Context, arg ListMeetingsParams) ([]L
 }
 
 const listSpeakersOfMeetings = `-- name: ListSpeakersOfMeetings :many
-SELECT s.meeting_id, s.label, s.position, s.name,
+SELECT s.meeting_id, s.track, s.label, s.position, s.name, m.kind AS meeting_kind,
        CAST(coalesce((SELECT sum(l.end_ms - l.start_ms) FROM meeting_lines l
-                      WHERE l.meeting_id = s.meeting_id AND l.speaker = s.label), 0) AS INTEGER) AS talk_ms
+                      WHERE l.meeting_id = s.meeting_id AND l.track = s.track AND l.speaker = s.label), 0)
+            AS INTEGER) AS talk_ms
 FROM meeting_speakers s
+JOIN meetings m ON m.id = s.meeting_id
 WHERE s.meeting_id IN (/*SLICE:ids*/?)
-ORDER BY s.meeting_id, s.position, s.label
+ORDER BY s.meeting_id, CASE s.track WHEN 'mic' THEN 0 ELSE 1 END, s.track, s.position, s.label
 `
 
 type ListSpeakersOfMeetingsRow struct {
-	MeetingID string
-	Label     string
-	Position  int64
-	Name      sql.NullString
-	TalkMs    int64
+	MeetingID   string
+	Track       string
+	Label       string
+	Position    int64
+	Name        sql.NullString
+	MeetingKind string
+	TalkMs      int64
 }
 
 // The voices of every meeting listed, for their cards.
@@ -714,9 +838,11 @@ func (q *Queries) ListSpeakersOfMeetings(ctx context.Context, ids []string) ([]L
 		var i ListSpeakersOfMeetingsRow
 		if err := rows.Scan(
 			&i.MeetingID,
+			&i.Track,
 			&i.Label,
 			&i.Position,
 			&i.Name,
+			&i.MeetingKind,
 			&i.TalkMs,
 		); err != nil {
 			return nil, err
@@ -750,6 +876,33 @@ func (q *Queries) MeetingBotNames(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const meetingRecording = `-- name: MeetingRecording :many
+SELECT id FROM meetings WHERE state = 'recording' ORDER BY created_at, id
+`
+
+func (q *Queries) MeetingRecording(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, meetingRecording)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -848,17 +1001,24 @@ func (q *Queries) MeetingsTranscribing(ctx context.Context) ([]string, error) {
 }
 
 const moveMeetingItemOwners = `-- name: MoveMeetingItemOwners :exec
-UPDATE meeting_items SET owner_speaker = ?1 WHERE meeting_id = ?2 AND owner_speaker = ?3
+UPDATE meeting_items SET owner_speaker = ?1
+WHERE meeting_id = ?2 AND owner_track = ?3 AND owner_speaker = ?4
 `
 
 type MoveMeetingItemOwnersParams struct {
 	ToLabel   sql.NullString
 	MeetingID string
+	Track     sql.NullString
 	FromLabel sql.NullString
 }
 
 func (q *Queries) MoveMeetingItemOwners(ctx context.Context, arg MoveMeetingItemOwnersParams) error {
-	_, err := q.db.ExecContext(ctx, moveMeetingItemOwners, arg.ToLabel, arg.MeetingID, arg.FromLabel)
+	_, err := q.db.ExecContext(ctx, moveMeetingItemOwners,
+		arg.ToLabel,
+		arg.MeetingID,
+		arg.Track,
+		arg.FromLabel,
+	)
 	return err
 }
 
@@ -878,33 +1038,46 @@ func (q *Queries) MoveMeetingLine(ctx context.Context, arg MoveMeetingLineParams
 }
 
 const moveMeetingLines = `-- name: MoveMeetingLines :exec
-UPDATE meeting_lines SET speaker = ?1 WHERE meeting_id = ?2 AND speaker = ?3
+UPDATE meeting_lines SET speaker = ?1
+WHERE meeting_id = ?2 AND track = ?3 AND speaker = ?4
 `
 
 type MoveMeetingLinesParams struct {
 	ToLabel   string
 	MeetingID string
+	Track     string
 	FromLabel string
 }
 
-// Every line of one voice is shown as another's.
+// Every line of one voice is shown as another's of its track.
 func (q *Queries) MoveMeetingLines(ctx context.Context, arg MoveMeetingLinesParams) error {
-	_, err := q.db.ExecContext(ctx, moveMeetingLines, arg.ToLabel, arg.MeetingID, arg.FromLabel)
+	_, err := q.db.ExecContext(ctx, moveMeetingLines,
+		arg.ToLabel,
+		arg.MeetingID,
+		arg.Track,
+		arg.FromLabel,
+	)
 	return err
 }
 
 const nameMeetingSpeaker = `-- name: NameMeetingSpeaker :exec
-UPDATE meeting_speakers SET name = ?1 WHERE meeting_id = ?2 AND label = ?3
+UPDATE meeting_speakers SET name = ?1 WHERE meeting_id = ?2 AND track = ?3 AND label = ?4
 `
 
 type NameMeetingSpeakerParams struct {
 	Name      sql.NullString
 	MeetingID string
+	Track     string
 	Label     string
 }
 
 func (q *Queries) NameMeetingSpeaker(ctx context.Context, arg NameMeetingSpeakerParams) error {
-	_, err := q.db.ExecContext(ctx, nameMeetingSpeaker, arg.Name, arg.MeetingID, arg.Label)
+	_, err := q.db.ExecContext(ctx, nameMeetingSpeaker,
+		arg.Name,
+		arg.MeetingID,
+		arg.Track,
+		arg.Label,
+	)
 	return err
 }
 
@@ -1047,6 +1220,20 @@ type SetWrittenTitleParams struct {
 // The title the notes wrote, for a meeting the owner did not title.
 func (q *Queries) SetWrittenTitle(ctx context.Context, arg SetWrittenTitleParams) error {
 	_, err := q.db.ExecContext(ctx, setWrittenTitle, arg.Title, arg.Now, arg.ID)
+	return err
+}
+
+const startLiveNotes = `-- name: StartLiveNotes :exec
+UPDATE meeting_notes SET state = 'writing', updated_at = ?1 WHERE meeting_id = ?2 AND state = 'waiting'
+`
+
+type StartLiveNotesParams struct {
+	Now       int64
+	MeetingID string
+}
+
+func (q *Queries) StartLiveNotes(ctx context.Context, arg StartLiveNotesParams) error {
+	_, err := q.db.ExecContext(ctx, startLiveNotes, arg.Now, arg.MeetingID)
 	return err
 }
 

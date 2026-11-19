@@ -187,6 +187,16 @@ func (q *Queries) ClearChatTurn(ctx context.Context, id string) error {
 	return err
 }
 
+const clearMainChat = `-- name: ClearMainChat :exec
+UPDATE bots SET main_chat = NULL WHERE main_chat = CAST(?1 AS TEXT)
+`
+
+// A deleted chat is no Bot's main chat any more; the next message from the web or the CLI makes another.
+func (q *Queries) ClearMainChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, clearMainChat, chatID)
+	return err
+}
+
 const continueChatTurn = `-- name: ContinueChatTurn :exec
 UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1, turn_token = NULL WHERE id = ?2
 `
@@ -870,34 +880,69 @@ func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_token, turn_attempts FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, chats.channel_group, chats.provider, chats.model, chats.effort, chats.context_tokens, chats.context_window, chats.context_percent, chats.turn_started_at, chats.turn_token, chats.turn_attempts,
+       CAST(coalesce((
+           SELECT substr(m.text, 1, 400) FROM chat_messages m
+           WHERE m.chat_id = chats.id AND m.role IN ('owner', 'coordinator') AND trim(m.text) <> ''
+           ORDER BY m.seq DESC LIMIT 1
+       ), '') AS TEXT) AS last_text
+FROM chats
+WHERE (CAST(?1 AS TEXT) = '' OR chats.bot_id = CAST(?1 AS TEXT))
+  AND (
+    chats.id IN (
+        SELECT p.id FROM chats p
+        WHERE CAST(?1 AS TEXT) = '' OR p.bot_id = CAST(?1 AS TEXT)
+        ORDER BY p.updated_at DESC, p.id LIMIT ?3 OFFSET ?2
+    )
+    OR (CAST(?2 AS INTEGER) = 0 AND (
+        chats.id IN (SELECT b.main_chat FROM bots b WHERE b.main_chat IS NOT NULL)
+        OR chats.id IN (SELECT a.chat_id FROM approvals a WHERE a.status = 'pending' AND a.chat_id IS NOT NULL)
+    ))
+  )
+ORDER BY chats.updated_at DESC, chats.id
 `
 
-func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
-	rows, err := q.db.QueryContext(ctx, listChats, lim)
+type ListChatsParams struct {
+	Bot  string
+	Skip int64
+	Lim  int64
+}
+
+type ListChatsRow struct {
+	Chat     Chat
+	LastText string
+}
+
+// A page of the chats, of one Bot when @bot names one, the most recently active first, each with the start of its
+// latest line of the owner or its Bot (issue #471): the sidebar's row of a Bot shows its main chat's. A reply of
+// thinking alone has no text and is passed over. The first page (@skip 0) also carries every Bot's main chat and
+// every chat an Approval waits in, whatever their age, so that a Bot's row is whole: a page later on does not.
+func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listChats, arg.Bot, arg.Skip, arg.Lim)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Chat{}
+	items := []ListChatsRow{}
 	for rows.Next() {
-		var i Chat
+		var i ListChatsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.BotID,
-			&i.ChannelGroup,
-			&i.Provider,
-			&i.Model,
-			&i.Effort,
-			&i.ContextTokens,
-			&i.ContextWindow,
-			&i.ContextPercent,
-			&i.TurnStartedAt,
-			&i.TurnToken,
-			&i.TurnAttempts,
+			&i.Chat.ID,
+			&i.Chat.Title,
+			&i.Chat.CreatedAt,
+			&i.Chat.UpdatedAt,
+			&i.Chat.BotID,
+			&i.Chat.ChannelGroup,
+			&i.Chat.Provider,
+			&i.Chat.Model,
+			&i.Chat.Effort,
+			&i.Chat.ContextTokens,
+			&i.Chat.ContextWindow,
+			&i.Chat.ContextPercent,
+			&i.Chat.TurnStartedAt,
+			&i.Chat.TurnToken,
+			&i.Chat.TurnAttempts,
+			&i.LastText,
 		); err != nil {
 			return nil, err
 		}
@@ -984,6 +1029,22 @@ type MarkChatTurnParams struct {
 // continued turn keeps its count.
 func (q *Queries) MarkChatTurn(ctx context.Context, arg MarkChatTurnParams) error {
 	_, err := q.db.ExecContext(ctx, markChatTurn, arg.Now, arg.Token, arg.ID)
+	return err
+}
+
+const setBotMainChat = `-- name: SetBotMainChat :exec
+UPDATE bots SET main_chat = ?1 WHERE id = ?2
+`
+
+type SetBotMainChatParams struct {
+	ChatID sql.NullString
+	Bot    string
+}
+
+// The chat becomes its Bot's main chat (issue #471): the web's New chat, the CLI's --new, or the first message to a
+// Bot that has none.
+func (q *Queries) SetBotMainChat(ctx context.Context, arg SetBotMainChatParams) error {
+	_, err := q.db.ExecContext(ctx, setBotMainChat, arg.ChatID, arg.Bot)
 	return err
 }
 

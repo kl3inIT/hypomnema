@@ -27,8 +27,10 @@ SELECT * FROM gateway_model_targets WHERE model = @model ORDER BY position;
 DELETE FROM gateway_models WHERE name = @name;
 
 -- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at)
-VALUES (@id, @name, @key_hash, @key_prefix, @models, @endpoints, @dispatch_id, @chat_id, @bot_id, @now);
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at,
+                          secret_version_id, masked_value)
+VALUES (@id, @name, @key_hash, @key_prefix, @models, @endpoints, @dispatch_id, @chat_id, @bot_id, @now,
+        @secret_version_id, @masked_value);
 
 -- name: RevokeGatewayKeysOfChat :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE chat_id = @chat_id AND revoked_at IS NULL;
@@ -51,6 +53,16 @@ SELECT DISTINCT dispatch_id FROM gateway_keys WHERE dispatch_id IS NOT NULL AND 
 -- name: GetGatewayKey :one
 SELECT * FROM gateway_keys WHERE id = @id;
 
+-- name: GetLiveOwnerGatewayKey :one
+SELECT * FROM gateway_keys WHERE id = @id AND revoked_at IS NULL
+  AND dispatch_id IS NULL AND chat_id IS NULL AND bot_id IS NULL;
+
+-- name: UpdateGatewayKey :one
+UPDATE OR IGNORE gateway_keys
+SET name = coalesce(sqlc.narg(name), name), models = coalesce(sqlc.narg(models), models),
+    endpoints = CASE WHEN CAST(sqlc.arg(set_endpoints) AS BOOLEAN) THEN sqlc.narg(endpoints) ELSE endpoints END
+WHERE id = @id RETURNING *;
+
 -- The key a Dispatch's worker uses now: its newest that works (issue #354).
 -- name: GetLiveGatewayKeyOfDispatch :one
 SELECT * FROM gateway_keys WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL
@@ -61,6 +73,9 @@ ORDER BY created_at DESC, id DESC LIMIT 1;
 -- name: GetLatestGatewayKeyOfChat :one
 SELECT * FROM gateway_keys WHERE chat_id = @chat_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
+-- name: GetLatestGatewayKeyOfDispatch :one
+SELECT * FROM gateway_keys WHERE dispatch_id = @dispatch_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
+
 -- name: GetGatewayKeyByHash :one
 SELECT * FROM gateway_keys WHERE key_hash = @key_hash;
 
@@ -70,26 +85,31 @@ SELECT * FROM gateway_keys ORDER BY name;
 -- name: GatewayKeysLastUsed :many
 SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id;
 
+-- name: GatewayKeyLastUsed :one
+SELECT created_at FROM gateway_usage WHERE key_id = @key_id ORDER BY created_at DESC LIMIT 1;
+
 -- name: RevokeGatewayKey :execrows
-UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
+UPDATE gateway_keys SET revoked_at = @now, secret_version_id = NULL, masked_value = ''
+WHERE id = @id AND revoked_at IS NULL;
 
 -- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           audio_ms, characters, web_searches, images, ttft_ms, created_at)
+                           audio_ms, characters, web_searches, images, ttft_ms, video_id, video_rev, created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
         @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model,
-        @audio_ms, @characters, @web_searches, @images, @ttft_ms, @now);
+        @audio_ms, @characters, @web_searches, @images, @ttft_ms, @video_id, @video_rev, @now);
 
 -- name: AddGatewayUsageDaily :exec
 -- One request added to the daily ledger (issue #856), in the transaction that writes its row: its UTC day, and the
 -- caller its key counts under, as UsageByKey groups them, without the key.
 INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
-                                 client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
+                                 client_gone, no_account, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
                                  cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced,
-                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens)
+                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens,
+                                 estimated_requests, estimated_prompt_tokens, measured_prompt_tokens, measured_cached_tokens)
 SELECT CAST(@day AS INTEGER),
        CAST(CASE
            WHEN k.bot_id IS NOT NULL THEN k.bot_id
@@ -97,17 +117,21 @@ SELECT CAST(@day AS INTEGER),
            WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
            ELSE 'owner' END AS TEXT),
        CAST(@model AS TEXT), CAST(@provider AS TEXT), CAST(@upstream_model AS TEXT), CAST(@account_id AS TEXT), 1,
-       CAST(@ok AS INTEGER), CAST(@failed AS INTEGER), CAST(@client_gone AS INTEGER),
+       CAST(@ok AS INTEGER), CAST(@failed AS INTEGER), CAST(@client_gone AS INTEGER), CAST(@no_account AS INTEGER),
        CAST(@prompt_tokens AS INTEGER), CAST(@completion_tokens AS INTEGER), CAST(@cached_tokens AS INTEGER),
        CAST(@reasoning_tokens AS INTEGER), CAST(@cache_write_tokens AS INTEGER), CAST(@web_searches AS INTEGER),
        CAST(@audio_ms AS INTEGER), CAST(@characters AS INTEGER), CAST(@images AS INTEGER),
        CAST(@cost_micros AS INTEGER), CAST(@unpriced AS INTEGER), CAST(@ok_duration_ms AS INTEGER),
        CAST(@ttft_ms AS INTEGER), CAST(@ttft_count AS INTEGER), CAST(@generation_ms AS INTEGER),
-       CAST(@generation_tokens AS INTEGER)
+       CAST(@generation_tokens AS INTEGER), CAST(@estimated AS INTEGER),
+       CASE WHEN @estimated = 1 THEN @prompt_tokens ELSE 0 END,
+       CASE WHEN @estimated = 0 THEN @prompt_tokens ELSE 0 END,
+       CASE WHEN @estimated = 0 THEN @cached_tokens ELSE 0 END
 FROM gateway_keys k WHERE k.id = CAST(@key_id AS TEXT)
 ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE SET
     requests = requests + excluded.requests, ok = ok + excluded.ok, failed = failed + excluded.failed,
-    client_gone = client_gone + excluded.client_gone, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+    client_gone = client_gone + excluded.client_gone, no_account = no_account + excluded.no_account,
+    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
     completion_tokens = completion_tokens + excluded.completion_tokens,
     cached_tokens = cached_tokens + excluded.cached_tokens, reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
     cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
@@ -116,7 +140,11 @@ ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE
     cost_micros = cost_micros + excluded.cost_micros, unpriced = unpriced + excluded.unpriced,
     ok_duration_ms = ok_duration_ms + excluded.ok_duration_ms, ttft_ms = ttft_ms + excluded.ttft_ms,
     ttft_count = ttft_count + excluded.ttft_count, generation_ms = generation_ms + excluded.generation_ms,
-    generation_tokens = generation_tokens + excluded.generation_tokens;
+    generation_tokens = generation_tokens + excluded.generation_tokens,
+    estimated_requests = estimated_requests + excluded.estimated_requests,
+    estimated_prompt_tokens = estimated_prompt_tokens + excluded.estimated_prompt_tokens,
+    measured_prompt_tokens = measured_prompt_tokens + excluded.measured_prompt_tokens,
+    measured_cached_tokens = measured_cached_tokens + excluded.measured_cached_tokens;
 
 -- name: ListGatewayUsageDaily :many
 -- The ledger's rows from a UTC day on, for the periods longer than the request rows are kept.
@@ -141,7 +169,10 @@ ORDER BY u.created_at DESC, u.rowid DESC LIMIT @row_limit;
 SELECT CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(COALESCE(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')), 0) AS INTEGER) AS failed,
        CAST(COALESCE(SUM(prompt_tokens), 0) AS INTEGER) AS prompt_tokens,
-       CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(estimated = 1), 0) AS INTEGER) AS estimated_requests,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END), 0) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END), 0) AS INTEGER) AS measured_prompt_tokens,
        CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
        CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens,
        CAST(COALESCE(SUM(web_searches), 0) AS INTEGER) AS web_searches,
@@ -157,7 +188,10 @@ SELECT CAST((created_at - @origin) / @bucket_ms AS INTEGER) AS bucket,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -174,7 +208,10 @@ SELECT model AS name,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -203,7 +240,10 @@ SELECT CAST(CASE
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(u.outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN u.estimated = 0 THEN u.cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(u.estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN u.estimated = 1 THEN u.prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN u.estimated = 0 THEN u.prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(u.web_searches) AS INTEGER) AS web_searches,
@@ -220,7 +260,10 @@ SELECT account_id AS id,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -291,6 +334,10 @@ SELECT * FROM gateway_audio_providers ORDER BY provider;
 -- name: SetGatewayAudioOff :exec
 INSERT INTO gateway_audio_providers (provider, off, updated_at) VALUES (@provider, @off, @now)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at;
+
+-- name: SetGatewayAudioVoice :exec
+INSERT INTO gateway_audio_providers (provider, voice, updated_at) VALUES (@provider, @voice, @now)
+ON CONFLICT (provider) DO UPDATE SET voice = excluded.voice, updated_at = excluded.updated_at;
 
 -- name: SetGatewayAudioSTTPosition :exec
 INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (@provider, @position, @now)

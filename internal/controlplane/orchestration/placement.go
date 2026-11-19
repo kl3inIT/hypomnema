@@ -20,9 +20,10 @@ type placement struct {
 	// groups counts the unsettled Dispatches of each Bot's Runs, "" the
 	// owner's Runs without a Bot (issue #660; runGroup): the used side of
 	// each group's used / guarantee, which orders the groups (issue #731).
-	groups   map[string]int
-	accounts []store.Account
-	cooling  map[[2]string]int64
+	groups         map[string]int
+	accounts       []store.Account
+	cooling        map[[2]string]int64
+	gatewayCooling map[[2]string]int64
 	// reasons says why each cooling account cools.
 	reasons map[[2]string]string
 }
@@ -93,10 +94,17 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 	if err != nil {
 		return nil, fmt.Errorf("listing cooldowns: %w", err)
 	}
+	gatewayCooldowns, err := q.ListGatewayModelCooling(ctx, now)
+	if err != nil {
+		return nil, fmt.Errorf("listing gateway model cooldowns: %w", err)
+	}
 
 	p := &placement{
 		now: now, nodes: map[string]*nodeLoad{}, groups: map[string]int{}, accounts: accounts,
-		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{},
+		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{}, gatewayCooling: map[[2]string]int64{},
+	}
+	for _, fact := range gatewayCooldowns {
+		p.gatewayCooling[[2]string{fact.Route, fact.Model}] = fact.ResetsAt
 	}
 
 	for _, row := range nodes {
@@ -180,6 +188,18 @@ func (n *nodeLoad) gitHosts() []string {
 // checkNode says why a node cannot take a Dispatch of the runtime, on the
 // git host, now.
 func (p *placement) checkNode(id, runtime string, w where) error {
+	if err := p.checkNodeFit(id, runtime, w); err != nil {
+		return err
+	}
+
+	if p.lowDisk(id) {
+		return fmt.Errorf("%w: node %s: %s", ErrUnavailable, id, ReasonNodesLowDisk)
+	}
+
+	return nil
+}
+
+func (p *placement) checkNodeFit(id, runtime string, w where) error {
 	host := w.host
 
 	n, ok := p.nodes[id]
@@ -716,7 +736,7 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 	alloc := n.allocatable()
 
 	return Node{
-		Stats: stats, Machine: machineOut(n.row),
+		Stats: stats, Machine: machineOut(n.row), Disk: diskStatus(n.row, p.now),
 		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches.Int64),
 		Reserved:     Resources{CPUMillis: n.row.ReservedCpuMillis, MemoryBytes: n.row.ReservedMemoryBytes},
 		Allocatable:  Resources{CPUMillis: alloc.cpuMillis, MemoryBytes: alloc.memoryBytes},
@@ -743,6 +763,8 @@ func (p *placement) accountOut(a store.Account) Account {
 			Failures: int(a.RefreshFailures), RetryAt: optionalTime(a.RefreshRetryAt), Error: a.RefreshError.String,
 		},
 	}
+
+	out.Verification = verificationFromRow(a)
 
 	if until, ok := p.cooling[[2]string{a.Runtime, a.ID}]; ok {
 		t := millis(until)

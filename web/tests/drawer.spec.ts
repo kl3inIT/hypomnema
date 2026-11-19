@@ -7,8 +7,9 @@ import { shot } from "./shot.js"
 
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
 
-const bot = (name: string, position: number) => ({
+const bot = (name: string, position: number, mainChat?: string) => ({
   id: name,
+  ...(mainChat && { main_chat: mainChat }),
   main: name === "coordinator",
   name,
   position,
@@ -72,7 +73,7 @@ async function fakeServer(page: Page) {
       case "/me":
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "/bots":
-        return json({ data: [bot("coordinator", 0), bot("researcher", 1)] })
+        return json({ data: [bot("coordinator", 0, "cht_1"), bot("researcher", 1, "cht_3")] })
       case "/chats":
         return json({ data: chats })
       case "/events/stream":
@@ -115,16 +116,14 @@ test("≡ opens the sidebar as a drawer, and picking a chat closes it", async ({
   await expect(drawer(page)).toHaveCount(0)
   await expect(menu(page)).toBeFocused()
 
+  // A Bot's row opens its main chat (issue #471) and closes the drawer.
   await menu(page).click()
-  await drawer(page).getByRole("button", { name: "Show the chats of coordinator" }).click()
-  // A button in the drawer leaves it open.
-  await expect(drawer(page)).toBeVisible()
   await drawer(page)
-    .getByRole("link", { name: /^Fix the login redirect/ })
+    .getByRole("link", { name: /^researcher/ })
     .click()
   await expect(drawer(page)).toHaveCount(0)
-  await expect(page).toHaveURL(/\/chats\/cht_2$/)
-  await expect(page.getByText("about Fix the login redirect")).toBeVisible()
+  await expect(page).toHaveURL(/\/chats\/cht_3$/)
+  await expect(page.getByText("about Weekly usage summary")).toBeVisible()
 })
 
 // Scenario: in a Settings section the header's ≡ still opens the app's sidebar, and New chat in it goes to the start

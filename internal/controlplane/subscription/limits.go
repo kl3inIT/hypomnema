@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -137,6 +138,11 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 		return Limits{}, fmt.Errorf("%w: %s", ErrNoLimits, a.Runtime)
 	}
 
+	// An account Google wants verified is not asked before its next try (issue #822).
+	if err := s.verifyWaits(a.Verification); err != nil {
+		return Limits{}, err
+	}
+
 	now := s.clock.Now()
 
 	s.limitsMu.Lock()
@@ -171,7 +177,14 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 		windows, err = reader.Limits(ctx, token)
 	}
 
-	if err != nil {
+	if err = s.noteVerification(ctx, token, err); err != nil {
+		if errors.Is(err, errVerificationSuperseded) {
+			return Limits{}, ErrNoLimits
+		}
+		if verify := (*VerificationError)(nil); errors.As(err, &verify) {
+			return Limits{}, err // Not hidden behind an earlier reading: the owner has a link to open.
+		}
+
 		var refused *limitsRefusedError
 
 		switch {
@@ -317,17 +330,25 @@ func (c *Claude) LimitsInHeaders(h http.Header) []Window {
 // usableToken is an account's access token, refreshed first when it is about
 // to end.
 func (s *Service) usableToken(ctx context.Context, a Account) (Token, error) {
+	if err := s.verifyWaits(a.Verification); err != nil {
+		return Token{}, err
+	}
+
 	if a.State != StateActive {
 		return Token{}, fmt.Errorf("%w: account %s is %s", ErrNoTokens, a.ID, cmpState(a.State))
 	}
 
+	var retry *atomic.Int64
+	if a.Runtime == antigravityRuntime {
+		retry = new(atomic.Int64)
+	}
 	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
-		if err := s.refresh(ctx, a, 0); err != nil {
+		if err := s.refresh(ctx, a, 0, retry); err != nil {
 			return Token{}, err
 		}
 	}
 
-	return s.tokenOf(ctx, a.Account)
+	return s.tokenOf(ctx, a.Account, retry)
 }
 
 // getLimits makes the limits call and returns its body, or a limitsRefusedError.

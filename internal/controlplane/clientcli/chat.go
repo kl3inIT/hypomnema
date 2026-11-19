@@ -19,8 +19,9 @@ import (
 const chatEnv = "HYPOMNEMA_CHAT_ID"
 
 // chat writes to a Bot on the server, the main Bot unless --bot names
-// another, and prints its replies until it is idle again; without a message
-// it prints the chat's latest messages.
+// another, in its main chat unless --chat names another or --new starts one
+// (issue #471), and prints its replies until it is idle again; without a
+// message it prints the chat's latest messages.
 func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	text, err := e.text(fs, "text")
 	if err != nil {
@@ -31,12 +32,39 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		text = t
 	}
 
-	bot := str(fs, "bot")
-	if bot != "" && str(fs, "chat") != "" {
-		return errors.New("--bot starts a new chat and --chat names one: a chat's Bot is fixed when it is made")
+	// /new, as at Lark and in the web's chat, is --new without a message (issue #471).
+	fresh := boolean(fs, "new")
+	if strings.EqualFold(strings.TrimSpace(text), "/new") {
+		fresh, text = true, ""
 	}
 
-	c, err := pickChat(ctx, e, str(fs, "chat"), boolean(fs, "new") || bot != "", bot, chatTitle(text))
+	bot := str(fs, "bot")
+	if (bot != "" || fresh) && str(fs, "chat") != "" {
+		return errors.New("--chat names a chat, whose Bot is fixed; --bot and --new pick a Bot's main chat")
+	}
+
+	if strings.TrimSpace(text) == "" && !fresh && str(fs, "chat") == "" {
+		// Reading makes no chat: a Bot with no main chat has nothing to show.
+		id, err := mainChatOf(ctx, e, bot)
+		if err != nil {
+			return err
+		}
+
+		if id == "" {
+			e.printf("the bot has no main chat yet; `hypomnema chat <message>` starts it\n")
+
+			return nil
+		}
+
+		c, err := pickChat(ctx, e, id, false, "", "")
+		if err != nil {
+			return err
+		}
+
+		return showChat(ctx, e, c, number(fs, "last"))
+	}
+
+	c, err := pickChat(ctx, e, str(fs, "chat"), fresh, bot, chatTitle(text))
 	if err != nil {
 		return err
 	}
@@ -74,8 +102,8 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return followChat(ctx, e, c.Id, sent.JSON201.Seq, durationFlag(fs, "timeout"))
 }
 
-// pickChat returns the chat named, a new one with bot (the main Bot when
-// empty) titled title, or the most recent one.
+// pickChat returns the chat named, a new main chat of bot (the main Bot when
+// empty) titled title, or the Bot's main chat, made when it has none.
 func pickChat(ctx context.Context, e *env, id string, fresh bool, bot, title string) (openapi.Chat, error) {
 	if id != "" {
 		r, err := e.api.GetChatWithResponse(ctx, id)
@@ -91,19 +119,23 @@ func pickChat(ctx context.Context, e *env, id string, fresh bool, bot, title str
 	}
 
 	if !fresh {
-		limit := 1
+		body := openapi.MainChatRequest{}
+		if bot != "" {
+			body.Bot = &bot
+		}
 
-		r, err := e.api.ListChatsWithResponse(ctx, &openapi.ListChatsParams{Limit: &limit})
+		r, err := e.api.OpenMainChatWithResponse(ctx, body)
 		if err != nil {
-			return openapi.Chat{}, fmt.Errorf("listing chats: %w", err)
+			return openapi.Chat{}, fmt.Errorf("opening the bot's main chat: %w", err)
 		}
 
-		if r.JSON200 == nil {
-			return openapi.Chat{}, apiError("listing chats", r.StatusCode(), r.JSONDefault)
-		}
-
-		if len(r.JSON200.Data) > 0 {
-			return r.JSON200.Data[0], nil
+		switch {
+		case r.JSON200 != nil:
+			return *r.JSON200, nil
+		case r.JSON201 != nil:
+			return *r.JSON201, nil
+		default:
+			return openapi.Chat{}, apiError("opening the bot's main chat", r.StatusCode(), r.JSONDefault)
 		}
 	}
 
@@ -126,6 +158,39 @@ func pickChat(ctx context.Context, e *env, id string, fresh bool, bot, title str
 	}
 
 	return *r.JSON201, nil
+}
+
+// mainChatOf is the id of a Bot's main chat, the main Bot's when bot is empty; empty when it has none.
+func mainChatOf(ctx context.Context, e *env, bot string) (string, error) {
+	if bot != "" {
+		r, err := e.api.GetBotWithResponse(ctx, bot)
+		if err != nil {
+			return "", fmt.Errorf("reading bot %s: %w", bot, err)
+		}
+
+		if r.JSON200 == nil {
+			return "", apiError("reading bot "+bot, r.StatusCode(), r.JSONDefault)
+		}
+
+		return val(r.JSON200.MainChat), nil
+	}
+
+	r, err := e.api.ListBotsWithResponse(ctx)
+	if err != nil {
+		return "", fmt.Errorf("listing bots: %w", err)
+	}
+
+	if r.JSON200 == nil {
+		return "", apiError("listing bots", r.StatusCode(), r.JSONDefault)
+	}
+
+	for _, b := range r.JSON200.Data {
+		if b.Main {
+			return val(b.MainChat), nil
+		}
+	}
+
+	return "", errors.New("the server names no main bot")
 }
 
 // chatTitle is a message's first line, at most 80 characters, as the web titles a new chat.
@@ -236,7 +301,16 @@ func printChatMessage(e *env, m openapi.ChatMessage) {
 }
 
 func chatsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	r, err := e.api.ListChatsWithResponse(ctx, &openapi.ListChatsParams{})
+	params := openapi.ListChatsParams{}
+	if bot := str(fs, "bot"); bot != "" {
+		params.Bot = &bot
+	}
+
+	if offset := number(fs, "offset"); offset > 0 {
+		params.Offset = &offset
+	}
+
+	r, err := e.api.ListChatsWithResponse(ctx, &params)
 	if err != nil {
 		return fmt.Errorf("listing chats: %w", err)
 	}

@@ -79,6 +79,9 @@ type Outgoing struct {
 	ReplyTo  string
 	File     []byte
 	FileName string
+	// Mentions are the members it tags, by their ids as Messages gives a sender's; Text writes @ and each one's
+	// MentionUser (issue #852). Only WhatsApp tags.
+	Mentions []string
 }
 
 // Chat is one chat of the account, as kept.

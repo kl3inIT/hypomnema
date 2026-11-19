@@ -12,9 +12,10 @@ import (
 
 const addGatewayUsageDaily = `-- name: AddGatewayUsageDaily :exec
 INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
-                                 client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
+                                 client_gone, no_account, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
                                  cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced,
-                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens)
+                                 ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens,
+                                 estimated_requests, estimated_prompt_tokens, measured_prompt_tokens, measured_cached_tokens)
 SELECT CAST(?1 AS INTEGER),
        CAST(CASE
            WHEN k.bot_id IS NOT NULL THEN k.bot_id
@@ -22,17 +23,21 @@ SELECT CAST(?1 AS INTEGER),
            WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
            ELSE 'owner' END AS TEXT),
        CAST(?2 AS TEXT), CAST(?3 AS TEXT), CAST(?4 AS TEXT), CAST(?5 AS TEXT), 1,
-       CAST(?6 AS INTEGER), CAST(?7 AS INTEGER), CAST(?8 AS INTEGER),
-       CAST(?9 AS INTEGER), CAST(?10 AS INTEGER), CAST(?11 AS INTEGER),
-       CAST(?12 AS INTEGER), CAST(?13 AS INTEGER), CAST(?14 AS INTEGER),
-       CAST(?15 AS INTEGER), CAST(?16 AS INTEGER), CAST(?17 AS INTEGER),
-       CAST(?18 AS INTEGER), CAST(?19 AS INTEGER), CAST(?20 AS INTEGER),
-       CAST(?21 AS INTEGER), CAST(?22 AS INTEGER), CAST(?23 AS INTEGER),
-       CAST(?24 AS INTEGER)
-FROM gateway_keys k WHERE k.id = CAST(?25 AS TEXT)
+       CAST(?6 AS INTEGER), CAST(?7 AS INTEGER), CAST(?8 AS INTEGER), CAST(?9 AS INTEGER),
+       CAST(?10 AS INTEGER), CAST(?11 AS INTEGER), CAST(?12 AS INTEGER),
+       CAST(?13 AS INTEGER), CAST(?14 AS INTEGER), CAST(?15 AS INTEGER),
+       CAST(?16 AS INTEGER), CAST(?17 AS INTEGER), CAST(?18 AS INTEGER),
+       CAST(?19 AS INTEGER), CAST(?20 AS INTEGER), CAST(?21 AS INTEGER),
+       CAST(?22 AS INTEGER), CAST(?23 AS INTEGER), CAST(?24 AS INTEGER),
+       CAST(?25 AS INTEGER), CAST(?26 AS INTEGER),
+       CASE WHEN ?26 = 1 THEN ?10 ELSE 0 END,
+       CASE WHEN ?26 = 0 THEN ?10 ELSE 0 END,
+       CASE WHEN ?26 = 0 THEN ?12 ELSE 0 END
+FROM gateway_keys k WHERE k.id = CAST(?27 AS TEXT)
 ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE SET
     requests = requests + excluded.requests, ok = ok + excluded.ok, failed = failed + excluded.failed,
-    client_gone = client_gone + excluded.client_gone, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+    client_gone = client_gone + excluded.client_gone, no_account = no_account + excluded.no_account,
+    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
     completion_tokens = completion_tokens + excluded.completion_tokens,
     cached_tokens = cached_tokens + excluded.cached_tokens, reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
     cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
@@ -41,7 +46,11 @@ ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE
     cost_micros = cost_micros + excluded.cost_micros, unpriced = unpriced + excluded.unpriced,
     ok_duration_ms = ok_duration_ms + excluded.ok_duration_ms, ttft_ms = ttft_ms + excluded.ttft_ms,
     ttft_count = ttft_count + excluded.ttft_count, generation_ms = generation_ms + excluded.generation_ms,
-    generation_tokens = generation_tokens + excluded.generation_tokens
+    generation_tokens = generation_tokens + excluded.generation_tokens,
+    estimated_requests = estimated_requests + excluded.estimated_requests,
+    estimated_prompt_tokens = estimated_prompt_tokens + excluded.estimated_prompt_tokens,
+    measured_prompt_tokens = measured_prompt_tokens + excluded.measured_prompt_tokens,
+    measured_cached_tokens = measured_cached_tokens + excluded.measured_cached_tokens
 `
 
 type AddGatewayUsageDailyParams struct {
@@ -53,6 +62,7 @@ type AddGatewayUsageDailyParams struct {
 	Ok               int64
 	Failed           int64
 	ClientGone       int64
+	NoAccount        int64
 	PromptTokens     int64
 	CompletionTokens int64
 	CachedTokens     int64
@@ -69,6 +79,7 @@ type AddGatewayUsageDailyParams struct {
 	TtftCount        int64
 	GenerationMs     int64
 	GenerationTokens int64
+	Estimated        int64
 	KeyID            string
 }
 
@@ -84,6 +95,7 @@ func (q *Queries) AddGatewayUsageDaily(ctx context.Context, arg AddGatewayUsageD
 		arg.Ok,
 		arg.Failed,
 		arg.ClientGone,
+		arg.NoAccount,
 		arg.PromptTokens,
 		arg.CompletionTokens,
 		arg.CachedTokens,
@@ -100,6 +112,7 @@ func (q *Queries) AddGatewayUsageDaily(ctx context.Context, arg AddGatewayUsageD
 		arg.TtftCount,
 		arg.GenerationMs,
 		arg.GenerationTokens,
+		arg.Estimated,
 		arg.KeyID,
 	)
 	return err
@@ -280,6 +293,17 @@ func (q *Queries) DeleteUnusedRevokedGatewayKeys(ctx context.Context) (int64, er
 	return result.RowsAffected()
 }
 
+const gatewayKeyLastUsed = `-- name: GatewayKeyLastUsed :one
+SELECT created_at FROM gateway_usage WHERE key_id = ?1 ORDER BY created_at DESC LIMIT 1
+`
+
+func (q *Queries) GatewayKeyLastUsed(ctx context.Context, keyID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, gatewayKeyLastUsed, keyID)
+	var created_at int64
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
 const gatewayKeysLastUsed = `-- name: GatewayKeysLastUsed :many
 SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id
 `
@@ -313,7 +337,7 @@ func (q *Queries) GatewayKeysLastUsed(ctx context.Context) ([]GatewayKeysLastUse
 }
 
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -331,12 +355,14 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -354,6 +380,8 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
@@ -376,7 +404,7 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const getLatestGatewayKeyOfChat = `-- name: GetLatestGatewayKeyOfChat :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 // The newest key of a chat, working or not (issue #723): a voice message heard before the chat's pi starts is
@@ -396,12 +424,39 @@ func (q *Queries) GetLatestGatewayKeyOfChat(ctx context.Context, chatID sql.Null
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
+	)
+	return i, err
+}
+
+const getLatestGatewayKeyOfDispatch = `-- name: GetLatestGatewayKeyOfDispatch :one
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE dispatch_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestGatewayKeyOfDispatch(ctx context.Context, dispatchID sql.NullString) (GatewayKey, error) {
+	row := q.db.QueryRowContext(ctx, getLatestGatewayKeyOfDispatch, dispatchID)
+	var i GatewayKey
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.KeyHash,
+		&i.Models,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.DispatchID,
+		&i.ChatID,
+		&i.KeyPrefix,
+		&i.BotID,
+		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
 
 const getLiveGatewayKeyOfDispatch = `-- name: GetLiveGatewayKeyOfDispatch :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT 1
 `
 
@@ -421,6 +476,34 @@ func (q *Queries) GetLiveGatewayKeyOfDispatch(ctx context.Context, dispatchID sq
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
+	)
+	return i, err
+}
+
+const getLiveOwnerGatewayKey = `-- name: GetLiveOwnerGatewayKey :one
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE id = ?1 AND revoked_at IS NULL
+  AND dispatch_id IS NULL AND chat_id IS NULL AND bot_id IS NULL
+`
+
+func (q *Queries) GetLiveOwnerGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
+	row := q.db.QueryRowContext(ctx, getLiveOwnerGatewayKey, id)
+	var i GatewayKey
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.KeyHash,
+		&i.Models,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.DispatchID,
+		&i.ChatID,
+		&i.KeyPrefix,
+		&i.BotID,
+		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
@@ -448,21 +531,25 @@ func (q *Queries) InsertAntigravityRewrite(ctx context.Context, arg InsertAntigr
 }
 
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at,
+                          secret_version_id, masked_value)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+        ?11, ?12)
 `
 
 type InsertGatewayKeyParams struct {
-	ID         string
-	Name       string
-	KeyHash    string
-	KeyPrefix  string
-	Models     string
-	Endpoints  sql.NullString
-	DispatchID sql.NullString
-	ChatID     sql.NullString
-	BotID      sql.NullString
-	Now        int64
+	ID              string
+	Name            string
+	KeyHash         string
+	KeyPrefix       string
+	Models          string
+	Endpoints       sql.NullString
+	DispatchID      sql.NullString
+	ChatID          sql.NullString
+	BotID           sql.NullString
+	Now             int64
+	SecretVersionID sql.NullString
+	MaskedValue     string
 }
 
 func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyParams) error {
@@ -477,6 +564,8 @@ func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyPara
 		arg.ChatID,
 		arg.BotID,
 		arg.Now,
+		arg.SecretVersionID,
+		arg.MaskedValue,
 	)
 	return err
 }
@@ -507,11 +596,11 @@ const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           audio_ms, characters, web_searches, images, ttft_ms, created_at)
+                           audio_ms, characters, web_searches, images, ttft_ms, video_id, video_rev, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
         ?10, ?11, ?12, ?13, ?14, ?15,
         ?16, ?17, ?18, ?19, ?20, ?21,
-        ?22, ?23, ?24, ?25, ?26, ?27)
+        ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
 `
 
 type InsertGatewayUsageParams struct {
@@ -541,6 +630,8 @@ type InsertGatewayUsageParams struct {
 	WebSearches        int64
 	Images             int64
 	TtftMs             sql.NullInt64
+	VideoID            string
+	VideoRev           int64
 	Now                int64
 }
 
@@ -572,6 +663,8 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.WebSearches,
 		arg.Images,
 		arg.TtftMs,
+		arg.VideoID,
+		arg.VideoRev,
 		arg.Now,
 	)
 	return err
@@ -638,7 +731,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayAudioProviders = `-- name: ListGatewayAudioProviders :many
-SELECT provider, off, stt_position, tts_position, updated_at FROM gateway_audio_providers ORDER BY provider
+SELECT provider, off, stt_position, tts_position, updated_at, voice FROM gateway_audio_providers ORDER BY provider
 `
 
 // What the owner set on Settings, Gateway, Audio (issue #694).
@@ -657,6 +750,7 @@ func (q *Queries) ListGatewayAudioProviders(ctx context.Context) ([]GatewayAudio
 			&i.SttPosition,
 			&i.TtsPosition,
 			&i.UpdatedAt,
+			&i.Voice,
 		); err != nil {
 			return nil, err
 		}
@@ -705,7 +799,7 @@ func (q *Queries) ListGatewayImageProviders(ctx context.Context) ([]GatewayImage
 }
 
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -729,6 +823,8 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.KeyPrefix,
 			&i.BotID,
 			&i.Endpoints,
+			&i.SecretVersionID,
+			&i.MaskedValue,
 		); err != nil {
 			return nil, err
 		}
@@ -908,7 +1004,7 @@ func (q *Queries) ListGatewaySearchUsage(ctx context.Context, since string) ([]G
 }
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, u.video_id, u.video_rev, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?1
 `
 
@@ -940,6 +1036,8 @@ type ListGatewayUsageRow struct {
 	WebSearches        int64
 	Images             int64
 	TtftMs             sql.NullInt64
+	VideoID            string
+	VideoRev           int64
 	KeyName            string
 }
 
@@ -980,6 +1078,8 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 			&i.WebSearches,
 			&i.Images,
 			&i.TtftMs,
+			&i.VideoID,
+			&i.VideoRev,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -996,7 +1096,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 }
 
 const listGatewayUsageDaily = `-- name: ListGatewayUsageDaily :many
-SELECT day, caller, model, provider, upstream_model, account_id, requests, ok, failed, client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced, ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens FROM gateway_usage_daily WHERE day >= ?1 ORDER BY day, caller, model, provider, upstream_model, account_id
+SELECT day, caller, model, provider, upstream_model, account_id, requests, ok, failed, client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced, ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens, estimated_requests, estimated_prompt_tokens, measured_prompt_tokens, measured_cached_tokens, no_account FROM gateway_usage_daily WHERE day >= ?1 ORDER BY day, caller, model, provider, upstream_model, account_id
 `
 
 // The ledger's rows from a UTC day on, for the periods longer than the request rows are kept.
@@ -1036,6 +1136,11 @@ func (q *Queries) ListGatewayUsageDaily(ctx context.Context, since int64) ([]Gat
 			&i.TtftCount,
 			&i.GenerationMs,
 			&i.GenerationTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
+			&i.MeasuredCachedTokens,
+			&i.NoAccount,
 		); err != nil {
 			return nil, err
 		}
@@ -1105,7 +1210,7 @@ func (q *Queries) ListPerformanceSamples(ctx context.Context, since int64) ([]Li
 }
 
 const listUsageRequests = `-- name: ListUsageRequests :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, u.cache_write_1h_tokens, u.audio_ms, u.characters, u.web_searches, u.images, u.ttft_ms, u.video_id, u.video_rev, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= ?1
   AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?4 OFFSET ?3
@@ -1146,6 +1251,8 @@ type ListUsageRequestsRow struct {
 	WebSearches        int64
 	Images             int64
 	TtftMs             sql.NullInt64
+	VideoID            string
+	VideoRev           int64
 	KeyName            string
 }
 
@@ -1191,6 +1298,8 @@ func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsPa
 			&i.WebSearches,
 			&i.Images,
 			&i.TtftMs,
+			&i.VideoID,
+			&i.VideoRev,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -1228,7 +1337,8 @@ func (q *Queries) RevokeGatewayChatKeys(ctx context.Context, now sql.NullInt64) 
 }
 
 const revokeGatewayKey = `-- name: RevokeGatewayKey :execrows
-UPDATE gateway_keys SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL
+UPDATE gateway_keys SET revoked_at = ?1, secret_version_id = NULL, masked_value = ''
+WHERE id = ?2 AND revoked_at IS NULL
 `
 
 type RevokeGatewayKeyParams struct {
@@ -1343,6 +1453,22 @@ func (q *Queries) SetGatewayAudioTTSPosition(ctx context.Context, arg SetGateway
 	return err
 }
 
+const setGatewayAudioVoice = `-- name: SetGatewayAudioVoice :exec
+INSERT INTO gateway_audio_providers (provider, voice, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET voice = excluded.voice, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioVoiceParams struct {
+	Provider string
+	Voice    string
+	Now      int64
+}
+
+func (q *Queries) SetGatewayAudioVoice(ctx context.Context, arg SetGatewayAudioVoiceParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioVoice, arg.Provider, arg.Voice, arg.Now)
+	return err
+}
+
 const setGatewayImageOff = `-- name: SetGatewayImageOff :exec
 INSERT INTO gateway_image_providers (provider, off, updated_at) VALUES (?1, ?2, ?3)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at
@@ -1407,6 +1533,48 @@ func (q *Queries) SetGatewaySearchPosition(ctx context.Context, arg SetGatewaySe
 	return err
 }
 
+const updateGatewayKey = `-- name: UpdateGatewayKey :one
+UPDATE OR IGNORE gateway_keys
+SET name = coalesce(?1, name), models = coalesce(?2, models),
+    endpoints = CASE WHEN CAST(?3 AS BOOLEAN) THEN ?4 ELSE endpoints END
+WHERE id = ?5 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value
+`
+
+type UpdateGatewayKeyParams struct {
+	Name         sql.NullString
+	Models       sql.NullString
+	SetEndpoints bool
+	Endpoints    sql.NullString
+	ID           string
+}
+
+func (q *Queries) UpdateGatewayKey(ctx context.Context, arg UpdateGatewayKeyParams) (GatewayKey, error) {
+	row := q.db.QueryRowContext(ctx, updateGatewayKey,
+		arg.Name,
+		arg.Models,
+		arg.SetEndpoints,
+		arg.Endpoints,
+		arg.ID,
+	)
+	var i GatewayKey
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.KeyHash,
+		&i.Models,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.DispatchID,
+		&i.ChatID,
+		&i.KeyPrefix,
+		&i.BotID,
+		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
+	)
+	return i, err
+}
+
 const upsertGatewayModel = `-- name: UpsertGatewayModel :exec
 INSERT INTO gateway_models (name, capability, source, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?4)
@@ -1436,7 +1604,10 @@ SELECT CAST((created_at - ?1) / ?2 AS INTEGER) AS bucket,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -1455,19 +1626,22 @@ type UsageBucketsParams struct {
 }
 
 type UsageBucketsRow struct {
-	Bucket           int64
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	Bucket                int64
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 func (q *Queries) UsageBuckets(ctx context.Context, arg UsageBucketsParams) ([]UsageBucketsRow, error) {
@@ -1485,6 +1659,9 @@ func (q *Queries) UsageBuckets(ctx context.Context, arg UsageBucketsParams) ([]U
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1512,7 +1689,10 @@ SELECT account_id AS id,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -1526,19 +1706,22 @@ GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, accoun
 `
 
 type UsageByAccountRow struct {
-	ID               string
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	ID                    string
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAccountRow, error) {
@@ -1556,6 +1739,9 @@ func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAcc
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1591,7 +1777,10 @@ SELECT CAST(CASE
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(u.outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN u.estimated = 0 THEN u.cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(u.estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN u.estimated = 1 THEN u.prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN u.estimated = 0 THEN u.prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(u.web_searches) AS INTEGER) AS web_searches,
@@ -1605,20 +1794,23 @@ GROUP BY 1, 2 ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, 2, 1
 `
 
 type UsageByKeyRow struct {
-	ID               string
-	Name             string
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	ID                    string
+	Name                  string
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 // A key the control plane made for a chat's pi counts under the chat's Bot, and one made for a worker's Dispatch
@@ -1641,6 +1833,9 @@ func (q *Queries) UsageByKey(ctx context.Context, since int64) ([]UsageByKeyRow,
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1668,7 +1863,10 @@ SELECT model AS name,
        CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
-       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END) AS INTEGER) AS cached_tokens,
+       CAST(SUM(estimated = 1) AS INTEGER) AS estimated_requests,
+       CAST(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END) AS INTEGER) AS measured_prompt_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
        CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
        CAST(SUM(web_searches) AS INTEGER) AS web_searches,
@@ -1682,19 +1880,22 @@ GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model
 `
 
 type UsageByModelRow struct {
-	Name             string
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	Name                  string
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 func (q *Queries) UsageByModel(ctx context.Context, since int64) ([]UsageByModelRow, error) {
@@ -1712,6 +1913,9 @@ func (q *Queries) UsageByModel(ctx context.Context, since int64) ([]UsageByModel
 			&i.Failed,
 			&i.PromptTokens,
 			&i.CachedTokens,
+			&i.EstimatedRequests,
+			&i.EstimatedPromptTokens,
+			&i.MeasuredPromptTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
 			&i.WebSearches,
@@ -1739,7 +1943,10 @@ const usageTotals = `-- name: UsageTotals :one
 SELECT CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(COALESCE(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')), 0) AS INTEGER) AS failed,
        CAST(COALESCE(SUM(prompt_tokens), 0) AS INTEGER) AS prompt_tokens,
-       CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 0 THEN cached_tokens ELSE 0 END), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(estimated = 1), 0) AS INTEGER) AS estimated_requests,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 1 THEN prompt_tokens ELSE 0 END), 0) AS INTEGER) AS estimated_prompt_tokens,
+       CAST(COALESCE(SUM(CASE WHEN estimated = 0 THEN prompt_tokens ELSE 0 END), 0) AS INTEGER) AS measured_prompt_tokens,
        CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
        CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens,
        CAST(COALESCE(SUM(web_searches), 0) AS INTEGER) AS web_searches,
@@ -1752,18 +1959,21 @@ FROM gateway_usage WHERE created_at >= ?1
 `
 
 type UsageTotalsRow struct {
-	Requests         int64
-	Failed           int64
-	PromptTokens     int64
-	CachedTokens     int64
-	CompletionTokens int64
-	ReasoningTokens  int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
+	Requests              int64
+	Failed                int64
+	PromptTokens          int64
+	CachedTokens          int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	CompletionTokens      int64
+	ReasoningTokens       int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
 }
 
 // The Usage page (issue #199, step 4). A request failed when its outcome is upstream_error, transport_error or
@@ -1776,6 +1986,9 @@ func (q *Queries) UsageTotals(ctx context.Context, since int64) (UsageTotalsRow,
 		&i.Failed,
 		&i.PromptTokens,
 		&i.CachedTokens,
+		&i.EstimatedRequests,
+		&i.EstimatedPromptTokens,
+		&i.MeasuredPromptTokens,
 		&i.CompletionTokens,
 		&i.ReasoningTokens,
 		&i.WebSearches,

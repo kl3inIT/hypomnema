@@ -14,6 +14,7 @@ type GatewayAudioProvider struct {
 	SttPosition sql.NullInt64
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
+	Voice       string
 }
 
 type GatewayImageProvider struct {
@@ -24,17 +25,19 @@ type GatewayImageProvider struct {
 }
 
 type GatewayKey struct {
-	ID         string
-	Name       string
-	KeyHash    string
-	Models     string
-	CreatedAt  int64
-	RevokedAt  sql.NullInt64
-	DispatchID sql.NullString
-	ChatID     sql.NullString
-	KeyPrefix  string
-	BotID      sql.NullString
-	Endpoints  sql.NullString
+	ID              string
+	Name            string
+	KeyHash         string
+	Models          string
+	CreatedAt       int64
+	RevokedAt       sql.NullInt64
+	DispatchID      sql.NullString
+	ChatID          sql.NullString
+	KeyPrefix       string
+	BotID           sql.NullString
+	Endpoints       sql.NullString
+	SecretVersionID sql.NullString
+	MaskedValue     string
 }
 
 type GatewayModel struct {
@@ -69,30 +72,35 @@ type GatewaySearchUsage struct {
 }
 
 type GatewayUsageDaily struct {
-	Day              int64
-	Caller           string
-	Model            string
-	Provider         string
-	UpstreamModel    string
-	AccountID        string
-	Requests         int64
-	Ok               int64
-	Failed           int64
-	ClientGone       int64
-	PromptTokens     int64
-	CompletionTokens int64
-	CachedTokens     int64
-	ReasoningTokens  int64
-	CacheWriteTokens int64
-	WebSearches      int64
-	AudioMs          int64
-	Characters       int64
-	Images           int64
-	CostMicros       int64
-	Unpriced         int64
-	OkDurationMs     int64
-	TtftMs           int64
-	TtftCount        int64
-	GenerationMs     int64
-	GenerationTokens int64
+	Day                   int64
+	Caller                string
+	Model                 string
+	Provider              string
+	UpstreamModel         string
+	AccountID             string
+	Requests              int64
+	Ok                    int64
+	Failed                int64
+	ClientGone            int64
+	PromptTokens          int64
+	CompletionTokens      int64
+	CachedTokens          int64
+	ReasoningTokens       int64
+	CacheWriteTokens      int64
+	WebSearches           int64
+	AudioMs               int64
+	Characters            int64
+	Images                int64
+	CostMicros            int64
+	Unpriced              int64
+	OkDurationMs          int64
+	TtftMs                int64
+	TtftCount             int64
+	GenerationMs          int64
+	GenerationTokens      int64
+	EstimatedRequests     int64
+	EstimatedPromptTokens int64
+	MeasuredPromptTokens  int64
+	MeasuredCachedTokens  int64
+	NoAccount             int64
 }

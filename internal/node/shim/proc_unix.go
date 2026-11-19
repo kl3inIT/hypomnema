@@ -23,6 +23,24 @@ func Alive(pid int) bool {
 
 func killSignal() string { return syscall.SIGKILL.String() }
 
+func GroupGone(pid int) bool {
+	return pid > 1 && !Alive(pid) && errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH)
+}
+
+// Kill kills the shim's whole session group: the shim, the worker and what
+// the worker started (durable-harness host.ts kills -pgid).
+func Kill(pid int) error {
+	if pid <= 1 {
+		return errors.New("refusing to kill pid 0 or 1")
+	}
+
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+
+	return nil
+}
+
 func signalOf(ps *os.ProcessState) string {
 	ws, ok := ps.Sys().(syscall.WaitStatus)
 	if !ok || !ws.Signaled() {

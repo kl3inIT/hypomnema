@@ -100,9 +100,11 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 
 	r := toRun(run)
 	out := openapi.GetRun200JSONResponse{
-		Id: r.Id, Objective: r.Objective, Status: r.Status, CreatedBy: r.CreatedBy, Repo: r.Repo, Base: r.Base,
+		Id: r.Id, Objective: r.Objective, Status: r.Status, CreatedBy: r.CreatedBy,
+		Repo: r.Repo, RepoHost: r.RepoHost, Base: r.Base,
 		CoordinatorTokenId: r.CoordinatorTokenId, ChatId: r.ChatId, Bot: r.Bot, CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, Tasks: make([]openapi.TaskDetail, 0, len(tasks)),
+		UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, ReviewStall: r.ReviewStall,
+		Tasks: make([]openapi.TaskDetail, 0, len(tasks)),
 	}
 
 	total, byTask, err := s.svc.RunUsage(ctx, run.ID)
@@ -111,6 +113,17 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 	}
 
 	out.Usage = ptr(toWorkUsage(total))
+	heads, err := s.svc.ListPublishedHeads(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(heads) != 0 {
+		published := make([]openapi.PublishedHead, 0, len(heads))
+		for _, head := range heads {
+			published = append(published, openapi.PublishedHead{Branch: head.Branch, Sha: head.SHA})
+		}
+		out.PublishedHeads = &published
+	}
 
 	for _, t := range tasks {
 		detail, err := s.taskDetail(ctx, t)

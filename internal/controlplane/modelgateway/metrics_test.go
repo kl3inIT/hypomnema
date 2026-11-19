@@ -53,7 +53,9 @@ func TestTheTimeToFirstTokenIsMeasuredOnAStreamOnly(t *testing.T) {
 	u := g.lastUsage(t)
 	require.NotNil(t, u.TTFT)
 	assert.GreaterOrEqual(t, *u.TTFT, 60*time.Millisecond)
-	assert.GreaterOrEqual(t, u.Duration-*u.TTFT, 120*time.Millisecond, "the first token comes before the end")
+	// The stub sleeps 120 ms after its first chunk, but the gateway stamps TTFT when it sees that chunk, a little
+	// after the stub wrote it; under -race the gap can be a few ms short. Half the sleep is a wide margin.
+	assert.Greater(t, u.Duration-*u.TTFT, 60*time.Millisecond, "the first token comes before the end")
 
 	tps, ok := u.TokensPerSecond()
 	require.True(t, ok)
@@ -109,7 +111,7 @@ func newGatewayDB(t *testing.T) (*modelgateway.Service, *sql.DB) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	return modelgateway.New(db, fixedClock{}, platform.NewID, nil, nil), db
+	return modelgateway.New(db, fixedClock{}, platform.NewID, nil, nil).WithKeyVault(testKeyVault(t, db)), db
 }
 
 // sample records one request to a text model an hour before the fixed clock's now.

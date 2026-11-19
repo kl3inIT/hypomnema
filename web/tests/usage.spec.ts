@@ -15,12 +15,24 @@ const counts = (
   cached: number,
   out: number,
   more: Partial<
-    Record<"web_searches" | "audio_seconds" | "characters" | "images" | "cost_micros", number>
+    Record<
+      | "web_searches"
+      | "audio_seconds"
+      | "characters"
+      | "images"
+      | "cost_micros"
+      | "estimated_requests"
+      | "estimated_prompt_tokens",
+      number
+    >
   > = {},
 ) => ({
   requests,
   failed,
   prompt_tokens: prompt,
+  measured_prompt_tokens: prompt - (more.estimated_prompt_tokens ?? 0),
+  estimated_requests: 0,
+  estimated_prompt_tokens: 0,
   cached_tokens: cached,
   completion_tokens: out,
   reasoning_tokens: Math.round(out / 5),
@@ -46,15 +58,17 @@ const speed = (
   tps: number,
   exact: boolean,
   account?: { id: string; label: string; runtime: string },
+  noAccount = 0,
 ) => ({
   provider,
   model,
   requests,
   ok,
   failed,
-  client_gone: requests - ok - failed,
+  client_gone: requests - ok - failed - noAccount,
+  no_account: noAccount,
   success_rate: ok / (ok + failed),
-  cost_micros: requests * 4200,
+  cost_micros: (requests - noAccount) * 4200,
   exact,
   ...(exact
     ? {
@@ -105,13 +119,15 @@ function usage(period: string) {
       speed(
         "codex-subscription",
         "gpt-6.1-sol",
-        150 * day,
+        298 * day,
         142 * day,
         6 * day,
         920,
         14_800,
         96.2,
         !ledger,
+        undefined,
+        148 * day,
       ),
       speed("openrouter", "deepseek-v4", 48 * day, 41 * day, 7 * day, 3100, 38_000, 31.7, !ledger),
       speed(
@@ -143,6 +159,8 @@ function usage(period: string) {
       audio_seconds: 754 * day,
       characters: 4_120 * day,
       images: 6 * day,
+      estimated_requests: 6 * day,
+      estimated_prompt_tokens: 900_000 * day,
     }),
     buckets: Array.from({ length: n }, (_, i) => ({
       start: monthly ? monthStart(i) : iso(start + i * size),
@@ -163,7 +181,10 @@ function usage(period: string) {
       {
         id: "gpt-6.1-sol",
         name: "gpt-6.1-sol",
-        counts: counts(150, 6, 5_900_000, 4_700_000, 120_000),
+        counts: counts(298, 6, 5_900_000, 4_700_000, 120_000, {
+          estimated_requests: 6,
+          estimated_prompt_tokens: 900_000,
+        }),
       },
       {
         id: "claude-sonnet",
@@ -193,7 +214,14 @@ function usage(period: string) {
         name: "claude-code-laptop",
         counts: counts(240, 3, 12_000_000, 10_500_000, 190_000),
       },
-      { id: "gwk_2", name: "chat-pi", counts: counts(172, 6, 6_400_000, 4_600_000, 120_000) },
+      {
+        id: "gwk_2",
+        name: "chat-pi",
+        counts: counts(172, 6, 6_400_000, 4_600_000, 120_000, {
+          estimated_requests: 6,
+          estimated_prompt_tokens: 900_000,
+        }),
+      },
     ],
     by_account: [
       {
@@ -206,7 +234,10 @@ function usage(period: string) {
         id: "acc_2",
         name: "chatgpt@example.com",
         runtime: "codex",
-        counts: counts(150, 6, 5_900_000, 4_700_000, 120_000),
+        counts: counts(150, 6, 5_900_000, 4_700_000, 120_000, {
+          estimated_requests: 6,
+          estimated_prompt_tokens: 900_000,
+        }),
       },
     ],
   }
@@ -256,6 +287,25 @@ const refused = request(2, {
   duration_ms: 640,
   cost_micros: undefined,
   priced_model: undefined,
+})
+
+const noAccount = request(24, {
+  model: "gpt-6.1-sol",
+  provider: "codex-subscription",
+  upstream_model: "gpt-6.1-sol",
+  account_id: undefined,
+  account_label: undefined,
+  outcome: "no_account",
+  status: 429,
+  error: "No account was free.",
+  prompt_tokens: 0,
+  cached_tokens: 0,
+  completion_tokens: 0,
+  reasoning_tokens: 0,
+  cost_micros: undefined,
+  priced_model: undefined,
+  ttft_ms: undefined,
+  tokens_per_second: undefined,
 })
 
 // The other kinds a request may be (issue #723): a model that searched the web itself, a search, a page read that
@@ -391,22 +441,20 @@ async function fakeServer(page: Page, empty = false) {
         const failed = url.searchParams.get("failed") === "true"
         const offset = Number(url.searchParams.get("offset") ?? 0)
         asked.push(`requests ${failed ? "failed" : "all"} ${offset}`)
-        const all = [
-          request(1),
-          refused,
-          request(3, {
-            key_name: "chat-pi",
-            model: "claude-sonnet",
-            provider: "antigravity-subscription",
-            upstream_model: "claude-sonnet-4-6",
-            account_label: "zeromail",
-            duration_ms: 1900,
-          }),
-          ...kinds,
-        ]
+        const truncated = request(3, {
+          key_name: "chat-pi",
+          model: "claude-sonnet",
+          provider: "antigravity-subscription",
+          upstream_model: "claude-sonnet-4-6",
+          account_label: "zeromail",
+          duration_ms: 1900,
+          outcome: "truncated",
+          error: "no event for 5m",
+        })
+        const all = [request(1), refused, truncated, ...kinds, noAccount]
 
         return json({
-          data: failed ? [refused, kinds[2]] : offset === 0 ? all : [request(60)],
+          data: failed ? [refused, truncated, kinds[2]] : offset === 0 ? all : [request(60)],
           has_more: !failed && offset === 0,
         })
       }
@@ -427,27 +475,49 @@ const fits = (page: Page) =>
 
 // Scenario: the owner opens the Usage page. It shows the day's totals, the tokens an hour, the models with their
 // marks and names, and the latest requests with where each went and how it ended.
-test("the owner sees what the gateway served today", async ({ page }) => {
+test("the owner sees what the gateway served today", async ({ page, isMobile }) => {
   await fakeServer(page)
   await page.goto("/settings/usage")
 
   await expect(page.getByRole("heading", { name: "Usage" })).toBeVisible()
   await expect(page.getByText("Requests", { exact: true }).first()).toBeVisible()
   await expect(page.getByLabel("Totals")).toContainText("412")
+  await expect(page.getByLabel("Totals")).toContainText("86% of measured input")
+  const estimates = page.getByRole("button", { name: "6 requests estimated, 900k input tokens" })
+  await expect(estimates).toBeVisible()
+  if (isMobile) await estimates.evaluate((element) => element.scrollIntoView({ block: "end" }))
+  await shot(page, "usage-estimated-cache")
   await expect(page.getByRole("heading", { name: "Tokens an hour" })).toBeVisible()
   const opus = page
     .getByRole("table", { name: "Usage by model" })
     .getByRole("row", { name: "claude-opus-5-5" })
   await expect(opus).toContainText("Claude Opus 5.5")
   await expect(opus).toContainText("11.2M")
+  await expect(page.getByRole("table", { name: "Usage by model" })).toContainText(
+    "94% of measured input",
+  )
+  await page.getByRole("tab", { name: "By Bot and key" }).click()
+  await expect(page.getByRole("table", { name: "Usage by Bot and key" })).toContainText(
+    "84% of measured input",
+  )
+  await page.getByRole("tab", { name: "By account" }).click()
+  await expect(page.getByRole("table", { name: "Usage by account" })).toContainText(
+    "94% of measured input",
+  )
+  await page.getByRole("tab", { name: "By model" }).click()
   await expect(page.getByLabel("Totals")).toContainText("API cost")
 
   const requests = page.getByRole("table", { name: "Requests" })
-  await expect(requests.getByRole("row")).toHaveCount(10)
+  await expect(requests.getByRole("row")).toHaveCount(11)
   await expect(requests).toContainText("Refused")
   await expect(requests).toContainText("chatgpt@example.com")
   expect(await fits(page)).toBe(true)
-  await shot(page, "usage")
+  if (!isMobile) {
+    await estimates.hover()
+    await expect(
+      page.getByText("Estimates are included in totals, but not in the cache share."),
+    ).toBeVisible()
+  }
 })
 
 // Scenario (issue #723, decisions 3.2 to 3.6): each kind of request is counted in its own unit. The totals add the
@@ -524,7 +594,11 @@ test("the owner finds why a request failed", async ({ page }) => {
 
   await page.getByRole("switch", { name: "Failed only" }).click()
   const requests = page.getByRole("table", { name: "Requests" })
-  await expect(requests.getByRole("row")).toHaveCount(3)
+  await expect(requests.getByRole("row")).toHaveCount(4)
+  const reason = requests.getByText("no event for 5m", { exact: true })
+  await expect(reason).toBeVisible()
+  await reason.scrollIntoViewIfNeeded()
+  await shot(page, "usage-stream-reason")
   await requests.getByRole("row", { name: /GPT/ }).click()
 
   const sheet = page.getByRole("dialog")
@@ -570,6 +644,24 @@ test("the owner compares the providers' speed and reliability", async ({ page })
   await expect(sheet).toContainText("Speed231 tok/s, after the first token")
   await page.waitForTimeout(300)
   await shot(page, "usage-request-speed")
+})
+
+test("the models page shows account refusals apart from provider failures", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/settings/usage")
+  const table = page.getByRole("table", { name: "Performance by provider and model" })
+  const codex = table.getByRole("row", { name: "codex-subscription gpt-6.1-sol" })
+  await expect(codex.getByRole("cell").nth(2)).toHaveText("95.9%6 failed")
+  await expect(codex.getByRole("cell").nth(3)).toHaveText("148")
+  await page.getByRole("heading", { name: "Performance" }).scrollIntoViewIfNeeded()
+  await table.getByRole("columnheader", { name: "No account free" }).scrollIntoViewIfNeeded()
+  await shot(page, "models-no-account")
+
+  const requests = page.getByRole("table", { name: "Requests" })
+  await requests.getByRole("row", { name: /GPT/ }).filter({ hasText: "No account free" }).click()
+  const sheet = page.getByRole("dialog")
+  await expect(sheet).toContainText("No account could serve this request")
+  await expect(sheet).not.toContainText("The provider answered")
 })
 
 // Scenario (issue #856): the owner looks at the last 12 months. They are read from the daily ledger: a bar a

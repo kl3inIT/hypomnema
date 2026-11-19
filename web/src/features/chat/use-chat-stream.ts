@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 
 import "@/api/client"
-import { getChatQueryKey } from "@/api/generated/@tanstack/react-query.gen"
+import { getChatQueryKey, listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import { listChatMessages, streamChat } from "@/api/generated/sdk.gen"
 import type {
   Chat,
@@ -13,6 +13,7 @@ import type {
   ChatToolActivity,
   QueuedChatMessageList,
 } from "@/api/generated/types.gen"
+import { everyCall } from "@/lib/query-keys"
 
 import { chatReducer, emptyChat, type ChatAction } from "./chat-state"
 
@@ -20,6 +21,8 @@ import { chatReducer, emptyChat, type ChatAction } from "./chat-state"
 const reopenAfter = 2000
 // page is how many messages one read of history brings (OpenMausBot's MESSAGE_PAGE_SIZE, Orca's history pages).
 const page = 200
+// relistAfter gathers the lines that come close together into one new read of the lists of chats.
+const relistAfter = 1000
 // newest is a seq above every message, to read a chat from its end.
 const newest = Number.MAX_SAFE_INTEGER
 
@@ -46,6 +49,17 @@ export function useChatStream(chatId: string) {
     // read says the newest page was read, after which only the stream is opened again.
     let read = false
     let down = false
+
+    // A line of the owner or the Bot changes the chat's last line, which the sidebar's row of its Bot shows (issue
+    // #471): the lists of chats are read again, once for lines that come close together.
+    let relist: ReturnType<typeof setTimeout> | undefined
+    const lined = () => {
+      if (relist) return
+      relist = setTimeout(() => {
+        relist = undefined
+        void queryClient.invalidateQueries({ queryKey: everyCall(listChatsQueryKey()) })
+      }, relistAfter)
+    }
 
     const connection = (reconnecting: boolean) => {
       if (down === reconnecting || controller.signal.aborted) return
@@ -104,7 +118,11 @@ export function useChatStream(chatId: string) {
               }
               const action = frame(e.event, e.data)
               if (!action) return
-              if (action.type === "message") after = Math.max(after, action.message.seq)
+              if (action.type === "message") {
+                after = Math.max(after, action.message.seq)
+                if (action.message.role === "owner" || action.message.role === "coordinator")
+                  lined()
+              }
               dispatch(action)
             },
           })
@@ -124,7 +142,10 @@ export function useChatStream(chatId: string) {
 
     void follow()
 
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      clearTimeout(relist)
+    }
   }, [chatId, queryClient])
 
   const loadEarlier = useCallback(async () => {

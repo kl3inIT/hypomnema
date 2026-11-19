@@ -33,6 +33,9 @@ type translation struct {
 	refusal func() *http.Response
 	// release is called once the answer is over, however it ends; may be nil.
 	release func()
+	// succeeded is called once the provider has ended the answer with no error
+	// in it; may be nil.
+	succeeded func()
 }
 
 // translated turns a provider's event stream into the answer. Nothing is
@@ -46,8 +49,15 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 		}
 	}
 
+	succeeded := func() {
+		if t.succeeded != nil && t.finished() && !t.failed() {
+			t.succeeded()
+		}
+	}
+
 	events := bufio.NewScanner(resp.Body)
 	events.Buffer(make([]byte, 0, 64<<10), maxEventBytes)
+	var failure string
 
 	// next reads events until one gives chunks, or the stream ends.
 	next := func() [][]byte {
@@ -57,7 +67,14 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 				continue
 			}
 
-			if chunks := t.event(bytes.TrimSpace(data)); len(chunks) > 0 || t.failed() {
+			chunks := t.event(bytes.TrimSpace(data))
+			if t.failed() {
+				failure = streamEventError(data)
+
+				return chunks
+			}
+
+			if len(chunks) > 0 {
 				return chunks
 			}
 		}
@@ -87,6 +104,7 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 		_ = resp.Body.Close()
 
 		release()
+		succeeded()
 
 		return &http.Response{
 			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
@@ -114,6 +132,8 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 			}
 
 			if t.finished() {
+				succeeded()
+
 				_, _ = io.WriteString(writer, "data: [DONE]\n\n")
 
 				break
@@ -129,6 +149,12 @@ func (s *Server) translated(ctx context.Context, call chatCall, resp *http.Respo
 
 			s.logger.WarnContext(ctx, "a provider failed inside its answer",
 				slog.String("event", "modelgateway.stream_failed"), slog.String("provider", call.upstream.Provider))
+
+			if failure != "" {
+				_ = writer.CloseWithError(upstreamStreamError(failure))
+
+				return
+			}
 		}
 
 		// With no end mark written, the gateway tells the client the answer

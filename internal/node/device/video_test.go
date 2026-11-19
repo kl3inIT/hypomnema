@@ -26,6 +26,10 @@ func TestTheVideoToolsFilmThroughTheNodesCall(t *testing.T) {
 			return Output{Stdout: "Packages:\n  versionCode=42 minSdk=24\n    versionName=3.1.0\n"}, true
 		}
 
+		if slices.Contains(c.Args, "wm") {
+			return Output{Stdout: "Physical size: 1080x2400\nOverride size: 720x1600\n"}, true
+		}
+
 		return Output{}, false
 	}
 
@@ -34,6 +38,8 @@ func TestTheVideoToolsFilmThroughTheNodesCall(t *testing.T) {
 	require.False(t, answer.IsError, answer.Content)
 	require.NotNil(t, answer.Take)
 	assert.Equal(t, "tk_0123456789abcdef", answer.Take.ID)
+	assert.Equal(t, &devicetool.TakeScreen{Width: 720, Height: 1600}, answer.Take.Screen,
+		"the screen a tap is in, the override taps follow (issue #818)")
 	assert.Contains(t, answer.Content[0].Text, "video_say")
 
 	<-r.opened

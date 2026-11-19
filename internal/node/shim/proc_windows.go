@@ -3,6 +3,7 @@
 package shim
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -90,6 +91,26 @@ func resumeWorker(pid uint32) error {
 		return err
 	}
 	return windows.ERROR_NOT_FOUND
+}
+
+func GroupGone(int) bool { return false }
+
+// Kill kills the shim; closing its Job Object handle then kills the worker's tree.
+func Kill(pid int) error {
+	if pid <= 0 {
+		return errors.New("refusing to kill pid 0")
+	}
+
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return nil //nolint:nilerr // a process that cannot be found is already gone
+	}
+
+	if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+
+	return nil
 }
 
 func (stop workerStop) close() { _ = windows.CloseHandle(stop.job) }

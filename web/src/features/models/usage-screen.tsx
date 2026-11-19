@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ChartColumn } from "lucide-react"
+import { ChevronLeft, ChevronRight, ChartColumn, Info } from "lucide-react"
 import { useState } from "react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ProviderMark } from "@/components/icons/model-mark"
 import { RequestMark } from "@/components/icons/provider-marks"
 import { ErrorAlert } from "@/components/error-alert"
@@ -49,6 +50,7 @@ import { modelName } from "@/lib/model-name"
 import {
   bars,
   bucketWord,
+  cacheShare,
   cost,
   duration,
   money,
@@ -76,7 +78,7 @@ const pageSize = 50
 
 // The chart's three stacks, bottom first, in the app's chart colors (index.css), light to dark.
 const chartConfig = {
-  uncached: { label: "In, not cached", color: "var(--chart-1)" },
+  uncached: { label: "In, other", color: "var(--chart-1)" },
   cached: { label: "In, from cache", color: "var(--chart-3)" },
   output: { label: "Out", color: "var(--chart-5)" },
 } satisfies ChartConfig
@@ -141,6 +143,28 @@ export function UsageScreen() {
       {usage.data && usage.data.totals.requests > 0 && (
         <>
           <Totals usage={usage.data} />
+          {usage.data.totals.estimated_requests > 0 && (
+            <p className="text-sm text-muted-foreground">
+              <Tooltip>
+                <TooltipTrigger>
+                  <span className="inline-flex cursor-help items-center gap-1.5">
+                    <span>
+                      {usage.data.totals.estimated_requests.toLocaleString()}{" "}
+                      {usage.data.totals.estimated_requests === 1 ? "request" : "requests"}{" "}
+                      estimated, {tokens(usage.data.totals.estimated_prompt_tokens)} input tokens
+                    </span>
+                    <Info aria-hidden="true" className="size-3.5 shrink-0" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span className="block max-w-64 text-pretty">
+                    When the provider leaves out token counts, tokens are estimated from the request
+                    or response size. Estimates are included in totals, but not in the cache share.
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            </p>
+          )}
           {usage.data.ledger && (
             <p className="text-sm text-muted-foreground">
               Read from the daily totals, kept after the requests themselves are deleted at 31 days:
@@ -357,6 +381,9 @@ function GroupTable({
               <TableCell>
                 <span className="block text-end text-muted-foreground tabular-nums">
                   {tokens(g.counts.cached_tokens)}
+                </span>
+                <span className="block text-end text-xs text-muted-foreground">
+                  {cacheShare(g.counts)}
                 </span>
               </TableCell>
               <TableCell>
@@ -623,6 +650,7 @@ function RequestSheet({
   onClose: () => void
 }) {
   const o = request ? outcome(request.outcome) : null
+  const noAccount = request?.outcome === "no_account"
 
   return (
     <Sheet open={request !== null} onOpenChange={(next: boolean) => !next && onClose()}>
@@ -648,11 +676,19 @@ function RequestSheet({
             <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-4">
               {request.error && (
                 <div
-                  role="alert"
-                  className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"
+                  role={noAccount ? undefined : "alert"}
+                  className={
+                    noAccount
+                      ? "rounded-lg border bg-muted/50 p-3 text-sm"
+                      : "rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"
+                  }
                 >
-                  <p className="font-medium text-destructive">
-                    {request.status > 0 ? `The provider answered ${request.status}` : o.label}
+                  <p className={noAccount ? "font-medium" : "font-medium text-destructive"}>
+                    {noAccount
+                      ? "No account could serve this request"
+                      : request.status > 0
+                        ? `The provider answered ${request.status}`
+                        : o.label}
                   </p>
                   <p className="mt-1 break-words whitespace-pre-wrap">{request.error}</p>
                 </div>
@@ -742,6 +778,7 @@ function Performance({ usage }: { usage: GatewayUsage }) {
           {usage.ledger
             ? "How fast and how reliably the text models answered, on average."
             : "How fast and how reliably the text models answered: the median, and under it the slowest 5%."}
+          {" Requests refused because no account was free are counted separately."}
         </p>
       </div>
       <Tabs defaultValue="provider">
@@ -753,6 +790,7 @@ function Performance({ usage }: { usage: GatewayUsage }) {
           <PerformanceTable
             label="Performance by provider and model"
             head="Provider and model"
+            showNoAccount
             rows={usage.by_provider}
             empty="No text model answered in this period."
             name={(p) => (
@@ -791,12 +829,14 @@ function PerformanceTable({
   rows,
   name,
   empty,
+  showNoAccount = false,
 }: {
   label: string
   head: string
   rows: GatewayPerformance[]
   name: (p: GatewayPerformance) => React.ReactNode
   empty: string
+  showNoAccount?: boolean
 }) {
   return (
     <div className="min-w-0 overflow-x-auto rounded-xl border bg-card">
@@ -810,6 +850,13 @@ function PerformanceTable({
             <TableHead>
               <span className="block text-end">Answered</span>
             </TableHead>
+            {showNoAccount && (
+              <TableHead>
+                <span className="ms-auto block w-16 text-end whitespace-normal sm:w-auto sm:whitespace-nowrap">
+                  No account free
+                </span>
+              </TableHead>
+            )}
             <TableHead>
               <span className="block text-end">First token</span>
             </TableHead>
@@ -847,6 +894,13 @@ function PerformanceTable({
                     )}
                   </span>
                 </TableCell>
+                {showNoAccount && (
+                  <TableCell>
+                    <span className="block text-end text-muted-foreground tabular-nums">
+                      {p.no_account > 0 ? p.no_account.toLocaleString() : "—"}
+                    </span>
+                  </TableCell>
+                )}
                 <TableCell>
                   <span className="flex flex-col items-end tabular-nums">
                     <span>{s.ttft}</span>
@@ -880,7 +934,7 @@ function PerformanceTable({
           })}
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7}>
+              <TableCell colSpan={showNoAccount ? 8 : 7}>
                 <p className="py-6 text-center text-muted-foreground">{empty}</p>
               </TableCell>
             </TableRow>
