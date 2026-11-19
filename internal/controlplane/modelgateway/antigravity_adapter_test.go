@@ -212,8 +212,8 @@ func TestAModelWhoseQuotaIsUsedUpWaitsAndTheOthersDoNot(t *testing.T) {
 
 	status, headers, body := g.call(t, g.key, askFlash+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.Contains(t, body, "exhausted your capacity")
-	assert.Equal(t, "7201", headers.Get("Retry-After"))
+	assert.Contains(t, body, "account_unavailable")
+	assert.Equal(t, "7200", headers.Get("Retry-After"))
 
 	status, headers, _ = g.call(t, g.key, askFlash+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
@@ -261,7 +261,7 @@ func TestAModelWhoseGroupIsUsedUpWaitsUntilTheWindowResets(t *testing.T) {
 
 	status, headers, body := g.call(t, g.key, askFlash+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.Contains(t, body, "Resource has been exhausted")
+	assert.Contains(t, body, "account_unavailable")
 
 	wait, err := strconv.Atoi(headers.Get("Retry-After"))
 	require.NoError(t, err)

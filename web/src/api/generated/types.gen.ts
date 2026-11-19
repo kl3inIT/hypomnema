@@ -2558,7 +2558,11 @@ export type GatewayPerformance = {
    */
   client_gone: number;
   /**
-   * The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+   * Requests refused by the gateway because all usable accounts were cooling.
+   */
+  no_account: number;
+  /**
+   * The answered share of answered and failed requests, 0 to 1; absent when there is none.
    */
   success_rate?: number;
   cost_micros: number;
@@ -2619,13 +2623,13 @@ export type GatewayRequest = {
   account_label?: string;
   stream: boolean;
   attempts: number;
-  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone';
+  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone' | 'no_account';
   /**
-   * The provider's HTTP status; 0 when it gave none.
+   * The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
    */
   status: number;
   /**
-   * The provider's error or the reason the request ended early, when available.
+   * The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
    */
   error?: string;
   prompt_tokens: number;

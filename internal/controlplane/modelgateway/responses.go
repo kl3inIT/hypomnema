@@ -130,7 +130,7 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: true, started: started}
 	serving, served := withServed(r)
-	s.serveResponses(w, serving, raw, session, model, &record)
+	s.serveResponses(w, serving, raw, session, model, &record, served)
 	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 
@@ -144,7 +144,7 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 // serveResponses tries the model's Codex targets in order, as serveChat tries
 // every target, and fills the record.
 func (s *Server) serveResponses(
-	w http.ResponseWriter, r *http.Request, raw []byte, session string, model Model, record *Usage,
+	w http.ResponseWriter, r *http.Request, raw []byte, session string, model Model, record *Usage, served *served,
 ) {
 	ctx := r.Context()
 
@@ -167,6 +167,7 @@ func (s *Server) serveResponses(
 		return
 	}
 
+	var cooling modelCooling
 	for i, target := range targets {
 		last := i == len(targets)-1
 		noteServed(ctx, "")
@@ -187,6 +188,9 @@ func (s *Server) serveResponses(
 
 				return
 			}
+			if cooling.add(err) {
+				continue
+			}
 
 			s.logger.WarnContext(ctx, "a gateway target gave no answer",
 				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
@@ -196,8 +200,8 @@ func (s *Server) serveResponses(
 		}
 
 		record.Status = resp.StatusCode
-
 		if retryable(resp.StatusCode) && !last {
+			cooling.other = true
 			drain(resp)
 
 			continue
@@ -217,16 +221,49 @@ func (s *Server) serveResponses(
 			return
 		}
 
-		s.relayResponses(w, r, len(raw), resp, record)
+		var onFailure func(*codex.Failure)
+		if target.Kind == "codex_subscription" && served.id != "" {
+			onFailure = func(failure *codex.Failure) {
+				s.codexCool(ctx, AccountToken{AccountID: served.id}, failure)
+				s.recordResponsesCooling(ctx, r.URL.Path, model.Name, cooling, targets[i:])
+			}
+		}
+		s.relayResponses(w, r, len(raw), resp, record, onFailure)
 		_ = resp.Body.Close()
 
 		return
 	}
 
+	if resp := s.coolingResponse(ctx, r.URL.Path, cooling, record); resp != nil {
+		relayCooling(w, resp)
+		_ = resp.Body.Close()
+		return
+	}
 	record.Outcome = OutcomeTransportError
 
 	writeError(w, http.StatusBadGateway, typeServer, "upstream_unavailable",
 		fmt.Sprintf("no provider of model %q could be reached", model.Name))
+}
+
+func (s *Server) recordResponsesCooling(
+	ctx context.Context, route, model string, cooling modelCooling, targets []upstream,
+) {
+	if cooling.other {
+		return
+	}
+	kept := context.WithoutCancel(ctx)
+	for _, target := range targets {
+		runtime := codexRuntime
+		if target.Kind == openCodeGoKind {
+			runtime = openCodeGoRuntime
+		}
+		until, err := s.accounts.FirstFree(kept, runtime, nil)
+		if err != nil || until.IsZero() {
+			return
+		}
+		cooling.add(&CoolingError{Until: until})
+	}
+	s.recordModelCooling(kept, route, model, cooling.first, s.svc.clock.Now())
 }
 
 // passResponses sends a Responses request to one target: a Codex subscription
@@ -250,7 +287,7 @@ func (s *Server) passResponses(
 		return nil, &badMessagesError{err: err}
 	}
 
-	return s.underAccounts(ctx, codexRuntime, built.CacheKey, nil,
+	return s.underModelAccounts(ctx, codexRuntime, built.CacheKey, nil, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.codexCall(ctx, &token, built)
 			if err != nil {
@@ -270,7 +307,7 @@ func (s *Server) passResponses(
 // relayResponses copies the backend's event stream to the client line for
 // line, and reads the usage from the event that ends the answer.
 func (s *Server) relayResponses(
-	w http.ResponseWriter, r *http.Request, asked int, resp *http.Response, record *Usage,
+	w http.ResponseWriter, r *http.Request, asked int, resp *http.Response, record *Usage, onFailure func(*codex.Failure),
 ) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -313,6 +350,12 @@ func (s *Server) relayResponses(
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData {
 			noteSearch(payload, searches)
 			noteStreamFailure(&failure, payload)
+			if onFailure != nil && !completed && bytes.Contains(payload, []byte(`"response.failed"`)) {
+				if parsed := codex.ParseResponseFailure(payload, s.svc.clock.Now()); parsed != nil && parsed.UsageLimit() {
+					onFailure(parsed)
+					onFailure = nil
+				}
+			}
 		}
 
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData &&
