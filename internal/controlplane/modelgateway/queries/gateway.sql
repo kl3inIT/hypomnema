@@ -73,6 +73,9 @@ ORDER BY created_at DESC, id DESC LIMIT 1;
 -- name: GetLatestGatewayKeyOfChat :one
 SELECT * FROM gateway_keys WHERE chat_id = @chat_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
+-- name: GetLatestGatewayKeyOfDispatch :one
+SELECT * FROM gateway_keys WHERE dispatch_id = @dispatch_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
+
 -- name: GetGatewayKeyByHash :one
 SELECT * FROM gateway_keys WHERE key_hash = @key_hash;
 
@@ -93,11 +96,11 @@ WHERE id = @id AND revoked_at IS NULL;
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
                            account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
-                           audio_ms, characters, web_searches, images, ttft_ms, created_at)
+                           audio_ms, characters, web_searches, images, ttft_ms, video_id, video_rev, created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
         @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model,
-        @audio_ms, @characters, @web_searches, @images, @ttft_ms, @now);
+        @audio_ms, @characters, @web_searches, @images, @ttft_ms, @video_id, @video_rev, @now);
 
 -- name: AddGatewayUsageDaily :exec
 -- One request added to the daily ledger (issue #856), in the transaction that writes its row: its UTC day, and the

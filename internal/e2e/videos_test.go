@@ -37,11 +37,12 @@ import (
 // videoSpeech speaks a line as its text and hears a clip as its words.
 type videoSpeech struct{}
 
-func (videoSpeech) Speak(_ context.Context, req speech.SpeakRequest) (speech.Speech, error) {
+func (videoSpeech) Speak(_ context.Context, _ videos.AudioSource, req speech.SpeakRequest) (speech.Speech, error) {
 	return speech.Speech{Audio: []byte(req.Input), Provider: req.Provider}, nil
 }
 
-func (videoSpeech) Transcribe(_ context.Context, req speech.TranscribeRequest) (speech.Transcript, error) {
+func (videoSpeech) Transcribe(_ context.Context, _ videos.AudioSource, req speech.TranscribeRequest,
+) (speech.Transcript, error) {
 	r, err := req.Audio.Open()
 	if err != nil {
 		return speech.Transcript{}, err

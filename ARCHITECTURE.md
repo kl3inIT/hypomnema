@@ -941,7 +941,8 @@ sequenceDiagram
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
     (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
-    column `voice` of `gateway_audio_providers`). The speech the runner asks is not recorded on a gateway key.
+    column `voice` of `gateway_audio_providers`). The runner records speech and transcription through the gateway's
+    audio usage path (see "Audio").
   - The Studio (issue #818, row 12): one owner listing of takes and videos, `GET /studio/items?kind=&state=&q=
     &cursor=&limit=` (`clientapi/studio.go`, owner tokens only), each a summary (kind, id, title, the Bot that
     filmed the take, created_at, length, state, a video's take and latest revision, a thumbnail URL), in the order
@@ -3839,6 +3840,11 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   or `audio/tts` when none was asked), with `audio_ms` heard or `characters` spoken (migration 00103, OmniRoute's
   billing units), 0 on a failure; a request refused before any provider is not recorded. `GET /gateway/requests`
   gives them as `audio_seconds` and `characters`, and the Usage page shows them in their units (issue #723).
+  Video calls (issue #909) carry `video_id` and `video_rev` in the usage row and count on the revision requester's
+  key: `videos` for the owner, the Dispatch's or the chat's newest key for agents (a revoked usage-only key if
+  none exists). The runner caches the caption word times beside each voice clip, so a cache hit calls neither
+  provider again when both are present. A clip voiced before its word times were cached is transcribed on its
+  first use with captions.
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
   `tts_position`; read and written only by the gateway): one switch a provider for both kinds and each kind's order.
   `GET /gateway/audio` (any token) lists the providers with their switch, `state` (`ready`, `resting` when every key

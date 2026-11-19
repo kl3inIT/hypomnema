@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
@@ -12,6 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 )
 
 // Speech-to-text and text-to-speech (issue #694): one speech.Service, which
@@ -69,25 +71,17 @@ type botAudio struct {
 
 func (b botAudio) Transcribe(ctx context.Context, chatID string, req speech.TranscribeRequest,
 ) (speech.Transcript, error) {
-	start := time.Now()
-	t, err := b.speech.Transcribe(ctx, req)
-	b.record(ctx, chatID, modelgateway.AudioCall{
-		Kind: speech.KindSTT, Provider: t.Provider, Model: t.Model, Failures: t.Errors, Err: err, Audio: t.Duration,
-		Duration: time.Since(start),
-	})
+	t, call := transcribeAudio(ctx, b.speech, req)
+	b.record(ctx, chatID, call)
 
-	return t, err
+	return t, call.Err
 }
 
 func (b botAudio) Speak(ctx context.Context, chatID string, req speech.SpeakRequest) (speech.Speech, error) {
-	start := time.Now()
-	out, err := b.speech.Speak(ctx, req)
-	b.record(ctx, chatID, modelgateway.AudioCall{
-		Kind: speech.KindTTS, Provider: out.Provider, Model: out.Model, Failures: out.Errors, Err: err,
-		Characters: int64(out.Characters), Duration: time.Since(start),
-	})
+	out, call := speakAudio(ctx, b.speech, req)
+	b.record(ctx, chatID, call)
 
-	return out, err
+	return out, call.Err
 }
 
 func (b botAudio) record(ctx context.Context, chatID string, c modelgateway.AudioCall) {
@@ -128,25 +122,17 @@ type workerAudio struct {
 
 func (w workerAudio) Transcribe(ctx context.Context, dispatchID string, req speech.TranscribeRequest,
 ) (speech.Transcript, error) {
-	start := time.Now()
-	t, err := w.speech.Transcribe(ctx, req)
-	w.record(ctx, dispatchID, modelgateway.AudioCall{
-		Kind: speech.KindSTT, Provider: t.Provider, Model: t.Model, Failures: t.Errors, Err: err, Audio: t.Duration,
-		Duration: time.Since(start),
-	})
+	t, call := transcribeAudio(ctx, w.speech, req)
+	w.record(ctx, dispatchID, call)
 
-	return t, err
+	return t, call.Err
 }
 
 func (w workerAudio) Speak(ctx context.Context, dispatchID string, req speech.SpeakRequest) (speech.Speech, error) {
-	start := time.Now()
-	out, err := w.speech.Speak(ctx, req)
-	w.record(ctx, dispatchID, modelgateway.AudioCall{
-		Kind: speech.KindTTS, Provider: out.Provider, Model: out.Model, Failures: out.Errors, Err: err,
-		Characters: int64(out.Characters), Duration: time.Since(start),
-	})
+	out, call := speakAudio(ctx, w.speech, req)
+	w.record(ctx, dispatchID, call)
 
-	return out, err
+	return out, call.Err
 }
 
 func (w workerAudio) record(ctx context.Context, dispatchID string, c modelgateway.AudioCall) {
@@ -206,6 +192,91 @@ type channelVoice struct {
 // chatReader reads a chat (orchestration.Service).
 type chatReader interface {
 	GetChat(ctx context.Context, id string) (orchestration.Chat, error)
+}
+
+func transcribeAudio(ctx context.Context, voice *speech.Service, req speech.TranscribeRequest,
+) (speech.Transcript, modelgateway.AudioCall) {
+	start := time.Now()
+	t, err := voice.Transcribe(ctx, req)
+
+	return t, modelgateway.AudioCall{
+		Kind: speech.KindSTT, Provider: t.Provider, Model: t.Model, Failures: t.Errors, Err: err, Audio: t.Duration,
+		Duration: time.Since(start),
+	}
+}
+
+func speakAudio(ctx context.Context, voice *speech.Service, req speech.SpeakRequest,
+) (speech.Speech, modelgateway.AudioCall) {
+	start := time.Now()
+	out, err := voice.Speak(ctx, req)
+
+	return out, modelgateway.AudioCall{
+		Kind: speech.KindTTS, Provider: out.Provider, Model: out.Model, Failures: out.Errors, Err: err,
+		Characters: int64(out.Characters), Duration: time.Since(start),
+	}
+}
+
+type videoAudio struct {
+	speech  *speech.Service
+	gateway *modelgateway.Service
+	chats   chatReader
+	logger  *slog.Logger
+}
+
+func (v videoAudio) Transcribe(ctx context.Context, source videos.AudioSource, req speech.TranscribeRequest,
+) (speech.Transcript, error) {
+	t, call := transcribeAudio(ctx, v.speech, req)
+	v.record(ctx, source, call)
+
+	return t, call.Err
+}
+
+func (v videoAudio) Speak(ctx context.Context, source videos.AudioSource, req speech.SpeakRequest,
+) (speech.Speech, error) {
+	out, call := speakAudio(ctx, v.speech, req)
+	v.record(ctx, source, call)
+
+	return out, call.Err
+}
+
+func (v videoAudio) record(ctx context.Context, source videos.AudioSource, call modelgateway.AudioCall) {
+	ctx = context.WithoutCancel(ctx)
+	call.VideoID, call.VideoRev = source.Video, source.Rev
+
+	key, err := v.key(ctx, source.By)
+	if err == nil {
+		call.KeyID = key
+		err = v.gateway.RecordAudioCall(ctx, call)
+	}
+
+	if err != nil {
+		v.logger.ErrorContext(ctx, "recording video audio usage", slog.String("event", "controlplane.audio_usage_failed"),
+			slog.String("video", source.Video), slog.Int("rev", source.Rev), slog.String("error", err.Error()))
+	}
+}
+
+func (v videoAudio) key(ctx context.Context, by string) (string, error) {
+	kind, id, _ := strings.Cut(by, "-")
+
+	switch kind {
+	case "b":
+		chat, err := v.chats.GetChat(ctx, id)
+		if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
+			return "", err
+		}
+
+		k, err := v.gateway.ChatUsageKey(ctx, id, chat.Bot)
+
+		return k.ID, err
+	case "d":
+		k, err := v.gateway.DispatchUsageKey(ctx, id)
+
+		return k.ID, err
+	case videos.Owner, "o":
+		return v.gateway.VideosKey(ctx)
+	default:
+		return "", fmt.Errorf("unknown video requester %q", by)
+	}
 }
 
 func (c channelVoice) Hear(ctx context.Context, chatID string, recording []byte, err error) string {
