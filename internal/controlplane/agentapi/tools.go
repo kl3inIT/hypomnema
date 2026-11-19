@@ -52,7 +52,7 @@ import (
 // tools/list: the memory's, show_artifact, routines, the gateway's,
 // Superset's and the browser's. A browser that cannot list its tools takes none of the others
 // away.
-func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool {
+func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []agenttool.BrowserTool {
 	out := []agenttool.BrowserTool{}
 
 	if t, ok := memoryTool(a); ok && s.memoryOfferedNow(ctx, a) {
@@ -69,7 +69,7 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
-	out = append(out, s.messagingToolList(ctx, a)...)
+	out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
 
 	if s.hasNodeTools(a) {
 		out = append(out, nodeToolList()...)
@@ -110,7 +110,8 @@ func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	listed, err := s.narrowed(r.Context(), a, s.toolList(r.Context(), a))
+	w.Header().Add("Vary", agenttool.HeaderWhatsAppMentions)
+	listed, err := s.narrowed(r.Context(), a, s.toolList(r.Context(), a, relaysWhatsAppMentions(r)))
 	if err != nil {
 		s.fail(w, r, err)
 
