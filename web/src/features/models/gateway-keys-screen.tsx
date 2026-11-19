@@ -596,15 +596,22 @@ function KeyDialog({ gatewayKey }: { gatewayKey?: GatewayKey }) {
       endpoints: gatewayKey?.endpoints ?? endpointKinds.map((kind) => kind.id),
     },
     validators: { onSubmit: keySchema },
-    onSubmit: ({ value }) => {
+    onSubmit: ({ value, formApi }) => {
       const access = { name: value.name, models: value.scope === "every" ? [] : value.models }
+      const everyEndpoint = value.endpoints.length === endpointKinds.length
       if (gatewayKey) {
         const sameEndpoints =
           gatewayKey.endpoints.length === value.endpoints.length &&
           gatewayKey.endpoints.every((kind) => value.endpoints.includes(kind))
         update.mutate({
           path: { key_id: gatewayKey.id },
-          body: { ...access, ...(!sameEndpoints && { endpoints: value.endpoints }) },
+          body: {
+            ...access,
+            ...((!sameEndpoints ||
+              (everyEndpoint && formApi.getFieldMeta("endpoints")?.isDirty)) && {
+              endpoints: everyEndpoint ? ["*"] : value.endpoints,
+            }),
+          },
         })
         return
       }
@@ -612,7 +619,7 @@ function KeyDialog({ gatewayKey }: { gatewayKey?: GatewayKey }) {
         body: {
           ...access,
           // Every kind is sent as none named, so that a kind added later is given too.
-          ...(value.endpoints.length < endpointKinds.length && { endpoints: value.endpoints }),
+          ...(!everyEndpoint && { endpoints: value.endpoints }),
         },
       })
     },
@@ -655,7 +662,10 @@ function KeyDialog({ gatewayKey }: { gatewayKey?: GatewayKey }) {
             <DialogHeader>
               <DialogTitle>Copy the key of {made.key.name}</DialogTitle>
               <DialogDescription>
-                Give this key to the tool as its API key. You can copy it again from the list.
+                Give this key to the tool as its API key.{" "}
+                {made.key.masked_value
+                  ? "You can copy it again from the list."
+                  : "Copy it now: its value is not stored."}
               </DialogDescription>
             </DialogHeader>
             <InputGroup>
