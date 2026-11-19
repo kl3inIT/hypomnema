@@ -4583,7 +4583,8 @@ Node (`internal/node`):
          `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
          line says what the repository lacks, and no Gate is opened only to ask to merge;
       2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
-         sides' intent, running the checks again and pushing; on GitLab the merge request must have a pipeline;
+         sides' intent, rerunning the checks the merge affects and pushing; on GitLab the merge request must have a
+         pipeline;
       3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
          `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
       4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),

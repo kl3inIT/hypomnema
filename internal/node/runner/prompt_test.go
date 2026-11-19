@@ -237,7 +237,7 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"do not open a gate only to ask whether to merge",
 		"`gh pr view <url> --json isDraft,mergeStateStatus`. A draft (isDraft is true) is left open",
 		"On a conflict (mergeStateStatus is DIRTY), merge main into your branch, resolve it keeping the intent " +
-			"of both sides, run the repository's checks again and push",
+			"of both sides, rerun the checks the merge affects and push",
 		"`gh pr merge <url> --auto --merge --match-head-commit <sha>`, where <sha> is the commit you pushed",
 		"`gh pr checks <url> --required --watch`; fix a red one at its cause and push",
 		"Once they are green, call `finish` without waiting longer",

@@ -254,7 +254,7 @@ func autoMerge(kind, host, path, base, branch string) string {
 		"setting or merge; do not open a gate only to ask whether to merge.\n", strings.Join(lacks, " or "))
 
 	fmt.Fprintf(&b, "2. Read the pull request with `%s`. A draft (%s) is left open. On a conflict (%s), merge %s "+
-		"into your branch, resolve it keeping the intent of both sides, run the repository's checks again and "+
+		"into your branch, resolve it keeping the intent of both sides, rerun the checks the merge affects and "+
 		"push; if you cannot tell what one side meant, ask.", m.View, m.Draft, m.Conflict, base)
 
 	if m.Before != "" {
