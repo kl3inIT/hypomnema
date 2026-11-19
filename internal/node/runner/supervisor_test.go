@@ -214,6 +214,16 @@ func (t *fakeTurn) Interrupt() []byte {
 	return raw
 }
 
+type noInterruptRuntime struct{ *fake }
+
+func (rt noInterruptRuntime) Adopted(state []byte) Turn {
+	return noInterruptTurn{rt.fake.Adopted(state)}
+}
+
+type noInterruptTurn struct{ Turn }
+
+func (noInterruptTurn) Interrupt() []byte { return nil }
+
 func (t *fakeTurn) Result() Result {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -558,6 +568,29 @@ exec "` + realExe + `" "$@"
 		return err == nil && shim.GroupGone(pid)
 	}, 5*time.Second, 10*time.Millisecond)
 	assert.NoFileExists(t, filepath.Join(dir, shim.ClaimedFile))
+}
+
+func TestStopRevokesAnAdoptedLaunchBeforeShimPID(t *testing.T) {
+	t.Parallel()
+	g := newRig(t, "hang")
+	dispatch := g.dispatch()
+	dir := g.sup.dir(dispatch.ID)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	for _, marker := range []string{shim.PreparingFile, shim.LaunchingFile} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, marker), nil, 0o600))
+	}
+	require.NoError(t, g.sup.Adopt(t.Context(), noInterruptRuntime{g.rt}, dispatch, newReporter()))
+	t.Cleanup(func() { g.sup.Release(dispatch.ID) })
+	require.NotNil(t, g.sup.get(dispatch.ID))
+	require.NoFileExists(t, filepath.Join(dir, shim.PIDFile))
+
+	g.sup.Stop(dispatch.ID)
+
+	require.NoFileExists(t, filepath.Join(dir, shim.LaunchingFile))
+	delayed := exec.CommandContext(t.Context(), g.sup.Exe, "shim", "--dir", dir)
+	require.ErrorAs(t, delayed.Run(), new(*exec.ExitError))
+	require.FileExists(t, filepath.Join(dir, shim.PIDFile))
+	require.NoFileExists(t, filepath.Join(dir, shim.ClaimedFile))
 }
 
 func TestRestartReclaimsTempBeforeShimPID(t *testing.T) {

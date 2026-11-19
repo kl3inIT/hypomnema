@@ -111,6 +111,9 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a continued Conversation")
 	assert.Equal(t, 1, runs(), "a worktree that exists is not set up again")
 
+	if !diskguard.ScopeAvailable() {
+		t.Skip("Landlock is not available for the native command")
+	}
 	stopped := func() bool { return true }
 	require.NoError(t, git(t.Context(), path, nil, "config", "status.showUntrackedFiles", "no"))
 	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "untracked")
@@ -131,9 +134,6 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 		assert.FileExists(t, tracked)
 		require.NoError(t, git(t.Context(), path, nil, "update-index", "--no-"+flag, "README.md"))
 		require.NoError(t, git(t.Context(), path, nil, "checkout", "--", "README.md"))
-	}
-	if !diskguard.ScopeAvailable() {
-		t.Skip("Landlock is not available for the native command")
 	}
 	require.NoError(t, m.Clean(t.Context(), path, true, stopped), "ignored files do not prevent removal")
 	require.NoDirExists(t, path)

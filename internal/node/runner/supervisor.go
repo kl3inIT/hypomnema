@@ -458,7 +458,7 @@ func (s *Supervisor) Stop(id string) {
 
 	interrupt := w.turn.Interrupt()
 	if interrupt == nil {
-		_ = shim.KillRecorded(w.dir)
+		_ = shim.RevokeLaunch(w.dir)
 
 		return
 	}

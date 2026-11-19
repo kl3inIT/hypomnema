@@ -150,6 +150,11 @@ func Main(ctx context.Context, socketDir string) error {
 	if err := cmd.Start(); err != nil {
 		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
 	}
+	if err := recordWorker(dir, cmd.Process.Pid); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
+	}
 
 	in := &input{w: stdin}
 
@@ -325,9 +330,10 @@ type processIdentity struct {
 	PID     int
 	Started int64
 	Dir     string
+	BootID  string `json:",omitempty"`
 }
 
-func startedAt(pid int) (int64, error) {
+func wallStart(pid int) (int64, error) {
 	proc, err := process.NewProcess(int32(pid)) //nolint:gosec // an operating-system process id fits int32
 	if err != nil {
 		return 0, err
@@ -337,11 +343,15 @@ func startedAt(pid int) (int64, error) {
 
 func recordPID(dir string) error {
 	pid := os.Getpid()
-	started, err := startedAt(pid)
+	boot, err := bootID()
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(processIdentity{PID: pid, Started: started, Dir: dir})
+	started, err := identityStart(pid, boot)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(processIdentity{PID: pid, Started: started, Dir: dir, BootID: boot})
 	if err != nil {
 		return err
 	}
@@ -371,12 +381,27 @@ func KillRecorded(dir string) error {
 	if err := json.Unmarshal(raw, &identity); err != nil {
 		return err
 	}
-	started, err := startedAt(pid)
+	identityDir, pathErr := realShimDir(identity.Dir)
+	if pid != identity.PID || pathErr != nil || identityDir != dir || identity.Started <= 0 {
+		return errors.New("shim process identity does not match")
+	}
+	if identity.BootID != "" {
+		boot, err := bootID()
+		if err != nil {
+			return err
+		}
+		if boot != identity.BootID {
+			return errors.New("shim process identity is from another boot")
+		}
+	}
+	started, err := identityStart(pid, identity.BootID)
+	if identity.BootID != "" && errors.Is(err, os.ErrNotExist) {
+		return killOrphanedGroup(dir, pid)
+	}
 	if err != nil {
 		return err
 	}
-	identityDir, pathErr := realShimDir(identity.Dir)
-	if pid != identity.PID || pathErr != nil || identityDir != dir || started <= 0 || started != identity.Started {
+	if started != identity.Started {
 		return errors.New("shim process identity does not match")
 	}
 	return Kill(pid)
@@ -438,7 +463,7 @@ func killLegacy(dir string, pid int) error {
 	if err != nil || actual != dir {
 		return errors.New("legacy PID does not belong to the Dispatch shim")
 	}
-	if current, err := startedAt(pid); err != nil || current != started {
+	if current, err := wallStart(pid); err != nil || current != started {
 		return errors.New("legacy PID identity changed")
 	}
 	return Kill(pid)
