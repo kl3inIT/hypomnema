@@ -720,6 +720,46 @@ func TestNeedsYouCountsEachItemOnce(t *testing.T) {
 	assert.Equal(t, 2, n, "a date is overdue once its day has ended in its zone")
 }
 
+// Scenario: a date whose midnight its zone skips (Codex review of #848, 2026-11-19): in America/Santiago the
+// clocks go from 23:59:59 on 2026-09-05 to 01:00 on 2026-09-06. An item due on the 6th is not overdue nor listed as
+// due on the evening of the 5th; it is due from 01:00 on the 6th and overdue once the 7th starts there.
+func TestADateWhoseMidnightIsSkippedStartsWhenTheClocksChange(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	santiago, err := time.LoadLocation("America/Santiago")
+	require.NoError(t, err)
+
+	item, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Pay the rent", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me,
+		Due: inboxstore.Due{Kind: inboxstore.DueDate, Date: "2026-09-06", Zone: "America/Santiago"},
+	})
+	require.NoError(t, err)
+
+	eveningBefore := time.Date(2026, 9, 5, 23, 30, 0, 0, santiago)
+	clocksChange := time.Date(2026, 9, 6, 4, 0, 0, 0, time.UTC) // 01:00 -03 on the 6th
+	nextDay := time.Date(2026, 9, 7, 0, 0, 0, 0, santiago)
+
+	for _, c := range []struct {
+		at   time.Time
+		want int
+	}{{eveningBefore, 0}, {nextDay.Add(-time.Millisecond), 0}, {nextDay, 1}} {
+		n, err := w.inbox.NeedsYou(ctx, c.at)
+		require.NoError(t, err)
+		assert.Equal(t, c.want, n, "overdue at %s", c.at.In(santiago))
+	}
+
+	page, err := w.inbox.List(ctx, inboxstore.Filter{DueTo: clocksChange}, "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items, "not due before the 6th starts")
+
+	page, err = w.inbox.List(ctx, inboxstore.Filter{DueFrom: clocksChange, DueTo: clocksChange.Add(time.Millisecond)},
+		"", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []string{item.ID}, idsOf(page.Items), "due from the moment the clocks change")
+}
+
 // Scenario: List pages by due, those without one last, then by created; each page has the total of the filter, and
 // the filters by state, assignee, source and due window hold.
 func TestListPagesByDue(t *testing.T) {

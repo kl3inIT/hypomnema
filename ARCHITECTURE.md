@@ -3991,7 +3991,8 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
   `due_zone`) or `instant` (`due_at` and its zone), with `due_at` and `overdue_at` derived for order and the overdue
-  test (a date's first moment and the next day's in its zone, never shown as a time); `assignee_kind` `me`,
+  test (a date's first moment and the next day's in its zone, the moment the clocks change where a zone skips
+  midnight, never shown as a time); `assignee_kind` `me`,
   `person` (a name ≤ 100), `bot` (an existing Bot's id) or `unknown`; `state` `proposed`, `open`, `doing`, `review`,
   `done`, `dropped`, `duplicate`; `snoozed_until` (proposed or open only); the source (`owner`, `chat` with its chat,
   `routine` with its run, `lark` or `zalo` with the chat's id at the service and its message as a `lark_message` or

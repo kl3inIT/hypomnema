@@ -564,18 +564,37 @@ func dueRow(d Due) (dueColumns, error) {
 		return dueColumns{kind: DueInstant, zone: nullString(d.Zone), at: at, overdueAt: at}, nil
 	}
 
-	day, err := time.ParseInLocation(time.DateOnly, d.Date, loc)
+	// The date's own fields, never those of a moment the zone shifted: where midnight is skipped, time.Date puts it
+	// on the evening before.
+	day, err := time.Parse(time.DateOnly, d.Date)
 	if err != nil || !d.At.IsZero() {
 		return dueColumns{}, fmt.Errorf("%w: a due date is YYYY-MM-DD, without a time", storeerr.ErrInvalid)
 	}
 
-	next := time.Date(day.Year(), day.Month(), day.Day()+1, 0, 0, 0, 0, loc)
+	start, next := firstMoment(day, loc), firstMoment(day.AddDate(0, 0, 1), loc)
 
 	return dueColumns{
 		kind: DueDate, date: nullString(d.Date), zone: nullString(d.Zone),
-		at:        sql.NullInt64{Int64: day.UnixMilli(), Valid: true},
+		at:        sql.NullInt64{Int64: start.UnixMilli(), Valid: true},
 		overdueAt: sql.NullInt64{Int64: next.UnixMilli(), Valid: true},
 	}, nil
+}
+
+// firstMoment is the first moment in loc of the calendar day day (its fields, in UTC): its midnight or, where the
+// clocks skip midnight (America/Santiago on 2026-09-06 goes from 23:59:59 to 01:00), the moment they change.
+func firstMoment(day time.Time, loc *time.Location) time.Time {
+	y, m, d := day.Date()
+	t := time.Date(y, m, d, 0, 0, 0, 0, loc)
+
+	if t.Day() != d {
+		// Midnight does not exist that day and t fell on the evening before: the day starts when its zone ends.
+		_, end := t.ZoneBounds()
+		if !end.IsZero() {
+			return end
+		}
+	}
+
+	return t
 }
 
 // requestHash is the hash of a create's request and who made it, kept with its idempotency key.
