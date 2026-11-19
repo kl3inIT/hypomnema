@@ -685,26 +685,37 @@ func (s *Service) tokenAmong(
 		return Token{}, &CoolingError{Until: *free}
 	}
 
-	// The accounts' lists may have changed while they were tried (a refresh in between): with every list known and
-	// none having the model now, the answer is TokenFor's for such a model (issue #814).
-	if model != "" && s.notServedNow(ctx, runtime, model) {
-		return Token{}, fmt.Errorf("%w: %s by no %s account", ErrModelNotServed, model, runtime)
+	// The accounts' lists may have changed while they were tried (a refresh in between): when no account's list has
+	// the model now, the answer is TokenFor's for such a model (issue #814).
+	if model != "" {
+		if err := s.notServedNow(ctx, runtime, model); err != nil {
+			return Token{}, err
+		}
 	}
 
 	return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
 }
 
-// notServedNow says every usable account of a runtime has a known list and none has model.
-func (s *Service) notServedNow(ctx context.Context, runtime, model string) bool {
+// notServedNow is TokenFor's answer for a model no usable account of a runtime has on its list now: ErrModelNotServed
+// when every list is known, a CoolingError to try again soon while one is not. It is nil while an account's list has
+// the model, when there is no usable account, or when the accounts cannot be read.
+func (s *Service) notServedNow(ctx context.Context, runtime, model string) error {
 	accounts, err := s.List(ctx)
 	if err != nil {
-		return false
+		return nil //nolint:nilerr // Nothing more is known: the answer stays the pick's own.
 	}
 
 	ofRuntime := usable(accounts, runtime)
 	servers, unknown := s.servers(ofRuntime, model)
 
-	return len(ofRuntime) > 0 && len(servers) == 0 && !unknown
+	switch {
+	case len(ofRuntime) == 0 || len(servers) > 0:
+		return nil
+	case unknown:
+		return &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry)}
+	default:
+		return fmt.Errorf("%w: %s by no %s account", ErrModelNotServed, model, runtime)
+	}
 }
 
 // stillServes reads an account again and says whether it can still be used for model: active, logged in here, and

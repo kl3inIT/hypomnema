@@ -216,6 +216,16 @@ func (s *Server) tryAccounts(
 		}
 	}
 
+	// The last pick found that no account's list has the model now, the accounts already tried included: an answer
+	// one of them gave before it lost the model (a 401 whose refresh found it gone) says nothing more (issue #814).
+	if errors.Is(stopping, ErrModelNotServed) {
+		if refusal != nil {
+			drain(refusal)
+		}
+
+		return nil, stopping
+	}
+
 	var cooling *CoolingError
 	if firstFree != nil && (refusal != nil && refusal.StatusCode == http.StatusTooManyRequests ||
 		refusal == nil && errors.As(stopping, &cooling)) {

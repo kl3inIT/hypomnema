@@ -182,29 +182,42 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	}, nil
 }
 
+// servedLimits and servedWires are what the subscriptions say of the models their vendors serve
+// (subscription.Service).
+type (
+	servedLimits interface {
+		ServedLimits(ctx context.Context, runtime, model string) (window, output int64, ok bool)
+	}
+	servedWires interface {
+		ServedWire(ctx context.Context, runtime, model string) (wire string, ok bool)
+	}
+)
+
 // gatewayServedLimits gives the gateway what an Antigravity account (issue #587) or an OpenCode Go key (issue #854)
-// is served each model with.
+// is served each model with, waiting for a list being read no later than the request's one wait (listDeadline,
+// issue #814).
 func gatewayServedLimits(
-	subs *subscription.Service,
+	subs servedLimits,
 ) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 		switch kind {
 		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo:
-			return subs.ServedLimits(ctx, subscriptionRuntimes[kind], upstream)
+			return subs.ServedLimits(listDeadline(ctx), subscriptionRuntimes[kind], upstream)
 		default:
 			return 0, 0, false
 		}
 	}
 }
 
-// gatewayServedWire gives the gateway the wire OpenCode Go serves each model on, from its model list (issue #854).
-func gatewayServedWire(subs *subscription.Service) func(ctx context.Context, kind, upstream string) (string, bool) {
+// gatewayServedWire gives the gateway the wire OpenCode Go serves each model on, from its model list (issue #854),
+// waiting as gatewayServedLimits does.
+func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstream string) (string, bool) {
 	return func(ctx context.Context, kind, upstream string) (string, bool) {
 		if kind != orchestration.ProviderOpenCodeGo {
 			return "", false
 		}
 
-		return subs.ServedWire(ctx, orchestration.OpenCodeGoRuntime, upstream)
+		return subs.ServedWire(listDeadline(ctx), orchestration.OpenCodeGoRuntime, upstream)
 	}
 }
 

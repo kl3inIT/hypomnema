@@ -350,6 +350,33 @@ func (s *Service) subscriptionModel(ctx context.Context, name string) (Model, bo
 	return subscriptionModelOf(p, upstream), true, nil
 }
 
+// listingKinds are the subscriptions whose accounts each have their own list of models, which a request is routed by
+// (issue #814).
+var listingKinds = []string{"codex_subscription", "antigravity_subscription"}
+
+// notListed says name is "<provider>/<model>" of a subscription whose accounts each list their models, and the
+// provider's list, the union of theirs, does not have it: no account serves it. A request for it is answered as one
+// for a model still on the provider's list that no account's list has (issue #814), whether or not the model was
+// once listed.
+func (s *Service) notListed(ctx context.Context, name string) bool {
+	provider, upstream, found := strings.Cut(name, "/")
+	if !found || upstream == "" {
+		return false
+	}
+
+	p, err := s.providers(ctx, provider)
+	if err != nil {
+		return false
+	}
+
+	return slices.Contains(listingKinds, p.Kind) && !slices.Contains(p.Models, upstream)
+}
+
+// notServedMessage is what the gateway says of a model no account's list has.
+func notServedMessage(model string) string {
+	return fmt.Sprintf("model %q is not served by any account", model)
+}
+
 func subscriptionModelOf(p ProviderInfo, upstream string) Model {
 	return Model{
 		Name: p.Name + "/" + upstream, Capability: CapabilityChat,

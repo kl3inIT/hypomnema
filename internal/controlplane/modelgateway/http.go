@@ -166,7 +166,12 @@ type accountWaitKey struct{}
 
 // withAccountWait gives a request the moment its wait for the accounts' lists ends.
 func withAccountWait(r *http.Request) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), accountWaitKey{}, time.Now().Add(accountWait)))
+	return r.WithContext(WithAccountWait(r.Context(), time.Now().Add(accountWait)))
+}
+
+// WithAccountWait gives ctx the moment its request stops waiting for the accounts' lists of models (AccountWaitEnds).
+func WithAccountWait(ctx context.Context, ends time.Time) context.Context {
+	return context.WithValue(ctx, accountWaitKey{}, ends)
 }
 
 // AccountWaitEnds is when the request of ctx stops waiting for the accounts' lists of models; ok is false outside

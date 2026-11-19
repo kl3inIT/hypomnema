@@ -62,7 +62,8 @@ func (claudeSubscription) do(ctx context.Context, s *Server, call chatCall) (*ht
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underModelAccounts(ctx, claudeAccountRuntime, unlistedModel(call.upstream.Model), built.Session, nil, nil,
+	resp, err := s.underModelAccounts(
+		ctx, claudeAccountRuntime, unlistedModel(call.upstream.Model), built.Session, nil, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.claudeCall(ctx, &token, built)
 			if err != nil {

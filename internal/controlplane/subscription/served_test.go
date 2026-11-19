@@ -601,3 +601,37 @@ func TestAnAccountDisabledDuringItsRefreshIsNotGiven(t *testing.T) {
 	_, err = w.subs.TokenAfterRefusalFor(t.Context(), subscription.Token{AccountID: ultra.ID}, "gemini-4-carbon-high")
 	require.ErrorIs(t, err, subscription.ErrModelNotServed)
 }
+
+// Scenario (review of #832, round 7): the Ultra account, the only one whose list has Carbon, loses it while its token
+// is refreshed, and the Pro account's first list is still being read, so it may yet have Carbon. The request is told
+// to try again soon, as when no list has the model and one is not known, not that no account could be used.
+func TestAModelLostDuringARefreshWhileAListIsUnknownIsTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	w.subs.WaitForListsAtMost(50 * time.Millisecond)
+	_, ultra := twoAccounts(t, w)
+
+	hold := make(chan struct{})
+	release := sync.OnceFunc(func() { close(hold) })
+	t.Cleanup(release)
+	w.google.set(func(g *google) { g.holds["pro"], g.arrived = hold, make(chan string, 4) })
+
+	// The Ultra account's list is read, with Carbon; the Pro account's never ends.
+	require.Eventually(t, func() bool {
+		token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+		return err == nil && token.AccountID == ultra.ID
+	}, 10*time.Second, 10*time.Millisecond)
+
+	w.google.set(func(g *google) {
+		g.onRefresh = func(context.Context) { w.subs.ForgetModel(ultra.ID, "gemini-4-carbon-high") }
+	})
+	w.clock.advance(59*time.Minute + 30*time.Second) // the tokens are due, the Ultra account's list is not
+
+	token, err := w.subs.TokenFor(t.Context(), "antigravity", "gemini-4-carbon-high", "")
+
+	var cooling *subscription.CoolingError
+	require.ErrorAs(t, err, &cooling, "to be tried again, not ErrNoAccount")
+	assert.Equal(t, w.clock.Now().Add(30*time.Second), cooling.Until)
+	assert.Empty(t, token.AccountID)
+}

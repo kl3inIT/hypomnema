@@ -3352,9 +3352,15 @@ capabilities do not exist yet.
     or whose list no longer has the model, is passed over. A token the vendor refuses (401) is refreshed only while
     the account's list still has the model, checked again after the refresh; otherwise the request goes on to the
     next account. An account held for last (near its quota) is checked again right before it is sent to, and sent the
-    token it was given. When the only account whose list had the model loses it meanwhile and every list is known,
-    the answer is the 404 `model_not_served`. Every request for a Codex or Antigravity account names its
-    model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
+    token it was given. When the only account whose list had the model loses it meanwhile (a refresh in between,
+    or after a 401), the request is answered as at the start: the 404 `model_not_served` when every list is known,
+    the 429 to try again in 30 s while one is not; the 401 of an account that lost the model is not passed on. The
+    gateway's 404 for one target of a model does not answer for the others: the next target is tried, and the 404
+    is the answer only when no target answered or cools. A `<provider>/<model>` name of Codex or Antigravity that
+    the provider's list no longer has, such as one dropped by the hourly reading, gets the same 404
+    `model_not_served` on chat, `/responses` and `/messages`, not 400 `model_not_found`. Reading OpenCode Go's wire
+    and a model's window during a request waits no later than the request's one 30 s wait. Every request for a Codex
+    or Antigravity account names its model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
     and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,
     as before (owner, 2026-11-18). Claude's requests are not narrowed: its list does not name every model it serves,
     and it is the first account's.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -91,7 +92,7 @@ func TestAChatForAModelNoAccountIsServedIsRefused(t *testing.T) {
 	status, _, body := g.call(t, g.key, askFlash+`}`)
 	require.Equal(t, http.StatusNotFound, status, body)
 	assert.Contains(t, body, "model_not_served")
-	assert.Contains(t, body, "gemini-3.8-flash-high")
+	assert.Contains(t, body, `\"flash\"`)
 	assert.Zero(t, got.calls(), "no account was called")
 }
 
@@ -438,4 +439,93 @@ func TestAHeldAccountIsSentItsOwnToken(t *testing.T) {
 	defer account.mu.Unlock()
 
 	assert.Len(t, account.asked, before+3, "two picks and the end of the accounts; none for the held account")
+}
+
+// Scenario (review of #832, round 7): Google refuses the only account whose list has the model, and by then its list
+// no longer has it. The account is not refreshed and asked again, and the pick that follows finds that no account's
+// list has the model: the client is told the model is not served, not given the account's 401.
+func TestARefusedAccountThatLostTheModelLeavesItNotServed(t *testing.T) {
+	t.Parallel()
+
+	account := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_a", "acc_b"}}},
+		served:        map[string][]string{"acc_a": {"gemini-3.8-flash-high"}},
+	}
+
+	backend, got := cloudCode(t, func(w http.ResponseWriter, _ *http.Request) {
+		account.mu.Lock()
+		account.served["acc_a"] = nil
+		account.mu.Unlock()
+
+		http.Error(w, `{"error":{"code":401,"status":"UNAUTHENTICATED"}}`, http.StatusUnauthorized)
+	})
+	g := newAntigravityGateway(t, backend, account)
+
+	status, _, body := g.call(t, g.key, askFlash+`}`)
+	assert.Equal(t, http.StatusNotFound, status, body)
+	assert.Contains(t, body, `"code":"model_not_served"`)
+	assert.Equal(t, 1, got.calls(), "the account was not asked again")
+}
+
+// Scenario (review of #832, round 7): a model has two targets, and no Antigravity account's list has the first's
+// model. The gateway's own 404 for that target does not answer for the model: its next target serves the request.
+func TestATargetNoAccountServesGivesWayToTheNext(t *testing.T) {
+	t.Parallel()
+
+	backend, got := cloudCode(t, stream(geminiEvents...))
+	account := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_pro", "acc_ultra"}}},
+		served:        map[string][]string{"acc_ultra": {"gemini-4-carbon-high"}},
+	}
+	second, served := provider(t, plain(http.StatusOK, answer))
+	g := newAntigravityGateway(t, backend, account, second)
+
+	status, _, body := g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, answer, body) //nolint:testifylint // byte for byte: the answer is passed on, not re-encoded
+	assert.Zero(t, got.calls(), "no Antigravity account was called")
+	assert.Equal(t, 1, served.calls(), "the next target served")
+}
+
+// Scenario (review of #832, round 7): a subscription model asked for by its provider's name, with no account's list
+// having it, is answered alike whether the provider still lists it or has taken it off since (the hourly reading,
+// issue #814): 404 model_not_served, on chat and on Responses, and no account is called.
+func TestAModelNoAccountServesIsAnsweredAlikeOnOrOffTheList(t *testing.T) {
+	t.Parallel()
+
+	google, googleCalls := cloudCode(t, stream(geminiEvents...))
+	chat := newAntigravityGateway(t, google, &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_pro", "acc_ultra"}}},
+		served:        map[string][]string{"acc_ultra": {"gemini-3.1-pro-high"}},
+	})
+
+	for _, model := range []string{
+		"antigravity-subscription/gemini-3.8-flash-high", // on the provider's list
+		"antigravity-subscription/gemini-4-carbon-high",  // taken off it
+	} {
+		status, _, body := chat.call(t, chat.key, `{"model":"`+model+`","messages":[{"role":"user","content":"Hi"}]}`)
+		assert.Equal(t, http.StatusNotFound, status, model)
+		assert.Contains(t, body, `"code":"model_not_served"`, model)
+	}
+
+	openAI, codexCalls := codexBackend(t, stream(helloEvents...))
+	responses := newCodexGateway(t, openAI, &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_a", "acc_b"}}},
+		served:        map[string][]string{"acc_a": {"gpt-6.1-sol"}},
+	})
+
+	_, anyModel, err := responses.svc.AddKey(t.Context(), "tool", nil, nil)
+	require.NoError(t, err)
+
+	for _, model := range []string{
+		"codex-subscription/gpt-6-astra", // on the provider's list
+		"codex-subscription/gpt-6-nova",  // taken off it
+	} {
+		status, _, body := responses.respond(t, anyModel, strings.Replace(codexAsks, `"sol"`, `"`+model+`"`, 1))
+		assert.Equal(t, http.StatusNotFound, status, model)
+		assert.Contains(t, body, `"code":"model_not_served"`, model)
+	}
+
+	assert.Zero(t, googleCalls.calls(), "no account was called")
+	assert.Zero(t, codexCalls.calls(), "no account was called")
 }

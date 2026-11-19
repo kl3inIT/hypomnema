@@ -65,6 +65,13 @@ func WithListDeadline(ctx context.Context, deadline time.Time) context.Context {
 	return context.WithValue(ctx, listDeadlineKey{}, deadline)
 }
 
+// ListDeadline is the deadline WithListDeadline gave ctx; ok is false when none was given.
+func ListDeadline(ctx context.Context) (deadline time.Time, ok bool) {
+	deadline, ok = ctx.Value(listDeadlineKey{}).(time.Time)
+
+	return deadline, ok
+}
+
 // ServedList is ServedNames with when the latest list it was made from was read, so that a caller counts a reading
 // once however often it asks (issue #814).
 func (s *Service) ServedList(ctx context.Context, runtime string) (names []string, read time.Time, ok bool) {
@@ -126,7 +133,7 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 	// One deadline for the whole reading, however many accounts' first lists are being read, and no later than the
 	// request's own (WithListDeadline; issue #814).
 	deadline := time.Now().Add(s.servedWait)
-	if d, ok := ctx.Value(listDeadlineKey{}).(time.Time); ok && d.Before(deadline) {
+	if d, ok := ListDeadline(ctx); ok && d.Before(deadline) {
 		deadline = d
 	}
 
