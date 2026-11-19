@@ -1,9 +1,11 @@
 package modelgateway_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -56,8 +58,19 @@ func serve(t *testing.T, g *modelgateway.Service, path, key string) (int, []byte
 func serveRecorded(t *testing.T, g *modelgateway.Service, path, key string) *httptest.ResponseRecorder {
 	t.Helper()
 
+	rec, _ := serveLogged(t, g, path, key)
+
+	return rec
+}
+
+// serveLogged is serveRecorded with what the gateway logged while it answered, a JSON record a line.
+func serveLogged(t *testing.T, g *modelgateway.Service, path, key string) (*httptest.ResponseRecorder, []byte) {
+	t.Helper()
+
+	var logged bytes.Buffer
+
 	mux := http.NewServeMux()
-	modelgateway.NewServer(g, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"),
+	modelgateway.NewServer(g, platform.NewLogger(io.MultiWriter(t.Output(), &logged), platform.LogConfig{}, "test"),
 		modelgateway.Config{}).Register(mux)
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
@@ -68,7 +81,7 @@ func serveRecorded(t *testing.T, g *modelgateway.Service, path, key string) *htt
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	return rec
+	return rec, logged.Bytes()
 }
 
 // catalogModel is the part of Codex's ModelInfo (codex-rs/protocol/src/openai_models.rs) the tests read.
@@ -480,7 +493,7 @@ func TestTheCodexCatalogListsWhatFitsWhenEvenCompactIsTooBig(t *testing.T) {
 	_, key, err := g.AddKey(t.Context(), "everything", nil, nil)
 	require.NoError(t, err)
 
-	rec := serveRecorded(t, g, "/v1/codex/models", key)
+	rec, logged := serveLogged(t, g, "/v1/codex/models", key)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Less(t, rec.Body.Len(), 1<<20)
 
@@ -496,6 +509,20 @@ func TestTheCodexCatalogListsWhatFitsWhenEvenCompactIsTooBig(t *testing.T) {
 	listed := len(catalog.Models)
 	require.Less(t, listed, total, "some are left out")
 	assert.Equal(t, strconv.Itoa(total-listed), rec.Header().Get(modelgateway.CodexCatalogOmittedHeader))
+
+	// The gateway says so in its log too: one warning with the same count.
+	var warnings []map[string]any
+
+	for line := range bytes.Lines(logged) {
+		var record map[string]any
+		if json.Unmarshal(line, &record) == nil && record["event"] == "modelgateway.codex_models_trimmed" {
+			warnings = append(warnings, record)
+		}
+	}
+
+	require.Len(t, warnings, 1, string(logged))
+	assert.Equal(t, "WARN", warnings[0]["level"])
+	assert.InDelta(t, float64(total-listed), warnings[0]["omitted"], 0)
 
 	slugs := map[string]bool{}
 	for _, m := range catalog.Models {
@@ -532,15 +559,8 @@ func TestTheCodexCatalogIsInTheContract(t *testing.T) {
 	assert.Contains(t, item.Get.Tags, "gateway")
 
 	require.NotNil(t, item.Get.Security, "its own security, not the client API's default")
-
-	schemes := []string{}
-	for _, requirement := range *item.Get.Security {
-		for name := range requirement {
-			schemes = append(schemes, name)
-		}
-	}
-
-	assert.Equal(t, []string{"gatewayKey"}, schemes)
+	// Exactly one way in, a gateway key: an empty requirement ({}) beside it would let a request without a key in.
+	assert.Equal(t, openapi3.SecurityRequirements{{"gatewayKey": []string{}}}, *item.Get.Security)
 
 	scheme := spec.Components.SecuritySchemes["gatewayKey"]
 	require.NotNil(t, scheme, "the gatewayKey scheme is defined")
