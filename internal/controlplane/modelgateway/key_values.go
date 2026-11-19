@@ -14,12 +14,15 @@ import (
 )
 
 // KeyUpdate changes only the fields supplied. A non-nil empty model list means every model;
-// a non-nil empty endpoint list means chat only.
+// a non-nil empty endpoint list means chat only, and [AllEndpoints] means every kind.
 type KeyUpdate struct {
 	Name      *string
 	Models    []string
 	Endpoints []Endpoint
 }
+
+// AllEndpoints resets an owner key's endpoint access to every kind, including future kinds.
+const AllEndpoints Endpoint = "*"
 
 // UpdateKey edits an active owner-made key without replacing its value or id.
 func (s *Service) UpdateKey(ctx context.Context, id string, change KeyUpdate) (Key, error) {
@@ -32,7 +35,12 @@ func (s *Service) UpdateKey(ctx context.Context, id string, change KeyUpdate) (K
 		params.Name = sql.NullString{String: *change.Name, Valid: true}
 	}
 
-	if err := validateKeyAccess(change.Models, change.Endpoints); err != nil {
+	endpoints := change.Endpoints
+	if len(endpoints) == 1 && endpoints[0] == AllEndpoints {
+		endpoints = nil
+	}
+
+	if err := validateKeyAccess(change.Models, endpoints); err != nil {
 		return Key{}, err
 	}
 
@@ -50,11 +58,12 @@ func (s *Service) UpdateKey(ctx context.Context, id string, change KeyUpdate) (K
 		params.Models = sql.NullString{String: string(encoded), Valid: true}
 	}
 
-	kinds, err := keyEndpointsJSON(change.Endpoints)
+	kinds, err := keyEndpointsJSON(endpoints)
 	if err != nil {
 		return Key{}, err
 	}
 	params.Endpoints = kinds
+	params.SetEndpoints = change.Endpoints != nil
 
 	var updated Key
 

@@ -439,3 +439,33 @@ func TestARefusalNotAboutAnImageIsNotAskedAgain(t *testing.T) {
 	assert.JSONEq(t, refusal, body)
 	assert.Equal(t, 1, got.calls())
 }
+
+func TestMessagesRecordsAnErrorInTheStream(t *testing.T) {
+	t.Parallel()
+
+	const failure = "event: error\ndata: " +
+		`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}` + "\n\n"
+	backend, _, _ := anthropicBackend(t, stream(claudeHello[0], failure))
+	g := newClaudeGateway(t, backend, &accounts{})
+
+	status, _, body := g.send(t, "/v1/messages", claudeCodeAsk, claudeCodeHeaders(g.key)...)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Equal(t, claudeHello[0]+failure, body)
+	usage := g.lastUsage(t)
+	assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+	assert.Equal(t, "overloaded_error: Overloaded", usage.Error)
+}
+
+func TestMessagesRecordsAnErrorFromTranslatedChat(t *testing.T) {
+	t.Parallel()
+
+	backend, _ := codexBackend(t, stream(helloEvents[1],
+		event(`{"type":"response.failed","response":{"error":{"code":"server_error","message":"overloaded"}}}`)))
+	g := newCodexGateway(t, backend, &accounts{})
+	status, _, body := g.send(t, "/v1/messages", claudeCodeAsk, claudeCodeHeaders(g.key)...)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Contains(t, body, `"text":"hel"`)
+	usage := g.lastUsage(t)
+	assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+	assert.Equal(t, "server_error: overloaded", usage.Error)
+}

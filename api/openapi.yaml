@@ -2088,7 +2088,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CreateGatewayKey
-      summary: Make a gateway key and keep its value encrypted; only the owner
+      summary: Make a gateway key and keep its value encrypted if the vault is configured; only the owner
       requestBody:
         required: true
         content:
@@ -7640,8 +7640,13 @@ components:
         endpoints:
           type: array
           maxItems: 4
-          items: { $ref: "#/components/schemas/GatewayEndpoint" }
-          description: The new list of kinds besides chat; empty means none, omitted means unchanged.
+          items: { $ref: "#/components/schemas/GatewayEndpointSelection" }
+          description: >-
+            The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means
+            every kind, including kinds added later. The wildcard cannot be combined with named kinds.
+    GatewayEndpointSelection:
+      type: string
+      enum: [search, fetch, images, audio, "*"]
     GatewayEndpoint:
       type: string
       enum: [search, fetch, images, audio]
@@ -7656,7 +7661,8 @@ components:
         key: { $ref: "#/components/schemas/GatewayKey" }
         secret:
           type: string
-          description: The key's value, also kept encrypted in the vault.
+          description: >-
+            The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
     GatewayKeyValue:
       type: object
       required: [secret]
@@ -7665,7 +7671,8 @@ components:
     GatewayUsageCounts:
       type: object
       required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cost_micros,
-        unpriced, web_searches, audio_seconds, characters, images]
+        unpriced, web_searches, audio_seconds, characters, images, estimated_requests, estimated_prompt_tokens,
+        measured_prompt_tokens]
       properties:
         requests: { type: integer, format: int64 }
         web_searches:
@@ -7703,8 +7710,23 @@ components:
         prompt_tokens:
           type: integer
           format: int64
-          description: Tokens in, those read from the provider's cache included.
-        cached_tokens: { type: integer, format: int64 }
+          description: All input tokens, including cached and estimated tokens.
+        cached_tokens:
+          type: integer
+          format: int64
+          description: Input tokens read from the provider's cache on measured requests.
+        measured_prompt_tokens:
+          type: integer
+          format: int64
+          description: Input tokens on measured requests, the denominator for the cache share. Excludes ledger history whose request rows were already purged before the split was recorded.
+        estimated_requests:
+          type: integer
+          format: int64
+          description: Requests with estimated usage. Excludes ledger history whose request rows were already purged before the split was recorded.
+        estimated_prompt_tokens:
+          type: integer
+          format: int64
+          description: Input tokens on those estimated requests, already included in prompt_tokens.
         completion_tokens: { type: integer, format: int64 }
         reasoning_tokens: { type: integer, format: int64 }
     GatewayUsageBucket:
@@ -7832,7 +7854,7 @@ components:
           description: The provider's HTTP status; 0 when it gave none.
         error:
           type: string
-          description: The provider's message for a request that failed.
+          description: The provider's error or the reason the request ended early, when available.
         prompt_tokens: { type: integer, format: int64 }
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }

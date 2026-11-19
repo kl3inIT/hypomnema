@@ -3026,12 +3026,15 @@ capabilities do not exist yet.
   page lists the gateway's models with them, each with an edit form whose empty fields show models.dev's values.
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) authenticates by its SHA-256, with the public
   models (`*`: every model) and other endpoints it may use. It is not a client token: the client API refuses it,
-  and `tokens add` cannot make one. A new owner-made key also points to an encrypted vault version (issue #887);
-  creating the key and storing the version commit together and revoking it removes the secret without removing
-  usage. Only the owner may `GET /gateway/keys/{key_id}/value` (not cached) or `PATCH /gateway/keys/{key_id}` to
-  change its name, models or endpoints without changing its value, id or usage. The Gateway keys page masks all
-  but the first six and last four characters and offers show/hide and copy as 9router does. Older keys can be
-  edited but have only a prefix and no value to read. Dispatch, chat and Bot keys cannot be edited or read here.
+  and `tokens add` cannot make one. With the vault configured, a new owner-made key also points to an encrypted
+  vault version (issue #887); creating the key and storing the version commit together, and revoking the key
+  removes the secret without removing usage. The Vault lists the key by name as a user of the secret and refuses
+  deletion while it is referenced (issue #893). Only the owner may `GET /gateway/keys/{key_id}/value` (not cached)
+  or `PATCH /gateway/keys/{key_id}` to change its name, models or endpoints without changing its value, id or usage.
+  Setting `endpoints` to `["*"]` restores every kind, including kinds added later. The Gateway keys page masks all
+  but the first six and last four characters and offers show/hide and copy as 9router does. Older keys and keys
+  made without a configured vault can be edited but have only a prefix and no value to read after creation.
+  Dispatch, chat and Bot keys cannot be edited or read here.
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
@@ -3194,8 +3197,10 @@ capabilities do not exist yet.
   [#626](https://github.com/kl3inIT/hypomnema/issues/626)) and
   `GET /gateway/usage/requests?period=&failed=&offset=&limit=` (the requests, newest first, 50 a page, `has_more`). A
   request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
-  owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
+  owner's. The page shows the totals, the tokens as stacked bars (other input, input from cache, output), a table by
   model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
+  The cache share uses only measured requests in the totals and each group; estimated requests and their input
+  tokens are shown separately but stay in the request, token and cost totals (issue #885).
   Its Performance table (issue [#856](https://github.com/kl3inIT/hypomnema/issues/856), after new-api's
   `perf_metrics`, 9router-go's usage by provider and OmniRoute's speed ranking) compares the text models (not
   `web/`, `audio/`, `image/`) by provider and the model it served (`by_provider`) and by subscription account
@@ -3464,6 +3469,10 @@ capabilities do not exist yet.
   client_gone, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
   `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
   it; migration 00121 filled it from the rows then kept.
+  The ledger also keeps measured input/cache tokens and estimated request/input counts. The split starts from
+  requests still kept at migration 00132; older ledger totals remain but do not contribute to the cache share.
+  When a stream ends early, the request row records the provider's stream error code and message, an idle timeout,
+  or that the upstream closed before the protocol's end marker.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. A chat orchestration
   deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's
@@ -4299,8 +4308,8 @@ The owner's commands:
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
-    owner key (requires the vault). `gateway keys set <id>` takes `--name`, `--models` and `--endpoints`;
-    `gateway keys show-value <id>` reads its value again. `gateway keys list` never prints the value;
+    owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
+    `gateway keys show-value <id>` reads its value again if stored. `gateway keys list` never prints the value;
     `gateway keys revoke <id>` stops the key. `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
     `{find, with}`, applied in order, an empty `with` deleting the text), empty by default and applied to the
