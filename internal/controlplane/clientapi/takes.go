@@ -30,6 +30,8 @@ type Takes interface {
 	// File is the path of a file of an available take: a segment or its take.json.
 	File(id, name string) (string, error)
 	Delete(ctx context.Context, id string) error
+	// Thumbnail is the path of an available take's first frame (issue #818, row 12).
+	Thumbnail(ctx context.Context, id string) (string, error)
 }
 
 // WithTakes sets the takes the owner reads. Without them the routes answer

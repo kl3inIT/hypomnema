@@ -1,11 +1,12 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Clapperboard, Download, Pause, Play, Trash2 } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Clapperboard, Download, Film, Pause, Play, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
 
 import {
   deleteTakeMutation,
   getTakeQueryKey,
   listTakesQueryKey,
+  listVideosOptions,
 } from "@/api/generated/@tanstack/react-query.gen"
 import type { Take } from "@/api/generated/types.gen"
 import {
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { MakeVideo } from "@/features/studio/make-video"
 import { errorText } from "@/lib/server-error"
 import { cn } from "@/lib/utils"
 
@@ -40,10 +42,27 @@ import {
 // step and a hatched mark where the owner's takeover paused the take; a step, a chapter or a place of the timeline
 // pressed seeks there, as autodemo's share page seeks its video from its chapters and transcript
 // (src/share.js:68-78). The bar above has the take's download, a zip of its segments and take.json, and its
-// delete, which asks first. The bar is the phone view's (../device/phone-view.tsx), in the pane's shape.
-export function TakeView({ id, onClose }: { id: string; onClose: () => void }) {
+// delete, which asks first. The bar is the phone view's (../device/phone-view.tsx), in the pane's shape. Where the
+// place showing it opens videos (onOpenVideo), an available take has "Make video" (issue #818, row 12), and "Video"
+// once it has one.
+export function TakeView({
+  id,
+  onClose,
+  onOpenVideo,
+}: {
+  id: string
+  onClose: () => void
+  onOpenVideo?: (video: string) => void
+}) {
   const read = useTake(id)
   const take = read.data
+  const ready = take?.state === "available"
+  // A take has at most one video (issue #818, row 1).
+  const video = useQuery({
+    ...listVideosOptions(),
+    enabled: ready && onOpenVideo !== undefined,
+    select: (list) => list.data.find((v) => v.take === id),
+  }).data
   const [deleting, setDeleting] = useState(false)
   const queryClient = useQueryClient()
   const remove = useMutation({
@@ -67,6 +86,15 @@ export function TakeView({ id, onClose }: { id: string; onClose: () => void }) {
             </span>
           )}
         </p>
+        {ready && onOpenVideo && video && (
+          <Button variant="ghost" size="sm" onClick={() => onOpenVideo(video.id)}>
+            <Film />
+            Video
+          </Button>
+        )}
+        {ready && onOpenVideo && (
+          <MakeVideo take={id} again={video !== undefined} onMade={(v) => onOpenVideo(v.id)} />
+        )}
         {take?.state === "available" && (
           <Button
             variant="ghost"

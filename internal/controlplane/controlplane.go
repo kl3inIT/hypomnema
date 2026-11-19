@@ -892,6 +892,11 @@ func (o ownerTakes) Delete(ctx context.Context, id string) error {
 	return o.Store.Delete(id)
 }
 
+// Thumbnail is an available take's first frame, made with the videos' ffmpeg (issue #818, row 12).
+func (o ownerTakes) Thumbnail(ctx context.Context, id string) (string, error) {
+	return o.Store.Thumbnail(ctx, id, o.videos.FirstFrame)
+}
+
 // nodeTerminals lets the client API reach a node for a terminal through the
 // node API, which holds the nodes' connections.
 func nodeTerminals(nodes *nodeapi.Server) clientapi.Terminals {

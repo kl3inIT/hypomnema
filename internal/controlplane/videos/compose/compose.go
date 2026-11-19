@@ -96,6 +96,8 @@ type Input struct {
 	Work string
 	// Out is where the finished MP4 is renamed to; nothing is written there before it is whole.
 	Out string
+	// Progress, when set, is told how many scenes are cut and fitted to their voice, after each.
+	Progress func(done int)
 }
 
 // SceneResult is how a scene was made, in the take's time (Keeps) and in the video's (OutStartMs, OutLengthMs,
@@ -240,6 +242,10 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 		cursor += res.OutLengthMs
 		sceneFiles = append(sceneFiles, file)
 		c.result.Scenes = append(c.result.Scenes, res)
+
+		if c.in.Progress != nil {
+			c.in.Progress(i + 1)
+		}
 	}
 
 	video, err := c.concat(ctx, sceneFiles, "content.mp4", "scenes")
